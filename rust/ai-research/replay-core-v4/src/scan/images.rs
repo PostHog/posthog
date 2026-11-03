@@ -376,24 +376,43 @@ fn percent_decoded(raw: &[u8]) -> Option<Vec<u8>> {
     Some(percent_encoding::percent_decode(text.as_bytes()).collect())
 }
 
-/// Reads the header through CSS escapes and the JSON escapes of `/`, and skips the tabs and line breaks that a browser removes from a URL, however they are written. The end of the JSON string, or any other JSON escape, gives `None`.
-fn header_char(bytes: &[u8], at: usize) -> Option<(char, usize)> {
+/// Reads the header through CSS escapes and JSON escapes, and skips the tabs and line breaks that a browser removes from a URL, however they are written. A browser keeps every other character, so only the end of the JSON string gives `None`, and in CSS also an escaped quote, which ends the URL there.
+fn header_char(bytes: &[u8], at: usize, in_css: bool) -> Option<(char, usize)> {
     let mut removed = 0;
     loop {
         let (ch, len) = match bytes.get(at + removed..)? {
-            [b'\\', b't', ..] => Some(('\t', 2)),
-            [b'\\', b'n', ..] => Some(('\n', 2)),
-            [b'\\', b'r', ..] => Some(('\r', 2)),
-            [b'\\', b'/', ..] => Some(('/', 2)),
-            [b'\\', b'u', b'0', b'0', b'2', b'f' | b'F', ..] => Some(('/', 6)),
             [b'\\', b'\\', escaped @ ..] => css_escape(escaped).map(|(ch, len)| (ch, 2 + len)),
-            [b'"' | b'\\', ..] | [] => None,
+            [b'\\', b'"', ..] if in_css => None,
+            [b'\\', escaped @ ..] => json_escape(escaped).map(|(ch, len)| (ch, 1 + len)),
+            [b'"', ..] | [] => None,
             [byte, ..] => Some((char::from(*byte), 1)),
         }?;
         if !matches!(ch, '\t' | '\n' | '\r') {
             return Some((ch, removed + len));
         }
         removed += len;
+    }
+}
+
+/// The length counts from after the backslash.
+fn json_escape(escaped: &[u8]) -> Option<(char, usize)> {
+    match escaped {
+        [b'u', hex @ ..] => {
+            let code = std::str::from_utf8(hex.get(..4)?)
+                .ok()
+                .and_then(|hex| u32::from_str_radix(hex, 16).ok())?;
+            Some((
+                char::from_u32(code).unwrap_or(char::REPLACEMENT_CHARACTER),
+                5,
+            ))
+        }
+        [b'b', ..] => Some(('\u{8}', 1)),
+        [b'f', ..] => Some(('\u{c}', 1)),
+        [b'n', ..] => Some(('\n', 1)),
+        [b'r', ..] => Some(('\r', 1)),
+        [b't', ..] => Some(('\t', 1)),
+        [byte @ (b'"' | b'/' | b'\\'), ..] => Some((char::from(*byte), 1)),
+        _ => None,
     }
 }
 
@@ -406,8 +425,8 @@ fn css_escape(escaped: &[u8]) -> Option<(char, usize)> {
         .count();
     if digits == 0 {
         return match escaped {
-            [b'\\', b'\\', ..] => Some(('\\', 2)),
-            [b'"' | b'\\', ..] | [] => None,
+            [b'\\', rest @ ..] => json_escape(rest).map(|(ch, len)| (ch, 1 + len)),
+            [b'"', ..] | [] => None,
             [byte, ..] => Some((char::from(*byte), 1)),
         };
     }
@@ -427,7 +446,7 @@ fn css_escape(escaped: &[u8]) -> Option<(char, usize)> {
 fn after_data_scheme(bytes: &[u8], start: usize) -> Option<usize> {
     let mut at = start;
     for expected in "data:".chars() {
-        let (ch, len) = header_char(bytes, at)?;
+        let (ch, len) = header_char(bytes, at, true)?;
         if ch.to_ascii_lowercase() != expected {
             return None;
         }
@@ -442,11 +461,11 @@ enum Header {
 }
 
 /// A browser reads parameters of any length, so the header has no length limit.
-fn read_header(bytes: &[u8], meta_start: usize) -> Header {
+fn read_header(bytes: &[u8], meta_start: usize, in_css: bool) -> Header {
     const IMAGE: &[u8] = b"image/";
     let mut meta = String::new();
     let mut at = meta_start;
-    while let Some((ch, len)) = header_char(bytes, at) {
+    while let Some((ch, len)) = header_char(bytes, at, in_css) {
         let ch = ch.to_ascii_lowercase();
         if meta.len() < IMAGE.len() && Some(ch) != IMAGE.get(meta.len()).copied().map(char::from) {
             return Header::Other { read_to: at };
@@ -658,16 +677,17 @@ pub fn extract_images<'b>(bytes: &'b [u8], sink: &mut ImageSink<'_>) -> Cow<'b, 
         if start < copied_to.max(headers_read_to) {
             continue;
         }
-        let (meta, payload_start) = match read_header(bytes, meta_start) {
-            Header::Image {
-                meta,
-                payload_start,
-            } => (meta, payload_start),
-            Header::Other { read_to } => {
-                headers_read_to = read_to;
-                continue;
-            }
-        };
+        let (meta, payload_start) =
+            match read_header(bytes, meta_start, opens_css_url(bytes, start)) {
+                Header::Image {
+                    meta,
+                    payload_start,
+                } => (meta, payload_start),
+                Header::Other { read_to } => {
+                    headers_read_to = read_to;
+                    continue;
+                }
+            };
         headers_read_to = payload_start;
         match read_data_uri(bytes, start, &meta, payload_start, sink) {
             DataUri::NotImage => {}
@@ -841,6 +861,16 @@ mod tests {
             (
                 r#"{"src":""#,
                 format!(r"data:image/png;\tbase64,{base64}"),
+                r#""}"#,
+            ),
+            (
+                r#"{"src":""#,
+                format!(r"data:image/png;name=a\fb;base64,{base64}"),
+                r#""}"#,
+            ),
+            (
+                r#"{"src":""#,
+                format!(r#"data:image/png;name=a\"b;base64,{base64}"#),
                 r#""}"#,
             ),
             (
