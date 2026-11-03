@@ -85,7 +85,8 @@ class IssueEvidence:
 
     def _assigned_fingerprints(self) -> dict[str, tuple[str, AssigneeRef]]:
         # The fingerprint, its issue and the assignment must all predate this issue, so a backtest over past issues
-        # sees only what was known at the time.
+        # does not see them early. A reassignment keeps the row's original created_at, so a backtest still sees the
+        # latest assignee, not the one at the time.
         rows = (
             ErrorTrackingIssueFingerprintV2.objects.filter(
                 team_id=self.team.id,
