@@ -226,6 +226,8 @@ export function createParseMessageStep<T extends ParseMessageStepInput>(
             return dlq('received_non_snapshot_message')
         }
 
+        const sessionId = normalizeSessionId($session_id)
+
         const windowIdBytes = $window_id ? Buffer.byteLength($window_id) : 0
         const events = $snapshot_items.length
         SessionRecordingIngesterMetrics.observeMessageShape(windowIdBytes, events)
@@ -238,11 +240,9 @@ export function createParseMessageStep<T extends ParseMessageStepInput>(
         if (overLimit) {
             SessionRecordingIngesterMetrics.incrementMessagesOverLimit(overLimit)
             if (limits.enforce) {
-                return drop(overLimit, [], [{ type: overLimit, details: { windowIdBytes, events } }])
+                return drop(overLimit, [], [{ type: overLimit, details: { sessionId, windowIdBytes, events } }])
             }
         }
-
-        const sessionId = normalizeSessionId($session_id)
 
         const clockSkewMs = quantizedClockSkewMs(messageResult.data.sent_at, messageResult.data.now)
         if (clockSkewMs !== 0) {
