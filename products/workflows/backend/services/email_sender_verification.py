@@ -43,8 +43,8 @@ NEW_SENDERS = SenderAgeTier(
     name="new",
     min_age=timedelta(),
     max_age=timedelta(hours=1),
-    work_budget_seconds=90,
-    lock_timeout_seconds=120,
+    work_budget_seconds=100,
+    lock_timeout_seconds=130,
 )
 SETTLED_SENDERS = SenderAgeTier(
     name="settled",
@@ -53,10 +53,14 @@ SETTLED_SENDERS = SenderAgeTier(
     work_budget_seconds=240,
     lock_timeout_seconds=300,
 )
+SENDER_AGE_TIERS = (NEW_SENDERS, SETTLED_SENDERS)
 
 
 class EmailSenderVerification:
-    PACED_CALL_WORST_CASE_SECONDS = BACKGROUND_CALL_WORST_CASE_SECONDS + READ_MIN_INTERVAL_SECONDS
+    # Each tier holds its own lock, so both sweeps can read SES at the same time from different workers.
+    # Each sweep paces its reads at its share of the rate, so together they stay under the account read limit.
+    TIER_READ_INTERVAL_SECONDS = READ_MIN_INTERVAL_SECONDS * len(SENDER_AGE_TIERS)
+    PACED_CALL_WORST_CASE_SECONDS = BACKGROUND_CALL_WORST_CASE_SECONDS + TIER_READ_INTERVAL_SECONDS
     STATUS_READ_WORST_CASE_SECONDS = IDENTITY_STATUS_READS_PER_BATCH * PACED_CALL_WORST_CASE_SECONDS
     SENDER_CHECK_WORST_CASE_SECONDS = (
         PACED_CALL_WORST_CASE_SECONDS + BACKGROUND_CALL_WORST_CASE_SECONDS + DNS_LOOKUP_LIFETIME_SECONDS
@@ -67,7 +71,7 @@ class EmailSenderVerification:
 
     @cached_property
     def provider(self) -> SESProvider:
-        return SESProvider.for_background()
+        return SESProvider.for_background(read_interval_seconds=self.TIER_READ_INTERVAL_SECONDS)
 
     @staticmethod
     def refresh_pending(tier: SenderAgeTier) -> None:

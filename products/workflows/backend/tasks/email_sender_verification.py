@@ -10,7 +10,7 @@ from products.workflows.backend.services.email_sender_verification import (
 )
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value, time_limit=110)
+@shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value, time_limit=120)
 @skip_team_scope_audit
 def refresh_new_email_senders() -> None:
     EmailSenderVerification.refresh_pending(NEW_SENDERS)

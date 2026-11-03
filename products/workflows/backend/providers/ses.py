@@ -491,8 +491,8 @@ class SESProvider:
         )
 
     @classmethod
-    def for_background(cls) -> "SESProvider":
-        return cls(client_config=BACKGROUND_CLIENT_CONFIG, read_interval_seconds=READ_MIN_INTERVAL_SECONDS)
+    def for_background(cls, read_interval_seconds: int) -> "SESProvider":
+        return cls(client_config=BACKGROUND_CLIENT_CONFIG, read_interval_seconds=read_interval_seconds)
 
     def _tenant_name_for_team(self, team_id: int) -> str:
         return f"team-{team_id}"

@@ -245,8 +245,8 @@ class TestEmailSenderVerification(APIBaseTest):
 
     @parameterized.expand(
         [
-            param("warm_account_lookup", account_lookup_seconds=None, expected_read_times=[0.0, 2.0]),
-            param("slow_cold_account_lookup", account_lookup_seconds=3.0, expected_read_times=[3.0, 5.0]),
+            param("warm_account_lookup", account_lookup_seconds=None, expected_read_times=[0.0, 4.0]),
+            param("slow_cold_account_lookup", account_lookup_seconds=3.0, expected_read_times=[3.0, 7.0]),
         ]
     )
     @patch("products.workflows.backend.providers.ses.dns.resolver.Resolver")
@@ -313,7 +313,7 @@ class TestEmailSenderVerification(APIBaseTest):
 
         refresh_new_email_senders()
 
-        assert read_times == {"verification": [0.0, 3.0], "dkim": [3.0, 5.0], "mail_from": [3.0, 5.0]}
+        assert read_times == {"verification": [0.0, 4.0], "dkim": [3.0, 7.0], "mail_from": [3.0, 7.0]}
 
     @parameterized.expand(
         [
