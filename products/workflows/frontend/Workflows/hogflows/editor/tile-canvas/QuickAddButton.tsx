@@ -12,6 +12,16 @@ import { StepPalette } from './StepPalette'
 import { tileCanvasLogic } from './tileCanvasLogic'
 import { Point } from './tileCanvasModel'
 
+function buttonLook(isDropTarget: boolean, isActive: boolean, revealed: boolean): string {
+    if (isDropTarget) {
+        return 'scale-[1.6] border-[var(--color-accent)] bg-[var(--color-accent)] text-white shadow-md'
+    }
+    if (isActive) {
+        return 'scale-125 border-[var(--color-accent)] text-[var(--color-accent)] shadow'
+    }
+    return revealed ? 'opacity-100' : 'opacity-0 hover:opacity-100 focus-visible:opacity-100'
+}
+
 export function QuickAddButton({
     edge,
     at,
@@ -32,6 +42,7 @@ export function QuickAddButton({
         useActions(tileCanvasLogic)
     const key = getEdgeId(edge)
     const isOpen = quickAddEdgeKey === key
+    const label = isPlacing ? 'Place the step here' : 'Add a step here'
 
     if (placeableEdgeKeys && !placeableEdgeKeys.has(key)) {
         return null
@@ -64,19 +75,13 @@ export function QuickAddButton({
                 <button
                     type="button"
                     ref={buttonRef}
-                    aria-label={isPlacing ? 'Place the step here' : 'Add a step here'}
-                    title={isPlacing ? 'Place the step here' : 'Add a step here'}
+                    aria-label={label}
+                    title={label}
                     data-attr="workflow-tile-quick-add"
                     onClick={() => (isPlacing ? placeAt(edge) : isOpen ? closeQuickAdd() : openQuickAdd(key))}
                     className={cn(
                         'flex size-5 cursor-pointer items-center justify-center rounded-full border bg-surface-primary text-secondary transition-all duration-200 ease-out hover:scale-125 hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] motion-reduce:transition-none',
-                        isDropTarget
-                            ? 'scale-[1.6] border-[var(--color-accent)] bg-[var(--color-accent)] text-white shadow-md'
-                            : isPlacing || isOpen
-                              ? 'scale-125 border-[var(--color-accent)] text-[var(--color-accent)] shadow'
-                              : revealed
-                                ? 'opacity-100'
-                                : 'opacity-0 hover:opacity-100 focus-visible:opacity-100'
+                        buttonLook(isDropTarget, isPlacing || isOpen, revealed)
                     )}
                 >
                     <IconPlus className="text-xs" />
