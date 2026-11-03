@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import Any
 
 from posthog.test.base import APIBaseTest
@@ -7,6 +8,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.integration import SANDBOX_EMAIL_INTEGRATION_ID, SANDBOX_EMAIL_PROVIDER, Integration
 
 from products.workflows.backend.models import HogFlow
 
@@ -68,6 +70,11 @@ class TestBroadcastConversionAPI(APIBaseTest):
             ),
             ("extra step", {"actions": [TRIGGER, EMAIL, DELAY, EXIT]}, False),
             ("edge that skips the email", {"edges": [*EDGES, {"from": "trigger_node", "to": "exit_node"}]}, False),
+            (
+                "email step without a sender object",
+                {"actions": [TRIGGER, {**EMAIL, "config": {"inputs": {"email": {"value": "draft"}}}}, EXIT]},
+                True,
+            ),
         ]
     )
     def test_only_workflows_the_broadcast_editor_can_own_are_offered_and_converted(
@@ -90,6 +97,51 @@ class TestBroadcastConversionAPI(APIBaseTest):
         else:
             assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
             assert flow.origin_product == overrides.get("origin_product")
+
+    @parameterized.expand(
+        [
+            ("sandbox sender", {"integrationId": "sandbox"}, int, False),
+            ("sandbox sender stored as a whole-number float", {"integrationId": "sandbox"}, float, False),
+            ("sandbox sender stored as a string", {"integrationId": "sandbox"}, str, False),
+            ("sandbox sender in a rotation", {"integrationIds": ["own", "sandbox"]}, int, False),
+            ("own sender", {"integrationId": "own"}, int, True),
+            (
+                "own rotation with a stale sandbox fallback",
+                {"integrationId": "sandbox", "integrationIds": ["own"]},
+                int,
+                True,
+            ),
+        ]
+    )
+    def test_a_workflow_sending_through_the_sandbox_sender_does_not_become_a_broadcast(
+        self, _name: str, sender: dict[str, Any], stored_as: Callable[[int], Any], convertible: bool
+    ) -> None:
+        integration_ids = {
+            "sandbox": Integration.objects.create(
+                team=self.team,
+                kind="email",
+                integration_id=SANDBOX_EMAIL_INTEGRATION_ID,
+                config={"provider": SANDBOX_EMAIL_PROVIDER, "verified": True},
+            ).id,
+            "own": Integration.objects.create(
+                team=self.team,
+                kind="email",
+                integration_id="sender@example.com",
+                config={"provider": "ses", "domain": "example.com", "verified": True},
+            ).id,
+        }
+        sender_from = {
+            key: [stored_as(integration_ids[name]) for name in value]
+            if isinstance(value, list)
+            else stored_as(integration_ids[value])
+            for key, value in sender.items()
+        }
+        email = {**EMAIL, "config": {"inputs": {"email": {"value": {"from": sender_from}}}}}
+        flow = self._flow(actions=[TRIGGER, email, EXIT])
+
+        assert (str(flow.id) in self._candidate_ids()) is convertible
+        response = self._convert(flow)
+        assert (response.status_code == status.HTTP_200_OK) is convertible, response.json()
 
     def test_candidates_stop_at_the_cap_and_say_more_exist(self) -> None:
         newest = self._flow(name="Newest")

@@ -8,4 +8,5 @@ from products.cdp.backend.validation import (
     InputsSchemaSerializer as InputsSchemaSerializer,
     InputsSerializer as InputsSerializer,
     require_viewer_access_to_added_actions as require_viewer_access_to_added_actions,
+    validate_sandbox_email_sender as validate_sandbox_email_sender,
 )
