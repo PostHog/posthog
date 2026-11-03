@@ -185,35 +185,6 @@ export function rankLocalItem(query: string, name: string, aliases: string[] = [
     return best
 }
 
-interface KeywordNoteTarget {
-    name: unknown
-    displayName?: unknown
-    parentName?: string | null
-}
-
-const MIN_INSIDE_WORD_LENGTH = 3
-
-const shownIn = (token: string, words: string[]): boolean =>
-    words.some(
-        (word) => tokenTypos(token, word) === 0 || (token.length >= MIN_INSIDE_WORD_LENGTH && word.includes(token))
-    )
-
-export function searchKeywordNote(
-    query: string,
-    keyword: string | null | undefined,
-    item: KeywordNoteTarget
-): string | null {
-    if (!keyword) {
-        return null
-    }
-    const tokens = freeWords(query)
-    const keywordWords = searchWords(keyword)
-    const visibleWords = searchWords(`${String(item.displayName || item.name)} ${item.parentName ?? ''}`)
-    const keywordExplains = tokens.some((token) => keywordWords.some((word) => tokenTypos(token, word) === 0))
-    const nameExplains = tokens.some((token) => shownIn(token, visibleWords))
-    return keywordExplains && !nameExplains ? keyword : null
-}
-
 interface HighlightSegment {
     text: string
     match: boolean

@@ -8,8 +8,6 @@ interface TestItem {
     category: string
     searchKeywords?: string[]
     matchedSearchKeyword?: string | null
-    searchKeywordNote?: string | null
-    parentName?: string
 }
 
 const makeItem = (name: string, category = 'tools', extra: Partial<TestItem> = {}): TestItem => ({
@@ -31,8 +29,6 @@ const items: TestItem[] = [
     makeItem('Product analytics', 'tools'),
     makeItem('Error tracking', 'tools'),
     makeItem('Data warehouse', 'tools', { searchKeywords: ['sql', 'query', 'database'] }),
-    makeItem('Views', 'tools', { parentName: 'Data warehouse', searchKeywords: ['warehouse views', 'saved queries'] }),
-    makeItem('Moderation', 'tools', { searchKeywords: ['abuse'] }),
 ]
 
 const names = (results: TestItem[]): string[] => results.map((r) => r.name)
@@ -96,15 +92,12 @@ describe('filterSearchItems', () => {
         })
 
         it.each([
-            ['sql', 'Data warehouse', 'sql', 'sql'],
-            ['DATABASE', 'Data warehouse', 'database', 'database'],
-            ['data warehouse', 'Data warehouse', null, null],
-            ['queries', 'Views', 'saved queries', 'saved queries'],
-            ['warehouse', 'Views', 'warehouse views', null],
-            ['user', 'Moderation', 'abuse', null],
-        ])('for %s, %s reports keyword %s and note %s', (query, name, expectedKeyword, expectedNote) => {
-            const match = filterSearchItems(items, query).find((item) => item.name === name)
-            expect(match).toMatchObject({ matchedSearchKeyword: expectedKeyword, searchKeywordNote: expectedNote })
+            ['sql', 'sql'],
+            ['DATABASE', 'database'],
+            ['data warehouse', null],
+        ])('reports the keyword that matched %s', (query, expectedKeyword) => {
+            const match = filterSearchItems(items, query).find((item) => item.name === 'Data warehouse')
+            expect(match?.matchedSearchKeyword).toBe(expectedKeyword)
         })
     })
 
