@@ -1659,14 +1659,14 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
             masked_columns: list[str] | None = payload_masked_columns or None
 
             if should_sync and requires_incremental_fields and incremental_field is None:
-                SourceInputsStore.discard_created(new_source_model)
+                self._delete_new_source(new_source_model, cdc_adapter if cdc_enabled else None)
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": "Incremental schemas given do not have an incremental field set"},
                 )
 
             if should_sync and requires_incremental_fields and incremental_field_type is None:
-                SourceInputsStore.discard_created(new_source_model)
+                self._delete_new_source(new_source_model, cdc_adapter if cdc_enabled else None)
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
                     data={"message": "Incremental schemas given do not have an incremental field type set"},
@@ -1692,7 +1692,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 and not source_schema.detected_primary_keys  # type: ignore[union-attr]
                 and not has_id_column
             ):
-                SourceInputsStore.discard_created(new_source_model)
+                self._delete_new_source(new_source_model, cdc_adapter if cdc_enabled else None)
                 return Response(
                     data={
                         "message": f"Table '{schema_name}' has no primary key to sync incrementally on. "
@@ -1744,7 +1744,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 # Only sources that push filters into their query (SQL WHERE) can honor them — a
                 # saved-but-ignored filter would silently sync unfiltered rows.
                 if not source.supports_row_filters:
-                    SourceInputsStore.discard_created(new_source_model)
+                    self._delete_new_source(new_source_model, cdc_adapter if cdc_enabled else None)
                     return Response(
                         status=status.HTTP_400_BAD_REQUEST,
                         data={
@@ -1755,7 +1755,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                 if reason := unsupported_row_filter_reason(
                     is_direct_query=new_source_model.is_direct_query, is_cdc=sync_type == "cdc"
                 ):
-                    SourceInputsStore.discard_created(new_source_model)
+                    self._delete_new_source(new_source_model, cdc_adapter if cdc_enabled else None)
                     return Response(
                         status=status.HTTP_400_BAD_REQUEST,
                         data={"message": f"Row filter not allowed for schema '{schema_name}': {reason}"},
@@ -1765,7 +1765,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                         row_filters, schema_metadata, source.row_filter_columns_for_schema(schema_name)
                     )
                 except RowFilterValidationError as e:
-                    SourceInputsStore.discard_created(new_source_model)
+                    self._delete_new_source(new_source_model, cdc_adapter if cdc_enabled else None)
                     return Response(
                         status=status.HTTP_400_BAD_REQUEST,
                         data={"message": f"Invalid row filter for schema '{schema_name}': {e}"},
@@ -1802,7 +1802,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                     # bool is an int subclass — exclude it so true/false aren't treated as 1/0.
                     is_valid_int = isinstance(lookback_seconds, int) and not isinstance(lookback_seconds, bool)
                     if not is_valid_int or not (0 <= lookback_seconds <= 5_184_000):
-                        SourceInputsStore.discard_created(new_source_model)
+                        self._delete_new_source(new_source_model, cdc_adapter if cdc_enabled else None)
                         return Response(
                             status=status.HTTP_400_BAD_REQUEST,
                             data={
