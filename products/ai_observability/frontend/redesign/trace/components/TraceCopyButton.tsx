@@ -16,8 +16,6 @@ export function TraceCopyButton({ loading, onCopy }: TraceCopyButtonProps): JSX.
             onClick={onCopy}
             tooltip="Copy this trace as JSON"
             data-attr="trace-view-copy"
-        >
-            Copy
-        </LemonButton>
+        />
     )
 }

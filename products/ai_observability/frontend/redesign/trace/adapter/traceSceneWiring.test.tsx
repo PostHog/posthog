@@ -12,6 +12,7 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { performQuery } from '~/queries/query'
 import { initKeaTests } from '~/test/init'
+import { AccessControlLevel } from '~/types'
 
 import { aiObservabilityTraceLogic } from '../../../aiObservabilityTraceLogic'
 import type { TraceClusterApi } from '../../../generated/api.schemas'
@@ -52,6 +53,9 @@ const EXPORT_URL = '/api/projects/:team_id/ai_observability/traces/:id/exports/'
 const PULL_REQUEST_URL = '/api/projects/:team_id/ai_observability/traces/:id/pull_request/'
 const SEARCH_URL = '/api/projects/:team_id/ai_observability/traces/:id/search/'
 const SUMMARY_URL = '/api/projects/:team_id/ai_observability/traces/:id/summary/'
+const REVIEW_URL = '/api/projects/:team_id/ai_observability/traces/:id/review/'
+const REVIEW_QUEUES_URL = '/api/projects/:team_id/llm_analytics/review_queues/'
+const QUEUE_ITEM_URL = '/api/projects/:team_id/llm_analytics/review_queue_items/:id/'
 const answeredGeneration = makeNodeDetail({
     id: 'gen-2',
     properties: {
@@ -78,6 +82,10 @@ const evaluationsMock = { [EVALUATIONS_URL]: () => [200, makeEvaluationResults()
 let clusters: TraceClusterApi[] = []
 const clustersMock = { [CLUSTERS_URL]: () => [200, { clusters }] }
 const feedbackMock = { [FEEDBACK_URL]: () => [200, makeFeedback({ scores: [], responses: [] })] }
+const reviewMock = {
+    [REVIEW_URL]: () => [200, { review: null, queue: null }],
+    [REVIEW_QUEUES_URL]: () => [200, { count: 0, next: null, previous: null, results: [] }],
+}
 
 const generation = makeEvent({
     id: 'gen-1',
@@ -130,6 +138,7 @@ describe('TraceScene', () => {
                     ...evaluationsMock,
                     ...clustersMock,
                     ...feedbackMock,
+                    ...reviewMock,
                 },
             })
         })
@@ -446,8 +455,8 @@ describe('TraceScene', () => {
                     },
                 },
             })
-            const { findByText } = renderNewView()
-            const button = (await findByText('Export')).closest('button')
+            const { findByLabelText } = renderNewView()
+            const button = (await findByLabelText('Export this trace as a JSON file')).closest('button')
             if (!button) {
                 throw new Error('expected the export action to render as a button')
             }
@@ -465,6 +474,77 @@ describe('TraceScene', () => {
 
             expect(await findByText('Two seats were added.')).toBeTruthy()
             expect(queryByText('Add to dataset') !== null).toBe(enabled)
+        })
+
+        it.each([
+            {
+                name: 'reviewed',
+                status: {
+                    review: {
+                        reviewedBy: 'Ada',
+                        reviewedAt: '2026-09-01T10:20:00Z',
+                        comment: null,
+                        scores: [{ name: 'Tone', value: '4.5', label: 'Tone: 4.5' }],
+                    },
+                    queue: null,
+                },
+                shown: ['Reviewed · 1 score', 'Edit review'],
+                hidden: ['Add to queue', 'Change queue'],
+            },
+            {
+                name: 'queued',
+                status: { review: null, queue: { id: 'q1', name: 'Support QA', itemId: 'i1' } },
+                shown: ['Support QA', 'Review', 'Change queue'],
+                hidden: ['Edit review', 'Add to queue'],
+            },
+            {
+                name: 'neither',
+                status: { review: null, queue: null },
+                shown: ['Review', 'Add to queue'],
+                hidden: ['Edit review', 'Change queue'],
+            },
+        ])('shows the review state and its actions in the header when $name', async ({ status, shown, hidden }) => {
+            useMocks({ get: { [REVIEW_URL]: () => [200, status] } })
+            const { findByText, queryByText } = renderNewView()
+
+            for (const text of shown) {
+                expect(await findByText(text)).toBeTruthy()
+            }
+            for (const text of hidden) {
+                expect(queryByText(text)).toBeNull()
+            }
+        })
+
+        it('removes a queued trace from its queue from the queue chip, after confirming', async () => {
+            const deleted: string[] = []
+            useMocks({
+                get: {
+                    [REVIEW_URL]: () => [200, { review: null, queue: { id: 'q1', name: 'Support QA', itemId: 'i1' } }],
+                },
+                delete: {
+                    [QUEUE_ITEM_URL]: ({ params }) => {
+                        deleted.push(String(params.id))
+                        return [204]
+                    },
+                },
+            })
+            const accessBefore = window.POSTHOG_APP_CONTEXT!.resource_access_control
+            window.POSTHOG_APP_CONTEXT!.resource_access_control = {
+                ...accessBefore,
+                llm_analytics: AccessControlLevel.Editor,
+            }
+            const { container, findByText } = renderNewView()
+            window.POSTHOG_APP_CONTEXT!.resource_access_control = accessBefore
+            await findByText('Support QA')
+            const remove = container.querySelector('[data-attr="trace-view-remove-from-queue"]')
+            if (!remove) {
+                throw new Error('expected a remove control on the queue chip')
+            }
+
+            fireEvent.click(remove)
+            fireEvent.click(await findByText('Remove from queue'))
+
+            await waitFor(() => expect(deleted).toEqual(['i1']))
         })
 
         it('opens the feedback from the header chip and the step chips, and links each entry to its step', async () => {
@@ -526,6 +606,7 @@ describe('TraceScene', () => {
                     ...evaluationsMock,
                     ...clustersMock,
                     ...feedbackMock,
+                    ...reviewMock,
                 },
             })
         })
