@@ -1,6 +1,11 @@
 import { Counter, Histogram } from 'prom-client'
 import { z } from 'zod'
 
+// The contract caps each copy list at 10 addresses. Every address also uses one unit of the sending cap.
+export const MAX_COPY_RECIPIENTS = 10
+
+const CopyRecipientsSchema = z.array(z.string().email()).max(MAX_COPY_RECIPIENTS).readonly().optional()
+
 export const AcceptedSendSchema = z
     .object({
         content: z
@@ -21,8 +26,12 @@ export const AcceptedSendSchema = z
             .readonly()
             .optional(),
         replyTo: z.array(z.string()).readonly().optional(),
+        cc: CopyRecipientsSchema,
+        bcc: CopyRecipientsSchema,
         tracking: z.object({ captureEngagement: z.boolean() }).readonly(),
     })
+    // A field this version does not know is refused, so a newer caller never loses one without notice.
+    .strict()
     .readonly()
 
 export type AcceptedSend = z.infer<typeof AcceptedSendSchema>
@@ -41,6 +50,18 @@ export const TransactionalEmailRequestSchema = z.object({
 export const AcceptedSendRequestSchema = TransactionalEmailRequestSchema.extend({ send: AcceptedSendSchema })
 
 export type TransactionalEmailRequest = z.infer<typeof TransactionalEmailRequestSchema> & { send?: AcceptedSend }
+
+// Every address the send delivers to. The checks before the 202 refuse the whole send when one of them fails.
+export const transactionalEmailRecipients = ({ to, send }: TransactionalEmailRequest): string[] => [
+    to,
+    ...(send?.cc ?? []),
+    ...(send?.bcc ?? []),
+]
+
+// A malformed address in any recipient field gets the same answer as a malformed `to`.
+export const isRecipientFormatIssue = (issue: z.core.$ZodIssue): boolean =>
+    issue.code === 'invalid_format' &&
+    (issue.path[0] === 'to' || (issue.path[0] === 'send' && (issue.path[1] === 'cc' || issue.path[1] === 'bcc')))
 
 export type TransactionalEmailOutcome =
     | 'queued'

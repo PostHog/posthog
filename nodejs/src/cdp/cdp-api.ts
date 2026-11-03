@@ -59,6 +59,8 @@ import {
     TransactionalEmailRequest,
     TransactionalEmailRequestSchema,
     TransactionalEmailStageTimer,
+    isRecipientFormatIssue,
+    transactionalEmailRecipients,
     transactionalEmailRequestsTotal,
 } from './services/hogflows/transactional-email'
 import { InvocationResultsService } from './services/invocation-results.service'
@@ -1200,7 +1202,7 @@ export class CdpApi {
                 if (!parsed.success) {
                     const issues = parsed.error.issues
                     // Signup accepts some addresses this check refuses, and no retry can fix an address.
-                    if (issues.every((issue) => issue.path[0] === 'to' && issue.code === 'invalid_format')) {
+                    if (issues.every(isRecipientFormatIssue)) {
                         return reply('recipient_unreachable', 422, { error: 'recipient_unreachable' })
                     }
                     // Paths and codes only: the values include the recipient's address.
@@ -1295,7 +1297,11 @@ export class CdpApi {
                 }
                 try {
                     stages.start('checks')
-                    const refusal = await this.refuseTransactionalEmail(team.id, hogFlow, to)
+                    const refusal = await this.refuseTransactionalEmail(
+                        team.id,
+                        hogFlow,
+                        transactionalEmailRecipients(parsed.data)
+                    )
                     if (refusal) {
                         if (idempotencyKey) {
                             stages.start('idempotency')
@@ -1354,7 +1360,7 @@ export class CdpApi {
     private async refuseTransactionalEmail(
         teamId: number,
         hogFlow: HogFlow,
-        to: string
+        recipients: string[]
     ): Promise<{ outcome: TransactionalEmailOutcome; status: number } | null> {
         if (hogFlow.status !== 'active') {
             return { outcome: 'not_sendable', status: 400 }
@@ -1365,7 +1371,10 @@ export class CdpApi {
         if (hogFlow.email_sending_paused_at) {
             return { outcome: 'sending_paused', status: 422 }
         }
-        if (await this.emailSuppressionService.isSuppressed(teamId, to, { transactional: true })) {
+        const suppressed = await Promise.all(
+            recipients.map((email) => this.emailSuppressionService.isSuppressed(teamId, email, { transactional: true }))
+        )
+        if (suppressed.some(Boolean)) {
             return { outcome: 'recipient_suppressed', status: 422 }
         }
         const { isLimited } = await checkHogFlowQuotaLimits(hogFlow, teamId, this.deps.quotaLimiting)
@@ -1373,7 +1382,10 @@ export class CdpApi {
             return { outcome: 'quota_limited', status: 429 }
         }
         // Last, because a cache miss costs a DNS lookup. A DNS failure lets the send through.
-        if (await this.emailValidationService.getRecipientSkipReason(teamId, to)) {
+        const skipReasons = await Promise.all(
+            recipients.map((email) => this.emailValidationService.getRecipientSkipReason(teamId, email))
+        )
+        if (skipReasons.some(Boolean)) {
             return { outcome: 'recipient_unreachable', status: 422 }
         }
         return null

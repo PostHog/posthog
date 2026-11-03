@@ -2355,6 +2355,11 @@ describe('CDP API', () => {
                     ['transactional_email', body],
                     ['transactional_email/send', { ...body, send: codeSend }],
                 ],
+                [
+                    'a changed cc',
+                    ['transactional_email/send', { ...body, send: { ...codeSend, cc: ['manager@example.com'] } }],
+                    ['transactional_email/send', { ...body, send: { ...codeSend, cc: ['someone-else@example.com'] } }],
+                ],
             ] as const)(
                 'rejects the key for a request with %s',
                 async (_desc, [firstRoute, first], [route, payload]) => {
@@ -2453,6 +2458,11 @@ describe('CDP API', () => {
             ['content with an empty subject', { ...codeSend, content: { subject: '', text: 'Hi' } }],
             ['a sender without an integration', { ...codeSend, from: { email: 'security@example.com' } }],
             ['no tracking choice', { content: codeSend.content }],
+            [
+                'more than 10 cc addresses',
+                { ...codeSend, cc: Array.from({ length: 11 }, (_, i) => `copy-${i}@example.com`) },
+            ],
+            ['a field this version does not know', { ...codeSend, priority: 'high' }],
         ])('refuses a code send with %s', async (_desc, acceptedSend) => {
             const invalidBefore = await outcomeCount('invalid_request')
 
@@ -2460,6 +2470,38 @@ describe('CDP API', () => {
 
             expect(res.status).toEqual(400)
             expect(await outcomeCount('invalid_request')).toEqual(invalidBefore + 1)
+            expect(mockQueueInvocations).not.toHaveBeenCalled()
+        })
+
+        it.each([
+            [
+                'a bcc address is suppressed',
+                'recipient_suppressed',
+                { bcc: ['hidden@example.com'] },
+                () =>
+                    jest
+                        .spyOn(api['emailSuppressionService'], 'isSuppressed')
+                        .mockImplementation((_teamId, email) => Promise.resolve(email === 'hidden@example.com')),
+            ],
+            [
+                "a cc address's domain has no mail servers",
+                'recipient_unreachable',
+                { cc: ['copy@example.com'] },
+                () =>
+                    jest
+                        .spyOn(api['emailValidationService'], 'getRecipientSkipReason')
+                        .mockImplementation((_teamId, email) =>
+                            Promise.resolve(email === 'copy@example.com' ? 'Skipping send: no mail servers.' : null)
+                        ),
+            ],
+            ['a cc address is malformed', 'recipient_unreachable', { cc: ['copy@ph\u3002example.com'] }, () => {}],
+        ] as const)('refuses the whole code send when %s', async (_desc, code, copies, refuse) => {
+            refuse()
+
+            const res = await sendAccepted(hogFlow.id, { ...body, send: { ...codeSend, ...copies } })
+
+            expect(res.status).toEqual(422)
+            expect(res.body).toEqual({ error: code })
             expect(mockQueueInvocations).not.toHaveBeenCalled()
         })
 
