@@ -85,6 +85,7 @@ export interface DotMatrixProps<D extends Record<string, unknown>>
     legend?: false | DotMatrixLegendLabels
     loading?: boolean
     emptyState?: ReactNode
+    pageSize?: number
 }
 
 export interface DotMatrixLegendLabels {

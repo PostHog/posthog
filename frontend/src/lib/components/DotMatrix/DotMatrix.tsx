@@ -34,6 +34,7 @@ export function DotMatrix<D extends Record<string, unknown>>({
     legend,
     loading = false,
     emptyState = 'No data to display. Add data to see the matrix.',
+    pageSize,
 }: DotMatrixProps<D>): JSX.Element {
     const matrix = useMemo(
         () => normalizeDotMatrixData({ data, fields, rows, columns, series }),
@@ -79,6 +80,7 @@ export function DotMatrix<D extends Record<string, unknown>>({
                 rowClassName={rowClassName}
                 loading={loading}
                 emptyState={emptyState}
+                pageSize={pageSize}
             />
         </div>
     )

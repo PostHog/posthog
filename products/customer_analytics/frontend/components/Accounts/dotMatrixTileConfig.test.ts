@@ -9,12 +9,12 @@ import { getDotMatrixTileConfig } from './dotMatrixTileConfig'
 
 describe('dot matrix tile config', () => {
     it('keeps independently configured tiles through the saved document round-trip', () => {
-        const first = { dataset: 'people', mode: 'dots', selectedSeries: ['replay'] }
-        const second = { dataset: 'ci', mode: 'count', selectedSeries: ['job-0', 'job-1'] }
+        const first = { mode: 'dots', weeks: 8, selectedSeries: ['replay'] }
+        const second = { mode: 'count', weeks: 26, selectedSeries: ['metric-one', 'metric-two'] }
         const tiles = parseAccountViewContent(
             createAccountViewContent([
-                { nodeId: 'people-matrix', kind: 'dot_matrix', span: 12, config: first },
-                { nodeId: 'ci-matrix', kind: 'dot_matrix', span: 6, config: second },
+                { nodeId: 'first-matrix', kind: 'dot_matrix', span: 12, config: first },
+                { nodeId: 'second-matrix', kind: 'dot_matrix', span: 6, config: second },
             ])
         )
         expect(tiles.map(({ config }) => getDotMatrixTileConfig(config))).toEqual([first, second])
@@ -22,13 +22,13 @@ describe('dot matrix tile config', () => {
 
     it.each([
         undefined,
-        { dataset: 'production', mode: 'users', selectedSeries: null },
+        { dataset: 'production', mode: 'users', weeks: 5, selectedSeries: null },
         { selectedSeries: ['valid', 1] },
         { selectedSeries: [''] },
         { selectedSeries: ['x'.repeat(129)] },
         { selectedSeries: Array.from({ length: 65 }, (_, index) => String(index)) },
     ])('uses safe defaults for malformed saved config (%s)', (config) => {
-        expect(getDotMatrixTileConfig(config)).toEqual({ dataset: 'people', mode: 'dots', selectedSeries: [] })
+        expect(getDotMatrixTileConfig(config)).toEqual({ mode: 'dots', weeks: 8, selectedSeries: [] })
     })
 
     it('keeps valid selections in order and removes duplicates from older configs', () => {
@@ -39,8 +39,8 @@ describe('dot matrix tile config', () => {
                 selectedSeries: ['logs', 'tracing', 'logs'],
             })
         ).toEqual({
-            dataset: 'product_activity',
             mode: 'count',
+            weeks: 8,
             selectedSeries: ['logs', 'tracing'],
         })
     })

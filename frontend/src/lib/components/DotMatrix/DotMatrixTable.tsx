@@ -5,7 +5,7 @@ import type { DotMatrixAxisItem, DotMatrixData, DotMatrixProps } from './types'
 
 interface DotMatrixTableProps<D extends Record<string, unknown>> extends Pick<
     DotMatrixProps<D>,
-    'rowHeader' | 'trailingColumns' | 'rowClassName' | 'loading' | 'emptyState'
+    'rowHeader' | 'trailingColumns' | 'rowClassName' | 'loading' | 'emptyState' | 'pageSize'
 > {
     matrix: DotMatrixData<D>
     cellWidth: number
@@ -21,6 +21,7 @@ export function DotMatrixTable<D extends Record<string, unknown>>({
     rowClassName,
     loading,
     emptyState,
+    pageSize,
 }: DotMatrixTableProps<D>): JSX.Element {
     const rowHeaderWidth = rowHeader.width ?? 220
     const tableColumns: LemonTableColumns<DotMatrixAxisItem> = [
@@ -82,6 +83,7 @@ export function DotMatrixTable<D extends Record<string, unknown>>({
             tableStyle={{ width: '100%', minWidth: tableWidth }}
             loading={loading}
             emptyState={emptyState}
+            pagination={pageSize ? { pageSize } : undefined}
             useURLForSorting={false}
         />
     )

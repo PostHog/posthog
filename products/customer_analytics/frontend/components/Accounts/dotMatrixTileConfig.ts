@@ -1,19 +1,21 @@
-import { type DotMatrixMockDatasetName } from 'lib/components/DotMatrix/examples/dotMatrixMockTypes'
-
 import type { AccountViewTileConfig } from './accountViewTileConfig'
 
+export const DOT_MATRIX_WEEK_OPTIONS = [4, 8, 12, 26] as const
+export type DotMatrixWeeks = (typeof DOT_MATRIX_WEEK_OPTIONS)[number]
+const DEFAULT_WEEKS: DotMatrixWeeks = 8
+
 export interface DotMatrixTileConfig {
-    dataset: DotMatrixMockDatasetName
     mode: 'dots' | 'count'
+    weeks: DotMatrixWeeks
     selectedSeries: string[]
 }
 
 export function getDotMatrixTileConfig(config?: AccountViewTileConfig): DotMatrixTileConfig {
-    const dataset = config?.dataset
     const selectedSeries = config?.selectedSeries
+    const weeks = DOT_MATRIX_WEEK_OPTIONS.find((option) => option === config?.weeks) ?? DEFAULT_WEEKS
     return {
-        dataset: dataset === 'product_activity' || dataset === 'ci' ? dataset : 'people',
         mode: config?.mode === 'count' ? 'count' : 'dots',
+        weeks,
         selectedSeries:
             Array.isArray(selectedSeries) &&
             selectedSeries.length <= 64 &&
