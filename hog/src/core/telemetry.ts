@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 
+import type { Credential } from '@/posthog/credential'
 import { posthogFile, type ResolvedCredentials } from '@/posthog/credentials'
 import { VERSION } from '@/version'
 
@@ -139,8 +140,8 @@ export class Telemetry {
         if (!this.enabled || this.queue.length === 0) {
             return
         }
-        const credentials = await this.credentials?.().catch(() => undefined)
-        const identity = credentials ? await this.identity(credentials) : undefined
+        const credential = (await this.credentials?.().catch(() => undefined))?.credential
+        const identity = credential ? await this.identity(credential) : undefined
         const installId = await this.installId()
         const distinctId = identity?.distinctId ?? installId
         const groups = Object.fromEntries(
@@ -152,7 +153,7 @@ export class Telemetry {
             ...this.commonProperties(),
             install_id: installId,
             // A self-hosted project ID means nothing in PostHog Cloud and would tie the install to that instance.
-            env_id: credentials && isCloudHost(credentials.host) ? credentials.projectId : null,
+            env_id: credential && isCloudHost(credential.host) ? credential.projectId : null,
             ...(identity?.distinctId ? {} : { $process_person_profile: false }),
             ...(Object.keys(groups).length > 0 ? { $groups: groups } : {}),
         }
@@ -205,8 +206,8 @@ export class Telemetry {
 
     // Looks the user up once per key and keeps the answer for 30 days, or a day when PostHog had
     // none, so most runs send no extra request. A key without the scopes stays anonymous.
-    private async identity(credentials: ResolvedCredentials): Promise<Identity | undefined> {
-        if (!isCloudHost(credentials.host)) {
+    private async identity(credential: Credential): Promise<Identity | undefined> {
+        if (!isCloudHost(credential.host)) {
             return undefined
         }
         let path: string
@@ -216,7 +217,7 @@ export class Telemetry {
             return undefined
         }
         const key = createHash('sha256')
-            .update(`${credentials.host}\n${credentials.projectId}\n${credentials.credential.loginKey}`)
+            .update(`${credential.host}\n${credential.projectId}\n${credential.loginKey}`)
             .digest('hex')
         let cache: Record<string, CachedIdentity> = {}
         try {
@@ -233,7 +234,7 @@ export class Telemetry {
         if (cached && now - cached.checkedAt < (cached.distinctId ? 30 : 1) * DAY_MS) {
             return cached
         }
-        const identity = await this.lookup(credentials)
+        const identity = await this.lookup(credential)
         // Entries old enough to be looked up again anyway are dropped, so logins that ended don't pile up.
         cache = Object.fromEntries(
             Object.entries(cache).filter(([, entry]) => now - (entry.checkedAt ?? 0) < 30 * DAY_MS)
@@ -247,11 +248,11 @@ export class Telemetry {
         return identity
     }
 
-    private async lookup(credentials: ResolvedCredentials): Promise<Identity> {
+    private async lookup(credential: Credential): Promise<Identity> {
         const get = async (path: string): Promise<Record<string, any> | undefined> => {
             try {
-                const response = await this.runtime.fetch(new URL(path, credentials.host), {
-                    headers: { Authorization: `Bearer ${credentials.token}` },
+                const response = await this.runtime.fetch(new URL(path, credential.host), {
+                    headers: { Authorization: `Bearer ${credential.token}` },
                     signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS),
                 })
                 return response.ok ? ((await response.json()) as Record<string, any>) : undefined
@@ -261,7 +262,7 @@ export class Telemetry {
         }
         const [user, project] = await Promise.all([
             get('/api/users/@me/'),
-            get(`/api/projects/${credentials.projectId}/`),
+            get(`/api/projects/${credential.projectId}/`),
         ])
         return {
             distinctId: text(user?.distinct_id),

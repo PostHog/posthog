@@ -37,7 +37,8 @@ export async function checkAuthStatus(ctx: Context): Promise<AuthStatus> {
         }
         throw error
     }
-    const { host, projectId, source, store, path } = credentials
+    const { credential, source, store, path } = credentials
+    const { host, projectId } = credential
     const api = await ctx.posthog()
     const [user, project] = await Promise.allSettled([
         api.get<{ email: string; first_name?: string }>('/api/users/@me/'),

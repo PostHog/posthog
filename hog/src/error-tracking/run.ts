@@ -154,8 +154,8 @@ export class Session {
         this.client ??= this.ctx
             .credentials()
             .then(
-                (credentials) =>
-                    new SymbolSetClient(this.ctx.runtime, credentials, () =>
+                ({ credential }) =>
+                    new SymbolSetClient(this.ctx.runtime, credential, () =>
                         this.ctx.telemetry.capture('error_tracking_cli_sourcemaps_upload_endpoint_fallback')
                     )
             )

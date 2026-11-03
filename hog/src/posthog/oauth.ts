@@ -6,7 +6,7 @@ import type { Runtime } from '@/core/runtime'
 
 import { sendRequest, type HttpResponse } from './api'
 import type { Credential, CredentialStatus, CredentialStorage, LogoutOutcome } from './credential'
-import { hostKey, type OAuthSecret, type StoreChoice } from './credential-store'
+import { hostKey, hostUrl, type OAuthSecret, type StoreChoice } from './credential-store'
 import type { LoginRecord } from './settings'
 
 // hog's CIMD client ID: the URL of its client metadata document, which PostHog fetches.
@@ -33,7 +33,7 @@ export function oauthPost(
     form: Record<string, string>,
     timeoutMs = REQUEST_TIMEOUT_MS
 ): Promise<HttpResponse> {
-    return sendRequest(runtime.fetch, new URL(path, `${host.replace(/\/+$/, '')}/`), {
+    return sendRequest(runtime.fetch, hostUrl(host, path), {
         method: 'POST',
         form,
         timeoutMs,

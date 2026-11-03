@@ -1,6 +1,6 @@
 import type { Runtime } from '@/core/runtime'
 
-import type { StoreChoice, StoredSecret } from './credential-store'
+import { hostUrl, type StoreChoice, type StoredSecret } from './credential-store'
 import { OAuthLogin } from './oauth'
 import type { LoginRecord } from './settings'
 
@@ -50,15 +50,11 @@ export class PersonalApiKey implements Credential {
     constructor(
         readonly host: string,
         readonly projectId: string,
-        readonly apiKey: string
+        readonly token: string
     ) {}
 
-    get token(): string {
-        return this.apiKey
-    }
-
     get loginKey(): string {
-        return this.apiKey
+        return this.token
     }
 
     async fresh(): Promise<Credential> {
@@ -73,12 +69,12 @@ export class PersonalApiKey implements Credential {
     async logout(): Promise<LogoutOutcome> {
         return {
             revoked: null,
-            revokeUrl: new URL('settings/user-api-keys', `${this.host.replace(/\/+$/, '')}/`).toString(),
+            revokeUrl: hostUrl(this.host, 'settings/user-api-keys').toString(),
         }
     }
 
     secret(): StoredSecret {
-        return { apiKey: this.apiKey }
+        return { apiKey: this.token }
     }
 
     record(store: StoreChoice): LoginRecord {
