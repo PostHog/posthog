@@ -672,9 +672,10 @@ impl PropertyWriter {
             // A clash with a routine compaction fails and is retried.
             let destination = runs.iter().max().map_or(0, |id| id + 1);
             (Stage::L0, CompactionSpec::new(old_l0, destination))
-        } else if runs.len() >= 2 {
+        } else if !runs.is_empty() {
+            // A lone run is rewritten too, so SST settings such as filters reach existing data.
             let sources = runs.iter().map(|&id| SourceId::SortedRun(id)).collect();
-            let destination = *runs.iter().min().expect("at least two runs");
+            let destination = *runs.iter().min().expect("at least one run");
             (Stage::Runs, CompactionSpec::new(sources, destination))
         } else {
             self.full_cycles
@@ -889,6 +890,40 @@ mod tests {
             .map(|tracked| tracked.stage);
         assert_eq!(stage, Some(Stage::L0));
         unrecorded.close().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_full_compaction_rewrites_a_lone_sorted_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let store: Arc<dyn ObjectStore> =
+            Arc::new(LocalFileSystem::new_with_prefix(dir.path()).unwrap());
+        let writer = writer_with_two_l0_tables(&store, 1).await;
+        tokio::time::sleep(Duration::from_millis(1100)).await;
+
+        let mut stages = Vec::new();
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while writer.full_compacted_at.lock().unwrap().get(&0).is_none() {
+            assert!(
+                Instant::now() < deadline,
+                "the cycle never finished: {stages:?}"
+            );
+            writer.compact_due().await;
+            let stage = writer
+                .full_compactions
+                .lock()
+                .unwrap()
+                .get(&0)
+                .map(|tracked| tracked.stage);
+            if let Some(stage) = stage {
+                if stages.last() != Some(&stage) {
+                    stages.push(stage);
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+
+        assert_eq!(stages, vec![Stage::L0, Stage::Runs]);
+        writer.close().await;
     }
 
     #[tokio::test(flavor = "multi_thread")]
