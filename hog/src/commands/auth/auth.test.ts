@@ -132,7 +132,8 @@ describe('hog auth login', () => {
         })
         expect(result.files[LEGACY_CLI_FILE]).toBeUndefined()
         expect(result.files[PENDING_FILE]).toBeUndefined()
-        expect(result.requests.filter((request) => request.url.endsWith('/poll/'))).toHaveLength(3)
+        // Only polls: a key PostHog just issued skips the key check.
+        expect(result.requests.map((request) => request.url.endsWith('/poll/'))).toEqual([true, true, true])
     })
 
     const denied = Object.assign(new Error('User canceled'), { code: 'ERR_SECRETS_USER_CANCELED' })

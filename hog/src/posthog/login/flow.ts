@@ -62,7 +62,8 @@ export async function completeLogin(runtime: Runtime, pending: PendingLogin): Pr
         }
         throw error
     }
-    const key = new PersonalAPIKey({ host: pending.host, projectId: approval.projectId, apiKey: approval.apiKey })
+    const { projectId, apiKey, scopes } = approval
+    const key = new PersonalAPIKey({ host: pending.host, projectId, apiKey, scopes })
     const loggedIn = await saveLogin(runtime, key)
     return { ...loggedIn, scopes: approval.scopes }
 }
