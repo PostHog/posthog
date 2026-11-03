@@ -4,9 +4,13 @@ from typing import Any
 from posthog.test.base import BaseTest
 from unittest import mock
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
+
 from parameterized import parameterized
 
 from posthog.schema import (
+    ActionsNode,
     CachedLifecycleQueryResponse,
     CachedStickinessQueryResponse,
     CachedTrendsQueryResponse,
@@ -23,6 +27,7 @@ from posthog.schema import (
 
 from posthog.hogql_queries.query_runner import ExecutionMode, QueryRunner
 
+from products.actions.backend.models.action import Action
 from products.product_analytics.backend.hogql_queries.lifecycle.lifecycle_query_runner import LifecycleQueryRunner
 from products.product_analytics.backend.hogql_queries.stickiness.stickiness_query_runner import StickinessQueryRunner
 from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import TrendsQueryRunner
@@ -131,3 +136,27 @@ class TestSeriesCustomNameCache(BaseTest):
         assert (raw_results is not None) == served_raw
         results = json.loads(raw_results) if raw_results is not None else response.results
         assert [row["custom_name"] for row in results] == [expected_custom_name]
+
+    def test_cache_hit_resolves_action_series_names_in_one_query(self) -> None:
+        signed_up = Action.objects.create(team=self.team, name="Signed up", steps_json=[{"event": "signed up"}])
+        paid = Action.objects.create(team=self.team, name="Paid", steps_json=[{"event": "paid"}])
+        query = TrendsQuery(
+            series=[
+                ActionsNode(id=signed_up.pk, name="Signed up"),
+                ActionsNode(id=paid.pk, name="Converted"),
+                ActionsNode(id=paid.pk, name="Revenue"),
+            ]
+        )
+        cached_rows = [{"order": order, "custom_name": None, "data": [1]} for order in range(3)]
+        with mock.patch.object(TrendsQueryRunner, "_calculate", return_value=TrendsQueryResponse(results=cached_rows)):
+            TrendsQueryRunner(query=query, team=self.team).run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        runner = TrendsQueryRunner(query=query, team=self.team)
+        runner.serve_raw_cached_results = True
+        with CaptureQueriesContext(connection) as queries:
+            response = runner.run(execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE)
+
+        assert isinstance(response, CachedTrendsQueryResponse)
+        assert [row["custom_name"] for row in response.results] == [None, "Converted", "Revenue"]
+        action_queries = [query["sql"] for query in queries.captured_queries if 'FROM "posthog_action"' in query["sql"]]
+        assert len(action_queries) == 1, action_queries
