@@ -906,7 +906,7 @@ class TestUserAccessControlProperties(BaseAccessControlPropertyTest):
         # Scope: object-scope rows only (`project_rows()` draws `("object",)`, so every row carries
         # `resource_id = str(team.pk)`). Agreement is *not* asserted for resource-level project rows
         # (`resource="project", resource_id IS NULL`): those make `get_user_access_level` return
-        # `default_access_level("project")` == "admin" via `access_level_for_resource`, while
+        # `default_access_level("project")` == "member" via `access_level_for_resource`, while
         # `effective_membership_level` filters them out on `resource_id`. Only a project admin can
         # create such a row and the UI never sends `resource: "project"` to `resource_access_controls`,
         # so that path is left as-is rather than modelled here.

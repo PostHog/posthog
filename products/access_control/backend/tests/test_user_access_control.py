@@ -206,39 +206,50 @@ class TestUserAccessControl(BaseUserAccessControlTest):
         self._clear_uac_caches()
         assert self.user_access_control.get_user_access_level(self.team) == expected_level
 
-    def test_without_available_product_features(self):
-        self.organization.available_product_features = []
+    @parameterized.expand(
+        [
+            (most_specific, entitled, membership_level, expected_level)
+            for most_specific in (False, True)
+            for entitled in (False, True)
+            for membership_level, expected_level in (
+                (OrganizationMembership.Level.MEMBER, "member"),
+                (OrganizationMembership.Level.ADMIN, "admin"),
+                (OrganizationMembership.Level.OWNER, "admin"),
+            )
+        ]
+    )
+    def test_project_default_uses_organization_membership(
+        self, most_specific: bool, entitled: bool, membership_level: int, expected_level: str
+    ) -> None:
+        self.organization.uses_most_specific_access_resolution = most_specific
+        if not entitled:
+            self.organization.available_product_features = []
         self.organization.save()
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.level = membership_level
         self.organization_membership.save()
+        access = UserAccessControl(self.user, self.team)
 
-        assert self.user_access_control.access_level_for_object(self.team) == "admin"
-        assert self.user_access_control.check_access_level_for_object(self.team, "admin") is True
-        assert self.other_user_access_control.access_level_for_object(self.team) == "admin"
-        assert self.other_user_access_control.check_access_level_for_object(self.team, "admin") is True
-        resource_access = self.user_access_control.access_level_for_resource("project")
-        assert resource_access and resource_access.access_level == "admin"
-        resource_access = self.other_user_access_control.access_level_for_resource("project")
-        assert resource_access and resource_access.access_level == "admin"
-        assert self.user_access_control.check_can_modify_access_levels_for_object(self.team) is True
-        assert self.other_user_access_control.check_can_modify_access_levels_for_object(self.team) is False
+        assert access.access_level_for_object(self.team) == expected_level
+        assert access.get_user_access_level(self.team) == expected_level
+        assert access.check_access_level_for_object(self.team, "admin") is (expected_level == "admin")
+        assert access.check_can_modify_access_levels_for_object(self.team) is (expected_level == "admin")
+        resource_access = access.access_level_for_resource("project")
+        assert resource_access is not None
+        assert resource_access.access_level == expected_level
+        assert resource_access.source == ("org_admin" if expected_level == "admin" else "system_default")
+        assert (
+            access.bulk_object_access_levels("project", [(str(self.team.pk), None)])[str(self.team.pk)]
+            == expected_level
+        )
+        subject = SubjectAccessControl.for_member(access, self.team, self.organization_membership)
+        inherited = subject.inherited_access_for_object(self.team)
+        assert inherited is not None
+        assert inherited.access_level == expected_level
 
-    def test_ac_object_default_response(self):
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-
-        assert self.user_access_control.access_level_for_object(self.team) == "admin"
-        assert self.user_access_control.check_access_level_for_object(self.team, "admin") is True
-        assert self.other_user_access_control.access_level_for_object(self.team) == "admin"
-        assert self.other_user_access_control.check_access_level_for_object(self.team, "admin") is True
-        resource_access = self.user_access_control.access_level_for_resource("project")
-        assert resource_access and resource_access.access_level == "admin"
-        resource_access = self.other_user_access_control.access_level_for_resource("project")
-        assert resource_access and resource_access.access_level == "admin"
-        assert self.user_access_control.check_can_modify_access_levels_for_object(self.team) is True
-        assert self.other_user_access_control.check_can_modify_access_levels_for_object(self.team) is False
-
-    def test_ac_object_user_access_control(self):
+    @parameterized.expand([(False,), (True,)])
+    def test_ac_object_user_access_control(self, most_specific: bool) -> None:
+        self.organization.uses_most_specific_access_resolution = most_specific
+        self.organization.save()
         # Setup member access by default
         self._create_access_control(resource_id=self.team.id, access_level="member")
         ac = self._create_access_control(
@@ -265,14 +276,12 @@ class TestUserAccessControl(BaseUserAccessControlTest):
         )  # Fix this - need to load all access controls...
 
     def test_project_default_survives_a_resource_level_project_rule(self):
-        # A rule about "project" written without a resource_id is not a shape the product writes,
-        # and enforcement never reads it. It must not send the walk to the resource tier, which
-        # answers with the built-in project default and would promote everyone to admin
-        self._create_access_control(resource="project", resource_id=self.team.id, access_level="member")
-        self._create_access_control(resource="project", resource_id=None, access_level="none")
+        # Project rules require a resource_id; a resource-wide row must not override a private project.
+        self._create_access_control(resource="project", resource_id=self.team.id, access_level="none")
+        self._create_access_control(resource="project", resource_id=None, access_level="admin")
         self._clear_uac_caches()
 
-        assert self.user_access_control.get_user_access_level(self.team) == "member"
+        assert self.user_access_control.get_user_access_level(self.team) == "none"
 
     def test_ac_object_project_access_control(self):
         # Setup no access by default
@@ -1185,7 +1194,7 @@ class TestUserAccessControlGetUserAccessLevel(BaseUserAccessControlTest):
         # to the object-level lookup that would otherwise read the absent team. With no restricting
         # access control it resolves to the project default rather than raising.
         access_level = uac.get_user_access_level(self.team)
-        assert access_level == "admin"
+        assert access_level == "member"
 
     def test_unsupported_model_returns_none(self):
         """Test that unsupported models return None"""
@@ -1792,7 +1801,7 @@ class TestEffectiveAccessLevelForResource(BaseUserAccessControlTest):
         # Test project resource
         self._create_access_control(resource="project", access_level="admin")
         self._clear_uac_caches()
-        assert self.user_access_control.effective_access_level_for_resource("project") == "admin"
+        assert self.user_access_control.effective_access_level_for_resource("project") == "member"
 
         # Test notebook resource
         self._create_access_control(resource="notebook", access_level="editor")
@@ -1991,11 +2000,10 @@ class TestFieldLevelAccessControl(BaseUserAccessControlTest):
 
     def test_field_validation_allows_with_proper_access(self):
         """Test that field validation allows updates with proper access"""
-        # Give user editor access to session recordings
         self._create_access_control(
-            resource="session_recording",
-            resource_id=None,
-            access_level="editor",
+            resource="project",
+            resource_id=self.team.id,
+            access_level="admin",
             organization_member=self.organization_membership,
         )
         self._clear_uac_caches()

@@ -233,7 +233,7 @@ def default_access_level(resource: APIScopeObject) -> AccessControlLevel:
     if resource == "data_deletion":
         return "none"
     if resource in ["project"]:
-        return "admin"
+        return "member"
     if resource in ["organization"]:
         return "member"
     if resource in ["activity_log", "toolbar"]:
@@ -1151,8 +1151,10 @@ class UserAccessControl:
 
         if resource in RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS:
             return ResolvedAccess(
-                access_level=default_access_level(resource),
-                source="system_default",
+                access_level=highest_access_level(resource)
+                if resource == "project" and self.is_organization_admin
+                else default_access_level(resource),
+                source="org_admin" if resource == "project" and self.is_organization_admin else "system_default",
                 source_subject=None,
                 source_resource=resource,
             )
@@ -2054,8 +2056,10 @@ class UserAccessControl:
 
         if resource in RESOURCES_WITHOUT_RESOURCE_LEVEL_CONTROLS:
             return ResolvedAccess(
-                access_level=default_access_level(resource),
-                source="system_default",
+                access_level=highest_access_level(resource)
+                if resource == "project" and self.is_organization_admin
+                else default_access_level(resource),
+                source="org_admin" if resource == "project" and self.is_organization_admin else "system_default",
                 source_subject=None,
                 source_resource=resource,
             )

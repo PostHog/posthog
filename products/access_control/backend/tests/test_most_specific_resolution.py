@@ -218,7 +218,7 @@ class TestResolveResourceAccess(BaseMostSpecificResolutionTest):
 
         assert resolved is not None
         assert resolved.source == "system_default"
-        assert resolved.access_level == "admin"
+        assert resolved.access_level == "member"
 
 
 @pytest.mark.ee

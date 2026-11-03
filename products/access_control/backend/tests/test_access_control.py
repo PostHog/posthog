@@ -1519,7 +1519,7 @@ class TestAccessControlProjectFiltering(BaseAccessControlTest):
         app_context = self._get_posthog_app_context()
         assert len(app_context["current_user"]["organization"]["teams"]) == 3
         assert app_context["current_team"]["id"] == self.team.id
-        assert app_context["current_team"]["user_access_level"] == "admin"
+        assert app_context["current_team"]["user_access_level"] == "member"
 
         self._put_project_access_control_as_admin(self.team.id, {"access_level": "none"})
         app_context = self._get_posthog_app_context()
@@ -1950,10 +1950,9 @@ class TestAccessControlRolesEndpoint(BaseAccessControlTest):
         # All roles should have effective project access from the hardcoded default
         role_data = self._find_role(data["results"], self.role.id)
 
-        # Project: effective "admin" from hardcoded default (default_access_level("project") == "admin")
         assert role_data["project"]["access_level"] is None
-        assert role_data["project"]["effective_access_level"] == "admin"
-        assert role_data["project"]["inherited_access"]["access_level"] == "admin"
+        assert role_data["project"]["effective_access_level"] == "member"
+        assert role_data["project"]["inherited_access"]["access_level"] == "member"
         assert role_data["project"]["inherited_access"]["source"] == "system_default"
 
         # Resources: no rules anywhere, so the built-in default applies and is attributed as such
@@ -2169,10 +2168,9 @@ class TestAccessControlMembersEndpoint(BaseAccessControlTest):
         # All members should have effective project access from the hardcoded default
         member_data = self._find_member(data["results"], self.user2_membership.id)
 
-        # Project: effective "admin" from hardcoded default (default_access_level("project") == "admin")
         assert member_data["project"]["access_level"] is None
-        assert member_data["project"]["effective_access_level"] == "admin"
-        assert member_data["project"]["inherited_access"]["access_level"] == "admin"
+        assert member_data["project"]["effective_access_level"] == "member"
+        assert member_data["project"]["inherited_access"]["access_level"] == "member"
         assert member_data["project"]["inherited_access"]["source"] == "system_default"
 
         # Resources: no rules anywhere, so the built-in default applies and is attributed as such
