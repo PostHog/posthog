@@ -1,7 +1,7 @@
 import { type DialectOptions, clickhouse, expandPhrases, formatDialect } from 'sql-formatter'
 
+import { retryImport } from 'lib/utils/retryImport'
 import type { SelectComparison } from 'scenes/data-warehouse/editor/hogqlAst'
-import { compareSelectQueries } from 'scenes/data-warehouse/editor/hogqlParserWorkerManager'
 
 import { splitQueries } from './multiQueryUtils'
 
@@ -154,6 +154,9 @@ async function verifyStatements(query: string, formatted: string): Promise<Forma
     }
     let comparisons: SelectComparison[]
     try {
+        const { compareSelectQueries } = await retryImport(
+            () => import('scenes/data-warehouse/editor/hogqlParserWorkerManager')
+        )
         comparisons = await Promise.all(
             statements.map((statement, index) => compareSelectQueries(statement, formattedStatements[index]))
         )
