@@ -58,6 +58,18 @@ class TestBackfillTaskSources(TestCase):
                 {"hog_flow_id": FLOW_ID, "origin_key": "key", "idempotency_key": "key"},
                 ("hog_flow", str(FLOW_ID), "key"),
             ),
+            ("kind_without_id", {"hog_flow_id": FLOW_ID, "source_kind": "hog_flow"}, ("hog_flow", str(FLOW_ID), None)),
+            (
+                "id_without_kind",
+                {"hog_flow_id": FLOW_ID, "source_id": str(FLOW_ID)},
+                ("hog_flow", str(FLOW_ID), None),
+            ),
+            (
+                "kind_without_id_over_another_old_source",
+                {"signal_report_id": REPORT_ID, "source_kind": "hog_flow"},
+                ("signal_report", str(REPORT_ID), None),
+            ),
+            ("kind_without_id_or_old_source", {"source_kind": "hog_flow"}, ("hog_flow", None, None)),
             (
                 "new_columns_win_over_old",
                 {
@@ -79,6 +91,7 @@ class TestBackfillTaskSources(TestCase):
         list(backfill_task_sources())
 
         self.assertEqual(self._columns(task), expected)
+        self.assertEqual(list(backfill_task_sources(dry_run=True)), [])
 
     def test_fills_the_source_of_a_legacy_loop_task(self) -> None:
         task = self._task()
