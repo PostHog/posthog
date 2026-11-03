@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 import { LemonDialog } from '@posthog/lemon-ui'
 
 import { ApiConfig } from 'lib/api'
+import { isSandboxEmailSender } from 'lib/integrations/utils'
 import { urls } from 'scenes/urls'
 
 import { cohortsRetrieve } from 'products/cohorts/frontend/generated/api'
@@ -14,14 +15,16 @@ import { audienceCohortIds, audienceCohortLaunchError, toAudienceCohort } from '
 import {
     EMAIL_SENDING_SUSPENDED_MESSAGE,
     NO_EMAIL_SENDER_MESSAGE,
+    SANDBOX_ONLY_SENDER_MESSAGE,
     UNVERIFIED_SENDER_MESSAGE,
 } from '../Channels/emailSendingMessages'
 import { MessageAudience, MessageAudienceDestination, messageAudienceUrl } from './messageAudience'
 
 export function emailSenderWarning(integrations: Pick<IntegrationConfigApi, 'kind' | 'config'>[]): string | null {
-    const senders = integrations.filter((integration) => integration.kind === 'email')
+    const emailIntegrations = integrations.filter((integration) => integration.kind === 'email')
+    const senders = emailIntegrations.filter((integration) => !isSandboxEmailSender(integration))
     if (senders.length === 0) {
-        return NO_EMAIL_SENDER_MESSAGE
+        return emailIntegrations.length > 0 ? SANDBOX_ONLY_SENDER_MESSAGE : NO_EMAIL_SENDER_MESSAGE
     }
     const verified = senders.some(
         (integration) => (integration.config as { verified?: boolean } | undefined)?.verified === true
@@ -111,10 +114,11 @@ export async function openMessageAudience(
                 onClick: navigate,
                 'data-attr': `message-audience-${audience.source}-continue`,
             },
-            secondaryButton:
-                warnings.includes(NO_EMAIL_SENDER_MESSAGE) || warnings.includes(UNVERIFIED_SENDER_MESSAGE)
-                    ? { children: 'Set up email', onClick: () => router.actions.push(urls.workflows('channels')) }
-                    : { children: 'Cancel' },
+            secondaryButton: [NO_EMAIL_SENDER_MESSAGE, SANDBOX_ONLY_SENDER_MESSAGE, UNVERIFIED_SENDER_MESSAGE].some(
+                (message) => warnings.includes(message)
+            )
+                ? { children: 'Set up email', onClick: () => router.actions.push(urls.workflows('channels')) }
+                : { children: 'Cancel' },
         })
     } finally {
         opening = false

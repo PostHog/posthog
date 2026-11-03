@@ -1,6 +1,8 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { LemonDialog } from '@posthog/lemon-ui'
+
 import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -127,30 +129,67 @@ describe('emailTemplaterLogic', () => {
             expect(logic.values.senderIntegrations.map((integration) => integration.id)).toEqual([5])
         })
 
-        it('picking the sandbox sender replaces the selection and clears the custom sender and Reply-To', async () => {
-            enableSandboxFlag()
-            const onChange = jest.fn()
-            await mountWithSenders({
-                sandboxSenderAllowed: true,
-                liveChanges: true,
-                onChange,
-                value: {
-                    ...DEFAULT_EMAIL_TEMPLATE,
-                    from: { integrationId: 5, email: 'hello@acme.example.com', name: 'Acme' },
-                    replyTo: 'replies@acme.example.com',
-                },
-            })
-
-            logic.actions.chooseSenders([5, 7])
-
-            expect(onChange).toHaveBeenLastCalledWith(
-                expect.objectContaining({
-                    from: { integrationId: 7, integrationIds: undefined, email: undefined, name: undefined },
-                    replyTo: '',
+        it.each([
+            {
+                field: 'a custom address',
+                from: { integrationId: 5, email: 'hello@acme.example.com' },
+                replyTo: '',
+                confirm: true,
+            },
+            { field: 'a custom name', from: { integrationId: 5, name: 'Acme' }, replyTo: '', confirm: true },
+            { field: 'a Reply-To', from: { integrationId: 5 }, replyTo: 'replies@acme.example.com', confirm: true },
+            { field: 'a rotation', from: { integrationId: 5, integrationIds: [5, 6] }, replyTo: '', confirm: true },
+            { field: 'one plain sender', from: { integrationId: 5 }, replyTo: '', confirm: false },
+        ])(
+            'picking the sandbox sender over $field replaces it after any confirmation',
+            async ({ from, replyTo, confirm }) => {
+                enableSandboxFlag()
+                useMocks({
+                    get: {
+                        '/api/projects/:team_id/integrations/': {
+                            results: [
+                                SANDBOX_SENDER,
+                                OWN_SENDER,
+                                { ...OWN_SENDER, id: 6, display_name: 'Second <second@acme.example.com>' },
+                            ],
+                        },
+                    },
                 })
-            )
-            expect(logic.values.isSandboxSenderSelected).toBe(true)
-        })
+                const onChange = jest.fn()
+                const dialog = jest.spyOn(LemonDialog, 'open').mockImplementation(jest.fn())
+                const props = { sandboxSenderAllowed: true, liveChanges: true, onChange }
+                await mountWithSenders({ ...props, value: { ...DEFAULT_EMAIL_TEMPLATE, from, replyTo } })
+                onChange.mockClear()
+
+                logic.actions.chooseSenders([...(from.integrationIds ?? [from.integrationId]), 7])
+
+                expect(dialog).toHaveBeenCalledTimes(confirm ? 1 : 0)
+                if (confirm) {
+                    expect(onChange).not.toHaveBeenCalled()
+                    if (from.integrationIds) {
+                        expect(dialog.mock.calls[0][0].description).toContain(
+                            'This replaces Acme <hello@acme.example.com> and Second <second@acme.example.com>'
+                        )
+                    }
+                    emailTemplaterLogic(
+                        makeProps({
+                            ...props,
+                            value: { ...DEFAULT_EMAIL_TEMPLATE, from, replyTo, subject: 'Changed during confirmation' },
+                        })
+                    )
+                    ;(dialog.mock.calls[0][0].primaryButton?.onClick as () => void)()
+                }
+                expect(onChange).toHaveBeenLastCalledWith(
+                    expect.objectContaining({
+                        from: { integrationId: 7, integrationIds: undefined, email: undefined, name: undefined },
+                        replyTo: '',
+                        subject: confirm ? 'Changed during confirmation' : DEFAULT_EMAIL_TEMPLATE.subject,
+                    })
+                )
+                expect(logic.values.isSandboxSenderSelected).toBe(true)
+                dialog.mockRestore()
+            }
+        )
 
         it('offers no Reply-To while the sandbox sender is selected', async () => {
             enableSandboxFlag()

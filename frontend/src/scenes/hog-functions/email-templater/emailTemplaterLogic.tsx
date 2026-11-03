@@ -261,6 +261,22 @@ export interface EmailTemplaterLogicProps {
     sandboxSenderAllowed?: boolean
 }
 
+function joinSenderNames(names: string[]): string {
+    return names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0]
+}
+
+function sandboxSwitchDescription(replacedSenderNames: string[], hasCustomSenderDetails: boolean): string {
+    return [
+        replacedSenderNames.length > 1
+            ? `This replaces ${joinSenderNames(replacedSenderNames)} with the sandbox sender.`
+            : '',
+        hasCustomSenderDetails ? 'This removes your custom sender and Reply-To.' : '',
+        'The sandbox sender sends from its own address.',
+    ]
+        .filter(Boolean)
+        .join(' ')
+}
+
 function autoRevealAdvancedFields(
     actions: { revealAdvancedField: (key: EmailMetaFieldKey) => void },
     props: EmailTemplaterLogicProps
@@ -298,6 +314,7 @@ export interface emailTemplaterLogicValues {
     emailTemplateTouched: boolean
     emailTemplateTouches: Record<string, boolean>
     emailTemplateValidationErrors: DeepPartialMap<EmailTemplate, ValidationErrorType>
+    hasCustomSenderDetails: boolean
     hiddenAdvancedFields: EmailMetaField[]
     isEmailEditorReady: boolean
     isEmailTemplateSubmitting: boolean
@@ -477,6 +494,7 @@ export interface emailTemplaterLogicMeta {
         ) => IntegrationType[]
         sandboxSenderId: (senderIntegrations: IntegrationType[]) => number | undefined
         isSandboxSenderSelected: (emailTemplate: EmailTemplate, sandboxSenderId: number | undefined) => boolean
+        hasCustomSenderDetails: (emailTemplate: EmailTemplate) => boolean
         supportedFields: (arg: EmailTemplaterType, isSandboxSenderSelected: boolean) => EmailMetaField[]
         visibleFields: (
             supportedFields: EmailMetaField[],
@@ -748,6 +766,13 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             (emailTemplate: EmailTemplate, sandboxSenderId: number | undefined): boolean =>
                 sandboxSenderId !== undefined && selectedSenderIds(senderFrom(emailTemplate)).includes(sandboxSenderId),
         ],
+        hasCustomSenderDetails: [
+            (s) => [s.emailTemplate],
+            (emailTemplate: EmailTemplate): boolean => {
+                const from = senderFrom(emailTemplate)
+                return !!(from.email || from.name || emailTemplate?.replyTo)
+            },
+        ],
         // The sandbox sender always replies from its own identity, so it offers no Reply-To.
         supportedFields: [
             (s) => [(_, props: EmailTemplaterLogicProps) => props.type, s.isSandboxSenderSelected],
@@ -784,8 +809,24 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 return
             }
             if (sandboxSenderId !== undefined && next.integrationId === sandboxSenderId) {
-                actions.setEmailTemplateValues({ from: next, replyTo: '' })
-                actions.hideAdvancedField('replyTo')
+                const selectSandbox = (): void => {
+                    actions.setEmailTemplateValues({ from: next, replyTo: '' })
+                    actions.hideAdvancedField('replyTo')
+                }
+                const replacedSenderIds = selectedSenderIds(senderFrom(values.emailTemplate))
+                if (!values.hasCustomSenderDetails && replacedSenderIds.length < 2) {
+                    selectSandbox()
+                    return
+                }
+                const replacedSenderNames = replacedSenderIds.map(
+                    (id) => values.senderIntegrations.find((sender) => sender.id === id)?.display_name || `sender ${id}`
+                )
+                LemonDialog.open({
+                    title: 'Switch to the sandbox sender?',
+                    description: sandboxSwitchDescription(replacedSenderNames, values.hasCustomSenderDetails),
+                    primaryButton: { children: 'Switch sender', onClick: selectSandbox },
+                    secondaryButton: { children: 'Cancel' },
+                })
                 return
             }
             actions.setEmailTemplateValue('from', next)
