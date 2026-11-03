@@ -4,8 +4,6 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 
-from django.db import Error as DatabaseError
-
 from posthog.hogql.transforms.flag_calls_from_flag_evaluations import FLAG_EVALUATIONS_COMPLETE_DAYS
 
 from posthog.exceptions_capture import capture_exception
@@ -17,6 +15,8 @@ from products.cohorts.backend.parity.eligibility import resolve_behavioral_windo
 from products.cohorts.backend.parity.tzdates import day_of_instant
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
+
+from common.hogvm.python.utils import HogVMException
 
 # The seeder scans team-local days and includes the oldest day of the window. A team east of UTC starts its day on
 # the UTC date before. A scan that starts at most this many days back reads only days that flag_evaluations holds,
@@ -58,18 +58,17 @@ def _can_seed_from_flag_evaluations(cohort: Cohort, conditions: list[dict[str, A
         batch_flag_call_reads,
     )
 
+    # A malformed filter value can also fail an assert in the HogQL printer or fail in the HogQL VM. These errors
+    # repeat on every try, so the run is refused. Any other error, such as a database timeout, reaches the trigger
+    # task, which retries it.
+    repeating_errors = (*FLAG_CALL_READS_COMPILE_ERRORS, AssertionError, HogVMException)
     try:
         reads = batch_flag_call_reads(cohort, team)
-    except DatabaseError:
-        # A catalog read that times out succeeds on a later try, so the trigger task keeps its retries.
-        raise
-    except Exception as error:
-        # A malformed filter value can fail outside the compile errors, such as an assert in the HogQL printer. The
-        # run is refused, so the trigger task does not retry it.
+    except repeating_errors as error:
         if not isinstance(error, FLAG_CALL_READS_COMPILE_ERRORS):
             capture_exception(error, additional_properties={"team_id": team.id, "cohort_id": cohort.id})
         raise FlagCallsTableUnresolved(
-            f"The batch query of cohort {cohort.id} does not compile, so the run can't pick the table to read "
+            f"The batch query of cohort {cohort.id} fails to build, so the run can't pick the table to read "
             f"its flag calls from: {error}"
         ) from error
     scans = [_scan_window(condition, team) for condition in conditions]
@@ -108,10 +107,11 @@ def pinned_flag_calls_table(
 
     A run for an organization that reads flag calls from events pins events without compiling any cohort.
 
-    Raises FlagCallsTableUnresolved when a cohort's batch query does not compile, or when the organization's flag
-    calls are only in flag_evaluations and the batch query still reads flag calls from events or a flag-call window
-    starts too far back. Pinning events there would give the cohort an empty flag-call history that still counts as
-    backfilled.
+    Raises FlagCallsTableUnresolved when a cohort's batch query fails to build with an error that repeats on every
+    try, or when the organization's flag calls are only in flag_evaluations and the batch query still reads flag
+    calls from events or a flag-call window starts too far back. Pinning events there would give the cohort an empty
+    flag-call history that still counts as backfilled. Any other error from building the batch query, such as a
+    database timeout, reaches the caller.
     """
     flag_call_conditions: dict[int, list[dict[str, Any]]] = {}
     for condition in conditions:
