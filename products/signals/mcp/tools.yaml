@@ -1753,7 +1753,7 @@ tools:
         description: >
             Check Self-driving setup in the current project. A non-null completed_at means setup finished; it does not
             prove monitoring is currently running or a report is ready. After sharing an activation link, poll this tool
-            every 10 seconds for up to two minutes for the same project. Stop when completed_at is set, on an error, or
+            every 10 seconds for up to five minutes for the same project. Stop when completed_at is set, on an error, or
             when the time limit expires. If setup is still pending, ask the customer to let you know when it finishes.
             Continue their current task while waiting. After completion, check existing reports before repeating
             research, then resume the task or follow their next request.
