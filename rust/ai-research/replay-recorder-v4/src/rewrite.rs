@@ -15,9 +15,6 @@ use std::collections::{BTreeMap, HashMap};
 
 use aho_corasick::{AhoCorasick, AhoCorasickKind, MatchKind};
 use metrics::counter;
-use posthog_replay_anonymizer::v4_image_refs::{
-    bundled_font_ref, ImageDecline, FONT_URL_UNCHECKED_MARKER, IMAGE_DECLINED_PREFIX,
-};
 use replay_core_v4::bytescan::{unescape, write_json_string, Span};
 use replay_core_v4::inspect::css::{
     escape_in_identifier, rewrite_font_src_functions, rewrite_functions, CssRewrite,
@@ -28,6 +25,9 @@ use replay_core_v4::refs::{declined_url_ref, UrlAsset};
 use replay_core_v4::scan::tokens::{Token, Tokens};
 use replay_core_v4::seal::image_url_key;
 use replay_core_v4::url_policy::is_remote;
+use replay_core_v4::v4_image_refs::{
+    bundled_font_ref, ImageDecline, FONT_URL_UNCHECKED_MARKER, IMAGE_DECLINED_PREFIX,
+};
 
 use crate::scrub::{Scrub, Scrubber};
 use crate::urls::url_reference;
@@ -51,10 +51,7 @@ fn named_as(
             named.err().map(|decline| decline.label()),
         ),
         (_, Ok((_, reference))) => (reference, None),
-        (_, Err(decline)) => (
-            declined_url_ref(asset, decline.into()),
-            Some(decline.label()),
-        ),
+        (_, Err(decline)) => (declined_url_ref(asset, decline), Some(decline.label())),
     }
 }
 
