@@ -40,7 +40,12 @@ from products.signals.backend.activity_summary.logic import (
     update_activity_summary,
 )
 from products.signals.backend.activity_summary.mcp_buffer import publish_team_ids
-from products.signals.backend.activity_summary.prompt import PROMPT_VERSION
+from products.signals.backend.activity_summary.prompt import (
+    EMBEDDING_DOCUMENT_TYPE,
+    EMBEDDING_RENDERING,
+    PROMPT_VERSION,
+    summary_profile_text,
+)
 from products.signals.backend.activity_summary.queue import (
     TRIGGERS,
     VIEW_TRIGGERS,
@@ -63,8 +68,9 @@ from products.signals.backend.report_embeddings import EMBEDDING_PRODUCT
 logger = structlog.get_logger(__name__)
 
 TICK_WORKFLOW_NAME = "activity-summary-tick"
-EMBEDDING_DOCUMENT_TYPE = "activity_summary"
-EMBEDDING_RENDERING = "summary_text"
+# The same document as `EMBEDDING_RENDERING`, embedded with the profile, the way report embeddings
+# separate `title` from `title_summary`.
+EMBEDDING_RENDERING_PROFILE = "summary_profile"
 # Where a summary came from: the tick, or a build as of a past date.
 SOURCE_LIVE = "live"
 
@@ -129,6 +135,7 @@ class ActivitySummaryTickPlan:
     due_by_trigger: dict[str, int] = dataclasses.field(default_factory=dict)
     # The days of the MCP intent buffer each update reads. None when `mcp_render_enabled` is off.
     mcp_buffer_days: int | None = None
+    emit_profile_embeddings: bool = False
 
 
 @frozen
@@ -149,6 +156,7 @@ class ActivitySummaryPairInput:
     trigger: str | None = None
     view_update_interval_hours: float | None = None
     mcp_buffer_days: int | None = None
+    emit_profile_embeddings: bool = False
 
 
 @frozen
@@ -228,6 +236,7 @@ def plan_tick(limit: int | None, now: datetime.datetime) -> ActivitySummaryTickP
         min_update_interval_hours=config.min_update_interval_hours,
         view_update_interval_hours=config.view_update_interval_hours,
         emit_embeddings=config.emit_embeddings,
+        emit_profile_embeddings=config.emit_profile_embeddings,
         capture_events=config.capture_events,
         limits=config.limits,
         max_error_rate=config.max_error_rate,
@@ -250,6 +259,7 @@ def emit_summary_embedding(
     document_id: str,
     timestamp: datetime.datetime,
     metadata: dict[str, Any],
+    rendering: str = EMBEDDING_RENDERING,
 ) -> None:
     # Deferred so importing the tick does not load the Kafka and ClickHouse chain behind the producer.
     from posthog.api.embedding_worker import emit_embedding_request  # noqa: PLC0415
@@ -259,7 +269,7 @@ def emit_summary_embedding(
         team_id=team_id,
         product=EMBEDDING_PRODUCT,
         document_type=document_type,
-        rendering=EMBEDDING_RENDERING,
+        rendering=rendering,
         document_id=document_id,
         # The models of the report embeddings, so both share one vector space.
         models=[model.value for model in EmbeddingModelName],
@@ -268,23 +278,41 @@ def emit_summary_embedding(
     )
 
 
-def _emit_embedding(team_id: int, user_id: int) -> None:
+def _emit_embedding(team_id: int, user_id: int, *, emit_profile: bool) -> None:
     stored = UserActivitySummary.objects.for_team(team_id).filter(user_id=user_id).first()
     if stored is None or not stored.summary_text or stored.generated_at is None:
         return
+    # One vector per user per day, so an analysis can read the vector a user had on a given day.
+    document_id = f"{user_id}:{stored.generated_at.date().isoformat()}"
+    metadata = {
+        "prompt_version": stored.prompt_version,
+        "render_version": stored.render_version,
+        "model": stored.model,
+    }
     emit_summary_embedding(
         team_id,
         content=stored.summary_text,
         document_type=EMBEDDING_DOCUMENT_TYPE,
-        # One vector per user per day, so an analysis can read the vector a user had on a given day.
-        document_id=f"{user_id}:{stored.generated_at.date().isoformat()}",
+        document_id=document_id,
         timestamp=stored.generated_at,
-        metadata={
-            "prompt_version": stored.prompt_version,
-            "render_version": stored.render_version,
-            "model": stored.model,
-        },
+        metadata=metadata,
     )
+    if not emit_profile:
+        return
+    try:
+        profile_text = summary_profile_text(stored.summary) if isinstance(stored.summary, dict) else None
+        if profile_text is not None:
+            emit_summary_embedding(
+                team_id,
+                content=profile_text,
+                document_type=EMBEDDING_DOCUMENT_TYPE,
+                document_id=document_id,
+                timestamp=stored.generated_at,
+                metadata=metadata,
+                rendering=EMBEDDING_RENDERING_PROFILE,
+            )
+    except Exception:
+        logger.exception("activity_summary_profile_embedding_failed", team_id=team_id, user_id=user_id)
 
 
 def capture_generated(
@@ -363,7 +391,7 @@ def run_pair(input: ActivitySummaryPairInput, *, last_attempt: bool = True) -> A
         logger.exception("activity_summary_queue_sync_failed", team_id=input.team_id, user_id=input.user_id)
     if update.status == UpdateStatus.OK and input.emit_embeddings:
         try:
-            _emit_embedding(input.team_id, input.user_id)
+            _emit_embedding(input.team_id, input.user_id, emit_profile=input.emit_profile_embeddings)
         except Exception:
             logger.exception("activity_summary_embedding_failed", team_id=input.team_id, user_id=input.user_id)
     if update.status in CALLED_MODEL_STATUSES and input.capture_events:
@@ -491,6 +519,7 @@ class ActivitySummaryTickWorkflow:
                             min_units=plan.min_units,
                             min_update_interval_hours=plan.min_update_interval_hours,
                             emit_embeddings=plan.emit_embeddings,
+                            emit_profile_embeddings=plan.emit_profile_embeddings,
                             capture_events=plan.capture_events,
                             limits=plan.limits,
                             rebuild_before=plan.rebuild_before,

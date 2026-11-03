@@ -14,6 +14,8 @@ from django.utils import timezone
 
 from posthog.dataclasses import frozen
 from posthog.models import OrganizationMembership, Team, User
+from posthog.paging import Page, PageRequest
+from posthog.queryset_paging import select_page
 
 from products.access_control.backend.facade import (
     api as access_control_api,
@@ -39,8 +41,7 @@ CUSTOMER_TASK_STATUS_CHOICES = CustomerTaskStatus.choices
 
 @frozen
 class _CustomerTaskActivityPage:
-    activities: list[CustomerTaskActivity]
-    total_count: int
+    activities: Page[CustomerTaskActivity]
     visible_account_ids: frozenset[str]
 
 
@@ -346,9 +347,8 @@ def list_customer_tasks(
     team_id: int,
     user_access_control: UserAccessControl,
     filters: contracts.CustomerTaskListFilters,
-    offset: int,
-    limit: int,
-) -> tuple[list[CustomerTask], int]:
+    page: PageRequest,
+) -> Page[CustomerTask]:
     queryset = _visible_task_queryset(team_id, user_access_control)
     if filters.search:
         queryset = queryset.filter(Q(name__icontains=filters.search) | Q(description__icontains=filters.search))
@@ -381,8 +381,7 @@ def list_customer_tasks(
         queryset = queryset.order_by(F("due_at").asc(nulls_last=True), "-updated_at", "id")
     else:
         queryset = _apply_ordering(queryset, filters.ordering)
-    count = queryset.count()
-    return list(queryset[offset : offset + limit]), count
+    return select_page(queryset, page)
 
 
 def get_customer_task(
@@ -770,7 +769,7 @@ def _list_visible_historical_account_ids(
 
 
 def list_customer_task_activities(
-    *, team_id: int, task_id: UUID | str, user_access_control: UserAccessControl, offset: int, limit: int
+    *, team_id: int, task_id: UUID | str, user_access_control: UserAccessControl, page: PageRequest
 ) -> _CustomerTaskActivityPage | None:
     task = get_customer_task(team_id=team_id, task_id=task_id, user_access_control=user_access_control)
     if task is None or not can_access_customer_task_object(
@@ -778,18 +777,13 @@ def list_customer_task_activities(
     ):
         return None
     queryset = CustomerTaskActivity.objects.for_team(team_id).filter(task_id=task.id).select_related("actor")
-    count = queryset.count()
-    activities = list(queryset.order_by("-created_at", "-id")[offset : offset + limit])
+    activities = select_page(queryset.order_by("-created_at", "-id"), page)
     visible_account_ids = _list_visible_historical_account_ids(
         team_id=team_id,
-        activities=activities,
+        activities=activities.results,
         user_access_control=user_access_control,
     )
-    return _CustomerTaskActivityPage(
-        activities=activities,
-        total_count=count,
-        visible_account_ids=visible_account_ids,
-    )
+    return _CustomerTaskActivityPage(activities=activities, visible_account_ids=visible_account_ids)
 
 
 def can_access_customer_task_object(*, task: CustomerTask, user_access_control: UserAccessControl, write: bool) -> bool:
