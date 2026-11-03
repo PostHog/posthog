@@ -12,16 +12,13 @@ export interface ActivityClientTagProps {
 }
 
 export function ActivityClientTag({ client }: ActivityClientTagProps): JSX.Element {
+    const tooltip = isScoutClient(client)
+        ? SCOUT_TOOLTIP
+        : isWorkloadClient(client)
+          ? WORKLOAD_TOOLTIP
+          : SELF_REPORTED_TOOLTIP
     return (
-        <Tooltip
-            title={
-                isScoutClient(client)
-                    ? SCOUT_TOOLTIP
-                    : isWorkloadClient(client)
-                      ? WORKLOAD_TOOLTIP
-                      : SELF_REPORTED_TOOLTIP
-            }
-        >
+        <Tooltip title={tooltip}>
             <LemonTag size="small" type="muted">
                 via {activityClientLabel(client)}
             </LemonTag>

@@ -246,9 +246,6 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
             ) from exc
         raise exc
 
-    def _request_user_is_staff(self) -> bool:
-        return _caller_is_staff(self.context.get("request"))
-
     def to_representation(self, instance: DashboardTemplate) -> dict[str, Any]:
         representation = super().to_representation(instance)
         get_team = self.context.get("get_team")
@@ -268,7 +265,7 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
         return detect_non_portable_references(obj.tiles or [])
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        is_staff = self._request_user_is_staff()
+        is_staff = _caller_is_staff(self.context.get("request"))
         initial = getattr(self, "initial_data", None) or {}
         if not is_staff:
             if self.instance is None:
@@ -380,7 +377,7 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
                 enforce_organization_dashboard_template_limit(organization_id=cast(UUID, org_id))
 
         # Staff: global rows with no team become team-scoped to the project issuing the PATCH.
-        if self._request_user_is_staff():
+        if _caller_is_staff(self.context.get("request")):
             scope_to = validated_data.get("scope")
             if (
                 scope_to in (DashboardTemplate.Scope.ONLY_TEAM, "team")
@@ -392,7 +389,7 @@ class DashboardTemplateSerializer(serializers.ModelSerializer):
                     raise ValidationError(detail="Cannot set team scope without a project context.")
                 validated_data["team_id"] = context_team_id
 
-        if not self._request_user_is_staff():
+        if not _caller_is_staff(self.context.get("request")):
             # `scope` is intentionally allowed through (validated as a team <-> organization transition above).
             validated_data.pop("team_id", None)
             validated_data.pop("tiles", None)

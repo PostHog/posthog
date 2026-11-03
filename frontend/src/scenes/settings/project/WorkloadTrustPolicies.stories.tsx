@@ -37,13 +37,6 @@ const providers = {
             ],
         },
     ],
-    unsupported: [
-        {
-            key: 'bitbucket_pipelines',
-            name: 'Bitbucket Pipelines',
-            reason: "The token's audience is fixed per workspace and cannot be set to this PostHog instance.",
-        },
-    ],
     grantable_scopes: [
         'annotation:read',
         'annotation:write',

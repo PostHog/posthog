@@ -14,15 +14,11 @@ from products.dashboards.backend.widget_catalog import get_widget_product_access
 from products.dashboards.backend.widget_registry import WidgetRegistryEntry, get_widget_registry_entry
 
 
-def _get_request_api_key_scopes(request: Request) -> list[str] | None:
-    return get_authenticator_scopes(request.successful_authenticator)
-
-
 def get_widget_api_scope_error(
     registry_entry: WidgetRegistryEntry,
     request: Request,
 ) -> str | None:
-    key_scopes = _get_request_api_key_scopes(request)
+    key_scopes = get_authenticator_scopes(request.successful_authenticator)
     if key_scopes is None:
         return None
 

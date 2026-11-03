@@ -1,5 +1,4 @@
 import hashlib
-import functools
 from datetime import UTC, datetime, timedelta
 from enum import Enum
 from typing import Any
@@ -108,7 +107,14 @@ def get_oidc_verification_keys() -> list[Any]:
 
 
 # Parsing a private key validates it, which is slow enough to matter on every request a stateless
-# token authenticates. The PEMs are the cache key, so a rotation takes effect at once.
-@functools.lru_cache(maxsize=4)
+# token authenticates, so the keys are parsed once. The PEMs they came from are kept to notice a change
+# of settings, such as a key rotation or a test that overrides the keys.
+_loaded_public_keys: tuple[tuple[str, ...], tuple[Any, ...]] | None = None
+
+
 def _public_keys_from_pems(pems: tuple[str, ...]) -> tuple[Any, ...]:
-    return tuple(serialization.load_pem_private_key(pem.encode(), password=None).public_key() for pem in pems)
+    global _loaded_public_keys
+    if _loaded_public_keys is None or _loaded_public_keys[0] != pems:
+        keys = tuple(serialization.load_pem_private_key(pem.encode(), password=None).public_key() for pem in pems)
+        _loaded_public_keys = (pems, keys)
+    return _loaded_public_keys[1]

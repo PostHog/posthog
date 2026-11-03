@@ -69,6 +69,18 @@ class PaidFeatureException(APIException):
         super().__init__(detail=f"{feature_name} requires a paid PostHog plan. Please upgrade to access this feature.")
 
 
+class InsufficientScope(PermissionDenied):
+    """A missing-scope 403 that carries an RFC 6750 section 3.1 `insufficient_scope` challenge.
+
+    `scope` names every scope the request requires, not only the missing ones. The MCP step-up
+    flow has the client union the challenge with the scopes it holds and ask the user for that.
+    """
+
+    def __init__(self, detail: str, required_scopes: list[str]) -> None:
+        super().__init__(detail=detail)
+        self.auth_header = f'Bearer error="insufficient_scope", scope="{" ".join(required_scopes)}"'
+
+
 class Conflict(APIException):
     status_code = status.HTTP_409_CONFLICT
     default_code = "conflict"
@@ -263,4 +275,7 @@ def exception_handler(exc: Exception, context: ExceptionContext) -> Optional[Res
             # attacker-controlled origin.
             metadata_url = absolute_uri("/.well-known/oauth-protected-resource")
             response["WWW-Authenticate"] = f'Bearer resource_metadata="{metadata_url}"'
+    elif response is not None and (auth_header := getattr(exc, "auth_header", None)):
+        # DRF's own handler honors `auth_header`, but drf-exceptions-hog drops it.
+        response["WWW-Authenticate"] = auth_header
     return response
