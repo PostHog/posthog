@@ -11,6 +11,7 @@ import type { SessionNoticeItem } from './types'
 
 interface NoticeRowProps {
     item: SessionNoticeItem
+    onToggle?: () => void
 }
 
 function NoticeIcon({ item }: NoticeRowProps): ReactElement | null {
@@ -27,7 +28,7 @@ function NoticeIcon({ item }: NoticeRowProps): ReactElement | null {
     return null
 }
 
-export const NoticeRow = memo(function NoticeRow({ item }: NoticeRowProps): ReactElement {
+export const NoticeRow = memo(function NoticeRow({ item, onToggle }: NoticeRowProps): ReactElement {
     const styles = useStyles()
     const [expanded, setExpanded] = useState(false)
     const [overflows, setOverflows] = useState(false)
@@ -59,7 +60,10 @@ export const NoticeRow = memo(function NoticeRow({ item }: NoticeRowProps): Reac
                 </Text>
                 {overflows ? (
                     <Pressable44
-                        onPress={() => setExpanded(!expanded)}
+                        onPress={() => {
+                            onToggle?.()
+                            setExpanded(!expanded)
+                        }}
                         accessibilityState={{ expanded }}
                         style={styles.toggle}
                     >
