@@ -10,6 +10,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  */
 import type {
     ActivitySummaryApi,
+    ActivitySummarySearchResultApi,
     ActivitySummaryVersionApi,
     AnomalyInsightResponseApi,
     AnomalySearchResponseApi,
@@ -61,13 +62,13 @@ import type {
     ReportReadStateRequestApi,
     ReportReadStateResponseApi,
     ReportSignalsResponseApi,
+    ReportSpendApi,
     ReviewerExclusionApi,
     ReviewerExclusionCreateApi,
     ReviewerExclusionCreateResultApi,
     ScoutChatTaskApi,
     ScoutChatTaskCreateApi,
     ScoutCheckSummaryApi,
-    ScoutCostsApi,
     ScoutEmissionReportLinkApi,
     ScoutMemberApi,
     ScoutMetadataApi,
@@ -77,7 +78,6 @@ import type {
     ScoutRubricGenerateApi,
     ScoutRubricSaveApi,
     ScoutRunIdsBatchRequestApi,
-    ScoutRunTokenCostsApi,
     ScoutSuggestionItemApi,
     ScoutSuggestionRefreshApi,
     ScoutSuggestionSetApi,
@@ -144,6 +144,7 @@ import type {
     SignalTeamConfigApi,
     SignalUserAutonomyConfigApi,
     SignalUserAutonomyConfigCreateApi,
+    SignalsActivitySummaryMembersSearchParams,
     SignalsActivitySummaryVersionsRetrieveParams,
     SignalsAnomaliesInsightRetrieveParams,
     SignalsAnomaliesSearchRetrieveParams,
@@ -176,13 +177,14 @@ import type {
     SignalsScoutProjectProfileGetParams,
     SignalsScoutReportCheckListParams,
     SignalsScoutReportChecksListParams,
-    SignalsScoutRunsCostsParams,
     SignalsScoutRunsFindingsSummaryParams,
     SignalsScoutRunsListParams,
     SignalsScoutRunsRecentEmissionsParams,
     SignalsScoutRunsRecentPerScoutParams,
     SignalsScoutScratchpadSearchParams,
     SignalsSourceConfigsListParams,
+    SourceSpendApi,
+    SpendOverviewApi,
     SubmitMonitoringResultRequestApi,
     SubmitMonitoringResultResponseApi,
 } from './api.schemas'
@@ -249,6 +251,40 @@ export const signalsActivitySummaryVersionsRetrieve = async (
     options?: RequestInit
 ): Promise<ActivitySummaryVersionApi[]> => {
     return apiMutator<ActivitySummaryVersionApi[]>(getSignalsActivitySummaryVersionsRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsActivitySummaryMembersSearchUrl = (
+    projectId: string,
+    params?: SignalsActivitySummaryMembersSearchParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/signals/activity_summary_members/search/?${stringifiedParams}`
+        : `/api/projects/${projectId}/signals/activity_summary_members/search/`
+}
+
+/**
+ * Find the project members whose activity summary matches a topic, an object or a product, including people who only open the work and never edit it. Returns 404 when the search is not available for this project.
+ * @summary Search member activity summaries
+ */
+export const signalsActivitySummaryMembersSearch = async (
+    projectId: string,
+    params?: SignalsActivitySummaryMembersSearchParams,
+    options?: RequestInit
+): Promise<ActivitySummarySearchResultApi> => {
+    return apiMutator<ActivitySummarySearchResultApi>(getSignalsActivitySummaryMembersSearchUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -1121,6 +1157,21 @@ export const signalsReportsSignalsRetrieve = async (
     options?: RequestInit
 ): Promise<ReportSignalsResponseApi> => {
     return apiMutator<ReportSignalsResponseApi>(getSignalsReportsSignalsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsReportSpendUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/signals/reports/${id}/spend/`
+}
+
+export const signalsReportSpend = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ReportSpendApi> => {
+    return apiMutator<ReportSpendApi>(getSignalsReportSpendUrl(projectId, id), {
         ...options,
         method: 'GET',
     })
@@ -2907,37 +2958,6 @@ export const signalsScoutReportChecksList = async (
     })
 }
 
-export const getSignalsScoutRunsCostsUrl = (projectId: string, params?: SignalsScoutRunsCostsParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/signals/scout/runs/costs/?${stringifiedParams}`
-        : `/api/projects/${projectId}/signals/scout/runs/costs/`
-}
-
-/**
- * Return what every scout on this project spent on model calls over the last `window_days`, with how many runs it started, how many of those had spend attributed, and how many inbox reports it filed or added to. Cost per day, per run, and per report are derived from those numbers by the caller, so the endpoint stays a fact table and the definitions live in one place. Spend is summed from the `$ai_generation` events the runs' sandboxes produced and joined to the run rows by task run id, because a team-authored scout's generations all carry the same stage tag and so cannot name it. Cached per project for 15 minutes: the window's trailing edge moves and the newest runs may still be settling, so this is a roughly current number, not a live one. `available` is false where the internal AI observability project holding those events can't be read, so an unknown spend never reads as zero. Staff-only, same gate as the per-run cost read. Strictly team-scoped.
- * @summary Get what each scout spent over a window
- */
-export const signalsScoutRunsCosts = async (
-    projectId: string,
-    params?: SignalsScoutRunsCostsParams,
-    options?: RequestInit
-): Promise<ScoutCostsApi> => {
-    return apiMutator<ScoutCostsApi>(getSignalsScoutRunsCostsUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
 export const getSignalsScoutRunsEmissionsBatchUrl = (projectId: string) => {
     return `/api/projects/${projectId}/signals/scout/runs/emissions/batch/`
 }
@@ -3110,27 +3130,6 @@ export const signalsScoutReportCheckList = async (
     return apiMutator<ScoutCheckSummaryApi[]>(getSignalsScoutReportCheckListUrl(projectId, params), {
         ...options,
         method: 'GET',
-    })
-}
-
-export const getSignalsScoutRunsTokenCostsUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/signals/scout/runs/token-costs/`
-}
-
-/**
- * Return what each requested `SignalScoutRun` spent on model calls, summed from the `$ai_generation` events its sandbox produced. One query for the whole batch, cached per run: a settled run's total is final, a run still in progress reports what it has spent so far. `available` is false where the internal AI observability project holding those events can't be read, so an unknown cost never reads as zero. Staff-only — fleet spend is an internal operating number, and the events sit outside the project in the path. Strictly team-scoped — run ids belonging to another project contribute no rows.
- * @summary Get the model spend of many runs at once
- */
-export const signalsScoutRunsTokenCosts = async (
-    projectId: string,
-    scoutRunIdsBatchRequestApi: ScoutRunIdsBatchRequestApi,
-    options?: RequestInit
-): Promise<ScoutRunTokenCostsApi> => {
-    return apiMutator<ScoutRunTokenCostsApi>(getSignalsScoutRunsTokenCostsUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(scoutRunIdsBatchRequestApi),
     })
 }
 
@@ -3369,6 +3368,28 @@ export const signalsSourceConfigsDestroy = async (
     return apiMutator<void>(getSignalsSourceConfigsDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getSignalsSourceSpendUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/source_spend/`
+}
+
+export const signalsSourceSpend = async (projectId: string, options?: RequestInit): Promise<SourceSpendApi[]> => {
+    return apiMutator<SourceSpendApi[]>(getSignalsSourceSpendUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsSpendOverviewUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/spend/`
+}
+
+export const signalsSpendOverview = async (projectId: string, options?: RequestInit): Promise<SpendOverviewApi> => {
+    return apiMutator<SpendOverviewApi>(getSignalsSpendOverviewUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 

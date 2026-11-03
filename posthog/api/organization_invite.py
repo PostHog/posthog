@@ -192,7 +192,10 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
-        extra_kwargs = {"target_email": {"required": True, "allow_null": False}}
+        extra_kwargs = {
+            "target_email": {"required": True, "allow_null": False},
+            "message": {"max_length": 1000, "help_text": "Optional personal message in the invite email."},
+        }
 
     def validate_target_email(self, email: str):
         email = EmailNormalizer.normalize(email)
