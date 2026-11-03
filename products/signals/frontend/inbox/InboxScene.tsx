@@ -115,8 +115,7 @@ function InboxListView(): JSX.Element {
             {!onboarding && !pending && (
                 <div className="flex items-center gap-2 border-b border-primary pl-5 pr-6 shrink-0">
                     <InboxTabBar />
-                    {/* In a narrow scene the Triage button joins the tab row instead of taking a row of
-                        its own under the title. The header copy hides at the same width. */}
+                    {/* Pairs with the header Triage button, which hides below the same @2xl/inbox width. */}
                     {activeTab === 'reports' && (
                         <div className="ml-auto shrink-0 @2xl/inbox:hidden">
                             <InboxTriageButton compact />

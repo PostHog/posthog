@@ -1,5 +1,5 @@
 import type { Decorator, Meta, StoryObj } from '@storybook/react'
-import { within } from '@testing-library/dom'
+import { waitFor, within } from '@testing-library/dom'
 import { useMountedLogic } from 'kea'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
@@ -131,8 +131,6 @@ const valueSummaryMocks = mswDecorator({
     },
 })
 
-// A phone-width Reports tab: Triage sits in the tab row and the filters fold into one panel, which
-// the play function opens so the stacked controls are in the snapshot.
 export const ReportsNarrow: Story = {
     parameters: {
         featureFlags: {
@@ -144,8 +142,8 @@ export const ReportsNarrow: Story = {
     },
     play: async ({ canvas }) => {
         await userEvent.click(await canvas.findByLabelText('Filters'))
-        // The panel renders in a popover outside the story root.
-        await expect(within(document.body).findByText('Reset to default')).resolves.toBeVisible()
+        // The panel renders in a popover outside the story root, and fades in after the click.
+        await waitFor(() => expect(within(document.body).getByText('Reset to default')).toBeVisible())
     },
 }
 

@@ -354,11 +354,10 @@ export function ReportsTab(): JSX.Element {
 
     return (
         <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 px-6 py-3">
-            {/* Below @2xl the filters fold into one Filters button, so the toolbar stays one line. From
-                @2xl, when the row runs out of room it wraps at the divider: filters on one line, sort
-                and scope on the next. The divider sits in the gap left of the sort group, so on a
-                wrapped line it falls outside the clipped edge instead of leading the line. The sort
-                group grows so scope always ends the row. */}
+            {/* When the row runs out of room it wraps at the divider: filters on one line, sort and
+                scope on the next. The divider sits in the gap left of the sort group, so on a wrapped
+                line it falls outside the clipped edge instead of leading the line. The sort group
+                grows so scope always ends the row. */}
             <div className="@container -mx-1 overflow-x-clip px-1">
                 <div className="flex items-center gap-2 @2xl:hidden">
                     <InboxFiltersPanel />

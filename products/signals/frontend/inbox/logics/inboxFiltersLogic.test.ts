@@ -337,8 +337,6 @@ describe('inboxFiltersLogic', () => {
                 .toMatchValues({ activeScoutFilter: ['my-custom-scout'], hasActiveFilters: true })
         })
 
-        // The compact Filters button badges this count, so the default view, including the window
-        // a ranking sort applies on its own, must read 0.
         it.each([
             ['the default view', () => {}, null, 0],
             ['a ranking sort with its automatic window', () => logic.actions.setSort('ranking_fix', 'desc'), '7d', 0],

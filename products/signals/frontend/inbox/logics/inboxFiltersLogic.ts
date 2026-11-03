@@ -492,14 +492,6 @@ export interface inboxFiltersLogicMeta {
         sourceFilterAvailable: (featureFlags: FeatureFlagsSet) => boolean
         activeSourceProductFilter: (sourceProductFilter: string[], sourceFilterAvailable: boolean) => string[]
         activeScoutFilter: (scoutFilter: string[], sourceFilterAvailable: boolean) => string[]
-        nonDefaultReportFilterCount: (
-            visibleStateFilter: InboxReportSectionKey[],
-            priorityFilter: SignalReportPriority[],
-            activeCreatedWindow: InboxCreatedWindow | null,
-            activeSortField: InboxSortField,
-            activeSourceProductFilter: string[],
-            activeScoutFilter: string[]
-        ) => number
         visibleStateFilter: (
             stateFilter: (
                 | 'closed'
@@ -512,6 +504,22 @@ export interface inboxFiltersLogicMeta {
             )[],
             user: UserType | null
         ) => InboxReportSectionKey[]
+        nonDefaultReportFilterCount: (
+            visibleStateFilter: (
+                | 'closed'
+                | 'dismissed'
+                | 'held-back'
+                | 'monitoring'
+                | 'needs-decision'
+                | 'not-actionable'
+                | 'resolved'
+            )[],
+            priorityFilter: SignalReportPriority[],
+            activeCreatedWindow: InboxCreatedWindow | null,
+            activeSortField: InboxSortField,
+            activeSourceProductFilter: string[],
+            activeScoutFilter: string[]
+        ) => number
     }
 }
 
@@ -901,9 +909,7 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
                     ? stateFilter
                     : stateFilter.filter((key) => !INBOX_STAFF_ONLY_REPORT_SECTION_KEYS.includes(key)),
         ],
-        // How many of the Reports filters (status, priority, created, source) differ from their
-        // default, for the badge on the compact Filters button. The window a ranking sort applies on
-        // its own is that sort's default, so it does not count.
+        // The window a ranking sort applies on its own is that sort's default, so it does not count.
         nonDefaultReportFilterCount: [
             (s) => [
                 s.visibleStateFilter,

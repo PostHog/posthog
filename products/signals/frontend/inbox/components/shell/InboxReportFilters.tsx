@@ -60,8 +60,6 @@ function PanelField({ label, children }: { label: string; children: JSX.Element 
  *
  * Sort and reviewer scope are deliberately not here. Sort orders the list rather than narrowing it,
  * and scope picks whose inbox this is, so both sit after a divider at the end of the row.
- *
- * The `panel` layout stacks the same controls with a label each, for the compact Filters panel.
  */
 export function InboxReportFilters({ layout = 'row' }: { layout?: 'row' | 'panel' }): JSX.Element {
     const { priorityFilter, timeWindowAvailable, createdWindow, sourceFilterAvailable } = useValues(inboxFiltersLogic)
@@ -96,8 +94,7 @@ export function InboxReportFilters({ layout = 'row' }: { layout?: 'row' | 'panel
                         options={CREATED_WINDOW_SELECT_OPTIONS}
                         icon={<IconCalendar />}
                         tooltip={panel ? undefined : `Created: ${createdWindowLabel(createdWindow)}`}
-                        // The window value ("7d") doubles as the short label in a narrow container. The
-                        // panel has room for the full label, and sits outside the row's container.
+                        // The window value ("7d") doubles as the short label in a narrow container.
                         renderButtonContent={(leaf) =>
                             panel ? (
                                 (leaf?.label ?? 'Any time')

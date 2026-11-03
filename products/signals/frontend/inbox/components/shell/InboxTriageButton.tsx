@@ -31,9 +31,7 @@ function triageLabel(count: number | null, compact: boolean): string {
  * Opens triage mode from the scene header. It is an action, not a filter, so it sits apart from the
  * filter row. Triage walks the primary section with the Reports tab's filters and scope, so the
  * count comes from that same section and matches what triage will show.
- *
- * `compact` is the tab-row variant for a narrow container: a shorter label and no hotkey hint. The
- * `t` hotkey itself is bound by the scene, so it works either way.
+ * `compact` drops the hotkey hint for the narrow tab row. The scene binds `t` either way.
  */
 export function InboxTriageButton({ compact = false }: { compact?: boolean }): JSX.Element {
     const { count } = useValues(reportListLogic(sectionListLogicProps(INBOX_PRIMARY_REPORT_SECTION_KEY)))

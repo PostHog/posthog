@@ -7,11 +7,7 @@ import { LemonBadge, LemonButton, LemonDivider, LemonDropdown } from '@posthog/l
 import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
 import { InboxReportFilters } from './InboxReportFilters'
 
-/**
- * The Reports filters folded behind one button, for a container too narrow to show them in a row.
- * Changes apply as they are made, the same as the row. The badge counts only the filters that differ
- * from their default, so the default view shows no badge.
- */
+/** The Reports filters behind one button, for a container too narrow to show them in a row. */
 export function InboxFiltersPanel(): JSX.Element {
     const { nonDefaultReportFilterCount: count } = useValues(inboxFiltersLogic)
     const { clearFilters } = useActions(inboxFiltersLogic)
@@ -47,7 +43,7 @@ export function InboxFiltersPanel(): JSX.Element {
                 icon={<IconFilter />}
                 sideIcon={count > 0 ? <LemonBadge.Number count={count} size="small" /> : undefined}
                 aria-label={count > 0 ? `Filters, ${count} changed` : 'Filters'}
-                // pinned: autocapture selector. Compact filter usage insights filter clicks on this data-attr.
+                // pinned: autocapture selector. It measures use of the compact filters, so renaming it breaks that.
                 data-attr="inbox-filters-panel"
             >
                 Filters
