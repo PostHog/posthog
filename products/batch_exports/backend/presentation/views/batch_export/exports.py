@@ -5,14 +5,13 @@ import typing
 import dataclasses
 
 import posthoganalytics
-from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
+from drf_spectacular.utils import extend_schema, extend_schema_view
 from rest_framework import request, response, serializers, status, viewsets
 from rest_framework.exceptions import NotAuthenticated, NotFound, PermissionDenied, ValidationError
 
 from posthog.api.log_entries import LogEntryMixin
 from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
-from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.routing import PathParameter, TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.integrations import IntegrationRecord
 from posthog.models import User
@@ -43,7 +42,6 @@ from products.batch_exports.backend.presentation.views.utils import (
     HogQLModifiersField,
     check_high_frequency_batch_exports_enabled,
     check_hogql_batch_exports_enabled,
-    parse_path_uuid,
 )
 
 from . import (
@@ -565,7 +563,7 @@ class BatchExportSerializer(serializers.Serializer):
             export_id = self.instance.id
         elif view is not None and "pk" in view.kwargs:
             # Running validation for a `detail=True` action.
-            export_id = uuid.UUID(str(view.kwargs["pk"]))
+            export_id = view.kwargs["pk"]
 
         try:
             batch_exports_api.validate_batch_export_destination(
@@ -652,12 +650,6 @@ class BatchExportSerializer(serializers.Serializer):
             raise serializers.ValidationError(str(e))
 
 
-# The viewset has no queryset to type the `id` path parameter from, so each detail action declares it.
-BATCH_EXPORT_ID_PARAMETER = OpenApiParameter(
-    "id", OpenApiTypes.UUID, OpenApiParameter.PATH, description="A UUID string identifying this batch export."
-)
-
-
 @extend_schema(tags=["batch_exports"])
 @extend_schema_view(
     # Request bodies use a polymorphic destination schema so that integration-backed types
@@ -666,13 +658,11 @@ BATCH_EXPORT_ID_PARAMETER = OpenApiParameter(
     # created before integrations keep their inline credentials on update.
     # Responses continue to use BatchExportSerializer.
     create=extend_schema(request=BatchExportRequestSerializer),
-    update=extend_schema(request=BatchExportRequestSerializer, parameters=[BATCH_EXPORT_ID_PARAMETER]),
-    partial_update=extend_schema(request=BatchExportRequestSerializer, parameters=[BATCH_EXPORT_ID_PARAMETER]),
-    retrieve=extend_schema(parameters=[BATCH_EXPORT_ID_PARAMETER]),
-    destroy=extend_schema(parameters=[BATCH_EXPORT_ID_PARAMETER]),
-    logs=extend_schema(parameters=[BATCH_EXPORT_ID_PARAMETER]),
+    update=extend_schema(request=BatchExportRequestSerializer),
+    partial_update=extend_schema(request=BatchExportRequestSerializer),
 )
 class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelViewSet):
+    path_parameters = {"pk": PathParameter(type=uuid.UUID, description="A UUID string identifying this batch export.")}
     scope_object = "batch_export"
     serializer_class = BatchExportSerializer
     pagination_class = FacadeLimitOffsetPagination
@@ -683,7 +673,7 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
         # export is read through the facade instead. That skips the mixin's team filter and object
         # permission check, so both happen here: the facade filters by team, and
         # check_object_permissions runs on the contract. `logs` reads the export through here too.
-        export_id = parse_path_uuid(self.kwargs["pk"])
+        export_id = self.kwargs["pk"]
         try:
             batch_export = batch_exports_api.get_batch_export(
                 self.team_id, export_id, include_latest_runs=self.action == "retrieve"
@@ -699,7 +689,7 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
             lambda page: batch_exports_api.list_batch_exports(self.team_id, page=page),
         )
 
-    @extend_schema(request=None, parameters=[BATCH_EXPORT_ID_PARAMETER])
+    @extend_schema(request=None)
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def pause(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Pause a BatchExport."""
@@ -720,7 +710,7 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
 
         return response.Response({"paused": True})
 
-    @extend_schema(request=BatchExportUnpauseRequestSerializer, parameters=[BATCH_EXPORT_ID_PARAMETER])
+    @extend_schema(request=BatchExportUnpauseRequestSerializer)
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def unpause(self, request: request.Request, *args, **kwargs) -> response.Response:
         """Unpause a BatchExport."""
@@ -807,7 +797,6 @@ class BatchExportViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, viewsets.ModelVi
 
         return self._run_destination_test_step(serializer, test_step, export_id=None)
 
-    @extend_schema(parameters=[BATCH_EXPORT_ID_PARAMETER])
     @action(methods=["POST"], detail=True, required_scopes=["batch_export:write"])
     def run_test_step(self, request: request.Request, *args, **kwargs) -> response.Response:
         test_step = self._parse_destination_test_step(request)
