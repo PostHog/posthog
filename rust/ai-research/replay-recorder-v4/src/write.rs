@@ -915,12 +915,22 @@ mod tests {
         );
         assert!(!stored_lines(&event, &[public]).is_empty());
         // So is a copy that a selector spells with other CSS escapes than the rewrite replaces, beside a plain copy.
-        for selector in [
-            r".a-\[https\3a \2f \2f bucket\.s3\.amazonaws\.com\2f avatar\.png\3f X-Amz-Signature\3d abc123\]",
-            r".a-\[https://bucket\.s3\.amazonaws\.com/avatar\.png\?X-Amz-Signature\=abc123\]",
+        for (url, selector) in [
+            (
+                signed,
+                r".a-\[https\3a \2f \2f bucket\.s3\.amazonaws\.com\2f avatar\.png\3f X-Amz-Signature\3d abc123\]",
+            ),
+            (
+                signed,
+                r".a-\[https://bucket\.s3\.amazonaws\.com/avatar\.png\?X-Amz-Signature\=abc123\]",
+            ),
+            (
+                "https://bucket.s3.amazonaws.com/café.png?X-Amz-Signature=abc123",
+                r".a-\[https\3a //bucket\.s3\.amazonaws\.com/café\.png\?X-Amz-Signature\=abc123\]",
+            ),
         ] {
             let events = json!([{"type": 3, "timestamp": 1, "data": {"source": 8, "id": 3,
-                "replaceSync": format!("{selector}{{background:url({signed})}}")}}])
+                "replaceSync": format!("{selector}{{background:url({url})}}")}}])
             .to_string();
             let lines = stored_lines(&events, &[]);
             assert!(

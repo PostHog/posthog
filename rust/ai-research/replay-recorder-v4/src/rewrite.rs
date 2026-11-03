@@ -26,7 +26,7 @@ use replay_core_v4::scan::tokens::{Token, Tokens};
 use replay_core_v4::seal::image_url_key;
 use replay_core_v4::url_policy::is_remote;
 
-use crate::scrub::{escaped_matches, Scrub, Scrubber};
+use crate::scrub::{for_each_escaped_match, Scrub, Scrubber};
 use crate::urls::url_reference;
 
 /// A byte that a URL can go on with. A match next to one is part of a longer URL, so it stays as it is. A comma, a
@@ -652,14 +652,14 @@ impl UrlRewrite {
         if !self.css_escape.is_match(bytes) {
             return;
         }
-        for (pattern, (start, end)) in escaped_matches(&spellings.urls, bytes) {
+        for_each_escaped_match(&spellings.urls, bytes, |pattern, (start, end)| {
             if !spellings.replaced[pattern]
                 .iter()
                 .any(|spelling| bytes[start..end] == spelling[..])
             {
                 self.declined_respelled.insert(spellings.targets[pattern]);
             }
-        }
+        });
     }
 
     fn replace_escaped_urls<'b>(&mut self, bytes: &'b [u8]) -> Cow<'b, [u8]> {

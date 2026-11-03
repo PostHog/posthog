@@ -80,6 +80,9 @@ fn continues_word(ch: u32) -> bool {
 /// The character at `at` after its JSON escape, and its length in bytes.
 fn json_unit(bytes: &[u8], at: usize) -> (u32, usize) {
     let byte = bytes[at];
+    if byte >= 0x80 {
+        return utf8_char_at(bytes, at);
+    }
     if byte != b'\\' {
         return (u32::from(byte), 1);
     }
@@ -102,6 +105,20 @@ fn json_unit(bytes: &[u8], at: usize) -> (u32, usize) {
         }
         None => (u32::from(byte), 1),
     }
+}
+
+fn utf8_char_at(bytes: &[u8], at: usize) -> (u32, usize) {
+    let width = match bytes[at] {
+        0xf0..=0xff => 4,
+        0xe0..=0xef => 3,
+        0xc0..=0xdf => 2,
+        _ => 1,
+    };
+    bytes
+        .get(at..at + width)
+        .and_then(|sequence| std::str::from_utf8(sequence).ok())
+        .and_then(|text| text.chars().next())
+        .map_or((u32::from(bytes[at]), 1), |ch| (u32::from(ch), width))
 }
 
 /// The character at `at` after its JSON escape and a CSS escape inside it. A CSS hex escape takes the one whitespace
@@ -304,10 +321,14 @@ fn decoded(bytes: &[u8], (start, end): (usize, usize)) -> String {
     text
 }
 
-/// Each match of `patterns` in a JSON string read through its escapes, with the span of the bytes that spell it. Only a
-/// string that holds a CSS escape is read, because a match in any other string has no other spelling.
-pub fn escaped_matches(patterns: &AhoCorasick, bytes: &[u8]) -> Vec<(usize, (usize, usize))> {
-    let mut matches = Vec::new();
+/// Calls `on_match` with each match of `patterns` in a JSON string read through its escapes, and the span of the bytes
+/// that spell it. Only a string that holds a CSS escape is read, because a match in any other string has no other
+/// spelling.
+pub fn for_each_escaped_match(
+    patterns: &AhoCorasick,
+    bytes: &[u8],
+    mut on_match: impl FnMut(usize, (usize, usize)),
+) {
     let mut at = 0;
     while let Some(open) = bytes[at..].iter().position(|&b| b == b'"').map(|i| at + i) {
         let mut end = open + 1;
@@ -332,23 +353,20 @@ pub fn escaped_matches(patterns: &AhoCorasick, bytes: &[u8]) -> Vec<(usize, (usi
                 text.push(character);
                 position += length;
             }
-            let found: Vec<(usize, usize, usize)> = patterns
-                .find_iter(&text)
-                .map(|found| (found.pattern().as_usize(), found.start(), found.end()))
-                .collect();
             // A second walk maps each match to its bytes, because a per-character index costs many times the string.
-            let (mut text_at, mut position, mut next, mut start) = (0, open + 1, 0, open + 1);
-            while next < found.len() && position < end {
-                if text_at == found[next].1 {
-                    start = position;
+            let (mut text_at, mut position) = (0, open + 1);
+            let mut bytes_up_to = |text_end: usize| {
+                while text_at < text_end {
+                    let (character, length) = decoded(position);
+                    text_at += character.len_utf8();
+                    position += length;
                 }
-                let (character, length) = decoded(position);
-                text_at += character.len_utf8();
-                position += length;
-                if text_at == found[next].2 {
-                    matches.push((found[next].0, (start, position)));
-                    next += 1;
-                }
+                position
+            };
+            for found in patterns.find_iter(&text) {
+                let start = bytes_up_to(found.start());
+                let stop = bytes_up_to(found.end());
+                on_match(found.pattern().as_usize(), (start, stop));
             }
         }
         at = end + 1;
@@ -356,7 +374,6 @@ pub fn escaped_matches(patterns: &AhoCorasick, bytes: &[u8]) -> Vec<(usize, (usi
             break;
         }
     }
-    matches
 }
 
 /// Whether the byte before `at` closes a JSON escape that ends a token, such as `\n`, rather than an escaped backslash.
@@ -613,10 +630,10 @@ mod tests {
         let urls =
             AhoCorasick::new(["https://a.example.com/p", "https://b.example.com/q"]).unwrap();
         let bytes = r#"{"plain":"https://a.example.com/p","css":"é https\\3a //a.example.com/p https:\\/\\/b.example.com\\/q"}"#;
-        let found: Vec<(usize, &str)> = escaped_matches(&urls, bytes.as_bytes())
-            .into_iter()
-            .map(|(pattern, (start, end))| (pattern, &bytes[start..end]))
-            .collect();
+        let mut found = Vec::new();
+        for_each_escaped_match(&urls, bytes.as_bytes(), |pattern, (start, end)| {
+            found.push((pattern, &bytes[start..end]));
+        });
         assert_eq!(
             found,
             [
