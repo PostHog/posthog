@@ -275,6 +275,9 @@ def _save_slack_reply_once(
     the second path finds the first path's comment.
     """
     with transaction.atomic():
+        # Root before mirror: deleting a root locks it before its delete signal removes the mirror, and
+        # unlinking does the same, so taking them the other way round here could deadlock with either.
+        list(Comment.objects.select_for_update().filter(id=mirror.source_comment_id).values_list("id"))
         # No row means the thread was unlinked while this message was on its way, so its discussion
         # is gone and the message has nowhere to go.
         if not list(CommentSlackThread.objects.unscoped().select_for_update().filter(id=mirror.id).values_list("id")):
@@ -725,7 +728,11 @@ def start_linked_thread_import(mirror: CommentSlackThread) -> None:
         _fail_linked_thread_import(mirror, type(exc).__name__)
 
 
-@shared_task(bind=True, ignore_result=True, max_retries=5, default_retry_delay=30)
+# Acknowledged once a page finishes, so a page a lost worker was on runs again rather than leaving the
+# root at "pending". A rerun is safe: saved messages are skipped and the notice posts once.
+@shared_task(
+    bind=True, ignore_result=True, max_retries=5, default_retry_delay=30, acks_late=True, reject_on_worker_lost=True
+)
 @skip_team_scope_audit  # Comment is on RootTeamManager; writes pin the team via the mirror row
 def import_linked_slack_thread(
     self: Task, comment_slack_thread_id: str, cursor: str | None = None, seen: int = 0
@@ -779,7 +786,12 @@ def import_linked_slack_thread(
             allow_unresolved=final_attempt,
         )
     except Exception as exc:
-        countdown = _slack_retry_after(exc, cap=LINKED_THREAD_IMPORT_MAX_COOLDOWN_SECONDS)
+        if isinstance(exc, UnresolvedSlackAuthor):
+            # users.info is usually rate limited when it can't answer, and resolve_slack_user hides
+            # Slack's Retry-After. Backing off doubles past even a long cooldown before the last try.
+            countdown: int | None = min(60 * 2**self.request.retries, LINKED_THREAD_IMPORT_MAX_COOLDOWN_SECONDS)
+        else:
+            countdown = _slack_retry_after(exc, cap=LINKED_THREAD_IMPORT_MAX_COOLDOWN_SECONDS)
         _retry_or_fail_import(self, mirror, exc, final_attempt=final_attempt, countdown=countdown)
         return
 
