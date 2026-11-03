@@ -678,7 +678,7 @@ export const SignalsReportsActionsRunCreateBody = () => zod.object({
 })
 
 /**
- * Start or update work for the current user, internal task, or external agent. Supply claim_id to resume, pull_requests to add PRs, takeover=true to explicitly take ownership, or release=true to end ownership while preserving work history and PR links.
+ * Start or update work for the current user, internal task, or external agent. Supply claim_id to resume, pull_requests to add PRs, takeover=true to explicitly take ownership, or release=true to end ownership while preserving work history and PR links. Adding PRs needs task:write as well as inbox:write.
  * @summary Claim or release a signal report
  */
 export const SignalsReportsClaimParams = () => zod.object({
@@ -1297,6 +1297,7 @@ export const signalsReportChecksReplaceCreateBodyTitleMax = 200
 
 export const signalsReportChecksReplaceCreateBodyRationaleMax = 2000
 
+export const signalsReportChecksReplaceCreateBodyConfigOneMonitoringOnePurposeDefault = `expectation`
 export const signalsReportChecksReplaceCreateBodyConfigOneMonitoringOneReferencePeriodMinutesExclusiveMin = 0
 export const signalsReportChecksReplaceCreateBodyConfigOneMonitoringOneReferencePeriodMinutesMax = 527040
 
@@ -1329,6 +1330,12 @@ export const SignalsReportChecksReplaceCreateBody = () => zod.object({
             monitoring: zod
                 .union([
                     zod.object({
+                        purpose: zod
+                            .enum(['expectation', 'minimum_evidence'])
+                            .default(signalsReportChecksReplaceCreateBodyConfigOneMonitoringOnePurposeDefault)
+                            .describe(
+                                '`expectation` evaluates whether the implementation met its target. `minimum_evidence` checks a fixed minimum sample count: meeting it passes the guard; missing it is inconclusive and requires assessment, never an implementation failure. Use a positive whole-number `gte` target on one unsampled raw count.'
+                            ),
                         reference_period_minutes: zod
                             .number()
                             .gt(
@@ -1509,7 +1516,7 @@ export const SignalsReportsBulkStateCreateBody = () => zod.object({
 })
 
 /**
- * Your open inbox reports, ranked for you by one language model call over your activity summary, the reports that need you and the ranking model's predictions. Each entry has a reason and a compact report. The request never waits on the model. A current stored list returns at once. Otherwise the request starts a background build and returns the last stored list with `stale: true`, or your reports in inbox order with `fallback_reason: building`, and `building: true`. Pass `wait_seconds` to wait a short time for the new list. Only the user the list is about can read it.
+ * Your open inbox reports, ranked for you by one language model call over your activity summary, the reports that need you and the ranking model's predictions. Each entry has a reason and a compact report. The request never waits on the model. A current stored list returns quickly. Otherwise the request reads every candidate report, which can take some seconds, starts a background build and returns the last stored list with `stale: true`, or your reports in inbox order with `fallback_reason: building`, and `building: true`. Pass `wait_seconds` to wait a short time for the new list. Only the user the list is about can read it.
  * @summary Get your personal ranked inbox
  */
 export const SignalsReportsForMeRetrieveParams = () => zod.object({
@@ -1557,7 +1564,7 @@ export const SignalsReportsForMeRetrieveQueryParams = () => zod.object({
         .max(signalsReportsForMeRetrieveQueryWaitSecondsMax)
         .default(signalsReportsForMeRetrieveQueryWaitSecondsDefault)
         .describe(
-            'When the request starts a build or one is running, wait up to this many seconds for its list. Defaults to 0, which returns at once. A build usually takes 10 to 60 seconds.'
+            'When the request starts a build or one is running, wait for its list until this many seconds after the request started. Defaults to 0, which does not wait. A build usually takes 10 to 60 seconds.'
         ),
 })
 
@@ -4309,6 +4316,7 @@ export const signalsScoutReportCheckCreateBodyTitleMax = 200
 
 export const signalsScoutReportCheckCreateBodyRationaleMax = 2000
 
+export const signalsScoutReportCheckCreateBodyConfigOneOneMonitoringOnePurposeDefault = `expectation`
 export const signalsScoutReportCheckCreateBodyConfigOneOneMonitoringOneReferencePeriodMinutesExclusiveMin = 0
 export const signalsScoutReportCheckCreateBodyConfigOneOneMonitoringOneReferencePeriodMinutesMax = 527040
 
@@ -4362,6 +4370,14 @@ export const SignalsScoutReportCheckCreateBody = () => zod
                         monitoring: zod
                             .union([
                                 zod.object({
+                                    purpose: zod
+                                        .enum(['expectation', 'minimum_evidence'])
+                                        .default(
+                                            signalsScoutReportCheckCreateBodyConfigOneOneMonitoringOnePurposeDefault
+                                        )
+                                        .describe(
+                                            '`expectation` evaluates whether the implementation met its target. `minimum_evidence` checks a fixed minimum sample count: meeting it passes the guard; missing it is inconclusive and requires assessment, never an implementation failure. Use a positive whole-number `gte` target on one unsampled raw count.'
+                                        ),
                                     reference_period_minutes: zod
                                         .number()
                                         .gt(

@@ -2177,11 +2177,15 @@ class TestEnableBlockingWhenKeyRequired(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("explicit_config", True),
-            ("null_config", False),
+            ("explicit_config_no_key", True, False, "doesn't have a working one yet"),
+            ("null_config_no_key", False, False, "doesn't have a working one yet"),
+            ("explicit_config_unused_key", True, True, "isn't set to use it"),
+            ("null_config_unused_key", False, True, "isn't set to use it"),
         ]
     )
-    def test_blocks_enabling_keyless_eval_without_key(self, _name, explicit_config):
+    def test_blocks_enabling_keyless_eval_without_key(self, _name, explicit_config, has_unused_key, expected):
+        if has_unused_key:
+            self._create_active_key()
         eval_obj = (
             self._create_keyless_eval() if explicit_config else self._create_keyless_eval(model_configuration=None)
         )
@@ -2189,7 +2193,7 @@ class TestEnableBlockingWhenKeyRequired(APIBaseTest):
         response = self._enable(eval_obj)
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Add a provider API key", str(response.data))
+        self.assertIn(expected, str(response.data))
         eval_obj.refresh_from_db()
         self.assertFalse(eval_obj.enabled)
 
@@ -2249,7 +2253,7 @@ class TestEnableBlockingWhenKeyRequired(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("Add a provider API key", str(response.data))
+        self.assertIn("doesn't have a working one yet", str(response.data))
         self.assertEqual(Evaluation.objects.filter(name="Doomed Eval").count(), 0)
 
     def test_allows_enabling_hog_eval_without_key(self):

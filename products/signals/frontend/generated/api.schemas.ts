@@ -5641,6 +5641,14 @@ export const SignalReportCheckStatusEnumApi = {
     Cancelled: 'cancelled',
 } as const
 
+export type MonitoringMetricConfigPurposeEnumApi =
+    (typeof MonitoringMetricConfigPurposeEnumApi)[keyof typeof MonitoringMetricConfigPurposeEnumApi]
+
+export const MonitoringMetricConfigPurposeEnumApi = {
+    Expectation: 'expectation',
+    MinimumEvidence: 'minimum_evidence',
+} as const
+
 export type ThresholdScalingEnumApi = (typeof ThresholdScalingEnumApi)[keyof typeof ThresholdScalingEnumApi]
 
 export const ThresholdScalingEnumApi = {
@@ -5649,6 +5657,8 @@ export const ThresholdScalingEnumApi = {
 } as const
 
 export interface MonitoringMetricConfigApi {
+    /** `expectation` evaluates whether the implementation met its target. `minimum_evidence` checks a fixed minimum sample count: meeting it passes the guard; missing it is inconclusive and requires assessment, never an implementation failure. Use a positive whole-number `gte` target on one unsampled raw count. */
+    purpose?: MonitoringMetricConfigPurposeEnumApi
     /**
      * The period the comparison target describes, in minutes. Independent of the soak and run schedule.
      * @maximum 527040
@@ -11317,7 +11327,7 @@ export type SignalsReportsForMeRetrieveParams = {
      */
     refresh?: boolean
     /**
-     * When the request starts a build or one is running, wait up to this many seconds for its list. Defaults to 0, which returns at once. A build usually takes 10 to 60 seconds.
+     * When the request starts a build or one is running, wait for its list until this many seconds after the request started. Defaults to 0, which does not wait. A build usually takes 10 to 60 seconds.
      * @minimum 0
      * @maximum 30
      */
