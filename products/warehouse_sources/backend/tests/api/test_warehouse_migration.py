@@ -298,6 +298,7 @@ class TestWarehouseMigrationAPI(APIBaseTest):
         assert migration.account_name == "Example Co"
         assert dict(items.values_list("vendor_connection_id", "status")) == {"conn_a": "skipped", "conn_b": "pending"}
         assert items.get(vendor_connection_id="conn_a").name == "conn_a"
+        assert migration.snapshot is not None
         snapshot_connections = {connection["id"]: connection for connection in migration.snapshot["connections"]}
         assert snapshot_connections["conn_b"]["schedule"]["time_of_day_utc"] == "03:00"
         stored = json.dumps([migration.snapshot, list(items.values())], default=str)
