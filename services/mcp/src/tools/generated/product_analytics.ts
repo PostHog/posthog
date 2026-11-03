@@ -125,31 +125,55 @@ const PieChartSettings = z.object({
         .optional(),
 })
 
-const AssistantDataVisualizationAxisDisplaySettings = z.object({
-    color: z.string().describe('Custom color for this series as a hex string (e.g. `#1d4aff`).').optional(),
-    description: z.string().describe('Table column description shown in the header tooltip.').optional(),
-    displayType: z.enum(['auto', 'line', 'bar', 'area']).describe('Chart type. `auto` uses `display`.').optional(),
-    label: z.string().describe('Label that replaces the column name.').optional(),
-    trendLine: z.coerce
-        .boolean()
-        .describe('Draw a linear trend line for this series. Only meaningful for line, bar, and area charts.')
-        .optional(),
-    yAxisPosition: z
-        .enum(['left', 'right'])
-        .describe('Which Y axis this numeric series should use. Use `right` for a secondary Y axis.')
-        .optional(),
-})
-
 const AssistantDataVisualizationAxisFormatting = z.object({
     decimalPlaces: z.coerce.number().describe('Number of decimal places to display.').optional(),
     prefix: z.string().describe('Text prepended to each value (e.g. `$`).').optional(),
     style: z
         .enum(['none', 'number', 'short', 'percent'])
         .describe(
-            '`none`: raw. `number`: thousands separators. `short`: 1.2k. `percent`: 0–1 ratio × 100 with `%`. Omit a `%` suffix.'
+            '`none`: unformatted; `number`: thousands separators; `short`: abbreviations (1.2k, 3.4M). `percent`: multiplies by 100 and adds `%`. Pass a 0–1 ratio (`a / b`) and omit the `%` suffix to avoid doubling it.'
         )
         .optional(),
     suffix: z.string().describe('Value suffix (e.g. ` ms`). Omit for `percent`, which adds `%`.').optional(),
+})
+
+const AssistantDataVisualizationColumnSettings = z.object({
+    formatting: AssistantDataVisualizationAxisFormatting.describe(
+        'Number-formatting settings for the values in this column.'
+    ).optional(),
+})
+
+const AssistantDataVisualizationColumn = z.object({
+    column: z.string().describe('Name of a column returned by the SQL query.'),
+    settings: AssistantDataVisualizationColumnSettings.describe(
+        'Optional number formatting for this column.'
+    ).optional(),
+})
+
+const AssistantDataVisualizationAxisDisplaySettings = z.object({
+    color: z.string().describe('Custom color for this series as a hex string (e.g. `#1d4aff`).').optional(),
+    displayType: z.enum(['auto', 'line', 'bar', 'area']).describe('Chart type. `auto` uses `display`.').optional(),
+    excludeFromTotal: z.coerce
+        .boolean()
+        .describe(
+            "Keep this series out of the tooltip's total row, e.g. a target line over stacked bars. A bar series still stacks, so set `displayType` to `line` for a series drawn over the stack."
+        )
+        .optional(),
+    label: z.string().describe('Series label in legends and tooltips; replaces the column name.').optional(),
+    trendLine: z.coerce
+        .boolean()
+        .describe('Draw a linear trend line for this series. Only meaningful for line, bar, and area charts.')
+        .optional(),
+    valueLabels: z
+        .enum(['auto', 'show', 'hide'])
+        .describe(
+            'Per-series override of chart-level `showValuesOnSeries`. `show` labels this series even when the chart setting is off, `hide` leaves it unlabeled when the setting is on, `auto` follows the chart.'
+        )
+        .optional(),
+    yAxisPosition: z
+        .enum(['left', 'right'])
+        .describe('Which Y axis this numeric series should use. Use `right` for a secondary Y axis.')
+        .optional(),
 })
 
 const AssistantDataVisualizationAxisSettings = z.object({
@@ -209,7 +233,7 @@ const AssistantDataVisualizationChartSettings = z.object({
         .boolean()
         .describe('Stack bars to 100% of the total. Only meaningful with `ActionsStackedBar`.')
         .optional(),
-    xAxis: AssistantDataVisualizationAxis.describe(
+    xAxis: AssistantDataVisualizationColumn.describe(
         'Column used as the X axis. Typically a time bucket or categorical column, but `ScatterPlot` plots two measures against each other, so it needs a numeric column here too.'
     ).optional(),
     xAxisLabel: z.string().describe('Label rendered under the X axis.').optional(),
@@ -238,7 +262,7 @@ const AssistantDataVisualizationDisplayType = z.enum([
 
 const AssistantDataVisualizationTableSettings = z.object({
     columns: z
-        .array(AssistantDataVisualizationAxis)
+        .array(AssistantDataVisualizationColumn)
         .describe('Columns to display and their order. Omit to show every column returned by the query.')
         .optional(),
     pinnedColumns: z.array(z.string()).describe('Column names to pin to the left of the table.').optional(),
