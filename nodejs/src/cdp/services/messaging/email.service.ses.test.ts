@@ -15,7 +15,7 @@ import {
     createMessageAssetsService,
     insertEmailWorkflowsConfig,
 } from '~/tests/helpers/email'
-import { LocalSes, LocalSesAwsEnvironment } from '~/tests/helpers/ses'
+import { LocalSes, useLocalSesAwsEnvironment } from '~/tests/helpers/ses'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 
 import { Hub } from '../../../types'
@@ -41,7 +41,6 @@ describe('EmailService with local SES', () => {
     const hourlyCap = 4
     const dailyCap = 8
     const capReachedLog = `reached its email sending limit of ${hourlyCap} emails per hour`
-    let environment: LocalSesAwsEnvironment | undefined
     let services: EmailServiceFixture
 
     const workflowBucket = (): { key: string; capacity: number; refillPerSecond: number } => ({
@@ -102,8 +101,7 @@ describe('EmailService with local SES', () => {
     }
 
     beforeEach(async () => {
-        environment = new LocalSesAwsEnvironment()
-        environment.configure()
+        useLocalSesAwsEnvironment()
         ses = new LocalSes()
         await ses.start()
         hub = await createHub({ SITE_URL: 'http://localhost:8000' })
@@ -140,7 +138,6 @@ describe('EmailService with local SES', () => {
         if (hub) {
             await closeHub(hub)
         }
-        environment?.restore()
         jest.restoreAllMocks()
     })
 
@@ -560,7 +557,7 @@ describe('EmailService with local SES', () => {
     })
 
     it.each([1, 3])('reschedules after %i SDK attempt(s) and sends its email payload on retry', async (attempts) => {
-        environment?.setMaxAttempts(attempts)
+        process.env.AWS_MAX_ATTEMPTS = String(attempts)
         useService()
         ses.setError('TooManyRequestsException')
         invocation.queuePriority = 1
