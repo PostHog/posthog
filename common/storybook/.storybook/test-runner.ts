@@ -41,6 +41,12 @@ console.log('[test-runner] Storybook snapshots will be saved to', customSnapshot
 const JEST_TIMEOUT_MS = 60000 // Multi-viewport snapshots can take substantially longer in CI
 const PLAYWRIGHT_TIMEOUT_MS = 10000 // Must be shorter than JEST_TIMEOUT_MS
 const VIEWPORT_SETTLE_TIMEOUT_MS = 5000
+// How long the page must stay unchanged before a snapshot. See waitForQuiet.
+const QUIET_WINDOW_MS = 250
+// The longest waits for a quiet page. They equal the fixed sleeps that waitForQuiet replaced: 300 ms after
+// the resize nudge, and a 300 ms size check plus a 1000 ms sleep before each theme's snapshot.
+const RESIZE_SETTLE_TIMEOUT_MS = 300
+const CONTENT_SETTLE_TIMEOUT_MS = 1300
 
 // Each story file gets a fresh browser context, so `prepare` reloads the whole preview bundle with a
 // cold HTTP cache. Under CI contention that tail overruns Playwright's 30s default. RETRY_TIMES can't
@@ -391,7 +397,7 @@ async function expectStoryToMatchSnapshot(
         window.dispatchEvent(new Event('resize'))
     })
     // Allow ResizeObserver callbacks to fire and React to re-render with updated dimensions
-    await page.waitForTimeout(300)
+    await waitForQuiet(page, RESIZE_SETTLE_TIMEOUT_MS)
 
     const {
         waitForLoadersToDisappear = true,
@@ -439,6 +445,56 @@ async function waitForPossiblyFramedSelector(page: Page, selector: string, timeo
         return
     }
     await page.frameLocator(frameSelector.trim()).locator(innerSelector.trim()).first().waitFor({ timeout })
+}
+
+/**
+ * Waits until the page has had no DOM mutation and no change of the body size for QUIET_WINDOW_MS.
+ * This replaces fixed sleeps: most stories are quiet long before a fixed sleep ends. A story that never
+ * goes quiet, such as one with a live timer, continues at `timeout`. Each timeout is the length of the
+ * fixed sleep it replaces, so no story waits longer than before. The deadline runs inside the page, so
+ * the observer always disconnects.
+ */
+async function waitForQuiet(page: Page, timeout: number): Promise<void> {
+    await page
+        .evaluate(
+            ([quietWindowMs, timeoutMs]) =>
+                new Promise<void>((resolve) => {
+                    let lastChange = performance.now()
+                    let lastSize = ''
+                    const observer = new MutationObserver(() => {
+                        lastChange = performance.now()
+                    })
+                    const finish = (): void => {
+                        observer.disconnect()
+                        clearTimeout(deadline)
+                        resolve()
+                    }
+                    const deadline = setTimeout(finish, timeoutMs)
+                    observer.observe(document.documentElement, {
+                        subtree: true,
+                        childList: true,
+                        attributes: true,
+                        characterData: true,
+                    })
+                    const check = (): void => {
+                        const size = `${document.body.scrollWidth}:${document.body.scrollHeight}`
+                        if (size !== lastSize) {
+                            lastSize = size
+                            lastChange = performance.now()
+                        }
+                        if (performance.now() - lastChange >= quietWindowMs) {
+                            finish()
+                            return
+                        }
+                        requestAnimationFrame(check)
+                    }
+                    requestAnimationFrame(check)
+                }),
+            [QUIET_WINDOW_MS, timeout]
+        )
+        .catch(() => {
+            // The page can navigate away during the wait. The snapshot step reports that.
+        })
 }
 
 /** A resize wipes a quill chart canvas before its repaint, and the body-size check cannot see a chart resizing inside a fixed-height card. */
@@ -568,45 +624,8 @@ async function takeSnapshotWithTheme(
         })
     })
 
-    // wait for content to stabilize - detects when DOM stops changing
-    await page
-        .waitForFunction(
-            () => {
-                return new Promise<boolean>((resolve) => {
-                    let lastHeight = document.body.scrollHeight
-                    let lastWidth = document.body.scrollWidth
-                    let stableCount = 0
-
-                    const checkStability = (): void => {
-                        const currentHeight = document.body.scrollHeight
-                        const currentWidth = document.body.scrollWidth
-
-                        if (currentHeight === lastHeight && currentWidth === lastWidth) {
-                            stableCount++
-                            if (stableCount >= 3) {
-                                resolve(true)
-                                return
-                            }
-                        } else {
-                            stableCount = 0
-                            lastHeight = currentHeight
-                            lastWidth = currentWidth
-                        }
-
-                        setTimeout(checkStability, 100)
-                    }
-
-                    checkStability()
-                })
-            },
-            { timeout: 3000 }
-        )
-        .catch(() => {
-            // if content keeps changing, that's okay - we'll proceed anyway
-        })
-
-    // final wait for any remaining renders
-    await page.waitForTimeout(1000)
+    // Wait for the content to stop changing. A story that keeps changing is snapshotted at the timeout.
+    await waitForQuiet(page, CONTENT_SETTLE_TIMEOUT_MS)
 
     await waitForChartCanvasesPainted(page)
 
