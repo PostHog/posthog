@@ -9,7 +9,7 @@ import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
-from django.test import SimpleTestCase, override_settings
+from django.test import override_settings
 
 import requests
 from parameterized import parameterized
@@ -34,7 +34,6 @@ from posthog.shared_link_user import SharedLinkUser
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.metrics.backend.facade.contracts import MetricPoint
 from products.metrics.backend.hogql_queries.metrics_query_runner import MetricsQueryRunner
-from products.metrics.backend.presentation.api import _MetricQueryBodySerializer
 from products.metrics.backend.series import rank_and_fill_series
 from products.metrics.backend.sql_mode import run_metrics_sql_values
 from products.metrics.backend.tests._seeder import seed_metric
@@ -648,62 +647,6 @@ class TestMetricsPromQLMode(APIBaseTest):
                         else None
                     )
                     MetricsQueryRunner(query=self._runner().query, team=self.team, user=user).calculate()
-
-    @parameterized.expand([("snuffle_enabled", True), ("snuffle_disabled", False)])
-    def test_query_endpoint_runs_promql_behind_the_snuffle_flag(self, _name: str, snuffle_enabled: bool) -> None:
-        def flag_enabled(flag: str, *args: Any, **kwargs: Any) -> bool:
-            return snuffle_enabled or flag != "logs-metrics-snuffle-api"
-
-        start = int(dt.datetime(2026, 9, 19, 11, 0, tzinfo=dt.UTC).timestamp())
-        payload = {
-            "status": "success",
-            "data": {"resultType": "matrix", "result": [{"metric": {"job": "api"}, "values": [[start, "2"]]}]},
-        }
-        with (
-            patch("posthoganalytics.feature_enabled", side_effect=flag_enabled),
-            patch(
-                "posthog.api.snuffle_proxy.internal_requests.request", return_value=_snuffle_response(200, payload)
-            ) as request,
-        ):
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/metrics/query",
-                {
-                    "query": {
-                        "promql": "sum by (job) (up)",
-                        "dateFrom": "2026-09-19T11:00:00Z",
-                        "dateTo": "2026-09-19T12:00:00Z",
-                    }
-                },
-                format="json",
-            )
-
-        if not snuffle_enabled:
-            assert response.status_code == 403
-            request.assert_not_called()
-            return
-        assert response.status_code == 200, response.json()
-        assert request.call_args.kwargs["data"]["query"] == "sum by (job) (up)"
-        [series] = response.json()["results"]
-        assert series["labels"] == {"job": "api"}
-        assert series["points"][0]["value"] == 2.0
-
-
-class TestPromQLQueryBody(SimpleTestCase):
-    @parameterized.expand(
-        [
-            ("promql_alone", {"promql": "up"}, True),
-            ("blank_promql", {"promql": "  "}, False),
-            ("promql_and_metric_name", {"promql": "up", "metricName": "up"}, False),
-            (
-                "promql_and_clauses",
-                {"promql": "up", "clauses": [{"name": "a", "metricName": "up", "aggregation": "sum"}]},
-                False,
-            ),
-            ("promql_and_a_builder_field", {"promql": "up", "rangeFunction": "rate"}, False),
-        ]
-    )
-    def test_promql_is_the_whole_query(self, _name: str, body: dict[str, Any], valid: bool) -> None:
-        assert _MetricQueryBodySerializer(data=body).is_valid() == valid
 
 
 def test_series_cap_applies_per_clause() -> None:

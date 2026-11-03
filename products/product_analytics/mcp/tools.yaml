@@ -90,8 +90,8 @@ tools:
             `InsightVizNode`.
 
 
-            For a PromQL metrics insight, set `language` to `promql` and put the expression in `promql`. Test the
-            expression first with query-metrics and its `promql` field:
+            For a PromQL metrics insight, set `language` to `promql`, put the expression in `promql`, and send `clauses`
+            as an empty list. When query-metrics accepts a `promql` field, test the expression with it first:
 
 
             ```json

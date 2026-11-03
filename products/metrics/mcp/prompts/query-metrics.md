@@ -6,11 +6,10 @@ All parameters go inside `query` — top-level fields are rejected:
 { "query": { "metricName": "m", "aggregation": "rate", "dateFrom": "2026-01-01T00:00:00Z" } }
 ```
 
-Three request forms:
+Two request forms:
 
 - **Single metric (shorthand):** set `metricName` (+ `aggregation`, `filters`, `groupBy`).
 - **Multi-clause / formula:** set `clauses: [{name, metricName, aggregation, quantile?, filters?, groupBy?}, ...]` and optionally `formula` (e.g. `"(a - b) / a"` over clause names; `+ - * /` and parentheses; division by zero yields 0). With a formula set, only the formula result series are returned.
-- **PromQL:** set `promql` to a PromQL expression, for example `sum by (service_name) (rate(http_requests_total[5m]))`. It runs as a range query on the request's time grid. Put filters, grouping and functions in the expression, not in the other fields. In PromQL, `service.name` is `service_name`, and other label names with dots need quotes. Use this form to test the query of a PromQL metrics insight before you save it with insight-create. If the project does not have PromQL enabled, the request fails with a 403, so use the other forms.
 
 # Workflow — follow this order every time
 
