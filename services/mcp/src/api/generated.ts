@@ -73335,6 +73335,7 @@ export namespace Schemas {
      * * `BOUNCE` - Bounce
      * * `MANUAL` - Manual
      * * `COMPLAINT` - Complaint
+     * * `KNOWN_INVALID` - Known invalid
      */
     export type SuppressionSourceEnum = typeof SuppressionSourceEnum[keyof typeof SuppressionSourceEnum];
 
@@ -73343,6 +73344,7 @@ export namespace Schemas {
       Bounce: 'BOUNCE',
       Manual: 'MANUAL',
       Complaint: 'COMPLAINT',
+      KnownInvalid: 'KNOWN_INVALID',
     } as const;
 
     export interface MessageSuppression {
@@ -73350,11 +73352,12 @@ export namespace Schemas {
       readonly id: string;
       /** Normalized recipient email address. Suppression is keyed on this value, per team. */
       readonly identifier: string;
-      /** How the entry landed on the list: `BOUNCE` for automatic (bounce-driven), `COMPLAINT` for automatic (the recipient reported a message as spam), `MANUAL` for user-added via the UI/API.
+      /** How the entry landed on the list: `BOUNCE` for automatic (bounce-driven), `COMPLAINT` for automatic (the recipient reported a message as spam), `KNOWN_INVALID` for automatic (the address does not exist, because an email to it from another PostHog sender hard-bounced), `MANUAL` for user-added via the UI/API. Removing a `KNOWN_INVALID` entry lets this team send to the address again.
        *
        * * `BOUNCE` - Bounce
        * * `MANUAL` - Manual
-       * * `COMPLAINT` - Complaint */
+       * * `COMPLAINT` - Complaint
+       * * `KNOWN_INVALID` - Known invalid */
       readonly source: SuppressionSourceEnum;
       /**
          * Human-readable reason for the suppression (e.g. 'Auto-suppressed after 5 consecutive soft bounces').

@@ -36,7 +36,7 @@ class MessageSuppressionSerializer(serializers.Serializer):
     source = serializers.ChoiceField(  # type: ignore[assignment]  # field named `source` shadows DRF Field.source
         choices=SUPPRESSION_SOURCE_CHOICES,
         read_only=True,
-        help_text="How the entry landed on the list: `BOUNCE` for automatic (bounce-driven), `COMPLAINT` for automatic (the recipient reported a message as spam), `MANUAL` for user-added via the UI/API.",
+        help_text="How the entry landed on the list: `BOUNCE` for automatic (bounce-driven), `COMPLAINT` for automatic (the recipient reported a message as spam), `KNOWN_INVALID` for automatic (the address does not exist, because an email to it from another PostHog sender hard-bounced), `MANUAL` for user-added via the UI/API. Removing a `KNOWN_INVALID` entry lets this team send to the address again.",
     )
     reason = serializers.CharField(
         read_only=True,

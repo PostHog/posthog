@@ -50,7 +50,8 @@ def remove_suppression(team_id: int, identifier: str) -> bool:
     # bounce or complaint would set the mark again. `source` is reset to BOUNCE so
     # a future auto-suppression can re-suppress this row — the node upserts skip rows with
     # source='MANUAL' (to protect user-managed entries), so a removed MANUAL row would otherwise
-    # be permanently invisible to the bounce-driven write path.
+    # be permanently invisible to the bounce-driven write path. `known_invalid_allowed_at` stops the
+    # cross-team known-invalid list from blocking the address again, which would undo the removal.
     updated = (
         MessageSuppression.objects.for_team(team_id)
         .filter(identifier=identifier)
@@ -61,6 +62,7 @@ def remove_suppression(team_id: int, identifier: str) -> bool:
             hard_bounced_at=None,
             reason=None,
             source=SuppressionSource.BOUNCE,
+            known_invalid_allowed_at=timezone.now(),
             updated_at=timezone.now(),
         )
     )

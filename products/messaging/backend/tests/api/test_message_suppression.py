@@ -117,6 +117,7 @@ class TestRemoveSuppressionResetsSource(APIBaseTest):
             row.hard_bounced_at,
             row.reason,
             row.source,
+            row.known_invalid_allowed_at is not None,
         ) == (
             False,
             True,
@@ -124,6 +125,7 @@ class TestRemoveSuppressionResetsSource(APIBaseTest):
             None,
             None,
             SuppressionSource.BOUNCE,
+            True,
         ), (
             "remove_suppression must reset the row so the node write path can auto-suppress this address again if it later bounces"
         )
