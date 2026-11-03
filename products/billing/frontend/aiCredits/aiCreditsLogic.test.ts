@@ -123,6 +123,35 @@ describe('aiCreditsLogic', () => {
         expect(purchaseKeys[2]).not.toEqual(purchaseKeys[1])
     })
 
+    it('drops the failure of a quote that a newer quote replaced', async () => {
+        let firstQuoteRequested!: () => void
+        const firstQuoteStarted = new Promise<void>((resolve) => (firstQuoteRequested = resolve))
+        let failFirstQuote!: () => void
+        const firstQuoteFails = new Promise<void>((resolve) => (failFirstQuote = resolve))
+        useMocks({
+            get: {
+                '/api/billing/ai_credits/quote/': async ({ request }) => {
+                    const amountUsd = new URL(request.url).searchParams.get('amount_usd')
+                    if (amountUsd !== '50.00') {
+                        return [200, { ...QUOTE, amount_usd: amountUsd }]
+                    }
+                    firstQuoteRequested()
+                    await firstQuoteFails
+                    return [503, { code: 'ai_credits_tax_unavailable', detail: 'PostHog says what happened' }]
+                },
+            },
+        })
+
+        logic.actions.openAddFundsModal()
+        await firstQuoteStarted
+        logic.actions.setAddFundsFormValue('amountUsd', 100)
+        failFirstQuote()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.quote?.amount_usd).toEqual('100.00')
+        expect(logic.values.quoteError).toBeNull()
+    })
+
     it('lets the person edit the settings only once they load', async () => {
         expect(logic.values.settingsEditDisabledReason).toEqual('Loading your settings')
         await expectLogic(logic).toFinishAllListeners()

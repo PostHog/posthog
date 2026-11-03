@@ -931,6 +931,8 @@ export const aiCreditsLogic = kea<aiCreditsLogicType>([
                 if (isBreakpoint(error as Error)) {
                     throw error
                 }
+                // A newer quote replaced this one, so its failure must not show over the newer state.
+                breakpoint()
                 actions.setQuoteError(errorMessage(error, "We couldn't work out the total. Try again in a minute."))
             }
         },
