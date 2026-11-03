@@ -76,9 +76,12 @@ class InsufficientScope(PermissionDenied):
     flow has the client union the challenge with the scopes it holds and ask the user for that.
     """
 
-    def __init__(self, detail: str, required_scopes: list[str]) -> None:
+    def __init__(self, detail: str, required_scopes: list[str], extra: dict[str, Any] | None = None) -> None:
         super().__init__(detail=detail)
         self.auth_header = f'Bearer error="insufficient_scope", scope="{" ".join(required_scopes)}"'
+        # drf-exceptions-hog adds `extra` to the error body, for example the scopes a workload token misses.
+        if extra:
+            self.extra = extra
 
 
 class Conflict(APIException):
@@ -230,19 +233,6 @@ def generate_exception_response(
     return JsonResponse({"type": type, "code": code, "detail": detail, "attr": attr}, status=status_code)
 
 
-class InsufficientScope(PermissionDenied):
-    """A 403 for a token that lacks a scope, with the RFC 6750 section 3.1 challenge naming every scope
-    the request requires, so a client can read them instead of parsing the message."""
-
-    default_code = "insufficient_scope"
-
-    def __init__(self, detail: str, *, required_scopes: list[str], extra: dict[str, Any] | None = None) -> None:
-        super().__init__(detail)
-        self.www_authenticate = f'Bearer error="insufficient_scope", scope="{" ".join(required_scopes)}"'
-        if extra:
-            self.extra = extra
-
-
 def exception_handler(exc: Exception, context: ExceptionContext) -> Optional[Response]:
     """
     Wraps drf-exceptions-hog and, on 401, advertises the OAuth protected resource
@@ -258,9 +248,6 @@ def exception_handler(exc: Exception, context: ExceptionContext) -> Optional[Res
     from posthog.utils import absolute_uri
 
     response = _exceptions_hog_handler(exc, context)
-    scope_challenge = getattr(exc, "www_authenticate", None)
-    if response is not None and response.status_code == status.HTTP_403_FORBIDDEN and scope_challenge:
-        response["WWW-Authenticate"] = scope_challenge.replace("\r", "").replace("\n", "")
     if response is not None and response.status_code == status.HTTP_401_UNAUTHORIZED:
         # A view may pin its own challenge (e.g. the skills marketplace git endpoints, which
         # git clients can only satisfy with Basic — they cannot complete a Bearer/OAuth flow).
