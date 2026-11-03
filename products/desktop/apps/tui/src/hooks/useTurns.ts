@@ -9,6 +9,7 @@ import {
 import type { LocalAgent } from "../local";
 import type { CloudRuns, RunView } from "../runs";
 import {
+  echoes,
   midTurn,
   noTurns,
   readTurn,
@@ -40,6 +41,7 @@ export function useTurns({
   taskOf,
   localSessions,
   pending,
+  onDelivered,
   listed = [],
 }: {
   layout: LayoutState;
@@ -47,7 +49,10 @@ export function useTurns({
   taskOf: (taskId: string | null) => Task | undefined;
   localSessions: Map<string, LocalAgent>;
   // Chats with a message on its way: a turn has begun before the run's log can say so.
-  pending: Set<string>;
+  pending: Map<string, string>;
+  // The log shows a chat's pending message, so the chat's own turn state takes over. A pane shows the same, but only
+  // for the chat it holds: one the user left right after sending would otherwise count as working for good.
+  onDelivered: (taskId: string) => void;
   // The work list's chats: one no pane shows is read from its prefetched tail on each list refresh, not streamed.
   listed?: Task[];
 }): Turns {
@@ -73,7 +78,13 @@ export function useTurns({
   );
   // A sent message opens a turn at once; the view says the rest once the run has echoed it. A message that
   // never got through leaves the view as it was, so the chat settles back to what the view says.
-  const pendingIds = [...pending].sort().join(",");
+  const pendingRef = useRef(pending);
+  pendingRef.current = pending;
+  const deliveredRef = useRef(onDelivered);
+  deliveredRef.current = onDelivered;
+  // Each pending chat's last user line when the message went out, so a resend of the same words is not its own echo.
+  const lastUserBefore = useRef(new Map<string, string>());
+  const pendingIds = [...pending.keys()].sort().join(",");
   const wasPending = useRef(new Set<string>());
   useEffect(() => {
     const now = new Set(pendingIds ? pendingIds.split(",") : []);
@@ -81,8 +92,14 @@ export function useTurns({
       setTurns((state) =>
         settle(state, taskId, true, taskId === focused.current),
       );
-      if (!wasPending.current.has(taskId))
+      if (!wasPending.current.has(taskId)) {
+        const last = latest.current.get(taskId);
+        lastUserBefore.current.set(
+          taskId,
+          (last && readTurn(last.view, last.runtime).lastUser?.id) || "",
+        );
         setRepliedAt((current) => new Map(current).set(taskId, Date.now()));
+      }
     }
     for (const taskId of wasPending.current) {
       if (now.has(taskId)) continue;
@@ -169,6 +186,16 @@ export function useTurns({
       const read = new Map<string, TurnFacts>();
       for (const [taskId, { view, runtime }] of unread.current) {
         const reading = readTurn(view, runtime);
+        const sent = pendingRef.current.get(taskId);
+        if (
+          sent !== undefined &&
+          echoes(
+            reading.lastUser,
+            sent,
+            lastUserBefore.current.get(taskId) ?? "",
+          )
+        )
+          deliveredRef.current(taskId);
         // A message still on its way keeps the turn open whatever the log says so far.
         const working = reading.working || wasPending.current.has(taskId);
         setTurns((state) =>

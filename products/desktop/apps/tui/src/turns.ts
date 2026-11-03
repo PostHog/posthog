@@ -51,21 +51,41 @@ export interface TurnFacts {
 // unchanged one is never read twice. The transcript is rebuilt from the whole log, which costs a frame when long.
 const readings = new WeakMap<
   object,
-  { runtime: AgentRuntime | undefined; turnOpen: boolean; facts: TurnFacts }
+  {
+    runtime: AgentRuntime | undefined;
+    turnOpen: boolean;
+    facts: TurnFacts;
+    lastUser: { id: string; text: string } | null;
+  }
 >();
+
+// The log shows a message the user sent: its last user line has these words and arrived after the send. A resend of
+// the same words must not match the log's old copy, so a line that was already the last one before the send is no echo.
+export const echoes = (
+  lastUser: { id: string; text: string } | null,
+  sent: string,
+  lastUserBefore: string,
+): boolean =>
+  lastUser !== null && lastUser.text === sent && lastUser.id !== lastUserBefore;
 
 // Whether a chat is mid-turn, and its last turn's facts. The facts are null while a turn runs: only a settled turn
 // has an end to report, so a streaming chat adds nothing to the inbox's cost.
 export function readTurn(
   view: RunView,
   runtime: AgentRuntime | undefined,
-): { working: boolean; facts: TurnFacts | null } {
-  if (!view.loaded) return { working: false, facts: null };
+): {
+  working: boolean;
+  facts: TurnFacts | null;
+  lastUser: { id: string; text: string } | null;
+} {
+  if (!view.loaded) return { working: false, facts: null, lastUser: null };
   let reading = readings.get(view.entries);
   if (!reading || reading.runtime !== runtime) {
     const transcript = transcriptFrom(runtime, view.entries);
+    const user = transcript.lines.findLast((line) => line.kind === "user");
     reading = {
       runtime,
+      lastUser: user ? { id: user.id, text: user.text } : null,
       turnOpen: transcript.turnOpen,
       facts: {
         turnEndedAt: transcript.lastTurn?.endedAt ?? null,
@@ -78,7 +98,11 @@ export function readTurn(
   const working =
     (view.status === "queued" || view.status === "in_progress") &&
     reading.turnOpen;
-  return { working, facts: working ? null : reading.facts };
+  return {
+    working,
+    facts: working ? null : reading.facts,
+    lastUser: reading.lastUser,
+  };
 }
 
 // The run is up and has a prompt it has not finished answering.

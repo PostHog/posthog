@@ -362,105 +362,118 @@ describe("App", () => {
     }
   });
 
-  it("keeps a chat's sidebar spinner going after it leaves the screen, until its turn ends", async () => {
-    initTheme("dark");
-    const sessions = join(homedir(), ".config", "posthog-tui", "local");
-    mkdirSync(sessions, { recursive: true });
-    writeFileSync(join(sessions, "t4.jsonl"), "");
-    saveLayout(openTask(initialLayout(), "t4"));
-    const event = (second: number, fields: Record<string, unknown>) => ({
-      type: "pi_event",
-      timestamp: new Date(second * 1000).toISOString(),
-      event: { timestamp: second * 1000, ...fields },
-    });
-    const midTurn = {
-      ...emptyRunView,
-      loaded: true,
-      status: "in_progress",
-      entries: [
-        event(1, {
-          type: "user_message",
-          id: "u1",
-          content: [{ type: "text", text: "Rename the helper" }],
-        }),
-        event(2, {
-          type: "assistant_message_chunk",
-          content: { type: "text", text: "On it." },
-        }),
-      ],
-    } as typeof emptyRunView;
-    const watchers = new Set<(view: typeof emptyRunView) => void>();
-    const local = {
-      watch: (onView: (view: typeof emptyRunView) => void) => {
-        watchers.add(onView);
-        onView(midTurn);
-        return () => watchers.delete(onView);
-      },
-      watchPrompts: () => () => {},
-      prompt: async () => {},
-      stop: async () => {},
-      control: {
-        models: async () => ({ available: [], current: null }),
-        efforts: async () => ({ available: [], current: null }),
-        commands: async () => [],
-      },
-    } as unknown as LocalSession;
-    const mouse: MouseEvents = new EventEmitter();
-    const { instance, output, type } = renderInTerminal(
-      <App
-        session={{
-          work: {
-            listRecent: async () => ({
-              tasks: [{ id: "t4", title: "Local", runtime: "pi" } as Task],
-              hasMore: false,
-            }),
-          } as unknown as WorkList,
-          runs: {
-            prefetch: async () => {},
-            watchPrompts: () => () => {},
-          } as unknown as CloudRuns,
-          chats: {} as PiChats,
-          control: () => ({}) as PiControl,
-          startLocal: async () => local,
-        }}
-        login={async () => {}}
-        logout={() => {}}
-        mouse={mouse}
-      />,
-    );
-    const spinning = /[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Local/;
-    const drawnSince = (mark: number): string =>
-      stripTerminalSequences(output().slice(mark));
-    try {
-      // The message starts the agent; its log already echoes it, so only the agent's turn keeps the spinner.
-      await vi.waitFor(() => expect(output()).toContain("Local"));
-      mouse.emit("keys", "Rename the helper");
-      mouse.emit("keys", "\r");
-      await vi.waitFor(() => expect(drawnSince(0)).toMatch(spinning), {
-        timeout: 3_000,
+  it.each([
+    ["its log echoed the message while it was on screen", true],
+    ["the user left before the log echoed the message", false],
+  ])(
+    "keeps a chat's sidebar spinner going after it leaves the screen, until its turn ends: %s",
+    async (_name, echoedFirst) => {
+      initTheme("dark");
+      // Local agents live in a global map by task id, so each case needs its own.
+      const id = echoedFirst ? "t4" : "t4b";
+      const sessions = join(homedir(), ".config", "posthog-tui", "local");
+      mkdirSync(sessions, { recursive: true });
+      writeFileSync(join(sessions, `${id}.jsonl`), "");
+      saveLayout(openTask(initialLayout(), id));
+      const event = (second: number, fields: Record<string, unknown>) => ({
+        type: "pi_event",
+        timestamp: new Date(second * 1000).toISOString(),
+        event: { timestamp: second * 1000, ...fields },
       });
-      // Ctrl+N puts a new chat on screen in its place.
-      type("\x0e");
-      await vi.waitFor(() => expect(watchers.size).toBe(1));
-      const left = output().length;
-      await vi.waitFor(() => expect(drawnSince(left)).toMatch(spinning));
+      const midTurn = {
+        ...emptyRunView,
+        loaded: true,
+        status: "in_progress",
+        entries: [
+          event(1, {
+            type: "user_message",
+            id: "u1",
+            content: [{ type: "text", text: "Rename the helper" }],
+          }),
+          event(2, {
+            type: "assistant_message_chunk",
+            content: { type: "text", text: "On it." },
+          }),
+        ],
+      } as typeof emptyRunView;
+      const watchers = new Set<(view: typeof emptyRunView) => void>();
+      const local = {
+        watch: (onView: (view: typeof emptyRunView) => void) => {
+          watchers.add(onView);
+          onView(
+            echoedFirst
+              ? midTurn
+              : { ...emptyRunView, loaded: true, status: "in_progress" },
+          );
+          return () => watchers.delete(onView);
+        },
+        watchPrompts: () => () => {},
+        prompt: async () => {},
+        stop: async () => {},
+        control: {
+          models: async () => ({ available: [], current: null }),
+          efforts: async () => ({ available: [], current: null }),
+          commands: async () => [],
+        },
+      } as unknown as LocalSession;
+      const mouse: MouseEvents = new EventEmitter();
+      const { instance, output, type } = renderInTerminal(
+        <App
+          session={{
+            work: {
+              listRecent: async () => ({
+                tasks: [{ id, title: "Local", runtime: "pi" } as Task],
+                hasMore: false,
+              }),
+            } as unknown as WorkList,
+            runs: {
+              prefetch: async () => {},
+              watchPrompts: () => () => {},
+            } as unknown as CloudRuns,
+            chats: {} as PiChats,
+            control: () => ({}) as PiControl,
+            startLocal: async () => local,
+          }}
+          login={async () => {}}
+          logout={() => {}}
+          mouse={mouse}
+        />,
+      );
+      const spinning = /[⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏] Local/;
+      const drawnSince = (mark: number): string =>
+        stripTerminalSequences(output().slice(mark));
+      try {
+        // The message starts the agent; its log already echoes it, so only the agent's turn keeps the spinner.
+        await vi.waitFor(() => expect(output()).toContain("Local"));
+        mouse.emit("keys", "Rename the helper");
+        mouse.emit("keys", "\r");
+        await vi.waitFor(() => expect(drawnSince(0)).toMatch(spinning), {
+          timeout: 3_000,
+        });
+        // The pane and the turn tracker both watch the agent; Ctrl+N then puts a new chat on screen in its place.
+        await vi.waitFor(() => expect(watchers.size).toBe(2));
+        type("\x0e");
+        await vi.waitFor(() => expect(watchers.size).toBe(1));
+        const left = output().length;
+        await vi.waitFor(() => expect(drawnSince(left)).toMatch(spinning));
 
-      for (const onView of watchers)
-        onView({
-          ...midTurn,
-          entries: [
-            ...midTurn.entries,
-            event(3, { type: "turn_completed", stopReason: "stop" }),
-          ],
-        } as typeof emptyRunView);
-      await vi.waitFor(() => expect(drawnSince(left)).toContain("■ Local"), {
-        timeout: 3_000,
-      });
-    } finally {
-      instance.unmount();
-      rmSync(sessions, { recursive: true });
-    }
-  });
+        for (const onView of watchers)
+          onView({
+            ...midTurn,
+            entries: [
+              ...midTurn.entries,
+              event(3, { type: "turn_completed", stopReason: "stop" }),
+            ],
+          } as typeof emptyRunView);
+        await vi.waitFor(() => expect(drawnSince(left)).toContain("■ Local"), {
+          timeout: 3_000,
+        });
+      } finally {
+        instance.unmount();
+        rmSync(sessions, { recursive: true });
+      }
+    },
+  );
 
   it.each([
     ["Ctrl+K", "\x0b"],

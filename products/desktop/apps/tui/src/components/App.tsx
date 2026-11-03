@@ -416,17 +416,21 @@ export function App({
     mcpSheet,
   });
   // Chats with a message on its way; a new chat's message waits on its pane until the chat has a task.
-  const pendingTaskIds = useMemo(
-    () =>
-      new Set([...pending.keys()].filter((id) => isLocal(id) || taskOf(id))),
+  const pendingTexts = useMemo(
+    () => new Map([...pending].filter(([id]) => isLocal(id) || taskOf(id))),
     [pending, isLocal, taskOf],
+  );
+  const _pendingTaskIds = useMemo(
+    () => new Set(pendingTexts.keys()),
+    [pendingTexts],
   );
   const turns = useTurns({
     layout,
     runs: runs ?? null,
     taskOf,
     localSessions,
-    pending: pendingTaskIds,
+    pending: pendingTexts,
+    onDelivered: delivered,
     listed: page.tasks ?? undefined,
   });
   const search = useSearch({
