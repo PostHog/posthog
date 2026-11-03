@@ -38,6 +38,16 @@ interface ReferenceLineSummary {
     orientation: 'horizontal' | 'vertical' | null
 }
 
+export interface ValueBandSummary {
+    /** Pixel box of the band, from its inline style. */
+    top: number | null
+    left: number | null
+    width: number | null
+    height: number | null
+    /** Fill color from inline style. */
+    color: string
+}
+
 interface ValueLabelSummary {
     text: string
     /** Inline style backgroundColor (matches the series color). */
@@ -92,6 +102,8 @@ export interface ChartAccessor<Meta = unknown> {
     hasRightAxis: boolean
     /** All reference lines currently rendered for this chart (goal/alert/marker). */
     referenceLines(): ReferenceLineSummary[]
+    /** All value bands currently rendered for this chart. */
+    valueBands(): ValueBandSummary[]
     /** All value-label overlays currently rendered for this chart. */
     valueLabels(): ValueLabelSummary[]
     /** All anomaly point markers currently rendered (TimeSeriesLineChart only). */
@@ -172,13 +184,24 @@ function findCanvas(scope: HTMLElement): HTMLCanvasElement | null {
     return scope.querySelector('canvas[aria-label]')
 }
 
-function parsePixelStyle(style: CSSStyleDeclaration, prop: 'top' | 'left'): number | null {
+function parsePixelStyle(style: CSSStyleDeclaration, prop: 'top' | 'left' | 'width' | 'height'): number | null {
     const raw = style[prop]
     if (!raw || !raw.endsWith('px')) {
         return null
     }
     const n = Number(raw.slice(0, -2))
     return Number.isFinite(n) ? n : null
+}
+
+/** Value bands rendered inside `scope`. Exported for overlay tests that render without a chart. */
+export function readValueBands(scope: ParentNode): ValueBandSummary[] {
+    return Array.from(scope.querySelectorAll<HTMLElement>('[data-attr="hog-chart-value-band"]')).map((el) => ({
+        top: parsePixelStyle(el.style, 'top'),
+        left: parsePixelStyle(el.style, 'left'),
+        width: parsePixelStyle(el.style, 'width'),
+        height: parsePixelStyle(el.style, 'height'),
+        color: el.style.backgroundColor,
+    }))
 }
 
 // The reference-line component renders a 1px line as a single coloured border
@@ -261,6 +284,7 @@ export function getChart<Meta = unknown>(
             Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-reference-line"]')).map(
                 readReferenceLine
             ),
+        valueBands: () => readValueBands(wrapper),
         valueLabels: () =>
             Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-value-label"]')).map((el) => ({
                 text: el.textContent ?? '',
