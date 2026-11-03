@@ -323,8 +323,9 @@ If volume is high, set `rollout_percentage` below 100 to sample. Spot-check the 
 spot-run for a judge with no usable key, per 2.3). For a numeric or categorical Hog eval, pass the same
 `output_type` and `output_config` to `llma-evaluation-test-hog`, so the preview validates the scores or
 category keys the saved eval will accept.
-Both tools currently use generation samples; for a trace target they can check shared source or prompt behavior,
-but they do not reproduce the complete settled trace. Review the first live trace results before increasing rollout.
+For a trace or session target, pass the same `target` and `target_config` to `llma-evaluation-test-hog`, so the
+preview runs over whole traces or sessions. `llma-evaluation-run` uses one generation only, so for a trace or session
+judge it checks prompt behavior but not the complete settled unit. Review the first live results before increasing rollout.
 
 > **Watch out:** some orgs reuse a single `$ai_trace_id` across 100k+ events. Scoping by trace-ID prefix
 > can match far more than expected — verify volume with the SQL above before enabling.

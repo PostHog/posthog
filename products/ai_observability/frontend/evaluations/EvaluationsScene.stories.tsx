@@ -61,3 +61,14 @@ export const NoOnlineEvaluations: Story = {}
 export const Narrow: Story = {
     parameters: { narrow: true },
 }
+
+export const WithSuggestEvals: Story = {
+    parameters: {
+        featureFlags: [
+            FEATURE_FLAGS.LLM_ANALYTICS_DATASETS,
+            FEATURE_FLAGS.AI_OBSERVABILITY_OFFLINE_EVALUATIONS,
+            FEATURE_FLAGS.LLM_ANALYTICS_SUGGEST_EVALS,
+        ],
+        testOptions: { waitForSelector: '[data-attr="evaluation-suggest-with-posthog-ai"]', snapshotBrowsers: [] },
+    },
+}

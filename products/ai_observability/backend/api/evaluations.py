@@ -945,6 +945,51 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         return result
 
 
+def _config_length(instance: Evaluation) -> int:
+    """Get the relevant config content length for tracking."""
+    if instance.evaluation_config and isinstance(instance.evaluation_config, dict):
+        content_key = get_evaluation_config_content_key(instance.evaluation_type)
+        content = instance.evaluation_config.get(content_key, "") if content_key else ""
+        return len(content) if isinstance(content, str) else 0
+    return 0
+
+
+def save_new_evaluation(
+    serializer: EvaluationSerializer,
+    *,
+    user: "User",
+    team: Team,
+    request: Request | None = None,
+    source: str | None = None,
+) -> Evaluation:
+    """Save a validated new evaluation with the side effects every creation path shares."""
+    with transaction.atomic():
+        instance = serializer.save()
+
+        if evaluation_supports_reports(instance.output_type, instance.target, instance.output_config):
+            # Auto-create a default report config so reports are generated from the start.
+            # Defaults to count-triggered (frequency=every_n), so rrule/starts_at stay empty
+            # and users add email/Slack delivery targets later if they want notifications.
+            EvaluationReport.objects.get_or_create(evaluation=instance, team_id=team.id)
+
+    conditions = instance.conditions or []
+    properties: dict[str, Any] = {
+        "evaluation_id": str(instance.id),
+        "evaluation_name": instance.name,
+        "evaluation_type": instance.evaluation_type,
+        "output_type": instance.output_type,
+        "has_description": bool(instance.description),
+        "enabled": instance.enabled,
+        "condition_count": len(conditions),
+        "has_rollout_percentage": any(condition.get("rollout_percentage", 100) < 100 for condition in conditions),
+        "config_length": _config_length(instance),
+    }
+    if source:
+        properties["source"] = source
+    report_user_action(user, "llma evaluation created", properties, team=team, request=request)
+    return instance
+
+
 class EvaluationFilter(django_filters.FilterSet):
     search = django_filters.CharFilter(method="filter_search", help_text="Search in name or description")
     directory_id = django_filters.UUIDFilter(
@@ -1439,50 +1484,8 @@ class EvaluationViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, Forbi
                 "List the project's evaluations to look one up by name."
             )
 
-    @staticmethod
-    def _get_config_length(instance) -> int:
-        """Get the relevant config content length for tracking."""
-        if instance.evaluation_config and isinstance(instance.evaluation_config, dict):
-            content_key = get_evaluation_config_content_key(instance.evaluation_type)
-            content = instance.evaluation_config.get(content_key, "") if content_key else ""
-            return len(content) if isinstance(content, str) else 0
-        return 0
-
     def perform_create(self, serializer):
-        with transaction.atomic():
-            instance = serializer.save()
-
-            if evaluation_supports_reports(instance.output_type, instance.target, instance.output_config):
-                # Auto-create a default report config so reports are generated from the start.
-                # Defaults to count-triggered (frequency=every_n), so rrule/starts_at stay empty
-                # and users add email/Slack delivery targets later if they want notifications.
-                EvaluationReport.objects.get_or_create(evaluation=instance, team_id=self.team_id)
-
-        # Calculate properties for tracking
-        conditions = instance.conditions or []
-        condition_count = len(conditions)
-        has_rollout_percentage = any(condition.get("rollout_percentage", 100) < 100 for condition in conditions)
-
-        config_length = self._get_config_length(instance)
-
-        # Track evaluation created
-        report_user_action(
-            self.request.user,
-            "llma evaluation created",
-            {
-                "evaluation_id": str(instance.id),
-                "evaluation_name": instance.name,
-                "evaluation_type": instance.evaluation_type,
-                "output_type": instance.output_type,
-                "has_description": bool(instance.description),
-                "enabled": instance.enabled,
-                "condition_count": condition_count,
-                "has_rollout_percentage": has_rollout_percentage,
-                "config_length": config_length,
-            },
-            team=self.team,
-            request=self.request,
-        )
+        save_new_evaluation(serializer, user=cast("User", self.request.user), team=self.team, request=self.request)
 
     def perform_update(self, serializer):
         previously_supported_reports = evaluation_supports_reports(

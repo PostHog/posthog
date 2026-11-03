@@ -84,6 +84,16 @@ def has_experiment_summary_tool_feature_flag(team: Team, user: User) -> bool:
     )
 
 
+def has_suggest_evals_feature_flag(team: Team, user: User) -> bool:
+    return feature_enabled_or_false(
+        "llm-analytics-suggest-evals",
+        str(user.distinct_id),
+        groups={"organization": str(team.organization_id)},
+        group_properties={"organization": {"id": str(team.organization_id)}},
+        send_feature_flag_events=False,
+    )
+
+
 def is_core_memory_disabled(team: Team, user: User) -> bool:
     return feature_enabled_or_false(
         "phai-core-mem-disabled",

@@ -1398,6 +1398,19 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
             return 'Testing evaluation code...'
         },
     },
+    create_evaluation: {
+        name: 'Create evaluation',
+        description: 'Create a disabled evaluation for review',
+        product: Scene.AIObservabilityEvaluation,
+        icon: iconForType('llm_evaluations'),
+        modes: [AgentMode.AIObservability],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Created evaluation'
+            }
+            return 'Creating evaluation...'
+        },
+    },
     list_llm_skills: {
         name: 'List shared skills',
         description: 'List shared skills stored for this team',

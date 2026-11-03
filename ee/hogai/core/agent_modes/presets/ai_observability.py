@@ -7,6 +7,7 @@ from ee.hogai.core.agent_modes.factory import AgentModeDefinition
 from ee.hogai.core.agent_modes.toolkit import AgentToolkit
 from ee.hogai.tools.search_traces import SearchLLMTracesTool
 from ee.hogai.tools.todo_write import TodoWriteExample
+from ee.hogai.utils.feature_flags import has_suggest_evals_feature_flag
 
 if TYPE_CHECKING:
     from ee.hogai.tool import MaxTool
@@ -149,16 +150,20 @@ class AIObservabilityAgentToolkit(AgentToolkit):
 
     @property
     def tools(self) -> list[type["MaxTool"]]:
+        from products.ai_observability.backend.tools.create_evaluation import CreateEvaluationTool
         from products.ai_observability.backend.tools.run_hog_eval import RunHogEvalTestTool
         from products.skills.backend.tools.skills import ArchiveLLMSkillTool, CreateLLMSkillTool, UpdateLLMSkillTool
 
-        return [
+        tools: list[type[MaxTool]] = [
             SearchLLMTracesTool,
             RunHogEvalTestTool,
             CreateLLMSkillTool,
             UpdateLLMSkillTool,
             ArchiveLLMSkillTool,
         ]
+        if has_suggest_evals_feature_flag(self._team, self._user):
+            tools.append(CreateEvaluationTool)
+        return tools
 
 
 ai_observability_agent = AgentModeDefinition(
