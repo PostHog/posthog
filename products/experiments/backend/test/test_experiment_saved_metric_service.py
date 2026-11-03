@@ -420,6 +420,48 @@ class TestExperimentSavedMetricService(APIBaseTest):
         saved_metric.refresh_from_db()
         assert saved_metric.query["source"]["kind"] == "EventsNode"
 
+    @parameterized.expand(
+        [
+            ("link_with_breakdowns", {"type": "primary", "breakdowns": [{"property": "$browser"}]}, True),
+            ("link_without_breakdowns", {"type": "primary"}, False),
+        ]
+    )
+    def test_update_saved_metric_to_percentile_checks_link_breakdowns(
+        self, _name: str, link_metadata: dict, should_reject: bool
+    ) -> None:
+        saved_metric = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Latency",
+            query={
+                "kind": "ExperimentMetric",
+                "metric_type": "mean",
+                "source": {"kind": "EventsNode", "event": "page_loaded", "math": "avg", "math_property": "load_ms"},
+            },
+        )
+        ExperimentService(team=self.team, user=self.user).create_experiment(
+            name="Checkout speed test",
+            feature_flag_key="saved-metric-percentile-breakdowns",
+            saved_metrics_ids=[{"id": saved_metric.id, "metadata": link_metadata}],
+        )
+        percentile_query = {
+            "kind": "ExperimentMetric",
+            "metric_type": "quantile",
+            "quantile": 0.9,
+            "source": {"kind": "EventsNode", "event": "page_loaded", "math_property": "load_ms"},
+        }
+
+        if should_reject:
+            with self.assertRaises(ValidationError) as ctx:
+                self._service().update_saved_metric(saved_metric, {"query": percentile_query})
+            assert "Checkout speed test" in str(ctx.exception)
+            saved_metric.refresh_from_db()
+            assert saved_metric.query["metric_type"] == "mean"
+        else:
+            self._service().update_saved_metric(saved_metric, {"query": percentile_query})
+            saved_metric.refresh_from_db()
+            assert saved_metric.query["metric_type"] == "quantile"
+
     def test_update_saved_metric_does_not_delete_links_on_validation_error(self) -> None:
         saved_metric = ExperimentSavedMetric.objects.create(
             team=self.team,

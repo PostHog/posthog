@@ -198,6 +198,15 @@ class TestExperimentSummaryToolHelpers(SimpleTestCase):
                 },
                 "$pageview / purchase",
             ),
+            (
+                "quantile_fractional_level",
+                {
+                    "metric_type": "quantile",
+                    "quantile": 0.975,
+                    "source": {"kind": "EventsNode", "event": "page_loaded", "math_property": "load_ms"},
+                },
+                "p97.5 of load_ms",
+            ),
         ]
     )
     def test_get_default_metric_title(self, _name, metric_dict, expected):

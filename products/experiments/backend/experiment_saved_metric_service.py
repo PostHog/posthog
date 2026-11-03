@@ -9,13 +9,18 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.models.team.team import Team
 
+from products.experiments.backend.metric_resolution import apply_saved_metric_overrides
 from products.experiments.backend.metric_utils import without_action_names
 from products.experiments.backend.metric_validation import (
     extract_entity_nodes,
     parse_and_validate_metric,
     validate_metric_action_ids,
 )
-from products.experiments.backend.models.experiment import ExperimentSavedMetric, saved_metric_has_legacy_query
+from products.experiments.backend.models.experiment import (
+    ExperimentSavedMetric,
+    ExperimentToSavedMetric,
+    saved_metric_has_legacy_query,
+)
 from products.experiments.backend.warehouse_access_control import validate_warehouse_metrics
 from products.experiments.backend.warehouse_native_sources import (
     validate_metric_warehouse_native_sources,
@@ -78,6 +83,10 @@ class ExperimentSavedMetricService:
                 saved_metric, update_data["query"], team=self.team, user=self.user
             )
             validate_metric_warehouse_native_sources([update_data["query"]], team=self.team, user=self.user)
+            if saved_metric.query is None or without_action_names(update_data["query"]) != without_action_names(
+                saved_metric.query
+            ):
+                self._validate_linked_breakdowns(saved_metric, update_data["query"])
 
         for attr, value in update_data.items():
             setattr(saved_metric, attr, value)
@@ -92,6 +101,30 @@ class ExperimentSavedMetricService:
         """Delete a saved metric."""
         self._assert_team_ownership(saved_metric)
         saved_metric.delete()
+
+    @staticmethod
+    def _validate_linked_breakdowns(saved_metric: ExperimentSavedMetric, query: dict) -> None:
+        # Each link applies its own breakdowns to the saved query, so a query change that is valid on its
+        # own, such as a switch to a percentile metric, can make the metric fail on every linked experiment.
+        links = (
+            ExperimentToSavedMetric.objects.filter(saved_metric=saved_metric, experiment__deleted=False)
+            .select_related("experiment")
+            .order_by("id")
+        )
+        failing_experiment_names: list[str] = []
+        for link in links:
+            metadata = link.metadata or {}
+            if not metadata.get("breakdowns"):
+                continue
+            try:
+                parse_and_validate_metric(apply_saved_metric_overrides(query, metadata), error_prefix="")
+            except ValidationError:
+                failing_experiment_names.append(link.experiment.name)
+        if failing_experiment_names:
+            raise ValidationError(
+                "This change can't be used with the breakdowns that these experiments add to this shared metric: "
+                f"{', '.join(failing_experiment_names)}. Remove the breakdowns from those experiments first."
+            )
 
     def _assert_team_ownership(self, saved_metric: ExperimentSavedMetric) -> None:
         if saved_metric.team_id != self.team.id:
