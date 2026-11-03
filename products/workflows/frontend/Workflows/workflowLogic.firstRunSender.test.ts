@@ -10,6 +10,7 @@ import { initKeaTests } from '~/test/init'
 import { IntegrationType } from '~/types'
 
 import { draftMessage } from '../MessageAudience/messageDrafts'
+import { hogFlowEditorLogic } from './hogflows/hogFlowEditorLogic'
 import { HogFlowAction } from './hogflows/types'
 import { NEW_WORKFLOW, workflowLogic } from './workflowLogic'
 
@@ -294,4 +295,164 @@ describe('workflow first-run sender', () => {
         expect(ensureCalls).toBe(2)
         logic.unmount()
     })
+    it.each<{
+        name: string
+        step: HogFlowAction
+        senders: Partial<IntegrationType>[]
+        flag: boolean
+        originProduct?: 'broadcasts'
+        flagArrivesAfterOpen?: boolean
+        setupFails?: boolean
+        expectedFrom: Record<string, unknown>
+        expectedEnsureCalls: number
+    }>([
+        {
+            name: 'an inserted email step gets the sandbox sender set up when the editor opened',
+            step: emailAction('function_email'),
+            senders: [],
+            flag: true,
+            expectedFrom: { integrationId: SANDBOX.id },
+            expectedEnsureCalls: 1,
+        },
+        {
+            name: 'an inserted email step gets the verified own sender over the sandbox sender',
+            step: emailAction('function_email'),
+            senders: [OWN_VERIFIED, SANDBOX],
+            flag: true,
+            expectedFrom: { integrationId: OWN_VERIFIED.id },
+            expectedEnsureCalls: 0,
+        },
+        {
+            name: 'an inserted broadcast email step never gets the sandbox sender',
+            step: emailAction('function_email'),
+            senders: [SANDBOX],
+            flag: true,
+            originProduct: 'broadcasts',
+            expectedFrom: {},
+            expectedEnsureCalls: 0,
+        },
+        {
+            name: 'an inserted generic email function never gets the sandbox sender',
+            step: emailAction('function'),
+            senders: [SANDBOX],
+            flag: true,
+            expectedFrom: {},
+            expectedEnsureCalls: 0,
+        },
+        {
+            name: 'an inserted email step gets the sandbox sender when the flag arrives after the editor opened',
+            step: emailAction('function_email'),
+            senders: [],
+            flag: true,
+            flagArrivesAfterOpen: true,
+            expectedFrom: { integrationId: SANDBOX.id },
+            expectedEnsureCalls: 1,
+        },
+        {
+            name: 'an inserted email step stays empty when the sandbox sender cannot be set up',
+            step: emailAction('function_email'),
+            senders: [],
+            flag: true,
+            setupFails: true,
+            expectedFrom: {},
+            expectedEnsureCalls: 1,
+        },
+        {
+            name: 'flag off sets nothing up and leaves an inserted email step empty',
+            step: emailAction('function_email'),
+            senders: [],
+            flag: false,
+            expectedFrom: {},
+            expectedEnsureCalls: 0,
+        },
+    ])(
+        '$name',
+        async ({
+            step,
+            senders,
+            flag,
+            originProduct,
+            flagArrivesAfterOpen,
+            setupFails,
+            expectedFrom,
+            expectedEnsureCalls,
+        }) => {
+            integrations = senders
+            ensureFails = setupFails ? 1 : 0
+            setSandboxFlag(flagArrivesAfterOpen ? false : flag)
+            const workflow = workflowLogic({ id: 'new' })
+            workflow.mount()
+            await expectLogic(workflow).toDispatchActions(['loadWorkflowSuccess'])
+            if (originProduct) {
+                workflow.actions.setWorkflowInfo({ origin_product: originProduct })
+            }
+            const editor = hogFlowEditorLogic({ id: 'new' })
+            editor.mount()
+            await expectLogic(editor).toFinishAllListeners()
+            if (flagArrivesAfterOpen) {
+                setSandboxFlag(flag)
+                await expectLogic(editor).toFinishAllListeners()
+            }
+
+            editor.actions.setNodeToBeAdded({ ...step, id: undefined } as any)
+            editor.actions.onDrop(undefined, NEW_WORKFLOW.edges[0])
+
+            const inserted = workflow.values.workflow.actions.find((action) => action.type === step.type)
+            expect((inserted?.config as any)?.inputs?.email?.value?.from).toEqual(expectedFrom)
+            expect(ensureCalls).toBe(expectedEnsureCalls)
+            editor.unmount()
+            workflow.unmount()
+        }
+    )
+
+    it.each([
+        ['', false],
+        [' and the flags refresh meanwhile', true],
+    ])(
+        'gives an email step inserted during the sandbox sender setup that sender once it finishes%s',
+        async (_case, flagsRefresh) => {
+            let finishSetup = (): void => undefined
+            const setupFinished = new Promise<void>((resolve) => {
+                finishSetup = resolve
+            })
+            useMocks({
+                post: {
+                    '/api/projects/:team_id/integrations/email_sandbox_sender/': async () => {
+                        await setupFinished
+                        ensureCalls++
+                        integrations = [...integrations, SANDBOX]
+                        return [200, SANDBOX]
+                    },
+                },
+            })
+            const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+            const workflow = workflowLogic({ id: 'new' })
+            workflow.mount()
+            await expectLogic(workflow).toDispatchActions(['loadWorkflowSuccess'])
+            const editor = hogFlowEditorLogic({ id: 'new' })
+            editor.mount()
+
+            editor.actions.setNodeToBeAdded({ ...emailAction('function_email'), id: undefined } as any)
+            editor.actions.onDrop(undefined, NEW_WORKFLOW.edges[0])
+            const insertedFrom = (): unknown =>
+                (workflow.values.workflow.actions.find((action) => action.type === 'function_email')?.config as any)
+                    ?.inputs?.email?.value?.from
+            expect(insertedFrom()).toEqual({})
+            if (flagsRefresh) {
+                setSandboxFlag(true)
+            }
+
+            finishSetup()
+            await expectLogic(editor).toFinishAllListeners()
+
+            expect(insertedFrom()).toEqual({ integrationId: SANDBOX.id })
+            expect(ensureCalls).toBe(1)
+            expect(capture.mock.calls.filter(([event]) => event === 'email sender preselected')).toEqual([
+                ['email sender preselected', { surface: 'workflow', reason: 'sandbox_sender' }],
+            ])
+            capture.mockRestore()
+            editor.unmount()
+            workflow.unmount()
+        }
+    )
 })

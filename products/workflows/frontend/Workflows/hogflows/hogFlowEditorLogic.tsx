@@ -41,9 +41,9 @@ import type {
     TeamType,
     UserBasicType,
 } from '../../../../../frontend/src/types'
-import { resolveDefaultEmailSender } from '../../Channels/defaultEmailSender'
 import { optOutCategoriesLogic } from '../../OptOuts/optOutCategoriesLogic'
 import type { MessageCategory } from '../../OptOuts/optOutCategoriesLogic'
+import { prepareSandboxSender, withInsertedStepSender } from '../firstRunSender'
 import { EXIT_NODE_ID, TRIGGER_NODE_ID, WorkflowLogicProps, workflowLogic } from '../workflowLogic'
 import { getEdgeId } from './edgeId'
 import { getFormattedNodes } from './react_flow_utils/autolayout'
@@ -2076,6 +2076,13 @@ export interface hogFlowEditorLogicActions {
               }
         payload?: any
     } // workflowLogic
+    setFeatureFlags: (
+        flags: string[],
+        variants: Record<string, boolean | string>
+    ) => {
+        flags: string[]
+        variants: Record<string, boolean | string>
+    } // featureFlagLogic
     setWorkflowAction: (
         actionId: string,
         action: HogFlowAction
@@ -2193,6 +2200,12 @@ export interface hogFlowEditorLogicActions {
     }
     onNodesDelete: (deleted: HogFlowActionNode[]) => {
         deleted: HogFlowActionNode[]
+    }
+    prepareFirstRunSender: () => {
+        value: true
+    }
+    assignInsertedStepSender: (actionId: string) => {
+        actionId: string
     }
     resetFlowFromHogFlow: (hogFlow: HogFlow) => {
         hogFlow: HogFlow
@@ -2316,12 +2329,16 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             ['setWorkflowInfo', 'setWorkflowAction', 'setWorkflowActionEdges', 'loadWorkflowSuccess'],
             optOutCategoriesLogic(),
             ['loadCategories'],
+            featureFlagLogic,
+            ['setFeatureFlags'],
         ],
     })),
     actions({
         onEdgesChange: (edges: EdgeChange<HogFlowActionEdge>[]) => ({ edges }),
         onNodesChange: (nodes: NodeChange<HogFlowActionNode>[]) => ({ nodes }),
         onNodesDelete: (deleted: HogFlowActionNode[]) => ({ deleted }),
+        prepareFirstRunSender: true,
+        assignInsertedStepSender: (actionId: string) => ({ actionId }),
         setNodes: (nodes: HogFlowActionNode[]) => ({ nodes }),
         setDropzoneNodes: (dropzoneNodes: DropzoneNode[]) => ({
             dropzoneNodes,
@@ -2591,7 +2608,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             },
         ],
     })),
-    listeners(({ values, actions }) => {
+    listeners(({ values, actions, cache }) => {
         let animationTimeout: ReturnType<typeof setTimeout> | null = null
         return {
             onEdgesChange: ({ edges }) => {
@@ -2726,6 +2743,34 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 actions.setNodesRaw(reconcileById(values.nodes, formattedNodes, (node) => node.id))
             },
 
+            prepareFirstRunSender: async () => {
+                // A second setup while one runs would cancel its sender list load, so later calls share the running one.
+                cache.senderPreparation ??= prepareSandboxSender()
+                    .catch(() => undefined)
+                    .finally(() => {
+                        cache.senderPreparation = null
+                    })
+                await cache.senderPreparation
+            },
+            assignInsertedStepSender: async ({ actionId }) => {
+                await cache.senderPreparation
+                if (cache.disposables.isDisposed) {
+                    return
+                }
+                const step = values.workflow.actions.find((action) => action.id === actionId)
+                if (!step) {
+                    return
+                }
+                const { action, sender } = withInsertedStepSender(step, values.workflow, values.integrations)
+                if (sender) {
+                    actions.setWorkflowAction(actionId, action)
+                    // pinned: analytics event name
+                    posthog.capture('email sender preselected', { surface: 'workflow', reason: sender.reason })
+                }
+            },
+            setFeatureFlags: () => {
+                actions.prepareFirstRunSender()
+            },
             onNodesDelete: ({ deleted }) => {
                 if (deleted.some((node) => node.id === values.selectedNodeId)) {
                     actions.setSelectedNodeId(null)
@@ -2916,35 +2961,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         }
                     }
 
-                    if (!isHogFlowActionNode && 'template_id' in config && config.template_id === 'template-email') {
-                        const emailInput = config.inputs?.email
-                        const team = values.currentTeam
-                        const sender = resolveDefaultEmailSender(
-                            values.integrations,
-                            team && 'workflows_config' in team
-                                ? team.workflows_config?.default_email_integration_id
-                                : null
-                        )
-                        if (sender && emailInput?.value && !emailInput.value.from?.integrationId) {
-                            config = {
-                                ...config,
-                                inputs: {
-                                    ...config.inputs,
-                                    email: {
-                                        ...emailInput,
-                                        value: {
-                                            ...emailInput.value,
-                                            from: { ...emailInput.value.from, integrationId: sender.integrationId },
-                                        },
-                                    },
-                                },
-                            }
-                            // pinned: analytics event name
-                            posthog.capture('email sender preselected', { surface: 'workflow', reason: sender.reason })
-                        }
-                    }
-
-                    const newAction = {
+                    const builtAction = {
                         id: isHogFlowActionNode
                             ? (values.nodeToBeAdded as HogFlowActionNode).id
                             : `action_${partialNewAction.type}_${uuid()}`,
@@ -2961,6 +2978,14 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                             ? { on_error: (partialNewAction as CreateActionType).on_error }
                             : {}),
                     } as HogFlowAction
+
+                    const { action: newAction, sender } = isHogFlowActionNode
+                        ? { action: builtAction, sender: null }
+                        : withInsertedStepSender(builtAction, values.workflow, values.integrations)
+                    if (sender) {
+                        // pinned: analytics event name
+                        posthog.capture('email sender preselected', { surface: 'workflow', reason: sender.reason })
+                    }
 
                     const step = getHogFlowStep(newAction, values.hogFunctionTemplatesById)
 
@@ -3061,6 +3086,9 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     actions.setWorkflowInfo({ actions: newActions, edges: newEdges, variables: updatedVariables })
                     actions.setNodeToBeAdded(null)
                     actions.setSelectedNodeId(newAction.id)
+                    if (!sender && !isHogFlowActionNode) {
+                        actions.assignInsertedStepSender(newAction.id)
+                    }
                 }
                 // We can clear the dropzones now
                 actions.hideDropzones()
@@ -3289,6 +3317,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 actions.setEditorLayout('advanced')
             }
             actions.resetFlowFromHogFlow(values.workflow)
+            actions.prepareFirstRunSender()
 
             const handleKeyDown = (e: KeyboardEvent): void => {
                 if (e.key === 'Escape') {

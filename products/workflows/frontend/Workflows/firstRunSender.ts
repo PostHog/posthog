@@ -75,18 +75,50 @@ async function provisionSandboxSender(): Promise<number> {
     return sandbox.id
 }
 
-async function resolveFirstRunSender(allowSandbox: boolean): Promise<DefaultEmailSender | null> {
+function teamDefaultSenderId(): number | null | undefined {
     const team = teamLogic.findMounted()?.values.currentTeam
-    const integrations = await loadAllIntegrations()
-    const ownSender = resolveDefaultEmailSender(
-        integrations,
-        team && 'workflows_config' in team ? team.workflows_config?.default_email_integration_id : null
-    )
-    if (ownSender || !allowSandbox || !sandboxSenderEnabled() || verifiedOwnEmailSenders(integrations).length > 0) {
-        return ownSender
-    }
+    return team && 'workflows_config' in team ? team.workflows_config?.default_email_integration_id : null
+}
+
+function sandboxApplies(integrations: IntegrationType[], sandboxAllowed: boolean): boolean {
+    return sandboxAllowed && sandboxSenderEnabled() && verifiedOwnEmailSenders(integrations).length === 0
+}
+
+function chooseSender(integrations: IntegrationType[], sandboxAllowed: boolean): DefaultEmailSender | null {
     const sandbox = integrations.find(isSandboxEmailSender)
-    return { integrationId: sandbox?.id ?? (await provisionSandboxSender()), reason: 'sandbox_sender' }
+    return sandbox && sandboxApplies(integrations, sandboxAllowed)
+        ? { integrationId: sandbox.id, reason: 'sandbox_sender' }
+        : resolveDefaultEmailSender(integrations, teamDefaultSenderId())
+}
+
+async function resolveFirstRunSender(allowSandbox: boolean): Promise<DefaultEmailSender | null> {
+    const unmountIntegrations = integrationsLogic.mount()
+    try {
+        const integrations = await loadAllIntegrations()
+        if (!sandboxApplies(integrations, allowSandbox) || integrations.some(isSandboxEmailSender)) {
+            return chooseSender(integrations, allowSandbox)
+        }
+        return { integrationId: await provisionSandboxSender(), reason: 'sandbox_sender' }
+    } finally {
+        unmountIntegrations()
+    }
+}
+
+export async function prepareSandboxSender(): Promise<void> {
+    if (sandboxSenderEnabled() && !integrationsLogic.findMounted()?.values.sandboxEmailSender) {
+        await resolveFirstRunSender(true)
+    }
+}
+
+export function withInsertedStepSender(
+    action: HogFlowAction,
+    workflow: HogFlow,
+    integrations: IntegrationType[] | null
+): { action: HogFlowAction; sender: DefaultEmailSender | null } {
+    const sender = takesOwnSender(action)
+        ? chooseSender(integrations ?? [], takesSandboxSender(action, workflow))
+        : null
+    return { action: sender ? withSender(action, sender.integrationId) : action, sender }
 }
 
 export async function withFirstRunSender(
@@ -95,10 +127,7 @@ export async function withFirstRunSender(
     if (!workflow.actions.some(takesOwnSender)) {
         return { workflow, sender: null }
     }
-    const unmountIntegrations = integrationsLogic.mount()
-    const sender = await resolveFirstRunSender(
-        workflow.actions.some((action) => takesSandboxSender(action, workflow))
-    ).finally(unmountIntegrations)
+    const sender = await resolveFirstRunSender(workflow.actions.some((action) => takesSandboxSender(action, workflow)))
     if (!sender) {
         return { workflow, sender: null }
     }
