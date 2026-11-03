@@ -143,13 +143,17 @@ def plan_items(
         )
         for connection in snapshot.connections
     ]
-    return _with_unique_prefixes(items)
+    return with_unique_prefixes(items)
 
 
-def _with_unique_prefixes(items: list[PlannedItem]) -> tuple[PlannedItem, ...]:
+def with_unique_prefixes(
+    items: Iterable[PlannedItem], reserved: Collection[tuple[ExternalDataSourceType, str]] = ()
+) -> tuple[PlannedItem, ...]:
+    """Rename prefixes that clash with an earlier item or a `reserved` (source type, prefix) pair."""
     # Fivetran names are unique only within a destination, but a PostHog prefix must be unique per source type.
+    items = list(items)
     taken = {(item.proposal.source_type, item.proposal.prefix) for item in items if item.proposal is not None}
-    used: set[tuple[ExternalDataSourceType, str]] = set()
+    used: set[tuple[ExternalDataSourceType, str]] = set(reserved)
     unique: list[PlannedItem] = []
     for item in items:
         proposal = item.proposal
@@ -234,7 +238,7 @@ def _plan_connection(
         unused_posthog_tables=tables.unused,
         sync_frequency=sync_frequency,
         sync_time_of_day=sync_time_of_day,
-        destination=_plan_destination(provider, destination, catalog, caveats),
+        destination=_plan_destination(provider, connection, destination, catalog, caveats),
         start_paused=start_paused,
     )
     return PlannedItem(
@@ -282,6 +286,7 @@ def _plan_tables(
         else {}
     )
     schemas: list[ProposedSchema] = []
+    planned_names: set[str] = set()
     inferred: list[TablePair] = []
     unmatched: list[str] = []
     for table in enabled:
@@ -300,7 +305,7 @@ def _plan_tables(
         else:
             # The source can discover more tables than it lists, so apply checks this one by name.
             name = table.name
-        if any(schema.name == name for schema in schemas):
+        if name in planned_names:
             caveats.append(f"The Fivetran table `{table.name}` lands in the same PostHog table as another one.")
             if known is not None:
                 # Listed, so the user can pick this table over the other one, or map it elsewhere.
@@ -314,6 +319,7 @@ def _plan_tables(
             )
         if any(column.hashed for column in table.columns):
             caveats.append(f"`{table.name}` hashes some columns in Fivetran. PostHog syncs them unhashed.")
+        planned_names.add(name)
         schemas.append(
             ProposedSchema(
                 name=name,
@@ -334,7 +340,7 @@ def _plan_tables(
     if not schemas:
         caveats.append("No Fivetran table of this connection moves to PostHog, so every table starts with syncing off.")
     # Only needed to place the unmatched tables, so the payload stays small otherwise.
-    unused = sorted(known.names - {schema.name for schema in schemas}) if known is not None and unmatched else []
+    unused = sorted(known.names - planned_names) if known is not None and unmatched else []
     return _PlannedTables(
         schemas=_without_shared_alternative_names(schemas, caveats),
         inferred=tuple(inferred),
@@ -364,10 +370,15 @@ def _without_shared_alternative_names(schemas: list[ProposedSchema], caveats: li
 def _plan_disabled_columns(table: VendorTable, caps: SourceCapabilities, caveats: list[str]) -> tuple[str, ...]:
     disabled = tuple(column.name for column in table.columns if not column.enabled)
     if disabled and not caps.supports_column_selection:
-        caveats.append(
-            f"`{table.name}` skips some columns in Fivetran. PostHog syncs every column of this table at first. "
-            "You can turn columns off after the first sync."
-        )
+        if caps.fixed_columns:
+            caveats.append(
+                f"`{table.name}` skips some columns in Fivetran. PostHog always syncs every column of this table."
+            )
+        else:
+            caveats.append(
+                f"`{table.name}` skips some columns in Fivetran. PostHog syncs every column of this table at first. "
+                "You can turn columns off after the first sync."
+            )
         return ()
     return disabled
 
@@ -470,7 +481,11 @@ def _to_posthog_time(time_of_day: str | None) -> str | None:
 
 
 def _plan_destination(
-    provider: str, destination: VendorDestination | None, catalog: CatalogLookup, caveats: list[str]
+    provider: str,
+    connection: VendorConnection,
+    destination: VendorDestination | None,
+    catalog: CatalogLookup,
+    caveats: list[str],
 ) -> ProposedDestination | None:
     if destination is None:
         return None
@@ -480,6 +495,11 @@ def _plan_destination(
             f"PostHog cannot write to the Fivetran destination `{destination.service}`. The data lands in the PostHog warehouse."
         )
         return None
+    # The schema is set per connection in Fivetran, so the destination config does not carry it.
+    caveats.append(
+        f"Fivetran writes this connection into the `{connection.name}` schema. "
+        "Choose the schema when you set up the PostHog destination."
+    )
     return ProposedDestination(type=destination_type, config=destination.config)
 
 

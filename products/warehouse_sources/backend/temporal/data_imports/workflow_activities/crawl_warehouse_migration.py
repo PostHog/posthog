@@ -86,7 +86,8 @@ class CrawlWarehouseMigrationWorkflow(PostHogWorkflow):
                     and error.cause.type == FivetranAuthError.__name__,
                 ),
                 start_to_close_timeout=timedelta(minutes=1),
-                retry_policy=RetryPolicy(maximum_attempts=5),
+                # Unlimited attempts: giving up would leave the migration `crawling` forever.
+                retry_policy=RetryPolicy(maximum_interval=timedelta(minutes=1)),
             )
             raise
 

@@ -11,6 +11,7 @@ export interface TraceTimelineProps {
     selectedNodeId: string | null
     onSelectNode: (id: string) => void
     onPrefetchNode: (id: string) => void
+    matchingNodeIds?: ReadonlySet<string> | null
 }
 
 export function TraceTimeline({
@@ -19,6 +20,7 @@ export function TraceTimeline({
     selectedNodeId,
     onSelectNode,
     onPrefetchNode,
+    matchingNodeIds = null,
 }: TraceTimelineProps): JSX.Element {
     if (rows.length === 0) {
         return <p className="m-0 text-secondary">This trace has no timed steps.</p>
@@ -37,6 +39,7 @@ export function TraceTimeline({
                     totalMs={totalMs}
                     ticks={ticks}
                     isSelected={row.id === selectedNodeId}
+                    isFaded={matchingNodeIds !== null && !matchingNodeIds.has(row.id)}
                     onSelect={() => onSelectNode(row.id)}
                     onPrefetch={() => onPrefetchNode(row.id)}
                 />

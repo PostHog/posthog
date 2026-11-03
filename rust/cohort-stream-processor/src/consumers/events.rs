@@ -3273,7 +3273,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn mixed_batch_marks_each_tracker_and_membership_produce_failure_holds_only_events() {
+    async fn mixed_batch_marks_each_tracker_and_a_membership_produce_failure_holds_none() {
         let (_dir, store) = temp_store();
         let (dispatcher, sink, _transfer_sink, merge) = dispatcher_full(
             &store,
@@ -3304,12 +3304,12 @@ mod tests {
 
         assert!(
             sink.changes().is_empty(),
-            "the failed flush recorded nothing"
+            "the failed produce recorded nothing"
         );
         assert_eq!(
             tracker.committable_offsets().get(&partition),
-            None,
-            "the membership produce failure holds the events offset",
+            Some(&11),
+            "live output is at most once, so the failed produce does not hold the events offset",
         );
         assert_eq!(
             merge.merge_tracker.committable_offsets().get(&partition),

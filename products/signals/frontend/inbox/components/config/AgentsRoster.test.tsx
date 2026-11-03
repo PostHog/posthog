@@ -10,6 +10,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { signalSourcesLogic } from '../../signalSourcesLogic'
+import { SourcesTab } from '../tabs/SourcesTab'
 import { AgentsRoster } from './AgentsRoster'
 
 const SCANNERS = Array.from({ length: 10 }, (_, index) => ({
@@ -47,6 +48,7 @@ describe('AgentsRoster', () => {
         initKeaTests()
         useMocks({
             get: {
+                '/api/projects/:team_id/signals/source_spend/': () => [200, []],
                 '/api/projects/:team_id/signals/source_configs/': () => [200, { results: [] }],
                 '/api/projects/:team_id/vision/scanners/': () => [
                     200,
@@ -66,9 +68,70 @@ describe('AgentsRoster', () => {
     })
     afterEach(cleanup)
 
-    // The roster lists what the project runs; the other forty tools wait in the catalog. A regression
-    // that lists the whole registry again, or loses a connected tool from the roster, fails here.
-    it('lists only connected external sources, and reaches the rest through the catalog', async () => {
+    it.each([
+        { enabled: true, armed: true },
+        { enabled: true, armed: false },
+        { enabled: false, armed: true },
+    ])('gates source usage when enabled=$enabled and armed=$armed', async ({ enabled, armed }) => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.PRODUCT_AUTONOMY], {
+            [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true,
+            [FEATURE_FLAGS.SELF_DRIVING_USAGE_DISPLAY]: enabled,
+        })
+        const usageRequests = jest.fn()
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/source_configs/': {
+                    results: ['issue_created', 'issue_reopened', 'issue_spiking'].map((source_type) => ({
+                        id: source_type,
+                        source_product: 'error_tracking',
+                        source_type,
+                        enabled: armed,
+                        config: {},
+                    })),
+                },
+                '/api/projects/:team_id/signals/source_spend/': () => {
+                    usageRequests()
+                    return [
+                        200,
+                        [
+                            {
+                                source_product: 'error_tracking',
+                                source_type: 'issue_created',
+                                signal_count: 1,
+                                spend: { total_spend: 125, incomplete: false },
+                            },
+                            {
+                                source_product: 'error_tracking',
+                                source_type: 'issue_spiking',
+                                signal_count: 1,
+                                spend: { total_spend: 25, incomplete: false },
+                            },
+                            {
+                                source_product: 'conversations',
+                                source_type: 'ticket',
+                                signal_count: 1,
+                                spend: { total_spend: null, incomplete: true },
+                            },
+                        ],
+                    ]
+                },
+            },
+        })
+        render(<AgentsRoster />)
+        const errorTracking = document.querySelector('[data-source="error_tracking"]') as HTMLElement
+        expect(await within(errorTracking).findByLabelText('Arm Error tracking')).toBeInTheDocument()
+        if (enabled && armed) {
+            expect(await within(errorTracking).findByText('$1.50')).toBeInTheDocument()
+            const support = document.querySelector('[data-source="conversations"]') as HTMLElement
+            expect(within(support).queryByText('Not tracked')).not.toBeInTheDocument()
+            expect(usageRequests).toHaveBeenCalledTimes(1)
+        } else {
+            expect(document.querySelector('[data-attr="source-spend"]')).toBeNull()
+            expect(usageRequests).not.toHaveBeenCalled()
+        }
+    })
+
+    it('keeps connected sources in the roster and connects from the inline catalog without losing the search', async () => {
         useMocks({
             get: {
                 '/api/environments/:team_id/external_data_sources/': () => [
@@ -77,30 +140,27 @@ describe('AgentsRoster', () => {
                 ],
             },
         })
-        render(<AgentsRoster />)
-        signalSourcesLogic.actions.loadSources()
+        render(<SourcesTab />)
 
         const jiraToggle = await screen.findByLabelText('Turn on Jira')
         expect(jiraToggle.closest('[data-attr="signal-source-row"]')).toHaveAttribute('data-source', 'jira')
         expect(document.querySelector('[data-attr="signal-source-row"][data-source="github"]')).toBeNull()
-        const recommendations = await screen.findByTestId('signal-source-recommendations')
-        expect(within(recommendations).getByText('Jira')).toBeInTheDocument()
-        expect(within(recommendations).getByText('Turn on')).toBeInTheDocument()
-
-        await userEvent.click(screen.getByText('Add source'))
-        expect(await screen.findByText('Add a source')).toBeInTheDocument()
+        expect(screen.getByText('Available sources')).toBeInTheDocument()
+        expect(screen.queryByText('Add source')).not.toBeInTheDocument()
         const jiraTile = (): Element | null =>
             document.querySelector('[data-attr="signal-source-catalog-tile"][data-source="jira"]')
-        expect(jiraTile()).toBeInTheDocument()
+        await screen.findByLabelText('Connect GitLab')
+        expect(jiraTile()).not.toBeInTheDocument()
         await userEvent.type(screen.getByLabelText('Search sources'), 'GitLab')
         expect(jiraTile()).toBeNull()
 
         await userEvent.click(await screen.findByLabelText('Connect GitLab'))
         expect(signalSourcesLogic.values.dataSourceSetupSource).toBe('gitlab')
         expect(await screen.findByText('Connect GitLab')).toBeInTheDocument()
-        await userEvent.click(screen.getByText('All sources'))
+        await userEvent.click(screen.getByText('Cancel'))
         expect(signalSourcesLogic.values.dataSourceSetupSource).toBeNull()
-        expect(await screen.findByText('Add a source')).toBeInTheDocument()
+        expect(screen.getByLabelText('Search sources')).toHaveValue('GitLab')
+        expect(screen.getByLabelText('Connect GitLab')).toBeInTheDocument()
     })
 
     it('lets a connection retry finish before another retry can start', async () => {
@@ -121,13 +181,15 @@ describe('AgentsRoster', () => {
                 },
             },
         })
-        render(<AgentsRoster />)
-        signalSourcesLogic.actions.loadSources()
+        render(<SourcesTab />)
         const retry = (await screen.findAllByText('Retry'))[0].closest('button')!
         await userEvent.click(retry)
         expect(retry).toHaveAttribute('aria-disabled', 'true')
+        expect(screen.queryByLabelText('Connect GitLab')).not.toBeInTheDocument()
+        expect(screen.queryByText(/All available sources are connected/)).not.toBeInTheDocument()
         resolveRequest()
         await waitFor(() => expect(screen.queryByText(/Couldn't load your connections/)).not.toBeInTheDocument())
+        expect(await screen.findByLabelText('Connect GitLab')).toBeInTheDocument()
         expect(requests).toBe(2)
     })
 
@@ -150,22 +212,17 @@ describe('AgentsRoster', () => {
 
     // A failed load leaves every switch reading off and every import source reading unconnected.
     // A click then creates a row that may already exist, so the switches and tiles have to stay shut.
-    it('holds the source switches and catalog tiles shut while the source list has failed to load', async () => {
+    it('holds the source switches and catalog shut while the source list has failed to load', async () => {
         useMocks({
             get: {
                 '/api/projects/:team_id/signals/source_configs/': () => [500, { detail: 'Server error' }],
             },
         })
-        render(<AgentsRoster />)
-        signalSourcesLogic.actions.loadSources()
+        render(<SourcesTab />)
 
         expect(await screen.findByText(/Couldn't load your signal sources/)).toBeInTheDocument()
         expect(screen.getByLabelText('Arm Support')).toBeDisabled()
-        expect(screen.queryByTestId('signal-source-recommendations')).not.toBeInTheDocument()
-        await userEvent.click(screen.getByText('Add source'))
-        await screen.findByText('Add a source')
-        await userEvent.type(screen.getByLabelText('Search sources'), 'GitHub issues')
-        expect(await screen.findByText('GitHub issues')).toBeInTheDocument()
+        expect(await screen.findByText(/Couldn't load available sources/)).toBeInTheDocument()
         expect(screen.queryByLabelText('Connect GitHub issues')).not.toBeInTheDocument()
         expect(signalSourcesLogic.values.dataSourceSetupSource).toBeNull()
     })

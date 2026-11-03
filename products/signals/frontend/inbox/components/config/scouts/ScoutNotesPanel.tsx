@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconPencil, IconTrash } from '@posthog/icons'
+import { IconChevronDown, IconChevronRight, IconPencil, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonTag, LemonTextArea, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -20,6 +20,7 @@ import {
     scoutNotesLogic,
 } from '../../../logics/scoutNotesLogic'
 import { linkReportIdsInNote } from '../../../utils/scoutMemoryPresentation'
+import { OpenScratchpadButton } from './OpenScratchpadButton'
 import { ScoutNoteContent } from './ScoutNoteContent'
 
 /** Bounded by the create serializer; mirrored here so the dialog can say so before a failed request. */
@@ -142,33 +143,35 @@ export function ScoutNotesPanel({ skillName }: { skillName: string }): JSX.Eleme
     const { scoutNotes, fleetWideNotes, toldCount, notesLoading, notesLoadFailed, notesCapped } = useValues(logic)
     const { deleteNote, loadNotes } = useActions(logic)
     const { reportRows } = useValues(scoutDetailLogic({ skillName }))
+    const [showFleetNotes, setShowFleetNotes] = useState(false)
 
     // On the fleet view every note is already in `scoutNotes`.
     const otherFleetNotes = skillName ? fleetWideNotes : []
+    const nothingLoaded = toldCount === 0 && otherFleetNotes.length === 0
     // Reports this scout touched in the window, so a note naming one by id can name it by title.
     const reportsById = new Map(reportRows.map(({ report }) => [report.id.toLowerCase(), report]))
 
     return (
         <div className="flex flex-col gap-2">
-            {notesLoading && toldCount === 0 ? (
+            {notesLoading && nothingLoaded ? (
                 <div className="rounded border border-primary bg-surface-primary px-4 py-6 text-center text-sm text-muted">
                     Loading notes…
                 </div>
-            ) : notesLoadFailed && toldCount === 0 ? (
+            ) : notesLoadFailed && nothingLoaded ? (
                 <div className="flex flex-col items-center gap-2 rounded border border-danger bg-danger-highlight px-4 py-6 text-center text-sm text-danger">
                     <span>Couldn't load the notes.</span>
                     <LemonButton size="xsmall" type="secondary" onClick={() => loadNotes()}>
                         Try again
                     </LemonButton>
                 </div>
-            ) : toldCount === 0 ? (
-                <div className="rounded border border-dashed border-primary bg-surface-primary px-4 py-6 text-center text-sm text-muted">
-                    Nothing yet. Leave a note to steer what this scout looks at, or dismiss one of its reports with a
-                    reason, and that reaches it too.
-                </div>
             ) : (
                 <>
-                    {scoutNotes.length > 0 && (
+                    {toldCount === 0 ? (
+                        <div className="rounded border border-dashed border-primary bg-surface-primary px-4 py-6 text-center text-sm text-muted">
+                            Nothing has been told to this scout yet. Leave a note to steer what it looks at, or dismiss
+                            one of its reports with a reason, and that reaches it too.
+                        </div>
+                    ) : (
                         <ScoutNoteList
                             notes={scoutNotes}
                             reportsById={reportsById}
@@ -177,16 +180,28 @@ export function ScoutNotesPanel({ skillName }: { skillName: string }): JSX.Eleme
                         />
                     )}
                     {/* A note addressed to every scout reaches this one too, but it is not about this
-                        scout, so it sits under its own label rather than in the list above. */}
+                        scout. Most come from inbox activity on reports no scout wrote, so they stay
+                        folded away rather than burying the notes above. */}
                     {otherFleetNotes.length > 0 && (
                         <div className="flex flex-col gap-1">
-                            <span className="text-xs font-semibold text-secondary">For every scout</span>
-                            <ScoutNoteList
-                                notes={otherFleetNotes}
-                                reportsById={reportsById}
-                                capped={notesCapped}
-                                onDelete={deleteNote}
-                            />
+                            <LemonButton
+                                size="xsmall"
+                                type="tertiary"
+                                className="self-start"
+                                icon={showFleetNotes ? <IconChevronDown /> : <IconChevronRight />}
+                                onClick={() => setShowFleetNotes(!showFleetNotes)}
+                                data-attr="inbox-scout-toggle-fleet-notes"
+                            >
+                                It also reads {pluralize(otherFleetNotes.length, 'note')} left for every scout
+                            </LemonButton>
+                            {showFleetNotes && (
+                                <ScoutNoteList
+                                    notes={otherFleetNotes}
+                                    reportsById={reportsById}
+                                    capped={notesCapped}
+                                    onDelete={deleteNote}
+                                />
+                            )}
                         </div>
                     )}
                 </>
@@ -196,6 +211,7 @@ export function ScoutNotesPanel({ skillName }: { skillName: string }): JSX.Eleme
                 New notes are picked up on the next run and folded into what it has learned. Delete a note once it has
                 done its job.
             </span>
+            <OpenScratchpadButton skillName={skillName} entryPoint="told_tab" />
         </div>
     )
 }

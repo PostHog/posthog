@@ -107,17 +107,29 @@ class TestTraceSpansAttributeBreakdown(_TraceSpansTestBase):
         by_value = {row["value"]: row["count"] for row in rows}
         self.assertEqual(by_value["api2.amplitude.com"], 5)
 
-    def test_filter_group_scopes_the_breakdown(self):
-        # The BubbleUp shape: breakdown of only the BAD spans.
-        rows = self._breakdown(
-            breakdownKey="server.address",
-            breakdownType="span_attribute",
-            filterGroup=[{"key": "status_code", "operator": "exact", "type": "span", "value": "Error"}],
-        )
-        self.assertEqual(
-            {(row["value"], row["count"]) for row in rows},
-            {("api2.amplitude.com", 4)},
-        )
+    @parameterized.expand(
+        [
+            # The BubbleUp shape: breakdown of only the BAD spans.
+            (
+                "span_column",
+                "server.address",
+                "span_attribute",
+                {"key": "status_code", "operator": "exact", "type": "span", "value": "Error"},
+                {("api2.amplitude.com", 4)},
+            ),
+            # A negated attribute filter skips the pod-b span that has no server.address.
+            (
+                "negated_attribute_skips_spans_without_the_key",
+                "k8s.pod.name",
+                "span_resource_attribute",
+                {"key": "server.address", "operator": "is_not", "type": "span_attribute", "value": "api.mixpanel.com"},
+                {("pod-a", 5), ("pod-c", 1)},
+            ),
+        ]
+    )
+    def test_filter_group_scopes_the_breakdown(self, _name, breakdown_key, breakdown_type, prop, expected):
+        rows = self._breakdown(breakdownKey=breakdown_key, breakdownType=breakdown_type, filterGroup=[prop])
+        self.assertEqual({(row["value"], row["count"]) for row in rows}, expected)
 
     @parameterized.expand(
         [

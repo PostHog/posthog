@@ -6,34 +6,34 @@ import { useActions, useValues } from 'kea'
 import { ReactNode, useLayoutEffect, useRef, useState } from 'react'
 
 import { IconSidebarClose } from '@posthog/icons'
-import {
-    LemonBadge,
-    LemonBanner,
-    LemonButton,
-    LemonCollapse,
-    LemonDivider,
-    LemonSkeleton,
-    Link,
-    Spinner,
-    Tooltip,
-} from '@posthog/lemon-ui'
+import { LemonBadge, LemonBanner, LemonButton, LemonCollapse, LemonDivider, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
-import { range } from 'lib/utils/arrays'
-import { pluralize } from 'lib/utils/strings'
 import { DraggableToNotebook } from 'scenes/notebooks/AddToNotebook/DraggableToNotebook'
 import { useNotebookNode } from 'scenes/notebooks/Nodes/NotebookNodeContext'
 import { RecordingsUniversalFiltersEmbedButton } from 'scenes/session-recordings/filters/RecordingsUniversalFiltersEmbed'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
+import { ListCollapsedToggle } from 'scenes/session-recordings/playlist/ListCollapsedToggle'
+import { ListLoadingState } from 'scenes/session-recordings/playlist/ListLoadingState'
+import { ListLoadMoreFooter } from 'scenes/session-recordings/playlist/ListLoadMoreFooter'
+import { ListOnlyLiveState } from 'scenes/session-recordings/playlist/ListOnlyLiveState'
 import { OngoingRecordingsGroup } from 'scenes/session-recordings/playlist/OngoingRecordingsGroup'
 import { playlistFiltersLogic } from 'scenes/session-recordings/playlist/playlistFiltersLogic'
+import { splitOngoingRecordings } from 'scenes/session-recordings/playlist/playlistUtils'
+import { QuillListCollapsedToggle } from 'scenes/session-recordings/playlist/QuillListCollapsedToggle'
+import { QuillListLoadingState } from 'scenes/session-recordings/playlist/QuillListLoadingState'
+import { QuillListLoadMoreFooter } from 'scenes/session-recordings/playlist/QuillListLoadMoreFooter'
+import { QuillListOnlyLiveState } from 'scenes/session-recordings/playlist/QuillListOnlyLiveState'
+import { QuillSelectedRecordingsBar } from 'scenes/session-recordings/playlist/QuillSelectedRecordingsBar'
 import { ReplayFilterBar } from 'scenes/session-recordings/playlist/ReplayFilterBar'
-import { isNewReplayLayout } from 'scenes/session-recordings/playlist/replayLayout'
+import { isFeedReplayLayout, isNewReplayLayout } from 'scenes/session-recordings/playlist/replayLayout'
 import { ReplayListHeader } from 'scenes/session-recordings/playlist/ReplayListHeader'
+import { SelectedRecordingsBar } from 'scenes/session-recordings/playlist/SelectedRecordingsBar'
 import { SessionRecordingPreview } from 'scenes/session-recordings/playlist/SessionRecordingPreview'
 import { SessionRecordingPreviewCompact } from 'scenes/session-recordings/playlist/SessionRecordingPreviewCompact'
+import { SessionRecordingPreviewFeed } from 'scenes/session-recordings/playlist/SessionRecordingPreviewFeed'
 import { sessionRecordingsPlaylistLogic } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 import { SessionRecordingsPlaylistTopSettings } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylistSettings'
 import { SessionRecordingsPlaylistTroubleshooting } from 'scenes/session-recordings/playlist/SessionRecordingsPlaylistTroubleshooting'
@@ -91,6 +91,7 @@ export function Playlist({
 }: PlaylistProps): JSX.Element {
     const { isPlaylistCollapsed, replayLayout } = useValues(playerSettingsLogic)
     const newLayout = watchLayout && isNewReplayLayout(replayLayout)
+    const feedLayout = newLayout && isFeedReplayLayout(replayLayout)
     const { setPlaylistCollapsed } = useActions(playerSettingsLogic)
     const collapseButton = (
         <LemonButton
@@ -115,7 +116,8 @@ export function Playlist({
     const notebookNode = useNotebookNode()
     const embedded = !!notebookNode
     const watchListHeader = newLayout && !notebookNode
-    const watchFilterBar = watchListHeader && type !== 'collection'
+    // The feed layout hosts the filter bar above both columns, so the list only keeps its header.
+    const watchFilterBar = watchListHeader && type !== 'collection' && !feedLayout
 
     // bound outside here
     const {
@@ -159,16 +161,28 @@ export function Playlist({
     }
 
     const renderRow = ({ item, isActive }: { item: SessionRecordingType; isActive: boolean }): JSX.Element =>
-        newLayout ? (
+        feedLayout ? (
+            <SessionRecordingPreviewFeed recording={item} isActive={isActive} selectable={selectMode} />
+        ) : newLayout ? (
             <SessionRecordingPreviewCompact recording={item} isActive={isActive} selectable={selectMode} />
         ) : (
             <SessionRecordingPreview recording={item} isActive={isActive} selectable />
         )
 
-    // Still-ingesting recordings fold above the results in the watch layout, so the list opens on finished ones.
-    const ongoingRecordings = newLayout ? otherRecordings.filter((r) => r.ongoing) : []
-    const finishedRecordings =
-        ongoingRecordings.length > 0 ? otherRecordings.filter((r) => !r.ongoing) : otherRecordings
+    const { ongoing: ongoingRecordings, finished: finishedRecordings } = splitOngoingRecordings(
+        otherRecordings,
+        newLayout
+    )
+
+    const loadingState = newLayout ? <QuillListLoadingState /> : <ListLoadingState />
+    const loadMoreFooterProps = {
+        loading: !!sessionRecordingsResponseLoading,
+        hasNext,
+        dateFrom: filters.date_from,
+        onLoadOlder: () => maybeLoadSessionRecordings('older'),
+        onWidenDateRange: (dateFrom: string) => setFilters({ date_from: dateFrom }),
+        onShowFilters: () => setIsFiltersExpanded(true),
+    }
 
     const sections: PlaylistSection[] = []
 
@@ -197,54 +211,10 @@ export function Playlist({
             items: finishedRecordings,
             initiallyOpen: !pinnedRecordings.length,
             render: renderRow,
-            footer: (
-                <div className="p-4">
-                    <div className="h-10 flex items-center justify-center gap-2 text-secondary">
-                        {sessionRecordingsResponseLoading ? (
-                            <>
-                                <Spinner textColored /> Loading older recordings
-                            </>
-                        ) : hasNext ? (
-                            <LemonButton
-                                data-attr="list-load-older"
-                                onClick={() => maybeLoadSessionRecordings('older')}
-                            >
-                                Load more
-                            </LemonButton>
-                        ) : (
-                            'No more results'
-                        )}
-                    </div>
-                    {!sessionRecordingsResponseLoading && !hasNext && (
-                        <div className="flex flex-col items-center gap-1 pt-2 pb-2">
-                            <span className="text-xs text-secondary">Looking for older recordings?</span>
-                            <div className="flex gap-2">
-                                {(filters.date_from === '-3d' || filters.date_from === '-7d') && (
-                                    <LemonButton
-                                        data-attr="list-empty-widen-date-range"
-                                        type="secondary"
-                                        size="small"
-                                        onClick={() =>
-                                            setFilters({
-                                                date_from: filters.date_from === '-3d' ? '-7d' : '-30d',
-                                            })
-                                        }
-                                    >
-                                        Search last {filters.date_from === '-3d' ? '7' : '30'} days
-                                    </LemonButton>
-                                )}
-                                <LemonButton
-                                    data-attr="list-empty-expand-filters"
-                                    type="secondary"
-                                    size="small"
-                                    onClick={() => setIsFiltersExpanded(true)}
-                                >
-                                    Show filters
-                                </LemonButton>
-                            </div>
-                        </div>
-                    )}
-                </div>
+            footer: newLayout ? (
+                <QuillListLoadMoreFooter {...loadMoreFooterProps} />
+            ) : (
+                <ListLoadMoreFooter {...loadMoreFooterProps} />
             ),
         })
     }
@@ -275,8 +245,24 @@ export function Playlist({
 
     const activeItemId = activeSessionRecordingId === undefined ? controlledActiveItemId : activeSessionRecordingId
 
+    const selectedBarProps = (count: number): { count: number; loading: boolean; onShowAll: () => void } => ({
+        count,
+        loading: !!sessionRecordingsResponseLoading,
+        onShowAll: () => setFilters({ session_ids: undefined }),
+    })
+    const onlyLiveProps = {
+        hasNext,
+        loading: !!sessionRecordingsResponseLoading,
+        onLoadOlder: () => maybeLoadSessionRecordings('older'),
+    }
     const emptyState =
-        type === 'collection' ? (
+        ongoingRecordings.length > 0 ? (
+            newLayout ? (
+                <QuillListOnlyLiveState {...onlyLiveProps} />
+            ) : (
+                <ListOnlyLiveState {...onlyLiveProps} />
+            )
+        ) : type === 'collection' ? (
             <CollectionEmptyState isSynthetic={isSynthetic} description={description} />
         ) : (
             <ListEmptyState listEmptyState={listEmptyState} />
@@ -284,20 +270,10 @@ export function Playlist({
 
     // Show collapsed view
     if (isPlaylistCollapsed) {
-        return (
-            <div
-                className="flex items-start justify-center h-full w-full pt-2 pr-1 cursor-pointer"
-                onClick={() => setPlaylistCollapsed(false)}
-                data-attr="expand-playlist"
-            >
-                <LemonButton
-                    data-attr="list-toggle-collapse"
-                    icon={<IconSidebarClose className={clsx(!isPlaylistCollapsed && 'rotate-180')} />}
-                    tooltip="Expand playlist"
-                    size="xsmall"
-                    noPadding
-                />
-            </div>
+        return newLayout ? (
+            <QuillListCollapsedToggle onExpand={() => setPlaylistCollapsed(false)} />
+        ) : (
+            <ListCollapsedToggle onExpand={() => setPlaylistCollapsed(false)} />
         )
     }
 
@@ -314,7 +290,7 @@ export function Playlist({
                     />
                 </div>
             )}
-            {!watchFilterBar && !notebookNode && type !== 'collection' && (
+            {!watchListHeader && !notebookNode && type !== 'collection' && (
                 <div className="mb-2 flex gap-2">
                     <DraggableToNotebook className="flex-1" href={urls.replay(ReplayTabs.Home, filters)}>
                         <RecordingsUniversalFiltersEmbedButton
@@ -327,23 +303,12 @@ export function Playlist({
                     </DraggableToNotebook>
                 </div>
             )}
-            {!!filters?.session_ids?.length && (
-                <div className="mb-2 flex items-center justify-between gap-2 rounded border bg-fill-primary px-2 py-1">
-                    <span className="min-w-0 truncate text-xs text-secondary">
-                        Showing {pluralize(filters.session_ids.length, 'selected recording')}
-                    </span>
-                    <LemonButton
-                        data-attr="list-clear-session-ids"
-                        className="shrink-0"
-                        size="xsmall"
-                        type="tertiary"
-                        onClick={() => setFilters({ session_ids: undefined })}
-                        loading={!!sessionRecordingsResponseLoading}
-                    >
-                        Show all
-                    </LemonButton>
-                </div>
-            )}
+            {!!filters?.session_ids?.length &&
+                (newLayout ? (
+                    <QuillSelectedRecordingsBar {...selectedBarProps(filters.session_ids.length)} />
+                ) : (
+                    <SelectedRecordingsBar {...selectedBarProps(filters.session_ids.length)} />
+                ))}
             <div
                 ref={playlistRef}
                 data-attr="session-recordings-playlist"
@@ -365,7 +330,7 @@ export function Playlist({
                                 <ReplayListHeader
                                     filters={filters}
                                     setFilters={setFilters}
-                                    collapseButton={collapseButton}
+                                    onCollapse={() => setPlaylistCollapsed(true)}
                                     type={type}
                                     shortId={type === 'collection' ? logicKey : undefined}
                                 />
@@ -403,6 +368,7 @@ export function Playlist({
                             <OngoingRecordingsGroup
                                 count={ongoingRecordings.length}
                                 holdsActive={ongoingRecordings.some((r) => r.id === activeItemId)}
+                                defaultOpen={finishedRecordings.length === 0}
                             >
                                 <ListSection
                                     key="ongoing"
@@ -424,6 +390,7 @@ export function Playlist({
                                                 <SectionContent
                                                     section={s}
                                                     loading={!!sessionRecordingsResponseLoading}
+                                                    loadingState={loadingState}
                                                     setActiveItemId={onChangeActiveItem}
                                                     activeItemId={activeItemId}
                                                     emptyState={emptyState}
@@ -442,13 +409,14 @@ export function Playlist({
                                 <SectionContent
                                     section={sections[0]}
                                     loading={!!sessionRecordingsResponseLoading}
+                                    loadingState={loadingState}
                                     setActiveItemId={onChangeActiveItem}
                                     activeItemId={activeItemId}
                                     emptyState={emptyState}
                                     scrollEl={scrollEl}
                                 />
                             ) : sessionRecordingsResponseLoading ? (
-                                <LoadingState />
+                                loadingState
                             ) : (
                                 emptyState
                             )}
@@ -538,6 +506,7 @@ const CollectionEmptyState = ({
 function SectionContent({
     section,
     loading,
+    loadingState,
     activeItemId,
     setActiveItemId,
     emptyState,
@@ -545,6 +514,7 @@ function SectionContent({
 }: {
     section: PlaylistSection
     loading: boolean
+    loadingState: JSX.Element
     activeItemId: SessionRecordingType['id'] | null
     setActiveItemId: (item: SessionRecordingType) => void
     emptyState: JSX.Element
@@ -555,7 +525,7 @@ function SectionContent({
     ) : 'items' in section && !!section.items.length ? (
         <ListSection {...section} onClick={setActiveItemId} activeItemId={activeItemId} scrollEl={scrollEl} />
     ) : loading ? (
-        <LoadingState />
+        loadingState
     ) : (
         emptyState
     )
@@ -630,19 +600,6 @@ export function ListSection({
                 })}
             </div>
             {footer}
-        </>
-    )
-}
-
-const LoadingState = (): JSX.Element => {
-    return (
-        <>
-            {range(5).map((i) => (
-                <div key={i} className="p-4 deprecated-space-y-2">
-                    <LemonSkeleton className="w-1/2 h-4" />
-                    <LemonSkeleton className="w-1/3 h-4" />
-                </div>
-            ))}
         </>
     )
 }

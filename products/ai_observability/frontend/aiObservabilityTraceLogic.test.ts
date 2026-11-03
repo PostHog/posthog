@@ -3,6 +3,7 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
@@ -11,6 +12,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { DisplayOption, TraceViewMode, aiObservabilityTraceLogic } from './aiObservabilityTraceLogic'
+import { traceViewPreferenceLogic } from './redesign/trace/traceViewPreferenceLogic'
 
 const blankScene = (): any => ({ scene: { component: () => null, logic: null } })
 const scenes: any = { AIObservabilityTrace: blankScene }
@@ -77,6 +79,23 @@ describe('aiObservabilityTraceLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(router.values.searchParams.filters).toEqual(filters)
+    })
+
+    it('carries the step selected on the timeline to the new view', async () => {
+        const preferenceLogic = traceViewPreferenceLogic()
+        preferenceLogic.mount()
+        const traceUrl = combineUrl(urls.aiObservabilityTrace('trace-1', { event: 'stale-step' }), {
+            back_to: 'traces',
+        })
+        router.actions.push(addProjectIdIfMissing(traceUrl.url, MOCK_TEAM_ID))
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.setEventId('timeline-step')
+        preferenceLogic.actions.switchView('new')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(router.values.searchParams).toMatchObject({ event: 'timeline-step', back_to: 'traces' })
+        expect(logic.values.eventId).toBe('timeline-step')
     })
 
     it('handles trace ID with event and timestamp parameters', async () => {
@@ -168,6 +187,22 @@ describe('aiObservabilityTraceLogic', () => {
             traceId: nextTraceId,
             dateRange: { dateFrom: expectedDateFrom, dateTo: null },
         })
+    })
+
+    it('records one trace view intent per trace, not per URL change within it', async () => {
+        const intents = jest.spyOn(api.productIntents, 'update').mockReturnValue(new Promise(() => {}))
+        const open = (traceId: string, params: Record<string, string> = {}): void => {
+            router.actions.push(addProjectIdIfMissing(urls.aiObservabilityTrace(traceId, params), MOCK_TEAM_ID))
+        }
+
+        open('trace-1')
+        open('trace-1', { event: 'step-1', search: 'invoice' })
+        open('trace-1', { event: 'step-2', search: 'invoice' })
+        open('trace-2')
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(intents).toHaveBeenCalledTimes(2)
+        intents.mockRestore()
     })
 
     it('does not write the search query back to the URL when it originates from the URL', async () => {

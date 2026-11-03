@@ -1,5 +1,5 @@
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from posthog.test.base import APIBaseTest
@@ -11,12 +11,23 @@ from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 
 from products.alerts.backend.facade.contracts import HogFunctionPathReason
+from products.alerts.backend.facade.destinations import build_alert_destination_config
 from products.alerts_platform.backend.facade import testing as platform_testing
 from products.alerts_platform.backend.facade.api import get_configuration, list_configurations, upsert_configuration
-from products.alerts_platform.backend.facade.contracts import DeliveryPath, SourceKind
+from products.alerts_platform.backend.facade.contracts import (
+    AlertDestinationData,
+    DeliveryPath,
+    DestinationType,
+    SourceKind,
+)
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cdp.backend.models.hog_functions.hog_function_revision import HogFunctionRevision
-from products.logs.backend.alert_destinations import LOGS_ALERT_EVENT_IDS
+from products.logs.backend.alert_destinations import (
+    EVENT_KIND_CONFIG,
+    LOGS_ALERT_EVENT_IDS,
+    LOGS_ALERT_SLACK_CONTEXT_ELEMENTS,
+    EventKind,
+)
 from products.logs.backend.delivery_path_report import team_delivery_paths
 from products.logs.backend.models import LogsAlertConfiguration, LogsAlertEvent
 from products.logs.backend.platform_alert_backfill import platform_upsert_of
@@ -26,16 +37,27 @@ NOW = datetime(2026, 10, 13, 12, 0, tzinfo=UTC)
 State = LogsAlertConfiguration.State
 LEGACY_BODY_FLAG = "products.alerts_platform.backend.delivery.team_flags.posthoganalytics.feature_enabled"
 STOCK_HOG = "return event"
-WEBHOOK_INPUTS: dict[str, Any] = {
-    "url": {"value": "https://hooks.example.com/hook"},
-    "method": {"value": "POST"},
-    "body": {"value": {"type": "logs_alert.firing"}},
+DESTINATION_DATA: dict[DestinationType, dict[str, Any]] = {
+    DestinationType.SLACK: {"slack_workspace_id": 1, "slack_channel_id": "C-1"},
+    DestinationType.WEBHOOK: {"webhook_url": "https://hooks.example.com/hook"},
+    DestinationType.TEAMS: {"webhook_url": "https://example.webhook.office.com/webhookb2/a/IncomingWebhook/b/c"},
+    DestinationType.PAGERDUTY: {"pagerduty_routing_key": "a" * 32},
 }
-SLACK_INPUTS: dict[str, Any] = {
-    "slack_workspace": {"value": 1},
-    "channel": {"value": "C-1"},
-    "text": {"value": "Log alert is firing"},
-}
+
+
+def stock_destination(kind: EventKind, destination_type: DestinationType) -> tuple[str, dict[str, Any]]:
+    payload = build_alert_destination_config(
+        spec=EVENT_KIND_CONFIG[kind],
+        alert_id="alert-1",
+        alert_name="Checkout errors",
+        data=cast(AlertDestinationData, {"type": destination_type, **DESTINATION_DATA[destination_type]}),
+        slack_context_elements=LOGS_ALERT_SLACK_CONTEXT_ELEMENTS,
+    ).payload
+    return payload["template_id"], payload["inputs"]
+
+
+_, WEBHOOK_INPUTS = stock_destination("firing", DestinationType.WEBHOOK)
+_, SLACK_INPUTS = stock_destination("firing", DestinationType.SLACK)
 
 
 class TestPlatformCutover(APIBaseTest):
@@ -308,6 +330,22 @@ class TestPlatformCutover(APIBaseTest):
                 HogFunctionPathReason.CUSTOMIZED,
             ),
             (
+                "body_written_before_the_first_save",
+                "template-webhook",
+                {**WEBHOOK_INPUTS, "body": {"value": {"embeds": [{"title": "{event.properties.alert_name}"}]}}},
+                {},
+                True,
+                HogFunctionPathReason.CUSTOMIZED,
+            ),
+            (
+                "no_body",
+                "template-webhook",
+                {key: value for key, value in WEBHOOK_INPUTS.items() if key != "body"},
+                {},
+                True,
+                HogFunctionPathReason.CUSTOMIZED,
+            ),
+            (
                 "secret_header",
                 "template-webhook",
                 WEBHOOK_INPUTS,
@@ -359,15 +397,15 @@ class TestPlatformCutover(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("stock_slack", "template-slack", SLACK_INPUTS, {}),
-            ("stock_webhook_with_legacy_body", "template-webhook", WEBHOOK_INPUTS, {}),
+            ("stock_slack", "template-slack", SLACK_INPUTS),
+            ("stock_webhook_with_legacy_body", "template-webhook", WEBHOOK_INPUTS),
         ]
     )
     def test_a_team_moves_when_every_destination_is_ready(
-        self, _name: str, template_id: str, inputs: dict[str, Any], edit: dict[str, Any]
+        self, _name: str, template_id: str, inputs: dict[str, Any]
     ) -> None:
         alert = self._alert()
-        self._destination(alert.id, template_id, inputs, edit)
+        self._destination(alert.id, template_id, inputs)
 
         with patch(LEGACY_BODY_FLAG, return_value=True):
             paths = team_delivery_paths(self.team.id)
