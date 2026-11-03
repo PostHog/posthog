@@ -194,6 +194,59 @@ def _receiver_sites(tree: ast.Module) -> Iterator[tuple[ast.expr, ast.expr | Non
         yield sender, function
 
 
+def _module_source(repo_root: Path, qualified: str) -> tuple[Path, str] | None:
+    """The file that defines a qualified function name, and the function's name."""
+    module, _, function = qualified.rpartition(".")
+    stem = repo_root / module.replace(".", "/")
+    for candidate in (stem.with_suffix(".py"), stem / "__init__.py"):
+        if candidate.is_file():
+            return candidate, function
+    return None
+
+
+@functools.cache
+def _forwards_to_connect(path: Path, function: str) -> bool:
+    """Whether a top-level function passes its first parameter on to a `.connect(...)` call.
+
+    A product exposes a signal on its own model through such a hook (`connect_task_run_post_save`)
+    so that consumers never name the sender. The receiver still runs in the sender's save path."""
+    tree = ast_parse_safe(path)
+    if tree is None:
+        return False
+    for node in tree.body:
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) or node.name != function:
+            continue
+        params = [*node.args.posonlyargs, *node.args.args]
+        if not params:
+            return False
+        first = params[0].arg
+        for call in ast.walk(node):
+            if not (isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)):
+                continue
+            if call.func.attr != "connect":
+                continue
+            target = call.args[0] if call.args else _keyword(call, "receiver")
+            if isinstance(target, ast.Name) and target.id == first:
+                return True
+    return False
+
+
+def _hook_sites(
+    tree: ast.Module, product: str, names: _ModuleNames, repo_root: Path
+) -> Iterator[tuple[str, ast.expr | None]]:
+    """(hook name, receiver function) for every call to another boundary's signal hook."""
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        qualified = _qualified_name(node.func, names)
+        if qualified is None or qualified.startswith(f"products.{product}."):
+            continue
+        source = _module_source(repo_root, qualified)
+        if source is None or not _forwards_to_connect(*source):
+            continue
+        yield qualified, node.args[0] if node.args else _keyword(node, "receiver")
+
+
 def _function_module(function: ast.expr, product_dir: Path, names: _ModuleNames) -> str | None:
     """The product module file that defines a connected receiver function, when the source names it."""
     prefix = f"products.{product_dir.name}."
@@ -214,11 +267,15 @@ def _iter_backend_modules(product_dir: Path) -> Iterator[tuple[str, Path]]:
 
 def foreign_receiver_modules(product_dir: Path) -> list[ChannelModule]:
     """The modules of a product that connect a receiver on a foreign sender, and the modules that
-    define those receiver functions. Both run inside the sender's save and delete paths."""
+    define those receiver functions. Both run inside the sender's save and delete paths.
+
+    A receiver connects either with `sender=` or through another boundary's signal hook."""
     product = product_dir.name
+    repo_root = product_dir.parent.parent
     found: list[ChannelModule] = []
     for rel_path, path in _iter_backend_modules(product_dir):
-        if b"sender" not in path.read_bytes():
+        source = path.read_bytes()
+        if b"sender" not in source and b"connect" not in source:
             continue
         tree = ast_parse_safe(path)
         if tree is None:
@@ -228,10 +285,13 @@ def foreign_receiver_modules(product_dir: Path) -> list[ChannelModule]:
         if is_package:
             module_parts.pop()
         names = _module_names(tree, ".".join(module_parts), is_package)
-        for sender, function in _receiver_sites(tree):
-            if _sender_is_own(sender, product, names, product_dir.parent):
-                continue
-            spelled = ast.unparse(sender)
+        sites: list[tuple[str, ast.expr | None]] = [
+            (ast.unparse(sender), function)
+            for sender, function in _receiver_sites(tree)
+            if not _sender_is_own(sender, product, names, product_dir.parent)
+        ]
+        sites += _hook_sites(tree, product, names, repo_root)
+        for spelled, function in sites:
             found.append(ChannelModule(path=rel_path, kind=ChannelKind.FOREIGN_RECEIVER, source=spelled))
             function_module = _function_module(function, product_dir, names) if function is not None else None
             if function_module is not None and function_module != rel_path:

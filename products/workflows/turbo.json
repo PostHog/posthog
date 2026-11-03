@@ -10,6 +10,7 @@
                 "backend/tasks/**",
                 "backend/max_tools.py",
                 "backend/integration_usages.py",
+                "backend/receivers.py",
                 "backend/models/**",
                 "backend/migrations/**"
             ],

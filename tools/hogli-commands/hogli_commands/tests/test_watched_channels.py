@@ -20,8 +20,6 @@ def _write(root: Path, files: dict[str, str]) -> None:
 
 
 def _write_products(repo_root: Path, mine: dict[str, str]) -> Path:
-    """Two products under repo_root/products: `mine` (label "mine") with the given backend files,
-    and `other` (label "other"), whose model a foreign sender names."""
     for name in ("mine", "other"):
         _write(
             repo_root / "products" / name / "backend",
@@ -97,6 +95,34 @@ class TestForeignReceivers:
             },
         )
         assert {c.path for c in foreign_receiver_modules(product_dir)} == {"backend/apps.py", "backend/handlers.py"}
+
+    @pytest.mark.parametrize(
+        "hook_body, expected",
+        [
+            (
+                "def connect_thing_saved(receiver, *, dispatch_uid):\n"
+                "    post_save.connect(receiver, sender=Thing, dispatch_uid=dispatch_uid)\n",
+                {"backend/receivers.py", "backend/handlers.py"},
+            ),
+            ("def connect_thing_saved(receiver, *, dispatch_uid):\n    return None\n", set()),
+        ],
+        ids=["hook-forwards-receiver-to-connect", "same-name-without-connect"],
+    )
+    def test_signal_hook_of_another_product(self, tmp_path: Path, hook_body: str, expected: set[str]) -> None:
+        product_dir = _write_products(
+            tmp_path,
+            {
+                "handlers.py": "def on_save(**kwargs): ...\n",
+                "receivers.py": (
+                    "from products.other.backend.facade.signals import connect_thing_saved\n\n"
+                    "from .handlers import on_save\n\n"
+                    "def connect():\n"
+                    '    connect_thing_saved(on_save, dispatch_uid="mine")\n'
+                ),
+            },
+        )
+        _write(tmp_path / "products" / "other" / "backend" / "facade", {"signals.py": hook_body})
+        assert {c.path for c in foreign_receiver_modules(product_dir)} == expected
 
 
 class TestOutsideTestNames:
