@@ -11,7 +11,12 @@ from typing import Any, Literal
 
 from posthog.redis import get_client
 
-from products.workflows.backend.services.ses_events_dlq import DlqQueue, ReplayOptions, ReplayReport
+from products.workflows.backend.services.ses_events_dlq import (
+    VISIBILITY_TIMEOUT_SECONDS,
+    DlqQueue,
+    ReplayOptions,
+    ReplayReport,
+)
 
 RunStatus = Literal["queued", "running", "finished", "failed"]
 
@@ -51,15 +56,13 @@ def _lock_key(queue: DlqQueue) -> str:
     return f"workflows:ses_events_dlq:lock:{queue.name}"
 
 
-def lock_ttl_seconds(options: ReplayOptions) -> int:
-    # A run stops before its visibility timeout ends, so a lock taken or extended when the run starts
-    # covers the whole run.
-    return options.visibility_timeout_seconds + 300
+# The task extends the lock after every message, so the lock outlives the run's SQS leases by this margin.
+LOCK_TTL_SECONDS = VISIBILITY_TIMEOUT_SECONDS + 300
 
 
-def hold_lock(run_id: str, queue: DlqQueue, options: ReplayOptions) -> bool:
+def hold_lock(run_id: str, queue: DlqQueue) -> bool:
     """Take or extend the queue lock for this run. False when another run holds it."""
-    return bool(get_client().eval(_HOLD_LOCK, 1, _lock_key(queue), run_id, lock_ttl_seconds(options)))
+    return bool(get_client().eval(_HOLD_LOCK, 1, _lock_key(queue), run_id, LOCK_TTL_SECONDS))
 
 
 def start_run(queue: DlqQueue, options: ReplayOptions, triggered_by: str) -> str | None:
@@ -67,7 +70,7 @@ def start_run(queue: DlqQueue, options: ReplayOptions, triggered_by: str) -> str
     run_id = str(uuid.uuid4())
     redis = get_client()
     # The task extends the lock when it starts, because the task can wait in the Celery queue first.
-    if not redis.set(_lock_key(queue), run_id, nx=True, ex=lock_ttl_seconds(options)):
+    if not redis.set(_lock_key(queue), run_id, nx=True, ex=LOCK_TTL_SECONDS):
         return None
     run = {
         "id": run_id,

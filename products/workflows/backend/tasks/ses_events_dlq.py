@@ -26,14 +26,14 @@ def replay_ses_events_dlq_task(
         logger.warning("ses_events_dlq.unknown_queue", run_id=run_id, queue=queue_name)
         return
     options = ReplayOptions(dry_run=dry_run, limit=limit, max_per_second=max_per_second)
-    if not hold_lock(run_id, queue, options):
+    if not hold_lock(run_id, queue):
         finish_run(run_id, queue, status="failed", error="Another run took this queue before this one started")
         return
     update_run(run_id, status="running")
 
     def on_progress(report: ReplayReport) -> None:
         update_run(run_id, status="running", report=report)
-        if not hold_lock(run_id, queue, options):
+        if not hold_lock(run_id, queue):
             raise QueueLockLost("Another run took this queue")
 
     try:

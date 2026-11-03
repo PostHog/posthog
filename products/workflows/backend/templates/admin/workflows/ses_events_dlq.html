@@ -6,14 +6,14 @@
 {% block extrastyle %}
     {{ block.super }}
     <style>
-    .dlq-card { border: 1px solid #e5e7eb; padding: 16px 20px; margin: 16px 0; border-radius: 8px; background: #fff; }
+    .dlq-card { border: 1px solid var(--hairline-color); padding: 16px 20px; margin: 16px 0; border-radius: 8px; background: var(--body-bg); }
     .dlq-card h3 { margin-top: 0; }
     .dlq-stats { display: flex; flex-wrap: wrap; gap: 8px 24px; margin-bottom: 12px; font-size: 13px; }
     .dlq-stats strong { font-size: 18px; display: block; }
     .dlq-form { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: end; margin-top: 12px; }
     .dlq-form label { display: block; font-size: 12px; font-weight: 600; }
     .dlq-form input[type="number"] { width: 110px; }
-    .dlq-error { color: #b91c1c; }
+    .dlq-error { color: var(--error-fg); }
     .dlq-table { width: 100%; }
     .dlq-table td, .dlq-table th { font-size: 12px; }
     </style>
