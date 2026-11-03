@@ -203,6 +203,7 @@ export enum NodeKind {
     AccountsTableQuery = 'AccountsTableQuery',
     AccountUsersQuery = 'AccountUsersQuery',
     AccountActivityMatrixQuery = 'AccountActivityMatrixQuery',
+    BookActivityMatrixQuery = 'BookActivityMatrixQuery',
 
     // Endpoints usage queries
     EndpointsUsageOverviewQuery = 'EndpointsUsageOverviewQuery',
@@ -299,6 +300,7 @@ export type AnyDataNode =
     | AccountsQuery
     | AccountsTableQuery
     | AccountActivityMatrixQuery
+    | BookActivityMatrixQuery
     | EndpointsUsageOverviewQuery
     | EndpointsUsageTableQuery
     | EndpointsUsageTrendsQuery
@@ -434,6 +436,7 @@ export type QuerySchema =
     | AccountsQuery
     | AccountsTableQuery
     | AccountActivityMatrixQuery
+    | BookActivityMatrixQuery
 
     // Endpoints usage
     | EndpointsUsageOverviewQuery
@@ -3525,6 +3528,73 @@ export interface AccountActivityMatrixQuery extends DataNode<AccountActivityMatr
     accountId: string
     weeks?: integer
     metricIds?: string[]
+    rowLimit?: integer
+}
+
+export type BookActivityInterval = 'day' | 'week' | 'month'
+
+export interface BookActivityMatrixRow {
+    key: string
+    label: string
+    externalId: string
+}
+
+export interface BookActivityMatrixFamily {
+    key: string
+    label: string
+}
+
+export interface BookActivityMatrixProduct {
+    key: string
+    label: string
+    family: string
+    useCase?: string | null
+}
+
+export interface BookActivityMatrixCell {
+    row: string
+    column: string
+    series: string
+    users: integer
+}
+
+export interface BookActivityMatrixCombination {
+    row: string
+    column: string
+    mask: integer
+    users: integer
+}
+
+export interface BookActivityMatrixFirstUse {
+    row: string
+    series: string
+    date: string
+}
+
+export interface BookActivityMatrixResult {
+    rows: BookActivityMatrixRow[]
+    columns: AccountActivityMatrixColumn[]
+    families: BookActivityMatrixFamily[]
+    series: BookActivityMatrixProduct[]
+    data: BookActivityMatrixCell[]
+    combinations: BookActivityMatrixCombination[]
+    firstUse?: BookActivityMatrixFirstUse[]
+    truncated: boolean
+}
+
+export interface BookActivityMatrixQueryResponse extends AnalyticsQueryResponseBase {
+    results: BookActivityMatrixResult
+}
+
+export type CachedBookActivityMatrixQueryResponse = CachedQueryResponse<BookActivityMatrixQueryResponse>
+
+export interface BookActivityMatrixQuery extends DataNode<BookActivityMatrixQueryResponse> {
+    kind: NodeKind.BookActivityMatrixQuery
+    relationshipDefinitionId: string
+    userId?: integer
+    dateRange: DateRange
+    interval: BookActivityInterval
+    includeFirstUse?: boolean
     rowLimit?: integer
 }
 

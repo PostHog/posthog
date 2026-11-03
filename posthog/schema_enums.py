@@ -814,6 +814,12 @@ class BingAdsDefaultSources(StrEnum):
     BING_VIDEO = "bing_video"
 
 
+class BookActivityInterval(StrEnum):
+    DAY = "day"
+    WEEK = "week"
+    MONTH = "month"
+
+
 class BreakdownAttributionType(StrEnum):
     FIRST_TOUCH = "first_touch"
     LAST_TOUCH = "last_touch"
@@ -2520,6 +2526,7 @@ class NodeKind(StrEnum):
     ACCOUNTS_TABLE_QUERY = "AccountsTableQuery"
     ACCOUNT_USERS_QUERY = "AccountUsersQuery"
     ACCOUNT_ACTIVITY_MATRIX_QUERY = "AccountActivityMatrixQuery"
+    BOOK_ACTIVITY_MATRIX_QUERY = "BookActivityMatrixQuery"
     ENDPOINTS_USAGE_OVERVIEW_QUERY = "EndpointsUsageOverviewQuery"
     ENDPOINTS_USAGE_TABLE_QUERY = "EndpointsUsageTableQuery"
     ENDPOINTS_USAGE_TRENDS_QUERY = "EndpointsUsageTrendsQuery"
