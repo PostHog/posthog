@@ -818,12 +818,17 @@ describe('RecordingApi', () => {
 
     describe('browser block route', () => {
         const JWT_SECRET = 'recording-api-test-secret'
+        const BLOCKS_JWT_SECRET = 'recording-api-blocks-test-secret'
         const BLOCK_URL = '/replay-blocks/1/session-123/u7/v1.abc'
         let server: Server
         let rateLimiter: { rateLimitMany: jest.Mock }
 
-        const browserToken = (claims: Record<string, unknown> = {}, expiresIn: string | null = '5m'): string =>
-            `Bearer ${new JWT(JWT_SECRET).sign(
+        const browserToken = (
+            claims: Record<string, unknown> = {},
+            expiresIn: string | null = '5m',
+            secret = BLOCKS_JWT_SECRET
+        ): string =>
+            `Bearer ${new JWT(secret).sign(
                 { team_id: 1, session_id: 'session-123', sub: 'u7', ...claims },
                 PosthogJwtAudience.REPLAY_BLOCKS,
                 expiresIn ? { expiresIn } : {}
@@ -835,6 +840,7 @@ describe('RecordingApi', () => {
             const recordingApi = new RecordingApi(
                 {
                     RECORDING_API_JWT_SECRET: JWT_SECRET,
+                    RECORDING_API_BLOCKS_JWT_SECRET: BLOCKS_JWT_SECRET,
                     RECORDING_API_ALLOW_LEGACY_SECRET: false,
                     RECORDING_API_ROLE: role,
                     RECORDING_API_BLOCK_RATE_LIMIT_ENFORCED: enforced,
@@ -887,6 +893,7 @@ describe('RecordingApi', () => {
             ['a token for another viewer', () => browserToken({ sub: 'u8' }), 403],
             ['a token with a string team', () => browserToken({ team_id: '1' }), 403],
             ['an internal service token', serviceToken, 401],
+            ['a browser token signed with the service secret', () => browserToken({}, '5m', JWT_SECRET), 401],
             ['an expired token', () => browserToken({}, '-5m'), 401],
             ['a token that never expires', () => browserToken({}, null), 401],
             [

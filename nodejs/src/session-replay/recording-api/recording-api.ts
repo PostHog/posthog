@@ -273,7 +273,7 @@ export class RecordingApi {
         if (this.servesPublicRoutes) {
             router.get(
                 '/replay-blocks/:team_id/:session_id/:viewer/:ref',
-                createReplayBlocksAuthMiddleware(this.config.RECORDING_API_JWT_SECRET),
+                createReplayBlocksAuthMiddleware(this.config.RECORDING_API_BLOCKS_JWT_SECRET),
                 asyncHandler(this.getBlockByRef)
             )
         }

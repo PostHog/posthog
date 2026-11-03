@@ -66,10 +66,13 @@ export type RecordingApiRole = 'internal' | 'public' | 'all'
 
 /**
  * The browser block route's per-caller token bucket. One request fetches one block, so the bucket is
- * sized in blocks. While not enforced, over-limit requests are served and only counted in a metric.
+ * sized in blocks. Enforced by default; setting it false serves over-limit requests and only counts them.
  */
 export type RecordingApiBlocksConfig = {
     RECORDING_API_ROLE: string
+    // Signs only browser block tokens. Kept apart from RECORDING_API_JWT_SECRET, so the internet-facing pods, which
+    // hold only this one, cannot sign a service token for an internal route.
+    RECORDING_API_BLOCKS_JWT_SECRET: string
     RECORDING_API_BLOCK_RATE_LIMIT_ENFORCED: boolean
     RECORDING_API_BLOCK_RATE_LIMIT_BUCKET_SIZE: number
     RECORDING_API_BLOCK_RATE_LIMIT_REFILL_PER_SECOND: number
@@ -78,7 +81,9 @@ export type RecordingApiBlocksConfig = {
 export function getDefaultRecordingApiBlocksConfig(): RecordingApiBlocksConfig {
     return {
         RECORDING_API_ROLE: 'internal',
-        RECORDING_API_BLOCK_RATE_LIMIT_ENFORCED: false,
+        // Dev/test default matches the Django minter so local end-to-end calls validate.
+        RECORDING_API_BLOCKS_JWT_SECRET: isProdEnv() ? '' : 'dev-recording-api-blocks-jwt-secret',
+        RECORDING_API_BLOCK_RATE_LIMIT_ENFORCED: true,
         RECORDING_API_BLOCK_RATE_LIMIT_BUCKET_SIZE: 2000,
         RECORDING_API_BLOCK_RATE_LIMIT_REFILL_PER_SECOND: 8,
     }

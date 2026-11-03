@@ -80,19 +80,23 @@ export class RecordingApiServer implements NodeServer {
     }
 
     private async startServices(): Promise<void> {
-        assertRecordingApiAuthConfigured({
-            isProd: isProdEnv(),
-            jwtSecret: this.config.RECORDING_API_JWT_SECRET,
-            allowLegacySecret: this.config.RECORDING_API_ALLOW_LEGACY_SECRET,
-            legacySecret: this.config.INTERNAL_API_SECRET,
-        })
+        const role = parseRecordingApiRole(this.config.RECORDING_API_ROLE)
+        // The browser route accepts only browser tokens, so no other secret can stand in for the blocks secret.
+        if (role !== 'internal' && isProdEnv() && !hasJwtKeys(this.config.RECORDING_API_BLOCKS_JWT_SECRET || '')) {
+            throw new Error('recording-api serving browser blocks needs RECORDING_API_BLOCKS_JWT_SECRET in production')
+        }
+        // A public process holds no service secret at all, so it has no internal auth to check.
+        if (role !== 'public') {
+            assertRecordingApiAuthConfigured({
+                isProd: isProdEnv(),
+                jwtSecret: this.config.RECORDING_API_JWT_SECRET,
+                allowLegacySecret: this.config.RECORDING_API_ALLOW_LEGACY_SECRET,
+                legacySecret: this.config.INTERNAL_API_SECRET,
+            })
+        }
 
         // A public process serves only browser block reads, so it never connects to Postgres or Kafka.
-        if (parseRecordingApiRole(this.config.RECORDING_API_ROLE) === 'public') {
-            // The browser route accepts only browser tokens, so the legacy secret cannot stand in for the JWT secret.
-            if (isProdEnv() && !hasJwtKeys(this.config.RECORDING_API_JWT_SECRET || '')) {
-                throw new Error('recording-api in the public role needs RECORDING_API_JWT_SECRET in production')
-            }
+        if (role === 'public') {
             const api = new RecordingApi(this.config)
             this.lifecycle.expressApp.use('/', api.router())
             await api.start()
