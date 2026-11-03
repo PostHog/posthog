@@ -21,16 +21,20 @@ import { Editor, EmailEditorProps, EditorRef as _EditorRef } from 'react-email-e
 import { LemonDialog } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { isSandboxEmailSender } from 'lib/integrations/utils'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { PreflightStatus, PropertyDefinition, PropertyDefinitionType, Realm } from '~/types'
+import { IntegrationType, PreflightStatus, PropertyDefinition, PropertyDefinitionType, Realm } from '~/types'
 
 import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 
 import { registerEmailMediaLibrary } from './emailMediaLibrary'
+import { senderFrom } from './emailSenderFields'
+import { selectSenders, selectedSenderIds } from './selectSenders'
 import type { EmailFieldErrors, EmailTemplate } from './types'
 
 export type { EmailTemplate }
@@ -253,6 +257,8 @@ export interface EmailTemplaterLogicProps {
     // not compute these itself; a caller that validates the email step (e.g. the workflow builder)
     // decides what and when to show.
     fieldErrors?: EmailFieldErrors
+    // Only workflow email steps can send through the sandbox sender; every other surface hides it.
+    sandboxSenderAllowed?: boolean
 }
 
 function autoRevealAdvancedFields(
@@ -294,6 +300,7 @@ export interface emailTemplaterLogicValues {
     isEmailTemplateSubmitting: boolean
     isEmailTemplateValid: boolean
     isModalOpen: boolean
+    isSandboxSenderSelected: boolean
     isSaveTemplateModalOpen: boolean
     isTemplatePickerOpen: boolean
     logicProps: EmailTemplaterLogicProps
@@ -301,7 +308,9 @@ export interface emailTemplaterLogicValues {
     personPropertyDefinitions: PropertyDefinition[]
     personPropertyDefinitionsLoading: boolean
     revealedAdvancedFields: EmailMetaFieldKey[]
+    sandboxSender: IntegrationType | null
     showEmailTemplateErrors: boolean
+    supportedFields: EmailMetaField[]
     templates: MessageTemplate[]
     templatesLoading: boolean
     templatingEngine: 'hog' | 'liquid'
@@ -318,6 +327,9 @@ export interface emailTemplaterLogicValues {
 export interface emailTemplaterLogicActions {
     applyTemplate: (template: MessageTemplate) => {
         template: MessageTemplate
+    }
+    chooseSenders: (integrationIds: number[]) => {
+        integrationIds: number[]
     }
     closeWithConfirmation: () => {
         value: true
@@ -448,8 +460,18 @@ export interface emailTemplaterLogicMeta {
                   id: string
               }
             | undefined
-        visibleFields: (arg: EmailTemplaterType, revealedAdvancedFields: EmailMetaFieldKey[]) => EmailMetaField[]
-        hiddenAdvancedFields: (arg: EmailTemplaterType, visibleFields: EmailMetaField[]) => EmailMetaField[]
+        sandboxSender: (
+            arg: IntegrationType[] | null,
+            arg2: IntegrationType | null,
+            emailTemplate: EmailTemplate
+        ) => IntegrationType | null
+        isSandboxSenderSelected: (sandboxSender: IntegrationType | null, emailTemplate: EmailTemplate) => boolean
+        supportedFields: (arg: EmailTemplaterType, isSandboxSenderSelected: boolean) => EmailMetaField[]
+        visibleFields: (
+            supportedFields: EmailMetaField[],
+            revealedAdvancedFields: EmailMetaFieldKey[]
+        ) => EmailMetaField[]
+        hiddenAdvancedFields: (supportedFields: EmailMetaField[], visibleFields: EmailMetaField[]) => EmailMetaField[]
     }
 }
 
@@ -459,6 +481,19 @@ export type emailTemplaterLogicType = MakeLogicType<
     EmailTemplaterLogicProps,
     emailTemplaterLogicMeta
 >
+
+// Read integrations only where the sandbox sender is allowed, so other email surfaces start no integrations request.
+function sandboxSenderAllowedIntegrations(state: any, props: EmailTemplaterLogicProps): IntegrationType[] | null {
+    return props.sandboxSenderAllowed && integrationsLogic.isMounted()
+        ? integrationsLogic.selectors.integrations(state)
+        : null
+}
+
+function sandboxSenderAllowedSandboxSender(state: any, props: EmailTemplaterLogicProps): IntegrationType | null {
+    return props.sandboxSenderAllowed && integrationsLogic.isMounted()
+        ? integrationsLogic.selectors.sandboxEmailSender(state)
+        : null
+}
 
 export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
     props({} as EmailTemplaterLogicProps),
@@ -481,6 +516,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         setActiveContentTab: (tab: 'visual' | 'plaintext') => ({ tab }),
         revealAdvancedField: (key: EmailMetaFieldKey) => ({ key }),
         hideAdvancedField: (key: EmailMetaFieldKey) => ({ key }),
+        chooseSenders: (integrationIds: number[]) => ({ integrationIds }),
     }),
     reducers({
         emailEditorRef: [
@@ -609,18 +645,6 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 // shared by the whole project, so the project is the user it sees.
                 emailMediaLibraryEnabled ? { id: `project-${currentProjectId}` } : undefined,
         ],
-        visibleFields: [
-            (s) => [(_, props: EmailTemplaterLogicProps) => props.type, s.revealedAdvancedFields],
-            (type: EmailTemplaterType, revealedAdvancedFields: EmailMetaFieldKey[]): EmailMetaField[] =>
-                EMAIL_TYPE_SUPPORTED_FIELDS[type].filter(
-                    (field) => !field.isAdvancedField || revealedAdvancedFields.includes(field.key)
-                ),
-        ],
-        hiddenAdvancedFields: [
-            (s) => [(_, props: EmailTemplaterLogicProps) => props.type, s.visibleFields],
-            (type: EmailTemplaterType, visibleFields: EmailMetaField[]): EmailMetaField[] =>
-                EMAIL_TYPE_SUPPORTED_FIELDS[type].filter((f) => f.isAdvancedField && !visibleFields.includes(f)),
-        ],
     }),
 
     forms(({ actions, values, props, cache }) => ({
@@ -676,7 +700,66 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         },
     })),
 
+    selectors({
+        sandboxSender: [
+            (s) => [sandboxSenderAllowedIntegrations, sandboxSenderAllowedSandboxSender, s.emailTemplate],
+            (
+                integrations: IntegrationType[] | null,
+                sandboxEmailSender: IntegrationType | null,
+                emailTemplate: EmailTemplate
+            ): IntegrationType | null => {
+                if (sandboxEmailSender) {
+                    return sandboxEmailSender
+                }
+                // A step saved with the sandbox sender keeps it after the flag turns off, so the picker can still
+                // name it and replace it instead of showing a bare id.
+                const ids = selectedSenderIds(senderFrom(emailTemplate))
+                return (
+                    integrations?.find(
+                        (integration) => isSandboxEmailSender(integration) && ids.includes(integration.id)
+                    ) ?? null
+                )
+            },
+        ],
+        isSandboxSenderSelected: [
+            (s) => [s.sandboxSender, s.emailTemplate],
+            (sandboxSender: IntegrationType | null, emailTemplate: EmailTemplate): boolean =>
+                !!sandboxSender && selectedSenderIds(senderFrom(emailTemplate)).includes(sandboxSender.id),
+        ],
+        // The sandbox sender always replies from its own identity, so it offers no Reply-To.
+        supportedFields: [
+            (s) => [(_, props: EmailTemplaterLogicProps) => props.type, s.isSandboxSenderSelected],
+            (type: EmailTemplaterType, isSandboxSenderSelected: boolean): EmailMetaField[] =>
+                isSandboxSenderSelected
+                    ? EMAIL_TYPE_SUPPORTED_FIELDS[type].filter((field) => field.key !== EMAIL_META_FIELDS.REPLY_TO.key)
+                    : EMAIL_TYPE_SUPPORTED_FIELDS[type],
+        ],
+        visibleFields: [
+            (s) => [s.supportedFields, s.revealedAdvancedFields],
+            (supportedFields: EmailMetaField[], revealedAdvancedFields: EmailMetaFieldKey[]): EmailMetaField[] =>
+                supportedFields.filter((field) => !field.isAdvancedField || revealedAdvancedFields.includes(field.key)),
+        ],
+        hiddenAdvancedFields: [
+            (s) => [s.supportedFields, s.visibleFields],
+            (supportedFields: EmailMetaField[], visibleFields: EmailMetaField[]): EmailMetaField[] =>
+                supportedFields.filter((f) => f.isAdvancedField && !visibleFields.includes(f)),
+        ],
+    }),
+
     listeners(({ props, values, actions, cache }) => ({
+        chooseSenders: ({ integrationIds }) => {
+            const sandboxSenderId = values.sandboxSender?.id
+            const next = selectSenders(senderFrom(values.emailTemplate), integrationIds, sandboxSenderId)
+            if (!next) {
+                return
+            }
+            if (sandboxSenderId !== undefined && next.integrationId === sandboxSenderId) {
+                actions.setEmailTemplateValues({ from: next, replyTo: '' })
+                actions.hideAdvancedField('replyTo')
+                return
+            }
+            actions.setEmailTemplateValue('from', next)
+        },
         // Person properties load after the editor starts, and the editor only reads its options once.
         loadPersonPropertyDefinitionsSuccess: () => {
             const mergeTags = buildMergeTags(values.personPropertyDefinitions, props.type, props.variables)

@@ -31,6 +31,16 @@ describe('transactionalEmailWizardLogic', () => {
                             kind: 'email',
                             config: { email: 'no-reply@example.com', domain: 'example.com', verified: true },
                         },
+                        {
+                            id: 8,
+                            kind: 'email',
+                            config: {
+                                provider: 'sandbox',
+                                email: 'hello@sandbox.example.com',
+                                domain: 'sandbox.example.com',
+                                verified: true,
+                            },
+                        },
                     ],
                 },
             },
@@ -51,6 +61,14 @@ describe('transactionalEmailWizardLogic', () => {
 
     test.each([
         ['an email missing its sender is not created', {}, 0, 'sender', '/transactional/new'],
+        [
+            // make_transactional rejects the sandbox sender, so the wizard does not offer it.
+            'an email from the sandbox sender is not created',
+            { from: { integrationId: 8 }, subject: 'Reset your password' },
+            0,
+            'sender',
+            '/transactional/new',
+        ],
         [
             'a complete email is created, made transactional, and opened in its section',
             { from: { integrationId: 7 }, subject: 'Reset your password' },
