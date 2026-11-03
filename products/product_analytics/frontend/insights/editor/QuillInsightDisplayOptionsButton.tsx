@@ -36,7 +36,7 @@ export function QuillInsightDisplayOptionsButton({
                 </span>
                 <IconEllipsis className="hidden @max-[780px]:block" />
             </PopoverTrigger>
-            <PopoverContent align="end" className="w-auto p-0">
+            <PopoverContent align="end" className="w-auto p-0 max-h-[var(--available-height)] overflow-y-auto">
                 <InsightDisplayOptionsPanel tabs={tabs} />
             </PopoverContent>
         </Popover>
