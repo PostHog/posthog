@@ -172,6 +172,10 @@ class TestExportedProperties(BaseTest):
                 "SELECT p.email FROM (SELECT properties AS p, event FROM events ORDER BY 1 LIMIT 1)",
             ),
             (
+                "grouping_sets_ordinal_on_a_passthrough",
+                "SELECT properties.email FROM (SELECT properties, event FROM (SELECT properties, event FROM events) GROUP BY GROUPING SETS ((1)))",
+            ),
+            (
                 "group_by_all_on_a_passthrough",
                 "SELECT properties.email FROM (SELECT properties, event FROM (SELECT properties, event FROM events) GROUP BY ALL)",
             ),

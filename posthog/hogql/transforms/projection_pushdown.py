@@ -260,7 +260,11 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
         """The select columns a bare integer in ORDER BY, GROUP BY or LIMIT BY names by position (ClickHouse resolves
         them positionally), so their values count and their positions must not move"""
         referencing: list[ast.Expr] = [order.expr for order in node.order_by or []]
-        referencing.extend(node.group_by or [])
+        for group_expr in node.group_by or []:
+            if isinstance(group_expr, ast.GroupingSet):
+                referencing.extend(group_expr.exprs)
+            else:
+                referencing.append(group_expr)
         if node.limit_by:
             referencing.extend(node.limit_by.exprs)
         columns: list[ast.Expr] = []
