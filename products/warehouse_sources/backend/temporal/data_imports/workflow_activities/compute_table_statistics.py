@@ -64,8 +64,7 @@ MAX_RECOMPUTE_INTERVAL = timedelta(days=int(os.getenv("WAREHOUSE_STATS_MAX_RECOM
 # Each commit since the last computation is one small object-store read; past this many the full
 # Add-action scan is the cheaper path again.
 MAX_INCREMENTAL_COMMITS = int(os.getenv("WAREHOUSE_STATS_MAX_INCREMENTAL_COMMITS", "200"))
-# Files x columns cap for the Add-action scan. The Arrow stats table measured ~12 bytes per cell on a
-# synthetic 245k x 26 table, so 25M cells is ~300 MB with headroom for wide string bounds.
+# Files x columns cap for the Add-action scan: Arrow holds about 12 bytes per cell, so the default is ~300 MB.
 MAX_ADD_ACTION_CELLS = int(os.getenv("WAREHOUSE_STATS_MAX_ADD_ACTION_CELLS", "25000000"))
 
 # Product-analytics events — query these to track statistics volume, columns profiled, skips, and errors.
@@ -144,8 +143,7 @@ def _aggregate_add_action_stats(add_actions: Any, columns: dict[str, Any]) -> tu
     import pyarrow as pa  # noqa: PLC0415 — heavy dep kept off this module's flag-check import path
     import pyarrow.compute as pc  # noqa: PLC0415
 
-    # deltalake>=1.x returns an arro3 RecordBatch, which pa.table() reads through the Arrow C interface.
-    # Python objects for the whole table cost memory per file x column, so read only the needed columns.
+    # deltalake>=1.x hands back an arro3 RecordBatch; the Arrow aggregates below avoid one Python object per file x column.
     data = add_actions if isinstance(add_actions, pa.Table | pa.RecordBatch) else pa.table(add_actions)
     present = set(data.schema.names)
     row_count = (pc.sum(data.column("num_records")).as_py() or 0) if "num_records" in present else 0
