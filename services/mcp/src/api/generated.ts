@@ -73443,6 +73443,8 @@ export namespace Schemas {
       cadence: MaterializeSyncFrequencyEnum;
       /** Downstream views and endpoints that refresh more often than this cadence. If this view were pinned to it, they would read data older than their own cadence. */
       delays_if_pinned: NodePinDelay[];
+      /** The downstream view that stops a pin at this cadence. It reads fresh data only through this view, so a pin this slow would leave it unable to refresh as often as its own cadence. Null when this cadence can be pinned. */
+      pin_blocked_by: NodePinDelay | null;
     }
 
     export interface NodeFrequencyBounds {
