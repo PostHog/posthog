@@ -3,7 +3,9 @@ import { router } from 'kea-router'
 import { LemonDialog } from '@posthog/lemon-ui'
 
 import { ApiConfig } from 'lib/api'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { isSandboxEmailSender } from 'lib/integrations/utils'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { cohortsRetrieve } from 'products/cohorts/frontend/generated/api'
@@ -20,9 +22,15 @@ import {
 } from '../Channels/emailSendingMessages'
 import { MessageAudience, MessageAudienceDestination, messageAudienceUrl } from './messageAudience'
 
-export function emailSenderWarning(integrations: Pick<IntegrationConfigApi, 'kind' | 'config'>[]): string | null {
+export function emailSenderWarning(
+    integrations: Pick<IntegrationConfigApi, 'kind' | 'config'>[],
+    sandboxSenderEnabled: boolean
+): string | null {
     const emailIntegrations = integrations.filter((integration) => integration.kind === 'email')
-    const senders = emailIntegrations.filter((integration) => !isSandboxEmailSender(integration))
+    // With the flag off, a sandbox sender kept from earlier counts like any other sender, as it did before the flag.
+    const senders = sandboxSenderEnabled
+        ? emailIntegrations.filter((integration) => !isSandboxEmailSender(integration))
+        : emailIntegrations
     if (senders.length === 0) {
         return emailIntegrations.length > 0 ? SANDBOX_ONLY_SENDER_MESSAGE : NO_EMAIL_SENDER_MESSAGE
     }
@@ -30,6 +38,10 @@ export function emailSenderWarning(integrations: Pick<IntegrationConfigApi, 'kin
         (integration) => (integration.config as { verified?: boolean } | undefined)?.verified === true
     )
     return verified ? null : UNVERIFIED_SENDER_MESSAGE
+}
+
+function sandboxSenderEnabled(): boolean {
+    return !!featureFlagLogic.findMounted()?.values.featureFlags[FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER]
 }
 
 // The checks only advise, so a slow one must not hold the person on the page.
@@ -65,7 +77,7 @@ export async function loadMessageAudienceWarnings(
     return [
         suspension?.email_sending_suspended ? EMAIL_SENDING_SUSPENDED_MESSAGE : null,
         // A verified sender can sit on a later page, so only a complete list can say none is verified.
-        integrations && !integrations.next ? emailSenderWarning(integrations.results) : null,
+        integrations && !integrations.next ? emailSenderWarning(integrations.results, sandboxSenderEnabled()) : null,
         ...cohorts.map((cohort) => (cohort ? audienceCohortLaunchError(cohort) : null)),
     ].filter((warning): warning is string => !!warning)
 }
