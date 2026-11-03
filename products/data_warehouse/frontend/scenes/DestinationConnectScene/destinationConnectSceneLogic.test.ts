@@ -9,6 +9,32 @@ import { initKeaTests } from '~/test/init'
 
 import { destinationConnectSceneLogic } from './destinationConnectSceneLogic'
 
+const ITEMS: Record<string, Record<string, any>> = {
+    'item-1': {
+        id: 'item-1',
+        proposal: {
+            prefix: 'shop',
+            destination: {
+                type: 'Postgres',
+                config: {
+                    host: 'db.example.com',
+                    port: 6543,
+                    user: 'loader',
+                    database: 'analytics',
+                    connection_type: 'Directly',
+                },
+            },
+        },
+    },
+    'item-2': {
+        id: 'item-2',
+        proposal: {
+            prefix: 'billing',
+            destination: { type: 'Postgres', config: { host: 'billing.example.com' } },
+        },
+    },
+}
+
 describe('destinationConnectSceneLogic', () => {
     let unmountLogic: () => void
     let itemRequests: number
@@ -17,36 +43,10 @@ describe('destinationConnectSceneLogic', () => {
         itemRequests = 0
         useMocks({
             get: {
-                '/api/projects/:team_id/warehouse_migrations/:id/items/': () => {
+                '/api/projects/:team_id/warehouse_migrations/:id/items/:item_id/': ({ params }) => {
                     itemRequests += 1
-                    return [
-                        200,
-                        [
-                            {
-                                id: 'item-1',
-                                proposal: {
-                                    prefix: 'shop',
-                                    destination: {
-                                        type: 'Postgres',
-                                        config: {
-                                            host: 'db.example.com',
-                                            port: 6543,
-                                            user: 'loader',
-                                            database: 'analytics',
-                                            connection_type: 'Directly',
-                                        },
-                                    },
-                                },
-                            },
-                            {
-                                id: 'item-2',
-                                proposal: {
-                                    prefix: 'billing',
-                                    destination: { type: 'Postgres', config: { host: 'billing.example.com' } },
-                                },
-                            },
-                        ],
-                    ]
+                    const item = ITEMS[params.item_id as string]
+                    return item ? [200, item] : [404, { detail: 'Not found.' }]
                 },
             },
         })

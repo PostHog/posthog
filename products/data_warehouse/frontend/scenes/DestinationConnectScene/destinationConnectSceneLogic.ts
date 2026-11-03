@@ -13,7 +13,7 @@ import { urls } from 'scenes/urls'
 import { ApiConfig } from '~/lib/api'
 import { Breadcrumb, IntegrationKind } from '~/types'
 
-import { warehouseMigrationsItemsList } from 'products/warehouse_sources/frontend/generated/api'
+import { warehouseMigrationsItemsRetrieve } from 'products/warehouse_sources/frontend/generated/api'
 
 import { destinationTypeLabel } from '../../shared/components/DestinationIcon'
 import { WAREHOUSE_DESTINATIONS } from '../../shared/destinations/destinationDefinitions'
@@ -224,8 +224,12 @@ export const destinationConnectSceneLogic = kea<destinationConnectSceneLogicType
         loadMigrationPrefill: async ({ migrationId, itemId }, breakpoint) => {
             let vendorConfig: Record<string, unknown> | null = null
             try {
-                const items = await warehouseMigrationsItemsList(String(ApiConfig.getCurrentTeamId()), migrationId)
-                vendorConfig = items.find((item) => item.id === itemId)?.proposal?.destination?.config ?? null
+                const item = await warehouseMigrationsItemsRetrieve(
+                    String(ApiConfig.getCurrentTeamId()),
+                    migrationId,
+                    itemId
+                )
+                vendorConfig = item.proposal?.destination?.config ?? null
             } catch (e: any) {
                 // The user can still fill the form by hand, so only a server error gets reported.
                 if (e?.status >= 500) {
