@@ -536,6 +536,22 @@ async fn refuses_input_it_cannot_apply() {
         .unwrap_err();
         assert!(matches!(err, Error::Unsupported(_)), "{case}: {err}");
     }
+
+    let month_named = HistoryUpsertOptions {
+        current_partition: "2026-01".into(),
+        ..opts()
+    };
+    let err = apply_with(
+        &mut history,
+        &[(Some("a"), 3, "2026-03-01T00:00:00Z", "a", 3)],
+        month_named,
+    )
+    .await
+    .unwrap_err();
+    assert!(
+        matches!(err, Error::Generic(ref m) if m.contains("month")),
+        "{err}"
+    );
 }
 
 #[tokio::test]
@@ -564,6 +580,19 @@ async fn a_concurrent_commit_on_the_same_file_is_retried_against_the_new_state()
     .unwrap_err();
     assert!(matches!(err, Error::Conflict(_)), "{err}");
 
+    // A concurrent commit that only adds files must not let a stale plan open a key twice.
+    let stale = h.table().clone();
+    apply(&mut h, &[(Some("c"), 1, "2026-02-01T00:00:00Z", "c1", 5)]).await;
+    let err = history_upsert(
+        &stale,
+        vec![source(&[(Some("c"), 2, "2026-02-02T00:00:00Z", "c2", 6)])],
+        source_schema(),
+        opts(),
+    )
+    .await
+    .unwrap_err();
+    assert!(matches!(err, Error::Conflict(_)), "{err}");
+
     // Two handles racing on the same file both land, each against the other's commit.
     let uri = dir.path().to_str().unwrap().to_string();
     let mut first = TableHandle::open(uri.clone(), HashMap::new())
@@ -573,12 +602,12 @@ async fn a_concurrent_commit_on_the_same_file_is_retried_against_the_new_state()
     let (x, y) = tokio::join!(
         apply_with(
             &mut first,
-            &[(Some("a"), 3, "2026-03-01T00:00:00Z", "a3", 5)],
+            &[(Some("a"), 3, "2026-03-01T00:00:00Z", "a3", 7)],
             opts()
         ),
         apply_with(
             &mut second,
-            &[(Some("b"), 3, "2026-03-01T00:00:00Z", "b3", 6)],
+            &[(Some("b"), 3, "2026-03-01T00:00:00Z", "b3", 8)],
             opts()
         ),
     );
@@ -614,6 +643,7 @@ async fn a_concurrent_commit_on_the_same_file_is_retried_against_the_new_state()
                 "b1"
             ),
             open(Some("b"), 3, "2026-03-01T00:00:00Z", "b3"),
+            open(Some("c"), 1, "2026-02-01T00:00:00Z", "c1"),
         ])
     );
 }
@@ -642,9 +672,14 @@ async fn closes_many_rows_under_tiny_budgets_and_returns_every_permit() {
         limits: limits.clone(),
         ..opts()
     };
+    // The closes land in 50 months, more than the closed-row writer keeps open at once.
+    let instants: Vec<String> = (0..ids.len())
+        .map(|i| format!("{}-{:02}-15T00:00:00Z", 2026 + i % 50 / 12, i % 50 % 12 + 1))
+        .collect();
     let rows: Vec<Src> = ids
         .iter()
-        .map(|id| (Some(id.as_str()), 2, "2026-02-01T00:00:00Z", "new", 2))
+        .zip(&instants)
+        .map(|(id, at)| (Some(id.as_str()), 2, at.as_str(), "new", 2))
         .collect();
     let stats = apply_with(&mut h, &rows, tiny).await.unwrap();
     assert_eq!(
@@ -667,7 +702,12 @@ async fn closes_many_rows_under_tiny_budgets_and_returns_every_permit() {
     }
     let live = read(&h).await;
     assert_eq!(live.len(), 800);
-    assert_eq!(live.iter().filter(|r| r.0 == "2026-02").count(), 400);
+    let mut per_month: HashMap<String, usize> = HashMap::new();
+    for row in live.iter().filter(|r| r.0 != "current") {
+        *per_month.entry(row.0.clone()).or_default() += 1;
+    }
+    assert_eq!(per_month.len(), 50);
+    assert!(per_month.values().all(|n| *n == 8), "{per_month:?}");
 }
 
 #[test]

@@ -174,6 +174,12 @@ impl StreamingWriter {
         self
     }
 
+    /// Number of files open for writing, one per partition value written since the last
+    /// flush.
+    pub(crate) fn open_files(&self) -> usize {
+        self.open.len()
+    }
+
     /// Bytes held across all open files; the rollover measure.
     pub(crate) fn buffer_len(&self) -> usize {
         self.open.values().map(OpenFile::buffer_len).sum()

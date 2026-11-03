@@ -162,8 +162,9 @@ A source that keeps no row, such as a re-run of the same input, makes no commit 
 
 Each call reads the key and order columns of every current-partition file that its stats do not rule out, so a file that holds only re-read keys is not rewritten.
 The probe cache is not used.
-The knobs are the `upsert` ones that apply: `commit_metadata`, `max_parallel_files`, `max_buffered_bytes`, `max_fetch_bytes`, `probe_concurrency`, `commit_max_retries`, `read_batch_size`, `target_file_size`, `max_row_group_bytes`, `max_source_bytes`, `read_ahead_row_groups` and the multipart and ranged-read settings.
+The knobs are the `upsert` ones that apply: `commit_metadata`, `max_parallel_files`, `max_buffered_bytes`, `max_fetch_bytes`, `probe_concurrency`, `read_batch_size`, `target_file_size`, `max_row_group_bytes`, `max_source_bytes`, `read_ahead_row_groups` and the multipart and ranged-read settings.
 `max_parallel_partitions` is accepted and has no effect, because only the current partition is rewritten.
+A commit that finds a newer table version is never rebased onto it, since delta-rs does not check a concurrent commit that only adds files: the call plans again against the new version, up to five times, then raises `DeltaLiteCommitConflictError`.
 
 `HistoryUpsertStats` counts `rows_in`, `rows_deduped`, `rows_reread`, `rows_backwards`, `versions_opened`, `versions_closed` (open rows closed), `chain_rows_closed` (kept rows written closed), `rows_copied`, `files_added`, `files_removed`, `files_carried_over`, `files_probed`, `bytes_read` (stored size of the rewritten files) and `bytes_written`, with `version`, `committed` and the `upsert` timings.
 

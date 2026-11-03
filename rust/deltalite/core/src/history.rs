@@ -25,25 +25,25 @@
 //! before the kept rows are chosen. The probe cache is not used, because its entries
 //! record keys only.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
+use arrow_array::cast::AsArray;
 use arrow_array::{
     new_null_array, Array, ArrayRef, BooleanArray, RecordBatch, StringArray, UInt32Array,
 };
 use arrow_cast::{cast_with_options, CastOptions};
+use arrow_ord::sort::sort_to_indices;
 use arrow_row::{RowConverter, Rows, SortField};
 use arrow_schema::{DataType, Field, Schema, SchemaRef, TimeUnit};
 use arrow_select::concat::concat;
+use arrow_select::filter::{filter, filter_record_batch};
 use arrow_select::interleave::interleave_record_batch;
-use arrow_select::take::take;
-use arrow_select::zip::zip;
+use arrow_select::take::{take, take_record_batch};
 use chrono::{DateTime, NaiveDate, Utc};
-use deltalake::kernel::transaction::{CommitBuilder, CommitProperties};
-use deltalake::kernel::Action;
-use deltalake::protocol::{DeltaOperation, SaveMode};
+use deltalake::kernel::{Action, Add};
 use deltalake::table::config::TablePropertiesExt;
 use deltalake::table::state::DeltaTableState;
 use deltalake::writer::RecordBatchWriter;
@@ -63,8 +63,8 @@ use crate::limits::{
 };
 use crate::schema::cast_to_schema;
 use crate::upsert::{
-    add_partition_column, best_effort_log_maintenance, byte_bounded_batch_rows,
-    columns_needing_relax, ensure_supported_table, json_cmp, list_files_by_partition,
+    add_partition_column, byte_bounded_batch_rows, columns_needing_relax,
+    commit_partition_overwrite, ensure_supported_table, json_cmp, list_files_by_partition,
     max_row_group_fetch_bytes, min_max_json, open_builder, open_rewrite_stream,
     relax_columns_to_nullable, resolve_target_file_size, roll_writer, source_slice_rows,
     BudgetPermit, Budgets, RelaxCache, TargetFile, DEFAULT_MAX_FETCH_BYTES,
@@ -102,7 +102,6 @@ pub struct HistoryUpsertOptions {
     pub max_buffered_bytes: usize,
     pub max_fetch_bytes: usize,
     pub read_ahead_row_groups: bool,
-    pub commit_max_retries: usize,
     pub read_batch_size: usize,
     /// `None` uses the table's `delta.targetFileSize`.
     pub target_file_size: Option<usize>,
@@ -129,7 +128,6 @@ impl Default for HistoryUpsertOptions {
             max_buffered_bytes: 64 * 1024 * 1024,
             max_fetch_bytes: DEFAULT_MAX_FETCH_BYTES,
             read_ahead_row_groups: false,
-            commit_max_retries: 15,
             read_batch_size: 8192,
             target_file_size: None,
             max_row_group_bytes: None,
@@ -240,8 +238,9 @@ async fn history_with_relax(
     opts: HistoryUpsertOptions,
     relax_cache: &mut RelaxCache,
 ) -> Result<(HistoryUpsertStats, Option<DeltaTableState>)> {
-    // Before the relax, so an unsupported table is never touched.
+    // Before the relax, so an unsupported table or source never makes a metadata commit.
     ensure_history_table(table, &opts)?;
+    validate_source(table, &source_batches, &source_schema, &opts)?;
     let relax_started = Instant::now();
     let mut relax =
         columns_needing_relax(table, &source_batches, &source_schema, relax_cache).await?;
@@ -268,6 +267,32 @@ async fn history_with_relax(
     stats.relax_ms = relax_ms;
     // The relax commit moved the table even when the data turned out to be a no-op.
     Ok((stats, state.or(fresh.state)))
+}
+
+fn validate_source(
+    table: &DeltaTable,
+    source_batches: &[RecordBatch],
+    source_schema: &SchemaRef,
+    opts: &HistoryUpsertOptions,
+) -> Result<()> {
+    let table_schema = RecordBatchWriter::for_table(table)?.arrow_schema();
+    Columns::resolve(&table_schema, source_schema, opts)?;
+    for (role, column) in [
+        ("order", &opts.order_column),
+        ("valid_from", &opts.valid_from_column),
+    ] {
+        let idx = source_schema.index_of(column)?;
+        let nulls: usize = source_batches
+            .iter()
+            .map(|b| b.column(idx).null_count())
+            .sum();
+        if nulls > 0 {
+            return Err(Error::Generic(format!(
+                "{role} column '{column}' holds {nulls} null value(s); every history row needs one"
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn ensure_history_table(table: &DeltaTable, opts: &HistoryUpsertOptions) -> Result<()> {
@@ -306,10 +331,12 @@ impl Columns {
                 "key_columns must not be empty for a history upsert".into(),
             ));
         }
-        if opts.current_partition.is_empty() {
-            return Err(Error::Generic(
-                "current_partition must not be empty for a history upsert".into(),
-            ));
+        if is_month_name(&opts.current_partition) || opts.current_partition.is_empty() {
+            return Err(Error::Generic(format!(
+                "current_partition '{}' must be non-empty and must not look like a month \
+                 partition (YYYY-MM)",
+                opts.current_partition
+            )));
         }
         let set_by_operation = [&opts.valid_to_column, &opts.partition_column];
         let table_idx = |name: &str, role: &str| {
@@ -320,8 +347,7 @@ impl Columns {
         let source_column = |name: &str, role: &str| -> Result<usize> {
             if set_by_operation.iter().any(|c| c.as_str() == name) {
                 return Err(Error::Generic(format!(
-                    "{role} column '{name}' is set by history_upsert and cannot also be the \
-                     {role} column"
+                    "'{name}' is set by history_upsert and cannot be the {role} column"
                 )));
             }
             source_schema.index_of(name).map_err(|_| {
@@ -468,6 +494,30 @@ impl SourcePlan {
             )));
         }
 
+        // Guard before the narrow columns are copied out, and count those copies: the
+        // key, order, tie-break and `valid_from` arrays plus the key encodings.
+        let column_bytes = |idx: usize| -> usize {
+            batches
+                .iter()
+                .map(|b| b.column(idx).get_array_memory_size())
+                .sum()
+        };
+        let tie_bytes: usize = ties.iter().map(|t| t.get_array_memory_size()).sum();
+        let narrow_bytes = cols.key_idx.iter().map(|i| column_bytes(*i)).sum::<usize>() * 2
+            + column_bytes(cols.order_idx)
+            + column_bytes(cols.valid_from_idx)
+            + tie_bytes;
+        let footprint = SourceFootprint {
+            source_bytes: batches
+                .iter()
+                .map(RecordBatch::get_array_memory_size)
+                .sum::<usize>()
+                + tie_bytes,
+            pk_set_bytes: estimate_pk_set_bytes(narrow_bytes, rows_in)
+                .saturating_add(rows_in.saturating_mul(2 * size_of::<u32>())),
+        };
+        check_source_size(&footprint, resolve_max_source_bytes(opts.max_source_bytes))?;
+
         let column = |idx: usize| -> Result<ArrayRef> {
             let parts: Vec<&dyn Array> = batches.iter().map(|b| b.column(idx).as_ref()).collect();
             if parts.is_empty() {
@@ -486,42 +536,7 @@ impl SourcePlan {
             _ => concat(&ties.iter().map(|t| t.as_ref()).collect::<Vec<_>>())?,
         };
 
-        let narrow_bytes: usize = keys
-            .iter()
-            .map(|k| k.get_array_memory_size())
-            .sum::<usize>()
-            * 2
-            + order.get_array_memory_size()
-            + tie.get_array_memory_size();
-        let footprint = SourceFootprint {
-            source_bytes: batches
-                .iter()
-                .map(RecordBatch::get_array_memory_size)
-                .sum::<usize>()
-                + ties
-                    .iter()
-                    .map(|t| t.get_array_memory_size())
-                    .sum::<usize>(),
-            pk_set_bytes: estimate_pk_set_bytes(narrow_bytes, rows_in)
-                .saturating_add(rows_in.saturating_mul(2 * size_of::<u32>())),
-        };
-        check_source_size(&footprint, resolve_max_source_bytes(opts.max_source_bytes))?;
-
-        if order.null_count() > 0 {
-            return Err(Error::Generic(format!(
-                "order column '{}' holds {} null value(s); every history row needs an order value",
-                opts.order_column,
-                order.null_count()
-            )));
-        }
         let valid_from = column(cols.valid_from_idx)?;
-        if valid_from.null_count() > 0 {
-            return Err(Error::Generic(format!(
-                "valid_from column '{}' holds {} null value(s); every history row needs one",
-                opts.valid_from_column,
-                valid_from.null_count()
-            )));
-        }
         let valid_from = cast_strict(
             &valid_from,
             table_schema.field(cols.valid_to_idx).data_type(),
@@ -662,12 +677,15 @@ impl SourcePlan {
     }
 }
 
+/// A kept source row and the next kept row of its key, whose `valid_from` closes it
+/// (`None` for the newest, which stays open).
+type KeptRow = (u32, Option<u32>);
+
 struct Decision {
     /// Per key: the source row whose `valid_from` closes the key's open row.
     closing: Vec<Option<u32>>,
-    /// Kept source rows in write order, each with the next kept row of its key, whose
-    /// `valid_from` closes it (`None` for the newest, which stays open).
-    writes: Vec<(u32, Option<u32>)>,
+    /// Kept source rows in write order.
+    writes: Vec<KeptRow>,
     rows_reread: usize,
     rows_backwards: usize,
     versions_opened: usize,
@@ -776,6 +794,11 @@ pub fn format_months(values: &dyn Array) -> Result<StringArray> {
         .collect())
 }
 
+fn is_month_name(value: &str) -> bool {
+    let b = value.as_bytes();
+    b.len() == 7 && b[4] == b'-' && b[..4].iter().chain(&b[5..]).all(u8::is_ascii_digit)
+}
+
 fn out_of_range(v: i64) -> Error {
     Error::Generic(format!(
         "valid_to value {v} is outside the supported date range"
@@ -784,27 +807,17 @@ fn out_of_range(v: i64) -> Error {
 
 /// Set `valid_to` and the partition column of `batch` (in the table's column order).
 /// Row `i` closes at the `valid_from` of source row `closes[i]` into that value's month;
-/// a null entry keeps the row's own `valid_to` when `keep_valid_to`, else leaves it open,
-/// and puts it in `current`.
+/// a null entry leaves it open in `current`.
 fn stamp_validity(
     batch: &RecordBatch,
     closes: &UInt32Array,
-    keep_valid_to: bool,
     plan: &SourcePlan,
     cols: &Columns,
     table_schema: &SchemaRef,
     current: &str,
 ) -> Result<RecordBatch> {
-    let closed_at = take(plan.valid_from.as_ref(), closes, None)?;
-    let valid_to = if keep_valid_to {
-        let mask: BooleanArray = (0..closes.len())
-            .map(|i| Some(closes.is_valid(i)))
-            .collect();
-        zip(&mask, &closed_at, batch.column(cols.valid_to_idx))?
-    } else {
-        closed_at.clone()
-    };
-    let months = format_months(closed_at.as_ref())?;
+    let valid_to = take(plan.valid_from.as_ref(), closes, None)?;
+    let months = format_months(valid_to.as_ref())?;
     let partition: StringArray = months.iter().map(|m| Some(m.unwrap_or(current))).collect();
     let partition: ArrayRef = Arc::new(partition);
     let partition = cast_strict(
@@ -967,6 +980,14 @@ async fn probe_file(
     Ok((probe, metadata))
 }
 
+/// A decoded batch on its way to the writers, split by destination. The permit is
+/// released once both parts are in the write buffers.
+struct WriteMessage {
+    current: Option<RecordBatch>,
+    closed: Option<RecordBatch>,
+    _permit: BudgetPermit,
+}
+
 struct CloseOutcome {
     rows_copied: usize,
     versions_closed: usize,
@@ -986,7 +1007,7 @@ async fn close_file(
     table_schema: SchemaRef,
     opts: Arc<HistoryUpsertOptions>,
     budgets: Budgets,
-    tx: mpsc::UnboundedSender<(RecordBatch, BudgetPermit)>,
+    tx: mpsc::UnboundedSender<WriteMessage>,
 ) -> Result<CloseOutcome> {
     let (mut stream, fetch) = open_rewrite_stream(
         &store,
@@ -1026,20 +1047,34 @@ async fn close_file(
         let closed = closes.len() - closes.null_count();
         versions_closed += closed;
         rows_copied += batch.num_rows() - closed;
-        let batch = if closed == 0 {
-            batch
+        let message = if closed == 0 {
+            WriteMessage {
+                current: Some(batch),
+                closed: None,
+                _permit: permit,
+            }
         } else {
-            stamp_validity(
-                &batch,
-                &closes,
-                true,
+            let is_closed: BooleanArray = (0..closes.len())
+                .map(|i| Some(closes.is_valid(i)))
+                .collect();
+            let stays_open: BooleanArray =
+                (0..closes.len()).map(|i| Some(closes.is_null(i))).collect();
+            let current = filter_record_batch(&batch, &stays_open)?;
+            let closed_rows = stamp_validity(
+                &filter_record_batch(&batch, &is_closed)?,
+                filter(&closes, &is_closed)?.as_primitive(),
                 &plan,
                 &cols,
                 &table_schema,
                 &opts.current_partition,
-            )?
+            )?;
+            WriteMessage {
+                current: (current.num_rows() > 0).then_some(current),
+                closed: Some(closed_rows),
+                _permit: permit,
+            }
         };
-        tx.send((batch, permit))
+        tx.send(message)
             .map_err(|_| Error::Generic("writer task ended before its readers".into()))?;
     }
     drop(stream);
@@ -1050,6 +1085,74 @@ async fn close_file(
         bytes_read: f.size,
         remove: Action::Remove(f.remove),
     })
+}
+
+/// Most month files the closed-row writer keeps open. Each open file holds its own
+/// buffers, so closes that span many months would otherwise grow memory per month.
+const MAX_OPEN_MONTH_FILES: usize = 32;
+
+/// Write closed rows one month at a time, flushing every open month file before the
+/// writer would hold more than [`MAX_OPEN_MONTH_FILES`].
+async fn write_closed(
+    writer: &mut StreamingWriter,
+    batch: &RecordBatch,
+    partition_idx: usize,
+    adds: &mut Vec<Add>,
+    target_file_size: usize,
+    max_row_group_bytes: Option<usize>,
+) -> Result<()> {
+    let order = sort_to_indices(batch.column(partition_idx), None, None)?;
+    let sorted = take_record_batch(batch, &order)?;
+    let runs = arrow_ord::partition::partition(&[sorted.column(partition_idx).clone()])?;
+    for run in runs.ranges() {
+        if writer.open_files() >= MAX_OPEN_MONTH_FILES {
+            adds.extend(writer.flush().await?);
+        }
+        writer.write(sorted.slice(run.start, run.end - run.start))?;
+        roll_writer(writer, adds, target_file_size, max_row_group_bytes).await?;
+    }
+    Ok(())
+}
+
+/// Writes chunks of kept source rows, stamped with their `valid_to` and partition.
+struct SourceWriter<'a> {
+    plan: &'a SourcePlan,
+    cols: &'a Columns,
+    table_schema: &'a SchemaRef,
+    opts: &'a HistoryUpsertOptions,
+    target_file_size: usize,
+}
+
+impl SourceWriter<'_> {
+    async fn write(
+        &self,
+        rows: &[KeptRow],
+        writer: &mut StreamingWriter,
+        adds: &mut Vec<Add>,
+    ) -> Result<()> {
+        let batch_refs: Vec<&RecordBatch> = self.plan.batches.iter().collect();
+        let located: Vec<(usize, usize)> = rows.iter().map(|(r, _)| self.plan.locate(*r)).collect();
+        let closes: UInt32Array = rows.iter().map(|(_, next)| *next).collect();
+        let selected = stamp_validity(
+            &interleave_record_batch(&batch_refs, &located)?,
+            &closes,
+            self.plan,
+            self.cols,
+            self.table_schema,
+            &self.opts.current_partition,
+        )?;
+        let max_row_group_bytes = self.opts.max_row_group_bytes;
+        let slice_rows =
+            source_slice_rows(&selected, self.opts.read_batch_size, max_row_group_bytes);
+        let mut offset = 0usize;
+        while offset < selected.num_rows() {
+            let n = (selected.num_rows() - offset).min(slice_rows);
+            writer.write(selected.slice(offset, n))?;
+            offset += n;
+            roll_writer(writer, adds, self.target_file_size, max_row_group_bytes).await?;
+        }
+        Ok(())
+    }
 }
 
 async fn history_inner(
@@ -1102,6 +1205,8 @@ async fn history_inner(
     );
     let store: Arc<dyn ObjectStore> = table.object_store();
 
+    // Held from the probe on, as an upsert's partition worker holds it.
+    let _partition_permit = opts.limits.acquire_partition().await?;
     let probe_started = Instant::now();
     let probe_columns: Vec<(String, DataType)> = cols
         .key_idx
@@ -1114,37 +1219,39 @@ async fn history_inner(
         .collect();
     stats.files_probed = candidates.len();
     let key_count = cols.key_idx.len();
-    let probed: Vec<FileProbe> =
-        {
-            let results =
-                futures::stream::iter(candidates.into_iter().map(|f| {
+    let mut open: Vec<Option<Box<[u8]>>> = vec![None; plan.groups.len()];
+    let mut probed: Vec<(TargetFile, Vec<u32>)> = Vec::new();
+    {
+        let results =
+            futures::stream::iter(
+                candidates.into_iter().map(|f| {
                     let store = store.clone();
                     let (plan, probe_columns, budgets) = (&plan, &probe_columns, &budgets);
                     async move {
                         probe_file(&store, f, plan, probe_columns, key_count, opts, budgets).await
                     }
-                }))
-                .buffered(opts.probe_concurrency.max(1));
-            futures::pin_mut!(results);
-            let retained_footer_limit = opts.max_parallel_files.max(1);
-            let mut retained = 0usize;
-            let mut out = Vec::new();
-            while let Some((mut probe, metadata)) = results.try_next().await? {
-                if probe.newer && retained < retained_footer_limit {
-                    probe.file.metadata = Some(metadata);
-                    retained += 1;
+                }),
+            )
+            .buffered(opts.probe_concurrency.max(1));
+        futures::pin_mut!(results);
+        let retained_footer_limit = opts.max_parallel_files.max(1);
+        let mut retained = 0usize;
+        while let Some((mut probe, metadata)) = results.try_next().await? {
+            if probe.newer && retained < retained_footer_limit {
+                probe.file.metadata = Some(metadata);
+                retained += 1;
+            }
+            let mut groups = Vec::with_capacity(probe.seen.len());
+            for (group, order) in probe.seen {
+                let slot = &mut open[group as usize];
+                if slot.as_ref().is_none_or(|o| order > *o) {
+                    *slot = Some(order);
                 }
-                out.push(probe);
+                groups.push(group);
             }
-            out
-        };
-    let mut open: Vec<Option<Box<[u8]>>> = vec![None; plan.groups.len()];
-    for probe in &probed {
-        for (group, order) in &probe.seen {
-            let slot = &mut open[*group as usize];
-            if slot.as_ref().is_none_or(|o| order > o) {
-                *slot = Some(order.clone());
-            }
+            groups.sort_unstable();
+            groups.dedup();
+            probed.push((probe.file, groups));
         }
     }
     stats.probe_ms = probe_started.elapsed().as_millis() as u64;
@@ -1160,42 +1267,56 @@ async fn history_inner(
     }
 
     let mut rewrite = Vec::new();
-    for probe in probed {
-        if probe
-            .seen
+    for (file, groups) in probed {
+        if groups
             .iter()
-            .any(|(group, _)| decision.closing[*group as usize].is_some())
+            .any(|group| decision.closing[*group as usize].is_some())
         {
-            rewrite.push(probe.file);
+            rewrite.push(file);
         } else {
             stats.files_carried_over += 1;
         }
     }
 
+    // Open rows and closed rows go through separate writers, so a flush of closed rows
+    // never cuts a current-partition file short.
     let rewrite_started = Instant::now();
-    let _partition_permit = opts.limits.acquire_partition().await?;
     let plan = Arc::new(plan);
     let closing = Arc::new(decision.closing);
     let cols = Arc::new(cols);
     let opts_arc = Arc::new(opts.clone());
-    let writer = StreamingWriter::for_table(table)?;
-    let (tx, mut rx) = mpsc::unbounded_channel::<(RecordBatch, BudgetPermit)>();
+    let current_writer = StreamingWriter::for_table(table)?;
+    let closed_writer = StreamingWriter::for_table(table)?;
+    let (tx, mut rx) = mpsc::unbounded_channel::<WriteMessage>();
     let max_row_group_bytes = opts.max_row_group_bytes;
+    let partition_idx = cols.partition_idx;
     let writer_task = tokio::spawn(async move {
-        let mut writer = writer;
+        let (mut current_writer, mut closed_writer) = (current_writer, closed_writer);
         let mut adds = Vec::new();
-        while let Some((batch, permit)) = rx.recv().await {
-            writer.write(batch)?;
-            drop(permit);
-            roll_writer(
-                &mut writer,
-                &mut adds,
-                target_file_size,
-                max_row_group_bytes,
-            )
-            .await?;
+        while let Some(message) = rx.recv().await {
+            if let Some(batch) = message.current {
+                current_writer.write(batch)?;
+                roll_writer(
+                    &mut current_writer,
+                    &mut adds,
+                    target_file_size,
+                    max_row_group_bytes,
+                )
+                .await?;
+            }
+            if let Some(batch) = message.closed {
+                write_closed(
+                    &mut closed_writer,
+                    &batch,
+                    partition_idx,
+                    &mut adds,
+                    target_file_size,
+                    max_row_group_bytes,
+                )
+                .await?;
+            }
         }
-        Ok::<_, Error>((writer, adds))
+        Ok::<_, Error>((current_writer, closed_writer, adds))
     });
 
     // Same reader discipline as the upsert: per-call then process-wide file permits, and
@@ -1252,100 +1373,75 @@ async fn history_inner(
             Err(e) => reader_err = reader_err.or(Some(e)),
         }
     }
-    let (mut writer, mut adds) = writer_task
+    let (mut current_writer, mut closed_writer, mut adds) = writer_task
         .await
         .map_err(|e| Error::Generic(format!("writer task panicked: {e}")))??;
     if let Some(e) = reader_err {
         return Err(e);
     }
 
-    let batch_refs: Vec<&RecordBatch> = plan.batches.iter().collect();
-    for chunk in decision.writes.chunks(opts.read_batch_size.max(1)) {
-        let rows: Vec<(usize, usize)> = chunk.iter().map(|(r, _)| plan.locate(*r)).collect();
-        let closes: UInt32Array = chunk.iter().map(|(_, next)| *next).collect();
-        let selected = interleave_record_batch(&batch_refs, &rows)?;
-        let selected = stamp_validity(
-            &selected,
-            &closes,
-            false,
-            &plan,
-            &cols,
-            &table_schema,
-            &opts.current_partition,
-        )?;
-        let slice_rows = source_slice_rows(&selected, opts.read_batch_size, max_row_group_bytes);
-        let mut offset = 0usize;
-        while offset < selected.num_rows() {
-            let n = (selected.num_rows() - offset).min(slice_rows);
-            writer.write(selected.slice(offset, n))?;
-            offset += n;
-            roll_writer(
-                &mut writer,
-                &mut adds,
-                target_file_size,
-                max_row_group_bytes,
-            )
-            .await?;
-        }
+    let (opens, mut chain): (Vec<KeptRow>, Vec<KeptRow>) = decision
+        .writes
+        .into_iter()
+        .partition(|(_, next)| next.is_none());
+    let source = SourceWriter {
+        plan: &plan,
+        cols: &cols,
+        table_schema: &table_schema,
+        opts,
+        target_file_size,
+    };
+    for chunk in opens.chunks(opts.read_batch_size.max(1)) {
+        source.write(chunk, &mut current_writer, &mut adds).await?;
     }
-    adds.extend(writer.flush().await?);
+    // Chain rows sorted by month, with a flush between months, give one file per month
+    // instead of a small file per month at every flush.
+    let next_rows: UInt32Array = chain.iter().map(|(_, next)| *next).collect();
+    let months = format_months(take(plan.valid_from.as_ref(), &next_rows, None)?.as_ref())?;
+    let mut by_month: Vec<usize> = (0..chain.len()).collect();
+    by_month.sort_by_key(|i| months.value(*i));
+    chain = by_month.iter().map(|i| chain[*i]).collect();
+    let mut start = 0usize;
+    while start < chain.len() {
+        let month = months.value(by_month[start]);
+        let end = start
+            + by_month[start..]
+                .iter()
+                .take_while(|i| months.value(**i) == month)
+                .count();
+        if start > 0 {
+            adds.extend(closed_writer.flush().await?);
+        }
+        for chunk in chain[start..end].chunks(opts.read_batch_size.max(1)) {
+            source.write(chunk, &mut closed_writer, &mut adds).await?;
+        }
+        start = end;
+    }
+    adds.extend(current_writer.flush().await?);
+    adds.extend(closed_writer.flush().await?);
     stats.rewrite_ms = rewrite_started.elapsed().as_millis() as u64;
     stats.files_added = adds.len();
     stats.files_removed = removes.len();
     stats.bytes_written = adds.iter().map(|a| a.size.max(0) as u64).sum();
 
-    let commit_started = Instant::now();
-    let partition_values: HashSet<String> = adds
-        .iter()
-        .filter_map(|a| {
-            a.partition_values
-                .get(&opts.partition_column)
-                .cloned()
-                .flatten()
-        })
-        .collect();
-    let mut partition_values: Vec<String> = partition_values.into_iter().collect();
-    partition_values.sort();
-    let predicate = format!(
-        "{} IN ({})",
-        opts.partition_column,
-        partition_values
-            .iter()
-            .map(|v| format!("'{}'", v.replace('\'', "''")))
-            .collect::<Vec<_>>()
-            .join(", ")
-    );
-    let operation = DeltaOperation::Write {
-        mode: SaveMode::Overwrite,
-        partition_by: Some(vec![opts.partition_column.clone()]),
-        predicate: Some(predicate),
-    };
-    // Checkpoint and log cleanup run best-effort after the commit, as in the upsert.
-    let mut props = CommitProperties::default()
-        .with_max_retries(opts.commit_max_retries)
-        .with_create_checkpoint(false)
-        .with_cleanup_expired_logs(Some(false));
-    if let Some(md) = opts.commit_metadata.clone() {
-        props = props.with_metadata(md);
-    }
-    let checkpoint_interval = snapshot.table_config().checkpoint_interval().get();
-    let cleanup_enabled = snapshot.table_config().enable_expired_log_cleanup();
     let mut actions = removes;
     actions.extend(adds.into_iter().map(Action::Add));
-    let finalized = CommitBuilder::from(props)
-        .with_actions(actions)
-        .build(Some(snapshot), table.log_store(), operation)
-        .await?;
-    stats.commit_ms = commit_started.elapsed().as_millis() as u64;
-
-    if (finalized.version() + 1) % checkpoint_interval == 0 {
-        let maintenance_started = Instant::now();
-        best_effort_log_maintenance(table, finalized.version(), cleanup_enabled).await;
-        stats.maintenance_ms = maintenance_started.elapsed().as_millis() as u64;
-    }
+    // Zero commit retries: without DataFusion, delta-rs does not check a `Write` against
+    // a concurrent commit that only adds files, so a rebased commit could open a key a
+    // second time. A stale commit fails as a conflict instead, and the handle re-plans.
+    let committed = commit_partition_overwrite(
+        table,
+        snapshot,
+        actions,
+        std::slice::from_ref(&opts.partition_column),
+        0,
+        opts.commit_metadata.clone(),
+    )
+    .await?;
+    stats.commit_ms = committed.commit_ms;
+    stats.maintenance_ms = committed.maintenance_ms;
     stats.committed = true;
-    stats.version = i64::try_from(finalized.version())
-        .map_err(|_| Error::Generic("committed version overflows i64".into()))?;
+    stats.version = committed.version;
     info!(
         version = stats.version,
         rows_in = stats.rows_in,
@@ -1358,7 +1454,7 @@ async fn history_inner(
         files_removed = stats.files_removed,
         "history upsert committed"
     );
-    Ok((stats, Some(finalized.snapshot)))
+    Ok((stats, Some(committed.state)))
 }
 
 /// A bucket in `0..n` for every row of `batches`, from the values of `key_columns`.

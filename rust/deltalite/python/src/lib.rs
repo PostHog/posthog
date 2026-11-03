@@ -656,7 +656,9 @@ impl DeltaLiteTable {
     /// `DeltaLiteUnsupportedTableError`. A source that keeps no row (a re-run of the same
     /// input) makes no commit and returns `committed=False`.
     ///
-    /// The keyword arguments are the `upsert` ones that apply here.
+    /// The keyword arguments are the `upsert` ones that apply here. There is no
+    /// `commit_max_retries`: a commit that finds a newer table version fails as a conflict,
+    /// and the call plans again against that version, up to five times.
     /// `max_parallel_partitions` is accepted so callers can pass the same set, and has no
     /// effect: the operation rewrites only the current partition.
     #[pyo3(signature = (
@@ -675,7 +677,6 @@ impl DeltaLiteTable {
         max_buffered_bytes = 67108864,
         max_fetch_bytes = 134217728,
         probe_concurrency = 8,
-        commit_max_retries = 15,
         read_batch_size = 8192,
         target_file_size = None,
         max_row_group_bytes = None,
@@ -705,7 +706,6 @@ impl DeltaLiteTable {
         max_buffered_bytes: usize,
         max_fetch_bytes: usize,
         probe_concurrency: usize,
-        commit_max_retries: usize,
         read_batch_size: usize,
         target_file_size: Option<usize>,
         max_row_group_bytes: Option<usize>,
@@ -740,7 +740,6 @@ impl DeltaLiteTable {
             max_buffered_bytes,
             max_fetch_bytes,
             read_ahead_row_groups,
-            commit_max_retries,
             read_batch_size,
             target_file_size,
             max_row_group_bytes,
@@ -1013,8 +1012,9 @@ fn key_buckets(
     n: u32,
 ) -> PyResult<Py<PyAny>> {
     let (_, batches) = read_pyarrow(data)?;
-    let buckets =
-        deltalite_core::history::key_buckets(&batches, &key_columns, n).map_err(to_py_err)?;
+    let buckets = py
+        .detach(|| deltalite_core::history::key_buckets(&batches, &key_columns, n))
+        .map_err(to_py_err)?;
     Ok(buckets.to_data().to_pyarrow(py)?.unbind())
 }
 

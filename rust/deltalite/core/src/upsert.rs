@@ -1172,8 +1172,69 @@ async fn upsert_inner(
     let rewrite_ms = rewrite_started.elapsed().as_millis() as u64;
 
     // --- Commit ----------------------------------------------------------------------
+    let committed = commit_partition_overwrite(
+        table,
+        snapshot,
+        actions,
+        &partition_columns,
+        opts.commit_max_retries,
+        opts.commit_metadata.clone(),
+    )
+    .await?;
+
+    // Only a landed commit makes the written files live and the removed files dead. Before
+    // it, a written file may be an orphan that no snapshot ever names.
+    if let Some(cache) = &opts.probe_cache {
+        cache.remove_all(removed_keys.iter().map(String::as_str));
+        let signature = pk_signature(&table_schema, &opts.primary_keys, &partition_col)?;
+        for (key, keys) in written_keys {
+            keys.store(key, signature);
+        }
+    }
+
+    stats.plan_ms = plan_ms;
+    stats.rewrite_ms = rewrite_ms;
+    stats.commit_ms = committed.commit_ms;
+    stats.maintenance_ms = committed.maintenance_ms;
+    stats.version = committed.version;
+    tracing::Span::current().record("version", stats.version);
+    info!(
+        version = stats.version,
+        partitions = stats.partitions_touched,
+        files_added = stats.files_added,
+        files_removed = stats.files_removed,
+        files_carried_over = stats.files_carried_over,
+        rows_updated = stats.rows_updated,
+        rows_inserted = stats.rows_inserted,
+        rows_copied = stats.rows_copied,
+        plan_ms = stats.plan_ms,
+        rewrite_ms = stats.rewrite_ms,
+        commit_ms = stats.commit_ms,
+        "upsert committed"
+    );
+    Ok((stats, committed.state))
+}
+
+/// A landed [`commit_partition_overwrite`].
+pub(crate) struct Committed {
+    pub(crate) version: i64,
+    pub(crate) state: DeltaTableState,
+    pub(crate) commit_ms: u64,
+    pub(crate) maintenance_ms: u64,
+}
+
+/// Commit a rewrite's Remove and Add actions as one partition-overwrite `Write`, then run
+/// log maintenance on a checkpoint boundary.
+pub(crate) async fn commit_partition_overwrite(
+    table: &DeltaTable,
+    snapshot: &DeltaTableState,
+    actions: Vec<Action>,
+    partition_columns: &[String],
+    max_retries: usize,
+    commit_metadata: Option<HashMap<String, Value>>,
+) -> Result<Committed> {
     let commit_started = Instant::now();
-    let predicate = partition_col.as_ref().map(|c| {
+    let predicate = partition_columns.first().map(|c| {
         let vals: Vec<String> = actions
             .iter()
             .filter_map(|a| match a {
@@ -1192,7 +1253,7 @@ async fn upsert_inner(
         partition_by: if partition_columns.is_empty() {
             None
         } else {
-            Some(partition_columns.clone())
+            Some(partition_columns.to_vec())
         },
         predicate,
     };
@@ -1203,10 +1264,10 @@ async fn upsert_inner(
     // caller back to the delta-rs MERGE for a write that has in fact happened. They run
     // best-effort below instead.
     let mut props = CommitProperties::default()
-        .with_max_retries(opts.commit_max_retries)
+        .with_max_retries(max_retries)
         .with_create_checkpoint(false)
         .with_cleanup_expired_logs(Some(false));
-    if let Some(md) = opts.commit_metadata.clone() {
+    if let Some(md) = commit_metadata {
         props = props.with_metadata(md);
     }
 
@@ -1219,43 +1280,19 @@ async fn upsert_inner(
         .await?;
     let commit_ms = commit_started.elapsed().as_millis() as u64;
 
-    // Only a landed commit makes the written files live and the removed files dead. Before
-    // it, a written file may be an orphan that no snapshot ever names.
-    if let Some(cache) = &opts.probe_cache {
-        cache.remove_all(removed_keys.iter().map(String::as_str));
-        let signature = pk_signature(&table_schema, &opts.primary_keys, &partition_col)?;
-        for (key, keys) in written_keys {
-            keys.store(key, signature);
-        }
-    }
-
+    let mut maintenance_ms = 0;
     if (finalized.version() + 1) % checkpoint_interval == 0 {
         let maintenance_started = Instant::now();
         best_effort_log_maintenance(table, finalized.version(), cleanup_enabled).await;
-        stats.maintenance_ms = maintenance_started.elapsed().as_millis() as u64;
+        maintenance_ms = maintenance_started.elapsed().as_millis() as u64;
     }
-
-    stats.plan_ms = plan_ms;
-    stats.rewrite_ms = rewrite_ms;
-    stats.commit_ms = commit_ms;
-    stats.version = i64::try_from(finalized.version())
-        .map_err(|_| Error::Generic("committed version overflows i64".into()))?;
-    tracing::Span::current().record("version", stats.version);
-    info!(
-        version = stats.version,
-        partitions = stats.partitions_touched,
-        files_added = stats.files_added,
-        files_removed = stats.files_removed,
-        files_carried_over = stats.files_carried_over,
-        rows_updated = stats.rows_updated,
-        rows_inserted = stats.rows_inserted,
-        rows_copied = stats.rows_copied,
-        plan_ms = stats.plan_ms,
-        rewrite_ms = stats.rewrite_ms,
-        commit_ms = stats.commit_ms,
-        "upsert committed"
-    );
-    Ok((stats, finalized.snapshot))
+    Ok(Committed {
+        version: i64::try_from(finalized.version())
+            .map_err(|_| Error::Generic("committed version overflows i64".into()))?,
+        state: finalized.snapshot,
+        commit_ms,
+        maintenance_ms,
+    })
 }
 
 /// Checkpoint and expired-log cleanup after a durable commit, tolerating failure: the
