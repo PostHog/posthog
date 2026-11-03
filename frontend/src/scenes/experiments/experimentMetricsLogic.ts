@@ -94,6 +94,10 @@ const STALE_REFRESH_STATUSES: ReadonlySet<ExperimentStatus> = new Set([
     ExperimentStatus.ExposureFrozen,
 ])
 
+function pollIntervalMs(runAgeMs: number): number {
+    return runAgeMs > QUEUED_RUN_AGE_MS ? QUEUED_RUN_POLL_INTERVAL_MS : RECALCULATION_POLL_INTERVAL_MS
+}
+
 class RecalculationRequestTimeoutError extends Error {}
 
 /**
@@ -1085,9 +1089,7 @@ export const experimentMetricsLogic = kea<experimentMetricsLogicType>([
                 }
 
                 // Pace this tick; aborts here if a newer poll superseded us or the logic unmounted.
-                await breakpoint(
-                    runAgeMs > QUEUED_RUN_AGE_MS ? QUEUED_RUN_POLL_INTERVAL_MS : RECALCULATION_POLL_INTERVAL_MS
-                )
+                await breakpoint(pollIntervalMs(runAgeMs))
 
                 let recalculation: ExperimentMetricsRecalculationRunApi
                 try {
