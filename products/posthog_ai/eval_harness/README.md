@@ -38,10 +38,13 @@ No case depends on a real team's connected repositories, and expected answers st
 - `slack_app/eval_repo_selection_routing` runs a Slack mention through the production cascade, the needs-repo classifier, and the discovery agent. It scores the terminal stage and outcome, and the routed repository.
 - `tasks/eval_repo_selection` runs only the production `select_repository` on the Self-Driving path, so classifier behavior cannot hide a difference between selector models. It scores accepted-set accuracy, correct abstention on cases with no plausible candidate, and completion.
 
-Errors, timeouts, and picks outside the candidates score zero rather than dropping out. Compare selector models with per-arm settings:
+Selector errors, timeouts, and picks outside the candidates score zero.
+A trial that fails before the agent's first tool call, such as a gateway refusal at startup, is an infrastructure error, so the harness summary leaves it out of score averages.
+The report below counts every planned trial, and scores those trials as wrong.
+Compare selector models with per-arm settings, and set `EXPORT_EVAL_RESULTS=1` so each arm writes the per-trial results the report reads:
 
 ```bash
-hogli evals tasks/eval_repo_selection --trials 3 --max-sandboxes 4 \
+EXPORT_EVAL_RESULTS=1 hogli evals tasks/eval_repo_selection --trials 3 --max-sandboxes 4 \
   --compare-model claude:claude-haiku-5-5 \
   --compare-model codex:gpt-6-luna,reasoning_effort=medium \
   --compare-model codex:gpt-6-luna,reasoning_effort=medium,service_tier=flex

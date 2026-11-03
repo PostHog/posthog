@@ -57,6 +57,7 @@ SelectorOutcome = Literal[
 # Leaves room inside the harness case budget to read logs and tear the sandbox down, so a slow
 # arm records a selector timeout instead of an infrastructure timeout.
 SELECTOR_CLEANUP_RESERVE_SECONDS = 90
+TASK_DISCOVERY_INTERVAL_SECONDS = 1.0
 
 
 class RepoSelectionArtifacts(AgentArtifacts):
@@ -114,30 +115,16 @@ async def _finish(
         await asyncio.to_thread(provider.cleanup_case, str(task_run.task_id))
 
 
-async def run_selector(
+async def _select(
     scenario: RepoSelectionScenario,
     context: CustomPromptSandboxContext,
     *,
     origin_product: tasks_api.TaskOriginProduct,
     priority: Priority,
-    provider: SandboxProviderStrategy,
-    on_cleanup: Callable[[], Awaitable[None]] | None,
-    timeout_seconds: float | None,
-    artifacts: RepoSelectionArtifacts | None = None,
-) -> EvalCaseResult:
-    """Run the selector on the scenario's thread and record what it decided and what it cost."""
-    artifacts = artifacts or RepoSelectionArtifacts(exit_code=1)
-    artifacts.model = context.model
-    artifacts.runtime_adapter = context.runtime_adapter
-    artifacts.reasoning_effort = context.reasoning_effort
-    artifacts.requested_service_tier = context.service_tier
-    artifacts.distinct_id = await asyncio.to_thread(_distinct_id, context.user_id)
-    deadline = None if timeout_seconds is None else max(30.0, timeout_seconds - SELECTOR_CLEANUP_RESERVE_SECONDS)
-
-    def _register(task_id: str, _run_id: str) -> None:
-        provider.register_task(task_id)
-
-    started = time.monotonic()
+    deadline: float | None,
+    artifacts: RepoSelectionArtifacts,
+) -> None:
+    """Run the production selector and record its decision or failure on `artifacts`."""
     try:
         result = await asyncio.wait_for(
             select_repository(
@@ -146,11 +133,11 @@ async def run_selector(
                 context=scenario.context_block,
                 origin_product=origin_product,
                 priority=priority,
+                sandbox_environment_id=context.sandbox_environment_id,
                 model=context.model,
                 runtime_adapter=context.runtime_adapter,
                 reasoning_effort=context.reasoning_effort,
                 service_tier=context.service_tier,
-                on_research_session=_register,
             ),
             timeout=deadline,
         )
@@ -170,26 +157,100 @@ async def run_selector(
         artifacts.outcome, artifacts.error_type, artifacts.stderr = "usage_limited", type(error).__name__, error.message
     except TimeoutError:
         artifacts.outcome, artifacts.error_type = "timeout", "TimeoutError"
-        artifacts.stderr = f"selector deadline of {deadline:.0f}s passed"
+        artifacts.stderr = f"selector deadline of {deadline or 0:.0f}s passed"
     except Exception as error:
         logger.warning("Repository selection eval failed", exc_info=True)
         artifacts.outcome, artifacts.error_type, artifacts.stderr = "error", type(error).__name__, str(error)[:2000]
-    artifacts.selector_seconds = time.monotonic() - started
 
-    task_run = await asyncio.to_thread(_latest_task_run, context.team_id)
+
+async def _collect_and_finish(
+    context: CustomPromptSandboxContext,
+    task_run: TaskRunDTO | None,
+    artifacts: RepoSelectionArtifacts,
+    *,
+    provider: SandboxProviderStrategy,
+    on_cleanup: Callable[[], Awaitable[None]] | None,
+) -> str:
+    """Read the selector's agent log, then end its workflow and reclaim its sandbox."""
+    task_run = task_run or await asyncio.to_thread(_latest_task_run, context.team_id)
+    if task_run is None:
+        return ""
+    provider.register_task(str(task_run.task_id))
+    artifacts.task_id, artifacts.task_run_id = str(task_run.task_id), str(task_run.id)
     raw_log = ""
-    if task_run is not None:
-        provider.register_task(str(task_run.task_id))
-        artifacts.task_id, artifacts.task_run_id = str(task_run.task_id), str(task_run.id)
+    try:
+        conversation = await asyncio.to_thread(
+            tasks_api.read_task_run_conversation_logs, task_run.id, task_run.task_id, context.team_id
+        )
+        raw_log = conversation or ""
+    except Exception:
+        logger.warning("Could not read the selector's agent log", exc_info=True)
+        artifacts.notes.append("agent log unavailable")
+    await _finish(task_run, successful=artifacts.exit_code == 0, provider=provider, on_cleanup=on_cleanup)
+    return raw_log
+
+
+async def run_selector(
+    scenario: RepoSelectionScenario,
+    context: CustomPromptSandboxContext,
+    *,
+    origin_product: tasks_api.TaskOriginProduct,
+    priority: Priority,
+    provider: SandboxProviderStrategy,
+    on_cleanup: Callable[[], Awaitable[None]] | None,
+    timeout_seconds: float | None,
+    artifacts: RepoSelectionArtifacts | None = None,
+) -> EvalCaseResult:
+    """Run the selector on the scenario's thread and record what it decided and what it cost."""
+    artifacts = artifacts or RepoSelectionArtifacts(exit_code=1)
+    # A routing case passes the cascade's artifacts, which carry its success status.
+    artifacts.exit_code = 1
+    artifacts.model = context.model
+    artifacts.runtime_adapter = context.runtime_adapter
+    artifacts.reasoning_effort = context.reasoning_effort
+    artifacts.requested_service_tier = context.service_tier
+    artifacts.distinct_id = await asyncio.to_thread(_distinct_id, context.user_id)
+    deadline = None if timeout_seconds is None else max(30.0, timeout_seconds - SELECTOR_CLEANUP_RESERVE_SECONDS)
+
+    started = time.monotonic()
+    selection = asyncio.create_task(
+        _select(
+            scenario,
+            context,
+            origin_product=origin_product,
+            priority=priority,
+            deadline=deadline,
+            artifacts=artifacts,
+        )
+    )
+    task_run: TaskRunDTO | None = None
+    raw_log = ""
+    try:
+        # Register the sandbox as soon as its task exists, so the run-end sweep reclaims it even
+        # when the case is cancelled before the selector returns.
+        while not selection.done():
+            if task_run is None:
+                task_run = await asyncio.to_thread(_latest_task_run, context.team_id)
+                if task_run is not None:
+                    provider.register_task(str(task_run.task_id))
+            await asyncio.wait({selection}, timeout=TASK_DISCOVERY_INTERVAL_SECONDS)
+        await selection
+    finally:
+        if not selection.done():
+            selection.cancel()
+            await asyncio.gather(selection, return_exceptions=True)
+        artifacts.selector_seconds = time.monotonic() - started
+        collection = asyncio.create_task(
+            _collect_and_finish(context, task_run, artifacts, provider=provider, on_cleanup=on_cleanup)
+        )
         try:
-            conversation = await asyncio.to_thread(
-                tasks_api.read_task_run_conversation_logs, task_run.id, task_run.task_id, context.team_id
-            )
-            raw_log = conversation or ""
-        except Exception:
-            logger.warning("Could not read the selector's agent log", exc_info=True)
-            artifacts.notes.append("agent log unavailable")
-        await _finish(task_run, successful=artifacts.exit_code == 0, provider=provider, on_cleanup=on_cleanup)
+            raw_log = await asyncio.shield(collection)
+        except asyncio.CancelledError:
+            try:
+                await asyncio.shield(collection)
+            except Exception:
+                logger.warning("Could not finish cancelled repository selection cleanup", exc_info=True)
+            raise
     parsed = _parse_artifacts_from_log(raw_log, artifacts.selector_seconds, agent_finished=artifacts.exit_code == 0)
     merged = artifacts.model_copy(
         update={

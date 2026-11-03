@@ -117,7 +117,10 @@ def summarize_arm(run: dict[str, Any]) -> dict[str, Any]:
         return summary | {"status": "not run" if run.get("exit_code") is None else "no results"}
 
     log_dir = Path(experiment["log_dir"])
-    rows = [json.loads(line) for line in (log_dir / "case_results.jsonl").read_text().splitlines() if line.strip()]
+    case_results = log_dir / "case_results.jsonl"
+    if not case_results.exists():
+        raise SystemExit(f"{case_results} is missing. Rerun the comparison with EXPORT_EVAL_RESULTS=1.")
+    rows = [json.loads(line) for line in case_results.read_text().splitlines() if line.strip()]
     generations = _generations_by_run(report.get("ai_gateway_generations_path"))
     prices = _list_prices(run["model"])
     expected = {case.scenario.name: (case, selector_expected(case.expected)) for case in SELECTOR_CASES}
