@@ -134,6 +134,20 @@ class TestProjectionPushdown(BaseTest):
         else:
             assert column_names == expected_columns
 
+    @parameterized.expand(
+        [
+            ("distinct", "SELECT event FROM (SELECT DISTINCT * FROM events) AS sub"),
+            ("union_distinct", "SELECT event FROM (SELECT * FROM events UNION DISTINCT SELECT * FROM events) AS sub"),
+            ("intersect", "SELECT event FROM (SELECT * FROM events INTERSECT SELECT * FROM events) AS sub"),
+        ]
+    )
+    def test_row_comparison_keeps_every_column(self, _name, query):
+        optimized = self._optimize(query)
+        inner_query = optimized.select_from.table
+        if isinstance(inner_query, ast.SelectSetQuery):
+            inner_query = inner_query.initial_select_query
+        assert len(inner_query.select) > 1
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_prewhere_clause(self):
         """PREWHERE clause columns should be preserved"""

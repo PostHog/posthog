@@ -133,6 +133,22 @@ class TestExportedProperties(BaseTest):
                 "SELECT properties.email FROM (SELECT properties, count() AS c FROM events GROUP BY properties)",
             ),
             ("inner_order_by_alias", "SELECT p.email FROM (SELECT properties AS p FROM events ORDER BY p)"),
+            (
+                "union_distinct",
+                "SELECT properties.email FROM (SELECT properties FROM events UNION DISTINCT SELECT properties FROM events)",
+            ),
+            (
+                "intersect",
+                "SELECT properties.email FROM (SELECT properties FROM events INTERSECT SELECT properties FROM events)",
+            ),
+            (
+                "distinct_asterisk_between_the_levels",
+                "SELECT properties.email FROM (SELECT DISTINCT * FROM (SELECT properties FROM events))",
+            ),
+            (
+                "union_branch_that_cannot_narrow",
+                "SELECT properties.email FROM (SELECT properties FROM (SELECT properties FROM events) UNION ALL SELECT DISTINCT properties FROM events)",
+            ),
             ("query_output", "SELECT properties FROM (SELECT properties FROM events)"),
             ("read_by_position", f"SELECT properties.arr[1] FROM {STAR_EVENTS}"),
             ("native_flag_map", "SELECT properties.$feature_flags FROM (SELECT properties FROM events)", True),

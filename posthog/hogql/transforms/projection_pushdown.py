@@ -57,9 +57,12 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
         self.demands: dict[int, set[str]] = defaultdict(set)
         self.reads: dict[tuple[int, str], ColumnReads] = defaultdict(ColumnReads)
         self.subquery_map: dict[int, SubqueryNode] = {}
-        # Selects whose columns are the query's output, and selects whose columns must line up with sibling branches
+        # The select columns that export a child column as it is, by the child column they export
+        self.passthrough_parents: dict[tuple[int, str], dict[int, tuple[SubqueryNode, str]]] = defaultdict(dict)
         self.roots: set[int] = set()
-        self.union_branches: set[int] = set()
+        self.union_of: dict[int, ast.SelectSetQuery] = {}
+        # Branches of a set query that compares rows (anything but UNION ALL)
+        self.strict_set_branches: set[int] = set()
         # True during the collecting passes; gates pruning to the final one (see class docstring)
         self.collecting: bool = False
         self._alias_stack: list[ast.Alias] = []
@@ -102,18 +105,18 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
         # Phase 2: Collect column demands from query clauses
         enclosing_alias_references = self._alias_references
         self._alias_references = set()
+        compares_rows = self.compares_rows(node)
         for expr in node.select:
+            if compares_rows:
+                self._read_whole(node, expr)
+                continue
             if self._is_from_asterisk(expr):
                 continue
             passthrough = self._passthrough_source(expr)
             if passthrough is None:
                 self.visit(expr)
             else:
-                child, child_name = passthrough
-                self.demands[id(child)].add(child_name)
-                if node.distinct:
-                    # DISTINCT compares the column's values, so the child must keep them as they are
-                    self.reads[(id(child), child_name)].whole = True
+                self._demand_passthrough(node, expr, passthrough)
 
         if node.where:
             self.visit(node.where)
@@ -183,8 +186,11 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
         1. Propagate parent demands to all branches uniformly
         2. Visit each branch to apply pruning
         """
+        strict = any(not set_node.set_operator.startswith("UNION ALL") for set_node in node.subsequent_select_queries)
         for query in self.union_queries(node):
-            self.union_branches.add(id(query))
+            self.union_of[id(query)] = node
+            if strict:
+                self.strict_set_branches.add(id(query))
 
         # Propagate parent demands to all branches uniformly
         self._propagate_demands_to_union_branches(node)
@@ -222,6 +228,17 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
             expr = expr.expr
         return expr
 
+    def compares_rows(self, node: ast.SelectQuery) -> bool:
+        """Whether the select's rows are compared whole, so every column's value counts"""
+        return node.distinct or id(node) in self.strict_set_branches
+
+    def _demand_passthrough(self, node: ast.SelectQuery, expr: ast.Expr, passthrough: tuple[SubqueryNode, str]) -> None:
+        child, child_name = passthrough
+        self.demands[id(child)].add(child_name)
+        col_name = self._get_column_name(expr)
+        if col_name is not None:
+            self.passthrough_parents[(id(child), child_name)][id(node)] = (node, col_name)
+
     def _propagate_demands_to_children(self, node: ast.SelectQuery) -> None:
         """
         Propagate parent demands to child subqueries.
@@ -248,7 +265,7 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
                     self.visit(expr)
                     break
                 child, child_name = passthrough
-                self.demands[id(child)].add(child_name)
+                self._demand_passthrough(node, expr, passthrough)
                 parent_reads = self.reads.get((id(node), col_name))
                 if parent_reads is not None:
                     child_reads = self.reads[(id(child), child_name)]
@@ -259,10 +276,10 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
     def _keep_unread_subquery_rows(self, node: ast.SelectQuery) -> None:
         if id(node) in self.roots or id(node) not in self._registered_ids():
             for expr in node.select:
-                self._read_whole(expr)
+                self._read_whole(node, expr)
             return
-        if node.distinct or id(node) in self.union_branches:
-            # Every asterisk column stays: DISTINCT counts them, and UNION branches must line up
+        if self.compares_rows(node) or id(node) in self.union_of:
+            # Every asterisk column stays: a row comparison counts them, and set query branches must line up
             for expr in node.select:
                 if self._is_from_asterisk(expr):
                     self.visit(expr)
@@ -282,18 +299,18 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
         col_name = self._get_column_name(keep)
         if col_name is not None:
             self.demands[id(node)].add(col_name)
-        self._read_whole(keep)
+        self._read_whole(node, keep)
 
     def _registered_ids(self) -> set[int]:
         return {id(query) for query in self.subquery_map.values()}
 
-    def _read_whole(self, expr: ast.Expr) -> None:
+    def _read_whole(self, node: ast.SelectQuery, expr: ast.Expr) -> None:
         passthrough = self._passthrough_source(expr)
         if passthrough is None:
             self.visit(expr)
             return
         child, child_name = passthrough
-        self.demands[id(child)].add(child_name)
+        self._demand_passthrough(node, expr, passthrough)
         self.reads[(id(child), child_name)].whole = True
 
     def _is_json_blob(self, expr: ast.Expr) -> bool:
@@ -448,7 +465,7 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
     def _prune_columns(self, node: ast.SelectQuery) -> None:
         """Prune asterisk-expanded columns that aren't demanded"""
         demanded = self.demands.get(id(node))
-        if not demanded:
+        if not demanded or self.compares_rows(node):
             return
 
         pruned_select = []

@@ -108,6 +108,7 @@ class _ExportedPropertiesNarrower:
         self.optimizer = optimizer
         self.context = context
         self._decisions: dict[tuple[int, str], bool] = {}
+        self._local_decisions: dict[tuple[int, str], bool] = {}
         self._deciding: set[tuple[int, str]] = set()
         self._narrowed: set[tuple[int, str]] = set()
 
@@ -127,6 +128,9 @@ class _ExportedPropertiesNarrower:
         return next((expr for expr in node.select if _column_name(expr) == name), None)
 
     def _narrowable(self, node: "SubqueryNode", name: str) -> bool:
+        """The column and everything it is exported through can carry the map. A narrowed child column turns every
+        select that passes it through into a map exporter too, so a pass-through parent that cannot be narrowed, such
+        as a branch of a set query whose sibling keeps the blob, keeps the child's blob as well."""
         key = (id(node), name)
         if key in self._decisions:
             return self._decisions[key]
@@ -135,10 +139,32 @@ class _ExportedPropertiesNarrower:
             return False
         self._deciding.add(key)
         try:
-            decision = self._decide(node, name)
+            decision = self._locally_narrowable(node, name) and self._parents_narrowable(node, name)
         finally:
             self._deciding.discard(key)
         self._decisions[key] = decision
+        return decision
+
+    def _parents_narrowable(self, node: "SubqueryNode", name: str) -> bool:
+        for parent, parent_name in self.optimizer.passthrough_parents.get((id(node), name), {}).values():
+            if not self._narrowable(parent, parent_name):
+                return False
+        set_query = self.optimizer.union_of.get(id(node))
+        return set_query is None or self._narrowable(set_query, name)
+
+    def _locally_narrowable(self, node: "SubqueryNode", name: str) -> bool:
+        """The column's own readers and the columns it is built from allow the map; the parents are checked apart."""
+        key = (id(node), name)
+        if key in self._local_decisions:
+            return self._local_decisions[key]
+        if key in self._deciding:
+            return False
+        self._deciding.add(key)
+        try:
+            decision = self._decide(node, name)
+        finally:
+            self._deciding.discard(key)
+        self._local_decisions[key] = decision
         return decision
 
     def _decide(self, node: "SubqueryNode", name: str) -> bool:
@@ -146,7 +172,10 @@ class _ExportedPropertiesNarrower:
         if reads is not None and reads.whole:
             return False
         if isinstance(node, ast.SelectSetQuery):
-            return all(self._narrowable(query, name) for query in self.optimizer.union_queries(node))
+            # INTERSECT, EXCEPT and UNION DISTINCT compare whole rows, so every column's value counts
+            if any(not set_node.set_operator.startswith("UNION ALL") for set_node in node.subsequent_select_queries):
+                return False
+            return all(self._locally_narrowable(query, name) for query in self.optimizer.union_queries(node))
         expr = self._select_expr(node, name)
         if expr is None:
             return False
@@ -155,7 +184,7 @@ class _ExportedPropertiesNarrower:
             return False
         child = self.optimizer.child_for(source.type.table_type)
         if child is not None:
-            return self._narrowable(child, source.type.name)
+            return self._locally_narrowable(child, source.type.name)
         if not self._is_events_properties(source.type):
             return False
         # The column's values take part in these, so they have to stay the blob
