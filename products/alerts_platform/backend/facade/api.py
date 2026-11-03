@@ -34,6 +34,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformOwnershipHandover,
     SourceKind,
     StoredAlertDestination,
+    VerdictChange,
 )
 from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy
 from products.alerts_platform.backend.logic import (
@@ -43,6 +44,7 @@ from products.alerts_platform.backend.logic import (
     platform_lifecycle,
     platform_reads,
     platform_writes,
+    verdict_changes,
 )
 
 
@@ -82,6 +84,16 @@ def record_hold_delivery_started(address: HeldDeliveryAddress, *, now: datetime)
 def reschedule_hold(address: HeldDeliveryAddress, *, release_after: datetime) -> bool:
     """Moves an unreleased hold's safety-net deadline. Returns False when nothing was held."""
     return delivery_holds.reschedule_hold(address, release_after=release_after)
+
+
+def record_verdict_change(change: VerdictChange, *, now: datetime) -> AlertDeliveryRequest | None:
+    """Records one follow-up about a firing that already went out, and returns the delivery to start
+    with `start_deliveries`, or None when there is nothing to send.
+
+    Writes only the follow-up's history row, so it leaves state, schedule and holds alone. A second
+    call for the same firing starts the same delivery, whose id and threads send it once.
+    """
+    return verdict_changes.record_verdict_change(change, now=now)
 
 
 def slot_of(next_check_at: datetime | None, cutoff: datetime) -> str:

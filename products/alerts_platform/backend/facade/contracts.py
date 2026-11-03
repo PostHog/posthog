@@ -544,6 +544,40 @@ class AlertEventKind(StrEnum):
     RESOLVED = "resolved"
     ERRORED = "errored"
     BROKEN = "broken"
+    # A follow-up about a firing that already went out, written by `record_verdict_change` and never
+    # by a check. It replies in the firing's thread, and history readers leave it out of the checks.
+    VERDICT_CHANGED = "verdict_changed"
+
+    @property
+    def delivered_as(self) -> AlertEventKind:
+        """The kind a destination hears this as. No destination can list a follow-up, so a follow-up
+        reaches the destinations of the firing it follows, the way that firing did."""
+        return AlertEventKind.FIRING if self is AlertEventKind.VERDICT_CHANGED else self
+
+
+@frozen
+class VerdictChange:
+    """A source's request to send one follow-up about a firing that already went out.
+
+    `firing_event_id` is the event the firing's destinations listen on, so a destination that heard
+    the firing hears the follow-up. `source_detail` is what the source's describer words the
+    follow-up from. The platform stores it unread, as on a check.
+    """
+
+    team_id: int
+    configuration_id: UUID
+    firing_evaluation_key: str
+    episode_started_at: datetime | None
+    firing_event_id: str
+    source_alert_url: str | None = None
+    grouping_key: str = ""
+    source_detail: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def evaluation_key(self) -> str:
+        # A key of its own gives the follow-up its own delivery, and gets it past the thread store,
+        # which skips a key a thread already carried.
+        return f"{self.firing_evaluation_key}#verdict"
 
 
 @frozen

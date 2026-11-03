@@ -35,7 +35,7 @@ def _fingerprint(configuration_id: str, transition: AnnouncedTransition) -> str:
     # A failed or a turned-off check is a separate alert to a receiver. With the breach's
     # fingerprint, the breach's resolve would close it, and a later breach would read as an
     # alert that is already open.
-    series = "breach" if transition.kind in _BREACH_KINDS else transition.kind.value
+    series = "breach" if transition.kind.delivered_as in _BREACH_KINDS else transition.kind.value
     return hashlib.sha256(f"{configuration_id}|{transition.grouping_key}|{series}".encode()).hexdigest()[:16]
 
 
