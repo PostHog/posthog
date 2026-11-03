@@ -144,11 +144,16 @@ def merge_upload(
         stored_connections[connection.id] = connection
         connection_ids.append(connection.id)
 
-    account_info = _unwrap(account) if account is not None else {}
+    account_info: Mapping[str, Any] = {}
+    if account is not None:
+        if problem := _upload_problem(_unwrap(account)):
+            errors.append(f"Account: {problem}")
+        else:
+            account_info = _unwrap(account)
     account_name = _text(account_info.get("account_name"))
     snapshot = VendorSnapshot(
         provider=MigrationProvider.FIVETRAN,
-        account_id=str(account_info.get("account_id") or (previous.account_id if previous else "")),
+        account_id=_text(account_info.get("account_id")) or (previous.account_id if previous else ""),
         account_name=account_name[:_MAX_NAME_LENGTH] if account_name else (previous.account_name if previous else None),
         destinations=tuple(stored_destinations.values()),
         connections=tuple(stored_connections.values()),
@@ -181,8 +186,12 @@ def _upload_problem(value: Any) -> str | None:
 
 
 def _label_id(raw: Mapping[str, Any]) -> str:
+    value = raw.get("id")
+    if value is None:
+        return "no id"
+    # Never stringified: an uploaded id can be any JSON, nested deep enough to overflow `repr`.
     # Cut short, so an oversized id does not fill the error message.
-    return str(raw.get("id") or "no id")[:100]
+    return value[:100] if isinstance(value, str) else "no valid id"
 
 
 def _unwrap(raw: Mapping[str, Any]) -> Mapping[str, Any]:
