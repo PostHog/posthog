@@ -19,7 +19,7 @@ import {
 import type { SourceFieldConfig } from 'products/data_warehouse/frontend/types'
 import {
     externalDataSourcesStoreCredentialsCreate,
-    warehouseMigrationsItemsList,
+    warehouseMigrationsItemsRetrieve,
 } from 'products/warehouse_sources/frontend/generated/api'
 import { SourceConfigResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 import type { SourceCredentialApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
@@ -304,8 +304,12 @@ export const sourceConnectSceneLogic = kea<sourceConnectSceneLogicType>([
                 return
             }
             try {
-                const items = await warehouseMigrationsItemsList(String(ApiConfig.getCurrentTeamId()), migrationId)
-                const prefill = items.find((item) => item.id === itemId)?.proposal?.prefill
+                const item = await warehouseMigrationsItemsRetrieve(
+                    String(ApiConfig.getCurrentTeamId()),
+                    migrationId,
+                    itemId
+                )
+                const prefill = item.proposal?.prefill
                 if (prefill) {
                     // Deep, so nested groups keep the defaults the prefill does not set.
                     actions.setCredentialsFormValues({

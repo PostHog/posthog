@@ -196,6 +196,35 @@ class TestWarehouseMigrationAPI(APIBaseTest):
         assert by_name["broken"]["proposal"] is None
         assert any("Refresh the migration" in caveat for caveat in by_name["broken"]["caveats"])
 
+    @parameterized.expand(
+        [
+            ("own_item", "own", True, 200),
+            ("other_migration", "other_migration", True, 404),
+            ("other_team", "other_team", True, 404),
+            ("flag_off", "own", False, 404),
+        ]
+    )
+    def test_get_one_item(self, _name: str, owner: str, flag_on: bool, expected_status: int) -> None:
+        migration = self._migration()
+        item = self._item(migration)
+        if owner == "other_migration":
+            item = self._item(self._migration())
+        elif owner == "other_team":
+            other_team = self.create_team_with_organization(organization=self.organization)
+            other = WarehouseMigration.objects.for_team(other_team.pk).create(
+                team_id=other_team.pk, provider=WarehouseMigration.Provider.FIVETRAN
+            )
+            item = WarehouseMigrationItem.objects.for_team(other_team.pk).create(
+                team_id=other_team.pk, migration=other, vendor_connection_id="conn_other", name="other"
+            )
+        self.flag.return_value = flag_on
+
+        response = self.client.get(f"{self.url}{migration.id}/items/{item.id}/")
+
+        assert response.status_code == expected_status
+        if expected_status == 200:
+            assert response.json()["id"] == str(item.id)
+
     def test_bulk_skip_keeps_the_chosen_items_and_claimed_ones(self) -> None:
         migration = self._migration()
         keep = self._item(migration, name="keep")
