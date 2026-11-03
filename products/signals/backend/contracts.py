@@ -169,6 +169,12 @@ class ZendeskTicketSignalInput(SignalInputBase):
 # ── GitHub ──────────────────────────────────────────────────────────────────────
 
 
+class GithubIssueDependencyRef(ContractModel):
+    # Lowercase `owner/repo`, so two spellings of one repository name one issue.
+    repository: str
+    number: int
+
+
 class GithubIssueSignalExtra(SignalExtraBase):
     html_url: str
     number: int
@@ -184,6 +190,9 @@ class GithubIssueSignalExtra(SignalExtraBase):
     # FIRST_TIMER, MANNEQUIN, NONE. Kept as a plain string so a value GitHub adds later widens the
     # taxonomy instead of failing validation and dropping the signal.
     author_association: str | None = None
+    # The issues this one names on a "Depends on" or "Blocked by" line. Research turns them into
+    # `depends_on` report links before auto-start decides.
+    depends_on_issues: list[GithubIssueDependencyRef] = []
 
 
 class GithubIssueSignalInput(SignalInputBase):
@@ -726,6 +735,60 @@ class ShortcutStorySignalInput(SignalInputBase):
     source_type: Literal[SignalSourceType.ISSUE]
     source_product: Literal[SignalSourceProduct.SHORTCUT]
     extra: ShortcutStorySignalExtra
+
+
+class ClickupTaskSignalExtra(SignalExtraBase):
+    status_name: str | None
+    status_type: str | None
+    url: str | None
+    date_created: str | None
+
+
+class ClickupTaskSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.CLICKUP]
+    extra: ClickupTaskSignalExtra
+
+
+class WrikeTaskSignalExtra(SignalExtraBase):
+    status: str | None
+    importance: str | None
+    permalink: str | None
+    created_date: str | None
+
+
+class WrikeTaskSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.WRIKE]
+    extra: WrikeTaskSignalExtra
+
+
+class TrelloCardSignalExtra(SignalExtraBase):
+    url: str | None
+    id_board: str | None
+    id_list: str | None
+    created_at: str | None
+
+
+class TrelloCardSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.TRELLO]
+    extra: TrelloCardSignalExtra
+
+
+class BugherdTaskSignalExtra(SignalExtraBase):
+    status: str | None
+    priority: str | None
+    site: str | None
+    url: str | None
+    tag_names: list
+    created_at: str | None
+
+
+class BugherdTaskSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ISSUE]
+    source_product: Literal[SignalSourceProduct.BUGHERD]
+    extra: BugherdTaskSignalExtra
 
 
 class SentryIssueSignalExtra(SignalExtraBase):
@@ -1882,6 +1945,10 @@ SignalInput = Annotated[
     | GitlabIssueSignalInput
     | GiteaIssueSignalInput
     | ShortcutStorySignalInput
+    | ClickupTaskSignalInput
+    | WrikeTaskSignalInput
+    | TrelloCardSignalInput
+    | BugherdTaskSignalInput
     | SentryIssueSignalInput
     | RollbarItemSignalInput
     | BugsnagErrorSignalInput
@@ -1994,6 +2061,10 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     GitlabIssueSignalInput,
     GiteaIssueSignalInput,
     ShortcutStorySignalInput,
+    ClickupTaskSignalInput,
+    WrikeTaskSignalInput,
+    TrelloCardSignalInput,
+    BugherdTaskSignalInput,
     SentryIssueSignalInput,
     RollbarItemSignalInput,
     BugsnagErrorSignalInput,

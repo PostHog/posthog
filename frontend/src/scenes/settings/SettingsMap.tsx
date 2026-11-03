@@ -58,6 +58,7 @@ import { GithubReposSetting } from 'products/business_knowledge/frontend/scenes/
 import { LearnFromSupportSetting } from 'products/business_knowledge/frontend/scenes/settings/LearnFromSupportSetting'
 import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
 import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
+import { MacrosSection } from 'products/conversations/frontend/scenes/settings/MacrosSection'
 import { NotificationsSection } from 'products/conversations/frontend/scenes/settings/NotificationsSection'
 import { ZendeskImportSection } from 'products/conversations/frontend/scenes/settings/ZendeskImportSection'
 import { CustomerAnalyticsNotifications } from 'products/customer_analytics/frontend/components/TaskDigest/CustomerAnalyticsNotifications'
@@ -71,12 +72,15 @@ import { CalendarSyncConfig } from 'products/customer_analytics/frontend/scenes/
 import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
 import { DataQualityGateToggle } from 'products/data_quality/frontend/settings/DataQualityGateToggle'
 import { ExceptionAutocaptureToggle } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
+import { GeneralSettings } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/general/GeneralSettings'
 import { SuppressionRules } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/suppression_rules/SuppressionRules'
 import { MAX_LOOKBACK_DAYS, MIN_LOOKBACK_DAYS } from 'products/experiments/frontend/constants'
 import { FeatureFlagRequestBlocklist } from 'products/feature_flags/frontend/FeatureFlagRequestBlocklist'
 import { LogsAlertingSection } from 'products/logs/frontend/components/LogsAlerting/LogsAlertingSection'
 import { LogsMetricRulesSection } from 'products/logs/frontend/components/LogsMetricRules/LogsMetricRulesSection'
 import { LogsSamplingSection } from 'products/logs/frontend/components/LogsSampling/LogsSamplingSection'
+import { OrganizationEventsRetentionSetting } from 'products/product_analytics/frontend/settings/OrganizationEventsRetentionSetting'
+import { ProjectEventsRetentionSetting } from 'products/product_analytics/frontend/settings/ProjectEventsRetentionSetting'
 import { TracingRetentionSettingsBlock } from 'products/tracing/frontend/components/TracingRetention/TracingRetentionSettings'
 import { HeatmapCaptureSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapCaptureSettings'
 import { HeatmapScreenshotCookieSettings } from 'products/web_analytics/frontend/heatmaps/components/HeatmapScreenshotCookieSettings'
@@ -185,6 +189,7 @@ import { OrganizationDesktopBetaTerms } from './organization/OrgDesktopBetaTerms
 import { OrganizationDisplayName } from './organization/OrgDisplayName'
 import { OrgIPAnonymizationDefault } from './organization/OrgIPAnonymizationDefault'
 import { OrganizationVariables } from './organization/OrgVariables'
+import { SSFSetting } from './organization/SSFSetting'
 import { EnforceVerifiedDomains } from './organization/VerifiedDomains/EnforceVerifiedDomains'
 import { VerifiedDomains } from './organization/VerifiedDomains/VerifiedDomains'
 import { ProjectDangerZone } from './project/ProjectDangerZone'
@@ -885,14 +890,21 @@ export const SETTINGS_MAP: SettingSection[] = [
         },
         settings: [
             {
-                id: 'error-tracking-exception-autocapture',
-                title: 'Exception autocapture',
-                description:
-                    'Automatically capture frontend exceptions using onError and onUnhandledRejection listeners in the web JavaScript SDK.',
-                docsUrl: 'https://posthog.com/docs/error-tracking',
-                platformSupport: FEATURE_SUPPORT.errorTrackingExceptionAutocapture,
-                component: <ExceptionAutocaptureToggle />,
-                keywords: ['crash', 'bug', 'exception', 'stack trace'],
+                id: 'error-tracking-general',
+                title: 'General',
+                component: <GeneralSettings />,
+                keywords: [
+                    'kill switch',
+                    'disable',
+                    'stop',
+                    'ingestion',
+                    'drop',
+                    'autocapture',
+                    'crash',
+                    'bug',
+                    'exception',
+                    'stack trace',
+                ],
             },
             {
                 id: 'error-tracking-alerting',
@@ -939,7 +951,21 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Suppression rules',
                 description: 'Filter out exceptions that match the given filters.',
                 component: <SuppressionRules />,
-                keywords: ['filter', 'ignore', 'suppress', 'exception', 'type', 'message'],
+                keywords: [
+                    'filter',
+                    'ignore',
+                    'suppress',
+                    'exception',
+                    'type',
+                    'message',
+                    'automatic',
+                    'bot',
+                    'crawler',
+                    'localhost',
+                    'browser',
+                    'hydration',
+                    'chunk',
+                ],
             },
             {
                 id: 'error-tracking-symbol-sets',
@@ -1386,6 +1412,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['url', 'regex', 'normalize', 'path analysis'],
             },
             {
+                id: 'project-events-retention',
+                title: 'Events retention',
+                component: <ProjectEventsRetentionSetting />,
+                keywords: ['events', 'retention', 'deletion', 'delete', 'months', 'compliance'],
+            },
+            {
                 id: 'human-friendly-comparison-periods',
                 title: 'Human friendly comparison periods',
                 description:
@@ -1631,6 +1663,15 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['import', 'zendesk', 'migrate', 'ticket', 'support', 'conversation'],
             },
             {
+                id: 'conversations-macros',
+                title: 'Macros',
+                description: 'Save replies you send often and insert them from a ticket.',
+                component: <MacrosSection />,
+                flag: 'PRODUCT_SUPPORT_MACROS',
+                allowForTeam: (t) => !!t?.conversations_enabled,
+                keywords: ['macro', 'canned', 'reply', 'shortcut', 'template', 'support', 'conversation'],
+            },
+            {
                 id: 'conversations-ai',
                 title: (
                     <>
@@ -1671,7 +1712,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Let business knowledge read these repositories when answering a question. It searches file names and the README, then reads a file. It does not index the code.',
                 component: <GithubReposSetting />,
-                flag: 'BUSINESS_KNOWLEDGE_GITHUB_REPOS',
                 keywords: ['business', 'knowledge', 'github', 'repository', 'code'],
             },
         ],
@@ -1896,7 +1936,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'workflows-frequency-cap',
                 title: 'Frequency cap',
                 description:
-                    'The most marketing messages one person can get in a rolling number of days, across all workflows and broadcasts. Sends past the cap are skipped and the workflow moves on to the next step. Transactional messages are never capped and do not count. A workflow run without a person, for example one triggered by an event without a person profile, is not capped. Leave both fields empty to turn the cap off.',
+                    'The most marketing messages one person can get in a rolling number of days, across all workflows and broadcasts. Sends past the cap are skipped and the workflow moves on to the next step, unless you set a hold time. Then a send waits for the next free slot for that person. Transactional messages are never capped and do not count. A workflow run without a person, for example one triggered by an event without a person profile, is not capped. Leave both fields empty to turn the cap off.',
                 component: <WorkflowsFrequencyCapSettings />,
                 keywords: ['workflows', 'frequency', 'cap', 'limit', 'fatigue', 'marketing', 'broadcast', 'email'],
             },
@@ -1915,7 +1955,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                         attrPrefix="workflows-task"
                     />
                 ),
-                flag: 'WORKFLOW_AI_TASK_ACTION',
                 keywords: ['workflows', 'ai', 'task', 'agent', 'limit', 'rate', 'cap', 'daily', 'spend', 'pause'],
             },
             {
@@ -2314,6 +2353,12 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['ip', 'anonymize', 'gdpr', 'privacy', 'geolocation'],
             },
             {
+                id: 'organization-events-retention',
+                title: 'Events retention',
+                component: <OrganizationEventsRetentionSetting />,
+                keywords: ['events', 'retention', 'deletion', 'delete', 'months', 'compliance'],
+            },
+            {
                 id: 'organization-member-notice',
                 title: 'Member notice',
                 description:
@@ -2564,6 +2609,20 @@ export const SETTINGS_MAP: SettingSection[] = [
                     "See which members' personal API keys can reach this organization or its projects, who owns them, and the scopes they grant.",
                 component: <OrganizationPersonalAPIKeys />,
                 keywords: ['api key', 'personal', 'token', 'access', 'audit'],
+            },
+        ],
+    },
+    {
+        level: 'organization',
+        id: 'organization-ssf',
+        hideSelfHost: true,
+        title: 'SSF',
+        settings: [
+            {
+                id: 'organization-ssf',
+                title: 'Shared Signals Framework (SSF)',
+                component: <SSFSetting />,
+                keywords: ['ssf', 'shared signals framework', 'security', 'signals', 'closed beta'],
             },
         ],
     },

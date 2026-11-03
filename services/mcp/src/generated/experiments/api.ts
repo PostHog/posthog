@@ -19953,6 +19953,7 @@ export const experimentsCalculateRunningTimeCreateBodyMinimumDetectableEffectMin
 
 export const experimentsCalculateRunningTimeCreateBodyNumberOfVariantsDefault = 2
 export const experimentsCalculateRunningTimeCreateBodyNumberOfVariantsMin = 2
+export const experimentsCalculateRunningTimeCreateBodyNumberOfVariantsMax = 100
 
 export const experimentsCalculateRunningTimeCreateBodyExposureRatePerDayMin = 0
 
@@ -19977,8 +19978,9 @@ export const ExperimentsCalculateRunningTimeCreateBody = () => zod
         number_of_variants: zod
             .number()
             .min(experimentsCalculateRunningTimeCreateBodyNumberOfVariantsMin)
+            .max(experimentsCalculateRunningTimeCreateBodyNumberOfVariantsMax)
             .default(experimentsCalculateRunningTimeCreateBodyNumberOfVariantsDefault)
-            .describe('Total number of variants including control (default 2).'),
+            .describe('Total number of variants including control (default 2, at most 100).'),
         exposure_rate_per_day: zod
             .number()
             .min(experimentsCalculateRunningTimeCreateBodyExposureRatePerDayMin)
@@ -19994,7 +19996,7 @@ export const ExperimentsCalculateRunningTimeCreateBody = () => zod
             .number()
             .nullish()
             .describe(
-                'Pre-computed variance for ratio\/retention metrics. Provide this or baseline_stats when metric_type is ratio\/retention and baseline_value is given directly.'
+                'Pre-computed variance per user. Provide this or baseline_stats when metric_type is ratio\/retention and baseline_value is given directly. When given, it replaces the variance the calculator derives for any metric type, including p(1-p) for funnels.'
             ),
         baseline_stats: zod
             .union([
@@ -20012,7 +20014,9 @@ export const ExperimentsCalculateRunningTimeCreateBody = () => zod
                         sum_squares: zod
                             .number()
                             .default(experimentsCalculateRunningTimeCreateBodyBaselineStatsOneSumSquaresDefault)
-                            .describe('Sum of squared metric values. Required for ratio\/retention variance.'),
+                            .describe(
+                                "Sum of squared metric values. Mean metrics read their variance from it, and ratio\/retention metrics need it. Without it, a mean metric's variance is approximated from the baseline value."
+                            ),
                         denominator_sum: zod
                             .number()
                             .nullish()

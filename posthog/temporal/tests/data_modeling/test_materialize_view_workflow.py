@@ -107,9 +107,17 @@ class TestQualityGateBranching:
             result = await MaterializeViewWorkflow().run(inputs or _inputs())
         return result, execute_activity
 
-    @pytest.mark.parametrize("shadow_error,blocked", [(None, False), ("Upstream write failed", False), (None, True)])
+    @pytest.mark.parametrize(
+        "shadow_error,skipped,blocked,expected_status",
+        [
+            (None, False, False, "completed"),
+            ("Upstream write failed", False, False, "failed"),
+            ("Upstream table missing", True, False, "skipped"),
+            (None, False, True, None),
+        ],
+    )
     async def test_a_history_without_the_patch_replays_the_in_workflow_shadow(
-        self, shadow_error: str | None, blocked: bool
+        self, shadow_error: str | None, skipped: bool, blocked: bool, expected_status: str | None
     ) -> None:
         shadow = asyncio.get_running_loop().create_future()
         shadow.set_result(
@@ -119,6 +127,7 @@ class TestQualityGateBranching:
                 schema_name="models",
                 table_name="orders",
                 error=shadow_error,
+                skipped=skipped,
             )
         )
         activity_results = [
@@ -140,9 +149,23 @@ class TestQualityGateBranching:
         assert result.job_id == "job-1"
         assert result.rows_materialized == 10
         assert result.trino_materialized is (not blocked and shadow_error is None)
+        shadow_finished = self.metrics["get_managed_warehouse_shadow_finished_metrics"]
+        if expected_status is None:
+            shadow_finished.assert_not_called()
+        else:
+            shadow_finished.assert_called_once_with(expected_status)
 
-    @pytest.mark.parametrize("shadow_error", [None, "Trino write failed"])
-    async def test_trino_only_reports_materialization_failure(self, shadow_error: str | None) -> None:
+    @pytest.mark.parametrize(
+        "shadow_error,skipped,expected_status,expected_error_class",
+        [
+            (None, False, "completed", "none"),
+            ("Trino write failed", False, "failed", "other"),
+            ("Trino write failed: upstream table missing", True, "skipped", "none"),
+        ],
+    )
+    async def test_trino_only_reports_materialization_failure(
+        self, shadow_error: str | None, skipped: bool, expected_status: str, expected_error_class: str
+    ) -> None:
         shadow = asyncio.get_running_loop().create_future()
         shadow.set_result(
             ManagedWarehouseShadowResult(
@@ -152,6 +175,7 @@ class TestQualityGateBranching:
                 table_name="orders",
                 error=shadow_error,
                 run_mode="incremental",
+                skipped=skipped,
             )
         )
         with patch.object(temporalio.workflow, "start_activity", return_value=shadow):
@@ -168,8 +192,8 @@ class TestQualityGateBranching:
                 assert result.job_id == "shadow-job"
 
         finished = self.metrics["get_node_finished_metric"]
-        assert finished.call_args.args == ("failed" if shadow_error else "completed", "managed_warehouse")
-        assert finished.call_args.kwargs.get("error_class", "none") == ("other" if shadow_error else "none")
+        assert finished.call_args.args == (expected_status, "managed_warehouse")
+        assert finished.call_args.kwargs.get("error_class", "none") == expected_error_class
         assert finished.call_args.kwargs["run_mode"] == "incremental"
         assert self.metrics["get_node_duration_metric"].called is (shadow_error is None)
 

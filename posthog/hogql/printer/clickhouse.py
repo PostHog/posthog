@@ -49,7 +49,7 @@ from posthog.hogql.restricted_properties import (
     restricted_feature_flag_names,
     restricted_property_keys_for_table_type,
 )
-from posthog.hogql.type_system import parse_sql_runtime_type
+from posthog.hogql.type_system import infer_tuple_access_constant_type, parse_sql_runtime_type
 from posthog.hogql.visitor import GetFieldsTraverser, clone_expr
 
 from posthog.clickhouse.client.escape import substitute_params
@@ -305,10 +305,20 @@ class ClickHousePrinter(BasePrinter):
                 first_arg is not None
                 and first_arg.type is not None
                 and (
-                    first_arg_was_alias or isinstance(first_arg, ast.Call) or isinstance(first_arg.type, ast.FieldType)
+                    first_arg_was_alias
+                    or isinstance(first_arg, ast.Call)
+                    or isinstance(first_arg.type, (ast.FieldType, ast.FieldAliasType))
                 )
             ):
                 first_arg_constant_type = first_arg.type.resolve_constant_type(self.context)
+            elif (
+                isinstance(first_arg, ast.TupleAccess)
+                and isinstance(first_arg.tuple, ast.Field)
+                and isinstance(first_arg.tuple.type, ast.FieldAliasType)
+            ):
+                first_arg_constant_type = infer_tuple_access_constant_type(
+                    first_arg.tuple.type.resolve_constant_type(self.context), first_arg.index
+                )
             elif isinstance(node.type, ast.CallType) and len(node.type.arg_types) > 0:
                 first_arg_constant_type = node.type.arg_types[0]
 
@@ -1047,6 +1057,15 @@ class ClickHousePrinter(BasePrinter):
         if isinstance(node.left, ast.Constant) and isinstance(node.right, ast.Constant) and constant_lambda is not None:
             return "1" if constant_lambda(node.left.value, node.right.value) else "0"
 
+        # In ClickHouse `equals(x, NULL)` is always NULL, so `IS [NOT] NULL` must print as a null check even when
+        # the shortcut below skips the ifNull wrapping (for example on the $ai_* bloom-filter columns).
+        if node.op in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq) and not in_join_constraint:
+            null_check = "isNull" if node.op == ast.CompareOperationOp.Eq else "isNotNull"
+            if isinstance(node.right, ast.Constant) and node.right.value is None:
+                return f"{null_check}({left})"
+            if isinstance(node.left, ast.Constant) and node.left.value is None:
+                return f"{null_check}({right})"
+
         # Special cases when we should not add any null checks
         if in_join_constraint or not_nullable or in_index_hint:
             return op
@@ -1285,6 +1304,7 @@ class ClickHousePrinter(BasePrinter):
             and (
                 table.retention_field is not None
                 or table.postgres_pushdown_values
+                or table.push_team_guard_with_predicates
                 or not table.get_predicates(self.context)
             )
             and self.context.team_id is not None

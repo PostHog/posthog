@@ -8,7 +8,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from products.warehouse_sources.backend.facade.source_config import SourceConfigMapResponse
-from products.warehouse_sources.backend.facade.source_management import SourceRegistry
+from products.warehouse_sources.backend.facade.source_management import SourceRegistry, cdc_engine
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -42,6 +42,7 @@ def build_source_configs(*, include_tables: bool = True) -> dict[str, dict]:
             config["versions"] = list(source.supported_versions)
             config["defaultVersion"] = source.default_version
             config["apiDocsUrl"] = source.api_docs_url
+            config["cdcEngine"] = cdc_engine(source_type)
             config["deprecatedVersions"] = [
                 {"version": d.version, "sunsetAt": d.sunset_at.isoformat() if d.sunset_at else None}
                 for d in source.deprecated_versions
@@ -78,7 +79,8 @@ class PublicSourceConfigViewSet(viewsets.ViewSet):
             "documented table catalog; empty for SQL/file sources with user-defined schemas), and "
             "vendor API version metadata: `versions` (supported version labels), `defaultVersion`, "
             "`apiDocsUrl` (vendor API docs/changelog URL or null), and `deprecatedVersions` "
-            "(array of `{version, sunsetAt}` with `sunsetAt` an ISO date or null)."
+            "(array of `{version, sunsetAt}` with `sunsetAt` an ISO date or null), and `cdcEngine` "
+            "(the change data capture engine, or null when the source has no CDC)."
         ),
     )
     def list(self, request: Request) -> Response:

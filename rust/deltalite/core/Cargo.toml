@@ -68,6 +68,8 @@ tracing = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
+# Paused time for the deadline and permit-wait tests.
+tokio = { workspace = true, features = ["test-util"] }
 # For the commit_overhead example (counted:// store registration) and table-fixture tests.
 tempfile = "3"
 url = { workspace = true }

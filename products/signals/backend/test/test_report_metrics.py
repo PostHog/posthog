@@ -4,6 +4,7 @@ import time_machine
 
 from django.test import SimpleTestCase
 
+from parameterized import parameterized
 from pydantic import ValidationError
 
 from posthog.schema import DateRange, IntervalType
@@ -496,7 +497,6 @@ class TestReportMetric(SimpleTestCase):
         assert ReportMetric.model_validate_json(metric.model_dump_json()) == metric
 
         for series_patch, error in (
-            ({"series": [1, 2], "value": None, "value_at": None}, "needs value and value_at"),
             ({"series": [1, True]}, "not booleans"),
             ({"series": [float("nan")]}, "finite"),
             ({"series": [1] * (MAX_METRIC_SERIES_POINTS + 1)}, f"exceed {MAX_METRIC_SERIES_POINTS} points"),
@@ -508,6 +508,23 @@ class TestReportMetric(SimpleTestCase):
                 content.update(series_patch)
                 with self.assertRaisesRegex(ValidationError, error):
                     ReportMetric.model_validate(content)
+
+    @parameterized.expand([(False,), (True,)])
+    def test_drops_series_without_a_snapshot_and_keeps_the_live_query(self, explicit_nulls: bool) -> None:
+        content = _affected_users_metric().model_dump(mode="json")
+        content["series"] = [1, 2]
+        for key in ("value", "value_at"):
+            if explicit_nulls:
+                content[key] = None
+            else:
+                content.pop(key)
+
+        metric = ReportMetric.model_validate(content)
+
+        assert metric.series is None
+        assert metric.value is None
+        assert metric.value_at is None
+        assert metric.query == content["query"]
 
     def test_snapshot_timestamp_requires_a_timezone(self) -> None:
         content = _affected_users_metric().model_dump(mode="json")

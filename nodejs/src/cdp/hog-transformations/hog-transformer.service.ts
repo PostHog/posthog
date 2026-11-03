@@ -27,6 +27,7 @@ import { EncryptedFields } from '../utils/encryption-utils'
 import { HogConfigurationError } from '../utils/hog-error-classification'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInputsFailureResult, createInvocation } from '../utils/invocation-utils'
+import { geoipNoopResult } from './geoip-noop'
 import { RustVmExecutor } from './rust-vm-executor'
 import { getTransformationFunctions } from './transformation-functions'
 
@@ -382,6 +383,11 @@ export class HogTransformerService implements HogTransformer {
         }
 
         const invocation = createInvocation(globalsWithInputs, hogFunction)
+
+        const geoipNoop = geoipNoopResult(invocation)
+        if (geoipNoop) {
+            return geoipNoop
+        }
 
         if (isLegacyPluginHogFunction(hogFunction)) {
             return await this.pluginExecutor.execute(invocation)

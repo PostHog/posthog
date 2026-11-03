@@ -218,9 +218,19 @@ class AnomalyInsightRowSerializer(serializers.Serializer):
 
 
 class AnomalySearchResponseSerializer(serializers.Serializer):
-    scoring_enabled = serializers.BooleanField(help_text="Whether anomaly scoring covers this project.")
+    scoring_enabled = serializers.BooleanField(
+        help_text=(
+            "Whether anomaly scoring scores this project now. False when scoring does not cover the "
+            "project, or when the project turned it off in its self-driving settings. Scores written "
+            "before scoring was turned off are still returned."
+        )
+    )
     watched_insights = serializers.IntegerField(
-        help_text="Insights that scoring watches: saved trends insights on a dashboard or viewed in the last 30 days."
+        help_text=(
+            "Active insights that scoring checks: saved trends insights that a person viewed, that sit on a "
+            "dashboard someone opened, or that were edited in the active window (90 days by default), "
+            "or that have an enabled alert or subscription."
+        )
     )
     insights_scored_in_range = serializers.IntegerField(
         help_text="Insights with at least one scored bucket in the range. Results cover only these insights."
@@ -291,7 +301,13 @@ class AnomalyInsightSeriesSerializer(serializers.Serializer):
 
 
 class AnomalyInsightResponseSerializer(serializers.Serializer):
-    scoring_enabled = serializers.BooleanField(help_text="Whether anomaly scoring covers this project.")
+    scoring_enabled = serializers.BooleanField(
+        help_text=(
+            "Whether anomaly scoring scores this project now. False when scoring does not cover the "
+            "project, or when the project turned it off in its self-driving settings. Scores written "
+            "before scoring was turned off are still returned."
+        )
+    )
     insight_id = serializers.IntegerField(source="insight.id", help_text="The numeric id of the insight.")
     insight_name = serializers.CharField(
         source="insight.name", allow_null=True, help_text="The name of the insight. Null when it has none."

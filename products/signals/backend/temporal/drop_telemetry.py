@@ -24,7 +24,7 @@ _PATCH_SIGNAL_DROPPED = "signal-dropped-telemetry-v1"
 _MAX_ERROR_LENGTH = 500
 
 
-@dataclass
+@dataclass(frozen=True)
 class CaptureSignalDroppedInput:
     team_id: int
     source_product: str
@@ -35,6 +35,7 @@ class CaptureSignalDroppedInput:
     error_type: str
     error: str
     extra: dict = field(default_factory=dict)
+    signal_id: str | None = None
 
 
 def summarize_drop_error(error: BaseException) -> tuple[str, str]:
@@ -67,6 +68,7 @@ def signal_dropped_input(
         # Flatten before scheduling: the raw `extra` can nest large customer-derived
         # payloads, and the activity input is recorded verbatim in workflow history.
         extra=_telemetry_props_from_extra(signal.extra),
+        signal_id=signal.signal_id,
     )
 
 

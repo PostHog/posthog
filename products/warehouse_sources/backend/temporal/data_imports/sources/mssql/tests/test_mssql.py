@@ -3,7 +3,9 @@ import threading
 import pytest
 from unittest.mock import MagicMock
 
+import pyarrow as pa
 import pymssql
+from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.discover_schemas_workflow import (
     DISCOVER_SCHEMAS_ACTIVITY_TIMEOUT,
@@ -33,8 +35,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssq
     retry_on_transient_connection_error,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.source import (
+    _CONNECTION_DROPPED_ERROR,
     _FIREWALL_BLOCKED_ERROR,
-    _GENERIC_CONNECTION_ERROR,
     MSSQLSource,
 )
 from products.warehouse_sources.backend.types import IncrementalFieldType
@@ -103,6 +105,20 @@ class TestMSSQLColumnToArrowField:
         col = MSSQLColumn(name="x", data_type="decimal", nullable=True)
         with pytest.raises(TypeError, match="numeric_precision"):
             col.to_arrow_field()
+
+    @parameterized.expand(
+        [
+            ("tinyint", pa.uint8()),
+            ("smallint", pa.int16()),
+            ("int", pa.int32()),
+            ("bigint", pa.int64()),
+        ]
+    )
+    def test_integer_types_match_mssql_value_range(self, data_type, expected_arrow_type):
+        # tinyint is 0-255 in MSSQL, unlike every signed integer type here; a signed arrow
+        # type raises ArrowInvalid as soon as a row carries a value above 127.
+        col = MSSQLColumn(name="x", data_type=data_type, nullable=True)
+        assert col.to_arrow_field().type == expected_arrow_type
 
 
 class TestBuildQuery:
@@ -304,6 +320,21 @@ class TestFetchTableStats:
         )
         assert impl.fetch_table_stats(cursor, "dbo", "t", logger) is None
         assert cursor.execute.call_count == 1
+        capture.assert_not_called()
+
+    def test_tempdb_log_full_skips_capture(self, impl, cursor, logger, mocker):
+        # SQL Server 9002: another session's active transaction filled tempdb's log. This clears
+        # once that transaction ends, so it's as self-recovering as the connection-death case above
+        # and must not flood error tracking.
+        capture = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql.capture_exception"
+        )
+        cursor.execute.side_effect = pymssql.OperationalError(
+            9002,
+            b"The transaction log for database 'tempdb' is full due to 'ACTIVE_TRANSACTION' and the holdup lsn "
+            b"is (1:2:3).DB-Lib error message 20018, severity 17:\nGeneral SQL Server error\n",
+        )
+        assert impl.fetch_table_stats(cursor, "dbo", "t", logger) is None
         capture.assert_not_called()
 
 
@@ -661,6 +692,40 @@ class TestMSSQLSourceRetryableErrors:
         retryable = MSSQLSource().get_retryable_errors()
         assert any(pattern.lower() in str(error).lower() for pattern in retryable), str(error)
 
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Real pymssql shape for SQL Server error 1105 during an ORDER BY sort spill into tempdb.
+            "(1105, b\"Could not allocate space for object 'dbo.SORT temporary run storage:  "
+            "140760200970240' in database 'tempdb' because the 'PRIMARY' filegroup is full due to "
+            'lack of storage space or database files reaching the maximum allowed size.")',
+            "Could not allocate space for object 'dbo.sysobjvalues' in database 'tempdb' because the "
+            "'SECONDARY' filegroup is full due to lack of storage space or database files reaching "
+            "the maximum allowed size.",
+        ],
+    )
+    def test_tempdb_storage_exhausted_is_retryable(self, error_msg):
+        retryable = MSSQLSource().get_retryable_errors()
+        assert any(pattern in error_msg for pattern in retryable), error_msg
+
+    def test_tempdb_storage_exhausted_is_not_non_retryable(self):
+        error_msg = (
+            "Could not allocate space for object 'dbo.sysobjvalues' in database 'tempdb' because the "
+            "'PRIMARY' filegroup is full due to lack of storage space."
+        )
+        non_retryable = MSSQLSource().get_non_retryable_errors()
+        assert not any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
+
+    def test_tempdb_storage_exhausted_has_a_friendly_exhausted_message(self):
+        exhausted = MSSQLSource().get_retry_exhausted_errors()
+        error_msg = (
+            "Could not allocate space for object 'dbo.SORT temporary run storage' in database "
+            "'tempdb' because the 'PRIMARY' filegroup is full due to lack of storage space."
+        )
+        matches = [message for pattern, message in exhausted.items() if pattern in error_msg]
+        assert matches, error_msg
+        assert "still enabled" in matches[0]
+
 
 class TestMSSQLSourceValidateCredentials:
     @pytest.fixture
@@ -685,7 +750,7 @@ class TestMSSQLSourceValidateCredentials:
         assert error == _FIREWALL_BLOCKED_ERROR
         capture.assert_not_called()
 
-    def test_adaptive_server_connection_failed_returns_generic_message_without_capturing(self, source, mocker):
+    def test_adaptive_server_connection_failed_names_likely_causes_without_capturing(self, source, mocker):
         capture = mocker.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.mssql.source.capture_exception"
         )
@@ -702,7 +767,7 @@ class TestMSSQLSourceValidateCredentials:
         valid, error = source.validate_credentials(_make_config(), team_id=1)
 
         assert valid is False
-        assert error == _GENERIC_CONNECTION_ERROR
+        assert error == _CONNECTION_DROPPED_ERROR
         capture.assert_not_called()
 
     @pytest.mark.parametrize(
