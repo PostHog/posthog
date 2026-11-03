@@ -434,7 +434,7 @@ Nothing in v4 is kept for good. Each kind of data has a fixed lifetime, and a de
 - Blocks expire by write time, not by session start, so a session whose blocks span several write days loses its first blocks first. Nothing marks the rest as partial, and `cold_start` does not cover it. Readers that need whole sessions follow the rule in [Block index](#block-index).
 - The buckets have no versioning, so an expired object leaves no older version behind. S3 removes the parts of an unfinished upload after one day.
 - `blocks/` is stored in Glacier Instant Retrieval from the start. The index prefixes and both image prefixes stay in Standard, because readers read them often.
-- A block can use an image only while the image outlives the block. A pack is written in the same flush as its blocks and expires 8 days later. A fetched image lives at least 30 days after the last block that refers to it, because the recorder sends a job for each referenced URL at least once per day.
+- A block can use an image only while the image outlives the block. A pack is written in the same flush as its blocks and expires 8 days later. A fetched image lives at least 30 days after the last block that refers to it. Each day that a block refers to an image, the recorder sends a job for it, or the fetcher's history shows a stored copy that is younger than 7 days at the end of that day.
 - A key outlives every object it sealed: a session writes for at most about 15 days after its key month ends, and an object lives at most 38 days plus the S3 delay. The margin lets the object windows go up to 90 days without a change to the key expiry. Raise the object windows in `v4-staging.hcl` in posthog-cloud-infra only together with the key expiry.
 - DynamoDB TTL can remove a row days after `expires_at`. Writers and readers treat a row past `expires_at` as unusable, so the delay only costs storage.
 - The key table has no point-in-time recovery, backups, exports, streams or replicas, so no copy brings a shredded key back.
@@ -683,5 +683,16 @@ The fetcher keeps a crawl history per URL reference, so per team and month, in i
 
 A URL is therefore fetched from its origin about once per team and month, as v3 fetches it about once in 30 days.
 Unlike v3, the history is per team: a sealed image is readable only with its team's key, so two teams that refer to one URL each fetch it.
-The recorder sends a job for each referenced URL at least once per day, so the fetcher sees a reference in every 7-day refresh interval.
+The recorder sends a job for each referenced URL at least once per day, unless the fetcher's history shows that the fetcher would drop it (see below). So the fetcher sees a reference in every 7-day refresh interval.
 The fetcher drops a job whose team month row is missing, expired or deleted.
+
+Each recorder pod sends a reference at most once per UTC day. When `AI_RESEARCH_V4_IMAGE_FETCH_HISTORY_TABLE` is set, the recorder also reads the fetcher's history, as the v3 mirror did:
+
+- It reads only the references of the flush that it did not send or mark that day, each one once. The read starts with the flush and runs while the flush seals its blocks.
+- It does not send a job that the fetcher would still drop at the end of the day. That is a job before the refetch time of its reference, when the reference has no stored copy or a stored copy less than 7 days old. It marks that reference as sent for the day.
+- It sends every other job, so the fetcher still refreshes each stored copy within its interval.
+- It parses a history row with the same code as the fetcher. A row that the fetcher reads as a miss is a miss for the recorder too.
+- A read that fails or takes more than 5 seconds checks nothing, and its jobs go out. The read does not retry a failed request.
+- `ai_research_v4_recorder_image_fetch_history_total` counts the references it read by `outcome`: `fresh` (marked), `due` (a refresh or refetch is due today), `absent`, `invalid` and `error`.
+
+`replay_core_v4::fetch_history` holds the drop rule, the 7-day refresh interval and the row parser. The recorder calls it directly, and the fetcher calls it through `@posthog/ai-research-v4-native`.

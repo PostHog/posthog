@@ -327,13 +327,13 @@ class TestHoneybadger:
 
         result = self._driver().run("faults", answer)
 
-        # The first batch reaches the pipeline before the source saves its next-page state.
-        # A failed next request must not commit that state and skip the first batch on retry.
+        # The first batch is written before the source saves its next-page state, so the safe point
+        # after the save commits that state, and a retry starts at page 2 without losing the batch.
         assert isinstance(result.raised, requests.ConnectionError)
         assert result.items == [[{"id": 10, "project_id": 1}]]
         assert result.saved_states == [HoneybadgerResumeConfig(next_url=next_url, project_id=1)]
-        assert result.committed_states == []
-        assert result.final_state is None
+        assert result.committed_states == [HoneybadgerResumeConfig(next_url=next_url, project_id=1)]
+        assert result.final_state == HoneybadgerResumeConfig(next_url=next_url, project_id=1)
         assert result.params("page")[0:2] == [None, None]
 
     @pytest.mark.parametrize(
