@@ -546,13 +546,19 @@ def _describe(node_id: str | None, names: Mapping[str, str] | None, fallback: st
     return name or fallback
 
 
-def _floor_reason(floor: Bound, names: Mapping[str, str] | None, pinned: Collection[str]) -> tuple[str, str]:
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+class FloorReason:
+    node: str  # the node that sets the floor
+    why: str  # why it holds the floor there
+
+
+def _floor_reason(floor: Bound, names: Mapping[str, str] | None, pinned: Collection[str]) -> FloorReason:
     """The node that sets a floor, and why it holds the floor there: a slow source, or a pinned view."""
     if floor.blocker is not None and floor.blocker in pinned:
         view = _describe(floor.blocker, names, "an upstream view")
-        return view, f"{view} is pinned to refresh every {humanize_cadence(floor.value)}"
+        return FloorReason(node=view, why=f"{view} is pinned to refresh every {humanize_cadence(floor.value)}")
     source = _describe(floor.blocker, names, "an upstream source")
-    return source, f"{source} only syncs every {humanize_cadence(floor.value)}"
+    return FloorReason(node=source, why=f"{source} only syncs every {humanize_cadence(floor.value)}")
 
 
 def _nothing_satisfiable_message(
@@ -560,17 +566,18 @@ def _nothing_satisfiable_message(
 ) -> str:
     """Explain a node with no legal cadence at all: crossed bounds, or a source slower than 30 days."""
     floor, ceiling = bounds.floor, bounds.ceiling
-    source, floor_reason = _floor_reason(floor, names, pinned) if floor else ("", "")
+    floor_reason = _floor_reason(floor, names, pinned) if floor else FloorReason(node="", why="")
+    source = floor_reason.node
     consumer = _describe(ceiling.blocker, names, "a view or endpoint built on this one") if ceiling else ""
     if floor is not None and ceiling is not None:
         return (
-            f"No cadence works here: {floor_reason},"
+            f"No cadence works here: {floor_reason.why},"
             f" but {consumer} refreshes every {humanize_cadence(ceiling.value)}."
             f" Slow down {consumer} or speed up {source}."
         )
     if floor is not None:
         return (
-            f"No cadence works here: {floor_reason},"
+            f"No cadence works here: {floor_reason.why},"
             f" less often than anything this can refresh at. Speed up {source} first."
         )
     if ceiling is not None:
@@ -622,9 +629,8 @@ def validate_declared_target(
     # direction. Bounds are inclusive, so the bound is always a legal answer, while "or slower" /
     # "or faster" promises room that may not exist: a 15min ceiling has nothing fresher to offer.
     if option.blocked_by == "source" and bounds.floor is not None:
-        _, floor_reason = _floor_reason(bounds.floor, names, pinned)
         raise UnsatisfiableFrequencyError(
-            f"Can't refresh every {humanize_cadence(target)}: {floor_reason}."
+            f"Can't refresh every {humanize_cadence(target)}: {_floor_reason(bounds.floor, names, pinned).why}."
             f" Pick {humanize_cadence(min(bounds.allowed))} instead."
         )
     if option.blocked_by == "consumer" and bounds.ceiling is not None:

@@ -150,6 +150,7 @@ class NodeFrequencyBoundsSerializer(serializers.Serializer):
 
 
 class NodeSerializer(serializers.ModelSerializer):
+    # nosemgrep: choices-need-a-class -- the values are SCHEDULABLE_BUCKETS, and the enum is already named by ENUM_NAME_OVERRIDES
     sync_frequency = serializers.ChoiceField(
         choices=CADENCE_CHOICES,
         write_only=True,

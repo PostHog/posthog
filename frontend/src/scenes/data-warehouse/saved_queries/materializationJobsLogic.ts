@@ -1022,6 +1022,7 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
                                 String(ApiConfig.getCurrentProjectId()),
                                 values.nodeFrequency.nodeId
                             ),
+                            // nosemgrep: prefer-codegen-api-namespaced-data_warehouse -- the same call loadSavedQuery makes, so the result keeps its type
                             api.dataWarehouseSavedQueries.get(props.viewId),
                         ])
                         actions.loadNodeFrequencySuccess({ nodeId: values.nodeFrequency.nodeId, bounds })
