@@ -218,7 +218,12 @@ describe('telemetry', () => {
             files: {
                 '/home/test/.config/hog/settings.json': JSON.stringify({
                     logins: {
-                        'https://us.posthog.com': { store: 'keychain', type: 'personal_api_key', projectId: '1' },
+                        'https://us.posthog.com': {
+                            store: 'keychain',
+                            type: 'personal_api_key',
+                            projectId: '1',
+                            host: 'https://us.posthog.com',
+                        },
                     },
                     host: 'https://us.posthog.com',
                 }),
