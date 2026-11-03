@@ -73,17 +73,18 @@ describe('DecompressionWorkerManager', () => {
                 }
                 terminate(): void {}
             }
-            window.ESBUILD_STATIC_FILES = {
-                'decompressionWorker.js': 'decompressionWorker-AB12CD34.js',
-                'snappy_bg.wasm': 'snappy_bg-EF56AB78.wasm',
-            }
             const originalWorker = window.Worker
-            window.Worker = FakeWorker as unknown as typeof Worker
-            // jest.setup.ts mocks this module for every test, so take the real class.
-            const { DecompressionWorkerManager: RealManager } =
-                jest.requireActual<typeof import('./DecompressionWorkerManager')>('./DecompressionWorkerManager')
-            const hashedManager = new RealManager()
+            let hashedManager: DecompressionWorkerManager | undefined
             try {
+                window.ESBUILD_STATIC_FILES = {
+                    'decompressionWorker.js': 'decompressionWorker-AB12CD34.js',
+                    'snappy_bg.wasm': 'snappy_bg-EF56AB78.wasm',
+                }
+                window.Worker = FakeWorker as unknown as typeof Worker
+                // jest.setup.ts mocks this module for every test, so take the real class.
+                const { DecompressionWorkerManager: RealManager } =
+                    jest.requireActual<typeof import('./DecompressionWorkerManager')>('./DecompressionWorkerManager')
+                hashedManager = new RealManager()
                 const data = new Uint8Array([1, 2, 3])
                 expect(await hashedManager.decompress(data)).toEqual(data)
                 expect(requests).toEqual([
@@ -93,7 +94,7 @@ describe('DecompressionWorkerManager', () => {
                     },
                 ])
             } finally {
-                hashedManager.terminate()
+                hashedManager?.terminate()
                 window.Worker = originalWorker
                 delete window.ESBUILD_STATIC_FILES
             }

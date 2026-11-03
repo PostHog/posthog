@@ -136,7 +136,11 @@ await buildInParallel(
 
             const worker = WORKER_ENTRIES.find((entry) => entry.name === config.name)
             if (worker) {
-                staticFileNames[worker.outfileName] = path.basename(entrypoints.find((file) => file.endsWith('.js')))
+                const workerEntry = entrypoints.find((file) => file.endsWith('.js'))
+                if (!workerEntry) {
+                    throw new Error(`Could not get entrypoint for worker "${config.name}".`)
+                }
+                staticFileNames[worker.outfileName] = path.basename(workerEntry)
                 if (WORKER_ENTRIES.every((entry) => entry.outfileName in staticFileNames)) {
                     workersBuilt.resolve()
                 }
