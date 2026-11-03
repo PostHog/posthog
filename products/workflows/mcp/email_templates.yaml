@@ -167,6 +167,14 @@ tools:
                 required: true
             subject:
                 required: true
+            html:
+                description: >
+                    HTML body of the email, exactly as the recipient should see it. Through this tool the whole request,
+                    html and text together, must stay under 1 MiB; a larger email can't be sent here.
+            text:
+                description: >
+                    Plain text body of the email. Without it, PostHog derives the text from html. Through this tool the
+                    whole request, html and text together, must stay under 1 MiB.
             distinct_id:
                 description: >
                     Distinct ID of the recipient's person. The send and its engagement events are recorded against that

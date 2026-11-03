@@ -22,7 +22,7 @@
             "type": "string"
         },
         "html": {
-            "description": "HTML body of the email your code rendered, at most 5 MiB as UTF-8.",
+            "description": "HTML body of the email, exactly as the recipient should see it. Through this tool the whole request, html and text together, must stay under 1 MiB; a larger email can't be sent here.",
             "type": "string"
         },
         "reply_to": {
@@ -46,7 +46,7 @@
             "type": "string"
         },
         "text": {
-            "description": "Plain text body of the email your code rendered, at most 5 MiB as UTF-8. Without it, PostHog derives the text from `html`.",
+            "description": "Plain text body of the email. Without it, PostHog derives the text from html. Through this tool the whole request, html and text together, must stay under 1 MiB.",
             "type": "string"
         },
         "to": {

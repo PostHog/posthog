@@ -239,6 +239,12 @@ const WorkflowsSendEmailSchema = () => {
     return MessagingSendEmailCreateBody.extend({
         template_key: MessagingSendEmailCreateBody.shape['template_key'].nonoptional(),
         subject: MessagingSendEmailCreateBody.shape['subject'].nonoptional(),
+        html: MessagingSendEmailCreateBody.shape['html'].describe(
+            "HTML body of the email, exactly as the recipient should see it. Through this tool the whole request, html and text together, must stay under 1 MiB; a larger email can't be sent here."
+        ),
+        text: MessagingSendEmailCreateBody.shape['text'].describe(
+            'Plain text body of the email. Without it, PostHog derives the text from html. Through this tool the whole request, html and text together, must stay under 1 MiB.'
+        ),
         distinct_id: MessagingSendEmailCreateBody.shape['distinct_id'].describe(
             "Distinct ID of the recipient's person. The send and its engagement events are recorded against that person. Defaults to the recipient's email address."
         ),
