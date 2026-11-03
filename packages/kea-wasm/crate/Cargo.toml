@@ -1,0 +1,23 @@
+[package]
+name = "kea-wasm-engine"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Rust core of kea-wasm: reducer tree, mount counters and listener index"
+license = "MIT"
+
+# Standalone crate. It is not a member of the rust/ workspace.
+[workspace]
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+wasm-bindgen = "=0.2.100"
+js-sys = "=0.3.77"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"

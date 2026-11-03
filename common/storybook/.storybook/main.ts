@@ -104,6 +104,11 @@ const config: StorybookConfig = {
                     ...Object.fromEntries(
                         SINGLETON_PACKAGES.map((pkg) => [pkg, path.resolve(FRONTEND, 'node_modules', pkg)])
                     ),
+                    // KEA_IMPL=wasm swaps kea for packages/kea-wasm. Build it first with
+                    // `node packages/kea-wasm/build.mjs`.
+                    ...(process.env.KEA_IMPL === 'wasm'
+                        ? { kea: path.resolve(REPO_ROOT, 'packages', 'kea-wasm', 'dist', 'index.esm.js') }
+                        : {}),
                     '~': path.resolve(FRONTEND, 'src'),
                     lib: path.resolve(FRONTEND, 'src', 'lib'),
                     scenes: path.resolve(FRONTEND, 'src', 'scenes'),

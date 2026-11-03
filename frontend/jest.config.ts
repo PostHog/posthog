@@ -180,7 +180,8 @@ const config: Config = {
     // Runs `@sucrase/jest-plugin` on each file, so a change to the `transform` entry below must change it too.
     dependencyExtractor: '<rootDir>/jest.dependencyExtractor.js',
 
-    modulePaths: ['<rootDir>/'],
+    // With KEA_IMPL=wasm, packages/kea-wasm resolves React from the frontend's node_modules.
+    modulePaths: process.env.KEA_IMPL === 'wasm' ? ['<rootDir>/', '<rootDir>/node_modules'] : ['<rootDir>/'],
 
     roots: rootDirectories(),
 

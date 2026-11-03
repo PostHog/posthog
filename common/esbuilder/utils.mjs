@@ -201,8 +201,20 @@ const { config: tsconfig } = ts.readConfigFile(
     ts.sys.readFile
 )
 
+// KEA_IMPL=wasm swaps kea for packages/kea-wasm, a port with its reducer engine in Rust.
+// Build it first with `node packages/kea-wasm/build.mjs`. It resolves React from frontend/node_modules.
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..')
+const keaWasmConfig =
+    process.env.KEA_IMPL === 'wasm'
+        ? {
+              alias: { kea: path.resolve(repoRoot, 'packages/kea-wasm/dist/index.esm.js') },
+              nodePaths: [path.resolve(repoRoot, 'frontend/node_modules')],
+          }
+        : { alias: {}, nodePaths: [] }
+
 /** @type {import('esbuild').BuildOptions} */
 export const commonConfig = {
+    nodePaths: keaWasmConfig.nodePaths,
     sourcemap: true,
     minify: !isDev,
     target: tsconfig.compilerOptions.target, // We want the same target as tsconfig, should fail if tsconfig not found
@@ -305,6 +317,7 @@ export const commonConfig = {
         }),
     ],
     alias: {
+        ...keaWasmConfig.alias,
         buffer: 'buffer',
         crypto: 'crypto-browserify',
         'node:crypto': 'crypto-browserify',

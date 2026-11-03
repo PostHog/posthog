@@ -63,6 +63,11 @@ export default defineConfig(({ mode }) => {
             // React instance or hooks are dispatched through a second runtime.
             dedupe: ['react', 'react-dom', '@base-ui/react'],
             alias: {
+                // KEA_IMPL=wasm swaps kea for packages/kea-wasm. Build it first with
+                // `node packages/kea-wasm/build.mjs`.
+                ...(process.env.KEA_IMPL === 'wasm'
+                    ? { kea: resolve(__dirname, '../packages/kea-wasm/dist/index.esm.js') }
+                    : {}),
                 '@base-ui/react': resolve(__dirname, 'node_modules/@base-ui/react'),
                 '~': fileURLToPath(new URL('./src', import.meta.url)),
                 '@': fileURLToPath(new URL('./src', import.meta.url)),

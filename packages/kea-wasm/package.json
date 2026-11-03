@@ -1,0 +1,17 @@
+{
+    "name": "@posthog/kea-wasm",
+    "version": "0.1.0",
+    "private": true,
+    "description": "Drop-in kea 4 with its reducer tree, mount counters and listener index in Rust compiled to WebAssembly. Not a pnpm workspace member: build.mjs bundles kea's own redux and reselect.",
+    "license": "MIT",
+    "main": "dist/index.cjs.js",
+    "module": "dist/index.esm.js",
+    "types": "src/index.ts",
+    "scripts": {
+        "build": "node build.mjs",
+        "build:js": "node build.mjs --skip-rust",
+        "test": "jest --config jest.config.cjs",
+        "test:rust": "cargo test --manifest-path crate/Cargo.toml",
+        "typecheck": "../../frontend/node_modules/.bin/tsc -p tsconfig.json"
+    }
+}

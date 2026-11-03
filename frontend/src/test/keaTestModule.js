@@ -1,4 +1,8 @@
-const kea = require('../../node_modules/kea')
+// KEA_IMPL=wasm runs the tests on packages/kea-wasm, a port with its reducer engine in Rust.
+const kea =
+    process.env.KEA_IMPL === 'wasm'
+        ? require('../../../packages/kea-wasm/dist/index.cjs.js')
+        : require('../../node_modules/kea')
 const { testListenerDefinitions, testListeners } = require('./keaTestListeners')
 
 function wrapLogicInput(input) {

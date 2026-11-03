@@ -1,0 +1,22 @@
+{
+    "compilerOptions": {
+        "target": "es2020",
+        "module": "esnext",
+        "moduleResolution": "bundler",
+        "jsx": "react",
+        "strict": true,
+        "noEmit": true,
+        "skipLibCheck": true,
+        "esModuleInterop": true,
+        "allowJs": false,
+        "typeRoots": ["../../frontend/node_modules/@types"],
+        "paths": {
+            "react": ["./../../frontend/node_modules/@types/react"],
+            "redux": ["./../../node_modules/.pnpm/redux@5.0.1/node_modules/redux"],
+            "reselect": ["./../../node_modules/.pnpm/reselect@5.2.0/node_modules/reselect"],
+            "use-sync-external-store/shim": ["./src/use-sync-external-store-shim.ts"]
+        },
+        "types": ["node"]
+    },
+    "include": ["src", "gen/*.d.ts"]
+}
