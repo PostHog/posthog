@@ -1,18 +1,16 @@
 import pytest
 from unittest import mock
 
-from products.warehouse_sources.backend.facade.source_config import SourceFieldInputConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.planetscalepostgres import (
-    PlanetScalePostgresSourceConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.postgres import (
+from products.warehouse_sources.sources.planetscale_postgres._config import PlanetScalePostgresSourceConfig
+from products.warehouse_sources.sources.planetscale_postgres.source import PlanetScalePostgresSource, _is_psbouncer_port
+from products.warehouse_sources.sources.sdk import SourceFieldInputConfig
+from products.warehouse_sources.sources.sdk.internals import (
+    Any_Source_Errors,
+    ClientDeadlineExceededError,
+    PostgresSource,
     PostgresSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.planetscale_postgres.source import (
-    PlanetScalePostgresSource,
-    _is_psbouncer_port,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
+from products.warehouse_sources.sources.sdk.testing import error_message_matches
 
 _DIRECT_HOST = "xxxxxxxxxx-useast1-1.horizon.psdb.cloud"
 
@@ -116,3 +114,12 @@ def test_cdc_on_the_direct_port_defers_to_postgres():
     super_check.assert_called_once()
     assert super_check.call_args.kwargs["team_id"] == 7
     assert errors == []
+
+
+def test_the_deadline_error_is_retryable() -> None:
+    source = PlanetScalePostgresSource()
+    message = str(ClientDeadlineExceededError(660))
+
+    assert not error_message_matches(message, {**Any_Source_Errors, **source.get_non_retryable_errors()})
+    assert error_message_matches(message, source.get_retryable_errors())
+    assert error_message_matches(message, source.get_retry_exhausted_errors())

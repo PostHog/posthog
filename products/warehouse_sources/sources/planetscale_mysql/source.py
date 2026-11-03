@@ -1,24 +1,20 @@
 import re
 from typing import Optional, cast
 
-from posthog.exceptions_capture import capture_exception
-
-from products.warehouse_sources.backend.facade.codebase_detection import detect
-from products.warehouse_sources.backend.facade.source_config import (
+from products.warehouse_sources.sources.planetscale_mysql.planetscale_mysql import PlanetScaleMySQLImplementation
+from products.warehouse_sources.sources.sdk import (
     DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
     ReleaseStatus,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
+    SourceRegistry,
+    capture_exception,
+    detect,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mysql import MySQLSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.source import MySQLSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.planetscale_mysql.planetscale_mysql import (
-    PlanetScaleMySQLImplementation,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.sources.sdk.internals import MySQLSource, MySQLSourceConfig
 
 _PLANETSCALE_MYSQL_IMPLEMENTATION = PlanetScaleMySQLImplementation()
 
