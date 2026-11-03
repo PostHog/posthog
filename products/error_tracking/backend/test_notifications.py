@@ -90,6 +90,9 @@ class TestDispatchIssueAssignedRealtime(_AssignmentTestBase):
     @patch("products.error_tracking.backend.notifications.create_notification")
     def test_automatic_assignment_dispatches_without_assigner(self, assignee_type, mock_create_notification):
         assignment, assignee_id = self._create_assignment(assignee_type)
+        # Cymbal writes rule assignments without team_id.
+        ErrorTrackingIssueAssignment.objects.filter(id=assignment.id).update(team=None)
+        assignment.refresh_from_db()
         dispatch_issue_assigned_realtime(
             assignment=assignment,
             assignee={"type": assignee_type, "id": assignee_id},
@@ -97,6 +100,7 @@ class TestDispatchIssueAssignedRealtime(_AssignmentTestBase):
         )
         mock_create_notification.assert_called_once()
         data = mock_create_notification.call_args.args[0]
+        assert data.team_id == self.team.id
         assert data.target_id == str(assignee_id)
         assert data.title == "An assignment rule assigned an issue to you"
         assert data.metadata == {"trigger": "automatic"}

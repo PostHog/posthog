@@ -65,15 +65,13 @@ def dispatch_issue_assigned_realtime(
     Never raises — caller's email enqueue must succeed independently.
     """
     try:
-        if assignment.team_id is None:
-            return
-        team = assignment.team
-        assert team is not None  # team_id is set, so the FK is non-null (Django stubs disagree)
         issue = assignment.issue
+        # Cymbal writes rule assignments without team_id, so the issue is the only reliable source of the team.
+        team = issue.team
         title = f"{actor.label} assigned an issue to you"[:100]
         metadata = {"trigger": actor.trigger}
         body = (issue.name or "")[:200]
-        fingerprint = get_canonical_fingerprint(team_id=assignment.team_id, issue_id=issue.id)
+        fingerprint = get_canonical_fingerprint(team_id=issue.team_id, issue_id=issue.id)
         source_url = build_issue_permalink_path(project_id=team.project_id, issue_id=issue.id, fingerprint=fingerprint)
 
         if assignee["type"] == "user":
@@ -88,7 +86,7 @@ def dispatch_issue_assigned_realtime(
             return
         create_notification(
             NotificationData(
-                team_id=assignment.team_id,
+                team_id=issue.team_id,
                 notification_type=NotificationType.ISSUE_ASSIGNED,
                 priority=Priority.NORMAL,
                 title=title,
