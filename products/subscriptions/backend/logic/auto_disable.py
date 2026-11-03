@@ -111,6 +111,11 @@ _CREATOR_LEFT_ERROR_NAMES = frozenset({CreatorLeftOrganizationError.__name__, Us
 _CREATOR_LOST_ACCESS_ERROR_NAMES = frozenset({TableAccessDeniedError.__name__, UserAccessControlError.__name__})
 
 
+def is_owner_access_error(exception_type: str | None) -> bool:
+    """The export failed because its owner cannot run the query. The delivered tile shows the reason."""
+    return exception_type in _CREATOR_LEFT_ERROR_NAMES or exception_type in _CREATOR_LOST_ACCESS_ERROR_NAMES
+
+
 def get_assets_owner_disable_reason(exception_types: Iterable[str | None]) -> DisableReason | None:
     """The reason to disable a subscription after a delivery whose exports failed for its owner.
 

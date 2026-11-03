@@ -24,6 +24,7 @@ from products.subscriptions.backend.logic.auto_disable import (
     disable_invalid_subscription,
     get_assets_owner_disable_reason,
     get_subscription_disable_reason,
+    is_owner_access_error,
 )
 from products.subscriptions.backend.logic.email_subscriptions import send_email_subscription_report
 from products.subscriptions.backend.logic.failure_notifications import (
@@ -554,7 +555,10 @@ async def _deliver_insight_dashboard_subscription(
                 subscription, disable_reason, notify_owner=False
             )
 
-    unrendered_assets = [asset for asset in assets if _has_asset_failed(asset)]
+    # An owner-access failure is not counted: its tile delivers the reason, and the owner may have left.
+    unrendered_assets = [
+        asset for asset in assets if _has_asset_failed(asset) and not is_owner_access_error(asset.exception_type)
+    ]
     if unrendered_assets:
         downgraded = _downgrade_for_unrendered_assets(result, len(unrendered_assets), len(assets))
         # Only a result this step turned to failed needs the event. Paths that failed earlier already captured one.
