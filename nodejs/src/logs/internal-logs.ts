@@ -39,7 +39,7 @@ export type InternalLogs = InternalSourcePolicy & { source: string }
 export const INTERNAL_SOURCE_POLICIES: Readonly<Record<string, InternalSourcePolicy>> = {
     hog_flow: { billed: false, teamRules: false, serviceName: 'posthog-internal-workflows' },
     // Each log_entries source moves unbilled, one at a time. Add a source when its producer starts signing.
-    // hog_function: { billed: false, teamRules: false, serviceName: '...' },
+    hog_function: { billed: false, teamRules: false, serviceName: 'posthog-internal-destinations' },
 }
 
 type NotInternalReason =
