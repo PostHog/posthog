@@ -6330,13 +6330,29 @@
         "feature_flag": "warehouse-multi-destination"
     },
     "external-data-destinations-connect-link": {
-        "description": "First step to add a warehouse destination (Postgres, Redshift, Snowflake, BigQuery, Databricks, S3 or Azure Blob). Returns a browser link where the user enters the credentials in PostHog, plus the next steps in `instructions`. For S3-compatible storage (MinIO, Wasabi, R2, GCS), pass integration_kind='s3-compatible'. Never ask the user to paste passwords, keys or tokens into the chat.",
+        "description": "First step to add a warehouse destination (Postgres, Redshift, Snowflake, BigQuery, Databricks, S3 or Azure Blob). Returns a browser link where the user enters the credentials in PostHog, a connect_token, and the next steps in `instructions`. For S3-compatible storage (MinIO, Wasabi, R2, GCS), pass integration_kind='s3-compatible'. After you share the link, poll external-data-destinations-connect-link-status with the connect_token to get the saved integration id. Never ask the user to paste passwords, keys or tokens into the chat.",
         "category": "Warehouse destinations",
         "feature": "warehouse_sources",
         "summary": "Get a secure connect link for a destination",
         "title": "Get a secure connect link for a destination",
         "required_scopes": ["external_data_source:read"],
         "api_operations": ["GET /api/projects/{project_id}/external_data_destinations/connect_link/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "warehouse-multi-destination"
+    },
+    "external-data-destinations-connect-link-status": {
+        "description": "Read whether the user saved a connection through a link from external-data-destinations-connect-link. Pass the connect_token from that call. After you give the user the link, call this every few seconds until status is 'connected' or 'expired'. 'pending' means the user has not saved yet. 'connected' returns integration_id and display_name: confirm display_name with the user, then pass integration_id to external-data-destinations-create. 'expired' means the link is too old or was made for another user: get a new link. Never returns credentials.",
+        "category": "Warehouse destinations",
+        "feature": "warehouse_sources",
+        "summary": "Check a destination connect link",
+        "title": "Check a destination connect link",
+        "required_scopes": ["external_data_source:read"],
+        "api_operations": ["GET /api/projects/{project_id}/external_data_destinations/connect_link_status/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -17177,7 +17193,7 @@
         }
     },
     "workflows-make-email-template-transactional-execute": {
-        "description": "Step 2 of 2 for make email template transactional. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Make an email template sendable from code with one API call, for emails a person triggers such as password resets, receipts and sign-in codes. This is one-way: the template can't be made non-transactional again. Transactional sends ignore marketing opt-outs, so never use this for marketing email. The template needs a subject and a body, and the project needs a verified email sender (pass from_integration_id to pick one, otherwise the project's default sender is used). Requires human typed confirmation. The response has transactional_hog_flow_id, the workflow that sends the email. Share the template's _posthogUrl so the user can review and publish it. Then tell the user what is left: create a project secret API key with Workflow set to Write, and send from their backend with posthog.emails.send in the Node.js or Python SDK, or POST /api/projects/@current/messaging/send/email/ with template.id in the body. Each send returns a message ID, and posthog.emails.get or GET /api/projects/@current/messaging/emails/{message_id}/ reads its status.",
+        "description": "Step 2 of 2 for make email template transactional. Verifies the confirmation_hash from -prepare and the literal \"confirm\" string typed by the user, then performs the action. ONLY call this after the user has explicitly typed \"confirm\" in chat. Original action: Make an email template sendable from code with one API call, for emails a person triggers such as password resets, receipts and sign-in codes. This is one-way: the template can't be made non-transactional again. Transactional sends ignore marketing opt-outs, so never use this for marketing email. The template needs a subject and a body, and the project needs a verified email sender (pass from_integration_id to pick one, otherwise the project's default sender is used). Requires human typed confirmation. The response has transactional_hog_flow_id, the workflow that sends the email. Share the template's _posthogUrl so the user can review and publish it. Then tell the user what is left: create a project secret API key with Transactional email set to Write, and send from their backend with posthog.emails.send in the Node.js or Python SDK, or POST /api/projects/@current/messaging/send/email/ with template.id in the body. Each send returns a message ID, and posthog.emails.get or GET /api/projects/@current/messaging/emails/{message_id}/ reads its status.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Make email template transactional (execute)",
@@ -17193,7 +17209,7 @@
         "feature_flag": "workflows-transactional-email-api"
     },
     "workflows-make-email-template-transactional-prepare": {
-        "description": "Step 1 of 2 for make email template transactional. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Make an email template sendable from code with one API call, for emails a person triggers such as password resets, receipts and sign-in codes. This is one-way: the template can't be made non-transactional again. Transactional sends ignore marketing opt-outs, so never use this for marketing email. The template needs a subject and a body, and the project needs a verified email sender (pass from_integration_id to pick one, otherwise the project's default sender is used). Requires human typed confirmation. The response has transactional_hog_flow_id, the workflow that sends the email. Share the template's _posthogUrl so the user can review and publish it. Then tell the user what is left: create a project secret API key with Workflow set to Write, and send from their backend with posthog.emails.send in the Node.js or Python SDK, or POST /api/projects/@current/messaging/send/email/ with template.id in the body. Each send returns a message ID, and posthog.emails.get or GET /api/projects/@current/messaging/emails/{message_id}/ reads its status.",
+        "description": "Step 1 of 2 for make email template transactional. Validates the arguments and returns a signed confirmation_hash plus a message to surface to the user. The user must reply with the literal word \"confirm\" before you call the matching -execute tool with the hash. Original action: Make an email template sendable from code with one API call, for emails a person triggers such as password resets, receipts and sign-in codes. This is one-way: the template can't be made non-transactional again. Transactional sends ignore marketing opt-outs, so never use this for marketing email. The template needs a subject and a body, and the project needs a verified email sender (pass from_integration_id to pick one, otherwise the project's default sender is used). Requires human typed confirmation. The response has transactional_hog_flow_id, the workflow that sends the email. Share the template's _posthogUrl so the user can review and publish it. Then tell the user what is left: create a project secret API key with Transactional email set to Write, and send from their backend with posthog.emails.send in the Node.js or Python SDK, or POST /api/projects/@current/messaging/send/email/ with template.id in the body. Each send returns a message ID, and posthog.emails.get or GET /api/projects/@current/messaging/emails/{message_id}/ reads its status.",
         "category": "Workflows",
         "feature": "workflows",
         "summary": "Make email template transactional (prepare)",
