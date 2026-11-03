@@ -15,26 +15,22 @@
     "total_median_conversion_time": 691.5,
     "result": [
         {
-            "action_id": "$pageview, $pageleave",
             "name": "Pageview, Pageleave",
             "custom_name": null,
             "order": 0,
             "people": [],
             "count": 20166,
-            "type": "events",
             "average_conversion_time": null,
             "median_conversion_time": null,
             "converted_people_url": "/api/person/funnel/?funnel_step=1",
             "dropped_people_url": null
         },
         {
-            "action_id": "$pageview",
             "name": "Pageview",
             "custom_name": null,
             "order": 1,
             "people": [],
             "count": 8438,
-            "type": "events",
             "average_conversion_time": 370.49,
             "median_conversion_time": 0,
             "converted_people_url": "/api/person/funnel/?funnel_step=2",

@@ -530,9 +530,18 @@ class SignalReport(UUIDModel):
                 name="signals_report_first_visible",
             ),
             # Back the inbox `search` filter. On UPPER(...) because icontains compiles to
-            # UPPER(col) LIKE UPPER(pattern) on Postgres.
-            GinIndex(OpClass(Upper("title"), name="gin_trgm_ops"), name="signals_report_title_trgm"),
-            GinIndex(OpClass(Upper("summary"), name="gin_trgm_ops"), name="signals_report_summary_trgm"),
+            # UPPER(col) LIKE UPPER(pattern) on Postgres. Direct updates avoid pending-list
+            # merges that make one insert absorb the batched GIN maintenance of earlier writes.
+            GinIndex(
+                OpClass(Upper("title"), name="gin_trgm_ops"),
+                name="signals_report_title_trgm",
+                fastupdate=False,
+            ),
+            GinIndex(
+                OpClass(Upper("summary"), name="gin_trgm_ops"),
+                name="signals_report_summary_trgm",
+                fastupdate=False,
+            ),
         ]
         constraints = [
             # The barrier itself, not a lookup aid: two emits racing on one key both reach the
@@ -4336,6 +4345,8 @@ class PersonalInboxRanking(TeamScopedRootMixin, UUIDModel):
     status = models.CharField(max_length=20, choices=Status)
     # One of the fixed strings of `personal_ranking/logic.py`, never model output.
     fallback_reason = models.CharField(max_length=100, null=True, blank=True)
+    # The last time the scheduled tick found the inputs unchanged, so the list is current as of then.
+    checked_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         default_manager_name = "all_teams"

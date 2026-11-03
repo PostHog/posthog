@@ -51,6 +51,16 @@ _NOT_ATTACHED_LABELS: dict[Outcome, str] = {
 }
 
 
+# Judges asked whether an answer matches a missing attachment otherwise tend to take the answer's word for it.
+_NOT_ATTACHED_NOTE = "You can't see the attachments marked not attached. Don't guess what they contain."
+
+
+def _names(labels: list[str]) -> str:
+    # Capped: these lines sit outside the transcript's text budget, and a transcript can hold thousands of markers.
+    rest = len(labels) - MAX_ATTACHMENTS
+    return ", ".join(labels[:MAX_ATTACHMENTS]) + (f", and {rest} more" if rest > 0 else "")
+
+
 _NUMBERED_MARKER_RE = re.compile(r"\[(image|file|audio|video) \d+\]")
 
 
@@ -129,8 +139,12 @@ class JudgeAttachments:
         if not images:
             return user_prompt
 
+        # One lookup per file type: on OpenRouter each one reads the whole model catalogue from the cache.
+        transports = {
+            mime: attachment_transport(provider, model, mime) for mime in {image.mime_type for image in images}
+        }
         # Attachments this judge can't read take no slot, so they can't push out ones it can.
-        readable = [image for image in images if attachment_transport(provider, model, image.mime_type) is not None]
+        readable = [image for image in images if transports[image.mime_type] is not None]
         # Keep the images referenced last: the newest input and the graded output, even when it repeats an old image.
         ranked = sorted(readable, key=lambda image: user_prompt.rfind(image.marker))
         # Gemini rejects a request over its video limit, and the text-only retry would drop everything else too.
@@ -147,7 +161,7 @@ class JudgeAttachments:
         attachments: dict[str, _Attachment] = {}
         inline_bytes = 0
         for image in kept:
-            attachment = self._attach(image, provider, model, MAX_INLINE_BYTES - inline_bytes)
+            attachment = self._attach(image, provider, transports[image.mime_type], MAX_INLINE_BYTES - inline_bytes)
             inline_bytes += attachment.inline_bytes
             attachments[image.marker] = attachment
 
@@ -169,20 +183,28 @@ class JudgeAttachments:
             else:
                 parts.extend([{"type": "text", "text": f"{image.label}:"}, attachment.part])
         # One line each, not one per attachment: they sit outside the transcript's text budget.
-        if over_limit := len(readable) - len(attachments):
-            outcomes["over_limit"] = over_limit
-            parts.append({"type": "text", "text": f"Not attached, over the judge's attachment limit: {over_limit}."})
-        if unreadable := len(images) - len(readable):
-            outcomes["unreadable"] = unreadable
+        if over_limit := [image.label for image in readable if image.marker not in attachments]:
+            outcomes["over_limit"] = len(over_limit)
             parts.append(
-                {"type": "text", "text": f"Not attached, this judge can't read their file type: {unreadable}."}
+                {"type": "text", "text": f"Not attached, over the judge's attachment limit: {_names(over_limit)}."}
             )
+        if unreadable := [image.label for image in images if transports[image.mime_type] is None]:
+            outcomes["unreadable"] = len(unreadable)
+            parts.append(
+                {
+                    "type": "text",
+                    "text": f"Not attached, this judge can't read their file type: {_names(unreadable)}.",
+                }
+            )
+        if over_limit or unreadable or any(attachment.part is None for attachment in attachments.values()):
+            parts.append({"type": "text", "text": _NOT_ATTACHED_NOTE})
         parts.append({"type": "text", "text": user_prompt})
         logger.info("judge_attachments_attached", provider=provider, model=model, inline_bytes=inline_bytes, **outcomes)
         return parts
 
-    def _attach(self, image: _Media, provider: str, model: str, inline_budget: int) -> _Attachment:
-        transport = attachment_transport(provider, model, image.mime_type)
+    def _attach(
+        self, image: _Media, provider: str, transport: Literal["url", "inline"] | None, inline_budget: int
+    ) -> _Attachment:
         if transport is None:
             return _Attachment(outcome="unavailable")
         provider_limit = MAX_IMAGE_BYTES.get(provider) if image.kind == "image" else _BYTE_LIMITS.get(image.kind)

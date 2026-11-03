@@ -22,6 +22,7 @@ from products.experiments.backend.health.checks.flag_change_findings import flag
 from products.experiments.backend.health.checks.flag_state import flag_state
 from products.experiments.backend.health.checks.flag_variants import flag_variants_mismatch
 from products.experiments.backend.health.checks.forced_variant import forced_variant_release_condition
+from products.experiments.backend.health.checks.metric_all_zero import metric_all_zero
 from products.experiments.backend.health.checks.metric_calculation_failed import metric_calculation_failed
 from products.experiments.backend.health.checks.metric_cannot_compile import metric_cannot_compile
 from products.experiments.backend.health.checks.metric_event_not_ingested import metric_event_not_ingested
@@ -105,13 +106,18 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
         run=metric_calculation_failed,
     ),
     HealthCheck(
+        key=ExperimentHealthCheckKey.METRIC_ALL_ZERO,
+        name="Metrics at zero in every variant",
+        run=metric_all_zero,
+    ),
+    HealthCheck(
         key=ExperimentHealthCheckKey.EXPOSURE_CRITERIA_CANNOT_MATCH,
         name="Exposure criteria that can't match",
         run=exposure_criteria_cannot_match,
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.EXPOSURE_FILTERS,
-        name="Exposure filters that count unexpected users",
+        name="Dynamic cohorts in the exposure criteria",
         run=exposure_filters,
     ),
     HealthCheck(
@@ -128,7 +134,8 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
 
 # The exposure query runs these on its answer. They must not include the checks above: the exposure answer
 # is cached for a day, and a flag edit would not clear their findings. `srm` reads the verdict of
-# `split_changed_mid_run`, which only a split edit can change, and the split is part of the exposure query's cache key.
+# `split_changed_mid_run`, which only a split edit can change, and the variant overrides of the release conditions. The
+# split and the release conditions are part of the exposure query's cache key.
 EXPOSURE_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
     HealthCheck(
         key=ExperimentHealthCheckKey.ZERO_EXPOSURES,
