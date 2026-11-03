@@ -810,6 +810,14 @@ ignore_imports = [
     "products.access_control.backend.presentation.access_control_settings -> products.access_control.backend.models.access_control",
     "products.access_control.backend.presentation.access_control_settings -> products.access_control.backend.models.role",
     "products.access_control.backend.presentation.role -> products.access_control.backend.models.role",
+    # TODO: signals presentation wave. The activity summary viewset reads its modes, limits and
+    # render types from backend/activity_summary/ directly. That directory has no __init__.py, so
+    # grimp cannot see these edges and only the AST surface check in `hogli product:lint` holds
+    # them. Expose what the view needs through the facade and delete each entry.
+    "products.signals.backend.presentation.activity_summary -> products.signals.backend.activity_summary.prompt",
+    "products.signals.backend.presentation.activity_summary -> products.signals.backend.activity_summary.read",
+    "products.signals.backend.presentation.activity_summary -> products.signals.backend.activity_summary.render",
+    "products.signals.backend.presentation.activity_summary -> products.signals.backend.activity_summary.search",
 ]
 
 # routes.py is the one module core reads to assemble a product's API router, so it is the
@@ -831,6 +839,7 @@ ignore_imports = [
     # TODO: views still registered from backend/api/ — move them into presentation/ and drop the line
     "products.actions.backend.routes -> products.actions.backend.api.action",
     "products.ai_observability.backend.routes -> products.ai_observability.backend.api",
+    "products.analytics_platform.backend.routes -> products.analytics_platform.backend.api.precompute_debug",
     "products.annotations.backend.routes -> products.annotations.backend.api.annotation",
     "products.approvals.backend.routes -> products.approvals.backend.api",
     "products.business_knowledge.backend.routes -> products.business_knowledge.backend.api",

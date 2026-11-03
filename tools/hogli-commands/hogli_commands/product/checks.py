@@ -461,25 +461,18 @@ class ImportSurfaceCheck(ProductCheck):
     watch. This check reads the same imports straight from the AST, honors the same
     ignore_imports deferrals, and fails on what grimp cannot see.
 
-    A product that is not sealed yet holds the webhook_consumers surface alone: posthog/ingress/
-    imports that module by name and must not reach the product's internals through it, whether or
-    not the product has a contract.
+    The contracts name `products.*.backend.<surface>`, so they hold for every product whether or
+    not it has facade/contracts.py, and this check holds every surface for every product too.
     """
 
     label = "import surface"
 
     # (source subtree or module, allowed destination subtrees)
-    WEBHOOK_CONSUMERS_SURFACE = ("webhook_consumers", ("facade",))
     SURFACES = (
         ("routes", ("presentation",)),
         ("presentation", ("presentation", "facade")),
-        WEBHOOK_CONSUMERS_SURFACE,
+        ("webhook_consumers", ("facade",)),
     )
-
-    def _surfaces(self, ctx: CheckContext) -> tuple[tuple[str, tuple[str, ...]], ...]:
-        """A product that is not sealed yet has no routes/presentation contract to hold, so
-        only its ingress entry point is checked."""
-        return self.SURFACES if ctx.has_facade_contracts else (self.WEBHOOK_CONSUMERS_SURFACE,)
 
     def _surface_files(self, ctx: CheckContext, source: str) -> list[Path]:
         root = ctx.backend_dir / source
@@ -491,7 +484,7 @@ class ImportSurfaceCheck(ProductCheck):
     def should_run(self, ctx: CheckContext) -> bool:
         if not super().should_run(ctx) or not ctx.backend_dir.is_dir():
             return False
-        return any(self._surface_files(ctx, source) for source, _ in self._surfaces(ctx))
+        return any(self._surface_files(ctx, source) for source, _ in self.SURFACES)
 
     def _module_name(self, ctx: CheckContext, path: Path) -> str:
         rel = path.relative_to(ctx.backend_dir).with_suffix("")
@@ -502,7 +495,7 @@ class ImportSurfaceCheck(ProductCheck):
         prefix = f"products.{ctx.name}.backend"
         ignored = ignored_import_edges()
         issues = []
-        for source, allowed in self._surfaces(ctx):
+        for source, allowed in self.SURFACES:
             allowed_prefixes = tuple(f"{prefix}.{a}" for a in allowed)
             for f in self._surface_files(ctx, source):
                 importer = self._module_name(ctx, f)
@@ -513,9 +506,9 @@ class ImportSurfaceCheck(ProductCheck):
                         continue
                     issues.append(
                         f"{f.relative_to(ctx.product_dir)}:{line} imports {target} — {source} may only import "
-                        f"{'/'.join(allowed)}. If import-linter did not flag this, either the target sits "
-                        "under a directory without __init__.py, which grimp cannot see, or this product "
-                        "carries no contract yet"
+                        f"{'/'.join(allowed)}. If import-linter did not flag this, the target sits under a "
+                        "directory without __init__.py, which grimp cannot see. To defer the edge, add that "
+                        "__init__.py first: import-linter rejects an ignore_imports entry it cannot match"
                     )
         if issues:
             return CheckResult(
