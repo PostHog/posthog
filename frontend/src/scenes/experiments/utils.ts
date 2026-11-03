@@ -606,10 +606,33 @@ export function experimentHasQuantileMetric(experiment: Experiment): boolean {
     ].some((metric) => metric?.kind === NodeKind.ExperimentMetric && isExperimentQuantileMetric(metric))
 }
 
+// The backend accepts quantile levels from 0.01 to 0.99.
+export const MIN_PERCENTILE = 1
+export const MAX_PERCENTILE = 99
+
+/** Why a percentile level can't be saved, or undefined when it can. */
+export function getPercentileError(percentile: number | undefined): string | undefined {
+    const hasAtMostOneDecimal =
+        percentile !== undefined && Math.abs(Math.round(percentile * 10) - percentile * 10) < 1e-6
+    if (
+        percentile === undefined ||
+        !Number.isFinite(percentile) ||
+        percentile < MIN_PERCENTILE ||
+        percentile > MAX_PERCENTILE ||
+        !hasAtMostOneDecimal
+    ) {
+        return `Enter a percentile from ${MIN_PERCENTILE} to ${MAX_PERCENTILE}, with up to one decimal place`
+    }
+    return undefined
+}
+
 /** The backend rejects an incomplete metric too, but this lets the save button say what is missing first. */
 export function getMetricIncompleteReason(metric: ExperimentMetric): string | undefined {
-    if (isExperimentQuantileMetric(metric) && !metric.source.math_property) {
-        return 'Select a numeric property for the percentile'
+    if (isExperimentQuantileMetric(metric)) {
+        if (!metric.source.math_property) {
+            return 'Select a numeric property for the percentile'
+        }
+        return getPercentileError(metric.quantile * 100)
     }
     return undefined
 }
