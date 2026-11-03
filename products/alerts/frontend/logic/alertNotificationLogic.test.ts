@@ -276,4 +276,25 @@ describe('alertNotificationLogic', () => {
             hog_function_ids: ['hf-open', 'hf-close'],
         })
     })
+
+    it('drops a staged PagerDuty notification when the new alert can no longer page', async () => {
+        logic = alertNotificationLogic({})
+        logic.mount()
+        logic.actions.addPendingNotification({
+            type: ALERT_NOTIFICATION_TYPE_PAGERDUTY,
+            routingKey: 'a'.repeat(32),
+            severity: 'critical',
+            region: 'us',
+        })
+        logic.actions.addPendingNotification({
+            type: ALERT_NOTIFICATION_TYPE_WEBHOOK,
+            webhookUrl: 'https://example.com',
+        })
+
+        logic.actions.loadNewAlertPagerDutyAvailableSuccess(false)
+
+        await expectLogic(logic).toMatchValues({
+            pendingNotifications: [{ type: ALERT_NOTIFICATION_TYPE_WEBHOOK, webhookUrl: 'https://example.com' }],
+        })
+    })
 })

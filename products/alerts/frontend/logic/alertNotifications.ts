@@ -115,6 +115,9 @@ export const buildAlertFilterConfig = (
     ],
 })
 
+export const listensOnEvent = (hogFunction: Pick<HogFunctionType, 'filters'>, eventId: string): boolean =>
+    hogFunction.filters?.events?.some((event) => event.id === eventId) ?? false
+
 // Every event an insight alert's destinations listen on, one filter group each.
 export const buildAlertDestinationFilterGroups = (alertId: string): CyclotronJobFiltersType[] =>
     [INSIGHT_ALERT_FIRING_EVENT_ID, INSIGHT_ALERT_INCIDENT_OPENED_EVENT_ID, INSIGHT_ALERT_INCIDENT_CLOSED_EVENT_ID].map(

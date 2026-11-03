@@ -370,6 +370,18 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
     })),
 
     listeners(({ actions, values, props }) => ({
+        // A staged PagerDuty destination would fail once the new alert saves, so it is dropped.
+        loadNewAlertPagerDutyAvailableSuccess: ({ newAlertPagerDutyAvailable }) => {
+            if (newAlertPagerDutyAvailable) {
+                return
+            }
+            const stillValidPending = values.pendingNotifications.filter(
+                (notification) => notification.type !== ALERT_NOTIFICATION_TYPE_PAGERDUTY
+            )
+            if (stillValidPending.length !== values.pendingNotifications.length) {
+                actions.setPendingNotifications(stillValidPending)
+            }
+        },
         loadIntegrationsSuccess: ({ integrations }) => {
             const availableSlackIntegrations = integrations.filter((integration) => integration.kind === 'slack')
             const selectedIntegrationIsAvailable = availableSlackIntegrations.some(
