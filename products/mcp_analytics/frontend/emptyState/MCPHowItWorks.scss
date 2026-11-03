@@ -32,6 +32,10 @@
     }
 
     &__diagram {
+        --x1: 16.667%;
+        --x2: 50%;
+        --x3: 83.333%;
+
         display: flex;
         flex-direction: column;
         padding: 4px 0 10px;
@@ -204,6 +208,114 @@
         animation: none !important;
     }
 
+    &__track {
+        position: relative;
+        order: 1;
+        width: 100%;
+        max-width: 520px;
+        height: 118px;
+        margin: 0 auto -2px;
+    }
+
+    &__ground,
+    &__fill {
+        position: absolute;
+        bottom: 12px;
+        height: 3px;
+        border-radius: 2px;
+    }
+
+    &__ground {
+        right: 0;
+        left: 0;
+        background: var(--mcp-how-line);
+    }
+
+    &__fill {
+        left: var(--x1);
+        width: 0;
+        background: linear-gradient(90deg, var(--mcp-how-blue), var(--mcp-how-yellow), var(--mcp-how-green));
+        transition: width 1.3s cubic-bezier(0.6, 0, 0.2, 1);
+    }
+
+    &__diagram[data-hog='2'] &__fill {
+        width: calc(var(--x2) - var(--x1));
+        background: linear-gradient(90deg, var(--mcp-how-blue), var(--mcp-how-yellow));
+    }
+
+    &__diagram[data-hog='3'] &__fill {
+        width: calc(var(--x3) - var(--x1));
+    }
+
+    &__dot {
+        position: absolute;
+        bottom: 7px;
+        width: 13px;
+        height: 13px;
+        margin-left: -6.5px;
+        background: var(--mcp-how-surface);
+        border: 3px solid var(--mcp-how-line);
+        border-radius: 50%;
+        transition:
+            background 0.4s ease,
+            border-color 0.4s ease;
+
+        &--1 {
+            --c-dot: var(--mcp-how-blue);
+
+            left: var(--x1);
+        }
+
+        &--2 {
+            --c-dot: var(--mcp-how-yellow);
+
+            left: var(--x2);
+        }
+
+        &--3 {
+            --c-dot: var(--mcp-how-green);
+
+            left: var(--x3);
+        }
+    }
+
+    &__diagram &__dot--1,
+    &__diagram:is([data-hog='2'], [data-hog='3']) &__dot--2,
+    &__diagram[data-hog='3'] &__dot--3 {
+        background: var(--c-dot);
+        border-color: var(--c-dot);
+    }
+
+    &__hog {
+        position: absolute;
+        bottom: -2px;
+        left: var(--x1);
+        width: 104px;
+        margin-left: -52px;
+        pointer-events: none;
+        transition: left 1.3s cubic-bezier(0.6, 0, 0.2, 1);
+
+        img {
+            display: block;
+            width: 100%;
+            height: auto;
+            filter: var(--mcp-how-halo);
+            transform-origin: 50% 95%;
+        }
+
+        &--walking img {
+            animation: MCPHowItWorks__hop 0.43s ease-in-out 3;
+        }
+    }
+
+    &__diagram[data-hog='2'] &__hog {
+        left: var(--x2);
+    }
+
+    &__diagram[data-hog='3'] &__hog {
+        left: var(--x3);
+    }
+
     // Under reduced motion and in Storybook the sidebar opens on the last step and stays still.
     &--static *,
     &--static *::before,
@@ -224,12 +336,32 @@
         &__stage {
             height: 272px;
         }
+
+        &__hog {
+            width: 92px;
+            margin-left: -46px;
+        }
+
+        &__track {
+            height: 104px;
+        }
     }
 
     @container mcp-how-it-works (max-width: 340px) {
         &__tab-title {
             font-size: 11px;
         }
+    }
+}
+
+@keyframes MCPHowItWorks__hop {
+    0%,
+    100% {
+        transform: translateY(0) rotate(0);
+    }
+
+    50% {
+        transform: translateY(-14px) rotate(2.5deg);
     }
 }
 

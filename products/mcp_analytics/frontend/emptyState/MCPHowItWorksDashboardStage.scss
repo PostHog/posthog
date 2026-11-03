@@ -1,0 +1,181 @@
+.MCPHowItWorks {
+    &__dash {
+        position: absolute;
+        inset: 14px;
+        display: grid;
+        grid-template-rows: 96px 1fr;
+        grid-template-columns: 1fr 1.5fr;
+        gap: 10px;
+    }
+
+    &__tile {
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
+        padding: 9px 11px;
+        background: var(--mcp-how-surface);
+        border: 1.5px solid var(--mcp-how-border);
+        border-radius: 10px;
+    }
+
+    &__tile-label {
+        display: flex;
+        gap: 5px;
+        align-items: center;
+        font-size: 12px;
+        color: var(--mcp-how-text-secondary);
+
+        svg {
+            font-size: 13px;
+        }
+    }
+
+    &__big {
+        margin-top: 2px;
+        font-size: 23px;
+        font-weight: 700;
+        line-height: 1.1;
+        letter-spacing: -0.02em;
+    }
+
+    &__spark {
+        flex: 1;
+        width: 100%;
+        min-height: 0;
+        margin-top: 2px;
+        overflow: visible;
+    }
+
+    &__draw {
+        fill: none;
+        stroke-dasharray: 1;
+        stroke-dashoffset: 1;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        stroke-width: 2.2;
+        transition: stroke-dashoffset 1.2s ease 0.5s;
+        vector-effect: non-scaling-stroke;
+    }
+
+    &__diagram:is([data-phase='2'], [data-phase='3']) &__draw {
+        stroke-dashoffset: 0;
+    }
+
+    &__area {
+        opacity: 0;
+        transition: opacity 0.8s ease 1.2s;
+    }
+
+    &__diagram:is([data-phase='2'], [data-phase='3']) &__area {
+        opacity: 1;
+    }
+
+    &__grid-line {
+        stroke: var(--mcp-how-border);
+        stroke-width: 1;
+        vector-effect: non-scaling-stroke;
+    }
+
+    &__struggle {
+        grid-column: 1 / -1;
+        gap: 6px;
+        justify-content: center;
+    }
+
+    &__row {
+        display: grid;
+        grid-template-columns: 86px 1fr 38px;
+        gap: 8px;
+        align-items: center;
+        font-size: 12px;
+
+        b {
+            overflow: hidden;
+            font-family: var(--mcp-how-mono);
+            font-size: 11.5px;
+            font-weight: 500;
+            color: var(--mcp-how-text-secondary);
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+    }
+
+    &__bar {
+        height: 8px;
+        overflow: hidden;
+        background: var(--mcp-how-border);
+        border-radius: 4px;
+
+        i {
+            display: block;
+            width: 0;
+            height: 100%;
+            background: var(--mcp-how-green);
+            border-radius: 4px;
+            transition: width 0.9s ease var(--d, 0s);
+        }
+    }
+
+    &__diagram:is([data-phase='2'], [data-phase='3']) &__bar i {
+        width: var(--w);
+    }
+
+    &__pct {
+        font-variant-numeric: tabular-nums;
+        color: var(--mcp-how-muted);
+        text-align: right;
+    }
+
+    &__row--bad {
+        b {
+            font-weight: 700;
+            color: var(--mcp-how-text);
+        }
+
+        .MCPHowItWorks__bar i {
+            background: var(--mcp-how-orange);
+        }
+
+        .MCPHowItWorks__pct {
+            display: flex;
+            gap: 3px;
+            align-items: center;
+            justify-content: flex-end;
+            font-weight: 700;
+            color: var(--mcp-how-orange);
+
+            svg {
+                font-size: 13px;
+            }
+        }
+    }
+
+    &__diagram:is([data-phase='2'], [data-phase='3']) &__row--bad &__pct svg {
+        animation: MCPHowItWorks__wobble 1.2s ease 2.2s 2;
+    }
+
+    @container mcp-how-it-works (max-width: 420px) {
+        &__dash {
+            grid-template-rows: 88px 1fr;
+        }
+
+        &__row {
+            grid-template-columns: 76px 1fr 34px;
+        }
+    }
+}
+
+@keyframes MCPHowItWorks__wobble {
+    0%,
+    100% {
+        transform: none;
+    }
+
+    25% {
+        transform: rotate(-14deg);
+    }
+
+    75% {
+        transform: rotate(14deg);
+    }
+}
