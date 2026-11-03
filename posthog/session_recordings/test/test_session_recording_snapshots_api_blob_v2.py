@@ -160,7 +160,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
     )
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
     @patch("posthog.session_recordings.session_recording_api.list_blocks")
-    @patch("posthog.session_recordings.session_recording_api.posthoganalytics.feature_enabled")
+    @patch("posthog.session_recordings.recordings.replay_blocks_jwt.posthoganalytics.feature_enabled")
     def test_sources_listing_gives_player_tokens_only_to_the_player(
         self,
         auth: str,

@@ -4438,19 +4438,31 @@ const api = {
          * the same length-prefixed bytes as getSnapshots with decompress=false.
          */
         async getBlocksDirectly(urls: string[], token: string): Promise<Uint8Array> {
+            // One failed block fails the batch, so the other downloads stop too.
+            const controller = new AbortController()
             const blocks = await Promise.all(
                 urls.map(async (url) => {
-                    const response = await fetch(url, {
-                        headers: { Authorization: `Bearer ${token}` },
-                        credentials: 'omit',
-                    })
-                    if (!response.ok) {
-                        const data = await response.json().catch(() => null)
-                        throw asRecordingDeletedError(
-                            new ApiError(`Block fetch failed`, response.status, undefined, data)
-                        )
+                    try {
+                        const response = await fetch(url, {
+                            headers: { Authorization: `Bearer ${token}` },
+                            credentials: 'omit',
+                            signal: controller.signal,
+                        })
+                        if (!response.ok) {
+                            const data = await response.json().catch(() => null)
+                            throw asRecordingDeletedError(
+                                new ApiError('Block fetch failed', response.status, undefined, data)
+                            )
+                        }
+                        // Without a route to recording-api the app shell answers with HTML, which is not a block.
+                        if (!response.headers.get('Content-Type')?.startsWith('application/octet-stream')) {
+                            throw new Error('Block fetch returned something other than a block')
+                        }
+                        return new Uint8Array(await response.arrayBuffer())
+                    } catch (e) {
+                        controller.abort()
+                        throw e
                     }
-                    return new Uint8Array(await response.arrayBuffer())
                 })
             )
             const framed = new Uint8Array(blocks.reduce((total, block) => total + 4 + block.length, 0))

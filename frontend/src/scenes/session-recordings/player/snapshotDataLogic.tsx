@@ -252,27 +252,30 @@ export type snapshotDataLogicType = MakeLogicType<
     snapshotDataLogicMeta
 >
 
-// Reactivity note (#53893): `cache.store` (SnapshotStore) lives outside Kea, so any listener that mutates it (markFetched, setSources) MUST dispatch `storeUpdated()` afterwards, and any selector reading it MUST depend on `storeVersion`.
 // Reads a batch straight from recording-api when the listing gave every block a url, so the browser caches each
 // block. Returns null to use the snapshots endpoint instead, which serves every recording.
 async function loadBlocksDirectly(
     sources: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>[],
     listedSources: SessionRecordingSnapshotSource[] | null,
     token: string | null,
+    direct: { unauthorizedCount: number },
     onTokenExpired: () => void
 ): Promise<Uint8Array | null> {
     const urlsByKey = new Map((listedSources ?? []).map((s) => [s.blob_key, s.url]))
     const urls = sources.map((s) => urlsByKey.get(s.blob_key))
-    if (!token || urls.some((url) => !url)) {
+    // A second 401 after a fresh token means the token can never work here, so stop paying for a failed batch.
+    if (!token || direct.unauthorizedCount > 1 || urls.some((url) => !url)) {
         return null
     }
     try {
         return await api.recordings.getBlocksDirectly(urls as string[], token)
     } catch (e) {
-        if (e instanceof RecordingDeletedError) {
+        // The snapshots endpoint reads the same blocks, so falling back would get round the rate limit.
+        if (e instanceof RecordingDeletedError || (e instanceof ApiError && e.status === 429)) {
             throw e
         }
         if (e instanceof ApiError && e.status === 401) {
+            direct.unauthorizedCount += 1
             // Listing the sources again gets a new token for the next batch.
             onTokenExpired()
         }
@@ -280,6 +283,7 @@ async function loadBlocksDirectly(
     }
 }
 
+// Reactivity note (#53893): `cache.store` (SnapshotStore) lives outside Kea, so any listener that mutates it (markFetched, setSources) MUST dispatch `storeUpdated()` afterwards, and any selector reading it MUST depend on `storeVersion`.
 export const snapshotDataLogic = kea<snapshotDataLogicType>([
     path((key) => ['scenes', 'session-recordings', 'snapshotLogic', key]),
     props({} as SnapshotLogicProps),
@@ -458,8 +462,12 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                     }
 
                     const response =
-                        (await loadBlocksDirectly(sources, values.snapshotSources, values.blockToken, () =>
-                            actions.loadSnapshotSources()
+                        (await loadBlocksDirectly(
+                            sources,
+                            values.snapshotSources,
+                            values.blockToken,
+                            (cache.directBlocks ??= { unauthorizedCount: 0 }),
+                            () => actions.loadSnapshotSources()
                         )) ??
                         (await api.recordings.getSnapshots(
                             props.sessionRecordingId,

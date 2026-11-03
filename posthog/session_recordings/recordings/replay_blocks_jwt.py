@@ -2,6 +2,8 @@ import time
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
+import posthoganalytics
+
 from posthog.dataclasses import frozen
 from posthog.jwt import PosthogJwtAudience
 from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
@@ -15,6 +17,20 @@ REPLAY_BLOCKS_JWT_PURPOSE = ScopedServiceJwtPurpose(
     settings_name="RECORDING_API_BLOCKS_JWT_SECRET",
     default_ttl=REPLAY_BLOCKS_TOKEN_TTL,
 )
+
+REPLAY_DIRECT_BLOCKS_FLAG = "replay-direct-blocks"
+
+
+def is_direct_blocks_enabled(team_id: int) -> bool:
+    """Gate for giving the player block urls. The player polls the listing for a live recording, so the check sends
+    no flag-called event."""
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(REPLAY_DIRECT_BLOCKS_FLAG, str(team_id), send_feature_flag_events=False)
+        )
+    except Exception:
+        return False
+
 
 # recording-api gives the browser tier a budget per viewer and the API tiers one budget per team.
 ReplayBlocksTier = Literal["browser", "free", "paid", "enterprise"]
@@ -36,7 +52,6 @@ def mint_replay_blocks_token(
     now = int(time.time())
     token = REPLAY_BLOCKS_JWT_PURPOSE.mint(
         # recording-api checks the token's age against iat, which encode_jwt does not set.
-        {"team_id": team_id, "session_id": session_id, "sub": viewer, "tier": tier, "iat": now},
-        ttl=REPLAY_BLOCKS_TOKEN_TTL,
+        {"team_id": team_id, "session_id": session_id, "sub": viewer, "tier": tier, "iat": now}
     )
     return ReplayBlocksToken(token=token, expires_at=datetime.fromtimestamp(now, tz=UTC) + REPLAY_BLOCKS_TOKEN_TTL)

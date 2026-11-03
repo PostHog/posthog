@@ -110,7 +110,11 @@ from posthog.session_recordings.queries.session_replay_events import (
 )
 from posthog.session_recordings.recordings.errors import BlockFetchError, RecordingDeletedError
 from posthog.session_recordings.recordings.recording_api_client import RecordingApiClient, recording_api_client
-from posthog.session_recordings.recordings.replay_blocks_jwt import ReplayBlocksToken, mint_replay_blocks_token
+from posthog.session_recordings.recordings.replay_blocks_jwt import (
+    ReplayBlocksToken,
+    is_direct_blocks_enabled,
+    mint_replay_blocks_token,
+)
 from posthog.session_recordings.recordings.replay_proxy_jwt import mint_replay_proxy_token
 from posthog.session_recordings.session_recording_v2_service import list_blocks, list_blocks_async
 from posthog.session_recordings.utils import (
@@ -229,13 +233,12 @@ def _replay_proxy_token_for_player(request, team_id: int) -> str | None:
     return mint_replay_proxy_token(team_id)
 
 
-REPLAY_DIRECT_BLOCKS_FLAG = "replay-direct-blocks"
-
-
 def _replay_blocks_viewer(request) -> str | None:
     """Who the player is watching as, for the block URLs and the per-viewer rate limit. None for any caller that is
     not the player, which keeps reading blocks through Django."""
     authenticator = getattr(request, "successful_authenticator", None)
+    if not isinstance(authenticator, _PLAYER_AUTHENTICATION_CLASSES):
+        return None
     if isinstance(authenticator, SessionAuthentication) and isinstance(request.user, User):
         return f"u{request.user.pk}"
     if isinstance(authenticator, SharingAccessTokenAuthentication | SharingPasswordProtectedAuthentication):
@@ -245,18 +248,22 @@ def _replay_blocks_viewer(request) -> str | None:
     return None
 
 
-def _replay_blocks_token_for_player(request, team: Team, session_id: str) -> tuple[str, ReplayBlocksToken] | None:
+@frozen
+class ReplayBlocksAccess:
+    path_prefix: str
+    token: ReplayBlocksToken
+
+
+def _replay_blocks_access_for_player(request, team_id: int, session_id: str) -> ReplayBlocksAccess | None:
     viewer = _replay_blocks_viewer(request)
-    if viewer is None:
+    if viewer is None or not is_direct_blocks_enabled(team_id):
         return None
-    try:
-        enabled = posthoganalytics.feature_enabled(REPLAY_DIRECT_BLOCKS_FLAG, str(team.pk))
-    except Exception:
-        enabled = False
-    if not enabled:
+    token = mint_replay_blocks_token(team_id, session_id, viewer, "browser")
+    if token is None:
         return None
-    token = mint_replay_blocks_token(team.pk, session_id, viewer, "browser")
-    return (viewer, token) if token else None
+    return ReplayBlocksAccess(
+        path_prefix=f"/replay-blocks/{team_id}/{quote(session_id, safe='')}/{viewer}/", token=token
+    )
 
 
 # Type alias to avoid shadowing by SessionRecordingViewSet.list method
@@ -1795,14 +1802,9 @@ class SessionRecordingViewSet(
                 blocks = list_blocks(recording, use_cache=False)
 
             # Only encrypted recordings get refs, so a recording from before encryption has no urls.
-            direct = (
-                _replay_blocks_token_for_player(self.request, self.team, str(recording.session_id))
+            access = (
+                _replay_blocks_access_for_player(self.request, self.team_id, str(recording.session_id))
                 if any(block.ref for block in blocks)
-                else None
-            )
-            block_path_prefix = (
-                f"/replay-blocks/{self.team_id}/{quote(str(recording.session_id), safe='')}/{direct[0]}/"
-                if direct
                 else None
             )
 
@@ -1813,8 +1815,8 @@ class SessionRecordingViewSet(
                     "end_timestamp": block.end_timestamp,
                     "blob_key": str(i),
                 }
-                if block_path_prefix and block.ref:
-                    source["url"] = self.request.build_absolute_uri(block_path_prefix + block.ref)
+                if access and block.ref:
+                    source["url"] = self.request.build_absolute_uri(access.path_prefix + block.ref)
                 sources.append(source)
 
             with timer("serialize_data__gather_session_recording_sources"):
@@ -1822,8 +1824,8 @@ class SessionRecordingViewSet(
                     {
                         "sources": sorted(sources, key=lambda x: x.get("start_timestamp", -1)),
                         "replay_proxy_token": _replay_proxy_token_for_player(self.request, self.team_id),
-                        "block_token": direct[1].token if direct else None,
-                        "block_token_expires_at": direct[1].expires_at if direct else None,
+                        "block_token": access.token.token if access else None,
+                        "block_token_expires_at": access.token.expires_at if access else None,
                     }
                 )
 

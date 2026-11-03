@@ -185,8 +185,20 @@ describe('snapshotDataLogic', () => {
                 true,
                 'loadSnapshotsForSourceSuccess',
             ],
+            [
+                'falls back when the block route answers with the app shell',
+                'html',
+                true,
+                'loadSnapshotsForSourceSuccess',
+            ],
             ['shows the recording as deleted on a 410', 410, false, 'loadSnapshotsForSourceFailure'],
-        ])('%s', async (_, blockStatus, expectsSnapshotsEndpoint, expectedAction) => {
+            [
+                'reports a rate limit instead of reading through the snapshots endpoint',
+                429,
+                false,
+                'loadSnapshotsForSourceFailure',
+            ],
+        ] as const)('%s', async (_, blockStatus, expectsSnapshotsEndpoint, expectedAction) => {
             let snapshotsEndpointBlockReads = 0
             overrideSessionRecordingMocks({
                 getMocks: {
@@ -199,8 +211,14 @@ describe('snapshotDataLogic', () => {
                     },
                     [BLOCK_PATH]: () =>
                         blockStatus === 200
-                            ? new HttpResponse(snapshotsAsJSONLines())
-                            : [blockStatus, { error: 'recording_deleted', deleted_at: 1700000000 }],
+                            ? new HttpResponse(snapshotsAsJSONLines(), {
+                                  headers: { 'Content-Type': 'application/octet-stream' },
+                              })
+                            : blockStatus === 'html'
+                              ? new HttpResponse('<!doctype html><html></html>', {
+                                    headers: { 'Content-Type': 'text/html' },
+                                })
+                              : [blockStatus, { error: 'recording_deleted', deleted_at: 1700000000 }],
                 },
             })
             await expectLogic(logic, () => logic.actions.loadSnapshotSources()).toDispatchActions([
