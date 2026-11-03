@@ -3,7 +3,6 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from uuid import UUID
 
-from django.core.cache import cache
 from django.db import transaction
 
 import structlog
@@ -302,11 +301,6 @@ def _save_slack_reply_once(
     return comment
 
 
-# How long a linked channel's "internal" verdict is trusted before Slack is asked again. Short, because
-# a channel that turns into a Slack Connect channel must stop receiving internal replies soon after.
-LINKED_CHANNEL_CHECK_CACHE_SECONDS = 600
-
-
 def _is_linked_root(root_id: UUID | str) -> bool:
     """Whether a discussion was linked from an existing Slack thread, rather than sent to Slack.
 
@@ -332,13 +326,10 @@ def _linked_thread_post_refusal(
         slack_thread_ts=mirror.slack_thread_ts,
     ):
         return "support_ticket"
-    cache_key = f"comment_slack_thread:internal_channel:{mirror.slack_team_id}:{mirror.slack_channel_id}"
-    internal = cache.get(cache_key)
-    if internal is None:
-        channel = slack.client.conversations_info(channel=mirror.slack_channel_id)["channel"]
-        internal = is_internal_channel(channel)
-        cache.set(cache_key, internal, LINKED_CHANNEL_CHECK_CACHE_SECONDS)
-    return None if internal else "channel_not_internal"
+    # Asked fresh for every reply: a cached "internal" would let replies through for as long as it lived
+    # after the channel was shared. Replies are written by people, so the extra call is cheap.
+    channel = slack.client.conversations_info(channel=mirror.slack_channel_id)["channel"]
+    return None if is_internal_channel(channel) else "channel_not_internal"
 
 
 # Retry budget must outlast a slow root post in send_to_slack (up to two 10s Slack calls),
@@ -569,6 +560,9 @@ LINKED_THREAD_IMPORT_MESSAGE_LIMIT = 1000
 LINKED_THREAD_IMPORT_SOURCE = "discussion_slack_import"
 # Slack's Retry-After is honoured in full, up to this, so a long cooldown doesn't use up the retries.
 LINKED_THREAD_IMPORT_MAX_COOLDOWN_SECONDS = 900
+# How long one page may spend looking up its authors. Each lookup has its own timeout, so a page of many
+# new authors during a Slack outage would otherwise hold a worker for a very long time.
+LINKED_THREAD_AUTHOR_LOOKUP_BUDGET_SECONDS = 120
 
 # Stamped by the server on a linked thread's root comment. The import state tells API readers whether
 # the thread's history is complete ("pending", "done", "truncated" or "failed"). The notice ts keeps
@@ -653,6 +647,7 @@ def _import_history_page(
         )
     )
     authors: dict[str, tuple[User | None, dict[str, Any]]] = {}
+    lookup_deadline = time.monotonic() + LINKED_THREAD_AUTHOR_LOOKUP_BUDGET_SECONDS
     imported = 0
     for message in messages:
         message_ts = str(message.get("ts") or "")
@@ -671,7 +666,11 @@ def _import_history_page(
         content, rich_content = converted
         slack_user_id = str(message["user"])
         if slack_user_id not in authors:
-            user_info = resolve_slack_user(client, slack_user_id, workspace=workspace_id)
+            if time.monotonic() < lookup_deadline:
+                user_info = resolve_slack_user(client, slack_user_id, workspace=workspace_id)
+            else:
+                # Out of time: retry the page later, or on the last attempt save the rest as "Unknown".
+                user_info = {"name": "Unknown", "email": None, "avatar": None, "team_id": None}
             if slack_profile_unresolved(user_info) and not allow_unresolved:
                 raise UnresolvedSlackAuthor(slack_user_id)
             authors[slack_user_id] = slack_author_fields(user_info, workspace_id=workspace_id, team=team)
@@ -808,7 +807,12 @@ def import_linked_slack_thread(
             return
     else:
         state = "truncated" if next_cursor else "done"
-        _stamp_root(mirror, {SLACK_IMPORT_STATE_KEY: state})
+        try:
+            _stamp_root(mirror, {SLACK_IMPORT_STATE_KEY: state})
+        except Exception as exc:
+            # Left unwritten, the root would say "pending" for good. Re-running the page is safe.
+            _retry_or_fail_import(self, mirror, exc, final_attempt=final_attempt)
+            return
         log = logger.warning if state == "truncated" else logger.info
         log("linked_slack_thread_imported", comment_slack_thread_id=comment_slack_thread_id, seen=seen, state=state)
     logger.info("linked_slack_thread_page_imported", comment_slack_thread_id=comment_slack_thread_id, imported=imported)

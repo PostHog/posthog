@@ -605,12 +605,6 @@ class CommentSerializer(serializers.ModelSerializer):
             data["item_context"] = {
                 k: v for k, v in data["item_context"].items() if k not in RESERVED_ITEM_CONTEXT_KEYS
             }
-        # The server sets these keys, and the Slack sync reads them (a linked thread's outbound checks
-        # key off from_slack), so replacing item_context on an edit must not drop them.
-        if instance and "item_context" in data and isinstance(instance.item_context, dict):
-            kept = {k: v for k, v in instance.item_context.items() if k in RESERVED_ITEM_CONTEXT_KEYS}
-            if kept:
-                data["item_context"] = {**(data["item_context"] or {}), **kept}
 
         if not instance:
             data["created_by"] = request.user
@@ -692,6 +686,13 @@ class CommentSerializer(serializers.ModelSerializer):
                 raise exceptions.PermissionDenied("You can only modify your own comments")
 
             updated_instance = locked_instance
+            # The server sets these keys, and the Slack sync reads them (a linked thread's outbound checks
+            # key off from_slack), so replacing item_context on an edit must not drop them. Read from the
+            # locked row, so an import that finished while this request ran isn't rolled back.
+            if "item_context" in validated_data and isinstance(locked_instance.item_context, dict):
+                kept = {k: v for k, v in locked_instance.item_context.items() if k in RESERVED_ITEM_CONTEXT_KEYS}
+                if kept:
+                    validated_data["item_context"] = {**(validated_data["item_context"] or {}), **kept}
             if validated_data.keys():
                 if validated_data.get("content"):
                     validated_data["version"] = locked_instance.version + 1

@@ -1094,6 +1094,33 @@ class TestLinkSlackThread(APIBaseTest):
     @patch("posthog.api.comments.resolve_slack_user")
     @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.comments.SlackIntegration")
+    def test_an_edit_racing_the_import_keeps_its_final_state(self, mock_slack, _flag, mock_profile, _import):
+        # The import finishes after the edit loaded the comment but before it saved. Keys copied from that
+        # earlier read would put "pending" back for good.
+        mock_profile.return_value = self.slack_profile
+        self._mock_slack(mock_slack, _thread_page(ROOT_MESSAGE))
+        root_id = self._link().json()["id"]
+
+        def import_finishes(**kwargs):
+            Comment.objects.filter(id=root_id).update(
+                item_context={**(Comment.objects.get(id=root_id).item_context or {}), "slack_import_state": "done"}
+            )
+            return kwargs["mentioned_user_ids"]
+
+        with patch("posthog.api.comments._mentions_allowed_for_comment_target", side_effect=import_finishes):
+            res = self.client.patch(
+                f"/api/projects/{self.team.id}/comments/{root_id}/",
+                {"content": "edited", "item_context": {}},
+                format="json",
+            )
+
+        assert res.status_code == status.HTTP_200_OK, res.json()
+        assert (Comment.objects.get(id=root_id).item_context or {})["slack_import_state"] == "done"
+
+    @patch("posthog.tasks.comment_slack_sync.import_linked_slack_thread.delay")
+    @patch("posthog.api.comments.resolve_slack_user")
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.comments.SlackIntegration")
     def test_unlinking_needs_the_same_slack_membership_as_linking(self, mock_slack, _flag, mock_profile, _import):
         mock_profile.return_value = self.slack_profile
         client = self._mock_slack(mock_slack, _thread_page(ROOT_MESSAGE))
@@ -1204,10 +1231,10 @@ class TestLinkSlackThread(APIBaseTest):
         assert res.status_code == status.HTTP_403_FORBIDDEN
         mock_slack.return_value.client.conversations_replies.assert_not_called()
 
-    @patch("posthog.api.comments.time.monotonic", side_effect=[0, 100])
+    @patch("posthog.api.comments.SLACK_CHANNEL_MEMBER_SCAN_SECONDS", -1)
     @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.comments.SlackIntegration")
-    def test_gives_up_on_a_slow_private_channel_member_list(self, mock_slack, _flag, _clock):
+    def test_gives_up_on_a_slow_private_channel_member_list(self, mock_slack, _flag):
         # Each page has its own timeout, so without a limit on the scan a big channel holds the worker.
         Integration.objects.filter(id=self.integration.id).update(created_by=self.user)
         client = self._mock_slack(mock_slack, _thread_page(ROOT_MESSAGE))
@@ -1399,6 +1426,39 @@ class TestImportLinkedSlackThread(APIBaseTest):
 
         assert raised.exception.when == wait
 
+    @patch("posthog.tasks.comment_slack_sync._stamp_root", side_effect=ConnectionError("database went away"))
+    @patch("posthog.tasks.comment_slack_sync.resolve_slack_user")
+    @patch("posthog.tasks.comment_slack_sync.SlackIntegration")
+    def test_a_final_state_that_cannot_be_written_retries_the_page(self, mock_slack, mock_profile, _stamp):
+        # Unwritten, the root would say "pending" for good; the page is safe to run again.
+        mock_profile.return_value = {"name": "Grace", "email": None, "avatar": None, "team_id": "T999"}
+        mock_slack.return_value.client.conversations_replies.return_value = _thread_page(ROOT_MESSAGE)
+
+        with self.assertRaises(Retry):
+            import_linked_slack_thread.apply(args=(str(self.mirror.id),), kwargs={"cursor": "page"})
+
+    # Each lookup has its own timeout, so a page of new authors in a Slack outage needs a limit overall.
+    @parameterized.expand([("retries_while_attempts_remain", False), ("saves_as_unknown_on_the_last_attempt", True)])
+    @patch("posthog.tasks.comment_slack_sync.LINKED_THREAD_AUTHOR_LOOKUP_BUDGET_SECONDS", -1)
+    @patch("posthog.tasks.comment_slack_sync.resolve_slack_user")
+    @patch("posthog.tasks.comment_slack_sync.SlackIntegration")
+    def test_stops_looking_up_authors_when_the_page_runs_out_of_time(
+        self, _name, last_attempt, mock_slack, mock_profile
+    ):
+        mock_slack.return_value.client.conversations_replies.return_value = _thread_page(
+            ROOT_MESSAGE, {"ts": "1767225700.000001", "user": "U2", "text": "Yup"}
+        )
+        retries = import_linked_slack_thread.max_retries if last_attempt else 0
+
+        if last_attempt:
+            import_linked_slack_thread.apply(args=(str(self.mirror.id),), kwargs={"cursor": "page"}, retries=retries)
+            saved = Comment.objects.get(source_comment=self.root)
+            assert (saved.item_context or {})["slack_author_name"] == "Unknown"
+        else:
+            with self.assertRaises(Retry):
+                import_linked_slack_thread.apply(args=(str(self.mirror.id),), kwargs={"cursor": "page"})
+        mock_profile.assert_not_called()
+
     def test_a_page_a_lost_worker_was_on_runs_again(self):
         # Acknowledged early, the page would be dropped with the worker and the root left at "pending".
         assert import_linked_slack_thread.acks_late is True
@@ -1547,6 +1607,28 @@ class TestLinkedThreadOutboundGuard(APIBaseTest):
         mirror_comment_reply_to_slack(str(reply.id))
 
         assert client.chat_postMessage.called == posts
+
+    @patch("posthog.tasks.comment_slack_sync.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.tasks.comment_slack_sync.SlackIntegration")
+    def test_a_channel_shared_after_one_reply_stops_the_next(self, mock_slack, _flag):
+        # The first reply found the channel internal. A remembered answer would let the next one through.
+        client = mock_slack.return_value.client
+        client.conversations_info.return_value = {"channel": {"id": CHANNEL, "is_channel": True}}
+        client.chat_postMessage.return_value = {"ts": "1767226000.000001"}
+        first = self._reply_on(linked=True)
+        mirror_comment_reply_to_slack(str(first.id))
+        assert client.chat_postMessage.call_count == 1
+
+        client.conversations_info.return_value = {
+            "channel": {"id": CHANNEL, "is_channel": True, "is_ext_shared": True, "is_shared": True}
+        }
+        with patch("posthog.tasks.comment_slack_sync.mirror_comment_reply_to_slack.delay"):
+            second = Comment.objects.create(
+                team=self.team, scope="Insight", item_id="42", source_comment_id=first.source_comment_id, content="hm"
+            )
+        mirror_comment_reply_to_slack(str(second.id))
+
+        assert client.chat_postMessage.call_count == 1
 
 
 class TestIngestSlackDiscussionReply(APIBaseTest):
