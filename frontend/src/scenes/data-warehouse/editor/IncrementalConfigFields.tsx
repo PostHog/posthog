@@ -21,9 +21,9 @@ export const LOOKBACK_OPTIONS = [
     { value: 60 * 60 * 24 * 7, label: '7 days' },
 ]
 
-type RefreshMode = 'full_refresh' | 'incremental'
+export type RefreshMode = 'full_refresh' | 'incremental'
 
-const REFRESH_MODE_OPTIONS: LemonRadioOption<RefreshMode>[] = [
+export const REFRESH_MODE_OPTIONS: LemonRadioOption<RefreshMode>[] = [
     {
         value: 'full_refresh',
         label: 'Full refresh',
@@ -36,13 +36,14 @@ const REFRESH_MODE_OPTIONS: LemonRadioOption<RefreshMode>[] = [
     },
 ]
 
-const INCREMENTAL_KEY_LABEL = 'Incremental column'
-const INCREMENTAL_KEY_HELP =
+export const INCREMENTAL_KEY_LABEL = 'Incremental column'
+export const INCREMENTAL_KEY_HELP =
     "The column that tracks which rows are new: its value grows as rows arrive, like a timestamp or a sequential ID. Each run reads only rows at or after the last run's highest value."
-const UNIQUE_KEY_LABEL = 'Unique key'
-const UNIQUE_KEY_HELP =
+export const UNIQUE_KEY_LABEL = 'Unique key'
+export const UNIQUE_KEY_HELP =
     'The columns that together identify a row, like a primary key. Rows that match on them are updated in place. Include every column the query groups by. Values here can never be empty.'
-const LOOKBACK_HELP = 'Include this much previously processed data in each run to catch late arrivals and updates.'
+export const LOOKBACK_HELP =
+    'Include this much previously processed data in each run to catch late arrivals and updates.'
 
 interface IncrementalConfigFieldsProps {
     queries: string[]
@@ -148,6 +149,12 @@ function IncrementalKeyInput({
     )
 }
 
+export function uniqueKeyCandidates(check: DataWarehouseSavedQueryIncrementalCheck): string[] {
+    // Wider than key_candidates: identifying a row only needs equality, so strings qualify here
+    // even though they cannot track new rows.
+    return check.unique_key_candidates ?? check.key_candidates
+}
+
 function UniqueKeyInput({
     check,
     value,
@@ -159,9 +166,7 @@ function UniqueKeyInput({
     onChange: (value: string[]) => void
     dataAttr: string
 }): JSX.Element {
-    // Wider than key_candidates: identifying a row only needs equality, so strings qualify here
-    // even though they cannot track new rows.
-    const candidates = check.unique_key_candidates ?? check.key_candidates
+    const candidates = uniqueKeyCandidates(check)
     return (
         <LemonInputSelect
             mode="multiple"

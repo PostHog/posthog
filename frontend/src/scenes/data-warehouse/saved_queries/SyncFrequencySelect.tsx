@@ -36,6 +36,9 @@ const CADENCE_SEGMENTS: Record<DataModelingSyncInterval, string> = {
     '30day': '30d',
 }
 
+export const SYNC_FREQUENCY_HELP =
+    'How often this model refreshes. It cannot refresh more often than its upstream sources sync, or less often than downstream models and endpoints need it. Hover over an unavailable frequency to see what limits it.'
+
 const ORDERED_CADENCES = Object.keys(CADENCE_LABELS) as DataModelingSyncInterval[]
 
 /**
@@ -107,7 +110,7 @@ export function SyncFrequencySelect({
 
     return (
         <div className="flex flex-col gap-1 items-start" data-attr={dataAttr}>
-            <LemonLabel info="How often this model refreshes. It cannot refresh more often than its upstream sources sync, or less often than downstream models and endpoints need it. Hover over an unavailable frequency to see what limits it.">
+            <LemonLabel info={SYNC_FREQUENCY_HELP}>
                 Refresh every
                 {loading && (
                     <span className="inline-flex items-center gap-1 text-secondary font-normal" role="status">
