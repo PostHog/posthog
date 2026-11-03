@@ -21,6 +21,7 @@ import type { SettingId, SettingLevelId, SettingSectionId } from '~/scenes/setti
 import { ActivityTab } from '~/types'
 
 import { SearchItem, fileSystemEntryToSearchItem } from './searchItems'
+import { settingsContextText, settingsLevelName } from './settingsContext'
 import { SEARCH_TAB_CATEGORY } from './utils'
 
 /** Max starred shortcuts shown in quick search (folders excluded). */
@@ -364,8 +365,6 @@ const LEVEL_SEARCH_KEYWORDS: Partial<Record<SettingsSectionSummary['level'], str
 
 const sentenceCaseId = (id: string): string => toSentenceCase(id.replace(/-/g, ' '))
 
-const levelSettingsName = (level: SettingsSectionSummary['level']): string => `${toSentenceCase(level)} settings`
-
 const settingsItem = (
     id: string,
     name: string,
@@ -394,9 +393,9 @@ const settingTerms = (setting: SettingSummary): string[] => [
 ]
 
 const sectionSearchItems = (section: SettingsSectionSummary, billingEntryUrl: string | null): SearchItem[] => {
-    const levelName = levelSettingsName(section.level)
+    const levelName = settingsLevelName(section.level)
     const title = section.titleString ?? sentenceCaseId(section.id)
-    const context = `${levelName} ${title}`
+    const context = settingsContextText(section.level, title)
     const ownsSettings = !section.to
     const isOwnItem = (setting: SettingSummary): boolean =>
         ownsSettings && !!setting.titleString && setting.titleString.toLowerCase() !== title.toLowerCase()
@@ -451,7 +450,7 @@ export const settingsSearchItems = (
         ...levels.map((level) =>
             settingsItem(
                 `settings-level-${level}`,
-                levelSettingsName(level),
+                settingsLevelName(level),
                 urls.settings(level),
                 { level },
                 { searchKeywords: LEVEL_SEARCH_KEYWORDS[level] }

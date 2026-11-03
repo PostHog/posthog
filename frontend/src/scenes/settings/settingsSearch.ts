@@ -1,6 +1,7 @@
 import FuseClass from 'fuse.js'
 import { type ReactNode, isValidElement } from 'react'
 
+import { settingsContextText } from 'lib/components/Search/settingsContext'
 import { createFuse } from 'lib/utils/fuseSearch'
 
 import { Setting, SettingId, SettingLevelId, SettingSection, SettingSectionId } from './types'
@@ -16,6 +17,7 @@ export interface SearchIndexEntry {
     sectionId: SettingSectionId
     sectionTitle: string
     level: SettingLevelId
+    context: string
     keywords: string
     sectionKeywords: string
     description: string
@@ -74,6 +76,7 @@ export function buildSettingsSearchIndex(
             sectionId: section.id,
             sectionTitle,
             level: section.level,
+            context: settingsContextText(section.level, sectionTitle),
             sectionKeywords: keywordText(section.keywords),
         }
 
@@ -115,6 +118,7 @@ export function createSettingsSearchFuse(entries: SearchIndexEntry[]): GlobalSea
             { name: 'keywords', weight: 1.5 },
             { name: 'sectionTitle', weight: 1 },
             { name: 'sectionKeywords', weight: 0.75 },
+            { name: 'context', weight: 0.75 },
             { name: 'description', weight: 0.5 },
             { name: 'settingId', weight: 0.5 },
         ],

@@ -121,9 +121,10 @@ function tierBoostFor(item: SearchItem, groupKey: string, query: string): number
 }
 
 function candidateFor(item: SearchItem, groupKey: string, query: string): RankCandidate {
+    const productTab = groupKey === 'products' && !!item.parentName
     const common = {
         name: displayName(item),
-        typePrior: typePriorFor(groupKey, query),
+        typePrior: typePriorFor(productTab ? 'tabs' : groupKey, query),
         identity: item.identityFields,
     }
     if (item.category !== 'results') {
@@ -132,7 +133,7 @@ function candidateFor(item: SearchItem, groupKey: string, query: string): RankCa
             aliases: item.searchKeywords,
             context: item.parentName ? [item.parentName] : [],
             indirect: !!item.parentName,
-            tierBoost: tierBoostFor(item, groupKey, query),
+            tierBoost: productTab ? 0 : tierBoostFor(item, groupKey, query),
             matchesQuery: IDENTITY_GROUPS.includes(groupKey),
         }
     }
@@ -154,7 +155,10 @@ function rankUnified(items: SearchItem[], query: string, groupKey: (item: Search
         }
         return [
             {
-                item: ranked.matchedAlias ? { ...item, matchedSearchKeyword: ranked.matchedAlias } : item,
+                item:
+                    ranked.matchedAlias && !item.hideMatchedKeyword
+                        ? { ...item, matchedSearchKeyword: ranked.matchedAlias }
+                        : item,
                 rank: ranked.rank,
                 groupKey: key,
             },

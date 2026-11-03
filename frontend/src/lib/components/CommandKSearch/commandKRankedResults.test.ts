@@ -232,6 +232,21 @@ describe('buildRankedResults', () => {
             ],
         },
         {
+            name: 'with unified ranking, the app Settings row ranks above a product tab with the same name',
+            query: 'settings',
+            results: [],
+            products: [
+                {
+                    ...product('Workflows Settings'),
+                    displayName: 'Settings',
+                    parentName: 'Workflows',
+                },
+            ],
+            settings: [{ id: 'settings', name: 'Settings', category: 'settings' }],
+            unifiedRanking: true,
+            expected: ['Results: Settings, Workflows Settings'],
+        },
+        {
             name: 'with unified ranking, an account that matches only inside a word ranks below a name match',
             query: 'stripe',
             results: [result('1', 'Stripe revenue', 'insight', [-1, 0, 0, 0, -1, 0, 1, 0, -1])],

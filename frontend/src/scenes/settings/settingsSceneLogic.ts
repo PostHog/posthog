@@ -2,12 +2,14 @@ import { MakeLogicType, connect, kea, listeners, path, selectors } from 'kea'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { Scene } from 'scenes/sceneTypes'
 import type { Params } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { ActivityScope, Breadcrumb } from '~/types'
 
 import { settingsLogic } from './settingsLogic'
@@ -171,6 +173,18 @@ export type settingsSceneLogicType = MakeLogicType<
     settingsSceneLogicMeta
 >
 
+const openTodaySettingsSidebar = (): void => {
+    const shell = todayShellLogic.findMounted()
+    if (!shell?.values.todayRailEnabled || shell.values.sidebarVisible) {
+        return
+    }
+    if (shell.values.mobileLayout) {
+        shell.actions.setMobileSidebarOpen(true)
+    } else {
+        shell.actions.setSidebarOpen(true)
+    }
+}
+
 export const settingsSceneLogic = kea<settingsSceneLogicType>([
     path(['scenes', 'settings', 'settingsSceneLogic']),
     connect(() => ({
@@ -240,8 +254,10 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
                 return
             }
 
-            if (typeof searchParams.search === 'string' && searchParams.search !== values.searchTerm) {
-                actions.setSearchTerm(searchParams.search)
+            const urlSearch = searchParams.search == null ? null : String(searchParams.search)
+            if (urlSearch !== null && urlSearch !== values.searchTerm) {
+                actions.setSearchTerm(urlSearch)
+                queueMicrotask(openTodaySettingsSidebar)
             }
 
             const canonicalSection = canonicalSettingsSection(section)
@@ -307,6 +323,19 @@ export const settingsSceneLogic = kea<settingsSceneLogicType>([
                 urls.settings(values.selectedSectionId ?? values.selectedLevel),
                 router.values.searchParams,
                 { ...router.values.hashParams, setting },
+            ]
+        },
+        setSearchTerm({ searchTerm }) {
+            const pathname = removeProjectIdIfPresent(router.values.location.pathname)
+            if (!pathname.startsWith('/settings/') || String(router.values.searchParams.search ?? '') === searchTerm) {
+                return
+            }
+            const { search: _search, ...searchParams } = router.values.searchParams
+            return [
+                pathname,
+                searchTerm ? { ...searchParams, search: searchTerm } : searchParams,
+                router.values.hashParams,
+                { replace: true },
             ]
         },
     })),

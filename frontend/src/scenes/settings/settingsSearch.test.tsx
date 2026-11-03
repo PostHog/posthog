@@ -92,6 +92,7 @@ describe('settingsSearch', () => {
         ['an action phrased query', 'enable AI', 'organization-ai-consent'],
         ['a synonym on a section that has no settings', 'usage', 'organization-billing'],
         ['a word the index does not carry alongside one it does', 'usage dashboard', 'organization-billing'],
+        ['the level and section context', 'project settings', 'replay-retention'],
     ])('finds a setting by %s', (_description, term, expectedSettingId) => {
         expect(search(term)).toContain(expectedSettingId)
     })
