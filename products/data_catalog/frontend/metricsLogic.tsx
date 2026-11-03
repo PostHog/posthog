@@ -25,12 +25,16 @@ import {
 } from './generated/api'
 import type { DataCatalogMetricApi, DataCatalogMetricBulkSkipApi } from './generated/api.schemas'
 import { openOverwriteMetricDialog } from './openOverwriteMetricDialog'
+import { compareReviewQueue, needsReview } from './reviewQueue'
 
 export type MetricStage = 'proposed' | 'approved' | 'drifted'
 
 export type MetricStatusFilter = 'all' | MetricStage
 
 export type MetricStageCounts = Record<MetricStage, number>
+
+/** 'unknown' until the first load answers, so an empty list is never read as an empty catalog. */
+export type MetricsLoadState = 'unknown' | 'loaded' | 'failed'
 
 export type BulkMetricAction = 'approve' | 'delete' | 'change_owner'
 
@@ -86,13 +90,19 @@ export interface metricsLogicValues {
     actionsInFlight: Record<string, boolean>
     allMetrics: DataCatalogMetricApi[]
     allMetricsLoading: boolean
+    approvedMetrics: DataCatalogMetricApi[]
     bulkActionInFlight: BulkMetricAction | null
     creatingMetricAs: MetricSaveAction | null
     filters: MetricsFilters
     metricFromInsightModalOpen: boolean
     metrics: DataCatalogMetricApi[]
+    metricsLoadState: MetricsLoadState
     ownerFilterOptions: string[]
     proposedCount: number
+    reviewQueue: DataCatalogMetricApi[]
+    showApproved: boolean
+    showReviewQueue: boolean
+    splitTablesLoading: boolean
     stageCounts: MetricStageCounts
 }
 
@@ -192,6 +202,11 @@ export interface metricsLogicActions {
 export interface metricsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         metrics: (allMetrics: DataCatalogMetricApi[], filters: MetricsFilters) => DataCatalogMetricApi[]
+        reviewQueue: (metrics: DataCatalogMetricApi[], user: UserType | null) => DataCatalogMetricApi[]
+        approvedMetrics: (metrics: DataCatalogMetricApi[]) => DataCatalogMetricApi[]
+        splitTablesLoading: (allMetricsLoading: boolean, metricsLoadState: MetricsLoadState) => boolean
+        showReviewQueue: (filters: MetricsFilters, reviewQueue: DataCatalogMetricApi[]) => boolean
+        showApproved: (filters: MetricsFilters) => boolean
         ownerFilterOptions: (allMetrics: DataCatalogMetricApi[]) => string[]
         proposedCount: (allMetrics: DataCatalogMetricApi[]) => number
         stageCounts: (allMetrics: DataCatalogMetricApi[]) => MetricStageCounts
@@ -258,6 +273,13 @@ export const metricsLogic = kea<metricsLogicType>([
         ],
     })),
     reducers({
+        metricsLoadState: [
+            'unknown' as MetricsLoadState,
+            {
+                loadMetricsSuccess: () => 'loaded',
+                loadMetricsFailure: () => 'failed',
+            },
+        ],
         filters: [
             DEFAULT_METRICS_FILTERS as MetricsFilters,
             {
@@ -319,6 +341,32 @@ export const metricsLogic = kea<metricsLogicType>([
                 }
                 return results
             },
+        ],
+        reviewQueue: [
+            (s) => [s.metrics, s.user],
+            (metrics: DataCatalogMetricApi[], user: UserType | null): DataCatalogMetricApi[] =>
+                metrics.filter(needsReview).sort(compareReviewQueue(user)),
+        ],
+        approvedMetrics: [
+            (s) => [s.metrics],
+            (metrics: DataCatalogMetricApi[]): DataCatalogMetricApi[] =>
+                metrics.filter((metric) => !needsReview(metric)),
+        ],
+        // An empty queue is a verdict about loaded data, so stay in the skeleton until the first load answers.
+        splitTablesLoading: [
+            (s) => [s.allMetricsLoading, s.metricsLoadState],
+            (allMetricsLoading: boolean, metricsLoadState: MetricsLoadState): boolean =>
+                allMetricsLoading || metricsLoadState === 'unknown',
+        ],
+        // A drifted approved metric sits in the queue, so the queue stays visible under the Approved stage when it holds one.
+        showReviewQueue: [
+            (s) => [s.filters, s.reviewQueue],
+            (filters: MetricsFilters, reviewQueue: DataCatalogMetricApi[]): boolean =>
+                filters.status !== 'approved' || reviewQueue.length > 0,
+        ],
+        showApproved: [
+            (s) => [s.filters],
+            (filters: MetricsFilters): boolean => filters.status === 'all' || filters.status === 'approved',
         ],
         ownerFilterOptions: [
             (s) => [s.allMetrics],
@@ -427,9 +475,18 @@ export const metricsLogic = kea<metricsLogicType>([
                 )
                 lemonToast.success('Metric refreshed from its source insight')
             } catch (error) {
-                lemonToast.error(
-                    apiErrorDetail(error) || 'Could not refresh the metric from its source insight. Try again.'
-                )
+                if (error instanceof ApiError && error.code === 'source_insight_unavailable') {
+                    lemonToast.error(error.detail || 'The source insight is no longer available.', {
+                        button: {
+                            label: 'Open metric',
+                            action: () => router.actions.push(urls.dataCatalogMetric(name)),
+                        },
+                    })
+                } else {
+                    lemonToast.error(
+                        apiErrorDetail(error) || 'Could not refresh the metric from its source insight. Try again.'
+                    )
+                }
             } finally {
                 actions.setActionInFlight(name, false)
             }
