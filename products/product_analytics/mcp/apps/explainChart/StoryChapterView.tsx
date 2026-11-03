@@ -1,4 +1,4 @@
-import { type ReactElement } from 'react'
+import { type ReactElement, type ReactNode } from 'react'
 
 import { Text } from '@posthog/quill'
 
@@ -11,6 +11,7 @@ import type { StoryPage } from './storyPages'
 export interface StoryChapterViewProps {
     page: StoryPage & { chapter: StoryChapter }
     openLink: (url: string) => void
+    openLinkLabel?: ReactNode
     canShowChart: (item: StoryEvidence) => boolean
     shownEvidenceIndex: number | null
     onToggleChart: (index: number) => void
@@ -19,6 +20,7 @@ export interface StoryChapterViewProps {
 export function StoryChapterView({
     page,
     openLink,
+    openLinkLabel,
     canShowChart,
     shownEvidenceIndex,
     onToggleChart,
@@ -61,6 +63,7 @@ export function StoryChapterView({
             <StoryEvidenceList
                 evidence={chapter.evidence}
                 openLink={openLink}
+                openLinkLabel={openLinkLabel}
                 canShowChart={canShowChart}
                 shownIndex={shownEvidenceIndex}
                 onToggleChart={onToggleChart}
