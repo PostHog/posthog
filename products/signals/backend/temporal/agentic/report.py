@@ -72,6 +72,7 @@ from products.signals.backend.report_lifecycle import report_status_filter
 from products.signals.backend.report_metrics import REPORT_METRIC_GOAL_FIELDS, ReportMetric, metric_batch_error
 from products.signals.backend.report_steering import ReportSteering, load_research_steering
 from products.signals.backend.report_tags import team_tag_vocabulary
+from products.signals.backend.research_skills import ResearchSkillBinding, ResearchSkills
 from products.signals.backend.reviewer_rules import ReviewerProposal, ReviewerRules, StaleReviewerProposal
 from products.signals.backend.source_suggestions import unused_suggestable_products
 from products.signals.backend.startup_failure import (
@@ -119,6 +120,16 @@ class RunAgenticReportInput:
     repo_selection_as_of: datetime | None = None
     signal_id: str | None = None
     github_optional: bool = False
+    research_skill_bindings: list[ResearchSkillBinding] | None = None
+
+
+@temporalio.activity.defn
+@scoped_temporal()
+async def resolve_research_skills_activity(input: RunAgenticReportInput) -> list[ResearchSkillBinding]:
+    def resolve() -> list[ResearchSkillBinding]:
+        return ResearchSkills.load(input.team_id, input.signals).bindings(input.team_id)
+
+    return await database_sync_to_async(resolve, thread_sensitive=False)()
 
 
 @frozen
@@ -1245,6 +1256,9 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
             tag_context = await database_sync_to_async(_load_tag_context, thread_sensitive=False)(
                 input.team_id, input.report_id
             )
+            research_skills = await database_sync_to_async(ResearchSkills.from_bindings, thread_sensitive=False)(
+                input.team_id, input.research_skill_bindings or []
+            )
             # 3. Run the agentic research in the sandbox
             # The report's current PR, when it has one. It keeps the in-flight check from reading
             # the report's own draft as somebody else's work, and it is what the supersede turn asks
@@ -1272,6 +1286,7 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
                 suggestable_products=suggestable_products,
                 current_tags=tag_context.current_tags,
                 team_tags=tag_context.team_tags,
+                research_skills=research_skills,
             )
             # 4. Persist artefacts, avoid partial data from failed runs
             await _persist_agentic_report_artefacts(

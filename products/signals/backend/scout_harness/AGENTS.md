@@ -231,3 +231,7 @@ In production it is driven by `SignalsScoutCoordinatorWorkflow` (periodic tick e
 ### Narrowed scout API writes
 
 `tool_policy.py` checks held tools at the API boundary, including soft-delete payloads on shared PATCH endpoints. Harness and scout run writes must target the token-bound task’s current run; report artefacts are not a harness bypass. `test_scout_tool_policy.py` covers these boundaries and nested skill file paths.
+
+### Shared agent skills
+
+`../agent_skills.py` loads versioned skill definitions for Scout and source-specific Research. Source selection lives in `../research_skills.py`. Research resolves and pins versions before sandbox work, and retains its existing MCP scopes and output contract. Keep default research unchanged when no source selects a skill.

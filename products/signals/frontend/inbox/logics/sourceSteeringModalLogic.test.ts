@@ -83,6 +83,38 @@ describe('sourceSteeringModalLogic', () => {
         expect(onClose).toHaveBeenCalled()
     })
 
+    it.each(['review-defects', ''])(
+        'saves a research skill selection without replacing other settings: %s',
+        async (skill) => {
+            logic.actions.setSourceSteeringValue('researchSkill', skill)
+            await expectLogic(logic, () => logic.actions.submitSourceSteering()).toDispatchActions([
+                'submitSourceSteeringSuccess',
+            ])
+            expect(patchBodies[0]).toEqual({
+                config_set: { steering: 'old rules', research_skill: skill || null },
+                config_remove: ['default_not_actionable'],
+            })
+        }
+    )
+
+    it('preserves different source skills when only guidance changes', async () => {
+        logic.unmount()
+        const rows = ['review-defects', 'review-feedback'].map((skill, index) => ({
+            ...sourceConfig,
+            id: `config-${index}`,
+            config: { research_skill: skill },
+        }))
+        logic = sourceSteeringModalLogic({ sourceConfigs: rows, onClose })
+        logic.mount()
+        expect(logic.values.sourceSteering.researchSkill).toBeNull()
+        logic.actions.setSourceSteeringValue('steering', 'Check the evidence.')
+        await expectLogic(logic, () => logic.actions.submitSourceSteering()).toDispatchActions([
+            'submitSourceSteeringSuccess',
+        ])
+        expect(patchBodies).toHaveLength(2)
+        expect(patchBodies.every((body) => !('research_skill' in body.config_set))).toBe(true)
+    })
+
     it('saves one card of guidance to every row behind it', async () => {
         // Error tracking is one card over three config rows. Writing only the first would leave
         // reopened and spiking issues unfiltered, so the rules would look ignored half the time.

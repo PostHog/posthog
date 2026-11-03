@@ -1,5 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
+import { mswDecorator } from '~/mocks/browser'
+
 import { SignalSourceConfig, SignalSourceProduct, SignalSourceType } from '../../types'
 import { SourceSteeringModal } from './SourceSteeringModal'
 
@@ -27,6 +29,18 @@ function ModalHarness({ config }: HarnessProps): JSX.Element {
 const meta: Meta<typeof ModalHarness> = {
     title: 'Scenes-App/Inbox/SourceSteeringModal',
     component: ModalHarness,
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:team_id/llm_skills/': {
+                    results: [{ name: 'review-defects', description: 'Check reported defects and their impact.' }],
+                    count: 1,
+                    next: null,
+                    previous: null,
+                },
+            },
+        }),
+    ],
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',
@@ -55,4 +69,9 @@ export const RulesSet: Story = {
 /** A source still carrying the retired posture flag, which the gate keeps honoring. */
 export const LegacyPosture: Story = {
     args: { config: { default_not_actionable: true } },
+}
+
+export const ResearchSkillSelected: Story = {
+    args: { config: { research_skill: 'review-defects' } },
+    parameters: { testOptions: { snapshotBrowsers: [] } },
 }

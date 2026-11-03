@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useId } from 'react'
 
-import { LemonBanner, LemonButton, LemonModal, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonCollapse, LemonModal, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
@@ -25,9 +25,17 @@ export function SourceSteeringModal({ sourceConfigs, sourceLabel, onClose }: Sou
     const formId = useId()
     const logicProps: SourceSteeringModalLogicProps = { sourceConfigs, onClose }
     const logic = sourceSteeringModalLogic(logicProps)
-    const { isSourceSteeringSubmitting, sourceSteeringChanged, sourceSteeringValidationErrors, steeringExamples } =
-        useValues(logic)
-    const { setSourceSteeringValue } = useActions(logic)
+    const {
+        isSourceSteeringSubmitting,
+        sourceSteeringChanged,
+        sourceSteeringValidationErrors,
+        steeringExamples,
+        sourceSteering,
+        researchSkills,
+        researchSkillsLoading,
+        researchSkillsFailed,
+    } = useValues(logic)
+    const { setSourceSteeringValue, loadResearchSkills } = useActions(logic)
 
     const handleClose = (): void => {
         if (isSourceSteeringSubmitting) {
@@ -100,6 +108,77 @@ export function SourceSteeringModal({ sourceConfigs, sourceLabel, onClose }: Sou
                             data-attr="signal-source-steering-rules"
                         />
                     </LemonField>
+                    <LemonCollapse
+                        onChange={() => {
+                            if (researchSkills === null && !researchSkillsLoading) {
+                                loadResearchSkills()
+                            }
+                        }}
+                        panels={[
+                            {
+                                key: 'research-skill',
+                                header: sourceSteering.researchSkill
+                                    ? `Research skill: ${sourceSteering.researchSkill}`
+                                    : sourceSteering.researchSkill === null
+                                      ? 'Research skills: multiple selections'
+                                      : 'Research skill: default',
+                                content: (
+                                    <div className="flex flex-col gap-2">
+                                        <p className="m-0 text-secondary">
+                                            Add a project skill to the default research agent. It can use the existing
+                                            MCP tools and shared scratchpad. Permissions stay the same.
+                                        </p>
+                                        {researchSkillsFailed ? (
+                                            <LemonBanner type="error">
+                                                Could not load skills.{' '}
+                                                <LemonButton type="tertiary" size="small" onClick={loadResearchSkills}>
+                                                    Try again
+                                                </LemonButton>
+                                            </LemonBanner>
+                                        ) : (
+                                            <LemonSelect
+                                                fullWidth
+                                                value={sourceSteering.researchSkill ?? ''}
+                                                onChange={(value) => setSourceSteeringValue('researchSkill', value)}
+                                                loading={researchSkillsLoading}
+                                                disabledReason={isSourceSteeringSubmitting ? 'Saving' : undefined}
+                                                options={[
+                                                    { value: '', label: 'Default research (no custom skill)' },
+                                                    ...(sourceSteering.researchSkill &&
+                                                    !researchSkills?.some(
+                                                        (skill) => skill.name === sourceSteering.researchSkill
+                                                    )
+                                                        ? [
+                                                              {
+                                                                  value: sourceSteering.researchSkill,
+                                                                  label: sourceSteering.researchSkill,
+                                                              },
+                                                          ]
+                                                        : []),
+                                                    ...(researchSkills ?? []).map((skill) => ({
+                                                        value: skill.name,
+                                                        label: skill.name,
+                                                        tooltip: skill.description,
+                                                    })),
+                                                ]}
+                                                data-attr="signal-source-research-skill"
+                                            />
+                                        )}
+                                        {sourceSteering.researchSkill === null && (
+                                            <p className="m-0 text-secondary">
+                                                These source types use different skills. Select a skill to change all of
+                                                them.
+                                            </p>
+                                        )}
+                                        <p className="m-0 text-secondary">
+                                            Applies to the next research run. Runs already started keep their selected
+                                            version.
+                                        </p>
+                                    </div>
+                                ),
+                            },
+                        ]}
+                    />
                     <div className="flex flex-col gap-1">
                         <span className="text-xs text-secondary">Need a starting point? Click one to add it.</span>
                         <div className="flex flex-wrap gap-1">

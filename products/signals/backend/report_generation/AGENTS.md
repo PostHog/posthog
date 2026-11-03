@@ -234,3 +234,7 @@ Renders a concise timeline of: prompts, tool calls, tool outputs, agent messages
 - **If you change any command or the flow, update this file to match**
 
 Fix verification may revise only the Expected impact section of the presentation summary; validation preserves all other sections and chart links.
+
+### Shared agent skills
+
+`../agent_skills.py` loads versioned skill definitions for Scout and source-specific Research. Source selection lives in `../research_skills.py`. Research resolves and pins versions before sandbox work, and retains its existing MCP scopes and output contract. Keep default research unchanged when no source selects a skill.

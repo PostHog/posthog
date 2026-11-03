@@ -166,6 +166,8 @@ Defined in `backend/temporal/summary.py`.
 4. **Select repository** → `select_repository_activity` (`temporal/agentic/select_repository.py`) — see Repository Selection below
    - If no repository is selected, the workflow synthesizes a “repository selection required” title/summary and transitions to `pending_input`
 5. **Agentic research** → `run_agentic_report_activity` (`temporal/agentic/report.py`)
+   - Source guidance can select an optional project skill with `config.research_skill`. The workflow resolves source selections once before research and records skill names and versions in activity inputs. Retries use those versions. Signals from different sources keep their own skill instructions; sources without a skill keep default research.
+   - Research and Scout share the `AgentSkill` loader and the existing Tasks `MultiTurnSession` runtime. Research retains its MCP scopes, shared scratchpad, evidence rules, and structured output contract. Skills do not grant permissions.
    - Sandbox-backed multi-turn research over the selected repository plus MCP data
    - Appends `repo_selection`, `signal_finding`, `actionability_judgment`, `priority_judgment`, and `suggested_reviewers` artefacts atomically on success (append-only — on re-research only entries that actually changed are appended)
 6. **Conditional coding-task auto-start** (inside `run_agentic_report_activity`) — see Autonomy & Auto-Start below
