@@ -113,7 +113,7 @@ describe('resolveCredentials', () => {
             settings('https://example.com/posthog/', { 'https://example.com': 'keychain' }),
             { 'https://example.com': login('phx_self') },
             {},
-            { apiKey: 'phx_self', host: 'https://example.com/posthog' },
+            { credential: { token: 'phx_self', host: 'https://example.com/posthog' } },
         ],
         [
             'posthog.json picks the stored login for its host',
