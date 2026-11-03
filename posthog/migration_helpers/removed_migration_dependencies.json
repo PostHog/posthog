@@ -1,16 +1,1324 @@
 {
     "removed": [
         {
+            "file": ["ai_observability", "0045_squash_2026_09_07_schema_addons"],
+            "entry": ["alerts", "0004_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ai_observability", "0045_squash_2026_09_07_schema_addons"],
+            "entry": ["analytics_platform", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ai_observability", "0045_squash_2026_09_07_schema_addons"],
+            "entry": ["annotations", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ai_observability", "0045_squash_2026_09_07_schema_addons"],
+            "entry": ["autoresearch", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ai_observability", "0045_squash_2026_09_07_schema_addons"],
+            "entry": ["batch_exports", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ai_observability", "0045_squash_2026_09_07_schema_addons"],
+            "entry": ["billing_alerts", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ai_observability", "0045_squash_2026_09_07_schema_addons"],
+            "entry": ["business_knowledge", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ai_observability", "0045_squash_2026_09_07_schema_addons"],
+            "entry": ["canvas", "0017_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ai_observability", "0045_squash_2026_09_07_schema_addons"],
+            "entry": ["cdp", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ai_observability", "0045_squash_2026_09_07_schema_addons"],
+            "entry": ["cohorts", "0013_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ai_observability", "0045_squash_2026_09_07_schema_addons"],
+            "entry": ["context_layer", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ai_observability", "0045_squash_2026_09_07_schema_addons"],
+            "entry": ["data_catalog", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ai_observability", "0045_squash_2026_09_07_schema_addons"],
+            "entry": ["data_quality", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ai_observability", "0045_squash_2026_09_07_schema_addons"],
+            "entry": ["data_warehouse", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ai_observability", "0045_squash_2026_09_07_schema_addons"],
+            "entry": ["early_access_features", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ai_observability", "0045_squash_2026_09_07_schema_addons"],
+            "entry": ["endpoints", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ai_observability", "0045_squash_2026_09_07_schema_addons"],
+            "entry": ["error_tracking", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ai_observability", "0045_squash_2026_09_07_schema_addons"],
+            "entry": ["experiments", "0037_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ai_observability", "0045_squash_2026_09_07_schema_addons"],
+            "entry": ["field_notes", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ai_observability", "0045_squash_2026_09_07_schema_addons"],
+            "entry": ["growth", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ai_observability", "0045_squash_2026_09_07_schema_addons"],
+            "entry": ["legal_documents", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ai_observability", "0045_squash_2026_09_07_schema_addons"],
+            "entry": ["links", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ai_observability", "0045_squash_2026_09_07_schema_addons"],
+            "entry": ["live_debugger", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ai_observability", "0045_squash_2026_09_07_schema_addons"],
+            "entry": ["logs", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ai_observability", "0045_squash_2026_09_07_schema_addons"],
+            "entry": ["managed_migrations", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ai_observability", "0045_squash_2026_09_07_schema_addons"],
+            "entry": ["managed_warehouse", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ai_observability", "0045_squash_2026_09_07_schema_addons"],
+            "entry": ["marketing_analytics", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ai_observability", "0045_squash_2026_09_07_schema_addons"],
+            "entry": ["mcp_analytics", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ai_observability", "0045_squash_2026_09_07_schema_addons"],
+            "entry": ["mcp_store", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ai_observability", "0045_squash_2026_09_07_schema_addons"],
+            "entry": ["messaging", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ai_observability", "0045_squash_2026_09_07_schema_addons"],
+            "entry": ["notifications", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ai_observability", "0045_squash_2026_09_07_schema_addons"],
+            "entry": ["posthog_ai", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ai_observability", "0045_squash_2026_09_07_schema_addons"],
+            "entry": ["product_tours", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ai_observability", "0045_squash_2026_09_07_schema_addons"],
+            "entry": ["pulse", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ai_observability", "0045_squash_2026_09_07_schema_addons"],
+            "entry": ["reminders", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ai_observability", "0045_squash_2026_09_07_schema_addons"],
+            "entry": ["replay", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ai_observability", "0045_squash_2026_09_07_schema_addons"],
+            "entry": ["replay_vision", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ai_observability", "0045_squash_2026_09_07_schema_addons"],
+            "entry": ["review_hog", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ai_observability", "0045_squash_2026_09_07_schema_addons"],
+            "entry": ["skills", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ai_observability", "0045_squash_2026_09_07_schema_addons"],
+            "entry": ["slack_app", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ai_observability", "0045_squash_2026_09_07_schema_addons"],
+            "entry": ["surveys", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["alerts", "0009_redact_webhook_urls_in_destination_names"],
+            "entry": ["cdp", "0005_repair_hogfunction_batch_export_id_index"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["approvals", "0001_migrate_approvals_models"],
+            "entry": ["ee", "0050_migrate_replay_models"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["approvals", "0001_squash_2026_09_07_initial"],
+            "entry": ["ee", "0059_scimprovisioneduser_unique_config"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
             "file": ["batch_exports", "0004_migrate_managed_migrations_models"],
             "entry": ["managed_migrations", "0001_migrate_managed_migrations_models"],
             "attribute": "dependencies",
             "cutoff": "2026-09-07"
         },
         {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["access_control", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["actions", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["ai_observability", "0044_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["alerts", "0004_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["analytics_platform", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["annotations", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["autoresearch", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["batch_exports", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["billing_alerts", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["business_knowledge", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["canvas", "0017_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["cdp", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["cohorts", "0013_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["context_layer", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["data_catalog", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["data_quality", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["data_warehouse", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["early_access_features", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["endpoints", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["error_tracking", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["experiments", "0037_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["field_notes", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["growth", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["legal_documents", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["links", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["live_debugger", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["logs", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["managed_migrations", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["managed_warehouse", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["marketing_analytics", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["mcp_analytics", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["mcp_store", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["messaging", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["notifications", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["posthog_ai", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["product_tours", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["pulse", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["reminders", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["replay", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["replay_vision", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["review_hog", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["signals", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["skills", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["slack_app", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["streamlit_apps", "0004_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["surveys", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["tasks", "0121_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["tracing", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["web_analytics", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["wizard", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["conversations", "0066_squash_2026_09_07_schema_addons"],
+            "entry": ["workflows", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["access_control", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["actions", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["ai_observability", "0044_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["alerts", "0004_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["analytics_platform", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["annotations", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["approvals", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["autoresearch", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["batch_exports", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["billing_alerts", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["business_knowledge", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["canvas", "0017_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["cdp", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["cohorts", "0013_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["context_layer", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["conversations", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["data_catalog", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["data_quality", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["data_tools", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["data_warehouse", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["early_access_features", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["ee", "0061_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["endpoints", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["error_tracking", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["experiments", "0037_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["exports", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["feature_flags", "0018_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["field_notes", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["growth", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["legal_documents", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["links", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["live_debugger", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["logs", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["managed_migrations", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["managed_warehouse", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["marketing_analytics", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["mcp_analytics", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["mcp_store", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["messaging", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["notebooks", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["notifications", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["posthog_ai", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["product_tours", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["pulse", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["reminders", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["replay", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["replay_vision", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["review_hog", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["signals", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["skills", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["slack_app", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["streamlit_apps", "0004_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["surveys", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["tasks", "0121_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["tracing", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["user_interviews", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["web_analytics", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["wizard", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["customer_analytics", "0051_squash_2026_09_07_schema_addons"],
+            "entry": ["workflows", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
             "file": ["dashboards", "0006_migrate_product_analytics_models"],
             "entry": ["product_analytics", "0001_migrate_product_analytics_models"],
             "attribute": "dependencies",
             "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["dashboards", "0017_squash_2026_09_07_finalize_fks"],
+            "entry": ["product_analytics", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["access_control", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["actions", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["ai_observability", "0044_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["alerts", "0004_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["analytics_platform", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["annotations", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["approvals", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["autoresearch", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["batch_exports", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["billing_alerts", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["business_knowledge", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["canvas", "0017_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["cdp", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["cohorts", "0013_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["context_layer", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["conversations", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["customer_analytics", "0050_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["data_catalog", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["data_modeling", "0034_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["data_quality", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["data_tools", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["data_warehouse", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["early_access_features", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["ee", "0061_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["endpoints", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["error_tracking", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["experiments", "0037_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["exports", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["feature_flags", "0018_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["field_notes", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["growth", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["legal_documents", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["links", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["live_debugger", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["logs", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["managed_migrations", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["managed_warehouse", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["marketing_analytics", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["mcp_analytics", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["mcp_store", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["messaging", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["notebooks", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["notifications", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["posthog_ai", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["product_analytics", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["product_tours", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["pulse", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["reminders", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["replay", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["replay_vision", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["review_hog", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["signals", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["skills", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["slack_app", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["streamlit_apps", "0004_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["surveys", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["tasks", "0121_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["tracing", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["user_interviews", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["warehouse_sources", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["web_analytics", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["wizard", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["dashboards", "0018_squash_2026_09_07_schema_addons"],
+            "entry": ["workflows", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
         },
         {
             "file": ["data_modeling", "0001_initial"],
@@ -35,6 +1343,384 @@
             "entry": ["data_tools", "0001_migrate_data_tools_models"],
             "attribute": "dependencies",
             "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["data_modeling", "0032_datawarehousesavedquery_dwsavedquery_team_live_name"],
+            "entry": ["data_tools", "0003_datawarehouseexpression"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0034_squash_2026_09_07_finalize_fks"],
+            "entry": ["data_tools", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["access_control", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["actions", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["ai_observability", "0044_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["alerts", "0004_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["analytics_platform", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["annotations", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["approvals", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["autoresearch", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["batch_exports", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["billing_alerts", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["business_knowledge", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["canvas", "0017_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["cdp", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["cohorts", "0013_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["context_layer", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["conversations", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["customer_analytics", "0050_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["data_catalog", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["data_quality", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["data_tools", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["data_warehouse", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["early_access_features", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["ee", "0061_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["endpoints", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["error_tracking", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["experiments", "0037_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["exports", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["feature_flags", "0018_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["field_notes", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["growth", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["legal_documents", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["links", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["live_debugger", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["logs", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["managed_migrations", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["managed_warehouse", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["marketing_analytics", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["mcp_analytics", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["mcp_store", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["messaging", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["notebooks", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["notifications", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["posthog_ai", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["product_tours", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["pulse", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["reminders", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["replay", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["replay_vision", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["review_hog", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["signals", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["skills", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["slack_app", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["streamlit_apps", "0004_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["surveys", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["tasks", "0121_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["tracing", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["user_interviews", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["web_analytics", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["wizard", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0035_squash_2026_09_07_schema_addons"],
+            "entry": ["workflows", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["data_modeling", "0037_alter_datawarehousesavedquery_folder_and_more"],
+            "entry": ["data_tools", "0002_alter_datawarehouseexpression_created_by_and_more"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
         },
         {
             "file": ["data_tools", "0001_migrate_data_tools_models"],
@@ -97,6 +1783,318 @@
             "cutoff": "2026-09-07"
         },
         {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["access_control", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["actions", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["ai_observability", "0044_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["alerts", "0004_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["analytics_platform", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["annotations", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["autoresearch", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["batch_exports", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["billing_alerts", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["business_knowledge", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["canvas", "0017_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["cdp", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["cohorts", "0013_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["context_layer", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["conversations", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["data_catalog", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["data_quality", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["data_warehouse", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["early_access_features", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["endpoints", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["error_tracking", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["experiments", "0037_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["field_notes", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["growth", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["legal_documents", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["links", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["live_debugger", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["logs", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["managed_migrations", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["managed_warehouse", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["marketing_analytics", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["mcp_analytics", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["mcp_store", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["messaging", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["notifications", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["posthog_ai", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["product_tours", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["pulse", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["reminders", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["replay", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["replay_vision", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["review_hog", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["signals", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["skills", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["slack_app", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["streamlit_apps", "0004_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["surveys", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["tasks", "0121_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["tracing", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["web_analytics", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["wizard", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["ee", "0062_squash_2026_09_07_schema_addons"],
+            "entry": ["workflows", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
             "file": ["endpoints", "0003_add_endpoint_materialization"],
             "entry": ["data_warehouse", "0004_add_saved_query_origin"],
             "attribute": "dependencies",
@@ -113,6 +2111,684 @@
             "entry": ["data_warehouse", "0014_mat_view_credential_deletion"],
             "attribute": "dependencies",
             "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["error_tracking", "0033_squash_2026_09_07_schema_addons"],
+            "entry": ["cdp", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["error_tracking", "0033_squash_2026_09_07_schema_addons"],
+            "entry": ["data_quality", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["error_tracking", "0033_squash_2026_09_07_schema_addons"],
+            "entry": ["product_tours", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["error_tracking", "0033_squash_2026_09_07_schema_addons"],
+            "entry": ["pulse", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["access_control", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["actions", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["ai_observability", "0044_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["alerts", "0004_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["analytics_platform", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["annotations", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["autoresearch", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["batch_exports", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["billing_alerts", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["business_knowledge", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["canvas", "0017_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["cdp", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["cohorts", "0013_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["context_layer", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["conversations", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["data_catalog", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["data_quality", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["data_warehouse", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["early_access_features", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["ee", "0061_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["endpoints", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["error_tracking", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["experiments", "0037_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["field_notes", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["growth", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["legal_documents", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["links", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["live_debugger", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["logs", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["managed_migrations", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["managed_warehouse", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["marketing_analytics", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["mcp_analytics", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["mcp_store", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["messaging", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["notifications", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["posthog_ai", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["product_tours", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["pulse", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["reminders", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["replay", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["replay_vision", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["review_hog", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["signals", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["skills", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["slack_app", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["streamlit_apps", "0004_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["surveys", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["tasks", "0121_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["tracing", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["web_analytics", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["wizard", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["feature_flags", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["workflows", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["access_control", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["actions", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["ai_observability", "0044_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["alerts", "0004_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["analytics_platform", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["annotations", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["approvals", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["autoresearch", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["batch_exports", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["billing_alerts", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["business_knowledge", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["canvas", "0017_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["cdp", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["cohorts", "0013_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["context_layer", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["conversations", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["data_catalog", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["data_quality", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["data_warehouse", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["early_access_features", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["ee", "0061_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["endpoints", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["error_tracking", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["experiments", "0037_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["feature_flags", "0018_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["field_notes", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["growth", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["legal_documents", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["links", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["live_debugger", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["logs", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["managed_migrations", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["managed_warehouse", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["marketing_analytics", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["mcp_analytics", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["mcp_store", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["messaging", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["notifications", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["posthog_ai", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["product_tours", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["pulse", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["reminders", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["replay", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["replay_vision", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["review_hog", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["signals", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["skills", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["slack_app", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["streamlit_apps", "0004_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["surveys", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["tasks", "0121_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["tracing", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["user_interviews", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["web_analytics", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["wizard", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["notebooks", "0019_squash_2026_09_07_schema_addons"],
+            "entry": ["workflows", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
         },
         {
             "file": ["posthog", "0717_errortrackingassignmentrule_role_and_more"],
@@ -433,6 +3109,552 @@
             "cutoff": "2026-09-07"
         },
         {
+            "file": ["posthog", "1344_squash_2026_09_07_finalize_fks"],
+            "entry": ["actions", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1344_squash_2026_09_07_finalize_fks"],
+            "entry": ["conversations", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1344_squash_2026_09_07_finalize_fks"],
+            "entry": ["customer_analytics", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1344_squash_2026_09_07_finalize_fks"],
+            "entry": ["dashboards", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1344_squash_2026_09_07_finalize_fks"],
+            "entry": ["ee", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1344_squash_2026_09_07_finalize_fks"],
+            "entry": ["endpoints", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1344_squash_2026_09_07_finalize_fks"],
+            "entry": ["event_definitions", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1344_squash_2026_09_07_finalize_fks"],
+            "entry": ["experiments", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1344_squash_2026_09_07_finalize_fks"],
+            "entry": ["exports", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1344_squash_2026_09_07_finalize_fks"],
+            "entry": ["feature_flags", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1344_squash_2026_09_07_finalize_fks"],
+            "entry": ["notebooks", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1344_squash_2026_09_07_finalize_fks"],
+            "entry": ["product_analytics", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1344_squash_2026_09_07_finalize_fks"],
+            "entry": ["replay_vision", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1344_squash_2026_09_07_finalize_fks"],
+            "entry": ["user_interviews", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["access_control", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["actions", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["ai_observability", "0044_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["alerts", "0004_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["analytics_platform", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["annotations", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["approvals", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["autoresearch", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["batch_exports", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["billing_alerts", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["business_knowledge", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["canvas", "0017_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["cdp", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["cohorts", "0013_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["context_layer", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["conversations", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["customer_analytics", "0050_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["dashboards", "0017_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["data_catalog", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["data_modeling", "0034_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["data_quality", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["data_tools", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["data_warehouse", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["early_access_features", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["ee", "0061_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["endpoints", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["error_tracking", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["event_definitions", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["experiments", "0037_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["exports", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["feature_flags", "0018_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["field_notes", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["growth", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["legal_documents", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["links", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["live_debugger", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["logs", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["managed_migrations", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["managed_warehouse", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["marketing_analytics", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["mcp_analytics", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["mcp_store", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["messaging", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["notebooks", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["notifications", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["posthog_ai", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["product_analytics", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["product_tours", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["pulse", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["reminders", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["replay", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["replay_vision", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["review_hog", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["signals", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["skills", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["slack_app", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["streamlit_apps", "0004_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["surveys", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["tasks", "0121_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["tracing", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["user_interviews", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["warehouse_sources", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["web_analytics", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["wizard", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1345_squash_2026_09_07_schema_addons"],
+            "entry": ["workflows", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1350_alter_userscenepersonalisation_dashboard"],
+            "entry": ["dashboards", "0019_alter_buttontile_created_by_alter_buttontile_team_and_more"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1356_taggeditem_experiment"],
+            "entry": ["experiments", "0029_experiment_repository"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1369_taggeditem_legacy_reverse_accessors"],
+            "entry": ["actions", "0002_alter_action_created_by_alter_action_events_and_more"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1369_taggeditem_legacy_reverse_accessors"],
+            "entry": ["conversations", "0068_alter_emailchannelsetup_team_and_more"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1369_taggeditem_legacy_reverse_accessors"],
+            "entry": ["customer_analytics", "0052_alter_account_team_alter_accountchannelsummary_team_and_more"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1369_taggeditem_legacy_reverse_accessors"],
+            "entry": ["dashboards", "0021_drop_dashboardtemplate_github_url_column"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1369_taggeditem_legacy_reverse_accessors"],
+            "entry": ["endpoints", "0034_drop_orphaned_endpoint_saved_query_fk"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1369_taggeditem_legacy_reverse_accessors"],
+            "entry": ["event_definitions", "0012_alter_eventdefinition_project_and_more"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1369_taggeditem_legacy_reverse_accessors"],
+            "entry": ["experiments", "0040_experiment_feature_flag_rule_id_unique"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1369_taggeditem_legacy_reverse_accessors"],
+            "entry": ["feature_flags", "0020_alter_featureflag_created_by_alter_featureflag_team_and_more"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1369_taggeditem_legacy_reverse_accessors"],
+            "entry": ["product_analytics", "0010_alter_insight_created_by_and_more"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["posthog", "1369_taggeditem_legacy_reverse_accessors"],
+            "entry": ["replay_vision", "0095_replayobservation_rlo_team_session_idx"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
             "file": ["replay_vision", "0014_visionaction_visionactionrun_and_more"],
             "entry": ["workflows", "0008_teamworkflowsconfig"],
             "attribute": "dependencies",
@@ -443,6 +3665,522 @@
             "entry": ["workflows", "0008_teamworkflowsconfig"],
             "attribute": "dependencies",
             "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["replay_vision", "0091_squash_2026_09_07_schema_addons"],
+            "entry": ["alerts", "0004_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["replay_vision", "0091_squash_2026_09_07_schema_addons"],
+            "entry": ["analytics_platform", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["replay_vision", "0091_squash_2026_09_07_schema_addons"],
+            "entry": ["annotations", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["replay_vision", "0091_squash_2026_09_07_schema_addons"],
+            "entry": ["autoresearch", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["replay_vision", "0091_squash_2026_09_07_schema_addons"],
+            "entry": ["batch_exports", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["replay_vision", "0091_squash_2026_09_07_schema_addons"],
+            "entry": ["billing_alerts", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["replay_vision", "0091_squash_2026_09_07_schema_addons"],
+            "entry": ["business_knowledge", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["replay_vision", "0091_squash_2026_09_07_schema_addons"],
+            "entry": ["canvas", "0017_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["replay_vision", "0091_squash_2026_09_07_schema_addons"],
+            "entry": ["cdp", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["replay_vision", "0091_squash_2026_09_07_schema_addons"],
+            "entry": ["cohorts", "0013_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["replay_vision", "0091_squash_2026_09_07_schema_addons"],
+            "entry": ["context_layer", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["replay_vision", "0091_squash_2026_09_07_schema_addons"],
+            "entry": ["data_catalog", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["replay_vision", "0091_squash_2026_09_07_schema_addons"],
+            "entry": ["data_quality", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["replay_vision", "0091_squash_2026_09_07_schema_addons"],
+            "entry": ["data_warehouse", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["replay_vision", "0091_squash_2026_09_07_schema_addons"],
+            "entry": ["early_access_features", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["replay_vision", "0091_squash_2026_09_07_schema_addons"],
+            "entry": ["endpoints", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["replay_vision", "0091_squash_2026_09_07_schema_addons"],
+            "entry": ["error_tracking", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["replay_vision", "0091_squash_2026_09_07_schema_addons"],
+            "entry": ["experiments", "0037_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["replay_vision", "0091_squash_2026_09_07_schema_addons"],
+            "entry": ["field_notes", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["replay_vision", "0091_squash_2026_09_07_schema_addons"],
+            "entry": ["growth", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["replay_vision", "0091_squash_2026_09_07_schema_addons"],
+            "entry": ["legal_documents", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["replay_vision", "0091_squash_2026_09_07_schema_addons"],
+            "entry": ["links", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["replay_vision", "0091_squash_2026_09_07_schema_addons"],
+            "entry": ["live_debugger", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["replay_vision", "0091_squash_2026_09_07_schema_addons"],
+            "entry": ["logs", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["replay_vision", "0091_squash_2026_09_07_schema_addons"],
+            "entry": ["managed_migrations", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["replay_vision", "0091_squash_2026_09_07_schema_addons"],
+            "entry": ["managed_warehouse", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["replay_vision", "0091_squash_2026_09_07_schema_addons"],
+            "entry": ["marketing_analytics", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["replay_vision", "0091_squash_2026_09_07_schema_addons"],
+            "entry": ["mcp_analytics", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["replay_vision", "0091_squash_2026_09_07_schema_addons"],
+            "entry": ["mcp_store", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["replay_vision", "0091_squash_2026_09_07_schema_addons"],
+            "entry": ["messaging", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["replay_vision", "0091_squash_2026_09_07_schema_addons"],
+            "entry": ["notifications", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["replay_vision", "0091_squash_2026_09_07_schema_addons"],
+            "entry": ["posthog_ai", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["replay_vision", "0091_squash_2026_09_07_schema_addons"],
+            "entry": ["product_tours", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["replay_vision", "0091_squash_2026_09_07_schema_addons"],
+            "entry": ["pulse", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["replay_vision", "0091_squash_2026_09_07_schema_addons"],
+            "entry": ["reminders", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["replay_vision", "0091_squash_2026_09_07_schema_addons"],
+            "entry": ["replay", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["replay_vision", "0091_squash_2026_09_07_schema_addons"],
+            "entry": ["review_hog", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["replay_vision", "0091_squash_2026_09_07_schema_addons"],
+            "entry": ["slack_app", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["replay_vision", "0091_squash_2026_09_07_schema_addons"],
+            "entry": ["surveys", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["signals", "0001_squash_2026_09_07_initial"],
+            "entry": ["posthog_ai", "0004_conversation_agent_runtime_conversation_task_and_more"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["signals", "0027_migrate_posthog_ai_models"],
+            "entry": ["posthog_ai", "0002_migrate_posthog_ai_models"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["signals", "0097_signalreport_first_visible_at_and_more"],
+            "entry": ["posthog_ai", "0004_conversation_agent_runtime_conversation_task_and_more"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["signals", "0119_squash_2026_09_07_schema_addons"],
+            "entry": ["actions", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["signals", "0119_squash_2026_09_07_schema_addons"],
+            "entry": ["ai_observability", "0044_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["signals", "0119_squash_2026_09_07_schema_addons"],
+            "entry": ["alerts", "0004_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["signals", "0119_squash_2026_09_07_schema_addons"],
+            "entry": ["analytics_platform", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["signals", "0119_squash_2026_09_07_schema_addons"],
+            "entry": ["annotations", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["signals", "0119_squash_2026_09_07_schema_addons"],
+            "entry": ["autoresearch", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["signals", "0119_squash_2026_09_07_schema_addons"],
+            "entry": ["batch_exports", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["signals", "0119_squash_2026_09_07_schema_addons"],
+            "entry": ["billing_alerts", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["signals", "0119_squash_2026_09_07_schema_addons"],
+            "entry": ["business_knowledge", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["signals", "0119_squash_2026_09_07_schema_addons"],
+            "entry": ["canvas", "0017_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["signals", "0119_squash_2026_09_07_schema_addons"],
+            "entry": ["cdp", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["signals", "0119_squash_2026_09_07_schema_addons"],
+            "entry": ["cohorts", "0013_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["signals", "0119_squash_2026_09_07_schema_addons"],
+            "entry": ["context_layer", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["signals", "0119_squash_2026_09_07_schema_addons"],
+            "entry": ["data_catalog", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["signals", "0119_squash_2026_09_07_schema_addons"],
+            "entry": ["data_quality", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["signals", "0119_squash_2026_09_07_schema_addons"],
+            "entry": ["data_warehouse", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["signals", "0119_squash_2026_09_07_schema_addons"],
+            "entry": ["early_access_features", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["signals", "0119_squash_2026_09_07_schema_addons"],
+            "entry": ["endpoints", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["signals", "0119_squash_2026_09_07_schema_addons"],
+            "entry": ["error_tracking", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["signals", "0119_squash_2026_09_07_schema_addons"],
+            "entry": ["experiments", "0037_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["signals", "0119_squash_2026_09_07_schema_addons"],
+            "entry": ["field_notes", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["signals", "0119_squash_2026_09_07_schema_addons"],
+            "entry": ["growth", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["signals", "0119_squash_2026_09_07_schema_addons"],
+            "entry": ["legal_documents", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["signals", "0119_squash_2026_09_07_schema_addons"],
+            "entry": ["links", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["signals", "0119_squash_2026_09_07_schema_addons"],
+            "entry": ["live_debugger", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["signals", "0119_squash_2026_09_07_schema_addons"],
+            "entry": ["logs", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["signals", "0119_squash_2026_09_07_schema_addons"],
+            "entry": ["managed_migrations", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["signals", "0119_squash_2026_09_07_schema_addons"],
+            "entry": ["managed_warehouse", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["signals", "0119_squash_2026_09_07_schema_addons"],
+            "entry": ["marketing_analytics", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["signals", "0119_squash_2026_09_07_schema_addons"],
+            "entry": ["mcp_analytics", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["signals", "0119_squash_2026_09_07_schema_addons"],
+            "entry": ["mcp_store", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["signals", "0119_squash_2026_09_07_schema_addons"],
+            "entry": ["messaging", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["signals", "0119_squash_2026_09_07_schema_addons"],
+            "entry": ["notifications", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["signals", "0119_squash_2026_09_07_schema_addons"],
+            "entry": ["posthog_ai", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["signals", "0119_squash_2026_09_07_schema_addons"],
+            "entry": ["product_tours", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["signals", "0119_squash_2026_09_07_schema_addons"],
+            "entry": ["pulse", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["signals", "0119_squash_2026_09_07_schema_addons"],
+            "entry": ["reminders", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["signals", "0119_squash_2026_09_07_schema_addons"],
+            "entry": ["replay", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["signals", "0119_squash_2026_09_07_schema_addons"],
+            "entry": ["replay_vision", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["signals", "0119_squash_2026_09_07_schema_addons"],
+            "entry": ["review_hog", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["signals", "0119_squash_2026_09_07_schema_addons"],
+            "entry": ["skills", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["signals", "0119_squash_2026_09_07_schema_addons"],
+            "entry": ["slack_app", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["signals", "0119_squash_2026_09_07_schema_addons"],
+            "entry": ["streamlit_apps", "0004_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["signals", "0119_squash_2026_09_07_schema_addons"],
+            "entry": ["surveys", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
         },
         {
             "file": ["tasks", "0026_task_signal_report_alter_task_origin_product"],
@@ -461,6 +4199,294 @@
             "entry": ["signals", "0094_delete_session_analysis_source_configs"],
             "attribute": "dependencies",
             "cutoff": "2026-09-07"
+        },
+        {
+            "file": ["tasks", "0120_backfill_canvas_search_documents"],
+            "entry": ["canvas", "0016_canvas_source_policy"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["tasks", "0121_squash_2026_09_07_finalize_fks"],
+            "entry": ["signals", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["tracing", "0004_squash_2026_09_07_schema_addons"],
+            "entry": ["actions", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["tracing", "0004_squash_2026_09_07_schema_addons"],
+            "entry": ["ai_observability", "0044_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["tracing", "0004_squash_2026_09_07_schema_addons"],
+            "entry": ["alerts", "0004_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["tracing", "0004_squash_2026_09_07_schema_addons"],
+            "entry": ["analytics_platform", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["tracing", "0004_squash_2026_09_07_schema_addons"],
+            "entry": ["annotations", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["tracing", "0004_squash_2026_09_07_schema_addons"],
+            "entry": ["autoresearch", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["tracing", "0004_squash_2026_09_07_schema_addons"],
+            "entry": ["batch_exports", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["tracing", "0004_squash_2026_09_07_schema_addons"],
+            "entry": ["billing_alerts", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["tracing", "0004_squash_2026_09_07_schema_addons"],
+            "entry": ["business_knowledge", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["tracing", "0004_squash_2026_09_07_schema_addons"],
+            "entry": ["canvas", "0017_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["tracing", "0004_squash_2026_09_07_schema_addons"],
+            "entry": ["cdp", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["tracing", "0004_squash_2026_09_07_schema_addons"],
+            "entry": ["cohorts", "0013_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["tracing", "0004_squash_2026_09_07_schema_addons"],
+            "entry": ["context_layer", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["tracing", "0004_squash_2026_09_07_schema_addons"],
+            "entry": ["data_catalog", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["tracing", "0004_squash_2026_09_07_schema_addons"],
+            "entry": ["data_quality", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["tracing", "0004_squash_2026_09_07_schema_addons"],
+            "entry": ["data_warehouse", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["tracing", "0004_squash_2026_09_07_schema_addons"],
+            "entry": ["early_access_features", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["tracing", "0004_squash_2026_09_07_schema_addons"],
+            "entry": ["endpoints", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["tracing", "0004_squash_2026_09_07_schema_addons"],
+            "entry": ["error_tracking", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["tracing", "0004_squash_2026_09_07_schema_addons"],
+            "entry": ["experiments", "0037_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["tracing", "0004_squash_2026_09_07_schema_addons"],
+            "entry": ["field_notes", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["tracing", "0004_squash_2026_09_07_schema_addons"],
+            "entry": ["growth", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["tracing", "0004_squash_2026_09_07_schema_addons"],
+            "entry": ["legal_documents", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["tracing", "0004_squash_2026_09_07_schema_addons"],
+            "entry": ["links", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["tracing", "0004_squash_2026_09_07_schema_addons"],
+            "entry": ["live_debugger", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["tracing", "0004_squash_2026_09_07_schema_addons"],
+            "entry": ["logs", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["tracing", "0004_squash_2026_09_07_schema_addons"],
+            "entry": ["managed_migrations", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["tracing", "0004_squash_2026_09_07_schema_addons"],
+            "entry": ["managed_warehouse", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["tracing", "0004_squash_2026_09_07_schema_addons"],
+            "entry": ["marketing_analytics", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["tracing", "0004_squash_2026_09_07_schema_addons"],
+            "entry": ["mcp_analytics", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["tracing", "0004_squash_2026_09_07_schema_addons"],
+            "entry": ["mcp_store", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["tracing", "0004_squash_2026_09_07_schema_addons"],
+            "entry": ["messaging", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["tracing", "0004_squash_2026_09_07_schema_addons"],
+            "entry": ["notifications", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["tracing", "0004_squash_2026_09_07_schema_addons"],
+            "entry": ["posthog_ai", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["tracing", "0004_squash_2026_09_07_schema_addons"],
+            "entry": ["product_tours", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["tracing", "0004_squash_2026_09_07_schema_addons"],
+            "entry": ["pulse", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["tracing", "0004_squash_2026_09_07_schema_addons"],
+            "entry": ["reminders", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["tracing", "0004_squash_2026_09_07_schema_addons"],
+            "entry": ["replay", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["tracing", "0004_squash_2026_09_07_schema_addons"],
+            "entry": ["replay_vision", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["tracing", "0004_squash_2026_09_07_schema_addons"],
+            "entry": ["review_hog", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["tracing", "0004_squash_2026_09_07_schema_addons"],
+            "entry": ["signals", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["tracing", "0004_squash_2026_09_07_schema_addons"],
+            "entry": ["skills", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["tracing", "0004_squash_2026_09_07_schema_addons"],
+            "entry": ["slack_app", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["tracing", "0004_squash_2026_09_07_schema_addons"],
+            "entry": ["streamlit_apps", "0004_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["tracing", "0004_squash_2026_09_07_schema_addons"],
+            "entry": ["surveys", "0001_squash_2026_09_07_initial"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
+        },
+        {
+            "file": ["tracing", "0004_squash_2026_09_07_schema_addons"],
+            "entry": ["tasks", "0121_squash_2026_09_07_finalize_fks"],
+            "attribute": "dependencies",
+            "cutoff": "2026-11-02"
         }
     ]
 }
