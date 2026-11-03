@@ -30,7 +30,7 @@ const meta: Meta<typeof NewProjectSettingStory> = {
     decorators: [
         mswDecorator({
             get: {
-                '/api/projects/:id/error_tracking/settings/retrieve_settings/': { adaptive_ingestion_enabled: true },
+                '/api/projects/:id/error_tracking/settings/retrieve_settings/': { adaptive_ingestion_enabled: false },
             },
         }),
     ],

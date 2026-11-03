@@ -673,7 +673,7 @@ class TestErrorTrackingFacadeAPI(BaseTest):
         assert result.issue.team_id == self.team.id
         assert result.issue.name == "Assigned issue"
 
-    def test_get_settings_has_no_rate_limits_for_new_project(self):
+    def test_get_settings_creates_defaults(self):
         settings = api.get_settings(self.team.id)
 
         assert isinstance(settings, contracts.ErrorTrackingSettings)

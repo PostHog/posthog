@@ -200,16 +200,17 @@ class TestRecommendationsAPI(_StackFrameFactory, APIBaseTest):
     def test_alerts_is_completed_false_when_empty(self):
         self.assertFalse(AlertsRecommendation().is_completed({"alerts": []}))
 
-    def test_rate_limits_recommendation_with_no_limits(self):
+    def test_rate_limits_recommendation_with_no_settings(self):
         meta = RateLimitsRecommendation().compute(self.team)
         by_key = {r["key"]: r["enabled"] for r in meta["rate_limits"]}
         self.assertFalse(by_key["project"])
         self.assertFalse(by_key["per_issue"])
 
     def test_rate_limits_recommendation_detects_set_limits(self):
-        ErrorTrackingSettings.objects.update_or_create(
+        ErrorTrackingSettings.objects.create(
             team=self.team,
-            defaults={"project_rate_limit_value": 1000, "per_issue_rate_limit_value": None},
+            project_rate_limit_value=1000,
+            per_issue_rate_limit_value=None,
         )
         meta = RateLimitsRecommendation().compute(self.team)
         by_key = {r["key"]: r["enabled"] for r in meta["rate_limits"]}
@@ -218,7 +219,7 @@ class TestRecommendationsAPI(_StackFrameFactory, APIBaseTest):
 
     def test_rate_limits_recommendation_ignores_other_teams_settings(self):
         other_team = self.organization.teams.create(name="other")
-        ErrorTrackingSettings.objects.update_or_create(team=other_team, defaults={"project_rate_limit_value": 1000})
+        ErrorTrackingSettings.objects.create(team=other_team, project_rate_limit_value=1000)
         meta = RateLimitsRecommendation().compute(self.team)
         by_key = {r["key"]: r["enabled"] for r in meta["rate_limits"]}
         self.assertFalse(by_key["project"])

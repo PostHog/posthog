@@ -28,14 +28,6 @@ class TestErrorTrackingSettingsAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn("project_rate_limit_value", response.json())
         self.assertIn("per_issue_rate_limit_value", response.json())
-        self.assertIs(response.json()["adaptive_ingestion_enabled"], True)
-
-    def test_retrieve_settings_for_existing_project_without_settings(self):
-        ErrorTrackingSettings.objects.filter(team=self.team).delete()
-
-        response = self.client.get(f"{self._base_url()}/retrieve_settings/")
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIs(response.json()["adaptive_ingestion_enabled"], False)
 
     def test_update_settings_with_session_auth(self):
