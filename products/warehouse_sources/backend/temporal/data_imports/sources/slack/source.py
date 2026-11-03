@@ -1,5 +1,6 @@
+from collections.abc import Mapping
 from dataclasses import field
-from typing import TYPE_CHECKING, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 from products.warehouse_sources.backend.facade.codebase_detection import detect
 
@@ -31,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import OAuthMixin
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.oauth_pointers import PointerPath
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
@@ -54,6 +56,8 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 # seconds. The discovery activity times out at 10 minutes and runs again every few hours.
 _REQUEST_JOIN_BUDGET_SECONDS = 30.0
 _ACTIVITY_JOIN_BUDGET_SECONDS = 300.0
+# Sources made before bring-your-own point at PostHog's shared Slack app with this key. No form field declares it.
+_LEGACY_INTEGRATION_KEY = "slack_integration_id"
 
 
 @frozen
@@ -160,6 +164,14 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
 
     def get_webhook_source_manager(self, inputs: SourceInputs) -> WebhookSourceManager:
         return WebhookSourceManager(inputs, inputs.logger)
+
+    def in_use_oauth_slot(self, job_inputs: Mapping[str, Any]) -> PointerPath | None:
+        # The legacy OAuth pointer has no form field. A pasted token wins over it, as in `_resolve_access_token`.
+        return None if job_inputs.get("slack_access_token") else (_LEGACY_INTEGRATION_KEY,)
+
+    @property
+    def oauth_pointer_paths(self) -> frozenset[PointerPath]:
+        return frozenset({(_LEGACY_INTEGRATION_KEY,)})
 
     @staticmethod
     def _get_authed_user_id(integration: "IntegrationRecord") -> str | None:

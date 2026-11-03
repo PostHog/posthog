@@ -952,6 +952,8 @@ export interface WorkflowsConfig {
     // Null on either disables the marketing frequency cap.
     marketing_frequency_cap_max_messages?: number | null
     marketing_frequency_cap_window_days?: number | null
+    // Null skips a capped marketing message at once instead of holding it for a free slot.
+    marketing_frequency_cap_hold_hours?: number | null
 }
 
 export interface ProductIntentType {
@@ -5294,6 +5296,8 @@ export interface AppContext {
      * record to pin specific multivariate variants (e.g. an experiment arm) for a story.
      */
     persisted_feature_flags?: string[] | Record<string, string | boolean>
+    /** Whether the server's access gate gives this user PostHog AI 2.0. Absent when no user is signed in. */
+    posthog_ai_access?: boolean
     anonymous: boolean
     frontend_apps?: Record<number, FrontendAppConfig>
     effective_resource_access_control: Record<AccessControlResourceType, AccessControlLevel>
