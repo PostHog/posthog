@@ -1,7 +1,7 @@
-products/warehouse_sources/backend/temporal/data_imports/sources/instantly/tests/test_instantly_source.py
+products/warehouse_sources/sources/instantly/tests/test_instantly_source.py
 products/warehouse_sources/backend/temporal/data_imports/sources/stripe/tests/test_stripe_source.py
 products/warehouse_sources/backend/temporal/data_imports/sources/tiktok_ads/test/test_tiktok_ads_source.py
-products/warehouse_sources/backend/temporal/data_imports/sources/whop/tests/test_whop_source.py
+products/warehouse_sources/sources/whop/tests/test_whop_source.py
 products/warehouse_sources/sources/adobe_analytics/tests/test_adobe_analytics_source.py
 products/warehouse_sources/sources/alguna/tests/test_alguna_source.py
 products/warehouse_sources/sources/assemblyai/tests/test_assemblyai_source.py

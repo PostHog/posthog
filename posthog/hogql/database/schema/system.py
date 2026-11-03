@@ -2970,7 +2970,7 @@ usage_metrics: PostgresTable = PostgresTable(
 inbox_report_artefacts: PostgresTable = PostgresTable(
     name="inbox_report_artefacts",
     postgres_table_name="signals_signalreportartefact",
-    access_scope="task",
+    access_scope="inbox",
     resource_level_access_only=True,
     predicates=[
         parse_expr("report_id IN (SELECT id FROM system.inbox_reports)"),
@@ -3019,7 +3019,7 @@ inbox_report_artefacts: PostgresTable = PostgresTable(
 inbox_report_actions: PostgresTable = PostgresTable(
     name="inbox_report_actions",
     postgres_table_name="signals_signalreportaction",
-    access_scope="task",
+    access_scope="inbox",
     resource_level_access_only=True,
     predicates=[
         parse_expr("report_id IN (SELECT id FROM system.inbox_reports)"),
@@ -3051,7 +3051,7 @@ inbox_report_actions: PostgresTable = PostgresTable(
 inbox_report_assignments: PostgresTable = PostgresTable(
     name="inbox_report_assignments",
     postgres_table_name="signals_signalreportassignment",
-    access_scope="task",
+    access_scope="inbox",
     resource_level_access_only=True,
     predicates=[
         parse_expr("report_id IN (SELECT id FROM system.inbox_reports)"),
@@ -3102,7 +3102,7 @@ inbox_report_assignments: PostgresTable = PostgresTable(
 inbox_report_tasks: PostgresTable = PostgresTable(
     name="inbox_report_tasks",
     postgres_table_name="signals_signalreporttask",
-    access_scope="task",
+    access_scope="inbox",
     resource_level_access_only=True,
     predicates=[
         parse_expr("report_id IN (SELECT id FROM system.inbox_reports)"),
@@ -3130,7 +3130,7 @@ inbox_report_tasks: PostgresTable = PostgresTable(
 inbox_report_pull_requests: PostgresTable = PostgresTable(
     name="inbox_report_pull_requests",
     postgres_table_name="signals_signalreportpullrequest",
-    access_scope="task",
+    access_scope="inbox",
     resource_level_access_only=True,
     predicates=[
         parse_expr("id IN (SELECT pull_request_id FROM system.inbox_report_artefacts)"),
@@ -3684,7 +3684,7 @@ canvases: PostgresTable = PostgresTable(
 inbox_reports: PostgresTable = PostgresTable(
     name="inbox_reports",
     postgres_table_name="signals_signalreport",
-    access_scope="task",
+    access_scope="inbox",
     # Object-level task grants key task ids, never report ids, so they cannot narrow these rows.
     resource_level_access_only=True,
     predicates=[parse_expr("status != 'deleted'")],
@@ -3760,7 +3760,7 @@ inbox_reports: PostgresTable = PostgresTable(
 inbox_report_checks: PostgresTable = PostgresTable(
     name="inbox_report_checks",
     postgres_table_name="signals_signalreportcheck",
-    access_scope="task",
+    access_scope="inbox",
     resource_level_access_only=True,
     predicates=[parse_expr("report_id IN (SELECT id FROM system.inbox_reports)")],
     description=(
