@@ -350,6 +350,10 @@ class WarehouseMigrationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
             )
         except contracts.WarehouseMigrationHasVendorKeyError:
             raise exceptions.ValidationError("PostHog reads this migration with an API key. Refresh it instead.")
+        except contracts.WarehouseMigrationUploadTooLargeError:
+            raise exceptions.ValidationError(
+                "This Fivetran account is too large to upload through the chat. Start a migration with an API key."
+            )
         if result is None:
             raise exceptions.NotFound()
         if result.errors:

@@ -255,6 +255,13 @@ class TestStripSecrets(SimpleTestCase):
             ("camel_case", {"apiKey": "fake", "privateKey": "fake"}, {}),
             ("auth_object", {"auth": {"client_id": "fake"}, "authorization": "fake"}, {}),
             ("password_in_url", {"uri": "postgres://reader:fake@db.example.com/app"}, {}),
+            ("password_in_a_later_url", {"note": "see https://docs.example.com then ftp://u:fake@h"}, {}),
+            # A backtracking pattern takes minutes on this.
+            (
+                "long_colon_run_is_not_secret",
+                {"host": "https://" + ":" * 100_000},
+                {"host": "https://" + ":" * 100_000},
+            ),
             (
                 "public_key_is_not_secret",
                 {"public_key": "ssh-rsa AAAA", "primary_keys": ["id"], "host": "db.example.com"},
