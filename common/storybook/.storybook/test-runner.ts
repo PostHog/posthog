@@ -41,10 +41,8 @@ console.log('[test-runner] Storybook snapshots will be saved to', customSnapshot
 const JEST_TIMEOUT_MS = 60000 // Multi-viewport snapshots can take substantially longer in CI
 const PLAYWRIGHT_TIMEOUT_MS = 10000 // Must be shorter than JEST_TIMEOUT_MS
 const VIEWPORT_SETTLE_TIMEOUT_MS = 5000
-// How long the page must stay unchanged before a snapshot. See waitForQuiet.
 const QUIET_WINDOW_MS = 250
-// The longest waits for a quiet page. They equal the fixed sleeps that waitForQuiet replaced: 300 ms after
-// the resize nudge, and a 300 ms size check plus a 1000 ms sleep before each theme's snapshot.
+// Equal to the fixed sleeps these waits replaced, so no story waits longer than before.
 const RESIZE_SETTLE_TIMEOUT_MS = 300
 const CONTENT_SETTLE_TIMEOUT_MS = 1300
 
@@ -447,13 +445,7 @@ async function waitForPossiblyFramedSelector(page: Page, selector: string, timeo
     await page.frameLocator(frameSelector.trim()).locator(innerSelector.trim()).first().waitFor({ timeout })
 }
 
-/**
- * Waits until the page has had no DOM mutation and no change of the body size for QUIET_WINDOW_MS.
- * This replaces fixed sleeps: most stories are quiet long before a fixed sleep ends. A story that never
- * goes quiet, such as one with a live timer, continues at `timeout`. Each timeout is the length of the
- * fixed sleep it replaces, so no story waits longer than before. The deadline runs inside the page, so
- * the observer always disconnects.
- */
+/** Resolves after QUIET_WINDOW_MS without DOM mutations or body size changes, or at `timeout`. */
 async function waitForQuiet(page: Page, timeout: number): Promise<void> {
     await page
         .evaluate(
@@ -492,9 +484,7 @@ async function waitForQuiet(page: Page, timeout: number): Promise<void> {
                 }),
             [QUIET_WINDOW_MS, timeout]
         )
-        .catch(() => {
-            // The page can navigate away during the wait. The snapshot step reports that.
-        })
+        .catch(() => undefined)
 }
 
 /** A resize wipes a quill chart canvas before its repaint, and the body-size check cannot see a chart resizing inside a fixed-height card. */
@@ -624,7 +614,6 @@ async function takeSnapshotWithTheme(
         })
     })
 
-    // Wait for the content to stop changing. A story that keeps changing is snapshotted at the timeout.
     await waitForQuiet(page, CONTENT_SETTLE_TIMEOUT_MS)
 
     await waitForChartCanvasesPainted(page)
