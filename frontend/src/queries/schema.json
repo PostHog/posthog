@@ -32937,6 +32937,10 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterTestAccounts": {
+                    "description": "Exclude reports from the project's internal and test users.",
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "MCPMissingCapabilitiesQuery",
                     "type": "string"
@@ -54204,6 +54208,10 @@
                 "users:read",
                 "users:read.email"
             ],
+            "type": "string"
+        },
+        "SlackIntegrationScopeInReview": {
+            "enum": ["canvases:read", "channels:join"],
             "type": "string"
         },
         "SlashCommandName": {

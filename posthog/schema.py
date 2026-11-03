@@ -297,6 +297,7 @@ from posthog.schema_enums import (
     SessionTableVersion as SessionTableVersion,
     Shelf as Shelf,
     SlackIntegrationScope as SlackIntegrationScope,
+    SlackIntegrationScopeInReview as SlackIntegrationScopeInReview,
     SlashCommandName as SlashCommandName,
     SliceContent as SliceContent,
     SnapchatAdsConversionFields as SnapchatAdsConversionFields,
@@ -29745,6 +29746,10 @@ class MCPMissingCapabilitiesQuery(BaseModel):
         extra="forbid",
     )
     dateRange: DateRange | None = None
+    filterTestAccounts: bool | None = Field(
+        default=None,
+        description="Exclude reports from the project's internal and test users.",
+    )
     kind: Literal["MCPMissingCapabilitiesQuery"] = "MCPMissingCapabilitiesQuery"
     limit: int | None = Field(default=None, description="Page size; defaults to 100, capped at 500.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
