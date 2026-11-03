@@ -56,6 +56,10 @@ SERVICENOW_ENDPOINTS: dict[str, ServiceNowEndpointConfig] = {
     "metric_instances": ServiceNowEndpointConfig(name="metric_instances", table="metric_instance"),
     "choices": ServiceNowEndpointConfig(name="choices", table="sys_choice"),
     "service_offerings": ServiceNowEndpointConfig(name="service_offerings", table="service_offering"),
+    # The core service table also holds its Business Service and Technology Management Service child
+    # classes, plus business services from instances that have not moved them to the child table yet.
+    "services": ServiceNowEndpointConfig(name="services", table="cmdb_ci_service"),
+    "group_members": ServiceNowEndpointConfig(name="group_members", table="sys_user_grmember"),
 }
 
 ENDPOINTS = tuple(SERVICENOW_ENDPOINTS.keys())

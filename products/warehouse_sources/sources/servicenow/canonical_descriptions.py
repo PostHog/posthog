@@ -253,4 +253,21 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             name="Name of the service offering.",
         ),
     },
+    "services": {
+        "description": "A service from the CMDB, such as a business service or a technology management service, referenced by incidents and changes (ServiceNow `cmdb_ci_service` table).",
+        "docs_url": "https://www.servicenow.com/docs/r/australia/servicenow-platform/common-service-data-model-csdm/sell-consume-domain.html",
+        "columns": _columns(
+            name="Name of the service.",
+            service_classification="Type of the service, such as Business Service or Technical Service.",
+            sys_class_name="CMDB class of the record, such as `cmdb_ci_service_business` or `cmdb_ci_service_technical`.",
+        ),
+    },
+    "group_members": {
+        "description": "One membership of a user in a group, the many-to-many join between users and groups (ServiceNow `sys_user_grmember` table).",
+        "docs_url": "https://www.servicenow.com/docs/r/australia/now-intelligence/performance-analytics/t_CreateABreakdownRelation.html",
+        "columns": _columns(
+            user="User who is a member of the group.",
+            group="Group that the user is a member of.",
+        ),
+    },
 }
