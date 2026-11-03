@@ -784,6 +784,13 @@ CACHES["metrics_variable_options"] = {
     "LOCATION": REDIS_URL,
 }
 
+# Warehouse destination connect tokens are polled right after they are written, and completion claims a
+# token with SETNX. A lagging replica would report a fresh token as expired, so read from the writer.
+CACHES["warehouse_destination_connect"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
 # Dedicated cache for the feature flags service (if configured)
 # Django only writes to this cache (never reads), so no reader URL needed
 if FLAGS_REDIS_URL:
@@ -851,6 +858,7 @@ if TEST:
     CACHES["ingress_dedup"] = CACHES["default"]
     CACHES["task_artifact_preview"] = CACHES["default"]
     CACHES["metrics_variable_options"] = CACHES["default"]
+    CACHES["warehouse_destination_connect"] = CACHES["default"]
 
 # Cache timeout for materialized columns metadata (in seconds)
 MATERIALIZED_COLUMNS_CACHE_TIMEOUT: int = get_from_env("MATERIALIZED_COLUMNS_CACHE_TIMEOUT", 900, type_cast=int)

@@ -9,7 +9,7 @@ import dataclasses
 from datetime import datetime, timedelta
 from typing import Any
 
-from django.core.cache import cache
+from django.core.cache import caches
 from django.db import models
 from django.utils import timezone
 
@@ -18,6 +18,8 @@ from posthog.integrations import IntegrationManager, IntegrationNotFound
 
 CONNECT_TOKEN_TTL = timedelta(hours=1)
 _CACHE_KEY_PREFIX = "wh_dest_connect"
+# Pinned to the Redis writer: the agent polls a token right after it is issued, and a replica can lag.
+_CACHE_ALIAS = "warehouse_destination_connect"
 
 
 class DestinationConnectStatus(models.TextChoices):
@@ -60,14 +62,20 @@ def _cache_key(team_id: int, token: str) -> str:
     return f"{_CACHE_KEY_PREFIX}:{team_id}:{token}"
 
 
+def _claim_key(team_id: int, token: str) -> str:
+    return f"{_cache_key(team_id, token)}:claim"
+
+
 def _save(record: DestinationConnectToken) -> None:
     payload: dict[str, Any] = dataclasses.asdict(record)
     payload["expires_at"] = record.expires_at.isoformat()
-    cache.set(_cache_key(record.team_id, record.token), payload, timeout=int(CONNECT_TOKEN_TTL.total_seconds()))
+    caches[_CACHE_ALIAS].set(
+        _cache_key(record.team_id, record.token), payload, timeout=int(CONNECT_TOKEN_TTL.total_seconds())
+    )
 
 
 def _load(team_id: int, token: str) -> DestinationConnectToken | None:
-    payload = cache.get(_cache_key(team_id, token))
+    payload = caches[_CACHE_ALIAS].get(_cache_key(team_id, token))
     if not isinstance(payload, dict):
         return None
     return DestinationConnectToken(**{**payload, "expires_at": datetime.fromisoformat(payload["expires_at"])})
@@ -108,6 +116,16 @@ def complete_connect_token(*, team_id: int, user_id: int, token: str, integratio
         raise ConnectTokenInvalidIntegration(
             f"This link needs a '{record.integration_kind}' connection, not '{integration.kind}'."
         )
+
+    # Two tabs can complete the same pending token at once. The first claim wins, so the token never
+    # switches integrations and the losing request fails like any other switch.
+    if not caches[_CACHE_ALIAS].add(
+        _claim_key(team_id, token), integration.id, timeout=int(CONNECT_TOKEN_TTL.total_seconds())
+    ):
+        if caches[_CACHE_ALIAS].get(_claim_key(team_id, token)) != integration.id:
+            raise ConnectTokenInvalidIntegration(
+                "This link already reported another connection. Ask the assistant for a new link."
+            )
 
     completed = dataclasses.replace(record, integration_id=integration.id, display_name=integration.display_name)
     # Saving resets the cache timeout, so the agent can read the result for a full TTL after the user saves.

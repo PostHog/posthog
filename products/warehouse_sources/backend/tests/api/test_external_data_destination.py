@@ -1448,6 +1448,23 @@ class TestDestinationConnectToken(DestinationAPITestBase):
         assert switch.status_code == status.HTTP_400_BAD_REQUEST
         assert self._status(token)["integration_id"] == self.integration.pk
 
+    def test_concurrent_completions_with_different_integrations_keep_the_first(self) -> None:
+        token = self._link()
+        other = Integration.objects.create(
+            team=self.team, kind=Integration.IntegrationKind.SNOWFLAKE, integration_id="other-account", config={}
+        )
+        record_key = f"wh_dest_connect:{self.team.pk}:{token}"
+        pending = cache.get(record_key)
+
+        first = self._complete(token, other.pk)
+        # The second tab read the token before the first save landed, so it still sees it pending.
+        cache.set(record_key, pending)
+        second = self._complete(token, self.integration.pk)
+
+        assert first.status_code == status.HTTP_200_OK, first.content
+        assert second.status_code == status.HTTP_400_BAD_REQUEST, second.content
+        assert self._status(token)["integration_id"] is None
+
     @parameterized.expand([("unknown",), ("other_user",), ("other_team",), ("evicted",)])
     def test_status_of_a_token_the_user_cannot_read_is_expired(self, case: str) -> None:
         token = self._link()
