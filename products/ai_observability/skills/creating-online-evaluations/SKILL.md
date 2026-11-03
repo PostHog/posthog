@@ -265,16 +265,15 @@ Prefer pinning the chosen key so a later team-wide active-key change does not ch
 Leave `provider_key_id` as `null` to run on the team's active key; before enabling, confirm with
 `llma-evaluation-config-get` that the active key is usable and its provider matches.
 
-No usable key does not block saving a judge, but the judge will not run until a person adds or fixes a key in
-Settings > AI observability > Bring your own key (BYOK). Keys cannot be added through MCP. Before you save a
-judge in this state:
+No usable key does not block creating the judge. Keys cannot be added through MCP, so:
 
-- Check whether a `hog` or `sentiment` evaluation can catch the same failure. If one can, propose it first,
-  because it runs right away without a key.
-- If the failure needs a judge, tell the user it will not run until they add a key, and save the disabled
-  draft only after they agree. Do not spot-run or enable it.
-- If a create with `enabled: true` is rejected for a missing key, do not quietly retry with
-  `enabled: false`. That leaves a judge that never runs. Tell the user what is missing instead.
+- If the team has an `ok` key that the judge isn't set to use, pin it with `provider_key_id` instead of asking
+  for a new one.
+- If the team has no usable key, still create the judge with `enabled: false`. Do not spot-run or enable it.
+- Tell the user plainly that the judge starts scoring once a project admin adds a key in Settings > AI
+  observability > Bring your own key (BYOK) and enables it. A judge left disabled with no word to the user
+  never runs, so this message is part of the job, including when a create with `enabled: true` is rejected
+  for a missing key and you retry it disabled.
 
 ### 2.4 — Create it disabled
 
