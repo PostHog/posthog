@@ -142,6 +142,15 @@ describe('settingsSearch', () => {
         expect(visibleIds.length).toBe(new Set(visibleIds).size)
     })
 
+    it('returns every setting that matches a broad search, past the first page of results', () => {
+        const visible = (definition: Pick<Setting, 'flag'>): boolean => matchesFlagDefinition(definition.flag, {})
+        const fuse = createSettingsSearchFuse(buildSettingsSearchIndex(SETTINGS_MAP.filter(visible), visible))
+        const ids = searchSettingsIndex(fuse, 'project settings').map((entry) => entry.settingId)
+
+        expect(ids.length).toBeGreaterThan(30)
+        expect(ids).toContain('core-memory')
+    })
+
     test.each([
         ['model preferences', 'task-agent-my-preference'],
         ['subscriptions', 'ai-subscription-codex'],

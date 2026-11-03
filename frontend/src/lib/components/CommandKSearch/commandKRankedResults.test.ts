@@ -369,6 +369,33 @@ describe('buildRankedResults', () => {
             expected: ['Results: Metrics, Data catalog'],
         },
         {
+            name: 'a flat list of one saved-object type that hits the cap ends with its see-all row',
+            query: 'revenue',
+            results: Array.from({ length: RESULTS_LIMIT + 5 }, (_, n) =>
+                result(`dashboard-${n}`, `Revenue ${n}`, 'dashboard', exactWordRank(100 - n), {
+                    typeCount: RESULTS_LIMIT + 5,
+                })
+            ),
+            products: [],
+            expected: [
+                `Results: ${Array.from({ length: RESULTS_LIMIT }, (_, n) => `Revenue ${n}`).join(', ')}, (See all ${RESULTS_LIMIT + 5} dashboards)`,
+            ],
+        },
+        {
+            name: 'with unified ranking, a flat list of one saved-object type that hits the cap ends with its see-all row',
+            query: 'revenue',
+            results: Array.from({ length: RESULTS_LIMIT + 5 }, (_, n) =>
+                result(`dashboard-${n}`, `Revenue ${n}`, 'dashboard', exactWordRank(100 - n), {
+                    typeCount: RESULTS_LIMIT + 5,
+                })
+            ),
+            products: [],
+            unifiedRanking: true,
+            expected: [
+                `Results: ${Array.from({ length: RESULTS_LIMIT }, (_, n) => `Revenue ${n}`).join(', ')}, (See all ${RESULTS_LIMIT + 5} dashboards)`,
+            ],
+        },
+        {
             name: 'a broad query that matches one type only renders a bounded flat list',
             query: 'project settings',
             results: [],

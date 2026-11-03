@@ -260,6 +260,26 @@ function noticeSection(
     ]
 }
 
+const scopeSeeAll = (
+    groupKey: string,
+    total: number,
+    covered: number,
+    capped: boolean,
+    section: string
+): CommandKRow[] =>
+    !LOCAL_GROUPS.includes(groupKey) && total > covered
+        ? [
+              {
+                  kind: 'scope',
+                  key: `${section}/see-all`,
+                  type: groupKey,
+                  label: capped
+                      ? `See all ${groupLabel(groupKey).toLowerCase()}`
+                      : `See all ${total.toLocaleString()} ${groupLabel(groupKey).toLowerCase()}`,
+              },
+          ]
+        : []
+
 const settingsSeeAll = (total: number, shown: number, query: string, section: string): CommandKRow[] =>
     shown > 0 && total > shown ? [itemRow(section, seeAllSettingsItem(total, query), [])] : []
 
@@ -375,6 +395,18 @@ export function buildRankedResults({
                         query,
                         'flat'
                     ),
+                    ...(groupCount === 1
+                        ? scopeSeeAll(
+                              pool[0].groupKey,
+                              Math.max(
+                                  pool[0].item.searchMatch?.typeCount ?? 0,
+                                  pool.reduce((sum, entry) => sum + 1 + entry.duplicates, 0)
+                              ),
+                              pool.slice(0, RESULTS_LIMIT).reduce((sum, entry) => sum + 1 + entry.duplicates, 0),
+                              capped,
+                              'flat'
+                          )
+                        : []),
                 ],
                 state,
             },
@@ -432,16 +464,7 @@ export function buildRankedResults({
         if (groupKey === 'settings') {
             rows.push(...settingsSeeAll(total + unrankedSettingsCount, covered, query, `group-${groupKey}`))
         }
-        if (!LOCAL_GROUPS.includes(groupKey) && total > covered) {
-            rows.push({
-                kind: 'scope',
-                key: `group-${groupKey}/see-all`,
-                type: groupKey,
-                label: capped
-                    ? `See all ${groupLabel(groupKey).toLowerCase()}`
-                    : `See all ${total.toLocaleString()} ${groupLabel(groupKey).toLowerCase()}`,
-            })
-        }
+        rows.push(...scopeSeeAll(groupKey, total, covered, capped, `group-${groupKey}`))
         if (!rows.length) {
             continue
         }

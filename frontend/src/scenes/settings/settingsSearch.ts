@@ -9,8 +9,6 @@ import { Setting, SettingId, SettingLevelId, SettingSection, SettingSectionId } 
 // Explicitly avoid "heat" matching "feature flags", but still allowing "heature" to match it
 export const FUSE_THRESHOLD = 0.2
 
-const RESULT_LIMIT = 30
-
 export interface SearchIndexEntry {
     settingId: SettingId
     settingTitle: string
@@ -178,7 +176,7 @@ export function searchSettingsIndex(index: GlobalSearchFuse, term: string): Sear
 
     const words = trimmed.split(/\s+/)
     if (words.length === 1) {
-        return index.search(trimmed, { limit: RESULT_LIMIT }).map((result) => result.item)
+        return index.search(trimmed).map((result) => result.item)
     }
 
     const matches = matchWords(index, words)
@@ -187,5 +185,5 @@ export function searchSettingsIndex(index: GlobalSearchFuse, term: string): Sear
 
     ranked.sort((a, b) => b.matchedWords - a.matchedWords || a.score - b.score)
 
-    return ranked.slice(0, RESULT_LIMIT).map((match) => match.entry)
+    return ranked.map((match) => match.entry)
 }

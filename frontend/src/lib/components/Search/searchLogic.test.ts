@@ -195,6 +195,29 @@ describe('searchLogic', () => {
         expect(keys.indexOf(SEARCH_TAB_CATEGORY)).toBeLessThan(keys.indexOf('settings'))
     })
 
+    it('puts the Settings landing row ahead of a nested setting with the same name', async () => {
+        searchListsLogic({ commandPalette: false }).actions.setSettingsSections([
+            {
+                id: 'environment-activity-logs',
+                level: 'environment',
+                title: 'Activity logs',
+                settings: [
+                    {
+                        id: 'activity-log-org-level-settings',
+                        title: 'Settings',
+                        description: 'Configure organization-level activity log settings.',
+                        keywords: ['audit', 'organization', 'activity'],
+                        component: {} as JSX.Element,
+                    },
+                ],
+            },
+        ])
+        await searchOnceProductsLoad('settings')
+
+        const settings = logic.values.allCategories.find((category) => category.key === 'settings')?.items ?? []
+        expect(settings[0]?.id).toBe('settings')
+    })
+
     it('shows the best settings matches first and links to the rest', async () => {
         const component = {} as JSX.Element
         searchListsLogic({ commandPalette: false }).actions.setSettingsSections([

@@ -469,10 +469,11 @@ export const bestSettingsFirst = (items: SearchItem[], query: string): SearchIte
         const name = String(item.displayName || item.name)
         const byName = exact(rankLocalItem(query, name)?.rank)
         const byAlias = byName ? null : exact(rankLocalItem(query, name, item.searchKeywords)?.rank)
-        return { item, index, tier: byName ? 0 : byAlias ? 1 : 2, rank: byName ?? byAlias ?? [] }
+        const depth = item.parentName ? item.parentName.split(' › ').length : 0
+        return { item, index, depth, tier: byName ? 0 : byAlias ? 1 : 2, rank: byName ?? byAlias ?? [] }
     })
     return tiers
-        .sort((a, b) => a.tier - b.tier || compareRanks(a.rank, b.rank) || a.index - b.index)
+        .sort((a, b) => a.tier - b.tier || compareRanks(a.rank, b.rank) || a.depth - b.depth || a.index - b.index)
         .map((entry) => entry.item)
 }
 
