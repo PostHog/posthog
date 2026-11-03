@@ -1,10 +1,10 @@
 import json
 from hashlib import sha256
 
-from posthog.schema import HogQLPropertyFilter
-
 from posthog.hogql import ast
+from posthog.hogql.database.schema.person_group_membership import PersonGroupMembershipTable
 from posthog.hogql.parser import parse_select
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.hogql_queries.actor_strategies import person_email_property_keys
 from posthog.models import Team, User
@@ -15,6 +15,13 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.customer_analytics.backend.facade.api import get_accessible_account_id, get_account
 
 ACCOUNT_PERSONS_FLAG = "customer-analytics-account-persons-api"
+
+
+class MembershipTableReferences(TraversingVisitor):
+    def visit_join_expr(self, node: ast.JoinExpr) -> None:
+        if isinstance(node.table, ast.Field) and node.table.chain == ["posthog", "person_group_membership"]:
+            node.table_schema = PersonGroupMembershipTable()
+        super().visit_join_expr(node)
 
 
 class AccountPersonsReader:
@@ -78,8 +85,15 @@ class AccountPersonsReader:
         }
         return sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
+    @staticmethod
+    def parse_membership_query(query: str, placeholders: dict[str, ast.Expr]) -> ast.SelectQuery:
+        select = parse_select(query, placeholders=placeholders)
+        assert isinstance(select, ast.SelectQuery)
+        MembershipTableReferences().visit(select)
+        return select
+
     def get_source_query(self) -> ast.SelectQuery:
-        query = parse_select(
+        query = self.parse_membership_query(
             """
             SELECT pdi.person_id AS person_id,
                 groupUniqArray(101)(membership.distinct_id) AS distinct_ids,
@@ -129,7 +143,7 @@ class AccountPersonsReader:
             ],
         )
 
-    def get_search_filter(self, search: str, restricted_properties: frozenset[str]) -> HogQLPropertyFilter:
+    def get_search_filter(self, search: str, restricted_properties: frozenset[str]) -> ast.Expr:
         expressions: list[ast.Expr] = [ast.Call(name="toString", args=[ast.Field(chain=["persons", "id"])])]
         expressions.extend(
             ast.Call(name="toString", args=[ast.Field(chain=["properties", key])])
@@ -149,7 +163,7 @@ class AccountPersonsReader:
                 ast.CompareOperation(
                     left=ast.Field(chain=["persons", "id"]),
                     op=ast.CompareOperationOp.In,
-                    right=parse_select(
+                    right=self.parse_membership_query(
                         """
                         SELECT argMax(person_id, version) AS person_id
                         FROM raw_person_distinct_ids
@@ -171,4 +185,4 @@ class AccountPersonsReader:
                 ),
             ]
         )
-        return HogQLPropertyFilter(key=condition.to_hogql())
+        return condition

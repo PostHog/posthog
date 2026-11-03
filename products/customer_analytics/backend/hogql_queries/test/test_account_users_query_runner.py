@@ -223,8 +223,10 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
         assert response.status_code == 200, response.content
         assert response.json()["results"] == []
 
-    @parameterized.expand([([],), (["person"],), (["actor"],)])
-    def test_widget_cannot_request_raw_person_objects(self, columns: list[str]) -> None:
+    @parameterized.expand(
+        [([],), (["person"],), (["actor"],), (["(SELECT count() FROM posthog.person_group_membership)"],)]
+    )
+    def test_widget_rejects_unsupported_columns(self, columns: list[str]) -> None:
         assert self._run_widget_query(select=columns).status_code == 400
 
     @parameterized.expand(

@@ -10,7 +10,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import LazyTableToAdd
 from posthog.hogql.database.schema.persons import PersonsTable
 from posthog.hogql.errors import QueryError
-from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.parser import parse_select
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.hogql_queries.actor_strategies import ActorStrategy, PersonStrategy
@@ -47,7 +47,7 @@ class AccountUsersStrategy(PersonStrategy):
             condition = reader.get_search_filter(
                 self.query.search.strip(), split_restricted_property_names(restrictions).person
             )
-            conditions.append(parse_expr(condition.key))
+            conditions.append(condition)
         return conditions
 
 
