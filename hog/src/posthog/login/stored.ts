@@ -12,7 +12,12 @@ import { loginFor, readSettings, withLogin, writeSettings, type HogSettings } fr
 // one entry and writes them back. The lock keeps two hog processes from dropping each other's entry.
 const LOGINS_LOCK = 'logins.lock'
 
-export interface LoggedOutHost extends LogoutOutcome {
+export interface LoggedOut extends LogoutOutcome {
+    // Why hog couldn't remove the keychain item a file login left behind. Null when there was none.
+    keychainLeftover: string | null
+}
+
+export interface LoggedOutHost extends LoggedOut {
     host: string
 }
 
@@ -55,7 +60,12 @@ export async function writeLogin(
 ): Promise<void> {
     await withFileLock(runtime, LOGINS_LOCK, async () => {
         await store.write(key.host, key.secret(), { removeIfLate: options.removeIfLate })
-        const settings = withLogin(await readSettings(runtime), key.host, key.record(store.kind))
+        const current = await readSettings(runtime)
+        const previous = loginFor(current, key.host)
+        const record = key.record(store.kind)
+        const keychainLeftover =
+            store.kind === 'file' && (previous?.store === 'keychain' || previous?.keychainLeftover === true)
+        const settings = withLogin(current, key.host, keychainLeftover ? { ...record, keychainLeftover } : record)
         await writeSettings(runtime, options.lastLogin ? { ...settings, host: key.host } : settings)
     })
 }
@@ -76,24 +86,36 @@ export async function removeLogin(runtime: Runtime, login: StoredLogin): Promise
 // stored copy. Resolves to undefined when hog had no login to remove.
 // Under the renewal lock, so a renewal in another hog process can neither restore the login after
 // this removes it, nor rotate the refresh token this revokes.
-export async function logout(runtime: Runtime, host: string): Promise<LogoutOutcome | undefined> {
+export async function logout(runtime: Runtime, host: string): Promise<LoggedOut | undefined> {
     return withLoginLock(runtime, host, async () => {
-        const login = await readLogin(runtime, await readSettings(runtime), host)
+        const settings = await readSettings(runtime)
+        const login = await readLogin(runtime, settings, host)
         if (!login) {
             return undefined
         }
         const [outcome, removed] = await Promise.all([login.key.logout(runtime), removeLogin(runtime, login)])
-        return removed ? outcome : undefined
+        if (!removed) {
+            return undefined
+        }
+        const leftover = loginFor(settings, host)?.keychainLeftover ? await removeKeychainLeftover(runtime, host) : null
+        return { ...outcome, keychainLeftover: leftover }
     })
 }
 
-// Logs this machine out of every host in settings.json or the credentials file. For each host it
-// also removes the secret from the store settings.json doesn't name, such as a keychain item left
-// behind when a login fell back to the file.
+async function removeKeychainLeftover(runtime: Runtime, host: string): Promise<string | null> {
+    try {
+        await new KeychainStore(runtime).remove(host)
+        return null
+    } catch (error) {
+        return error instanceof Error ? error.message : String(error)
+    }
+}
+
+// Logs this machine out of every host in settings.json or the credentials file, and removes the
+// entries of the credentials file that settings.json doesn't name.
 export async function logoutAll(runtime: Runtime): Promise<LoggedOutHost[]> {
     const settings = await readSettings(runtime)
     const file = new FileStore(runtime)
-    const keychain = new KeychainStore(runtime)
     const hosts = new Map<HostKey, string>()
     const recorded = Object.values(settings.logins ?? {}).flatMap((record) => (record ? [record.host] : []))
     for (const host of [...recorded, ...(await file.hosts())]) {
@@ -104,12 +126,11 @@ export async function logoutAll(runtime: Runtime): Promise<LoggedOutHost[]> {
     const loggedOut: LoggedOutHost[] = []
     for (const host of hosts.values()) {
         const outcome = await logout(runtime, host)
-        // A machine without a usable keychain can't hold a leftover item there.
-        const leftovers = await withFileLock(runtime, LOGINS_LOCK, () =>
-            Promise.all([file.remove(host), keychain.remove(host).catch(() => false)])
-        )
-        if (outcome || leftovers.includes(true)) {
-            loggedOut.push({ host, revoked: outcome?.revoked ?? null, revokeUrl: outcome?.revokeUrl ?? null })
+        const orphan = await withFileLock(runtime, LOGINS_LOCK, () => file.remove(host))
+        if (outcome || orphan) {
+            loggedOut.push(
+                outcome ? { ...outcome, host } : { host, revoked: null, revokeUrl: null, keychainLeftover: null }
+            )
         }
     }
     return loggedOut

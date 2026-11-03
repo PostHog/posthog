@@ -222,7 +222,11 @@ export class Telemetry {
             const parsed: unknown = JSON.parse(await this.runtime.readFile(path))
             // A cache that isn't an object is broken, so hog starts a new one instead of failing the command.
             if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
-                cache = parsed as Record<string, CachedIdentity>
+                cache = Object.fromEntries(
+                    Object.entries(parsed).filter(
+                        ([, entry]) => typeof (entry as Partial<CachedIdentity> | null)?.checkedAt === 'number'
+                    )
+                ) as Record<string, CachedIdentity>
             }
         } catch {
             // No cache yet.
@@ -234,9 +238,7 @@ export class Telemetry {
         }
         const identity = await this.lookup(key)
         // Entries old enough to be looked up again anyway are dropped, so logins that ended don't pile up.
-        cache = Object.fromEntries(
-            Object.entries(cache).filter(([, entry]) => now - (entry.checkedAt ?? 0) < 30 * DAY_MS)
-        )
+        cache = Object.fromEntries(Object.entries(cache).filter(([, entry]) => now - entry.checkedAt < 30 * DAY_MS))
         cache[cacheKey] = { ...identity, checkedAt: now }
         try {
             await this.runtime.writePrivateFile(path, JSON.stringify(cache))

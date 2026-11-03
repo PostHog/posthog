@@ -13,6 +13,8 @@ interface LogoutResult {
     revoked: boolean | null
     // Where to delete a personal API key, which keeps working after logout.
     revokeUrl: string | null
+    // Why hog couldn't remove the keychain item a file login left behind. Null when there was none.
+    keychainLeftover: string | null
     // Every host `--all` logged out of. Null without `--all`.
     hosts: LoggedOutHost[] | null
     // Variables that still give hog a key after logout.
@@ -38,7 +40,7 @@ export default defineCommand({
             const hosts = await logoutAll(runtime)
             await clearPending(runtime, LOGIN_COMMAND)
             const status = hosts.length > 0 ? 'logged_out' : 'not_logged_in'
-            return { status, host: null, revoked: null, revokeUrl: null, hosts, stillSet }
+            return { status, host: null, revoked: null, revokeUrl: null, keychainLeftover: null, hosts, stillSet }
         }
         const settings = await readSettings(runtime)
         // The same host order commands use, so logout removes the login they would send. A broken
@@ -52,6 +54,7 @@ export default defineCommand({
             host: host ?? null,
             revoked: outcome?.revoked ?? null,
             revokeUrl: outcome?.revokeUrl ?? null,
+            keychainLeftover: outcome?.keychainLeftover ?? null,
             hosts: null,
             stillSet,
         }
@@ -62,12 +65,20 @@ export default defineCommand({
         if (loggedOut.length === 0) {
             out.line('hog had no stored login to remove.')
         }
-        for (const { host, revoked, revokeUrl } of loggedOut) {
+        for (const { host, revoked, revokeUrl, keychainLeftover } of loggedOut) {
             out.line(`${out.style('Logged out', 'green', 'bold')} of ${escapeControls(host ?? '')}.`)
             if (revoked === false) {
                 out.line(
                     out.style(
                         "hog couldn't reach PostHog to revoke the login, so it keeps working in PostHog. Revoke it under Settings > Connected applications.",
+                        'yellow'
+                    )
+                )
+            }
+            if (keychainLeftover) {
+                out.line(
+                    out.style(
+                        `hog couldn't remove an older copy of the key from the keychain: ${keychainLeftover} Remove the hog item for ${escapeControls(host ?? '')} from the keychain yourself.`,
                         'yellow'
                     )
                 )

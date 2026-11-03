@@ -14,6 +14,9 @@ interface LoginRecordBase {
     // The host the login was made for, with the path a self-hosted PostHog sits under. The login is
     // keyed by origin, so a posthog.json path on the same origin can't send it elsewhere.
     host: string
+    // Set on a file login that replaced a keychain login while the keychain was unusable, so the old
+    // keychain item can still be there. Logout tries to remove it.
+    keychainLeftover?: true
 }
 
 export type LoginRecord =
@@ -46,8 +49,10 @@ function parseLoginRecord(origin: string, value: unknown): LoginRecord | undefin
         return undefined
     }
     const { store, projectId, host } = item
+    const base: LoginRecordBase =
+        item.keychainLeftover === true ? { store, projectId, host, keychainLeftover: true } : { store, projectId, host }
     if (item.type === 'personal_api_key') {
-        return { store, type: 'personal_api_key', projectId, host }
+        return { ...base, type: 'personal_api_key' }
     }
     if (
         item.type === 'oauth' &&
@@ -57,7 +62,7 @@ function parseLoginRecord(origin: string, value: unknown): LoginRecord | undefin
         item.scopes.every((scope) => typeof scope === 'string')
     ) {
         const { expiresAt, loginId } = item
-        return { store, type: 'oauth', projectId, host, expiresAt, scopes: item.scopes, loginId }
+        return { ...base, type: 'oauth', expiresAt, scopes: item.scopes, loginId }
     }
     return undefined
 }

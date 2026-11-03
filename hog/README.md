@@ -191,7 +191,7 @@ hog doesn't read `~/.posthog/credentials.json`, the file `posthog-cli login` wri
 `--host` and `HOG_HOST` override the host from any of these, and pick which stored login to use.
 A `host` in `posthog.json` also picks a stored login, but never sends a key to a host it wasn't made for.
 
-hog's folder is `~/Library/Application Support/hog` on macOS, `$XDG_CONFIG_HOME/hog` or `~/.config/hog` on Linux, and `%APPDATA%\hog` on Windows.
+hog's folder is `~/Library/Application Support/hog` on macOS, `$XDG_CONFIG_HOME/hog` or `~/.config/hog` on Linux, and `%LOCALAPPDATA%\hog` on Windows.
 
 ### Logging in and out
 

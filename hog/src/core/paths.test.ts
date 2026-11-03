@@ -12,8 +12,8 @@ describe('hogDir', () => {
         [
             'Windows',
             'win32',
-            { APPDATA: 'C:\\Users\\ana\\AppData\\Roaming' },
-            'C:\\Users\\ana\\AppData\\Roaming\\hog',
+            { APPDATA: 'C:\\Users\\ana\\AppData\\Roaming', LOCALAPPDATA: 'C:\\Users\\ana\\AppData\\Local' },
+            'C:\\Users\\ana\\AppData\\Local\\hog',
             false,
         ],
     ] as const)('%s', (_name, platform, env, expected, isDevelopment) => {
