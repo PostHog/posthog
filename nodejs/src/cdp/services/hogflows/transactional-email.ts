@@ -6,7 +6,7 @@ import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclot
 export const MAX_COPY_RECIPIENTS = 10
 
 export const RECIPIENT_ADDRESS_PATTERN =
-    /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/
+    /^[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+)*@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/
 
 const CopyRecipientsSchema = z
     .array(z.string().email({ pattern: RECIPIENT_ADDRESS_PATTERN }))
