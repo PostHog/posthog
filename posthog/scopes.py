@@ -277,9 +277,9 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIS
     # Both are needed together; every other replay_scanner and session_recording route stays PSAK-denied.
     ("replay_scanner", "write"),
     ("session_recording", "read"),
-    # Lets a service send transactional email (`messaging_templates/:id/send/`, `messaging/send/email/`) and read a
-    # send's status (`messaging/emails/:id/`). Every other hog_flow route stays PSAK-denied, because no other hog_flow
-    # viewset lists PSAK actions.
+    # Lets a service send transactional email (`messaging_templates/:id/send/`, `messaging/send/email/`), read a
+    # send's status (`messaging/emails/:id/`) and set a recipient's topic preferences (`messaging/preferences/`).
+    # Every other hog_flow route stays PSAK-denied, because no other hog_flow viewset lists PSAK actions.
     ("hog_flow", "read"),
     ("hog_flow", "write"),
 ]

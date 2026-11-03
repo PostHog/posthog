@@ -244,7 +244,7 @@ export interface todayLogicActions {
         currentTeam: TeamPublicType | null
         payload?: any
     } // teamLogic
-    loadHighlights: () => any // todayHighlightsLogic
+    loadHighlights: (refresh?: boolean | undefined) => boolean // todayHighlightsLogic
     askAi: (
         prompt: string,
         source: TodayAskSource,
