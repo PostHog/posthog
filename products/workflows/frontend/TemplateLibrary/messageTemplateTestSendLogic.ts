@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { isSandboxEmailSender } from 'lib/integrations/utils'
+import { isSandboxEmailSender } from 'lib/integrations/sandboxEmailSender'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { isEmail } from 'lib/utils/url'
 import { teamLogic } from 'scenes/teamLogic'
