@@ -123,6 +123,7 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `organization_member` - organization_member
  * * `person` - person
  * * `plugin` - plugin
+ * * `posthog_support` - posthog_support
  * * `product_enablement` - product_enablement
  * * `product_tour` - product_tour
  * * `project` - project
@@ -245,6 +246,7 @@ export const ScopeObjectEnumApi = {
     OrganizationMember: 'organization_member',
     Person: 'person',
     Plugin: 'plugin',
+    PosthogSupport: 'posthog_support',
     ProductEnablement: 'product_enablement',
     ProductTour: 'product_tour',
     Project: 'project',
@@ -390,6 +392,7 @@ export interface ProjectAccessSourceApi {
      * * `organization_member` - organization_member
      * * `person` - person
      * * `plugin` - plugin
+     * * `posthog_support` - posthog_support
      * * `product_enablement` - product_enablement
      * * `product_tour` - product_tour
      * * `project` - project
@@ -555,6 +558,7 @@ export interface AccessControlObjectRuleApi {
      * * `organization_member` - organization_member
      * * `person` - person
      * * `plugin` - plugin
+     * * `posthog_support` - posthog_support
      * * `product_enablement` - product_enablement
      * * `product_tour` - product_tour
      * * `project` - project
@@ -948,6 +952,7 @@ export interface AccessControlObjectRuleResourceApi {
      * * `organization_member` - organization_member
      * * `person` - person
      * * `plugin` - plugin
+     * * `posthog_support` - posthog_support
      * * `product_enablement` - product_enablement
      * * `product_tour` - product_tour
      * * `project` - project
@@ -1236,6 +1241,7 @@ export interface ResolvedAccessApi {
      * * `organization_member` - organization_member
      * * `person` - person
      * * `plugin` - plugin
+     * * `posthog_support` - posthog_support
      * * `product_enablement` - product_enablement
      * * `product_tour` - product_tour
      * * `project` - project

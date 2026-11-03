@@ -13,6 +13,7 @@ import { RestoreTickets } from '../../components/SidePanel/RestoreTickets'
 import { sidepanelTicketsLogic } from '../../components/SidePanel/sidepanelTicketsLogic'
 import { Ticket } from '../../components/SidePanel/Ticket'
 import { TicketsList } from '../../components/SidePanel/TicketsList'
+import { SupportDraftReviewModal } from '../../components/SupportDraftReviewModal/SupportDraftReviewModal'
 import { myTicketsSceneLogic } from './myTicketsSceneLogic'
 
 // myTicketsSceneLogic rather than sidepanelTicketsLogic directly: the tickets logic never unmounts
@@ -109,6 +110,7 @@ export function MyTicketsScene(): JSX.Element {
                     {pane}
                 </div>
             </div>
+            <SupportDraftReviewModal />
         </SceneContent>
     )
 }

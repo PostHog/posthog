@@ -1176,6 +1176,7 @@ describe('Tool Filtering - Feature Flags', () => {
                 'subscription-source-summaries',
                 'workflows-mcp-onboarding',
                 'aeo-citation-tracking',
+                'mcp-posthog-support-tickets',
             ])
         )
         expect(flags).toContain('ai-observability-offline-evaluations')

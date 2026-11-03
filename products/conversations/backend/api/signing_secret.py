@@ -8,14 +8,11 @@ from django.utils import timezone
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework.views import APIView
 
 from posthog.api.documentation import PostHogAutoSchema
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.auth import SessionAuthentication
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.team import Team
@@ -24,6 +21,7 @@ from posthog.models.utils import generate_random_token, mask_key_value
 from posthog.permissions import TeamMemberStrictManagementPermission, TimeSensitiveActionPermission
 
 from products.conversations.backend.models import SigningSecret
+from products.conversations.backend.permissions import SessionAuthenticationOnly
 
 
 class SigningSecretSerializer(serializers.Serializer):
@@ -52,13 +50,10 @@ def _serializer_payload(row: SigningSecret | None) -> dict[str, Any]:
     }
 
 
-class _SessionOnlyPermission(BasePermission):
+class _SessionOnlyPermission(SessionAuthenticationOnly):
     # "INTERNAL" only rejects scoped tokens; impersonation JWTs would otherwise pass both
     # the scope check and the session-freshness check without carrying a session.
     message = "The signing secret is only available in the web app."
-
-    def has_permission(self, request: Request, view: APIView) -> bool:
-        return isinstance(request.successful_authenticator, SessionAuthentication)
 
 
 class _SingletonSchema(PostHogAutoSchema):
