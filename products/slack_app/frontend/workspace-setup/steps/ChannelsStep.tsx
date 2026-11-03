@@ -6,6 +6,7 @@ import { slackAppWorkspaceSetupLogic } from '../slackAppWorkspaceSetupLogic'
 
 export function ChannelsStep(): JSX.Element {
     const {
+        setup,
         joinableChannels,
         joinedChannelNames,
         channelOptionsLoading,
@@ -44,8 +45,13 @@ export function ChannelsStep(): JSX.Element {
                     </p>
                 ) : null}
                 <LemonCheckbox
-                    checked={postWelcome}
+                    checked={postWelcome && !!setup?.can_post_channel_welcome}
                     onChange={setPostWelcome}
+                    disabledReason={
+                        setup?.can_post_channel_welcome
+                            ? undefined
+                            : "This workspace's PostHog settings don't post a welcome in channels. A Slack admin can change this under Channel welcome in the PostHog app in Slack."
+                    }
                     label="Post a short welcome message in each channel"
                 />
             </div>

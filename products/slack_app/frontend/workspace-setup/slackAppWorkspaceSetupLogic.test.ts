@@ -72,7 +72,12 @@ describe('slackAppWorkspaceSetupLogic', () => {
     })
 
     it('asks for the channels step on the Slack page, and reports the channels it could not join', async () => {
-        mockRetrieve.mockResolvedValue({ ...BASE, project_options: [], steps: ['channels'] })
+        mockRetrieve.mockResolvedValue({
+            ...BASE,
+            project_options: [],
+            steps: ['channels'],
+            can_post_channel_welcome: true,
+        })
         mockChannels.mockResolvedValue({
             channels: [
                 { id: 'C1', name: 'product', is_member: false },

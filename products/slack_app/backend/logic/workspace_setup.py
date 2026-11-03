@@ -16,9 +16,11 @@ from posthog.slack.channels import is_shared_channel, join_channel
 from posthog.user_permissions import UserPermissions
 
 from products.slack_app.backend.analytics import capture_slack_event
+from products.slack_app.backend.models import ChannelWelcomeMode
 from products.slack_app.backend.services.integration_resolver import accessible_candidates
 from products.slack_app.backend.services.slack_scopes import has_scopes
 from products.slack_app.backend.services.slack_settings import (
+    resolve_channel_welcome_mode,
     resolve_workspace_default_integration_id,
     set_workspace_default_integration,
 )
@@ -84,6 +86,7 @@ class WorkspaceSetup:
     open_slack_url: str | None
     steps: tuple[SlackSetupStepKey, ...]
     project_options: tuple[ProjectOption, ...]
+    can_post_channel_welcome: bool
 
 
 @frozen
@@ -157,7 +160,15 @@ def get_workspace_setup(integration: WorkspaceIntegration, user: User, entry: Sl
         )
         if SlackSetupStepKey.DEFAULT_PROJECT in steps
         else (),
+        can_post_channel_welcome=SlackSetupStepKey.CHANNELS in steps
+        and _can_post_channel_welcome(ctx.slack_workspace_id),
     )
+
+
+def _can_post_channel_welcome(slack_workspace_id: str) -> bool:
+    # The other modes need the person who added the bot, and a join from the setup has none, so
+    # the channel join handler posts nothing.
+    return resolve_channel_welcome_mode(slack_workspace_id) == ChannelWelcomeMode.CHANNEL
 
 
 def _can_change_workspace_settings(integration: WorkspaceIntegration, user: User) -> bool:
@@ -218,6 +229,7 @@ def join_channels(
     allowed = {option.id for option in list_channel_options(integration)}
     slack = SlackIntegration(integration)
     slack_workspace_id = integration.integration_id or ""
+    post_welcome = post_welcome and _can_post_channel_welcome(slack_workspace_id)
     results: list[ChannelJoinResult] = []
     for channel_id in dict.fromkeys(channel_ids):
         if channel_id not in allowed:

@@ -76,6 +76,16 @@ class TestSlackAppWorkspaceSetup(APIBaseTest):
         expected_options = 2 if "default_project" in expected else 0
         assert len(body["project_options"]) == expected_options
 
+    @parameterized.expand([("channel", True), ("inviter", False), ("off", False)])
+    def test_channel_welcome_follows_the_workspace_setting(self, mode: str, expected: bool) -> None:
+        integration = self._slack_install(self.team, created_by=self.user, scope="channels:join")
+        SlackSettings.objects.create(slack_workspace_id=SLACK_TEAM_ID, slack_user_id=None, channel_welcome_mode=mode)
+
+        body = self.client.get(self._url(integration.id), {"entry": "slack_page"}).json()
+
+        assert body["steps"] == ["channels"]
+        assert body["can_post_channel_welcome"] is expected
+
     def test_project_options_leave_out_projects_the_person_cannot_open(self) -> None:
         integration = self._slack_install(self.team, created_by=self.user)
         self._slack_install(self._second_project())
