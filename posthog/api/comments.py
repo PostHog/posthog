@@ -768,6 +768,16 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
     pagination_class = CommentPagination
     scope_object = "comment"
     scope_object_read_actions = ["list", "retrieve", "thread", "count"]
+    # A custom action missing here resolves to no required scope, and a scoped token is then refused
+    # even with comment:write.
+    scope_object_write_actions = [
+        "create",
+        "update",
+        "partial_update",
+        "patch",
+        "destroy",
+        "send_to_slack",
+    ]
 
     def dangerously_get_required_scopes(self, request: Request, view: Any) -> list[str] | None:
         """Ticket-scoped comments require ticket API scope access instead of comment access.

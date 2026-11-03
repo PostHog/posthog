@@ -160,6 +160,29 @@ class TestSendCommentToSlack(APIBaseTest):
         assert mock_slack.return_value.client.chat_postMessage.call_count == 1
         mock_backfill.assert_called_once_with(comment_slack_thread_id=str(mirror.id))
 
+    # The comments-send-to-slack MCP tool calls this with an OAuth token. A custom action the scope check
+    # doesn't know resolves to no scope, which refuses every scoped token.
+    @patch("posthog.api.comments.backfill_comment_slack_thread.delay")
+    @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.comments.SlackIntegration")
+    def test_a_token_with_comment_write_can_send_a_discussion(self, mock_slack, _flag, _backfill):
+        from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+        from posthog.models.utils import generate_random_token_personal
+
+        mock_slack.return_value.client.chat_postMessage.return_value = {"ts": "1700.1"}
+        self._mock_channel_info(mock_slack)
+        comment = self._comment()
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="agent", user=self.user, secure_value=hash_key_value(value), scopes=["comment:write"]
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {value}")
+
+        res = self._send(comment.id)
+
+        assert res.status_code == status.HTTP_200_OK, res.json()
+
     @patch("posthog.api.integration.SLACK_CHANNELS_INFO_LOOKUPS_PER_MINUTE", 1)
     @patch("posthog.api.comments.backfill_comment_slack_thread.delay")
     @patch("posthog.api.comments.posthoganalytics.feature_enabled", return_value=True)
