@@ -2245,7 +2245,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             ("multi_arg_range_wrapper", "timestamp >= toDateTime64({variables.item}, 6, 'UTC')"),
         ]
     )
-    def test_prepare_executable_query_refuses_version_that_no_longer_materializes(self, _name: str, predicate: str):
+    def test_prepare_executable_query_turns_off_version_that_no_longer_materializes(self, _name: str, predicate: str):
         version_query = {
             "kind": "HogQLQuery",
             "query": f"SELECT count() AS c FROM events WHERE event = '$pageview' AND {predicate}",
@@ -2270,11 +2270,15 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         version.saved_query = saved_query
         version.save(update_fields=["saved_query"])
 
-        with self.assertRaises(MaterializationNotSupportedError):
+        with self.assertRaises(MaterializationNotSupportedError) as raised:
             prepare_executable_query(saved_query)
 
+        self.assertIn("turned off", str(raised.exception))
         saved_query.refresh_from_db()
         self.assertEqual(saved_query.query, previously_built)
+        self.assertTrue(saved_query.deleted)
+        version.refresh_from_db()
+        self.assertIsNone(version.saved_query)
 
     def test_enable_materialization_links_version_before_immediate_run(self):
         endpoint = create_endpoint_with_version(

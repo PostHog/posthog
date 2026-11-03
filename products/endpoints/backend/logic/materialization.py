@@ -62,6 +62,10 @@ class OrphanedEndpointSavedQueryError(Exception):
     pass
 
 
+class EndpointMaterializationTurnedOffError(MaterializationNotSupportedError):
+    pass
+
+
 def prepare_executable_query(saved_query: DataWarehouseSavedQuery) -> None:
     """Rebuild the saved query's executable HogQL from its endpoint version.
 
@@ -74,13 +78,23 @@ def prepare_executable_query(saved_query: DataWarehouseSavedQuery) -> None:
             f"Saved query {saved_query.id} ({saved_query.name}) has no linked EndpointVersion"
         )
 
-    saved_query.query = build_endpoint_hogql(
-        version.query,
-        saved_query.team,
-        bucket_overrides=version.bucket_overrides,
-        # Temporal rebuilds are userless and operate on an already-owned endpoint saved query.
-        bypass_warehouse_access_control=True,
-    )
+    try:
+        saved_query.query = build_endpoint_hogql(
+            version.query,
+            saved_query.team,
+            bucket_overrides=version.bucket_overrides,
+            # Temporal rebuilds are userless and operate on an already-owned endpoint saved query.
+            bypass_warehouse_access_control=True,
+        )
+    except MaterializationNotSupportedError as e:
+        # The version can never materialize again, so turn it off once instead of failing every run.
+        version.disable_materialization()
+        clear_endpoint_materialization_cache(saved_query.team_id, version.endpoint.name, versions=[version.version])
+        reason = str(e).rstrip(".")
+        raise EndpointMaterializationTurnedOffError(
+            f"Materialization was turned off for this endpoint version: {reason}. "
+            "The endpoint now runs its query directly."
+        ) from e
     saved_query.save(update_fields=["query", "updated_at"])
 
 
