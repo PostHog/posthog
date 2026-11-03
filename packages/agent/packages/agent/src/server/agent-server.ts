@@ -2105,8 +2105,7 @@ export class AgentServer {
 
   /**
    * The transport retries a rejected token but not a 5xx or a socket error, so one blip
-   * would silently degrade the session. Retry, then give up so a task or run that
-   * genuinely does not exist still starts the session.
+   * would silently degrade the session. Retry before returning unavailable context.
    */
   private async fetchForSessionContext<T>(
     fetch: () => Promise<T>,
@@ -2198,6 +2197,9 @@ export class AgentServer {
           this.fetchTaskForSessionContext(payload.task_id),
         ]),
     );
+    if (!preTask || !preTaskRun) {
+      throw new Error("Cannot initialize session without task and run context");
+    }
     const launchSources = {
       payload,
       task: preTask,

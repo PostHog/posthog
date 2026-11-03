@@ -1,5 +1,5 @@
 from datetime import timedelta
-from typing import Any, cast
+from typing import Any, Literal, cast
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
@@ -24,7 +24,7 @@ from products.notebooks.backend.models import Notebook
 from products.signals.backend.models import SignalScoutRun
 from products.signals.backend.scout_harness.tool_catalogue import get_scout_tool_catalogue
 from products.signals.backend.scout_harness.tool_policy import SANDBOX_HARNESS_OPERATIONS
-from products.tasks.backend.models import MCPBuiltInAgentKey, Task
+from products.tasks.backend.models import Task
 
 DISPATCH = "products.tasks.backend.logic.services.workflow_dispatch.enqueue_or_start_workflow"
 NOTES_ONLY = ["conversations-tickets-notes-create"]
@@ -73,7 +73,7 @@ class TestScoutToolPolicyAPI(APIBaseTest):
         allowlist: Any,
         bound: bool = True,
         origin_product: Task.OriginProduct = Task.OriginProduct.SIGNALS_SCOUT,
-        agent_key: MCPBuiltInAgentKey | None = "scout",
+        agent_key: Literal["scout"] | None = "scout",
     ) -> Task:
         with patch(DISPATCH):
             task = Task.create_and_run(
@@ -232,7 +232,7 @@ class TestScoutToolPolicyAPI(APIBaseTest):
         _name: str,
         allowlist: list[str] | None,
         origin_product: Task.OriginProduct,
-        agent_key: MCPBuiltInAgentKey | None,
+        agent_key: Literal["scout"] | None,
     ) -> None:
         task = self._scout_client(allowlist=allowlist, origin_product=origin_product, agent_key=agent_key)
 

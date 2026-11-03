@@ -1059,6 +1059,26 @@ describe("AgentServer HTTP Mode", () => {
       },
     );
 
+    it.each(["task", "run"])(
+      "does not start an unrestricted agent when %s context remains unavailable",
+      async (missing) => {
+        const path =
+          missing === "task"
+            ? "http://localhost:8000/api/projects/:projectId/tasks/:taskId/"
+            : "http://localhost:8000/api/projects/:projectId/tasks/:taskId/runs/:runId/";
+        mswServer.use(
+          http.get(path, () => new HttpResponse(null, { status: 503 })),
+        );
+        mockedClaudeSdk.query.mockClear();
+        const s = createServer({ runtimeAdapter: "claude" });
+
+        await s.start();
+        const response = await fetch(`http://localhost:${port}/health`);
+        expect(await response.json()).toMatchObject({ readiness: "failed" });
+        expect(mockedClaudeSdk.query).not.toHaveBeenCalled();
+      },
+    );
+
     it("keeps the run-state system prompt after a transient run fetch failure", async () => {
       let attempts = 0;
       mswServer.use(
