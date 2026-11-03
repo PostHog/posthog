@@ -26,6 +26,14 @@
                     <td>Deactivate organizations from pasted IDs after a preview step</td>
                 </tr>
             {% endif %}
+            {% if perms.posthog.change_instancesetting %}
+                <tr class="model-aiobservabilitydatasetretention">
+                    <th scope="row">
+                        <a href="{% url 'admin:ai-observability-dataset-retention' %}">AI observability dataset retention</a>
+                    </th>
+                    <td>Enable or disable automatic dataset cleanup in this region</td>
+                </tr>
+            {% endif %}
         </table>
     </div>
 {% endif %}

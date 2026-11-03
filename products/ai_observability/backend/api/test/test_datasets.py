@@ -22,7 +22,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from products.ai_observability.backend.api.dataset_exports import DATASET_EXPORT_STUCK_MESSAGE
 from products.ai_observability.backend.dataset_service import create_dataset
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItem, DatasetItemVersion, DatasetRevision
-from products.exports.backend.facade.api import DATASET_EXPORT_KIND, ExportedAsset
+from products.exports.backend.facade.api import DATASET_EXPORT_KIND, JSONL_EXPORT_FORMAT, ExportedAsset
 
 
 class TestDatasetsApi(APIBaseTest):
@@ -101,12 +101,20 @@ class TestDatasetsApi(APIBaseTest):
         dataset = self._create_dataset()
         first = self._create_item(dataset["id"])
         self._create_item(dataset["id"], input="Second item")
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            created_by=self.user,
+            export_format=JSONL_EXPORT_FORMAT,
+            export_context={"kind": DATASET_EXPORT_KIND, "dataset_id": dataset["id"], "dataset_revision": 1},
+            content=b'{"input":"Expired snapshot"}\n',
+        )
         DatasetRevision.objects.for_team(self.team.id, canonical=True).filter(id=first["dataset_revision_id"]).update(
             expired_at=now()
         )
         for url, query in [
             (self.items_url, {"dataset": dataset["id"], "revision": 1}),
             (f"{self.items_url}{first['id']}/", {"revision": 1}),
+            (f"{self.datasets_url}{dataset['id']}/exports/{asset.id}/content/", {}),
         ]:
             self.assertEqual(self.client.get(url, query).status_code, status.HTTP_404_NOT_FOUND)
         revisions = self.client.get(f"{self.datasets_url}{dataset['id']}/revisions/")

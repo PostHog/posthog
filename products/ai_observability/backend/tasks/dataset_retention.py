@@ -21,7 +21,7 @@ def expire_datasets() -> None:
     status = "failed"
     try:
         sweep.run()
-        status = "completed_with_errors" if sweep.datasets_failed else "completed"
+        status = "disabled" if sweep.disabled else "completed_with_errors" if sweep.datasets_failed else "completed"
     finally:
         properties = {
             "run_id": str(uuid4()),

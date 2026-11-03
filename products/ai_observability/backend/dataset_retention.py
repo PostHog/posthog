@@ -1,6 +1,7 @@
 import time
 from collections.abc import Sequence
 from datetime import datetime, timedelta
+from functools import partial
 from uuid import UUID
 
 from django.db import transaction
@@ -10,6 +11,8 @@ from django.utils import timezone
 
 import structlog
 from celery.exceptions import SoftTimeLimitExceeded
+
+from posthog.models.instance_setting import get_instance_settings
 
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItem, DatasetItemVersion, DatasetRevision
 from products.ai_observability.backend.models.offline_evaluations import OfflineExperiment, OfflineExperimentItem
@@ -23,6 +26,11 @@ EXPIRING_SOON_WINDOW = timedelta(days=7)
 BATCH_SIZE = 500
 MAX_DATASETS_PER_RUN = 100
 TIME_BUDGET_SECONDS = 180
+RETENTION_ENABLED_SETTING = "AI_OBSERVABILITY_DATASET_RETENTION_ENABLED"
+
+
+def dataset_retention_enabled() -> bool:
+    return get_instance_settings([RETENTION_ENABLED_SETTING])[RETENTION_ENABLED_SETTING] is True
 
 
 class DatasetRetentionPolicy:
@@ -131,21 +139,28 @@ class DatasetRetention:
         self.datasets_deleted = 0
         self.datasets_failed = 0
         self.budget_exhausted = False
+        self.disabled = False
 
     @staticmethod
     def _uploading_revisions(team_id: int) -> QuerySet[OfflineExperiment]:
-        return OfflineExperiment.objects.for_team(team_id).filter(status=OfflineExperiment.Status.UPLOADING)
+        cutoff = timezone.now() - HISTORY_RETENTION - USAGE_REFRESH_INTERVAL
+        return (
+            OfflineExperiment.objects.for_team(team_id)
+            .filter(status=OfflineExperiment.Status.UPLOADING)
+            .filter(Q(dataset_revision__last_used_at__isnull=True) | Q(dataset_revision__last_used_at__gt=cutoff))
+        )
 
     @staticmethod
-    def _unused_versions(dataset: Dataset, cutoff: datetime) -> QuerySet[DatasetItemVersion]:
-        versions = DatasetItemVersion.objects.for_team(dataset.team_id, canonical=True).filter(dataset_id=dataset.id)
+    def _unused_versions(
+        versions: QuerySet[DatasetItemVersion], revisions: QuerySet[DatasetRevision], cutoff: datetime
+    ) -> QuerySet[DatasetItemVersion]:
         next_revision = (
             versions.filter(dataset_item_id=OuterRef("dataset_item_id"), version__gt=OuterRef("version"))
             .order_by("version")
             .values("dataset_revision__revision")[:1]
         )
-        retained_revision = DatasetRevision.objects.for_team(dataset.team_id, canonical=True).filter(
-            dataset_id=dataset.id,
+        retained_revision = revisions.filter(
+            dataset_id=OuterRef("dataset_id"),
             expired_at__isnull=True,
             revision__gte=OuterRef("dataset_revision__revision"),
             revision__lt=OuterRef("next_revision_number"),
@@ -246,7 +261,9 @@ class DatasetRetention:
             .values_list("id", flat=True)[:BATCH_SIZE]
         )
         expired_count = revisions.filter(id__in=revision_ids).update(expired_at=now)
-        ids = list(self._unused_versions(dataset, cutoff).order_by("id").values_list("id", flat=True)[:BATCH_SIZE])
+        ids = list(
+            self._unused_versions(versions, revisions, cutoff).order_by("id").values_list("id", flat=True)[:BATCH_SIZE]
+        )
         self._delete_versions(dataset, ids)
         # Keep revision identities while a surviving version or an evaluation still references them.
         removable_revisions = revisions.filter(expired_at__isnull=False).filter(
@@ -261,6 +278,7 @@ class DatasetRetention:
 
     def _clean_dataset(self, team_id: int, dataset_id: UUID) -> None:
         failure: Exception | None = None
+        before = (self.datasets_expired, self.revisions_expired, self.versions_deleted, self.datasets_deleted)
         with transaction.atomic():
             dataset = (
                 Dataset.objects.for_team(team_id, canonical=True)
@@ -277,20 +295,51 @@ class DatasetRetention:
             try:
                 with transaction.atomic():
                     self._clean_dataset_contents(dataset)
+                    counts = {
+                        "datasets_expired": self.datasets_expired - before[0],
+                        "revisions_expired": self.revisions_expired - before[1],
+                        "versions_deleted": self.versions_deleted - before[2],
+                        "datasets_deleted": self.datasets_deleted - before[3],
+                    }
+                    if any(counts.values()):
+                        transaction.on_commit(
+                            partial(
+                                logger.info,
+                                "dataset_retention_dataset_cleaned",
+                                team_id=team_id,
+                                dataset_id=str(dataset_id),
+                                **counts,
+                            )
+                        )
             except Exception as error:
                 failure = error
         if failure is not None:
             raise failure
 
     def run(self) -> None:
+        if not dataset_retention_enabled():
+            self.disabled = True
+            return
         deadline = time.monotonic() + TIME_BUDGET_SECONDS
         now = timezone.now()
         history_cutoff = now - HISTORY_RETENTION - USAGE_REFRESH_INTERVAL
         active_cutoff = now - ACTIVE_RETENTION - USAGE_REFRESH_INTERVAL
         old_revisions = (
             DatasetRevision.objects.unscoped()
+            .filter(expired_at__isnull=True)
             .filter(Q(last_used_at__isnull=True) | Q(last_used_at__lte=history_cutoff))
             .exclude(id=F("dataset__current_revision_id"))
+        )
+        unused_versions = self._unused_versions(
+            DatasetItemVersion.objects.unscoped(), DatasetRevision.objects.unscoped(), history_cutoff
+        )
+        empty_revisions = (
+            DatasetRevision.objects.unscoped()
+            .filter(expired_at__isnull=False)
+            .filter(
+                ~Exists(DatasetItemVersion.objects.unscoped().filter(dataset_revision_id=OuterRef("id"))),
+                ~Exists(OfflineExperiment.objects.unscoped().filter(dataset_revision_id=OuterRef("id"))),
+            )
         )
         candidates = (
             Dataset.objects.unscoped()
@@ -299,12 +348,17 @@ class DatasetRetention:
                 | Q(last_used_at__isnull=True)
                 | Q(archived=True, last_used_at__lte=history_cutoff)
                 | Q(archived=False, last_used_at__lte=active_cutoff)
-                | Q(id__in=old_revisions.values("dataset_id"))
+                | Q(Exists(old_revisions.filter(dataset_id=OuterRef("id"))))
+                | Q(Exists(unused_versions.filter(dataset_id=OuterRef("id"))))
+                | Q(Exists(empty_revisions.filter(dataset_id=OuterRef("id"))))
             )
             .order_by(F("retention_checked_at").asc(nulls_first=True), "id")
             .values_list("id", "team_id")[:MAX_DATASETS_PER_RUN]
         )
         for dataset_id, team_id in candidates:
+            if not dataset_retention_enabled():
+                self.disabled = True
+                break
             if time.monotonic() >= deadline:
                 self.budget_exhausted = True
                 break

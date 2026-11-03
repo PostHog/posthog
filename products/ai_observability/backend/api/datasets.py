@@ -1006,20 +1006,11 @@ class DatasetViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, GenericV
                 {"detail": "The export is still being prepared."},
                 status=status.HTTP_409_CONFLICT,
             )
-        response = get_export_asset_content_response(asset=asset, download=True)
-        revision = (
-            DatasetRevision.objects.for_team(self.team.id, canonical=True)
-            .filter(
-                dataset_id=dataset.id,
-                revision=int((asset.export_context or {})["dataset_revision"]),
-                expired_at__isnull=True,
-            )
-            .first()
-        )
         try:
-            DatasetUsage.record(dataset, revision)
+            DatasetUsage.read_revision(dataset, int((asset.export_context or {})["dataset_revision"]))
         except (Dataset.DoesNotExist, DatasetRevision.DoesNotExist) as error:
             raise Http404("Dataset revision not found.") from error
+        response = get_export_asset_content_response(asset=asset, download=True)
         self._report_action(
             "llma dataset export downloaded",
             dataset,

@@ -1,6 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from unittest.mock import patch
 
@@ -13,11 +13,13 @@ from celery.exceptions import SoftTimeLimitExceeded
 from parameterized import parameterized
 
 from posthog.models import Organization, Team
+from posthog.models.instance_setting import override_instance_config, set_instance_setting
 
 from products.ai_observability.backend.dataset_queries import dataset_item_versions_at_revision
 from products.ai_observability.backend.dataset_retention import (
     ACTIVE_RETENTION,
     HISTORY_RETENTION,
+    RETENTION_ENABLED_SETTING,
     USAGE_REFRESH_INTERVAL,
     DatasetRetention,
     DatasetRetentionPolicy,
@@ -30,6 +32,7 @@ from products.ai_observability.backend.dataset_service import (
     archive_dataset_item,
     create_dataset,
     create_dataset_item,
+    restore_dataset_item,
     update_dataset_item,
 )
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItemVersion, DatasetRevision
@@ -124,7 +127,17 @@ class TestDatasetRetention(TestCase):
     def test_shared_version_survives_expired_introducing_revision(self) -> None:
         first = self.create_item()
         second = self.create_item("Second item")
+        self.update_item(first)
         self.age_history()
+        second.version.dataset_revision.last_used_at = timezone.now()
+        second.version.dataset_revision.save(update_fields=["last_used_at"])
+        snapshot = dataset_item_versions_at_revision(
+            team_id=self.team.id,
+            dataset_id=self.dataset.id,
+            revision=second.version.dataset_revision.revision,
+            archived=False,
+        )
+        before = list(snapshot.values_list("id", flat=True))
         DatasetRetention().run()
 
         first.version.dataset_revision.refresh_from_db()
@@ -139,6 +152,7 @@ class TestDatasetRetention(TestCase):
             archived=False,
         )
         self.assertCountEqual(snapshot.values_list("id", flat=True), [first.version.id, second.version.id])
+        self.assertCountEqual(snapshot.values_list("id", flat=True), before)
         with self.assertRaises(DatasetRevision.DoesNotExist):
             DatasetUsage.read_revision(self.dataset, first.version.dataset_revision.revision)
 
@@ -162,9 +176,23 @@ class TestDatasetRetention(TestCase):
             team_id=self.team.id, dataset_id=self.dataset.id, item_id=first.item.id, created_by=None, base_version=1
         )
         second = self.create_item("Second item")
+        restore_dataset_item(
+            team_id=self.team.id, dataset_id=self.dataset.id, item_id=first.item.id, created_by=None, base_version=2
+        )
+        self.dataset.refresh_from_db()
         self.age_history()
         first.version.dataset_revision.last_used_at = timezone.now()
         first.version.dataset_revision.save(update_fields=["last_used_at"])
+        second.version.dataset_revision.last_used_at = timezone.now()
+        second.version.dataset_revision.save(update_fields=["last_used_at"])
+        before = list(
+            dataset_item_versions_at_revision(
+                team_id=self.team.id,
+                dataset_id=self.dataset.id,
+                revision=second.version.dataset_revision.revision,
+                archived=False,
+            ).values_list("id", flat=True)
+        )
         DatasetRetention().run()
         self.assertTrue(
             DatasetItemVersion.objects.for_team(self.team.id, canonical=True).filter(id=archived.version.id).exists()
@@ -176,6 +204,7 @@ class TestDatasetRetention(TestCase):
             archived=False,
         )
         self.assertEqual(list(snapshot.values_list("id", flat=True)), [second.version.id])
+        self.assertEqual(list(snapshot.values_list("id", flat=True)), before)
 
     def test_using_history_protects_only_the_requested_revision(self) -> None:
         first = self.create_item()
@@ -248,6 +277,8 @@ class TestDatasetRetention(TestCase):
         )
         self.update_item(first)
         self.age_history()
+        first.version.dataset_revision.last_used_at = timezone.now()
+        first.version.dataset_revision.save(update_fields=["last_used_at"])
         self.dataset.last_used_at = self.old
         self.dataset.save()
         DatasetRetention().run()
@@ -298,6 +329,125 @@ class TestDatasetRetention(TestCase):
             self.assertTrue(Dataset.objects.for_team(self.team.id, canonical=True).filter(id=other.id).exists())
             DatasetRetention().run()
         self.assertFalse(Dataset.objects.for_team(self.team.id, canonical=True).filter(id=other.id).exists())
+
+    def test_expired_shared_history_no_longer_uses_a_cleanup_slot(self) -> None:
+        first = self.create_item()
+        self.create_item("Second item")
+        self.age_history()
+        DatasetRetention().run()
+        self.dataset.refresh_from_db()
+        first.version.dataset_revision.refresh_from_db()
+        self.assertIsNotNone(first.version.dataset_revision.expired_at)
+        other = Dataset.objects.for_team(self.team.id, canonical=True).create(
+            team=self.team, name="Needs cleanup", last_used_at=self.old, retention_checked_at=timezone.now()
+        )
+        checked_at = self.dataset.retention_checked_at
+        with patch("products.ai_observability.backend.dataset_retention.MAX_DATASETS_PER_RUN", 1):
+            DatasetRetention().run()
+        self.assertFalse(Dataset.objects.for_team(self.team.id, canonical=True).filter(id=other.id).exists())
+        self.dataset.refresh_from_db()
+        self.assertEqual(self.dataset.retention_checked_at, checked_at)
+
+    @parameterized.expand([("active", False), ("abandoned", True)])
+    def test_upload_protection_uses_snapshot_activity(self, _name: str, abandoned: bool) -> None:
+        first = self.create_item()
+        experiment = (
+            OfflineExperimentService(team_id=self.team.id, user_access_control=None)
+            .create(
+                ExperimentSubmission(
+                    id=uuid4(),
+                    name="Upload activity",
+                    started_at=self.old,
+                    dataset_revision_id=first.version.dataset_revision_id,
+                )
+            )
+            .experiment
+        )
+        OfflineExperiment.objects.for_team(self.team.id).filter(id=experiment.id).update(created_at=self.old)
+        self.dataset.last_used_at = self.old
+        self.dataset.save(update_fields=["last_used_at"])
+        if abandoned:
+            self.age_history()
+        DatasetRetention().run()
+        self.dataset.refresh_from_db()
+        self.assertEqual(self.dataset.expired_at is not None, abandoned)
+        experiment.refresh_from_db()
+        self.assertEqual(experiment.status, OfflineExperiment.Status.UPLOADING)
+
+    def test_result_only_upload_refreshes_snapshot_activity(self) -> None:
+        first = self.create_item()
+        experiment = (
+            OfflineExperimentService(team_id=self.team.id, user_access_control=None)
+            .create(
+                ExperimentSubmission(
+                    id=uuid4(),
+                    name="Result batches",
+                    started_at=self.old,
+                    dataset_revision_id=first.version.dataset_revision_id,
+                )
+            )
+            .experiment
+        )
+        ingestion = OfflineEvaluationIngestionService(team_id=self.team.id, user_access_control=None)
+        item_id = uuid4()
+        ingestion.upload(
+            experiment.id,
+            UploadSubmission(items=[ItemSubmission(id=item_id, dataset_item_version_id=first.version.id)], results=[]),
+        )
+        definition = ScoreDefinition.objects.create(team=self.team, name="Quality", kind="numeric")
+        scorer = definition.create_new_version(config={}, created_by=None)
+        self.age_history()
+        self.dataset.last_used_at = self.old
+        self.dataset.save(update_fields=["last_used_at"])
+        ingestion.upload(
+            experiment.id,
+            UploadSubmission(
+                items=[],
+                results=[ResultSubmission(item_id=item_id, scorer_version_id=scorer.id, status="ok", value=1.0)],
+            ),
+        )
+        DatasetRetention().run()
+        first.version.dataset_revision.refresh_from_db()
+        self.dataset.refresh_from_db()
+        self.assertIsNone(self.dataset.expired_at)
+        self.assertIsNone(first.version.dataset_revision.expired_at)
+        assert first.version.dataset_revision.last_used_at is not None
+        self.assertGreater(first.version.dataset_revision.last_used_at, self.old)
+
+    def test_disabled_cleanup_preserves_pending_deletions_and_can_resume(self) -> None:
+        self.create_item()
+        self.dataset.expired_at = timezone.now()
+        self.dataset.save(update_fields=["expired_at"])
+        with override_instance_config(RETENTION_ENABLED_SETTING, False):
+            sweep = DatasetRetention()
+            sweep.run()
+            self.assertTrue(sweep.disabled)
+            self.assertTrue(DatasetItemVersion.objects.for_team(self.team.id).filter(dataset=self.dataset).exists())
+            set_instance_setting(RETENTION_ENABLED_SETTING, True)
+            DatasetRetention().run()
+            self.assertFalse(DatasetItemVersion.objects.for_team(self.team.id).filter(dataset=self.dataset).exists())
+
+    def test_disabling_during_a_sweep_stops_before_the_next_dataset(self) -> None:
+        other = Dataset.objects.for_team(self.team.id, canonical=True).create(
+            team=self.team, name="Next dataset", last_used_at=self.old, retention_checked_at=timezone.now()
+        )
+        self.dataset.last_used_at = self.old
+        self.dataset.save(update_fields=["last_used_at"])
+        clean_dataset = DatasetRetention._clean_dataset
+
+        def disable_after_cleanup(sweep: DatasetRetention, team_id: int, dataset_id: UUID) -> None:
+            clean_dataset(sweep, team_id, dataset_id)
+            set_instance_setting(RETENTION_ENABLED_SETTING, False)
+
+        with (
+            override_instance_config(RETENTION_ENABLED_SETTING, True),
+            patch.object(DatasetRetention, "_clean_dataset", disable_after_cleanup),
+        ):
+            sweep = DatasetRetention()
+            sweep.run()
+        self.assertTrue(sweep.disabled)
+        self.assertFalse(Dataset.objects.for_team(self.team.id).filter(id=self.dataset.id).exists())
+        self.assertTrue(Dataset.objects.for_team(self.team.id).filter(id=other.id).exists())
 
     @parameterized.expand([("dataset", True), ("history", False)])
     def test_evaluation_references_are_detached_in_batches(self, _name: str, expire_dataset: bool) -> None:
@@ -370,7 +520,19 @@ class TestDatasetRetention(TestCase):
         self.dataset.save()
         with patch("products.ai_observability.backend.dataset_retention.BATCH_SIZE", 1):
             sweep = DatasetRetention()
-            sweep.run()
+            with patch("products.ai_observability.backend.dataset_retention.logger.info") as log:
+                with self.captureOnCommitCallbacks(execute=True):
+                    sweep.run()
+                    log.assert_not_called()
+                log.assert_called_once_with(
+                    "dataset_retention_dataset_cleaned",
+                    team_id=self.team.id,
+                    dataset_id=str(self.dataset.id),
+                    datasets_expired=1,
+                    revisions_expired=0,
+                    versions_deleted=1,
+                    datasets_deleted=0,
+                )
             self.assertEqual(sweep.versions_deleted, 1)
             self.dataset.refresh_from_db()
             self.assertIsNotNone(self.dataset.expired_at)
@@ -405,12 +567,15 @@ class TestDatasetRetention(TestCase):
         with (
             patch("products.ai_observability.backend.dataset_retention.MAX_DATASETS_PER_RUN", max_datasets),
             patch("django.db.models.query.QuerySet.delete", side_effect=error_type("Injected failure")),
+            patch("products.ai_observability.backend.dataset_retention.logger.info") as log,
+            self.captureOnCommitCallbacks(execute=True),
         ):
             if error_type is SoftTimeLimitExceeded:
                 with self.assertRaises(SoftTimeLimitExceeded):
                     sweep.run()
             else:
                 sweep.run()
+        self.assertFalse(any(call.kwargs.get("dataset_id") == str(self.dataset.id) for call in log.call_args_list))
         self.assertEqual(sweep.datasets_failed, 1)
         self.assertEqual(sweep.versions_deleted, 0)
         self.dataset.refresh_from_db()

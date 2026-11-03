@@ -1,5 +1,6 @@
 import re
 from datetime import UTC, timedelta
+from functools import partial
 from typing import Any
 from uuid import UUID
 
@@ -35,6 +36,7 @@ from posthog.person_db_router import PERSONS_DB_MODELS
 from posthog.tasks.ai_observability_usage_report import internal_reporting_team_id
 from posthog.utils import pluralize
 
+from products.ai_observability.backend.facade.admin import dataset_retention_view
 from products.batch_exports.backend.facade import api as batch_exports_api
 from products.batch_exports.backend.facade.contracts import BATCH_EXPORT_MODEL_LABEL
 
@@ -623,6 +625,11 @@ class OrganizationAdmin(admin.ModelAdmin):
                 "send-ai-observability-usage-report/",
                 self.admin_site.admin_view(self.send_ai_observability_usage_report_view),
                 name="send-ai-observability-usage-report",
+            ),
+            path(
+                "ai-observability-dataset-retention/",
+                self.admin_site.admin_view(partial(dataset_retention_view, admin_site=self.admin_site)),
+                name="ai-observability-dataset-retention",
             ),
             path(
                 "bulk-deactivate/",

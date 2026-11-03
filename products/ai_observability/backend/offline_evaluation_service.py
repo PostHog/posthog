@@ -522,6 +522,10 @@ class OfflineEvaluationIngestionService(_OfflineEvaluationService):
             results[ResultIdentity(item_id=result.item_id, scorer_version_id=result.scorer_version_id)] = row
         if errors:
             raise OfflineEvaluationValidationError.from_errors(errors)
+        if new_results and not new_item_submissions and experiment.dataset_revision_id is not None:
+            revision = self._dataset_revisions().filter(id=experiment.dataset_revision_id).first()
+            if revision is not None:
+                DatasetUsage.record(revision.dataset, revision)
         OfflineExperimentItem.objects.for_team(self.team_id).bulk_create(new_items)
         new_item_ids = {item.id for item in new_items}
         OfflineExperimentItemPayload.objects.for_team(self.team_id).bulk_create(
