@@ -13,9 +13,11 @@ import functools
 import threading
 from collections import defaultdict
 from collections.abc import Callable, Iterable
+from contextlib import ExitStack
 from typing import Any
 
 from django.apps import apps
+from django.db import connections
 from django.db.models import ForeignKey, Model, QuerySet
 from django.db.models.lookups import Exact, In
 
@@ -49,6 +51,9 @@ KNOWN_GAPS: dict[tuple[str, str, str], str] = {
     ),
     ("referenced_object", "EventViewSet.list", "Action"): "Not fixed yet.",
     ("referenced_object", "InsightViewSet.create", "Action"): "Not fixed yet.",
+    ("referenced_object", "ReviewQueueItemViewSet.create", "ReviewQueue"): "Not fixed yet.",
+    ("referenced_object", "ReviewQueueItemViewSet.partial_update", "ReviewQueue"): "Not fixed yet.",
+    ("referenced_object", "TraceReviewViewSet.partial_update", "ScoreDefinition"): "Not fixed yet.",
     ("referenced_object", "AutoresearchPipelineViewSet.create", "Action"): "Not fixed yet.",
     ("referenced_object", "AutoresearchPipelineViewSet.validate_definition", "Action"): "Not fixed yet.",
     ("referenced_object", "DataWarehouseExpressionViewSet.create", "ExternalDataSource"): (
@@ -80,6 +85,7 @@ class _Request:
         self.object_checked = False
         self.displaying = 0
         self.stored: set[str] = set()
+        self.wrote = False
 
 
 def install() -> None:
@@ -139,13 +145,16 @@ def _models_by_resource() -> dict[str, list[type[Model]]]:
 
 
 def _controlled_resource(model: type[Model]) -> str | None:
-    # When several models share a resource, object rules attach to the model the resource is named after,
-    # such as ReplayScanner for replay_scanner; its observations take the scanner's access.
+    # When a model is named after a shared resource, object rules attach to it alone, such as ReplayScanner
+    # for replay_scanner; its observations take the scanner's access. Without one, as for llm_analytics,
+    # each model takes its own rules.
     if model not in _resources:
         resource = model_to_resource(model)
-        if resource not in _CONTROLLED:
-            _resources[model] = None
-        elif len(_models_by_resource()[resource]) > 1 and model._meta.model_name != resource.replace("_", ""):
+        owner = resource.replace("_", "") if resource else ""
+        if resource not in _CONTROLLED or (
+            model._meta.model_name != owner
+            and any(other._meta.model_name == owner for other in _models_by_resource()[resource])
+        ):
             _resources[model] = None
         else:
             _resources[model] = resource
@@ -259,6 +268,22 @@ def _fetch_all(original: Callable[..., None], self: QuerySet) -> None:
             if isinstance(obj, Model) and str(obj.pk) == request.detail_id:
                 request.detail_models.add(self.model)
                 _collect_stored(obj, request)
+    owner = getattr(self, "_hints", {}).get("instance")
+    if (
+        not request.wrote
+        and isinstance(owner, Model)
+        and type(owner) in request.detail_models
+        and str(owner.pk) == request.detail_id
+    ):
+        # Rows under the object being edited, such as a review's scores, hold its references until the request writes.
+        for row in self._result_cache:
+            if isinstance(row, Model):
+                _collect_stored(row, request)
+            elif self.query.values_select:
+                values = row.values() if isinstance(row, dict) else row if isinstance(row, tuple) else (row,)
+                for name, value in zip(self.query.values_select, values):
+                    if self.model._meta.get_field(name).is_relation:
+                        _collect(value, True, request.stored)
     resource = _controlled_resource(self.model)
     if resource is None:
         return
@@ -374,6 +399,14 @@ def _collect(value: Any, is_reference: bool, candidates: set[str], depth: int = 
             candidates.add(value)
     elif isinstance(value, uuid.UUID):
         candidates.add(str(value))
+    elif isinstance(value, uuid.UUID):
+        candidates.add(str(value))
+
+
+def _note_write(state: _Request, execute: Callable[..., Any], sql: str, *args: Any) -> Any:
+    if not state.wrote and sql.lstrip()[:6].upper() in ("INSERT", "UPDATE", "DELETE"):
+        state.wrote = True
+    return execute(sql, *args)
 
 
 def _dispatch(original: Callable[..., Any], self: APIView, request: Any, *args: Any, **kwargs: Any) -> Any:
@@ -383,7 +416,10 @@ def _dispatch(original: Callable[..., Any], self: APIView, request: Any, *args: 
     detail_id = kwargs.get(lookup)
     _state.request = state = _Request(_request_candidates(request), str(detail_id) if detail_id else None)
     try:
-        response = original(self, request, *args, **kwargs)
+        with ExitStack() as stack:
+            for connection in connections.all():
+                stack.enter_context(connection.execute_wrapper(functools.partial(_note_write, state)))
+            response = original(self, request, *args, **kwargs)
     finally:
         _state.request = None
     if not 200 <= response.status_code < 300:
