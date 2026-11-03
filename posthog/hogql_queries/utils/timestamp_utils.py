@@ -54,8 +54,11 @@ def _get_data_warehouse_earliest_timestamp_query(
     :param node: The DataWarehouseNode
     :return: A SelectQuery object that retrieves the earliest timestamp from the specified data warehouse table.
     """
+    # Insights compare a String timestamp column as parsed dates. min() on the raw String sorts it as
+    # text, so for a format like MM/DD/YYYY it returns a later date and "All time" drops older rows.
+    timestamp = ast.Call(name="toDateTime", args=[ast.Field(chain=[node.timestamp_field])])
     return ast.SelectQuery(
-        select=[ast.Call(name="min", args=[ast.Field(chain=[node.timestamp_field])])],
+        select=[ast.Call(name="min", args=[timestamp])],
         select_from=ast.JoinExpr(table=ast.Field(chain=[node.table_name])),
     )
 

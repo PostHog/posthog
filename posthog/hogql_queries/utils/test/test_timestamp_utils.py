@@ -38,6 +38,7 @@ from posthog.models.instance_setting import override_instance_config
 from posthog.models.team import WeekStartDay
 
 from products.actions.backend.models.action import Action
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -464,6 +465,31 @@ class TestTimestampUtils(APIBaseTest, ClickhouseDestroyTablesMixin):
         self.assertEqual(result, expected)
         # Must be timezone-aware so it can be compared against the tz-aware date_to.
         self.assertIsNotNone(result.tzinfo)
+
+    def test_data_warehouse_all_time_orders_string_timestamps_as_dates(self):
+        for timestamp in ("2023-12-30T09:00:00Z", "2026-01-15T09:00:00Z"):
+            _create_event(team=self.team, event="order_placed", distinct_id="person1", timestamp=timestamp)
+        flush_persons_and_events()
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="orders_view",
+            query={
+                "kind": "HogQLQuery",
+                "query": "SELECT formatDateTime(timestamp, '%m/%d/%Y') AS created_at FROM events",
+            },
+            columns={"created_at": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True}},
+        )
+        node = DataWarehouseNode(
+            id="orders_view",
+            table_name="orders_view",
+            id_field="created_at",
+            distinct_id_field="created_at",
+            timestamp_field="created_at",
+        )
+
+        earliest_timestamp = get_earliest_timestamp_from_series(self.team, [node])
+
+        self.assertEqual(earliest_timestamp, datetime.datetime(2023, 12, 30, tzinfo=datetime.UTC))
 
     @parameterized.expand(
         [
