@@ -6,7 +6,7 @@ from unittest.mock import patch
 from django.core.cache import cache
 from django.db import IntegrityError
 from django.http import JsonResponse
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -21,6 +21,7 @@ from posthog.test.authentication_checks import covers_authentication
 from ee.api.agentic_provisioning.analytics import capture_provisioning_event
 from ee.api.agentic_provisioning.authentication import ProvisioningAuthentication
 from ee.api.agentic_provisioning.constants import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX
+from ee.api.agentic_provisioning.serializers import AccountRequestSerializer
 from ee.api.agentic_provisioning.test.base import (
     TEST_PARTNER_CLIENT_ID,
     TEST_PARTNER_JWKS_URI,
@@ -455,3 +456,30 @@ class TestCaptureProvisioningEvent(ProvisioningTestBase):
         else:
             assert "client_name" not in props
             assert "partner_id" not in props
+
+
+class TestAccountRequestEmail(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("uppercase_domain", "Jane@Example.ORG", "Jane@example.org"),
+            ("internationalized_domain", "jane@B\u00fccher.de", "jane@xn--bcher-kva.de"),
+        ]
+    )
+    def test_email_domain_is_normalized(self, _name, raw, expected):
+        serializer = AccountRequestSerializer(data={"email": raw})
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["email"] == expected
+
+    @parameterized.expand(
+        [
+            ("not_an_email", "not-an-email"),
+            ("trailing_dot", "jane@example.org."),
+            ("fullwidth_dot", "jane@example\uff0eorg"),
+            ("ideographic_dot", "jane@example\u3002org"),
+            ("too_long", f"{'j' * 250}@example.org"),
+        ]
+    )
+    def test_invalid_email_is_rejected(self, _name, raw):
+        serializer = AccountRequestSerializer(data={"email": raw})
+        assert not serializer.is_valid()
+        assert "email" in serializer.errors

@@ -46,12 +46,13 @@ class AccountRequestSerializer(serializers.Serializer):
         default="",
         help_text="Partner-side account request id, echoed back for idempotency.",
     )
-    email = serializers.CharField(
+    email = serializers.EmailField(
         required=False,
         allow_blank=True,
         allow_null=True,
         default=None,
-        help_text="Email of the account to create or link. Required.",
+        max_length=254,
+        help_text="Email of the account to create or link. Required. The domain is stored in lowercase ASCII form.",
     )
     name = serializers.CharField(
         required=False, allow_blank=True, allow_null=True, default="", help_text="Display name of the end user."
@@ -90,6 +91,18 @@ class AccountRequestSerializer(serializers.Serializer):
         default="S256",
         help_text="PKCE challenge method; only S256 is supported.",
     )
+
+    def validate_email(self, value: str | None) -> str | None:
+        # Radar and the account both see the domain that mail goes to, so a fullwidth dot or
+        # an uppercase domain cannot present a blocked domain under a form Radar does not match.
+        if not value:
+            return value
+        local_part, _, domain = value.rpartition("@")
+        try:
+            ascii_domain = domain.encode("idna").decode("ascii")
+        except UnicodeError:
+            raise serializers.ValidationError("Enter a valid email address.")
+        return f"{local_part}@{ascii_domain.lower()}"
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         # Treat explicit null on optional fields as absent, so downstream code
