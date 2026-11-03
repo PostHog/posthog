@@ -16,18 +16,47 @@ use std::collections::{BTreeMap, HashMap};
 use aho_corasick::{AhoCorasick, AhoCorasickKind, MatchKind};
 use metrics::counter;
 use posthog_replay_anonymizer::v4_image_refs::{
-    url_declined_marker, ImageDecline, IMAGE_DECLINED_PREFIX,
+    bundled_font_ref, ImageDecline, FONT_URL_UNCHECKED_MARKER, IMAGE_DECLINED_PREFIX,
 };
 use replay_core_v4::bytescan::{unescape, write_json_string, Span};
-use replay_core_v4::inspect::css::{escape_in_identifier, rewrite_functions, CssRewrite};
-use replay_core_v4::inspect::dom::{for_each_srcset_candidate, Srcset};
+use replay_core_v4::inspect::css::{
+    escape_in_identifier, rewrite_font_src_functions, rewrite_functions, CssRewrite,
+};
+use replay_core_v4::inspect::dom::{for_each_srcset_candidate, RemoteKind, RemoteUrl, Srcset};
 use replay_core_v4::inspect::srcset::shown_candidate;
+use replay_core_v4::refs::{declined_url_ref, UrlAsset};
 use replay_core_v4::scan::tokens::{Token, Tokens};
 use replay_core_v4::seal::image_url_key;
 use replay_core_v4::url_policy::is_remote;
 
 use crate::scrub::{Scrub, Scrubber};
 use crate::urls::url_reference;
+
+/// The text that replaces `url` in the block, and the policy's reason when it declines the URL.
+fn named_as(
+    url: &str,
+    kind: RemoteKind,
+    team_id: i64,
+    key_month: &str,
+    url_key: &[u8; 32],
+) -> (String, Option<&'static str>) {
+    let asset = match kind {
+        RemoteKind::Image => UrlAsset::Image,
+        RemoteKind::Font | RemoteKind::BundledFont(_) => UrlAsset::Font,
+    };
+    match (kind, url_reference(url, asset, team_id, key_month, url_key)) {
+        // The marker names no URL, but a declined URL keeps its reason, so that a copy inside a longer token is replaced too.
+        (RemoteKind::BundledFont(slug), named) => (
+            bundled_font_ref(slug),
+            named.err().map(|decline| decline.label()),
+        ),
+        (_, Ok((_, reference))) => (reference, None),
+        (_, Err(decline)) => (
+            declined_url_ref(asset, decline.into()),
+            Some(decline.label()),
+        ),
+    }
+}
 
 /// A byte that a URL can go on with. A match next to one is part of a longer URL, so it stays as it is. A comma, a
 /// parenthesis or a quote can be in a URL too, but in a srcset or a CSS `url()` it ends one.
@@ -197,6 +226,11 @@ impl Iterator for CssStrings<'_> {
     }
 }
 
+/// CSS escapes can spell `font-face` in many ways, but never its `@`.
+fn holds_at_rule(bytes: &[u8]) -> bool {
+    bytes.contains(&b'@')
+}
+
 /// The metric label of a rewrite: the inspector rewrites a whole `url()` only to resolve a relative URL.
 fn css_rewrite_kind(text: &str) -> &'static str {
     if text
@@ -211,6 +245,7 @@ fn css_rewrite_kind(text: &str) -> &'static str {
 
 struct Target {
     url: String,
+    kind_label: &'static str,
     replacement: Vec<u8>,
     /// The policy's reason, for a declined URL.
     declined: Option<&'static str>,
@@ -241,6 +276,7 @@ pub struct UrlRewrite {
     url_key: [u8; 32],
     fallback: Fallback,
     scrubber: Scrubber,
+    font_source_scrubber: Scrubber,
     scrubbed: u64,
     /// The JSON key whose value held the first declined URL that stayed, for the log. It names the shape without any URL.
     kept_in: Option<String>,
@@ -253,7 +289,7 @@ pub struct UrlRewrite {
 pub struct PassCounters {
     srcset_rewrites: BTreeMap<&'static str, u64>,
     css_rewrites: BTreeMap<(&'static str, &'static str), u64>,
-    url_rewrites: BTreeMap<(&'static str, &'static str), u64>,
+    url_rewrites: BTreeMap<(&'static str, &'static str, &'static str), u64>,
     pub removed_images: [u64; ImageDecline::ALL.len()],
 }
 
@@ -271,9 +307,10 @@ impl PassCounters {
             )
             .increment(count);
         }
-        for (&(outcome, reason), &count) in &self.url_rewrites {
+        for (&(kind, outcome, reason), &count) in &self.url_rewrites {
             counter!(
                 "ai_research_v4_recorder_image_url_rewrites_total",
+                "kind" => kind,
                 "outcome" => outcome,
                 "reason" => reason,
             )
@@ -292,6 +329,8 @@ pub struct Fallback {
     /// Replace a declined URL wherever its bytes are, also inside a longer URL that would otherwise keep it.
     pub overwrite_declined: bool,
     pub scrub: Scrub,
+    /// Replace every remote URL in a `url()` of an `@font-face` `src`, also where `scrub` replaces nothing.
+    pub scrub_font_sources: bool,
     /// The metric label of why the fallback runs.
     pub reason: Option<&'static str>,
 }
@@ -314,7 +353,7 @@ pub struct RewriteReport {
 impl UrlRewrite {
     /// `team_key` is the team's month key for `key_month`, the write month, as for the fetch jobs.
     pub fn new(
-        urls: &[String],
+        urls: &[RemoteUrl],
         srcsets: &[Srcset],
         css_rewrites: &[CssRewrite],
         team_id: i64,
@@ -324,15 +363,18 @@ impl UrlRewrite {
         let url_key = image_url_key(team_key);
         let mut patterns = Vec::with_capacity(urls.len() + srcsets.len());
         let mut targets = Vec::with_capacity(urls.len() + srcsets.len());
-        for url in urls {
+        for RemoteUrl { url, kind } in urls {
             // The block holds the URL as a JSON string holds it.
             patterns.push(json_string_contents(url));
-            let (replacement, declined) = match url_reference(url, team_id, key_month, &url_key) {
-                Ok((_, reference)) => (reference, None),
-                Err(decline) => (url_declined_marker(decline.into()), Some(decline.label())),
+            let kind_label = match kind {
+                RemoteKind::Image => "image",
+                RemoteKind::Font => "font",
+                RemoteKind::BundledFont(_) => "bundled_font",
             };
+            let (replacement, declined) = named_as(url, *kind, team_id, key_month, &url_key);
             targets.push(Target {
                 url: url.clone(),
+                kind_label,
                 replacement: replacement.into_bytes(),
                 declined,
                 found: Cell::new(false),
@@ -341,7 +383,7 @@ impl UrlRewrite {
         let url_targets: HashMap<String, usize> = urls
             .iter()
             .enumerate()
-            .map(|(index, url)| (url.clone(), index))
+            .map(|(index, remote)| (remote.url.clone(), index))
             .collect();
         let css_matcher = (!css_rewrites.is_empty())
             .then(|| {
@@ -381,12 +423,14 @@ impl UrlRewrite {
             .map(|rewrite| {
                 let mut covers = Vec::new();
                 let resolved = match &rewrite.resolved {
-                    Some(absolute) => {
-                        let reference = match url_reference(absolute, team_id, key_month, &url_key)
-                        {
-                            Ok((_, reference)) => reference,
-                            Err(decline) => url_declined_marker(decline.into()),
-                        };
+                    Some(RemoteUrl {
+                        url: absolute,
+                        kind,
+                    }) => {
+                        let kind = url_targets
+                            .get(absolute)
+                            .map_or(*kind, |&index| urls[index].kind.max(*kind));
+                        let (reference, _) = named_as(absolute, kind, team_id, key_month, &url_key);
                         rewrite.replacement.replacen(
                             &format!("\"{absolute}\""),
                             &format!("\"{reference}\""),
@@ -463,6 +507,7 @@ impl UrlRewrite {
             url_key,
             fallback: Fallback::default(),
             scrubber: Scrubber::new(&Scrub::Nothing),
+            font_source_scrubber: Scrubber::new(&Scrub::Nothing),
             scrubbed: 0,
             kept_in: None,
             counters: PassCounters::default(),
@@ -471,6 +516,11 @@ impl UrlRewrite {
 
     pub fn with_fallback(mut self, fallback: Fallback) -> Self {
         self.scrubber = Scrubber::new(&fallback.scrub);
+        self.font_source_scrubber = Scrubber::new(if fallback.scrub_font_sources {
+            &Scrub::AllRemote
+        } else {
+            &fallback.scrub
+        });
         self.fallback = fallback;
         self
     }
@@ -586,12 +636,51 @@ impl UrlRewrite {
         } else {
             replaced
         };
+        let replaced = then_stage!(replaced, self.mark_unchecked_fonts);
         let (scrubbed, count) = self.scrubber.apply(&replaced);
         if count == 0 {
             return replaced;
         }
         self.scrubbed += count;
         Cow::Owned(scrubbed.into_owned())
+    }
+
+    /// Runs before the scrub, which would leave an image marker where the renderer loads a font.
+    fn mark_unchecked_fonts<'b>(&mut self, bytes: &'b [u8]) -> Cow<'b, [u8]> {
+        if !self.font_source_scrubber.replaces_tokens() || !holds_at_rule(bytes) {
+            return Cow::Borrowed(bytes);
+        }
+        let mut out: Option<Vec<u8>> = None;
+        let mut copied_to = 0;
+        for string in CssStrings::new(bytes) {
+            if !holds_at_rule(&bytes[string.0..string.1]) {
+                continue;
+            }
+            let Ok(css) = unescape(bytes, string) else {
+                continue;
+            };
+            let rewritten = rewrite_font_src_functions(&css, &mut |function| {
+                let mut json = Vec::with_capacity(function.len() + 2);
+                write_json_string(function, &mut json);
+                (self.font_source_scrubber.apply(&json).1 > 0).then(|| {
+                    self.scrubbed += 1;
+                    format!("url(\"{FONT_URL_UNCHECKED_MARKER}\")")
+                })
+            });
+            if let Some(rewritten) = rewritten {
+                let out = out.get_or_insert_with(|| Vec::with_capacity(bytes.len()));
+                out.extend_from_slice(&bytes[copied_to..string.0]);
+                write_json_string(&rewritten, out);
+                copied_to = string.1;
+            }
+        }
+        match out {
+            Some(mut out) => {
+                out.extend_from_slice(&bytes[copied_to..]);
+                Cow::Owned(out)
+            }
+            None => Cow::Borrowed(bytes),
+        }
     }
 
     fn replace_escaped_urls<'b>(&mut self, bytes: &'b [u8]) -> Cow<'b, [u8]> {
@@ -688,7 +777,11 @@ impl UrlRewrite {
             };
             *counters
                 .url_rewrites
-                .entry((outcome, target.declined.unwrap_or("none")))
+                .entry((
+                    target.kind_label,
+                    outcome,
+                    target.declined.unwrap_or("none"),
+                ))
                 .or_default() += 1;
         }
         RewriteReport {
@@ -879,7 +972,7 @@ fn rebuilt_srcset(
         match position {
             CandidatePosition::Remote(_) => {
                 covers.extend(url_targets.get(url));
-                match url_reference(url, team_id, key_month, url_key) {
+                match url_reference(url, UrlAsset::Image, team_id, key_month, url_key) {
                     Ok((_, reference)) if is_kept => keep(&reference, descriptors),
                     _ => removed = true,
                 }
@@ -912,16 +1005,30 @@ mod tests {
 
     const TEAM_KEY: [u8; 32] = [6; 32];
 
+    fn images(urls: &[&str]) -> Vec<RemoteUrl> {
+        urls.iter()
+            .map(|url| RemoteUrl {
+                url: (*url).to_owned(),
+                kind: RemoteKind::Image,
+            })
+            .collect()
+    }
+
     fn rewrite(urls: &[&str], bytes: &str) -> String {
-        let urls: Vec<String> = urls.iter().map(|u| (*u).to_owned()).collect();
-        let mut rewrite = UrlRewrite::new(&urls, &[], &[], 7, "2026-10", &TEAM_KEY);
+        let mut rewrite = UrlRewrite::new(&images(urls), &[], &[], 7, "2026-10", &TEAM_KEY);
         String::from_utf8(rewrite.apply(bytes.as_bytes(), true).into_owned()).unwrap()
     }
 
     fn reference(url: &str) -> String {
-        url_reference(url, 7, "2026-10", &image_url_key(&TEAM_KEY))
-            .unwrap()
-            .1
+        url_reference(
+            url,
+            UrlAsset::Image,
+            7,
+            "2026-10",
+            &image_url_key(&TEAM_KEY),
+        )
+        .unwrap()
+        .1
     }
 
     #[test]
@@ -947,7 +1054,7 @@ mod tests {
         let declined = "https://10.0.0.7/c.png";
         let event = format!(r#"{{"srcset":"{a} 1x,\n{b} 2x,\t{declined} 3x"}}"#);
         let mut rewrite = UrlRewrite::new(
-            &[a.to_owned(), b.to_owned(), declined.to_owned()],
+            &images(&[a, b, declined]),
             &[],
             &[],
             7,
@@ -1048,7 +1155,7 @@ mod tests {
         let url = "https://cdn.example.com/a.png?token=secret";
         let hidden = r#"{"src":"https:\/\/cdn.example.com\/a.png?token=secr\u0065t","alt":"a\nb"}"#;
         let canonical = canonical_strings(hidden.as_bytes());
-        let mut rewrite = UrlRewrite::new(&[url.to_owned()], &[], &[], 7, "2026-10", &TEAM_KEY);
+        let mut rewrite = UrlRewrite::new(&images(&[url]), &[], &[], 7, "2026-10", &TEAM_KEY);
         assert_eq!(
             String::from_utf8(rewrite.apply(&canonical, true).into_owned()).unwrap(),
             r#"{"src":"imageurl:v4:declined:credential","alt":"a\nb"}"#
@@ -1061,7 +1168,7 @@ mod tests {
             Cow::Borrowed(_)
         ));
         // A declined URL the block still holds fails the block.
-        let rewrite = UrlRewrite::new(&[url.to_owned()], &[], &[], 7, "2026-10", &TEAM_KEY);
+        let rewrite = UrlRewrite::new(&images(&[url]), &[], &[], 7, "2026-10", &TEAM_KEY);
         assert!(!rewrite.finish().safe);
     }
 
@@ -1088,7 +1195,7 @@ mod tests {
         }
         // A second copy inside a longer URL stays as it is, so the block fails.
         let url = "https://bucket.s3.amazonaws.com/a.png?X-Amz-Signature=abc123";
-        let mut rewrite = UrlRewrite::new(&[url.to_owned()], &[], &[], 7, "2026-10", &TEAM_KEY);
+        let mut rewrite = UrlRewrite::new(&images(&[url]), &[], &[], 7, "2026-10", &TEAM_KEY);
         rewrite.apply(
             format!(r#"{{"src":"{url}","alt":"x{url}"}}"#).as_bytes(),
             true,

@@ -573,6 +573,7 @@ function PlaygroundModelPicker({ promptId }: { promptId: string }): JSX.Element 
                 }}
                 groups={groups}
                 loading={loading}
+                onOpen={() => posthog.capture('llma playground model picker opened', { is_byok: hasByokKeys, loading })}
                 footerActions={getModelPickerFooterActions(hasByokKeys, () => setNewKeyModalOpen(true))}
                 selectedModelName={selectedModel?.name}
                 data-attr={`llma-playground-model-selector-${promptId}`}
