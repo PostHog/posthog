@@ -14,9 +14,9 @@ import { loadRenderUiData } from './render-ui-data'
 
 /**
  * Envelope emitted by the `render-ui` server tool. It carries the tool to render
- * and its input — never the data itself. This app fetches the data via
- * `callServerTool` (the same path the list apps use for drill-down) and mounts
- * the matching view from the generated dispatch registry.
+ * and its input, never the data itself. The data arrives preloaded on the result's
+ * app-only `_meta`, or the app fetches it via `callServerTool`, then mounts the
+ * matching view from the generated dispatch registry.
  */
 interface RenderUiEnvelope {
     tool_name: string
@@ -27,17 +27,21 @@ interface RenderUiEnvelope {
 function RenderUiApp(): JSX.Element {
     return (
         <AppWrapper<RenderUiEnvelope> appName="PostHog Render UI">
-            {({ data, app, openLink }) => <RenderUiContent envelope={data!} app={app} openLink={openLink} />}
+            {({ data, resultMeta, app, openLink }) => (
+                <RenderUiContent envelope={data!} resultMeta={resultMeta} app={app} openLink={openLink} />
+            )}
         </AppWrapper>
     )
 }
 
 function RenderUiContent({
     envelope,
+    resultMeta,
     app,
     openLink,
 }: {
     envelope: RenderUiEnvelope
+    resultMeta: Record<string, unknown> | null
     app: App | null
     openLink: (url: string) => void
 }): JSX.Element {
@@ -65,7 +69,7 @@ function RenderUiContent({
         let cancelled = false
         setData(null)
         setError(null)
-        loadRenderUiData(app, toolName, JSON.parse(toolInputJson) as Record<string, unknown>, appKey)
+        loadRenderUiData(app, toolName, JSON.parse(toolInputJson) as Record<string, unknown>, appKey, resultMeta)
             .then((result) => {
                 if (cancelled) {
                     return
@@ -91,7 +95,7 @@ function RenderUiContent({
         return () => {
             cancelled = true
         }
-    }, [app, toolName, toolInputJson, appKey])
+    }, [app, toolName, toolInputJson, appKey, resultMeta])
 
     const render = RENDER_DISPATCH[envelope.app_key]
     const failureReason = render ? error?.reason : 'no_visualization'

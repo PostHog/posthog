@@ -650,16 +650,16 @@ _PENDING_MIGRATION_CHECK = [{"name": "Migration risk", "status": "in_progress", 
         pytest.param(_pregate_context([_api_file("src/app.py")], draft=True), "REFUSED", True, id="draft-prerequisite"),
         pytest.param(_pregate_context([_api_file("src/app.py")], user_type="Bot"), "REFUSED", False, id="bot-author"),
         pytest.param(
-            _pregate_context([_lines(f"src/mod_{i}.py", 5) for i in range(60)]),
+            _pregate_context([_lines(f"src/mod_{i}.py", 5) for i in range(80)]),
             "REFUSED",
             True,
             id="past-the-file-contract",
         ),
         # Between the global ceiling and the delegation contract, a folder AGENT_APPROVALS.md on the PR
         # head can lift the size gate, and the pre-check cannot read one.
-        pytest.param(_pregate_context([_lines("src/big.py", 900)]), None, False, id="size-a-folder-could-lift"),
+        pytest.param(_pregate_context([_lines("src/big.py", 1300)]), None, False, id="size-a-folder-could-lift"),
         pytest.param(
-            _pregate_context([_lines("src/big.py", 900)], folder_policies_known=True),
+            _pregate_context([_lines("src/big.py", 1300)], folder_policies_known=True),
             "REFUSED",
             True,
             id="size-with-folder-files-known",

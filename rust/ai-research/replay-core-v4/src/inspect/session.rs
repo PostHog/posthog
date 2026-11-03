@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use super::clicks::{ClickKind, ClickTracker};
 use super::css::CssRewrite;
-use super::dom::{DomInspector, RemoteUrls, Srcset, UrlLimit};
+use super::dom::{DomInspector, RemoteUrl, RemoteUrls, Srcset, UrlLimit};
 use super::events::{href_from, number, Activity, DataFields, EventCounter};
 use super::features::{BlockFeatures, FeatureRecorder, SurfacingFeatures};
 use super::rrweb::{
@@ -52,6 +52,7 @@ pub struct BlockInspection {
     features: FeatureRecorder,
     moments: Vec<Moment>,
     image_urls: Vec<String>,
+    font_urls: Vec<String>,
     remote_urls: RemoteUrls,
     events: u32,
     resolve_budget: Option<Arc<AtomicUsize>>,
@@ -65,8 +66,9 @@ pub struct Inspected {
     pub moments: Vec<Moment>,
     /// Remote image URLs the block's DOM referenced, for the image fetcher.
     pub image_urls: Vec<String>,
-    /// Every remote URL in an image slot of the block, which the writer replaces with its reference.
-    pub remote_urls: Vec<String>,
+    pub font_urls: Vec<String>,
+    /// Every remote URL in an image slot or `@font-face` rule of the block, which the writer replaces with its reference.
+    pub remote_urls: Vec<RemoteUrl>,
     /// Set when `remote_urls` stops short, so that the block must not be stored.
     pub url_limit: Option<UrlLimit>,
     /// The image-slot srcset values of the block, which the writer rebuilds from the candidates it keeps.
@@ -92,7 +94,8 @@ impl BlockInspection {
             features,
             moments: self.moments,
             image_urls: self.image_urls,
-            url_limit: self.remote_urls.limit,
+            font_urls: self.font_urls,
+            url_limit: self.remote_urls.url_limit(),
             srcsets: self.remote_urls.take_srcsets(),
             css_rewrites: self.remote_urls.take_css_rewrites(),
             remote_urls: self.remote_urls.into_urls(),
@@ -187,6 +190,7 @@ impl SessionInspector {
             &mut block.counter.stats,
         );
         block.image_urls.extend(self.dom.take_image_urls());
+        block.font_urls.extend(self.dom.take_font_urls());
         block.remote_urls.extend(self.dom.take_remote_urls());
         if observed.full_snapshot {
             self.cold = false;

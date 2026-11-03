@@ -12,6 +12,7 @@ type IngestionWarningCallback = (type: IngestionWarningType, details: Record<str
  * is now handled in the Rust capture service. This function only parses the timestamp string
  * that comes from the event data. The timestamp in event data is already normalized by the Rust
  * capture service (via parse_event_timestamp in rust/common/types/src/timestamp.rs).
+ * Capture v1 applies skew correction and the future clamp in normalize_timestamp in rust/capture/src/v1/analytics/process.rs.
  *
  * The Rust capture service handles:
  * - Clock skew adjustment using sent_at and now

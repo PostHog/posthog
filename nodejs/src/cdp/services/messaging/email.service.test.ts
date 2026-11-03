@@ -4,6 +4,7 @@ import { MessageRejected, SendingPausedException, TooManyRequestsException } fro
 import { DateTime } from 'luxon'
 import { register } from 'prom-client'
 
+import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixtures'
 import { EmailStatusOutput } from '~/cdp/outputs/outputs'
 import {
@@ -144,10 +145,12 @@ describe('EmailService', () => {
     let service: EmailService
     let hub: Hub
     let team: Team
+    let workflowsActivationReporter: { report: jest.Mock }
     beforeEach(async () => {
         hub = await createHub({})
         team = (await createTestTeamFixture(hub.postgres)).team
         integrationIdBase = team.id
+        workflowsActivationReporter = { report: jest.fn() }
         service = new EmailService(
             {
                 sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
@@ -164,7 +167,8 @@ describe('EmailService', () => {
             new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
             new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
             new RecipientsManagerService(hub.postgres),
-            null
+            null,
+            workflowsActivationReporter
         )
         mockFetch.mockClear()
     })
@@ -189,7 +193,8 @@ describe('EmailService', () => {
                 new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
                 new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
                 new RecipientsManagerService(hub.postgres),
-                null
+                null,
+                { report: jest.fn() }
             )
             expect(serviceWithoutSES.sesV2Client).toBeNull()
 
@@ -286,13 +291,32 @@ describe('EmailService', () => {
                     `"Email integration not found. The sender configured for this step no longer exists — select a new sender in the workflow's email step."`
                 )
             })
-            it('should validate if the email domain is not verified', async () => {
-                invocation.queueParameters = createEmailParams({
-                    from: { integrationId: 2 },
-                })
-                const result = await service.executeSendEmail(invocation)
-                expect(result.error).toMatchInlineSnapshot(`"The selected email integration domain is not verified"`)
-            })
+            it.each([
+                ['a workflow send', true, false, 1],
+                ['a workflow test send', true, true, 0],
+                ['a hog function send', false, false, 0],
+            ])(
+                'should fail on an unverified email domain and report it only for a real workflow send: %s',
+                async (_name, fromWorkflow, isTest, reports) => {
+                    invocation.queueParameters = createEmailParams({
+                        from: { integrationId: 2 },
+                    })
+                    const sentInvocation = fromWorkflow
+                        ? { ...invocation, hogFlow: new FixtureHogFlowBuilder().withTeamId(team.id).build() }
+                        : invocation
+                    const result = await service.executeSendEmail(sentInvocation, isTest)
+                    expect(result.error).toMatchInlineSnapshot(
+                        `"The selected email integration domain is not verified"`
+                    )
+                    expect(workflowsActivationReporter.report.mock.calls).toEqual(
+                        Array(reports).fill([
+                            team.id,
+                            'workflows send failed',
+                            { reason: 'unverified_domain', channel: 'email', workflow_id: invocation.functionId },
+                        ])
+                    )
+                }
+            )
             it('should send identical from and feedback forwarding args', async () => {
                 // This test is important for spam classification - feedback forwarding email MUST match from email
                 invocation.queueParameters = createEmailParams({
@@ -565,29 +589,37 @@ describe('EmailService', () => {
         describe('queue-to-send latency', () => {
             // The job was created a minute ago and rescheduled after a throttle, so it became due again 5 seconds ago.
             // Running the email step clones the invocation, which resets queueScheduledAt before the send.
+            const transactionalSend = (): void => {
+                invocation.state.globals.event.event = '$transactional_email'
+                invocation.hogFunction.metadata = { message_category_type: 'transactional' }
+            }
+
             it.each([
-                ['workflow', 'bulk', 'its rescheduled time', (): void => {}, 5_000, 60_000],
+                ['workflow', 'bulk', 'false', 'its rescheduled time', (): void => {}, 5_000, 60_000],
+                ['transactional_api', 'fast', 'false', 'its creation', transactionalSend, 60_000, Infinity],
+                // Alerts leave out a wait that the team sending cap causes on purpose.
                 [
                     'transactional_api',
                     'fast',
-                    'its creation',
+                    'true',
+                    'its creation after a team cap delay',
                     (): void => {
-                        invocation.state.globals.event.event = '$transactional_email'
-                        invocation.hogFunction.metadata = { message_category_type: 'transactional' }
+                        transactionalSend()
+                        invocation.queueMetadata = { teamCapped: true }
                     },
                     60_000,
                     Infinity,
                 ],
             ])(
-                'observes the wait of a retried %s send on the %s lane from %s',
-                async (source, priorityClass, _from, setUp, minWaitMs, maxWaitMs) => {
+                'observes the wait of a retried %s send on the %s lane with team_capped=%s from %s',
+                async (source, priorityClass, teamCapped, _from, setUp, minWaitMs, maxWaitMs) => {
                     setUp()
                     invocation.queue = 'email'
                     invocation.queueCreatedAt = DateTime.utc().minus({ seconds: 60 })
                     invocation.queueDueAt = DateTime.utc().minus({ seconds: 5 })
                     invocation.queueScheduledAt = undefined
                     const name = 'cdp_email_queue_to_send_ms'
-                    const labels = { source, priority_class: priorityClass }
+                    const labels = { source, priority_class: priorityClass, team_capped: teamCapped }
                     const countBefore = await metricValue(name, labels, `${name}_count`)
                     const sumBefore = await metricValue(name, labels, `${name}_sum`)
 
@@ -625,6 +657,7 @@ describe('EmailService', () => {
                     new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
                     new RecipientsManagerService(hub.postgres),
                     null,
+                    { report: jest.fn() },
                     undefined,
                     { claimOrReserve } as unknown as RateLimiterService
                 )
@@ -797,6 +830,7 @@ describe('EmailService', () => {
                     new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
                     new RecipientsManagerService(hub.postgres),
                     null,
+                    { report: jest.fn() },
                     undefined,
                     new RateLimiterService(redis, { name: 'workflow-email-backlog-test' })
                 )
@@ -868,6 +902,7 @@ describe('EmailService', () => {
                     new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
                     new RecipientsManagerService(hub.postgres),
                     null,
+                    { report: jest.fn() },
                     undefined,
                     null,
                     { claimAllOrNothingPair } as unknown as RateLimiterService
@@ -904,6 +939,8 @@ describe('EmailService', () => {
                 expect(result.finished).toBe(false)
                 // The reschedule must carry the email payload forward, same as the workflow limit.
                 expect(result.invocation.queueParameters).toEqual(invocation.queueParameters)
+                // The flag labels the eventual send's queue wait, so alerts can leave out the cap delay.
+                expect(result.invocation.queueMetadata).toMatchObject({ teamCapped: true })
                 const scheduledMs = result.invocation.queueScheduledAt!.toMillis()
                 expect(scheduledMs).toBeGreaterThanOrEqual(before + minMs)
                 expect(scheduledMs).toBeLessThan(before + maxMs + 5000)
@@ -997,6 +1034,7 @@ describe('EmailService', () => {
                     new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
                     new RecipientsManagerService(hub.postgres),
                     null,
+                    { report: jest.fn() },
                     undefined,
                     null,
                     limiter
@@ -1387,6 +1425,33 @@ describe('EmailService', () => {
             expect(result.skipped).toBe(true)
             expect(invocation.state.vmState?.stack).toEqual([{ success: false }])
         })
+
+        it.each([
+            ['a workflow send', true, false, 1],
+            ['a workflow test send', true, true, 0],
+            ['a hog function send', false, false, 0],
+        ])(
+            'reports a missing recipient as a blocked send only for a real workflow send: %s',
+            async (_name, fromWorkflow, isTest, reports) => {
+                invocation.queueParameters = createEmailParams({
+                    from: { integrationId: 1 },
+                    to: { email: '', name: 'Test User' },
+                })
+                const sentInvocation = fromWorkflow
+                    ? { ...invocation, hogFlow: new FixtureHogFlowBuilder().withTeamId(team.id).build() }
+                    : invocation
+
+                await service.executeSendEmail(sentInvocation, isTest)
+
+                expect(workflowsActivationReporter.report.mock.calls).toEqual(
+                    Array(reports).fill([
+                        team.id,
+                        'workflows send blocked',
+                        { reason: 'missing_recipient', channel: 'email', workflow_id: invocation.functionId },
+                    ])
+                )
+            }
+        )
 
         describe('SES tenant attribution', () => {
             it('attributes the send to the team tenant', async () => {
