@@ -5,11 +5,13 @@ from drf_spectacular.utils import OpenApiResponse
 from rest_framework import serializers, status, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
+from rest_framework.throttling import BaseThrottle
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.event_usage import get_request_analytics_properties, groups
+from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle
 
 from products.error_tracking.backend.facade import api as error_tracking_api
 from products.error_tracking.backend.facade.contracts import (
@@ -163,6 +165,18 @@ def _project_ref(data: dict) -> SentryProjectRef:
     )
 
 
+# The default API throttles skip browser sessions. Each call here can hold a worker for up to 45 seconds while
+# it waits on a Sentry server the user chose, so these throttles count sessions too, with one budget per team.
+class SentryMigrationBurstThrottle(PersonalApiKeyOrUserRateThrottle):
+    scope = "error_tracking_sentry_migration_burst"
+    rate = "10/minute"
+
+
+class SentryMigrationSustainedThrottle(PersonalApiKeyOrUserRateThrottle):
+    scope = "error_tracking_sentry_migration_sustained"
+    rate = "60/hour"
+
+
 class ErrorTrackingSentryMigrationViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """Imports Sentry inbound filters and rate limits as PostHog suppression rules and rate limits."""
 
@@ -171,6 +185,9 @@ class ErrorTrackingSentryMigrationViewSet(TeamAndOrgViewSetMixin, viewsets.ViewS
     scope_object_write_actions = ["apply"]
     # An import changes rules and limits for the whole project, so a grant on one error tracking object is not enough.
     requires_resource_level_access = True
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        return [*super().get_throttles(), SentryMigrationBurstThrottle(), SentryMigrationSustainedThrottle()]
 
     def _capture(self, request: ValidatedRequest, event: str, properties: dict) -> None:
         posthoganalytics.capture(
