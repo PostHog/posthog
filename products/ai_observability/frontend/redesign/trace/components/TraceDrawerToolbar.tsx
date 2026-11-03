@@ -1,7 +1,6 @@
 import { IconChevronDown, IconExpand45, IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
-import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
 import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
 
 import type { TraceDrawerPosition } from '../traceDrawerLogic'
@@ -26,30 +25,32 @@ export function TraceDrawerToolbar({
 }: TraceDrawerToolbarProps): JSX.Element {
     return (
         <div className="flex min-w-0 flex-1 items-center gap-1">
-            <Shortcut name="TraceDrawerPrevious" keybind={[['p']]} intent="Previous trace" interaction="click">
-                <LemonButton
-                    size="small"
-                    icon={<IconChevronDown className="rotate-180" />}
-                    tooltip="Previous trace"
-                    aria-label="Previous trace"
-                    data-attr="trace-drawer-previous"
-                    onClick={onPrevious ?? undefined}
-                    disabledReason={onPrevious ? undefined : position ? 'This is the first trace' : NOT_IN_LIST_REASON}
-                />
-            </Shortcut>
-            <Shortcut name="TraceDrawerNext" keybind={[['n']]} intent="Next trace" interaction="click">
-                <LemonButton
-                    size="small"
-                    icon={<IconChevronDown />}
-                    tooltip="Next trace"
-                    aria-label="Next trace"
-                    data-attr="trace-drawer-next"
-                    onClick={onNext ?? undefined}
-                    disabledReason={
-                        onNext ? undefined : position ? 'This is the last loaded trace' : NOT_IN_LIST_REASON
-                    }
-                />
-            </Shortcut>
+            <LemonButton
+                size="small"
+                icon={<IconChevronDown className="rotate-180" />}
+                tooltip={
+                    <>
+                        Previous trace <KeyboardShortcut p />
+                    </>
+                }
+                aria-label="Previous trace"
+                data-attr="trace-drawer-previous"
+                onClick={onPrevious ?? undefined}
+                disabledReason={onPrevious ? undefined : position ? 'This is the first trace' : NOT_IN_LIST_REASON}
+            />
+            <LemonButton
+                size="small"
+                icon={<IconChevronDown />}
+                tooltip={
+                    <>
+                        Next trace <KeyboardShortcut n />
+                    </>
+                }
+                aria-label="Next trace"
+                data-attr="trace-drawer-next"
+                onClick={onNext ?? undefined}
+                disabledReason={onNext ? undefined : position ? 'This is the last loaded trace' : NOT_IN_LIST_REASON}
+            />
             {position ? (
                 <span className="ml-1 whitespace-nowrap text-xs text-secondary" aria-live="polite">
                     {`${position.index + 1} of ${position.total}`}

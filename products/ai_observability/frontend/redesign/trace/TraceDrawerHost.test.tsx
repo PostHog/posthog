@@ -178,13 +178,20 @@ describe('TraceDrawerHost', () => {
         }
     )
 
-    it('steps with n and p, but not while typing in the trace search', async () => {
+    it('steps with n and p, but not while typing or with a modal open', async () => {
         useTraceMocks(answerTrace('a'))
         setUp(drawerUrl(ROW_A))
         const view = renderHost([ROW_A, ROW_B])
         await view.findAllByText('answer-a')
 
         fireEvent.keyDown(attr(view.container, 'trace-view-search-input'), { key: 'n' })
+        expect(router.values.searchParams.trace).toBe('a')
+
+        const modal = document.createElement('div')
+        modal.className = 'ReactModal__Overlay'
+        document.body.appendChild(modal)
+        fireEvent.keyDown(document.body, { key: 'n' })
+        modal.remove()
         expect(router.values.searchParams.trace).toBe('a')
 
         fireEvent.keyDown(document.body, { key: 'n' })
