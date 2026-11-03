@@ -393,6 +393,7 @@ describe('EmailService', () => {
                         new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
                         new RecipientsManagerService(hub.postgres),
                         null,
+                        { report: jest.fn() },
                         undefined,
                         limiter,
                         limiter
