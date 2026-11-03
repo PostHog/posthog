@@ -188,6 +188,30 @@ def set_auto_model_choice(slack_workspace_id: str, slack_user_id: str, enabled: 
     )
 
 
+def resolve_workspace_default_integration_id(slack_workspace_id: str) -> int | None:
+    """The integration that the workspace-wide row routes mentions to."""
+
+    from products.slack_app.backend.models import SlackSettings
+
+    return (
+        SlackSettings.objects.filter(slack_workspace_id=slack_workspace_id, slack_user_id__isnull=True)
+        .values_list("default_integration_id", flat=True)
+        .first()
+    )
+
+
+def set_workspace_default_integration(slack_workspace_id: str, integration_id: int) -> None:
+    """The caller checks that the actor may set the default."""
+
+    from products.slack_app.backend.models import SlackSettings
+
+    SlackSettings.objects.update_or_create(
+        slack_workspace_id=slack_workspace_id,
+        slack_user_id=None,
+        defaults={"default_integration_id": integration_id},
+    )
+
+
 __all__ = [
     "AIPreferences",
     "resolve_auto_model_choice",
@@ -200,4 +224,6 @@ __all__ = [
     "resolve_thread_join_mode",
     "set_thread_join_mode",
     "resolve_untagged_followup_mode",
+    "resolve_workspace_default_integration_id",
+    "set_workspace_default_integration",
 ]
