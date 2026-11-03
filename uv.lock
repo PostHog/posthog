@@ -6324,7 +6324,7 @@ requires-dist = [
     { name = "playwright", specifier = "~=1.60.0" },
     { name = "polars", specifier = "==1.37.1" },
     { name = "posthog-hogland", specifier = "==0.4.1" },
-    { name = "posthoganalytics", specifier = "==7.82.2" },
+    { name = "posthoganalytics", specifier = "==7.83.0" },
     { name = "protobuf", specifier = "~=6.31.1" },
     { name = "psycopg", extras = ["binary"], specifier = "==3.2.10" },
     { name = "psycopg2-binary", specifier = "==2.9.11" },
@@ -6492,7 +6492,7 @@ wheels = [
 
 [[package]]
 name = "posthoganalytics"
-version = "7.82.2"
+version = "7.83.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "backoff" },
@@ -6500,9 +6500,9 @@ dependencies = [
     { name = "requests" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ac/76/55e784ed90ff069f1aa7de6f64e9e19c00de6c9b13b9f63377760ab970e8/posthoganalytics-7.82.2.tar.gz", hash = "sha256:179bc6e7c77e858e1b00bb59b908b63da605503acc00388fe1700a004ce287eb", size = 883123, upload-time = "2026-11-02T20:38:30.04Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/47/6f/590181d3768466bfe892d31737ecf3d0aec129afb129a7ad63ace958d5a1/posthoganalytics-7.83.0.tar.gz", hash = "sha256:3f76a23915380323d81dd068732a2516c97638b10284b2a12ada263b06f78c95", size = 899611, upload-time = "2026-11-03T13:04:16.981Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a7/21/c383da3a9cfd37c08daee48ccd792a3a730355effe098f1773488f023ab9/posthoganalytics-7.82.2-py3-none-any.whl", hash = "sha256:baa9e2585b183a0197390700cafc06aa8cc41e91acd64a94f012a0baaf25e42c", size = 1030024, upload-time = "2026-11-02T20:38:28.044Z" },
+    { url = "https://files.pythonhosted.org/packages/e5/35/2ff2ea99fcf5e6a47e222bbee7ed21c21d85f8ad254e2c8995c1ad90a03b/posthoganalytics-7.83.0-py3-none-any.whl", hash = "sha256:301156f289328e5a64f1109d66e3cb4707e777158c1f487c8918c69575172338", size = 1048159, upload-time = "2026-11-03T13:04:14.758Z" },
 ]
 
 [[package]]
