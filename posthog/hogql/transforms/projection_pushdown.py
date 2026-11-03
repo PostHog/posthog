@@ -49,7 +49,9 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
     Phase 5 - Prune: Remove unreferenced asterisk columns from this query (final pass only)
 
     A column that a query exports as it is (`SELECT properties FROM sub`) is not a read of it: how the column is used
-    is its own readers' business, so phase 3 hands their reads down to the child column instead.
+    is its own readers' business, so phase 3 hands their reads down to the child column instead. The reads recorded
+    here are the ones made through a field; whether a select's own shape (DISTINCT, a set operation, an ordinal, an
+    alias reference) consumes a column's value is `exported_properties`' question, answered from the select itself.
     """
 
     def __init__(self, context: HogQLContext | None = None):
@@ -71,7 +73,8 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
         # True during the collecting passes; gates pruning to the final one (see class docstring)
         self.collecting: bool = False
         self._alias_stack: list[ast.Alias] = []
-        self._alias_references: set[int] = set()
+        # Alias types a clause named directly (`ORDER BY p`), which reads the aliased column's value itself
+        self.alias_referenced_types: set[int] = set()
 
     def optimize(self, node: SubqueryNode) -> SubqueryNode:
         self.roots = self._root_ids(node)
@@ -108,22 +111,17 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
         if node.select_from:
             self._register_subqueries(node.select_from)
 
-        # Phase 2: Collect column demands from query clauses
-        enclosing_alias_references = self._alias_references
-        self._alias_references = set()
-        compares_rows = self.compares_rows(node)
-        positional = self._positional_columns(node)
+        # Phase 2: Collect column demands from query clauses. An asterisk column is demanded by the parent (phase 3),
+        # unless every column has to stay, when the child must keep it too.
+        keeps_all_columns = self.keeps_all_columns(node)
         for expr in node.select:
-            if compares_rows or any(expr is column for column in positional):
-                self._column_read_whole(node, expr)
-                continue
-            if self._is_from_asterisk(expr):
+            if self._is_from_asterisk(expr) and not keeps_all_columns:
                 continue
             passthrough = self._passthrough_source(expr)
-            if passthrough is None:
-                self.visit(expr)
-            else:
+            if passthrough is not None:
                 self._demand_passthrough(node, expr, passthrough)
+            elif not self._is_from_asterisk(expr):
+                self.visit(expr)
 
         if node.where:
             self.visit(node.where)
@@ -154,12 +152,6 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
 
         if node.select_from:
             self._collect_join_constraint_column_demands(node.select_from)
-
-        # A clause that names a select column by its alias (`ORDER BY p`) reads the column's value itself
-        for expr in node.select:
-            if expr.type is not None and id(expr.type) in self._alias_references:
-                self._column_read_whole(node, expr)
-        self._alias_references = enclosing_alias_references
 
         # Phase 3: Propagate parent demands down to child subqueries
         self._propagate_demands_to_children(node)
@@ -256,7 +248,7 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
         """Whether the select's rows are compared whole, so every column's value counts"""
         return node.distinct or id(node) in self.strict_set_branches or node.group_by_mode == "all"
 
-    def _positional_columns(self, node: ast.SelectQuery) -> list[ast.Expr]:
+    def positional_columns(self, node: ast.SelectQuery) -> list[ast.Expr]:
         """The select columns a bare integer in ORDER BY, GROUP BY or LIMIT BY names by position (ClickHouse resolves
         them positionally), so their values count and their positions must not move"""
         referencing: list[ast.Expr] = [order.expr for order in node.order_by or []]
@@ -276,7 +268,7 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
 
     def keeps_all_columns(self, node: ast.SelectQuery) -> bool:
         """Whether dropping a column would change the select's rows or move a position another clause names"""
-        return self.compares_rows(node) or bool(self._positional_columns(node))
+        return self.compares_rows(node) or bool(self.positional_columns(node))
 
     def _demand_passthrough(self, node: ast.SelectQuery, expr: ast.Expr, passthrough: tuple[SubqueryNode, str]) -> None:
         child, child_name = passthrough
@@ -347,23 +339,24 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
         col_name = self._get_column_name(keep)
         if col_name is not None:
             self.demands[id(node)].add(col_name)
-        self._column_read_whole(node, keep)
+        passthrough = self._passthrough_source(keep)
+        if passthrough is not None:
+            self._demand_passthrough(node, keep, passthrough)
+        else:
+            self.visit(keep)
 
     def _registered_ids(self) -> set[int]:
         return {id(query) for query in self.subquery_map.values()}
 
     def _column_read_whole(self, node: ast.SelectQuery, expr: ast.Expr) -> None:
-        """The select column's value itself is read: by the child column it passes through, or by its own readers"""
+        """The column is the query's output, so the child column it passes through is read as it is"""
         passthrough = self._passthrough_source(expr)
-        if passthrough is not None:
-            child, child_name = passthrough
-            self._demand_passthrough(node, expr, passthrough)
-            self.reads[(id(child), child_name)].whole = True
+        if passthrough is None:
+            self.visit(expr)
             return
-        self.visit(expr)
-        col_name = self._get_column_name(expr)
-        if col_name is not None:
-            self.reads[(id(node), col_name)].whole = True
+        child, child_name = passthrough
+        self._demand_passthrough(node, expr, passthrough)
+        self.reads[(id(child), child_name)].whole = True
 
     def _is_json_blob(self, expr: ast.Expr) -> bool:
         source = self._unwrap_aliases(expr)
@@ -470,7 +463,7 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
         """Record demand when field references subquery or CTE column"""
         field_type = node.type
         if isinstance(field_type, ast.FieldAliasType):
-            self._alias_references.add(id(field_type))
+            self.alias_referenced_types.add(id(field_type))
             return node
 
         # A property read (`col.some_key`) still demands its base blob column. Its node type is a

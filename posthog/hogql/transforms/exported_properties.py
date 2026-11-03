@@ -192,29 +192,42 @@ class _ExportedPropertiesNarrower:
         return source
 
     def _allows_map(self, node: "SubqueryNode", name: str) -> bool:
+        """Whether this member of a column group can carry the map instead of the blob.
+
+        A select may only pass a `properties` column along, or export it from the events table, when nothing in it
+        consumes the column's value: no reader of the column itself (a bare field read, or a clause naming it by alias
+        or by position), no DISTINCT, GROUP BY or HAVING, which compare or group by every column or the named ones, no
+        set operation but UNION ALL, and the select is neither the query's output nor a recursive CTE. These are the
+        ways a ClickHouse select can use a column's value without a field reference, so the check lives here in one
+        place rather than in the pruner's read tracking.
+        """
         reads = self.optimizer.reads.get((id(node), name))
         if reads is not None and reads.whole:
             return False
         if isinstance(node, ast.SelectSetQuery):
-            # INTERSECT, EXCEPT and UNION DISTINCT compare whole rows, so every column's value counts
             return all(set_node.set_operator.startswith("UNION ALL") for set_node in node.subsequent_select_queries)
-        if id(node) in self.optimizer.roots:
+        if id(node) in self.optimizer.roots or id(node) in self.optimizer.recursive_cte_exprs:
             return False
         if id(node) not in self._registered and id(node) not in self.optimizer.union_of:
             # A select inside an expression: its columns are its output
             return False
-        if id(node) in self.optimizer.recursive_cte_exprs:
+        if node.distinct or node.group_by or node.group_by_mode is not None or node.having is not None:
+            return False
+        if id(node) in self.optimizer.strict_set_branches:
+            return False
+        expr = self._select_expr(node, name)
+        if expr is None:
+            return False
+        if any(expr is column for column in self.optimizer.positional_columns(node)):
+            return False
+        if expr.type is not None and id(expr.type) in self.optimizer.alias_referenced_types:
             return False
         if self._passthrough(node, name) is not None:
             return True
         if self._events_source(node, name) is None:
             return False
-        # The column's values take part in these, so they have to stay the blob
-        if node.distinct or node.group_by or node.group_by_mode is not None or node.having is not None:
-            return False
-        if self.context.uses_new_events_schema() and reads is not None and "$feature_flags" in reads.keys:
-            return False
-        return True
+        # The rebuilt document leaves `$feature_flags` out in favour of its `$feature/<key>` pairs; a stored read differs
+        return not (self.context.uses_new_events_schema() and reads is not None and "$feature_flags" in reads.keys)
 
     def _is_events_properties(self, field_type: ast.FieldType) -> bool:
         table_type = field_type.table_type
