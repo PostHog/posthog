@@ -55,7 +55,7 @@ export interface CodexOptions {
   chatgptAuthTokens?: ChatgptAuthTokens;
   refreshChatgptAuthTokens?: () => Promise<ChatgptAuthTokens>;
   /** Extra codex `-c key=value` config overrides. */
-  configOverrides?: Record<string, string | number | boolean>;
+  configOverrides?: Record<string, string | number>;
   /**
    * Additional writable roots. Currently only honored per-thread via prompt
    * params; accepted here so hosts can pass it uniformly.
@@ -85,7 +85,7 @@ export interface CodexAppServerProcessOptions {
    */
   httpHeaders?: Record<string, string>;
   /** Extra codex `-c key=value` config overrides (e.g. auto_compact_token_limit). */
-  configOverrides?: Record<string, string | number | boolean>;
+  configOverrides?: Record<string, string | number>;
   /** Per-session context wiki mount forwarded to the subprocess env. */
   contextWiki?: ContextWikiEnv;
   logger?: Logger;
@@ -265,7 +265,10 @@ export function buildAppServerArgs(
 
   // Numbers/bools go bare; strings are quoted, matching codex's `-c` parser.
   for (const [key, value] of Object.entries(options.configOverrides ?? {})) {
-    args.push("-c", `${key}=${JSON.stringify(value)}`);
+    args.push(
+      "-c",
+      `${key}=${typeof value === "number" ? value : `"${value}"`}`,
+    );
   }
 
   return args;

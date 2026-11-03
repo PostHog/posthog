@@ -145,6 +145,7 @@ class CustomPromptSandboxContext:
     """Let runs that start from the same prompt prefix read each other's prompt cache. Codex-only. The
     agent server asks the AI gateway to drop Codex's per-session cache key on every request of the run,
     sub-agents included."""
+    disable_skills: bool = False
     disable_repo_hooks: bool = False
     """Stop hooks from the cloned repo's ``.claude/settings*.json`` from running. A repo's Stop hook
     can block the turn that must return the caller's JSON. The agent still reads the repo's CLAUDE.md.
@@ -363,6 +364,8 @@ async def _create_task_and_trigger(
         extra_run_state["codex_max_subagents"] = context.codex_max_subagents
     if context.codex_shared_prompt_cache:
         extra_run_state["codex_shared_prompt_cache"] = True
+    if context.disable_skills:
+        extra_run_state["disable_skills"] = True
     if context.disable_repo_hooks:
         extra_run_state["disable_repo_hooks"] = True
     if analytics_query_context is not None:

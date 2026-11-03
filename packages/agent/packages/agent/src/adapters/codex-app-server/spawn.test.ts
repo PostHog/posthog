@@ -175,19 +175,17 @@ describe("buildAppServerArgs", () => {
     expect(args).toContain('mcp_oauth_credentials_store="file"');
   });
 
-  it("renders typed config overrides as TOML literals", () => {
+  it("renders configOverrides bare for numbers and quoted for strings", () => {
     const args = buildAppServerArgs({
       binaryPath: "/bundle/codex",
       configOverrides: {
         auto_compact_token_limit: 16000,
         model_verbosity: "low",
-        "features.multi_agent": false,
       },
     });
 
     expect(args).toContain("auto_compact_token_limit=16000");
     expect(args).toContain('model_verbosity="low"');
-    expect(args).toContain("features.multi_agent=false");
   });
 
   it("shortens the gateway stream idle timeout only in cloud sandboxes", () => {

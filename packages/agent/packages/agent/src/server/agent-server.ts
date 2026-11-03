@@ -162,12 +162,6 @@ import {
   type GatewayEnvInput,
 } from "./gateway-env";
 import { type JwtPayload, JwtValidationError, validateJwt } from "./jwt";
-import {
-  isRepositorySelection,
-  REPOSITORY_SELECTION_SYSTEM_PROMPT,
-  repositorySelectionClaudeOptions,
-  repositorySelectionCodexConfig,
-} from "./launch/repository-selection";
 import { readProductLaunch, readRunLaunch } from "./launch/run-launch";
 import { type McpRelayResponse, McpRelayServer } from "./mcp-relay-server";
 import {
@@ -2105,7 +2099,8 @@ export class AgentServer {
 
   /**
    * The transport retries a rejected token but not a 5xx or a socket error, so one blip
-   * would silently degrade the session. Retry before returning unavailable context.
+   * would silently degrade the session. Retry, then give up so a task or run that
+   * genuinely does not exist still starts the session.
    */
   private async fetchForSessionContext<T>(
     fetch: () => Promise<T>,
@@ -2197,9 +2192,6 @@ export class AgentServer {
           this.fetchTaskForSessionContext(payload.task_id),
         ]),
     );
-    if (!preTask || !preTaskRun) {
-      throw new Error("Cannot initialize session without task and run context");
-    }
     const launchSources = {
       payload,
       task: preTask,
@@ -2270,21 +2262,16 @@ export class AgentServer {
     const prUrl = this.detectedPrUrl;
 
     // Before the prompt: its skills-store section counts the stubs on disk.
-    const repositorySelection = isRepositorySelection(launch);
-    if (!repositorySelection) {
-      await this.installStoreSkills(
-        payload.task_id,
-        payload.run_id,
-        launch.runState,
-      );
-    }
+    await this.installStoreSkills(
+      payload.task_id,
+      payload.run_id,
+      launch.runState,
+    );
     // Before the adapter starts: Claude and Codex read these files when the session opens.
-    this.agentInstructions = repositorySelection
-      ? null
-      : await new AgentInstructionFiles(this.logger).sync(launch.runState, {
-          taskId: payload.task_id,
-          runId: payload.run_id,
-        });
+    this.agentInstructions = await new AgentInstructionFiles(this.logger).sync(
+      launch.runState,
+      { taskId: payload.task_id, runId: payload.run_id },
+    );
 
     if (
       launch.originProduct === POSTHOG_AI_ORIGIN_PRODUCT &&
@@ -2296,14 +2283,13 @@ export class AgentServer {
       });
     }
 
-    const sessionSystemPrompt = repositorySelection
-      ? REPOSITORY_SELECTION_SYSTEM_PROMPT
-      : this.buildSessionSystemPrompt(prUrl, launch.systemPrompt);
+    const sessionSystemPrompt = this.buildSessionSystemPrompt(
+      prUrl,
+      launch.systemPrompt,
+    );
     const codexInstructions =
       runtimeAdapter === "codex"
-        ? repositorySelection
-          ? REPOSITORY_SELECTION_SYSTEM_PROMPT
-          : this.buildCodexInstructions(sessionSystemPrompt)
+        ? this.buildCodexInstructions(sessionSystemPrompt)
         : undefined;
 
     const posthogAPI = new PostHogAPIClient({
@@ -2425,9 +2411,6 @@ export class AgentServer {
                     launch.codexMaxSubagents,
                 },
               }),
-              ...(repositorySelection && {
-                configOverrides: repositorySelectionCodexConfig(),
-              }),
               developerInstructions: codexInstructions,
               httpHeaders: codexSubscriptionTokens
                 ? undefined
@@ -2503,9 +2486,7 @@ export class AgentServer {
       }),
       ...(launch.endRunWhenDone && { endRunWhenDone: true }),
       ...(launch.callerEndsRun && { callerEndsRun: true }),
-      ...((launch.disableRepoHooks || repositorySelection) && {
-        disableRepoHooks: true,
-      }),
+      ...(launch.disableRepoHooks && { disableRepoHooks: true }),
       ...(this.config.baseBranch && { baseBranch: this.config.baseBranch }),
       ...(runtimeAdapter === "claude" &&
         this.config.contextWindow && {
@@ -2515,17 +2496,7 @@ export class AgentServer {
         this.config.fastMode !== undefined && {
           fastMode: this.config.fastMode,
         }),
-      ...this.buildClaudeCodeSessionMeta(runtimeAdapter),
-      ...(repositorySelection &&
-        runtimeAdapter === "claude" && {
-          claudeCode: {
-            options: {
-              ...this.buildClaudeCodeSessionMeta(runtimeAdapter)?.claudeCode
-                .options,
-              ...repositorySelectionClaudeOptions(),
-            },
-          },
-        }),
+      ...this.buildClaudeCodeSessionMeta(runtimeAdapter, launch.disableSkills),
     };
 
     await this.measureInitialization("repository_ready", () =>
@@ -4599,12 +4570,13 @@ export class AgentServer {
    */
   private buildClaudeCodeSessionMeta(
     runtimeAdapter: Adapter,
+    disableSkills = false,
   ): { claudeCode: { options: Record<string, unknown> } } | undefined {
     const plugins = this.config.claudeCode?.plugins;
     const effort =
       runtimeAdapter === "claude" ? this.config.reasoningEffort : undefined;
 
-    if (!plugins?.length && !effort) {
+    if (!plugins?.length && !effort && !disableSkills) {
       return undefined;
     }
 
@@ -4614,6 +4586,9 @@ export class AgentServer {
     }
     if (effort) {
       options.effort = effort;
+    }
+    if (disableSkills) {
+      options.skills = [];
     }
     return { claudeCode: { options } };
   }

@@ -46,7 +46,6 @@ import type { ProductLaunchConfiguration, TaskSource } from "../sdk/product";
 import { SessionLogWriter } from "../session-log-writer";
 import {
   createMockApiClient,
-  createTask,
   createTaskRun,
   createTestRepo,
   type TestRepo,
@@ -1010,72 +1009,38 @@ describe("AgentServer HTTP Mode", () => {
       30000,
     );
 
-    it.each([
-      [true, "repo_selection", true],
-      [false, "repo_selection", false],
-      [true, "research", false],
-    ])(
-      "scopes internal repository selection (%s, %s)",
-      async (internal, aiStage, restricted) => {
+    it.each([true, false])(
+      "applies the caller's skill setting (%s)",
+      async (disableSkills) => {
         mswServer.use(
-          http.get(
-            "http://localhost:8000/api/projects/:projectId/tasks/:taskId/",
-            () =>
-              HttpResponse.json(createTask({ id: "test-task-id", internal })),
-          ),
           http.get(
             "http://localhost:8000/api/projects/:projectId/tasks/:taskId/runs/:runId/",
             () =>
               HttpResponse.json(
                 createTaskRun({
                   id: "test-run-id",
-                  state: { ai_stage: aiStage },
+                  state: { disable_skills: disableSkills },
                 }),
               ),
           ),
         );
         mockedClaudeSdk.query.mockClear();
-        const s = createServer({ runtimeAdapter: "claude" });
+        const s = createServer({
+          runtimeAdapter: "claude",
+          reasoningEffort: "high",
+        });
         await s.start();
         const request = mockedClaudeSdk.query.mock.lastCall?.[0] as unknown as {
-          options: {
-            tools: unknown;
-            settingSources: string[];
-            systemPrompt: unknown;
-          };
+          options: { skills?: string[]; effort?: string; tools?: unknown };
         };
-        if (restricted) {
-          expect(request.options.tools).toEqual(["Bash", "Read", "ToolSearch"]);
-          expect(request.options.settingSources).toEqual([]);
-          expect(request.options.systemPrompt).not.toContain(
-            "Operate as an expert product engineer",
-          );
-        } else {
-          expect(request.options.tools).toEqual({
-            type: "preset",
-            preset: "claude_code",
-          });
-        }
-      },
-    );
-
-    it.each(["task", "run"])(
-      "does not start an unrestricted agent when %s context remains unavailable",
-      async (missing) => {
-        const path =
-          missing === "task"
-            ? "http://localhost:8000/api/projects/:projectId/tasks/:taskId/"
-            : "http://localhost:8000/api/projects/:projectId/tasks/:taskId/runs/:runId/";
-        mswServer.use(
-          http.get(path, () => new HttpResponse(null, { status: 503 })),
+        expect(request?.options?.skills).toEqual(
+          disableSkills ? [] : undefined,
         );
-        mockedClaudeSdk.query.mockClear();
-        const s = createServer({ runtimeAdapter: "claude" });
-
-        await s.start();
-        const response = await fetch(`http://localhost:${port}/health`);
-        expect(await response.json()).toMatchObject({ readiness: "failed" });
-        expect(mockedClaudeSdk.query).not.toHaveBeenCalled();
+        expect(request?.options?.effort).toBe("high");
+        expect(request?.options?.tools).toEqual({
+          type: "preset",
+          preset: "claude_code",
+        });
       },
     );
 

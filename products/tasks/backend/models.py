@@ -712,9 +712,11 @@ class Task(Taggable, DeletedMetaFields, models.Model):
 
         None (no snapshot) means the run is not narrowed to a tool list. Once a snapshot
         exists, a malformed value fails closed to an empty list, so the run holds only what
-        its caller always grants. Unlike credential delegation, this restriction applies
-        even when the task has no built-in agent marker.
+        its caller always grants. Reads through `mcp_builtin_agent_key` like the gateway
+        allowlist: only a stamped agent task carries one.
         """
+        if self.mcp_builtin_agent_key is None:
+            return None
         tools = (self.state or {}).get(MCP_TOOL_ALLOWLIST_STATE_KEY)
         if tools is None:
             return None
@@ -1431,8 +1433,8 @@ class Task(Taggable, DeletedMetaFields, models.Model):
                 initial_state[MCP_CREDENTIAL_OWNER_STATE_KEY] = mcp_credential_owner_id
             if mcp_gateway_server_ids is not None:
                 initial_state[MCP_GATEWAY_SERVER_ALLOWLIST_STATE_KEY] = [str(i) for i in mcp_gateway_server_ids]
-        if mcp_tool_allowlist is not None:
-            initial_state[MCP_TOOL_ALLOWLIST_STATE_KEY] = sorted(set(mcp_tool_allowlist))
+            if mcp_tool_allowlist is not None:
+                initial_state[MCP_TOOL_ALLOWLIST_STATE_KEY] = sorted(set(mcp_tool_allowlist))
 
         task = Task(
             team=team,

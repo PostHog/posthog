@@ -760,6 +760,7 @@ async def select_repository(
         # Read-only PostHog scopes so the agent can call `execute-sql` against `system.integration_repository_cache`.
         posthog_mcp_scopes="read_only",
         github_read_access=True,
+        disable_skills=True,
         sandbox_resources=SandboxResources(cpu_cores=2, memory_gb=8),
         # Optional agent runtime/model override (e.g. the Codex runtime + gpt-5.5). All-None keeps
         # the agent-server default; threaded through from the caller's per-step resolution.
@@ -792,7 +793,6 @@ async def select_repository(
             spend_signal_id=spend_signal_id,
             ai_stage="repo_selection",
             internal=True,
-            mcp_tool_allowlist=["execute-sql"],
             # An unreadable end turn used to fail the whole selection, and the caller then dropped the
             # user into a manual repository picker. Read the pick out of the raw reply instead.
             fallback_from_text=_salvage,
