@@ -1500,8 +1500,8 @@ class PersonalRankingQuerySerializer(serializers.Serializer):
         min_value=0,
         max_value=30,
         help_text=(
-            "When the request starts a build or one is running, wait up to this many seconds for its list. "
-            "Defaults to 0, which returns at once. A build usually takes 10 to 60 seconds."
+            "When the request starts a build or one is running, wait for its list until this many seconds after "
+            "the request started. Defaults to 0, which does not wait. A build usually takes 10 to 60 seconds."
         ),
     )
 
@@ -1632,7 +1632,7 @@ def personal_ranking_payload(served: "ServedRanking") -> dict[str, Any]:
         **{
             field.name: getattr(served, field.name)
             for field in dataclasses.fields(served)
-            if field.name not in {"results", "folded"}
+            if field.name not in {"results", "folded", "timings"}
         },
         "results": [
             {

@@ -11306,7 +11306,7 @@ export type SignalsReportsForMeRetrieveParams = {
      */
     refresh?: boolean
     /**
-     * When the request starts a build or one is running, wait up to this many seconds for its list. Defaults to 0, which returns at once. A build usually takes 10 to 60 seconds.
+     * When the request starts a build or one is running, wait for its list until this many seconds after the request started. Defaults to 0, which does not wait. A build usually takes 10 to 60 seconds.
      * @minimum 0
      * @maximum 30
      */
