@@ -1036,6 +1036,8 @@ class DucklingBackfillConfig(Config):
     create_tables_if_missing: bool = True
     delete_tables: bool = False  # Danger: drops and recreates tables, losing all data
     dry_run: bool = False
+    # Opt-in per run. A backfill never evaluates the canary feature flag.
+    use_trino_canary: bool = False
     events_parquet_row_group_size_bytes: int = pydantic.Field(
         default=DEFAULT_EVENTS_PARQUET_ROW_GROUP_SIZE_BYTES,
         gt=0,
@@ -2611,7 +2613,9 @@ def backfill_through_trino(
     partitions_exported = 0
     files_registered = 0
     register = not (config.dry_run or config.skip_ducklake_registration)
-    with connect_backfill_catalog(target.organization_id) if register else nullcontext() as catalog:
+    with (
+        connect_backfill_catalog(target.organization_id, canary=config.use_trino_canary) if register else nullcontext()
+    ) as catalog:
         if catalog is not None:
             catalog.ensure_table(
                 table,
