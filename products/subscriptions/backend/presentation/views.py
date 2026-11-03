@@ -1368,6 +1368,8 @@ class SubscriptionDeliveryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
     scope_object = "subscription"
     serializer_class = SubscriptionDeliverySerializer
     pagination_class = SubscriptionDeliveryCursorPagination
+    # subscription is not an access-control resource, and a delivery has no access rules of its own.
+    records_have_object_access_rules = False
 
     def get_serializer_context(self) -> dict:
         context = super().get_serializer_context()
@@ -1403,9 +1405,9 @@ class SubscriptionDeliveryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             ),
         )
 
-    def retrieve(self, request: Request, **kwargs: object) -> Response:
+    def read_object(self) -> contracts.SubscriptionDeliveryRecord:
         try:
-            delivery = api.get_subscription_delivery(
+            return api.get_subscription_delivery(
                 team_id=self.team_id,
                 subscription_id=self.kwargs.get("parent_lookup_subscription_id"),
                 delivery_id=self.kwargs["pk"],
@@ -1415,6 +1417,6 @@ class SubscriptionDeliveryViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             raise Http404
         except contracts.SubscriptionNotFoundError:
             raise Http404("No SubscriptionDelivery matches the given query.")
-        # A delivery has no access rules of its own, so the object checks pass it as they pass the row.
-        self.check_object_permissions(request, delivery)
-        return Response(self.get_serializer(delivery).data)
+
+    def retrieve(self, request: Request, **kwargs: object) -> Response:
+        return Response(self.get_serializer(self.get_object()).data)

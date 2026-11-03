@@ -711,6 +711,8 @@ class MessageTemplatesViewSet(
     # A project secret API key can only send. Template CRUD stays session/personal API key/OAuth only.
     psak_allowed_actions = ["send"]
     transactional_email_send_actions = ("send",)
+    # Access rules on hog_flow name workflow ids, never template ids, so no rule names one template.
+    records_have_object_access_rules = False
 
     serializer_class = MessageTemplateSerializer
 
@@ -719,15 +721,13 @@ class MessageTemplatesViewSet(
             return transactional_email_throttles()
         return super().get_throttles()
 
-    def dangerously_get_object(self) -> MessageTemplateRow:
+    def read_object(self) -> MessageTemplateRow | None:
         # Team scoping happens in the facade lookup, because the view has no queryset to filter.
         # DRF's detail OPTIONS metadata also calls get_object(), so the lookup must live here.
         try:
-            template = get_template(self.team_id, self.kwargs["pk"])
+            return get_template(self.team_id, self.kwargs["pk"])
         except MessageTemplateMissing:
-            raise NotFound()
-        self.check_object_permissions(self.request, template)
-        return template
+            return None
 
     def _with_creators(self, templates: Sequence[MessageTemplateRow]) -> list[SimpleNamespace]:
         creator_ids = {template.created_by_id for template in templates if template.created_by_id}
@@ -982,9 +982,18 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
     psak_allowed_actions = ["email"]
     transactional_email_send_actions = ("email",)
+    # Access rules on hog_flow name workflow ids, never template ids, so no rule names one template.
+    records_have_object_access_rules = False
 
     def get_throttles(self):
         return transactional_email_throttles()
+
+    def read_object(self) -> MessageTemplateRow | None:
+        # The `email` action names its template in the request body, not in the URL.
+        try:
+            return get_template(self.team_id, self.request.validated_data["template_id"])
+        except MessageTemplateMissing:
+            return None
 
     @validated_request(
         SendEmailSerializer,
@@ -1004,9 +1013,5 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
         with transactional_email_stage("feature_flag"):
             self._require_transactional_email_flag()
         with transactional_email_stage("template_lookup"):
-            try:
-                template = get_template(self.team_id, request.validated_data["template_id"])
-            except MessageTemplateMissing:
-                raise NotFound()
-            self.check_object_permissions(request, template)
+            template = self.get_object()
         return self._queue_transactional_email(request, template, route="send_email")

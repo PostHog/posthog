@@ -209,21 +209,21 @@ class SignalScoutRubricViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "signal_scout"
     lookup_field = "id"
     pagination_class = None
+    # signal_scout is not an access-control resource, so no rule names one rubric.
+    records_have_object_access_rules = False
 
     def dangerously_get_required_scopes(self, request: Request, view: APIView) -> list[str]:
         return ["signal_scout:read" if getattr(view, "action", None) == "retrieve" else "signal_scout:write"]
 
-    def get_rubric(self, config_id: str) -> ScoutRubricDocument:
+    def read_object(self) -> ScoutRubricDocument:
         try:
-            document = get_scout_rubric(self.team_id, config_id)
+            return get_scout_rubric(self.team_id, self.kwargs["id"])
         except ScoutRubricNotFound:
             raise exceptions.NotFound() from None
-        self.check_object_permissions(self.request, document)
-        return document
 
     @extend_schema(responses={200: ScoutRubricDocumentSerializer}, operation_id="signals_scout_rubrics_retrieve")
     def retrieve(self, request: Request, id: str, **kwargs: object) -> Response:
-        return rubric_response(self.get_rubric(id))
+        return rubric_response(self.get_object())
 
     @extend_schema(
         request=ScoutRubricSaveSerializer,
@@ -231,7 +231,7 @@ class SignalScoutRubricViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         operation_id="signals_scout_rubrics_update",
     )
     def update(self, request: Request, id: str, **kwargs: object) -> Response:
-        document = self.get_rubric(id)
+        document = self.get_object()
         serializer = ScoutRubricSaveSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         adopt_generation_id = serializer.validated_data.get("adopt_generation_id")
@@ -251,7 +251,7 @@ class SignalScoutRubricViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(detail=True, methods=["post"])
     def generate(self, request: Request, id: str, **kwargs: object) -> Response:
-        document = self.get_rubric(id)
+        document = self.get_object()
         user_id = request.user.pk
         if user_id is None:
             raise exceptions.NotAuthenticated()
