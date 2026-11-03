@@ -17,7 +17,7 @@ import { initKeaTests } from '~/test/init'
 import { ActivityTab } from '~/types'
 
 import { bestSettingsFirst } from './searchListItems'
-import { searchListsLogic } from './searchListsLogic'
+import { searchListsLogic, searchListsLogicValues } from './searchListsLogic'
 import { filterSearchItems } from './utils'
 
 type DestinationList = keyof Pick<
@@ -100,6 +100,23 @@ describe('searchListsLogic', () => {
         const matches = filterSearchItems(logic.values.productsItems, query)
 
         expect(matches.find((item) => item.id === 'misc-my-tickets')?.href).toBe(urls.myTickets())
+    })
+
+    it('lists Alerts only as a Product analytics tab', () => {
+        const lists = [
+            logic.values.productsItems,
+            logic.values.dataManagementItems,
+            logic.values.peopleItems,
+            logic.values.healthItems,
+            logic.values.actionItems,
+        ]
+
+        expect(
+            lists
+                .flat()
+                .filter((item) => item.href === urls.alerts())
+                .map((item) => ({ displayName: item.displayName, parentName: item.parentName }))
+        ).toEqual([{ displayName: 'Alerts', parentName: 'Product analytics' }])
     })
 
     it.each([
