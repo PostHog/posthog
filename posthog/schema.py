@@ -4254,6 +4254,12 @@ class AssistantFunnelsFilter(BaseModel):
         default=FunnelLayout.VERTICAL,
         description=("Controls how the funnel chart is displayed: vertically (preferred) or horizontally."),
     )
+    showGridLines: bool | None = Field(
+        default=True,
+        description=(
+            "Whether to draw horizontal grid lines at the y-axis ticks. Only applies when `funnelVizType` is `trends`."
+        ),
+    )
 
 
 class AssistantGenerationStatusEvent(BaseModel):
@@ -4457,6 +4463,10 @@ class AssistantInsightVizNode(BaseModel):
 class AssistantLifecycleFilter(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    showGridLines: bool | None = Field(
+        default=True,
+        description="Whether to draw horizontal grid lines at the y-axis ticks.",
     )
     showLegend: bool | None = Field(default=False, description="Whether to show the legend describing series.")
     showValuesOnSeries: bool | None = Field(default=False, description="Whether to show a value on each data point.")
@@ -5127,6 +5137,10 @@ class AssistantTrendsFilter(BaseModel):
     )
     showAlertThresholdLines: bool | None = Field(
         default=False, description="Whether to show alert threshold lines on the chart."
+    )
+    showGridLines: bool | None = Field(
+        default=True,
+        description="Whether to draw horizontal grid lines at the y-axis ticks.",
     )
     showLabelsOnSeries: bool | None = Field(default=False, description="Whether to show labels on each series.")
     showLegend: bool | None = Field(
@@ -11210,6 +11224,10 @@ class AssistantRetentionFilter(BaseModel):
     returningEntity: AssistantRetentionEventsNode | AssistantRetentionActionsNode = Field(
         ..., description="Retention event (event marking the user coming back)."
     )
+    showGridLines: bool | None = Field(
+        default=True,
+        description="Whether to draw horizontal grid lines at the y-axis ticks.",
+    )
     targetEntity: AssistantRetentionEventsNode | AssistantRetentionActionsNode = Field(
         ...,
         description=("Activation event (event putting the actor into the initial cohort)."),
@@ -11410,6 +11428,10 @@ class AssistantStickinessFilter(BaseModel):
             " chart (default). `ActionsBar` - bar chart. `ActionsAreaGraph` - area"
             " chart."
         ),
+    )
+    showGridLines: bool | None = Field(
+        default=True,
+        description="Whether to draw horizontal grid lines at the y-axis ticks.",
     )
     showLegend: bool | None = Field(default=False, description="Whether to show the legend describing series.")
     showValuesOnSeries: bool | None = Field(default=False, description="Whether to show a value on each data point.")

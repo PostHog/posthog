@@ -4422,6 +4422,11 @@
                             "description": "Whether to show alert threshold lines on the chart.",
                             "type": "boolean"
                         },
+                        "showGridLines": {
+                            "default": true,
+                            "description": "Whether to draw horizontal grid lines at the y-axis ticks.",
+                            "type": "boolean"
+                        },
                         "showLabelsOnSeries": {
                             "default": false,
                             "description": "Whether to show labels on each series.",

@@ -239,6 +239,11 @@
                             "description": "Controls how the funnel chart is displayed: vertically (preferred) or horizontally.",
                             "enum": ["horizontal", "vertical"],
                             "type": "string"
+                        },
+                        "showGridLines": {
+                            "default": true,
+                            "description": "Whether to draw horizontal grid lines at the y-axis ticks. Only applies when `funnelVizType` is `trends`.",
+                            "type": "boolean"
                         }
                     },
                     "type": "object"

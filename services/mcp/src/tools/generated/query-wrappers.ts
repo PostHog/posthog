@@ -718,6 +718,11 @@ const AssistantTrendsFilter = z.object({
         .describe('Whether to show alert threshold lines on the chart.')
         .default(false)
         .optional(),
+    showGridLines: z.coerce
+        .boolean()
+        .describe('Whether to draw horizontal grid lines at the y-axis ticks.')
+        .default(true)
+        .optional(),
     showLabelsOnSeries: z.coerce.boolean().describe('Whether to show labels on each series.').default(false).optional(),
     showLegend: z.coerce
         .boolean()
@@ -869,6 +874,13 @@ const AssistantFunnelsFilter = z.object({
         .optional(),
     layout: FunnelLayout.describe('Controls how the funnel chart is displayed: vertically (preferred) or horizontally.')
         .default('vertical')
+        .optional(),
+    showGridLines: z.coerce
+        .boolean()
+        .describe(
+            'Whether to draw horizontal grid lines at the y-axis ticks. Only applies when `funnelVizType` is `trends`.'
+        )
+        .default(true)
         .optional(),
 })
 
@@ -1047,6 +1059,11 @@ const AssistantRetentionFilter = z.object({
         'Retention type: recurring or first time. Recurring retention counts a user as part of a cohort if they performed the cohort event during that time period, irrespective of it was their first time or not. First time retention only counts a user as part of the cohort if it was their first time performing the cohort event.'
     ).optional(),
     returningEntity: AssistantRetentionEntity.describe('Retention event (event marking the user coming back).'),
+    showGridLines: z.coerce
+        .boolean()
+        .describe('Whether to draw horizontal grid lines at the y-axis ticks.')
+        .default(true)
+        .optional(),
     targetEntity: AssistantRetentionEntity.describe(
         'Activation event (event putting the actor into the initial cohort).'
     ),
@@ -1142,6 +1159,11 @@ const AssistantStickinessFilter = z.object({
         'Visualization type for the stickiness chart. `ActionsLineGraph` - line chart (default). `ActionsBar` - bar chart. `ActionsAreaGraph` - area chart.'
     )
         .default('ActionsLineGraph')
+        .optional(),
+    showGridLines: z.coerce
+        .boolean()
+        .describe('Whether to draw horizontal grid lines at the y-axis ticks.')
+        .default(true)
         .optional(),
     showLegend: z.coerce.boolean().describe('Whether to show the legend describing series.').default(false).optional(),
     showValuesOnSeries: z.coerce
@@ -1311,6 +1333,11 @@ const AssistantPathsQuery = z.object({
 const LifecycleToggle = z.enum(['new', 'resurrecting', 'returning', 'dormant'])
 
 const AssistantLifecycleFilter = z.object({
+    showGridLines: z.coerce
+        .boolean()
+        .describe('Whether to draw horizontal grid lines at the y-axis ticks.')
+        .default(true)
+        .optional(),
     showLegend: z.coerce.boolean().describe('Whether to show the legend describing series.').default(false).optional(),
     showValuesOnSeries: z.coerce
         .boolean()

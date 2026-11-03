@@ -101,6 +101,11 @@
                 "lifecycleFilter": {
                     "description": "Properties specific to the lifecycle insight",
                     "properties": {
+                        "showGridLines": {
+                            "default": true,
+                            "description": "Whether to draw horizontal grid lines at the y-axis ticks.",
+                            "type": "boolean"
+                        },
                         "showLegend": {
                             "default": false,
                             "description": "Whether to show the legend describing series.",

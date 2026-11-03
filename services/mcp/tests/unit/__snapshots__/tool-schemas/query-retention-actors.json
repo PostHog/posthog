@@ -2385,6 +2385,11 @@
                             ],
                             "description": "Retention event (event marking the user coming back)."
                         },
+                        "showGridLines": {
+                            "default": true,
+                            "description": "Whether to draw horizontal grid lines at the y-axis ticks.",
+                            "type": "boolean"
+                        },
                         "targetEntity": {
                             "anyOf": [
                                 {

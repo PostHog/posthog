@@ -3579,6 +3579,11 @@
                     "$ref": "#/definitions/FunnelLayout",
                     "default": "vertical",
                     "description": "Controls how the funnel chart is displayed: vertically (preferred) or horizontally."
+                },
+                "showGridLines": {
+                    "default": true,
+                    "description": "Whether to draw horizontal grid lines at the y-axis ticks. Only applies when `funnelVizType` is `trends`.",
+                    "type": "boolean"
                 }
             },
             "type": "object"
@@ -4188,6 +4193,11 @@
         "AssistantLifecycleFilter": {
             "additionalProperties": false,
             "properties": {
+                "showGridLines": {
+                    "default": true,
+                    "description": "Whether to draw horizontal grid lines at the y-axis ticks.",
+                    "type": "boolean"
+                },
                 "showLegend": {
                     "default": false,
                     "description": "Whether to show the legend describing series.",
@@ -5046,6 +5056,11 @@
                     "$ref": "#/definitions/AssistantRetentionEntity",
                     "description": "Retention event (event marking the user coming back)."
                 },
+                "showGridLines": {
+                    "default": true,
+                    "description": "Whether to draw horizontal grid lines at the y-axis ticks.",
+                    "type": "boolean"
+                },
                 "targetEntity": {
                     "$ref": "#/definitions/AssistantRetentionEntity",
                     "description": "Activation event (event putting the actor into the initial cohort)."
@@ -5278,6 +5293,11 @@
                     "$ref": "#/definitions/AssistantStickinessDisplayType",
                     "default": "ActionsLineGraph",
                     "description": "Visualization type for the stickiness chart. `ActionsLineGraph` - line chart (default). `ActionsBar` - bar chart. `ActionsAreaGraph` - area chart."
+                },
+                "showGridLines": {
+                    "default": true,
+                    "description": "Whether to draw horizontal grid lines at the y-axis ticks.",
+                    "type": "boolean"
                 },
                 "showLegend": {
                     "default": false,
@@ -5898,6 +5918,11 @@
                 "showAlertThresholdLines": {
                     "default": false,
                     "description": "Whether to show alert threshold lines on the chart.",
+                    "type": "boolean"
+                },
+                "showGridLines": {
+                    "default": true,
+                    "description": "Whether to draw horizontal grid lines at the y-axis ticks.",
                     "type": "boolean"
                 },
                 "showLabelsOnSeries": {

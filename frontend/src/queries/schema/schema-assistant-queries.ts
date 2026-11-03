@@ -608,6 +608,12 @@ export interface AssistantTrendsFilter {
     showMultipleYAxes?: boolean
 
     /**
+     * Whether to draw horizontal grid lines at the y-axis ticks.
+     * @default true
+     */
+    showGridLines?: boolean
+
+    /**
      * Only applies when `display` is `Metric`. Show the change pill next to the big number. What it
      * compares follows `metricSummary`: `total`/`average` compare against the previous period when
      * "compare to previous" is on (otherwise first→last of the series), and `latest` is always
@@ -856,6 +862,11 @@ export interface AssistantFunnelsFilter {
      * @asType integer
      */
     breakdownAttributionValue?: integer
+    /**
+     * Whether to draw horizontal grid lines at the y-axis ticks. Only applies when `funnelVizType` is `trends`.
+     * @default true
+     */
+    showGridLines?: boolean
 }
 
 export type AssistantFunnelsBreakdownType = Extract<BreakdownType, 'person' | 'event' | 'group' | 'session'>
@@ -1000,6 +1011,11 @@ export interface AssistantRetentionFilter {
     aggregationPropertyType?: 'event' | 'person' | 'data_warehouse'
     /** `ActionsLineGraph` (default) draws lines. `ActionsBar` draws bars. */
     display?: AssistantRetentionDisplayType
+    /**
+     * Whether to draw horizontal grid lines at the y-axis ticks.
+     * @default true
+     */
+    showGridLines?: boolean
 }
 
 export type AssistantRetentionDisplayType = ChartDisplayType.ActionsLineGraph | ChartDisplayType.ActionsBar
@@ -1113,6 +1129,12 @@ export interface AssistantStickinessFilter {
      * @default false
      */
     showValuesOnSeries?: boolean
+
+    /**
+     * Whether to draw horizontal grid lines at the y-axis ticks.
+     * @default true
+     */
+    showGridLines?: boolean
 
     /**
      * Filter which intervals count based on event frequency within each interval.
@@ -1339,6 +1361,11 @@ export interface AssistantLifecycleFilter {
      * @default true
      */
     stacked?: boolean
+    /**
+     * Whether to draw horizontal grid lines at the y-axis ticks.
+     * @default true
+     */
+    showGridLines?: boolean
 }
 
 export interface AssistantLifecycleQuery extends AssistantInsightsQueryBase {
