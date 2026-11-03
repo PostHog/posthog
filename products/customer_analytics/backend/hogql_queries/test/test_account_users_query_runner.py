@@ -355,6 +355,23 @@ class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest)
         assert [item["id"] for item in next_page["results"]] == [str(self.second.uuid)]
         assert not next_page["has_more"] and next_page["next_offset"] is None
 
+        self._insert_membership("member-two", "2024-01-03", "2024-01-09")
+        id_order_response = self.client.get(self.endpoint, {"sort_column": "id", "sort_direction": "asc"})
+        assert id_order_response.status_code == 200, id_order_response.content
+        expected_ids = [person["id"] for person in id_order_response.json()["results"]]
+        assert set(expected_ids) == {str(self.first.uuid), str(self.second.uuid)}
+        first_page_response = self.client.get(self.endpoint, {"limit": 1})
+        assert first_page_response.status_code == 200, first_page_response.content
+        first_page = first_page_response.json()
+        assert first_page["limit"] == 1 and first_page["offset"] == 0
+        assert first_page["has_more"] and first_page["next_offset"] == 1
+        second_page_response = self.client.get(self.endpoint, {"limit": 1, "offset": first_page["next_offset"]})
+        assert second_page_response.status_code == 200, second_page_response.content
+        second_page = second_page_response.json()
+        assert second_page["limit"] == 1 and second_page["offset"] == 1
+        assert not second_page["has_more"] and second_page["next_offset"] is None
+        assert [person["id"] for person in first_page["results"] + second_page["results"]] == expected_ids
+
     @parameterized.expand(
         [
             ({"search": "first@example.com"}, "first"),
