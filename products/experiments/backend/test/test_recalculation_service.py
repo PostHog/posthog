@@ -658,7 +658,14 @@ class TestTimeseriesColdStartPayload(BaseTest):
     def _config_fp(self, exp: Experiment, metric_uuid: str) -> str:
         return _calculation_key(exp, metric_uuid)
 
-    def _timeseries_point(self, exp: Experiment, metric_uuid: str, query_to: datetime, result: dict | None) -> None:
+    def _timeseries_point(
+        self,
+        exp: Experiment,
+        metric_uuid: str,
+        query_to: datetime,
+        result: dict | None,
+        completed_at: datetime | None = None,
+    ) -> None:
         assert exp.start_date is not None
         ExperimentMetricResult.objects.create(
             experiment=exp,
@@ -668,6 +675,7 @@ class TestTimeseriesColdStartPayload(BaseTest):
             query_to=query_to,
             status="completed" if result is not None else "failed",
             result=result,
+            completed_at=completed_at,
         )
 
     def test_returns_none_when_no_timeseries_data(self):
@@ -715,16 +723,30 @@ class TestTimeseriesColdStartPayload(BaseTest):
             ("ended_with_a_point_at_the_end_date", timedelta(days=3), timedelta(days=3), True),
             # A point before the end date misses the final hours, so a cold run must compute them.
             ("ended_with_a_stale_point_before_the_end_date", timedelta(days=4), timedelta(days=3), False),
+            # A backfill stamps the end of the day it ran on, so its data stops at completed_at, before the end date.
+            (
+                "ended_with_a_backfill_point_computed_before_the_end_date",
+                timedelta(days=3) - timedelta(hours=6),
+                timedelta(days=3),
+                False,
+                timedelta(days=3) + timedelta(hours=8),
+            ),
         ]
     )
     def test_only_points_inside_the_max_age_feed_the_fallback(
-        self, _name: str, age: timedelta, ended_ago: timedelta | None, included: bool
+        self,
+        _name: str,
+        age: timedelta,
+        ended_ago: timedelta | None,
+        included: bool,
+        completed_ago: timedelta | None = None,
     ) -> None:
         exp = self._experiment(f"ts-age-{_name}", ["m1"])
         if ended_ago is not None:
             exp.end_date = timezone.now() - ended_ago
             exp.save()
-        self._timeseries_point(exp, "m1", timezone.now() - age, {"ok": True})
+        completed_at = timezone.now() - completed_ago if completed_ago is not None else None
+        self._timeseries_point(exp, "m1", timezone.now() - age, {"ok": True}, completed_at=completed_at)
 
         payload = build_timeseries_cold_start_payload(exp)
         assert (payload is not None) == included
