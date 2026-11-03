@@ -207,6 +207,7 @@ class HogQLQueryExecutor:
     user_access_control: Optional[UserAccessControl] = None
     resolver_factory: Optional[ResolverFactory] = None
     refresh_stale_view_columns: bool = True
+    returned_row_limit: int | None = None
 
     __uninitialized_context: ClassVar[HogQLContext] = HogQLContext()
 
@@ -1063,7 +1064,9 @@ class HogQLQueryExecutor:
                     # Files backing a warehouse table can be replaced mid-read; one retry re-lists them
                     sleep(TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS)
                     self.results, self.types = run_clickhouse_query()
-                _raise_for_raw_bytes_in_string_results(self.results, self.types, self.query_type)
+                _raise_for_raw_bytes_in_string_results(
+                    self.results[: self.returned_row_limit], self.types, self.query_type
+                )
             except Exception as e:
                 if self.debug:
                     self.results = []
