@@ -38,8 +38,6 @@ async function releaseLock(runtime: Runtime, lock: string, id: string | undefine
     }
 }
 
-// Waits until this process creates the lock file. A lock that went stale is removed, so a process
-// that died holding it doesn't block every later one.
 async function acquireLock(runtime: Runtime, lock: string, id: string): Promise<void> {
     // A lock that can't be read yet may be one another process is still writing, so its age counts
     // from when this process first saw it.
@@ -61,7 +59,6 @@ async function acquireLock(runtime: Runtime, lock: string, id: string): Promise<
     }
 }
 
-// Rewrites the lock until `signal` aborts, so a long `work` never makes it look stale.
 async function keepLockFresh(runtime: Runtime, lock: string, id: string, signal: AbortSignal): Promise<void> {
     try {
         for (;;) {
@@ -77,8 +74,7 @@ async function keepLockFresh(runtime: Runtime, lock: string, id: string, signal:
     }
 }
 
-// Runs `work` while this process holds the lock file `name` in hog's folder. Each hog process that
-// reaches the same lock waits for the one before it.
+// Each hog process that reaches the same lock waits for the one before it.
 export async function withFileLock<T>(runtime: Runtime, name: string, work: () => Promise<T>): Promise<T> {
     const lock = hogFile(runtime, name)
     const id = randomUUID()

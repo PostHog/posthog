@@ -220,6 +220,7 @@ describe('hog api', () => {
             store: 'keychain',
             type: 'oauth',
             projectId: '42',
+            host: EU,
             expiresAt: Date.UTC(2026, 0, 8),
             scopes: ['feature_flag:read', 'feature_flag:write'],
             loginId: 'login-1',

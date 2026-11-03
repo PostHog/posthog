@@ -398,7 +398,7 @@ def fetch_cimd_metadata(url: str) -> tuple[CIMDMetadataDocument, int]:
         raise CIMDValidationError("client_id in the metadata document does not match the URL it was fetched from")
 
     # A client that only uses the device grant never receives a redirect, so it may leave
-    # redirect_uris out. Any redirect_uris a document does list are checked the same way.
+    # redirect_uris out.
     device_only = _resolve_grant_type(metadata) == AbstractApplication.GRANT_DEVICE_CODE
     redirect_uris = metadata.get("redirect_uris", [])
     if not isinstance(redirect_uris, list) or (not redirect_uris and not device_only):
@@ -821,8 +821,6 @@ def _update_cimd_application(
 
     try:
         app.full_clean()
-        # One transaction, so a failed cleanup can't leave the new grant type saved while the sessions
-        # issued under the old one stay alive.
         with transaction.atomic():
             app.save(update_fields=update_fields)
             if app.authorization_grant_type != previous_grant_type:

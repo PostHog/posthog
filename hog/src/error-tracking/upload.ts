@@ -1,7 +1,7 @@
 import { HogError } from '@/core/errors'
 import type { Runtime } from '@/core/runtime'
-import type { AccessKey } from '@/posthog/access-key'
 import { USER_AGENT } from '@/posthog/api'
+import type { KeySession } from '@/posthog/key-session'
 
 import { contentHash } from './container'
 
@@ -145,7 +145,7 @@ export class SymbolSetClient {
 
     constructor(
         private readonly runtime: Runtime,
-        private readonly key: AccessKey,
+        private readonly session: KeySession,
         private readonly onFallback: () => void = () => {}
     ) {
         this.throttle = new Throttle(runtime, RATE_LIMIT_PER_MINUTE)
@@ -153,7 +153,8 @@ export class SymbolSetClient {
 
     // Project-scoped API URL, resolved the way posthog-cli's `Url::join` does.
     projectUrl(path: string): URL {
-        return new URL(path, new URL(`api/projects/${this.key.projectId}/`, this.key.host))
+        const { projectId, host } = this.session.current
+        return new URL(path, new URL(`api/projects/${projectId}/`, host))
     }
 
     async api(method: 'GET' | 'POST', path: string, body?: unknown): Promise<unknown> {
@@ -161,16 +162,20 @@ export class SymbolSetClient {
         const url = this.projectUrl(path)
         let response: Response
         try {
-            response = await this.runtime.fetch(url, {
-                method,
-                headers: {
-                    Authorization: `Bearer ${this.key.token}`,
-                    'Content-Type': 'application/json',
-                    'User-Agent': USER_AGENT,
-                },
-                body: body === undefined ? undefined : JSON.stringify(body),
-                timeoutMs: REQUEST_TIMEOUT_MS,
-            })
+            response = await this.session.send(
+                (token) =>
+                    this.runtime.fetch(url, {
+                        method,
+                        headers: {
+                            Authorization: `Bearer ${token}`,
+                            'Content-Type': 'application/json',
+                            'User-Agent': USER_AGENT,
+                        },
+                        body: body === undefined ? undefined : JSON.stringify(body),
+                        timeoutMs: REQUEST_TIMEOUT_MS,
+                    }),
+                (answer) => answer.status === 401
+            )
         } catch (error) {
             throw new ApiFailure(undefined, error instanceof Error ? error.message : String(error), url.toString())
         }

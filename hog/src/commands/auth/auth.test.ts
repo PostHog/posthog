@@ -161,6 +161,7 @@ describe('hog auth login', () => {
                     store: 'keychain',
                     type: 'oauth',
                     projectId: '42',
+                    host: EU,
                     expiresAt: expect.any(Number),
                     scopes: LOGIN_SCOPES,
                     loginId: expect.any(String),
@@ -311,7 +312,14 @@ describe('hog auth login', () => {
     const KEYCHAIN_LOGIN = {
         files: {
             [SETTINGS_FILE]: JSON.stringify({
-                logins: { 'https://eu.posthog.com': { store: 'keychain', type: 'personal_api_key', projectId: '42' } },
+                logins: {
+                    'https://eu.posthog.com': {
+                        store: 'keychain',
+                        type: 'personal_api_key',
+                        projectId: '42',
+                        host: 'https://eu.posthog.com',
+                    },
+                },
                 host: 'https://eu.posthog.com',
             }),
         },
@@ -325,6 +333,7 @@ describe('hog auth login', () => {
                         store: 'keychain',
                         type: 'oauth',
                         projectId: '42',
+                        host: EU,
                         expiresAt: Date.UTC(2026, 0, 2),
                         scopes: ['openid', 'insight:read'],
                         loginId: 'login-1',
@@ -431,8 +440,18 @@ describe('hog auth login', () => {
             {
                 [SETTINGS_FILE]: JSON.stringify({
                     logins: {
-                        'https://eu.posthog.com': { store: 'keychain', type: 'personal_api_key', projectId: '42' },
-                        'https://us.posthog.com': { store: 'keychain', type: 'personal_api_key', projectId: '42' },
+                        'https://eu.posthog.com': {
+                            store: 'keychain',
+                            type: 'personal_api_key',
+                            projectId: '42',
+                            host: 'https://eu.posthog.com',
+                        },
+                        'https://us.posthog.com': {
+                            store: 'keychain',
+                            type: 'personal_api_key',
+                            projectId: '42',
+                            host: 'https://us.posthog.com',
+                        },
                     },
                     host: 'https://us.posthog.com',
                 }),

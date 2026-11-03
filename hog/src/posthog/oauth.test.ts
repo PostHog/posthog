@@ -5,7 +5,9 @@ import { HogError } from '@/core/errors'
 import type { Secrets } from '@/core/runtime'
 import { fakeRuntime, type FakeRuntime } from '@/testing'
 
+import { PostHogApi } from './api'
 import { resolveCredentials } from './credentials'
+import { KeySession } from './key-session'
 import { HOG_CLIENT_ID } from './oauth'
 
 const EU = 'https://eu.posthog.com'
@@ -19,6 +21,7 @@ function settings(expiresInMs: number): string {
         store: 'keychain',
         type: 'oauth',
         projectId: '42',
+        host: EU,
         expiresAt: START + expiresInMs,
         scopes: ['openid', 'insight:read'],
         loginId: 'login-1',
@@ -37,11 +40,56 @@ function stored(
     return { files: { [SETTINGS_FILE]: settings(expiresInMs) }, keychain: { [EU]: secret(accessToken) } }
 }
 
+const OK = { name: 'Hedgebox' }
+const REJECTED = { status: 401 }
+
 function tokenRequests(runtime: FakeRuntime): FakeRuntime['requests'] {
     return runtime.requests.filter((request) => request.url === `${EU}/oauth/token/`)
 }
 
 describe('OAuth credentials', () => {
+    test.each([
+        ['renews a token PostHog rejects and sends the request once more', 3_600_000, 0, 'pha_new', 2, OK],
+        ['renews a token about to expire mid-command before it sends', 11 * 60_000, 2 * 60_000, 'pha_new', 1, OK],
+        ['surfaces a second 401 instead of retrying again', 3_600_000, 0, 'pha_also_rejected', 2, REJECTED],
+    ])('a request %s', async (_name, expiresInMs, commandRunsMs, renewedToken, apiCalls, expected) => {
+        const runtime = fakeRuntime({
+            ...stored('pha_old', expiresInMs),
+            respond: (url, _body, authorization) => {
+                if (url === `${EU}/oauth/token/`) {
+                    return { status: 200, body: { access_token: renewedToken, expires_in: 3600 } }
+                }
+                return authorization === 'Bearer pha_new'
+                    ? { status: 200, body: { name: 'Hedgebox' } }
+                    : { status: 401, body: { detail: 'Invalid token' } }
+            },
+        })
+        const api = new PostHogApi(new KeySession(runtime, await resolveCredentials(runtime, {})), runtime.fetch)
+        await runtime.sleep(commandRunsMs)
+
+        const outcome = await api.get<{ name: string }>('').catch((error: unknown) => error)
+
+        expect(outcome).toMatchObject(expected)
+        expect(tokenRequests(runtime)).toHaveLength(1)
+        expect(runtime.requests.filter((request) => request.url.includes('/api/'))).toHaveLength(apiCalls)
+        expect(JSON.parse(runtime.keychain[EU] ?? '{}').accessToken).toBe(renewedToken)
+    })
+
+    test('a stored personal API key that PostHog rejects is sent only once', async () => {
+        const record = { store: 'keychain', type: 'personal_api_key', projectId: '42', host: EU }
+        const runtime = fakeRuntime({
+            files: { [SETTINGS_FILE]: JSON.stringify({ logins: { [EU]: record }, host: EU }) },
+            keychain: { [EU]: JSON.stringify({ apiKey: 'phx_deleted' }) },
+            respond: () => ({ status: 401, body: { detail: 'Invalid personal API key' } }),
+        })
+        const api = new PostHogApi(new KeySession(runtime, await resolveCredentials(runtime, {})), runtime.fetch)
+
+        const outcome = await api.get('').catch((error: unknown) => error)
+
+        expect(outcome).toMatchObject(REJECTED)
+        expect(runtime.requests).toHaveLength(1)
+    })
+
     test('renew a token about to expire, keeping the refresh token PostHog did not rotate', async () => {
         const runtime = fakeRuntime({
             ...stored('pha_old', 30_000),

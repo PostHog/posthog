@@ -3,7 +3,7 @@ import { parseLossless } from '@/core/raw-json'
 import type { RuntimeFetch } from '@/core/runtime'
 import { VERSION } from '@/version'
 
-import type { AccessKey } from './access-key'
+import type { KeySession } from './key-session'
 
 export const USER_AGENT = `hog/${VERSION}`
 // Generous, because a HogQL query can run for minutes. It only stops a connection that hangs.
@@ -86,7 +86,7 @@ export class ApiError extends HogError {
 
 export class PostHogApi {
     constructor(
-        private readonly key: AccessKey,
+        private readonly session: KeySession,
         private readonly fetchFn: RuntimeFetch
     ) {}
 
@@ -94,8 +94,8 @@ export class PostHogApi {
     // that starts with `/`, like `/api/users/@me/`, is relative to the host instead.
     private url(path: string): URL {
         const base = path.startsWith('/')
-            ? this.key.host
-            : new URL(`api/environments/${this.key.projectId}/`, this.key.host)
+            ? this.session.current.host
+            : new URL(`api/environments/${this.session.current.projectId}/`, this.session.current.host)
         return new URL(path, base)
     }
 
@@ -116,11 +116,11 @@ export class PostHogApi {
     }
 
     private async request<T>(method: Method, path: string, body?: unknown): Promise<T> {
-        const response = await sendRequest(this.fetchFn, this.url(path), {
-            method,
-            body,
-            token: this.key.token,
-        })
+        const url = this.url(path)
+        const response = await this.session.send(
+            (token) => sendRequest(this.fetchFn, url, { method, body, token }),
+            (answer) => answer.status === 401
+        )
         if (response.text && response.json === undefined) {
             throw new HogError(
                 'unexpected_response',

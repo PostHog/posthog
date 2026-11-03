@@ -98,4 +98,22 @@ describe('credential stores', () => {
         expect(runtime.stderr().includes('Waiting for access to the keychain')).toBe(warns)
         expect(runtime.now() - start).toBe(elapsedMs)
     })
+
+    test('a keychain write that lands after hog gave up is removed again', async () => {
+        const runtime = fakeRuntime()
+        const items = runtime.secrets
+        runtime.secrets = {
+            ...items,
+            set: async (name, value) => {
+                await runtime.sleep(90_000)
+                await items.set(name, value)
+            },
+        }
+
+        const write = await new KeychainStore(runtime).write(EU, secret('phx_late')).catch((error: unknown) => error)
+        await runtime.sleep(60_000)
+
+        expect((write as HogError).code).toBe('keychain_access_timeout')
+        expect(runtime.keychain).toEqual({})
+    })
 })

@@ -17,7 +17,6 @@ export const HOG_CLIENT_ID = 'https://posthog.com/.well-known/oauth/hog/client-m
 
 const REQUEST_TIMEOUT_MS = 30_000
 // Refresh this long before the access token expires, so it doesn't expire during a command.
-// A command resolves its credentials once, so the margin also covers a command that runs for minutes.
 const REFRESH_MARGIN_MS = 10 * 60_000
 
 export interface TokenResponse {
@@ -28,7 +27,6 @@ export interface TokenResponse {
     scoped_teams?: number[]
 }
 
-// OAuth endpoints take form-encoded requests, unlike the rest of PostHog's API.
 export function oauthPost(
     runtime: Runtime,
     host: string,
@@ -123,8 +121,12 @@ export class OAuthLogin implements AccessKey {
     // When PostHog rotates refresh tokens, it revokes the whole login if a rotated refresh token is
     // used again, so two hog processes must never refresh at once: the refresh runs under a lock
     // file, and re-reads the stored login inside it to pick up a token another process just stored.
-    async fresh(runtime: Runtime, storage: AccessKeyStorage): Promise<AccessKey> {
-        if (this.hasTimeLeft(runtime)) {
+    async fresh(runtime: Runtime, storage: AccessKeyStorage, rejectedToken?: string): Promise<AccessKey> {
+        // Another request or process may have renewed the rejected token already, so it only counts
+        // while it is still the stored one.
+        const needsRenewal = (login: OAuthLogin): boolean =>
+            rejectedToken === undefined ? !login.hasTimeLeft(runtime) : login.accessToken === rejectedToken
+        if (!needsRenewal(this)) {
             return this
         }
         return withLoginLock(runtime, this.host, async () => {
@@ -136,7 +138,7 @@ export class OAuthLogin implements AccessKey {
                     'Run `hog auth login` to log in again.'
                 )
             }
-            if (current.hasTimeLeft(runtime)) {
+            if (!needsRenewal(current)) {
                 return current
             }
             const renewed = await current.refresh(runtime).catch((error: unknown) => {
@@ -222,7 +224,7 @@ export class OAuthLogin implements AccessKey {
     }
 
     record(store: StoreChoice): LoginRecord {
-        const { projectId, expiresAt, scopes, loginId } = this
-        return { store, type: 'oauth', projectId, expiresAt, scopes, loginId }
+        const { host, projectId, expiresAt, scopes, loginId } = this
+        return { store, type: 'oauth', projectId, host, expiresAt, scopes, loginId }
     }
 }

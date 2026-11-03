@@ -108,17 +108,32 @@ export async function apiConnection(
             throw new HogError('invalid_input', `${flag} is empty.`, `Pass an ID, or leave out ${flag}.`, EXIT_USAGE)
         }
     }
-    const { key } = await ctx.credentials()
+    const session = await ctx.session()
+    const apiKey = await session.token()
+    const key = session.current
     // The saved project can belong to another organization, so an organization override drops it.
     const projectId = scope.projectId ?? (scope.organizationId ? undefined : key.projectId)
     return {
-        apiKey: key.token,
+        apiKey,
         host: key.host,
         ...(projectId ? { projectId } : {}),
         ...(scope.organizationId ? { organizationId: scope.organizationId } : {}),
         clientName: 'hog',
         clientVersion: VERSION,
     }
+}
+
+export async function withApiConnection<T>(
+    ctx: Context,
+    scope: { projectId?: string | undefined; organizationId?: string | undefined },
+    call: (connection: ApiConnection) => Promise<ApiToolResult<T>>
+): Promise<ApiToolResult<T>> {
+    const connection = await apiConnection(ctx, scope)
+    const session = await ctx.session()
+    return session.send(
+        (apiKey) => call({ ...connection, apiKey }),
+        (result) => !result.ok && result.error.code === 'api_error' && result.error.status === 401
+    )
 }
 
 export function missingScopesError(tool: string, scopes: readonly string[]): HogError {
