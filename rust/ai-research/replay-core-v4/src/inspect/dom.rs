@@ -251,6 +251,9 @@ struct Urls {
     /// Named URLs that the policy refuses, by the largest kind each was named as. The writer overwrites every copy of each one, outside its slot too.
     declined: HashMap<String, (RemoteKind, Decline)>,
     declined_bytes: usize,
+    /// URLs of this event that the policy accepts, so that a repeated one is checked once.
+    accepted: HashSet<String>,
+    accepted_bytes: usize,
 }
 
 #[derive(Default)]
@@ -293,7 +296,16 @@ impl Urls {
             *noted = (*noted).max(kind);
             return Some(*decline);
         }
-        let decline = checked_url(url).err()?;
+        if self.accepted.contains(url) {
+            return None;
+        }
+        let Err(decline) = checked_url(url) else {
+            if self.accepted_bytes + url.len() <= MAX_BLOCK_DECLINED_URL_BYTES {
+                self.accepted_bytes += url.len();
+                self.accepted.insert(url.to_owned());
+            }
+            return None;
+        };
         self.add_declined(url.to_owned(), kind, decline);
         Some(decline)
     }
@@ -1508,6 +1520,8 @@ impl DomInspector {
     }
 
     pub fn take_declined(&mut self) -> Vec<DeclinedUrl> {
+        self.urls.accepted = HashSet::new();
+        self.urls.accepted_bytes = 0;
         self.urls.declined_bytes = 0;
         std::mem::take(&mut self.urls.declined)
             .into_iter()
