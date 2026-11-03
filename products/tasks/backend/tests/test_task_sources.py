@@ -1,6 +1,8 @@
+from collections.abc import Callable
 from typing import Any
 from uuid import UUID
 
+from django.db.models import Q
 from django.test import SimpleTestCase, TestCase
 
 from parameterized import parameterized
@@ -58,6 +60,19 @@ class TestStoredSource(SimpleTestCase):
         self, _name: str, columns: dict, expected: str | None
     ) -> None:
         self.assertEqual(Task(**columns).stored_idempotency_key, expected)
+
+
+class TestSourceQueryPaths(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("source_q", lambda: source_q(SourceKind.SIGNAL_REPORT, [REPORT_ID], via="team__")),
+            ("idempotency_key_q", lambda: idempotency_key_q("key", via="team__")),
+            ("idempotency_key_startswith_q", lambda: idempotency_key_startswith_q("key", via="created_by__")),
+        ]
+    )
+    def test_refuses_an_unknown_relation_prefix(self, _name: str, build_q: Callable[[], Q]) -> None:
+        with self.assertRaises(ValueError):
+            build_q()
 
 
 class TestSourceQueries(TestCase):
