@@ -10,6 +10,7 @@ import { CardMetaRefreshButton } from 'lib/components/Cards/CardMetaRefreshButto
 import { CompactInfoPopover } from 'lib/components/Cards/InsightCard/CompactInfoPopover'
 import { DashboardTileRefreshDataButton } from 'lib/components/Cards/InsightCard/DashboardTileRefreshDataButton'
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
+import { useDisplayOptions } from 'lib/components/ChartOptions/useDisplayOptions'
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { captureImageLogic } from 'lib/components/Scenes/InsightOrDashboard/captureImageLogic'
@@ -77,7 +78,7 @@ import type { AlertType } from 'products/alerts/frontend/types'
 import { ManageAlertsModal } from 'products/alerts/frontend/views/ManageAlertsModal'
 import { dataRetentionBannerLogic } from 'products/product_analytics/frontend/insights/dataRetention/dataRetentionBannerLogic'
 import { exceedsRetention } from 'products/product_analytics/frontend/insights/dataRetention/exceedsRetention'
-import { useInsightDisplayOptions } from 'products/product_analytics/frontend/insights/editor/insightDisplayOptions'
+import { insightDisplayOptions } from 'products/product_analytics/frontend/insights/editor/insightDisplayOptions'
 
 import { DashboardInsightDisplayOptions } from './DashboardInsightDisplayOptions'
 import { useDashboardVisualizationOptions } from './dashboardVisualizationOptions'
@@ -303,7 +304,7 @@ export function InsightMeta({
     const showDisplayOptionsMenu = isUsedAsDashboardTile && canEditInsight && !!persistDisplayOptions
     // Hoist the hooks out of the More overlay so kea logics they mount don't do so lazily inside a
     // portal, which cascades into closing the dropdown before the user can interact with it.
-    const { tabs: displayOptionTabs } = useInsightDisplayOptions()
+    const { tabs: displayOptionTabs } = useDisplayOptions(insightDisplayOptions)
     const dashboardVisualizationPersistence: DashboardVisualizationPersistence | undefined = persistDisplayOptions
         ? {
               saving: savingSqlVisualization,

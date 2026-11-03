@@ -22,6 +22,7 @@ The rules for callers are in `AGENTS.md`.
 | `source_kinds.py`    | The registry of warehouse source kinds                                     |
 | `usages.py`          | The registry of usage providers                                            |
 | `fields.py`          | `IntegrationReferenceField` for DRF serializers                            |
+| `references.py`      | `IntegrationReference`, the stored string form of a row reference          |
 
 The model module imports `catalogue.py`, `contracts.py` and `enums.py`. These modules must not import the model.
 `__init__.py` loads `IntegrationManager` on first use for the same reason.
@@ -173,6 +174,7 @@ def integration_usages(team_id: int, integration_id: int) -> list[IntegrationUsa
 ```
 
 The SDK finds the module on the first call to `usages` or `delete`. Code outside a product calls `register_usage_provider` instead.
+The product sets `IntegrationUsage.type` (for example `warehouse_source`, `workflow`, `hog_function`, `batch_export`). The integrations API names these types in its error when a delete finds usages.
 
 ## Reference a row from a serializer
 
@@ -182,6 +184,14 @@ Pass `kinds=[...]` to accept only rows of these kinds.
 With `kinds`, the field accepts only the default auth type of each kind, because code that reads a kind expects its usual config shape.
 Pass `auth_types=[AuthType.TOKEN]` to accept other auth types, or `auth_types="any"` to accept every auth type.
 The field never accepts a warehouse source row.
+
+## Store a reference outside a serializer
+
+A model that points at a row without a foreign key stores the reference as a string, for example `ExternalDataSource.credentials_integration_id`.
+Rows in the credentials service get a UUID id, and keep the int id of a row made before as `legacy_id`.
+So the string is a decimal legacy id (`"123"`) or a lowercase hyphenated UUID.
+Write it with `str(IntegrationReference.from_legacy_id(row.id))`, and read it with `IntegrationReference.parse(value)`, which raises `ValueError` for any other form.
+The accessors take int ids, so pass `reference.legacy_id`. A UUID reference cannot resolve yet: treat it as "not found".
 
 ## Why direct model use fails CI
 

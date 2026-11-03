@@ -325,6 +325,17 @@ class TestFindInvalidTargets(TestCase):
                 {"src": STREAMING},
                 [InvalidTarget(node_id="a", declared=H6, source_floor=STREAMING, consumer_ceiling=M15)],
             ),
+            # a stale target in the middle of a chain does not hide the 6h demand from the node above it
+            (
+                "stale_chain_flags_every_ancestor",
+                [("src", "a"), ("a", "b"), ("b", "c")],
+                {"a": DAY, "b": DAY, "c": H6},
+                {"src": STREAMING},
+                [
+                    InvalidTarget(node_id="a", declared=DAY, source_floor=STREAMING, consumer_ceiling=H6),
+                    InvalidTarget(node_id="b", declared=DAY, source_floor=STREAMING, consumer_ceiling=H6),
+                ],
+            ),
             # a source slowing down (6h import) pushes the floor above an existing 15min target
             (
                 "target_below_drifted_source_floor",
