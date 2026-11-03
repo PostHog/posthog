@@ -36,6 +36,7 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 ReplayOutcome = Literal["replayed", "failed", "unparseable", "would_replay"]
+StopReason = Literal["run_limit", "held_limit", "lease_lost"]
 
 RECEIVE_BATCH_SIZE = 10
 WEBHOOK_TIMEOUT_SECONDS = 10
@@ -48,6 +49,8 @@ VISIBILITY_TIMEOUT_SECONDS = 300
 HEARTBEAT_SECONDS = 60
 # SQS ends a message's visibility 12 hours after it was received, however often the run renews it.
 MAX_RUN_SECONDS = 11 * 3600
+# Bounds the renewal work of one heartbeat to 100 batch calls.
+MAX_HELD_MESSAGES = 1000
 TRACKING_CODE_HEADER = "x-posthog-tracking-code"
 VERSIONED_TRACKING_CODE_MARKER = "v2"
 
@@ -244,7 +247,7 @@ class ReplayReport:
     by_event_type: Counter[tuple[str, ReplayOutcome]]
     by_team: Counter[tuple[int | None, ReplayOutcome]]
     failures: list[ReplayFailure]
-    stopped_at_deadline: bool = False
+    stopped_reason: StopReason | None = None
     # Kept messages that SQS did not make visible again. They return when their visibility timeout ends.
     unreleased: int = 0
 
@@ -268,7 +271,7 @@ class ReplayReport:
             "queue": self.queue_name,
             "dry_run": self.dry_run,
             "totals": dict(self.totals),
-            "stopped_at_deadline": self.stopped_at_deadline,
+            "stopped_reason": self.stopped_reason,
             "unreleased": self.unreleased,
             "by_event_type": _nest(self.by_event_type),
             "by_team": _nest(self.by_team),
@@ -339,17 +342,20 @@ def replay_queue(
         queue_name=queue.name, dry_run=options.dry_run, by_event_type=Counter(), by_team=Counter(), failures=[]
     )
     pacer = _Pacer(options.max_per_second, clock, sleep)
-    started_at = last_heartbeat_at = clock()
+    started_at = leases_renewed_at = clock()
     held: dict[str, str] = {}
     logger.info("ses_events_dlq.replay_started", queue=queue.name, triggered_by=triggered_by, options=options)
     try:
         for message in _receive_unseen(queue, options, sqs, held):
-            if clock() - started_at >= MAX_RUN_SECONDS:
-                report.stopped_at_deadline = True
+            report.stopped_reason = _stop_reason(clock(), started_at, len(held))
+            if report.stopped_reason is None and clock() - leases_renewed_at >= HEARTBEAT_SECONDS:
+                renewal_started_at = clock()
+                if not _renew_leases(queue, sqs, held, leases_renewed_at, clock):
+                    report.stopped_reason = "lease_lost"
+                leases_renewed_at = renewal_started_at
+            if report.stopped_reason is not None:
+                logger.warning("ses_events_dlq.replay_stopped", queue=queue.name, reason=report.stopped_reason)
                 break
-            if clock() - last_heartbeat_at >= HEARTBEAT_SECONDS:
-                _change_visibility(queue, sqs, list(held.values()), VISIBILITY_TIMEOUT_SECONDS)
-                last_heartbeat_at = clock()
             summary = summarize_message(message)
             outcome, error = _replay_one(message, summary, options, post, pacer)
             report.record(summary, outcome, error)
@@ -363,6 +369,24 @@ def replay_queue(
             "ses_events_dlq.replay_finished", queue=queue.name, triggered_by=triggered_by, report=report.to_dict()
         )
     return report
+
+
+def _stop_reason(now: float, started_at: float, held_count: int) -> StopReason | None:
+    if now - started_at >= MAX_RUN_SECONDS:
+        return "run_limit"
+    if held_count > MAX_HELD_MESSAGES:
+        return "held_limit"
+    return None
+
+
+def _renew_leases(
+    queue: DlqQueue, sqs: "SQSClient", held: dict[str, str], renewed_at: float, clock: Callable[[], float]
+) -> bool:
+    """Extend the lease of every held message. False when a lease may have lapsed, so another consumer can hold it."""
+    if clock() - renewed_at >= VISIBILITY_TIMEOUT_SECONDS:
+        return False
+    refused = _change_visibility(queue, sqs, list(held.values()), VISIBILITY_TIMEOUT_SECONDS)
+    return refused == 0 and clock() - renewed_at < VISIBILITY_TIMEOUT_SECONDS
 
 
 def _receive_unseen(
