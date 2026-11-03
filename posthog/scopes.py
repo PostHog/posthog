@@ -23,6 +23,7 @@ APIScopeObject = Literal[
     "action",
     "access_control",
     "account",
+    "activity",
     "activity_log",
     "alert",
     "annotation",
@@ -237,6 +238,9 @@ OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
         # `is_staff`. Distinct from the public `batch_import` object on purpose: that one is
         # OAuth-advertised, and a customer-grantable scope must never name a staff surface.
         "batch_import_support",
+        # Access control resource for the Activity pages (explore events, explore sessions, live
+        # events). No endpoint checks it, so a token scope would grant or withhold nothing.
+        "activity",
     }
 )
 

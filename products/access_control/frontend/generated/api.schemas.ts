@@ -48,6 +48,7 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `action` - action
  * * `access_control` - access_control
  * * `account` - account
+ * * `activity` - activity
  * * `activity_log` - activity_log
  * * `alert` - alert
  * * `annotation` - annotation
@@ -170,6 +171,7 @@ export const ScopeObjectEnumApi = {
     Action: 'action',
     AccessControl: 'access_control',
     Account: 'account',
+    Activity: 'activity',
     ActivityLog: 'activity_log',
     Alert: 'alert',
     Annotation: 'annotation',
@@ -315,6 +317,7 @@ export interface ProjectAccessSourceApi {
      * * `action` - action
      * * `access_control` - access_control
      * * `account` - account
+     * * `activity` - activity
      * * `activity_log` - activity_log
      * * `alert` - alert
      * * `annotation` - annotation
@@ -480,6 +483,7 @@ export interface AccessControlObjectRuleApi {
      * * `action` - action
      * * `access_control` - access_control
      * * `account` - account
+     * * `activity` - activity
      * * `activity_log` - activity_log
      * * `alert` - alert
      * * `annotation` - annotation
@@ -636,6 +640,7 @@ export interface AccessControlPropertyRulesResponseApi {
 /**
  * * `account` - account
  * * `action` - action
+ * * `activity` - activity
  * * `activity_log` - activity_log
  * * `ai_observability_clusters` - ai_observability_clusters
  * * `business_knowledge` - business_knowledge
@@ -695,6 +700,7 @@ export type RuleResourceEnumApi = (typeof RuleResourceEnumApi)[keyof typeof Rule
 export const RuleResourceEnumApi = {
     Account: 'account',
     Action: 'action',
+    Activity: 'activity',
     ActivityLog: 'activity_log',
     AiObservabilityClusters: 'ai_observability_clusters',
     BusinessKnowledge: 'business_knowledge',
@@ -759,6 +765,7 @@ export interface AccessControlRuleRequestApi {
      *
      * * `account` - account
      * * `action` - action
+     * * `activity` - activity
      * * `activity_log` - activity_log
      * * `ai_observability_clusters` - ai_observability_clusters
      * * `business_knowledge` - business_knowledge
@@ -873,6 +880,7 @@ export interface AccessControlObjectRuleResourceApi {
      * * `action` - action
      * * `access_control` - access_control
      * * `account` - account
+     * * `activity` - activity
      * * `activity_log` - activity_log
      * * `alert` - alert
      * * `annotation` - annotation
@@ -1040,6 +1048,7 @@ export interface AccessControlMemberRuleRequestApi {
      *
      * * `account` - account
      * * `action` - action
+     * * `activity` - activity
      * * `activity_log` - activity_log
      * * `ai_observability_clusters` - ai_observability_clusters
      * * `business_knowledge` - business_knowledge
@@ -1161,6 +1170,7 @@ export interface ResolvedAccessApi {
      * * `action` - action
      * * `access_control` - access_control
      * * `account` - account
+     * * `activity` - activity
      * * `activity_log` - activity_log
      * * `alert` - alert
      * * `annotation` - annotation
@@ -1353,6 +1363,7 @@ export interface AccessControlRoleRuleRequestApi {
      *
      * * `account` - account
      * * `action` - action
+     * * `activity` - activity
      * * `activity_log` - activity_log
      * * `ai_observability_clusters` - ai_observability_clusters
      * * `business_knowledge` - business_knowledge

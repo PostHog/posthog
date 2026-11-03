@@ -1,4 +1,5 @@
 import { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { isFileSystemImportFlagEnabled } from 'lib/utils/fileSystemImportFlags'
 import { DEFINITIONS_TABS } from 'scenes/data-management/definitionsSceneTabsLogic'
 import { isWelcomeNavItemShown } from 'scenes/onboarding/welcome/welcomeNavItem'
@@ -50,6 +51,7 @@ export function getNavProductPages(): FileSystemImport[] {
             category: PINNED_CATEGORY,
             iconType: 'activity',
             href: urls.activity(ActivityTab.ExploreEvents),
+            sceneKey: 'Activity',
             visualOrder: 2,
         },
         {
@@ -95,8 +97,14 @@ export function getNavProductItems(featureFlags: FeatureFlagsSet, projectCreated
 }
 
 export function pinnedNavProducts(items: FileSystemImport[], search: string): FileSystemImport[] {
+    // A pinned row cannot be unstarred, so a page the member cannot open is hidden, not disabled.
     return items
-        .filter((item) => item.category === PINNED_CATEGORY && productMatchesSearch(item, search))
+        .filter(
+            (item) =>
+                item.category === PINNED_CATEGORY &&
+                !getProductAccessDisabledReason(item) &&
+                productMatchesSearch(item, search)
+        )
         .sort((a, b) => (a.visualOrder ?? Infinity) - (b.visualOrder ?? Infinity))
 }
 
