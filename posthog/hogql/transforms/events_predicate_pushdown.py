@@ -80,18 +80,32 @@ def apply_events_predicate_pushdown(
     return node
 
 
+class AliasExpansionLimitExceeded(Exception):
+    """Inlining the predicate's SELECT aliases would clone more alias bodies than the inliner's budget."""
+
+
 class SelectAliasInliner(CloningVisitor):
     """Inlines SELECT-alias references in a pushed predicate so the full aliased expression is carried into the
-    subquery, not the bare name (which would re-bind to the raw column and drop the wrapper)."""
+    subquery, not the bare name (which would re-bind to the raw column and drop the wrapper).
 
-    def __init__(self, select_aliases: dict[str, ast.Expr]):
+    An alias body can reference other aliases, so `concat(a, a) AS b` over `concat(x, x) AS a` doubles the predicate
+    per level, and a chain of a dozen such aliases turns under a kilobyte of SQL into hundreds of kilobytes. Past
+    `max_expansions` cloned bodies the inliner raises `AliasExpansionLimitExceeded`, and the caller leaves the
+    predicate where it is."""
+
+    def __init__(self, select_aliases: dict[str, ast.Expr], *, max_expansions: int = 100):
         super().__init__(clear_types=False)
         self.select_aliases = select_aliases
+        self.max_expansions = max_expansions
+        self.expansions = 0
         self._resolving: set[str] = set()
 
     def visit_field(self, node: ast.Field):
         alias = node.type.alias if isinstance(node.type, ast.FieldAliasType) else None
         if alias is not None and alias in self.select_aliases and alias not in self._resolving:
+            self.expansions += 1
+            if self.expansions > self.max_expansions:
+                raise AliasExpansionLimitExceeded(f"more than {self.max_expansions} alias expansions in one predicate")
             self._resolving.add(alias)
             try:
                 return self.visit(clone_expr(self.select_aliases[alias], clear_types=False))

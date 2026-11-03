@@ -21,8 +21,9 @@ Two rewrites, each result-equivalent:
 
 1. Every AND-conjunct of the outer WHERE that reads only columns the subquery exports straight from the events table
    (plain columns, and keys of its `properties` blob) moves into the subquery's WHERE. The subquery has to be a pure
-   row filter over events (no DISTINCT, GROUP BY, aggregate, window, stream-dependent function, ARRAY JOIN, LIMIT,
-   OFFSET, LIMIT BY, SAMPLE or JOIN), so filtering its input returns the same rows as filtering its output. The outer
+   row filter over events (no DISTINCT, GROUP BY, aggregate, window, stream-dependent function, ARRAY JOIN, ORDER BY
+   WITH FILL, LIMIT, OFFSET, LIMIT BY, SAMPLE or JOIN), so filtering its input returns the same rows as filtering its
+   output. A conjunct that names a SELECT alias carries the alias body instead, up to the inliner's budget. The outer
    query may attach only INNER / LEFT / CROSS joins to it, which a filter on their left side commutes with, and must
    not read the stream itself (`rowNumberInAllBlocks()`), because an earlier filter changes what streams past.
 2. Every remaining outer `properties.<key>` read of the subquery's blob column becomes a column of the subquery that
@@ -58,7 +59,7 @@ from posthog.hogql.database.schema.util.where_clause_extractor import (
     contains_row_multiplying_function,
 )
 from posthog.hogql.functions.mapping import find_hogql_aggregation
-from posthog.hogql.transforms.events_predicate_pushdown import SelectAliasInliner
+from posthog.hogql.transforms.events_predicate_pushdown import AliasExpansionLimitExceeded, SelectAliasInliner
 from posthog.hogql.transforms.logical_property_lowering import lower_property_access
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor, clone_expr
 
@@ -502,6 +503,9 @@ class EventsSubqueryPushdownTransform(TraversingVisitor):
             or inner.limit_by is not None
         ):
             return "inner_not_row_filter"
+        # WITH FILL adds rows after the WHERE, so a filter moved inside never sees the filled rows.
+        if inner.interpolate is not None or any(order.with_fill is not None for order in inner.order_by or []):
+            return "inner_with_fill"
         if _depends_on_row_stream([*inner.select, *(inner.order_by or [])], include_aggregates=True):
             return "inner_depends_on_row_stream"
         return None
@@ -527,7 +531,10 @@ class EventsSubqueryPushdownTransform(TraversingVisitor):
         self, conjunct: ast.Expr, columns: _ExportedColumns, visible_aliases: dict[str, ast.Expr]
     ) -> ast.Expr | None:
         """The conjunct rewritten to read the events table, or None when it must stay in the outer query."""
-        inlined = SelectAliasInliner(visible_aliases).visit(conjunct)
+        try:
+            inlined = SelectAliasInliner(visible_aliases).visit(conjunct)
+        except AliasExpansionLimitExceeded:
+            return None
         # Checked after alias inlining, because the alias body can hide them. An arrayJoin would multiply rows in a
         # different scope from the outer copy; an unresolved IN COHORT becomes a join after this pass.
         if contains_row_multiplying_function(inlined) or contains_in_cohort(inlined):

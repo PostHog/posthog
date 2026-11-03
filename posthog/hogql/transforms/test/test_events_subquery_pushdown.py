@@ -28,6 +28,11 @@ from products.event_definitions.backend.models.property_definition import Proper
 STAR_EVENTS = "(SELECT * FROM events)"
 
 
+def _alias_chain(levels: int) -> str:
+    aliases = ["event AS a0", *(f"concat(a{level - 1}, a{level - 1}) AS a{level}" for level in range(1, levels + 1))]
+    return f"SELECT {', '.join(aliases)} FROM (SELECT event FROM events) WHERE a{levels} = 'x'"
+
+
 def _modifiers(on: bool) -> HogQLQueryModifiers:
     return HogQLQueryModifiers(pushDownIntoEventsSubqueries=on, optimizeProjections=True)
 
@@ -126,6 +131,11 @@ class TestEventsSubqueryPushdown(BaseTest):
                 "SELECT rowNumberInAllBlocks() AS n FROM (SELECT event FROM events) WHERE event = 'y' AND rowNumberInAllBlocks() = 1",
             ),
             ("native_flag_map_read", f"SELECT properties.$feature_flags FROM {STAR_EVENTS}", True),
+            (
+                "inner_with_fill",
+                "SELECT count() FROM (SELECT event, toDate(timestamp) AS d FROM events ORDER BY d WITH FILL) WHERE event = 'x'",
+            ),
+            ("alias_chain_over_budget", _alias_chain(12)),
         ]
     )
     def test_declines_when_the_rewrite_would_change_rows(self, _name: str, select: str, native: bool = False) -> None:
@@ -256,6 +266,11 @@ class TestEventsSubqueryPushdownExecution(ClickhouseTestMixin, APIBaseTest):
                 "residual_conjunct_and_left_join",
                 f"SELECT e.event, s.n FROM {STAR_EVENTS} AS e LEFT JOIN (SELECT event AS ev, count() AS n FROM events GROUP BY ev) AS s ON s.ev = e.event "
                 "WHERE e.timestamp >= '2024-01-01' AND s.n > 1 ORDER BY e.event",
+            ),
+            (
+                "inner_with_fill",
+                "SELECT d, event FROM (SELECT toDate(timestamp) AS d, event FROM events ORDER BY d WITH FILL) "
+                "WHERE event = '$pageview' ORDER BY d, event",
             ),
             (
                 "enclosing_query_over_the_rewritten_one",
