@@ -122,12 +122,17 @@ export async function apiConnection(
     }
 }
 
+// A tool can send several requests, so only a tool that is safe to run twice runs again after a 401.
 export async function withApiConnection<T>(
     ctx: Context,
     scope: { projectId?: string | undefined; organizationId?: string | undefined },
+    canRunTwice: boolean,
     call: (connection: ApiConnection) => Promise<ApiToolResult<T>>
 ): Promise<ApiToolResult<T>> {
     const connection = await apiConnection(ctx, scope)
+    if (!canRunTwice) {
+        return call(connection)
+    }
     const session = await ctx.session()
     return session.send(
         (apiKey) => call({ ...connection, apiKey }),

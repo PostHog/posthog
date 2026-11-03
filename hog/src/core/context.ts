@@ -68,7 +68,14 @@ export class Context {
 
     // The key every client of this command sends, so they share its renewals.
     session(): Promise<KeySession> {
-        this.keySession ??= this.credentials().then((credentials) => new KeySession(this.runtime, credentials))
+        this.keySession ??= this.credentials().then(
+            (credentials) =>
+                new KeySession(
+                    this.runtime,
+                    credentials.key,
+                    credentials.source === 'store' ? credentials.storage : null
+                )
+        )
         return this.keySession
     }
 

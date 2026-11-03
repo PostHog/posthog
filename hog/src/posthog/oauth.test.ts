@@ -6,7 +6,7 @@ import type { Secrets } from '@/core/runtime'
 import { fakeRuntime, type FakeRuntime } from '@/testing'
 
 import { PostHogApi } from './api'
-import { resolveCredentials } from './credentials'
+import { resolveCredentials, type Credentials } from './credentials'
 import { KeySession } from './key-session'
 import { HOG_CLIENT_ID } from './oauth'
 
@@ -40,6 +40,10 @@ function stored(
     return { files: { [SETTINGS_FILE]: settings(expiresInMs) }, keychain: { [EU]: secret(accessToken) } }
 }
 
+function sessionFor(runtime: FakeRuntime, credentials: Credentials): KeySession {
+    return new KeySession(runtime, credentials.key, credentials.source === 'store' ? credentials.storage : null)
+}
+
 const OK = { name: 'Hedgebox' }
 const REJECTED = { status: 401 }
 
@@ -64,7 +68,7 @@ describe('OAuth credentials', () => {
                     : { status: 401, body: { detail: 'Invalid token' } }
             },
         })
-        const api = new PostHogApi(new KeySession(runtime, await resolveCredentials(runtime, {})), runtime.fetch)
+        const api = new PostHogApi(sessionFor(runtime, await resolveCredentials(runtime, {})), runtime.fetch)
         await runtime.sleep(commandRunsMs)
 
         const outcome = await api.get<{ name: string }>('').catch((error: unknown) => error)
@@ -75,6 +79,26 @@ describe('OAuth credentials', () => {
         expect(JSON.parse(runtime.keychain[EU] ?? '{}').accessToken).toBe(renewedToken)
     })
 
+    test('a 401 that a renewed token gets too stops renewing for the rest of the command', async () => {
+        const runtime = fakeRuntime({
+            ...stored('pha_old', 3_600_000),
+            respond: (url) =>
+                url === `${EU}/oauth/token/`
+                    ? { status: 200, body: { access_token: 'pha_new', expires_in: 3600 } }
+                    : { status: 401, body: { detail: 'This account is not active' } },
+        })
+        const api = new PostHogApi(sessionFor(runtime, await resolveCredentials(runtime, {})), runtime.fetch)
+
+        const outcomes = [
+            await api.get('').catch((error: unknown) => error),
+            await api.get('').catch((error: unknown) => error),
+        ]
+
+        expect(outcomes).toMatchObject([REJECTED, REJECTED])
+        expect(tokenRequests(runtime)).toHaveLength(1)
+        expect(runtime.requests.filter((request) => request.url.includes('/api/'))).toHaveLength(3)
+    })
+
     test('a stored personal API key that PostHog rejects is sent only once', async () => {
         const record = { store: 'keychain', type: 'personal_api_key', projectId: '42', host: EU }
         const runtime = fakeRuntime({
@@ -82,7 +106,7 @@ describe('OAuth credentials', () => {
             keychain: { [EU]: JSON.stringify({ apiKey: 'phx_deleted' }) },
             respond: () => ({ status: 401, body: { detail: 'Invalid personal API key' } }),
         })
-        const api = new PostHogApi(new KeySession(runtime, await resolveCredentials(runtime, {})), runtime.fetch)
+        const api = new PostHogApi(sessionFor(runtime, await resolveCredentials(runtime, {})), runtime.fetch)
 
         const outcome = await api.get('').catch((error: unknown) => error)
 
