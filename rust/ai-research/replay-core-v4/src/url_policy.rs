@@ -401,8 +401,9 @@ pub fn same_url_spellings(raw: &str) -> Vec<String> {
     spellings
 }
 
-/// The URL parser drops every ASCII tab and line break, anywhere in a URL, so `/\n/cdn.example.com` loads from that host.
-fn as_parsed(raw: &str) -> Cow<'_, str> {
+/// The URL parser strips C0 controls and spaces from both ends of a URL and drops every ASCII tab and line break anywhere in it, so `\u{1}https://cdn.example.com` and `/\n/cdn.example.com` load from that host.
+pub fn as_parsed(raw: &str) -> Cow<'_, str> {
+    let raw = raw.trim_matches(|c: char| c <= ' ');
     if raw.contains(['\t', '\n', '\r']) {
         Cow::Owned(raw.replace(['\t', '\n', '\r'], ""))
     } else {
@@ -453,7 +454,7 @@ pub fn try_canonicalize(raw: &str) -> Result<CanonicalUrl, Decline> {
     // check that the same URL with a scheme meets.
     let with_scheme;
     let raw = if is_protocol_relative(raw) {
-        with_scheme = format!("https:{}", raw.trim());
+        with_scheme = format!("https:{}", as_parsed(raw).trim());
         with_scheme.as_str()
     } else {
         raw

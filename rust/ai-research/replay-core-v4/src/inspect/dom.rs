@@ -199,6 +199,7 @@ struct WindowDom {
 pub enum UrlLimit {
     AttributeItems,
     NestedBlocks,
+    NestedJson,
     DeclinedUrls,
     Edits,
 }
@@ -209,6 +210,7 @@ impl UrlLimit {
         match self {
             UrlLimit::AttributeItems => "too_many_attribute_items",
             UrlLimit::NestedBlocks => "too_many_nested_blocks",
+            UrlLimit::NestedJson => "too_deep_json",
             UrlLimit::DeclinedUrls => "too_many_declined_urls",
             UrlLimit::Edits => "too_many_edits",
         }
@@ -1125,8 +1127,9 @@ fn finish_node(bytes: &[u8], node: NodeFrame, parent: Option<&mut NodeFrame>, wa
 enum Snapshot<'p> {
     /// The player drops it, because its data or its node is not an object.
     Dropped,
-    /// It does not decode or is too deep to walk, and the player may still build a DOM from a payload this deep.
     Unreadable,
+    /// It nests too deep to walk, and the player may still build a DOM from a payload this deep.
+    Unwalked,
     Walked(Box<Walk<'p>>),
 }
 
@@ -1141,7 +1144,7 @@ fn walk_snapshot<'p>(
         match expansion.json(data) {
             Some(Some(json)) => match scan::locate_value(json, 0) {
                 Ok(root) => (json, root),
-                Err(_) => return Snapshot::Unreadable,
+                Err(_) => return Snapshot::Unwalked,
             },
             Some(None) => return Snapshot::Dropped,
             None => return Snapshot::Unreadable,
@@ -1161,7 +1164,7 @@ fn walk_snapshot<'p>(
     if walk_nodes(bytes, node, &mut walk) {
         Snapshot::Walked(Box::new(walk))
     } else {
-        Snapshot::Unreadable
+        Snapshot::Unwalked
     }
 }
 
@@ -1442,7 +1445,10 @@ impl DomInspector {
                         self.seen_snapshot = true;
                         observed.full_snapshot = true;
                     }
-                    Snapshot::Unreadable => {
+                    unread @ (Snapshot::Unreadable | Snapshot::Unwalked) => {
+                        if matches!(unread, Snapshot::Unwalked) {
+                            self.urls.limit = self.urls.limit.or(Some(UrlLimit::NestedJson));
+                        }
                         stats.decode_failures += 1;
                         *dom = WindowDom {
                             unverifiable: true,
@@ -1548,6 +1554,8 @@ struct Lists<'b> {
     attributes: Option<List<'b>>,
     /// A list is a string that did not decode, so the player drops the whole mutation.
     failed: bool,
+    /// A list decoded to JSON that nests too deep to read, which the player still reads.
+    too_deep: bool,
 }
 
 fn mutation_lists<'b>(inner: &'b [u8], data: Span, expansion: &'b Expansion) -> Lists<'b> {
@@ -1560,7 +1568,7 @@ fn mutation_lists<'b>(inner: &'b [u8], data: Span, expansion: &'b Expansion) -> 
         &mut lists.texts,
         &mut lists.attributes,
     ];
-    let mut failed = false;
+    let (mut failed, mut too_deep) = (false, false);
     for (slot, span) in slots.into_iter().zip(found) {
         let Some(span) = span else { continue };
         if !scan::is_string(inner, span) {
@@ -1571,13 +1579,14 @@ fn mutation_lists<'b>(inner: &'b [u8], data: Span, expansion: &'b Expansion) -> 
         match expansion.json(span) {
             Some(Some(json)) => match scan::locate_value(json, 0) {
                 Ok(span) => *slot = Some(List { bytes: json, span }),
-                Err(_) => failed = true,
+                Err(_) => too_deep = true,
             },
             Some(None) => {}
             None => failed = true,
         }
     }
-    lists.failed = failed;
+    lists.failed = failed || too_deep;
+    lists.too_deep = too_deep;
     lists
 }
 
@@ -1642,6 +1651,10 @@ fn observe_mutation(
         return (0, 0, true);
     }
     let lists = mutation_lists(inner, data, expansion);
+    if lists.too_deep {
+        dom.unverifiable = true;
+        urls.limit = urls.limit.or(Some(UrlLimit::NestedJson));
+    }
     if lists.failed {
         return (0, 0, true);
     }
@@ -1663,6 +1676,7 @@ fn observe_mutation(
                 if !walk_nodes(list.bytes, node, &mut walk) {
                     dom.unverifiable = true;
                     undecoded = true;
+                    walk.image_urls.limit = walk.image_urls.limit.or(Some(UrlLimit::NestedJson));
                 }
                 for entry in &mut walk.ids[first..] {
                     entry.1 = entry.1.or(parent);
@@ -1681,9 +1695,14 @@ fn observe_mutation(
                 .filter(|(_, media)| *media == Media::Picture)
                 .map(|&(id, _)| id)
                 .collect();
+            let walked: HashSet<i64> = walk.ids.iter().map(|&(id, _)| id).collect();
             for (parent, (id, srcset, source_type)) in sources {
                 let Some(parent) = parent else { continue };
-                if pictures.contains(&parent) || dom.media.get(&parent) == Some(&Media::Picture) {
+                // A parent the window does not know can be a picture, as after a restart.
+                if pictures.contains(&parent)
+                    || dom.media.get(&parent) == Some(&Media::Picture)
+                    || !dom.knows(parent, &walked)
+                {
                     let unfetched_type = is_unfetched_type(list.bytes, source_type);
                     walk.media
                         .extend(id.map(|id| (id, Media::PictureSource { unfetched_type })));
@@ -1695,17 +1714,21 @@ fn observe_mutation(
     dom.add_media(&walk.media);
     dom.add_hidden_sources(&walk.hidden);
     dom.add_style_texts(&walk.style_texts);
+    let walked: HashSet<i64> = walk.ids.iter().map(|&(id, _)| id).collect();
     if let Some(texts) = lists.texts {
         for item in items(texts) {
             let [id, value] = fields(texts.bytes, item, [b"id", b"value"]);
-            if number(texts.bytes, id).is_some_and(|id| dom.style_texts.contains(&(id as i64))) {
+            // A node the window does not know can be the text of a style element, as after a restart.
+            let maybe_style = number(texts.bytes, id).is_some_and(|id| {
+                dom.style_texts.contains(&(id as i64)) || !dom.knows(id as i64, &walked)
+            });
+            if maybe_style {
                 walk.push_css(texts.bytes, value);
             }
         }
     }
     let mut attribute_ids = Vec::new();
     if let Some(attributes) = lists.attributes {
-        let walked: HashSet<i64> = walk.ids.iter().map(|&(id, _)| id).collect();
         for (index, item) in items(attributes).enumerate() {
             if index == MAX_ATTRIBUTE_ITEMS {
                 walk.image_urls.limit = Some(UrlLimit::AttributeItems);
@@ -1839,10 +1862,14 @@ fn style_sheet_urls(
         Some(STYLE_SHEET_RULE) => {
             let [adds, replace, replace_sync] =
                 fields(inner, data, [b"adds", b"replace", b"replaceSync"]);
-            if let Some(adds) = adds.and_then(|adds| decoded_list(inner, adds, expansion)) {
-                for item in items(adds) {
-                    read_rule(adds.bytes, field(adds.bytes, item, b"rule"), urls);
+            match adds.map(|adds| decoded_list(inner, adds, expansion)) {
+                Some(Ok(Some(adds))) => {
+                    for item in items(adds) {
+                        read_rule(adds.bytes, field(adds.bytes, item, b"rule"), urls);
+                    }
                 }
+                Some(Err(limit)) => urls.limit = urls.limit.or(Some(limit)),
+                Some(Ok(None)) | None => {}
             }
             for sheet in [replace, replace_sync] {
                 read_rule(inner, sheet, urls);
@@ -1882,15 +1909,19 @@ fn style_sheet_urls(
 }
 
 /// A list as the player reads it, decoded when the event compressed it. `None` when it is empty or does not decode.
-fn decoded_list<'b>(inner: &'b [u8], span: Span, expansion: &'b Expansion) -> Option<List<'b>> {
+fn decoded_list<'b>(
+    inner: &'b [u8],
+    span: Span,
+    expansion: &'b Expansion,
+) -> Result<Option<List<'b>>, UrlLimit> {
     if !scan::is_string(inner, span) {
-        return Some(List { bytes: inner, span });
+        return Ok(Some(List { bytes: inner, span }));
     }
-    let json = expansion.json(span)??;
-    Some(List {
-        bytes: json,
-        span: scan::locate_value(json, 0).ok()?,
-    })
+    let Some(Some(json)) = expansion.json(span) else {
+        return Ok(None);
+    };
+    let span = scan::locate_value(json, 0).map_err(|_| UrlLimit::NestedJson)?;
+    Ok(Some(List { bytes: json, span }))
 }
 
 fn items(list: List<'_>) -> impl Iterator<Item = Span> + '_ {

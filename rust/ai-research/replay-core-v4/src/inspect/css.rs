@@ -15,7 +15,8 @@ use url::Url;
 use super::dom::{RemoteKind, RemoteUrl};
 use crate::fonts::bundled_font;
 use crate::url_policy::{
-    is_fetched_image_type, is_protocol_relative, is_remote, try_canonicalize, MAX_URL_LEN,
+    as_parsed, is_fetched_image_type, is_protocol_relative, is_remote, try_canonicalize,
+    MAX_URL_LEN,
 };
 
 /// Each resolution copies the page's origin, so one event resolves at most this many relative URLs.
@@ -595,7 +596,7 @@ fn escaped_url_function_urls(
         return url_function_urls(function, written, resolver, found);
     }
     let decoded = if is_protocol_relative(written) {
-        Cow::Owned(format!("https:{written}"))
+        Cow::Owned(format!("https:{}", as_parsed(written).trim()))
     } else {
         Cow::Borrowed(written)
     };
@@ -610,7 +611,7 @@ fn escaped_url_function_urls(
     found(CssUrl::Resolved(&absolute));
     let (replacement, url_at) = url_function(&absolute);
     let mut spellings: Vec<String> = Vec::new();
-    for spelling in [escaped, written] {
+    for spelling in [escaped, written, &as_parsed(written)] {
         if spelling != absolute && !spellings.iter().any(|kept| kept == spelling) {
             spellings.push(spelling.to_owned());
         }
@@ -794,7 +795,7 @@ enum CandidateStart<'i> {
     Url(CowRcStr<'i>),
     String(CowRcStr<'i>),
     UrlFunction,
-    Other,
+    Other { holds_url: bool },
 }
 
 fn image_set_candidate<'i>(input: &mut Parser<'i>) -> Option<ImageSetCandidate<'i>> {
@@ -807,8 +808,18 @@ fn image_set_candidate<'i>(input: &mut Parser<'i>) -> Option<ImageSetCandidate<'
         Ok(Token::Function(name)) if name.eq_ignore_ascii_case("url") => {
             CandidateStart::UrlFunction
         }
-        Ok(_) => CandidateStart::Other,
+        Ok(Token::Function(_)) => CandidateStart::Other {
+            holds_url: input
+                .parse_nested_block(|input| {
+                    let mut holds_url = false;
+                    let whole = each_function(input, 1, &mut |_, _, _| holds_url = true);
+                    Ok::<_, ParseError<()>>(holds_url || !whole)
+                })
+                .unwrap_or(true),
+        },
+        Ok(_) => CandidateStart::Other { holds_url: false },
     };
+    let holds_url = matches!(first, CandidateStart::Other { holds_url: true });
     let source = match first {
         CandidateStart::Url(url) => Some(unquoted_url_source(url, input.slice_from(start))),
         CandidateStart::String(url) => Some(UrlSource {
@@ -817,7 +828,7 @@ fn image_set_candidate<'i>(input: &mut Parser<'i>) -> Option<ImageSetCandidate<'
             url,
         }),
         CandidateStart::UrlFunction => quoted_url_source(input),
-        CandidateStart::Other => None,
+        CandidateStart::Other { .. } => None,
     };
     let source_end = input.position();
     let written = source.as_ref().and_then(collectable);
@@ -833,7 +844,7 @@ fn image_set_candidate<'i>(input: &mut Parser<'i>) -> Option<ImageSetCandidate<'
     Some(ImageSetCandidate {
         text: input.slice_from(start).trim_end(),
         source,
-        unplaced: escaped_remote || (written.is_some() && source.is_none()),
+        unplaced: escaped_remote || holds_url || (written.is_some() && source.is_none()),
         descriptors: input.slice(source_end..input.position()),
         resolution_dppx,
     })

@@ -882,13 +882,15 @@ mod tests {
             .replace(r#""srcset""#, r#""src\u0073et""#);
         assert_eq!(stored_lines(&escaped), lines);
         // A browser reads backslashes after the scheme as slashes, so such a URL is replaced like its `https://` form.
-        // The URL parser drops tabs and line breaks anywhere, so these load from the host too.
+        // The URL parser drops tabs and line breaks anywhere, and C0 controls at either end, so these load from the host too.
         for backslashed in [
             r"https:\\user:secret@cdn.example.com/a.png",
             r"https:/\user:secret@cdn.example.com/a.png",
             "https:user:secret@cdn.example.com/a.png",
             "ht\ttps://user:secret@cdn.example.com/a.png",
             "/\n/user:secret@cdn.example.com/a.png",
+            "\u{1}https://user:secret@cdn.example.com/a.png",
+            "\u{0}\u{1f}//user:secret@cdn.example.com/a.png",
         ] {
             let events = json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "adds": [], "removes": [], "texts": [],
                 "attributes": [{"id": 99, "attributes": {"src": backslashed}}]}}])
@@ -899,6 +901,15 @@ mod tests {
                 "{lines}"
             );
         }
+        let events = json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "removes": [], "attributes": [],
+            "texts": [{"id": 99, "value": format!(".a{{background:url({signed})}}")}],
+            "adds": [{"parentId": 98, "node": {"type": 2, "tagName": "source", "attributes": {"srcset": format!("{signed} 1x")}, "childNodes": [], "id": 97}}]}}])
+        .to_string();
+        let lines = stored_lines(&events);
+        assert!(
+            !lines.is_empty() && !lines.contains("X-Amz-Signature"),
+            "{lines}"
+        );
         // The player loads the last of a repeated attribute, so the inspector names that one.
         for events in [
             format!(
@@ -961,6 +972,10 @@ mod tests {
             ),
             (
                 json!([{"parentId": 1, "node": {"type": 2, "tagName": "div", "attributes": {"style": "background-image:url('\\2f \\2f cdn.example.com/a.png?X-Amz-Signature=abc123')"}, "childNodes": [], "id": 9}}]),
+                json!({"alt": "//cdn.example.com/a.png?X-Amz-Signature=abc123"}),
+            ),
+            (
+                json!([{"parentId": 1, "node": {"type": 2, "tagName": "div", "attributes": {"style": "background-image:url('\\1 //cdn.example.com/a.png?X-Amz-Signature=abc123')"}, "childNodes": [], "id": 9}}]),
                 json!({"alt": "//cdn.example.com/a.png?X-Amz-Signature=abc123"}),
             ),
             // A browser loads a URL with a tab in it, or in another letter case, from the same place.
@@ -1056,6 +1071,27 @@ mod tests {
             let (_, counts) = written(block_of("kept", &events));
             assert_eq!(counts.dropped, Some("too_many_nested_blocks"));
         }
+        // posthog-js compresses these, so the message read does not see how deep they nest.
+        let cv = |value: Value| -> String {
+            replay_core_v4::compression::gzip(value.to_string().as_bytes())
+                .unwrap()
+                .iter()
+                .map(|&byte| char::from(byte))
+                .collect()
+        };
+        let img = json!({"type": 2, "tagName": "img", "attributes": {"src": "https://cdn.example.com/a.png?token=secret"}, "childNodes": [], "id": 2});
+        let deep_node = (0..600).fold(img, |node, id| {
+            json!({"type": 2, "tagName": "div", "attributes": {}, "childNodes": [node], "id": id + 3})
+        });
+        let deep_index = (0..1_100).fold(json!(0), |index, _| json!([index]));
+        for event in [
+            json!({"type": 2, "timestamp": 1, "cv": "2024-10", "data": cv(json!({"node": {"type": 0, "id": 1, "childNodes": [deep_node]}}))}),
+            json!({"type": 3, "timestamp": 1, "cv": "2024-10", "data": {"source": 0, "adds": cv(json!([{"parentId": 1, "node": deep_node}])), "removes": "", "texts": "", "attributes": ""}}),
+            json!({"type": 3, "timestamp": 1, "cv": "2024-10", "data": {"source": 8, "id": 3, "adds": cv(json!([{"rule": ".a{background:url(https://cdn.example.com/a.png?token=secret)}", "index": deep_index}]))}}),
+        ] {
+            let (_, counts) = written(block_of("kept", &json!([event]).to_string()));
+            assert_eq!(counts.dropped, Some("too_deep_json"), "{event:.80}");
+        }
         let refused: Vec<_> = (0..2_000)
             .map(|i| json!({"type": 2, "tagName": "img", "attributes": {"src": format!("https://cdn.example.com/{i}/{}.png?token=x", "a".repeat(600))}, "childNodes": [], "id": i + 2}))
             .collect();
@@ -1079,11 +1115,13 @@ mod tests {
         );
         // cssparser reads a NUL in a string as U+FFFD, so the decoded URL is not in its token, only in the comment.
         let nul_url = "url(\"https://cdn.example.com/a.png?X-Amz-Signature=abc123#\u{0}\"/*https://cdn.example.com/a.png?X-Amz-Signature=abc123#\u{FFFD}*/)";
-        // A set keeps its candidate as the page wrote it, so it cannot keep an escaped one.
+        // A set keeps its candidate as the page wrote it, so it cannot keep an escaped one, or one that another image function holds.
         for style in [
             format!("background-image:{nul_url}"),
             format!("background-image:image-set({nul_url} 1x)"),
             "background-image:image-set(url('\\2f \\2f cdn.example.com/a.png?token=secret') 1x)"
+                .to_owned(),
+            "background-image:image-set(-webkit-cross-fade(url(https://cdn.example.com/a.png?token=secret), url(https://cdn.example.com/b.png), 50%) 1x)"
                 .to_owned(),
         ] {
             let node = json!({"type": 2, "tagName": "div", "attributes": {"style": style}, "childNodes": [], "id": 2});
