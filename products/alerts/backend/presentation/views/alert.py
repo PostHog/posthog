@@ -2005,9 +2005,8 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def pagerduty_availability(self, request, *args, **kwargs):
         query = AlertPagerDutyAvailabilityQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
-        team = self.team
         draft = AlertConfiguration(
-            team=team,
+            team=self.team,
             calculation_interval=query.validated_data["calculation_interval"],
             investigation_agent_enabled=query.validated_data["investigation_agent_enabled"],
         )

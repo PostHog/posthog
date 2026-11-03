@@ -1,6 +1,11 @@
 import { z } from 'zod'
 
-import { INSIGHT_ALERT_FIRING_EVENT_ID, INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID } from 'lib/constants'
+import {
+    INSIGHT_ALERT_FIRING_EVENT_ID,
+    INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID,
+    INSIGHT_ALERT_INCIDENT_CLOSED_EVENT_ID,
+    INSIGHT_ALERT_INCIDENT_OPENED_EVENT_ID,
+} from 'lib/constants'
 import {
     HOG_FUNCTION_SUB_TEMPLATES,
     HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES,
@@ -8,9 +13,10 @@ import {
 
 import { CyclotronJobFiltersType, HogFunctionType, PropertyFilterType, PropertyOperator } from '~/types'
 
-import type {
-    AlertPagerDutyRegion,
-    AlertPagerDutySeverity,
+import {
+    type AlertPagerDutyRegion,
+    type AlertPagerDutySeverity,
+    pagerDutyRoutingKeyError,
 } from 'products/alerts/frontend/components/AlertNotificationDestinationEditor'
 
 export const ALERT_NOTIFICATION_TYPE_SLACK = 'slack' as const
@@ -25,28 +31,17 @@ export type AlertNotificationType =
     | typeof ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS
     | typeof ALERT_NOTIFICATION_TYPE_PAGERDUTY
 
-// Only the alerts platform sends these events, so a PagerDuty destination pages only while the platform owns the alert.
-export const INSIGHT_ALERT_INCIDENT_OPENED_EVENT_ID = '$insight_alert_incident_opened'
-export const INSIGHT_ALERT_INCIDENT_CLOSED_EVENT_ID = '$insight_alert_incident_closed'
-
 const webhookUrlSchema = z.string().url()
-const PAGERDUTY_ROUTING_KEY_PATTERN = /^[A-Za-z0-9]{32}$/
 
 export function getAlertNotificationAddDisabledReason(
     selectedType: AlertNotificationType,
     hasSlackIntegration: boolean,
     slackChannelValue: string | null,
     webhookUrl: string,
-    pagerDutyRoutingKey: string = ''
+    pagerDutyRoutingKey: string
 ): string | undefined {
     if (selectedType === ALERT_NOTIFICATION_TYPE_PAGERDUTY) {
-        if (!pagerDutyRoutingKey) {
-            return 'Enter a PagerDuty integration key'
-        }
-        if (!PAGERDUTY_ROUTING_KEY_PATTERN.test(pagerDutyRoutingKey)) {
-            return 'Enter the 32-character integration key of a PagerDuty Events API v2 integration'
-        }
-        return undefined
+        return pagerDutyRoutingKeyError(pagerDutyRoutingKey)
     }
 
     if (selectedType === ALERT_NOTIFICATION_TYPE_SLACK) {

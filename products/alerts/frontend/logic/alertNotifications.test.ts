@@ -15,12 +15,14 @@ describe('alertUtils', () => {
             ['discord', 'Enter a valid Discord webhook URL'],
             ['microsoft_teams', 'Enter a valid Microsoft Teams workflow URL'],
         ] as const)('rejects an invalid %s URL', (selectedType, expectedReason) => {
-            expect(getAlertNotificationAddDisabledReason(selectedType, false, null, 'not a url')).toBe(expectedReason)
+            expect(getAlertNotificationAddDisabledReason(selectedType, false, null, 'not a url', '')).toBe(
+                expectedReason
+            )
         })
 
         it('accepts a valid webhook URL', () => {
             expect(
-                getAlertNotificationAddDisabledReason('webhook', false, null, 'https://example.com/webhook')
+                getAlertNotificationAddDisabledReason('webhook', false, null, 'https://example.com/webhook', '')
             ).toBeUndefined()
         })
     })

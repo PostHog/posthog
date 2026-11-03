@@ -7,12 +7,12 @@ import { urls } from 'scenes/urls'
 import { HogFunctionType, IntegrationType } from '~/types'
 
 import {
-    ALERT_PAGERDUTY_REGION_OPTIONS,
-    ALERT_PAGERDUTY_SEVERITY_OPTIONS,
     AlertNotificationDestinationEditor,
     AlertNotificationDestinationView,
     AlertNotificationUrlInput,
     PendingAlertNotificationDestinationView,
+    pagerDutyDestinationLabel,
+    pagerDutyPendingDetail,
 } from 'products/alerts/frontend/components/AlertNotificationDestinationEditor'
 import {
     ALERT_NOTIFICATION_TYPE_DISCORD,
@@ -114,25 +114,13 @@ function getPendingNotificationDestination(
             return { title: 'Microsoft Teams', detail: notification.webhookUrl }
         case ALERT_NOTIFICATION_TYPE_WEBHOOK:
             return { title: 'Webhook', detail: notification.webhookUrl }
-        case ALERT_NOTIFICATION_TYPE_PAGERDUTY: {
-            const severity = ALERT_PAGERDUTY_SEVERITY_OPTIONS.find((option) => option.value === notification.severity)
-            const region = ALERT_PAGERDUTY_REGION_OPTIONS.find((option) => option.value === notification.region)
-            return {
-                title: 'PagerDuty',
-                detail: `${severity?.label ?? notification.severity} · ${region?.label ?? notification.region} · ••••${notification.routingKey.slice(-4)}`,
-            }
-        }
+        case ALERT_NOTIFICATION_TYPE_PAGERDUTY:
+            return { title: 'PagerDuty', detail: pagerDutyPendingDetail(notification) }
         default: {
             const exhaustiveCheck: never = notification
             return exhaustiveCheck
         }
     }
-}
-
-// The integration key is a secret input the API never returns. The name ends with the key's tail,
-// and that is what tells two PagerDuty destinations apart.
-function pagerDutyDestinationLabel(hogFunction: HogFunctionType): string {
-    return hogFunction.name?.split(' → ').pop() ?? 'PagerDuty'
 }
 
 function getUrlInput(type: AlertNotificationType): AlertNotificationUrlInput | undefined {
@@ -169,7 +157,7 @@ export function InlineAlertNotifications({ alertId, pagerDutyAvailable }: Inline
         integrationsFailed,
         slackIntegrations,
         selectedSlackIntegration,
-        selectedType,
+        selectedType: storedSelectedType,
         slackChannelValue,
         webhookUrl,
         pagerDutyRoutingKey,
@@ -191,11 +179,11 @@ export function InlineAlertNotifications({ alertId, pagerDutyAvailable }: Inline
         loadIntegrations,
     } = useActions(logic)
 
-    useEffect(() => {
-        if (!pagerDutyAvailable && selectedType === ALERT_NOTIFICATION_TYPE_PAGERDUTY) {
-            setSelectedType(ALERT_NOTIFICATION_TYPE_SLACK)
-        }
-    }, [pagerDutyAvailable, selectedType, setSelectedType])
+    // An alert that can no longer page falls back to Slack, whatever was picked before.
+    const selectedType =
+        !pagerDutyAvailable && storedSelectedType === ALERT_NOTIFICATION_TYPE_PAGERDUTY
+            ? ALERT_NOTIFICATION_TYPE_SLACK
+            : storedSelectedType
 
     const buildPendingNotification = (): PendingAlertNotification | null => {
         if (selectedType === ALERT_NOTIFICATION_TYPE_SLACK) {
@@ -213,7 +201,7 @@ export function InlineAlertNotifications({ alertId, pagerDutyAvailable }: Inline
         if (selectedType === ALERT_NOTIFICATION_TYPE_PAGERDUTY) {
             return {
                 type: ALERT_NOTIFICATION_TYPE_PAGERDUTY,
-                routingKey: pagerDutyRoutingKey,
+                routingKey: pagerDutyRoutingKey.trim(),
                 severity: pagerDutySeverity,
                 region: pagerDutyRegion,
             }
@@ -251,7 +239,7 @@ export function InlineAlertNotifications({ alertId, pagerDutyAvailable }: Inline
     const pagerDutyGroups = new Map<string, HogFunctionType[]>()
     for (const hogFunction of existingHogFunctions) {
         if (hogFunction.template_id === 'template-pagerduty') {
-            const label = pagerDutyDestinationLabel(hogFunction)
+            const label = pagerDutyDestinationLabel(hogFunction) ?? hogFunction.id
             pagerDutyGroups.set(label, [...(pagerDutyGroups.get(label) ?? []), hogFunction])
         }
     }
@@ -313,11 +301,9 @@ export function InlineAlertNotifications({ alertId, pagerDutyAvailable }: Inline
                     pending: pendingDestinations,
                 }}
                 notificationType={{
-                    options: pagerDutyAvailable
-                        ? ALERT_NOTIFICATION_TYPE_OPTIONS
-                        : ALERT_NOTIFICATION_TYPE_OPTIONS.filter(
-                              (option) => option.value !== ALERT_NOTIFICATION_TYPE_PAGERDUTY
-                          ),
+                    options: ALERT_NOTIFICATION_TYPE_OPTIONS.filter(
+                        (option) => pagerDutyAvailable || option.value !== ALERT_NOTIFICATION_TYPE_PAGERDUTY
+                    ),
                     value: selectedType,
                     onChange: setSelectedType,
                 }}

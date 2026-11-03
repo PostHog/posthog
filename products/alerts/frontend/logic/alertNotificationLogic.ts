@@ -343,6 +343,7 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
             {
                 // The backend decides with the check that hands a new alert to the alerts platform.
                 loadNewAlertPagerDutyAvailable: async (query: NewAlertPagerDutyQuery, breakpoint) => {
+                    await breakpoint(300)
                     if (values.currentProjectId === null) {
                         return false
                     }
