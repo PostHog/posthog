@@ -7,6 +7,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { mcpSetupModeLogic } from './mcpSetupModeLogic'
 import { MCPSetupModeView } from './MCPSetupModeView'
+import { SetupModeDevControls } from './SetupModeDevControls'
 
 function MCPSetupModeOverlay(): JSX.Element | null {
     const { isOpen, step, connectState, recentCalls, recentCallsFailed } = useValues(mcpSetupModeLogic)
@@ -34,6 +35,7 @@ function MCPSetupModeOverlay(): JSX.Element | null {
                 onAskPostHogAI={askPostHogAI}
                 onGoToUseful={goToUsefulStep}
             />
+            <SetupModeDevControls />
         </LemonModal>
     )
 }
