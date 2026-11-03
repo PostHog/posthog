@@ -85,8 +85,19 @@ export const WithoutGoals: Story = {
 export const ConfigureMetrics: Story = {
     args: { viewKey: 'overview-metrics-configure-story' },
     play: async ({ canvasElement, args }) => {
-        overviewMetricsLogic({ viewKey: args.viewKey! }).actions.openEditor()
-        await waitFor(() => expect(within(canvasElement.ownerDocument.body).getByRole('dialog')).toBeVisible())
+        // The modal reads the logic the component mounts, so opening it before the mount is lost.
+        const logic = await waitFor(
+            () => {
+                const mounted = overviewMetricsLogic.findMounted({ viewKey: args.viewKey! })
+                expect(mounted).toBeTruthy()
+                return mounted!
+            },
+            { timeout: 5000 }
+        )
+        logic.actions.openEditor()
+        await waitFor(() => expect(within(canvasElement.ownerDocument.body).getByRole('dialog')).toBeVisible(), {
+            timeout: 5000,
+        })
     },
     parameters: {
         testOptions: {
