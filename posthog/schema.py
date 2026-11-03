@@ -2187,7 +2187,8 @@ class MarketingAnalyticsRecommendationStep(BaseModel):
     copyValue: str | None = Field(
         default=None,
         description=(
-            "Text to paste into Google Ads at this step, such as a campaign name or a keyword in match type syntax."
+            "Text to paste into Google Ads at this step, such as a campaign name or"
+            " keywords in match type syntax, one per line."
         ),
     )
     linkText: str | None = Field(
