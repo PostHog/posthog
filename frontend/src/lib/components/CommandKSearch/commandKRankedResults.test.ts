@@ -320,6 +320,23 @@ describe('buildRankedResults', () => {
             expected: ['Results: Stripe revenue, Pinstripe Strive'],
         },
         {
+            name: 'with unified ranking, a keyword with fewer typos wins over an earlier keyword',
+            query: 'lajehouse',
+            results: [result('1', 'Warehouse costs', 'insight', [-1, 1, 0, 0, -1, 0, 5, 0, -1])],
+            products: [product('Data ops', ['managed warehouse', 'lakehouse'])],
+            unifiedRanking: true,
+            expected: ['Results: Data ops'],
+        },
+        {
+            name: 'with unified ranking, an account the API matched keeps zero typos over a fuzzy name',
+            query: 'stripe',
+            results: [result('1', 'Ada stripe com signups', 'insight', [-1, 0, 0, 0, -1, 1, 2, 0, -1])],
+            products: [],
+            accounts: [account('account-1', 'Strive')],
+            unifiedRanking: true,
+            expected: ['Results: Ada stripe com signups, Strive'],
+        },
+        {
             name: 'with unified ranking, a search keyword still matches with a typo',
             query: 'recordigns',
             results: [],

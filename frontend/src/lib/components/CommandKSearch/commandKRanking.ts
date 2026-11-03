@@ -330,23 +330,20 @@ function tokenHit(token: string, candidate: RankCandidate, nameWords: string[]):
     if (clean) {
         return clean
     }
-    const alias = (candidate.aliases ?? [])
-        .map((text) => ({ text, hit: hitInWords(token, unifiedWords(text)) }))
-        .find(({ hit }) => hit)
     const context = hitInWords(token, (candidate.context ?? []).flatMap(unifiedWords))
-    const fuzzy: TokenHit[] = [
+    const hits: TokenHit[] = [
         ...(name ? [{ ...name, field: 'name' as const }] : []),
-        ...(alias?.hit
-            ? [{ ...alias.hit, position: MAX_POSITION_PENALTY, field: 'alias' as const, alias: alias.text }]
-            : []),
+        ...(candidate.aliases ?? []).flatMap((alias) => {
+            const hit = hitInWords(token, unifiedWords(alias))
+            return hit ? [{ ...hit, position: MAX_POSITION_PENALTY, field: 'alias' as const, alias }] : []
+        }),
         ...(context ? [{ ...context, position: MAX_POSITION_PENALTY, field: 'context' as const }] : []),
+        // The source already matched the whole search on fields the browser cannot see.
+        ...(candidate.matchesQuery
+            ? [{ typos: 0, position: MAX_POSITION_PENALTY, field: 'identity' as const, wordStart: true }]
+            : []),
     ]
-    if (fuzzy.length) {
-        return fuzzy.reduce((best, hit) => (hit.typos < best.typos ? hit : best))
-    }
-    return candidate.matchesQuery
-        ? { typos: 0, position: MAX_POSITION_PENALTY, field: 'identity', wordStart: true }
-        : null
+    return hits.length ? hits.reduce((best, hit) => (hit.typos < best.typos ? hit : best)) : null
 }
 
 function wholeQueryTier(query: string, candidate: RankCandidate): MatchTier | null {
