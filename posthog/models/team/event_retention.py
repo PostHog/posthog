@@ -109,10 +109,6 @@ def default_window(plan_months: int, standard: bool, min_months: int | None) -> 
     return min(plan_months, max(default, min_months)) if min_months is not None else default
 
 
-def retention_window(plan_months: int, default_months: int, setting_months: int | None) -> int:
-    return min(plan_months, setting_months) if setting_months is not None else default_months
-
-
 def events_retention_windows(teams: Sequence[Team]) -> dict[int, int]:
     return retention_windows([team_plan(team) for team in teams])
 
@@ -121,9 +117,11 @@ def retention_windows(plans: Sequence[TeamPlan]) -> dict[int, int]:
     setting_months = {
         item.team_id: item.months for item in effective_events_retention(team_ids=[p.team_id for p in plans])
     }
-    defaults = default_windows(plans)
+    defaults = default_windows([plan for plan in plans if plan.team_id not in setting_months])
     return {
-        plan.team_id: retention_window(plan.plan_months, defaults[plan.team_id], setting_months.get(plan.team_id))
+        plan.team_id: min(plan.plan_months, setting_months[plan.team_id])
+        if plan.team_id in setting_months
+        else defaults[plan.team_id]
         for plan in plans
     }
 
