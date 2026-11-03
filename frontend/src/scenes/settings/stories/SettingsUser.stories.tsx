@@ -39,12 +39,6 @@ const meta: Meta<StoryProps> = {
                 },
                 '/api/projects/:id/integrations': { results: [] },
                 '/api/webauthn/credentials/': [],
-                '/api/personal_api_keys/risky_scopes/': {
-                    risky_scopes: {
-                        'organization_member:write':
-                            'Invites and removes organization members and changes their roles.',
-                    },
-                },
                 '/api/users/@me/login_sessions/': [
                     {
                         id: '0190a1b2-0000-7000-8000-000000000001',

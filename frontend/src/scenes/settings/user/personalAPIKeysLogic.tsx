@@ -20,7 +20,7 @@ import {
     type ScopePickerGroup,
     type ScopeAccessLevel,
     type ScopePickerRow,
-    riskyScopeWarning,
+    scopeRowWarning,
     clampScopeLevel,
     groupScopeRows,
     scopeMatchesSearch,
@@ -70,19 +70,6 @@ export function expiresAtForOption(
 
 /** A picker row for a personal API key, with the scope it stands for so the search can match it. */
 export type PersonalAPIKeyScopeRow = ScopePickerRow & { scope: APIScope }
-
-function combineWarnings(
-    builtIn: string | JSX.Element | undefined,
-    risky: string | undefined
-): string | JSX.Element | undefined {
-    return builtIn && risky ? (
-        <>
-            {builtIn} {risky}
-        </>
-    ) : (
-        (builtIn ?? risky)
-    )
-}
 
 export type PersonalAPIKeyScopeGroup = ScopePickerGroup<PersonalAPIKeyScopeRow>
 
@@ -143,8 +130,6 @@ export interface personalAPIKeysLogicValues {
     isPersonalApiKeyIdDisabled: (keyId: string) => boolean
     keys: PersonalAPIKeyType[]
     keysLoading: boolean
-    riskyScopes: Record<string, string>
-    riskyScopesLoading: boolean
     scopeRows: PersonalAPIKeyScopeRow[]
     searchTerm: string
     showEditingKeyErrors: boolean
@@ -217,21 +202,6 @@ export interface personalAPIKeysLogicActions {
         payload?: {
             value: true
         }
-    }
-    loadRiskyScopes: () => any
-    loadRiskyScopesFailure: (
-        error: string,
-        errorObject?: any
-    ) => {
-        error: string
-        errorObject?: any
-    }
-    loadRiskyScopesSuccess: (
-        riskyScopes: Record<string, string>,
-        payload?: any
-    ) => {
-        riskyScopes: Record<string, string>
-        payload?: any
     }
     resetEditingKey: (values?: EditingKeyFormValues) => {
         values?: EditingKeyFormValues
@@ -344,8 +314,7 @@ export interface personalAPIKeysLogicMeta {
         scopeRows: (
             allowedScopes: APIScope[],
             formScopeRadioValues: Record<string, string>,
-            editingKey: EditingKeyFormValues,
-            riskyScopes: Record<string, string>
+            editingKey: EditingKeyFormValues
         ) => PersonalAPIKeyScopeRow[]
         filteredScopeGroups: (searchTerm: string, scopeRows: PersonalAPIKeyScopeRow[]) => PersonalAPIKeyScopeGroup[]
         formScopeRadioValues: (editingKey: EditingKeyFormValues) => Record<string, string>
@@ -427,12 +396,6 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
         ],
     }),
     loaders(({ values, actions }) => ({
-        riskyScopes: [
-            {} as Record<string, string>,
-            {
-                loadRiskyScopes: async () => await api.personalApiKeys.riskyScopes(),
-            },
-        ],
         keys: [
             [] as PersonalAPIKeyType[],
             {
@@ -570,12 +533,11 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
             (allowedScopes: APIScope[]): Set<string> => new Set(allowedScopes.map((scope) => scope.key)),
         ],
         scopeRows: [
-            (s) => [s.allowedScopes, s.formScopeRadioValues, s.editingKey, s.riskyScopes],
+            (s) => [s.allowedScopes, s.formScopeRadioValues, s.editingKey],
             (
                 allowedScopes: APIScope[],
                 formScopeRadioValues: Record<string, string>,
-                editingKey: EditingKeyFormValues,
-                riskyScopes: Record<string, string>
+                editingKey: EditingKeyFormValues
             ): PersonalAPIKeyScopeRow[] =>
                 allowedScopes.map((scope) => {
                     const projectScoped = scope.disabledWhenProjectScoped && editingKey.access_type === 'teams'
@@ -592,10 +554,7 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                         label: scope.objectName,
                         info: scope.info,
                         value,
-                        warning: combineWarnings(
-                            value === 'none' ? undefined : scope.warnings?.[value],
-                            riskyScopeWarning(scope.key, value, riskyScopes)
-                        ),
+                        warning: scopeRowWarning(scope, scope.key, value),
                         muted: Boolean(projectScoped),
                         disabledReasons: { read: disabledReason('read'), write: disabledReason('write') },
                     }
@@ -979,6 +938,5 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
     })),
     afterMount(({ actions }) => {
         actions.loadAllTeams()
-        actions.loadRiskyScopes()
     }),
 ])

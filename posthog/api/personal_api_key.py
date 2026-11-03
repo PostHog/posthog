@@ -21,7 +21,7 @@ from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
 from posthog.permissions import TimeSensitiveActionPermission
 from posthog.personal_api_key_minting import mint_personal_api_key
-from posthog.scopes import API_SCOPE_ACTIONS, GRANTABLE_API_SCOPE_OBJECTS, RISKY_SCOPE_WARNINGS
+from posthog.scopes import API_SCOPE_ACTIONS, GRANTABLE_API_SCOPE_OBJECTS
 from posthog.user_permissions import UserPermissions
 
 SCOPED_TEAMS_ACCESS_ERROR = "You must be a member of all teams that you are scoping the key to."
@@ -304,13 +304,6 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
         return [str(org_id) for org_id in org_ids]
 
 
-class RiskyScopeWarningsSerializer(serializers.Serializer):
-    risky_scopes = serializers.DictField(
-        child=serializers.CharField(),
-        help_text="What each risky scope lets a key do, keyed by scope. Show it so people add the scope with care.",
-    )
-
-
 class PersonalApiKeySelfAccessPermission(BasePermission):
     """
     Personal API keys can only access their own key and only for retrieval
@@ -355,11 +348,6 @@ class PersonalAPIKeyViewSet(viewsets.ModelViewSet):
         queryset = self.filter_queryset(self.get_queryset())
         serializer = self.get_serializer(queryset, many=True)
         return response.Response(serializer.data)
-
-    @extend_schema(responses=RiskyScopeWarningsSerializer)
-    @action(methods=["GET"], detail=False, url_path="risky_scopes")
-    def risky_scopes(self, request, *args, **kwargs):
-        return response.Response(RiskyScopeWarningsSerializer({"risky_scopes": RISKY_SCOPE_WARNINGS}).data)
 
     @extend_schema(request=PersonalAPIKeyRollSerializer, responses=PersonalAPIKeySerializer)
     @action(methods=["POST"], detail=True, url_path="roll")

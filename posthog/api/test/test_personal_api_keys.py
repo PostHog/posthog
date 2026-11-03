@@ -286,12 +286,6 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         key.refresh_from_db()
         assert key.secure_value is not None and key.secure_value.startswith(SHA256_HASH_PREFIX)
 
-    def test_lists_the_warnings_for_risky_scopes(self):
-        response = self.client.get("/api/personal_api_keys/risky_scopes/")
-
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        assert "organization_member:write" in response.json()["risky_scopes"]
-
     def test_list_only_user_personal_api_keys(self):
         my_label = "Test"
         my_key = PersonalAPIKey.objects.create(
