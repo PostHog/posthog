@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
 
 import {
+    Avatar,
+    AvatarFallback,
     Badge,
     Button,
     Checkbox,
@@ -44,6 +46,7 @@ import {
     MetricsSortColumn,
     catalogMetricsLogic,
     metricDisplayName,
+    metricOwnerName,
     metricUpdatedAt,
 } from './catalogMetricsLogic'
 import { MetricOwnerCombobox } from './MetricOwnerCombobox'
@@ -102,15 +105,24 @@ function SourceBadge({ metric }: { metric: DataCatalogMetricApi }): JSX.Element 
 function OwnerCell({ metric }: { metric: DataCatalogMetricApi }): JSX.Element {
     const { actionsInFlight, bulkActionInFlight } = useValues(metricsLogic)
     const { setMetricOwner } = useActions(metricsLogic)
+    const { ownerNameByEmail } = useValues(catalogMetricsLogic)
+    const ownerName = metricOwnerName(metric, ownerNameByEmail)
     return (
-        <MetricOwnerCombobox
-            label={metric.owner || 'Unassigned'}
-            variant="default"
-            loading={!!actionsInFlight[metric.name]}
-            disabledReason={bulkBusyReason(bulkActionInFlight)}
-            onChange={(owner) => setMetricOwner(metric.name, owner)}
-            dataAttr="data-catalog-metric-owner-select"
-        />
+        <div className="flex min-w-0 items-center gap-1">
+            {ownerName && (
+                <Avatar size="xs">
+                    <AvatarFallback>{ownerName.charAt(0).toUpperCase()}</AvatarFallback>
+                </Avatar>
+            )}
+            <MetricOwnerCombobox
+                label={ownerName || 'Unassigned'}
+                variant="default"
+                loading={!!actionsInFlight[metric.name]}
+                disabledReason={bulkBusyReason(bulkActionInFlight)}
+                onChange={(owner) => setMetricOwner(metric.name, owner)}
+                dataAttr="data-catalog-metric-owner-select"
+            />
+        </div>
     )
 }
 
