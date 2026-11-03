@@ -276,12 +276,19 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                 ) AS first_distinct_id,
                 round(
                     coalesce(
-                        -- The root $ai_trace event reports the wall-clock latency of the whole
-                        -- trace, so its children are already inside that number. Same rule as
+                        -- Each root $ai_trace event reports the wall-clock latency of its own run,
+                        -- so its children are already inside that number. A trace can have several
+                        -- root runs, so take the span from the earliest root start to the latest
+                        -- root end. SDK events carry the end time as the timestamp and OTel events
+                        -- carry the start time. Same rule as
                         -- products/ai_observability/backend/queries/sessions.sql.
-                        nullIf(maxIf(toFloat(properties.$ai_latency),
-                                     event = '$ai_trace' AND toFloat(properties.$ai_latency) > 0
-                               ), 0),
+                        nullIf(
+                            maxIf(toUnixTimestamp64Milli(timestamp) / 1000 + if(properties.$ai_ingestion_source = 'otel', toFloat(properties.$ai_latency), 0),
+                                  event = '$ai_trace' AND toFloat(properties.$ai_latency) > 0)
+                            - minIf(toUnixTimestamp64Milli(timestamp) / 1000 - if(properties.$ai_ingestion_source = 'otel', 0, toFloat(properties.$ai_latency)),
+                                    event = '$ai_trace' AND toFloat(properties.$ai_latency) > 0),
+                            0
+                        ),
                         CASE
                             -- If all events with latency are generations, sum them all
                             WHEN countIf(toFloat(properties.$ai_latency) > 0 AND event != '$ai_generation') = 0

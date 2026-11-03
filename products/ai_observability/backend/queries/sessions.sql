@@ -49,7 +49,18 @@ FROM (
         ) as trace_tools,
         sumIf(toFloat(properties.$ai_total_cost_usd), event IN ('$ai_generation', '$ai_embedding')) as trace_cost,
         coalesce(
-            anyIf(toFloat(properties.$ai_latency), event = '$ai_trace' AND isNotNull(properties.$ai_latency)),
+            -- A trace can have several root $ai_trace runs, so take the span from the earliest
+            -- root start to the latest root end. SDK events carry the end time as the timestamp
+            -- and OTel events carry the start time.
+            nullIf(
+                maxIf(toUnixTimestamp64Milli(timestamp) / 1000
+                          + if(properties.$ai_ingestion_source = 'otel', toFloat(properties.$ai_latency), 0),
+                      event = '$ai_trace' AND toFloat(properties.$ai_latency) > 0)
+                - minIf(toUnixTimestamp64Milli(timestamp) / 1000
+                          - if(properties.$ai_ingestion_source = 'otel', 0, toFloat(properties.$ai_latency)),
+                        event = '$ai_trace' AND toFloat(properties.$ai_latency) > 0),
+                0
+            ),
             sumIf(toFloat(properties.$ai_latency), event IN ('$ai_generation', '$ai_embedding', '$ai_span'))
         ) as trace_latency,
         min(timestamp) as trace_first_seen,

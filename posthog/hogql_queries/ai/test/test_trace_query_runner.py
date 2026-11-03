@@ -1810,29 +1810,51 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
         # Should NOT double-count the children of Span A
         self.assertEqual(response.results[0].totalLatency, 450.0)
 
-    def test_latency_root_trace_event_reports_wall_clock(self):
+    @parameterized.expand(
+        [
+            ("single_root", [(datetime(2024, 12, 1, 0, 0), 1.806, None)], 1.81),
+            (
+                "sequential_sdk_roots",
+                [(datetime(2024, 12, 1, 0, 0, 2), 2.0, None), (datetime(2024, 12, 1, 0, 0, 10), 3.0, None)],
+                10.0,
+            ),
+            (
+                "sequential_otel_roots",
+                [(datetime(2024, 12, 1, 0, 0, 0), 2.0, "otel"), (datetime(2024, 12, 1, 0, 0, 7), 3.0, "otel")],
+                10.0,
+            ),
+        ]
+    )
+    def test_latency_root_trace_event_reports_wall_clock(
+        self, _name: str, roots: list[tuple[datetime, float, str | None]], expected_latency: float
+    ):
         """
         Test the root $ai_trace latency wins over the sum of its children.
 
         Tree structure:
-        Trace "trace_root_latency" (1.806s wall clock)
-        └── Generation ($ai_parent_id=trace_id, 0.917s, contained in the trace)
+        Trace "trace_root_latency" (one or more root runs)
+        └── Generation ($ai_parent_id=trace_id, 0.917s, contained in a root run)
 
-        Expected: the root value 1.806s, rounded to 1.81, not 1.806 + 0.917
+        Expected: the span from the earliest root start to the latest root end. SDK roots
+        carry the end time as the timestamp and OTel roots carry the start time.
         """
         _create_person(distinct_ids=["person1"], team=self.team)
         trace_id = "trace_root_latency"
 
-        _create_ai_trace_event(
-            trace_id=trace_id,
-            trace_name="root-latency-trace",
-            input_state={},
-            output_state={},
-            team=self.team,
-            distinct_id="person1",
-            timestamp=datetime(2024, 12, 1, 0, 0),
-            properties={"$ai_latency": 1.806},
-        )
+        for timestamp, latency, ingestion_source in roots:
+            properties: dict[str, Any] = {"$ai_latency": latency}
+            if ingestion_source:
+                properties["$ai_ingestion_source"] = ingestion_source
+            _create_ai_trace_event(
+                trace_id=trace_id,
+                trace_name="root-latency-trace",
+                input_state={},
+                output_state={},
+                team=self.team,
+                distinct_id="person1",
+                timestamp=timestamp,
+                properties=properties,
+            )
         _create_ai_generation_event(
             distinct_id="person1",
             trace_id=trace_id,
@@ -1850,7 +1872,7 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
         ).calculate()
 
         self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].totalLatency, 1.81)
+        self.assertEqual(response.results[0].totalLatency, expected_latency)
 
     def test_latency_no_span_id_automatic_leaves(self):
         """

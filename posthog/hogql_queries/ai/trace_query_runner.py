@@ -167,10 +167,19 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
                 ) AS first_distinct_id,
                 round(
                     coalesce(
-                        -- The root $ai_trace event reports the wall-clock latency of the whole
-                        -- trace, so its children are already inside that number. Same rule as
+                        -- Each root $ai_trace event reports the wall-clock latency of its own run,
+                        -- so its children are already inside that number. A trace can have several
+                        -- root runs, so take the span from the earliest root start to the latest
+                        -- root end. SDK events carry the end time as the timestamp and OTel events
+                        -- carry the start time. Same rule as
                         -- products/ai_observability/backend/queries/sessions.sql.
-                        nullIf(maxIf(deduped.latency, deduped.event = '$ai_trace' AND deduped.latency > 0), 0),
+                        nullIf(
+                            maxIf(toUnixTimestamp64Milli(deduped.timestamp) / 1000 + if(deduped.ingestion_source = 'otel', deduped.latency, 0),
+                                  deduped.event = '$ai_trace' AND deduped.latency > 0)
+                            - minIf(toUnixTimestamp64Milli(deduped.timestamp) / 1000 - if(deduped.ingestion_source = 'otel', 0, deduped.latency),
+                                    deduped.event = '$ai_trace' AND deduped.latency > 0),
+                            0
+                        ),
                         CASE
                             -- If all events with latency are generations, sum them all
                             WHEN countIf(deduped.latency > 0 AND deduped.event != '$ai_generation') = 0
@@ -255,7 +264,7 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
                 SELECT
                     uuid, event, timestamp, distinct_id, properties,
                     trace_id, session_id, parent_id, span_name, trace_name,
-                    latency, input_tokens, output_tokens,
+                    latency, properties.$ai_ingestion_source AS ingestion_source, input_tokens, output_tokens,
                     input_cost_usd, output_cost_usd, total_cost_usd,
                     input, output, output_choices, input_state, output_state, tools
                 FROM posthog.ai_events AS ai_events

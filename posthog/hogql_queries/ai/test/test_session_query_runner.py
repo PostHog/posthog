@@ -191,20 +191,35 @@ class TestSessionQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertIsNone(unpriced_trace.inputCost)
         self.assertIsNone(unpriced_trace.inputTokens)
 
-    def test_root_trace_latency_is_not_summed_with_its_children(self) -> None:
+    @parameterized.expand(
+        [
+            ("single_root", [(datetime(2025, 1, 15, 0, 0, tzinfo=UTC), 1.806)], 1.81),
+            (
+                "sequential_roots",
+                [(datetime(2025, 1, 15, 0, 0, 2, tzinfo=UTC), 2.0), (datetime(2025, 1, 15, 0, 0, 10, tzinfo=UTC), 3.0)],
+                10.0,
+            ),
+        ]
+    )
+    def test_root_trace_latency_is_not_summed_with_its_children(
+        self, _name: str, roots: list[tuple[datetime, float]], expected_latency: float
+    ) -> None:
         bulk_create_ai_events(
             [
-                {
-                    "event": "$ai_trace",
-                    "distinct_id": "person1",
-                    "team": self.team,
-                    "timestamp": datetime(2025, 1, 15, 0, 0, tzinfo=UTC),
-                    "properties": {
-                        "$ai_session_id": "session-root-latency",
-                        "$ai_trace_id": "trace-root-latency",
-                        "$ai_latency": 1.806,
-                    },
-                },
+                *(
+                    {
+                        "event": "$ai_trace",
+                        "distinct_id": "person1",
+                        "team": self.team,
+                        "timestamp": timestamp,
+                        "properties": {
+                            "$ai_session_id": "session-root-latency",
+                            "$ai_trace_id": "trace-root-latency",
+                            "$ai_latency": latency,
+                        },
+                    }
+                    for timestamp, latency in roots
+                ),
                 {
                     "event": "$ai_generation",
                     "distinct_id": "person1",
@@ -223,7 +238,7 @@ class TestSessionQueryRunner(ClickhouseTestMixin, BaseTest):
         response = runner.calculate()
 
         self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0].totalLatency, 1.81)
+        self.assertEqual(response.results[0].totalLatency, expected_latency)
 
     def test_paginates_session_traces(self) -> None:
         bulk_create_ai_events(

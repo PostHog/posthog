@@ -360,6 +360,23 @@ class TestSessionsAggregation(ClickhouseTestMixin, BaseTest):
         self.assertEqual(len(results), 1)
         self.assertEqual(results[0]["total_latency"], 4.0)  # 2.5 + 1.5 (fallback to children sum)
 
+    def test_latency_spans_several_root_runs_of_one_trace(self):
+        _create_person(distinct_ids=["test-user"], team=self.team)
+
+        for timestamp, latency in [(datetime(2025, 1, 15, 0, 0, 2), 2.0), (datetime(2025, 1, 15, 0, 0, 10), 3.0)]:
+            _create_ai_trace_event(
+                trace_id="trace-1",
+                session_id="session-1",
+                latency=latency,
+                team=self.team,
+                timestamp=timestamp,
+            )
+
+        results = self._execute_sessions_query()
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["total_latency"], 10.0)  # first root starts at 0:00:00, last root ends at 0:00:10
+
     def test_generation_only_traces_included_in_session(self):
         _create_person(distinct_ids=["test-user"], team=self.team)
 
