@@ -96,7 +96,10 @@ def _read(team_id: int, transition: AnnouncedTransition) -> FiringInvestigation 
     value = evaluated.get("value")
     breaches: tuple[str, ...] | None = None
     link: str | None = None
-    if follow_up or released_by == HoldReleasedBy.VERDICT:
+    # Only the agent's verdict rewords a firing. A metrics investigation explains the firing beside
+    # its own breaches, so its release keeps them, also when it failed.
+    agent = kind == InsightAlertInvestigation.Kind.AGENT
+    if follow_up or (agent and released_by == HoldReleasedBy.VERDICT):
         previous_verdict = (
             rows.filter(episode_started_at=episode_started_at, created_at__lt=created_at, verdict__isnull=False)
             .order_by("-created_at")
@@ -116,7 +119,7 @@ def _read(team_id: int, transition: AnnouncedTransition) -> FiringInvestigation 
             ).lines
         )
         link = notebook_url(notebook_short_id) if notebook_short_id else None
-    elif released_by == HoldReleasedBy.SAFETY_NET:
+    elif agent and released_by == HoldReleasedBy.SAFETY_NET:
         breaches = tuple(safety_net_breaches(triggered_dates=triggered_dates, value=value))
 
     return FiringInvestigation(
