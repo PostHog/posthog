@@ -453,7 +453,8 @@ The Desktop harness bundle is the exception: it packages context-mill alone,
 so a skill from this repo is absent there rather than overwritten.
 The MCP server's `learn` catalog overlays them at runtime:
 the context-mill resource refresh repacks the omnibus skills from the release it already downloads,
-and the skill catalog service merges that copy over `skills.zip` on its next poll.
+and the skill catalog service merges that copy over `skills.zip` on its next poll,
+keeping the product skill when a name collides and serving no overlay on a pinned archive.
 `learn -s` scores an omnibus skill by its name, description, and `SKILL.md` only,
 because its references are docs snapshots that would crowd out workflow skills;
 `learn posthog:<skill> <path>` still reads any reference.

@@ -192,7 +192,8 @@ export class SkillCatalogService {
     }
 
     private async adoptOmnibusSkills(phase: LoadPhase): Promise<void> {
-        if (!this.omnibusSkills || !this.archiveBytes) {
+        // A pinned archive serves exactly its bytes, so no unpinned overlay joins it.
+        if (!this.omnibusSkills || !this.archiveBytes || this.expectedArchiveSha) {
             return
         }
         try {

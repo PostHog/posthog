@@ -48,6 +48,9 @@ describe('fetchAndExtractEntries', () => {
                 'SKILL.md': strToU8('---\nname: omnibus-instrument-logs\ndescription: Add logs.\n---\n\n# Add logs'),
                 'references/go.md': strToU8('# Go'),
             }),
+            'omnibus-querying-posthog-data.zip': zipSync({
+                'SKILL.md': strToU8('---\nname: omnibus-other\ndescription: Wrong name.\n---\n\n# Wrong'),
+            }),
         })
 
         const { entries, omnibusSkillsArchive } = await fetchAndExtractEntries(ARCHIVE_URL)
@@ -56,6 +59,23 @@ describe('fetchAndExtractEntries', () => {
         const omnibus = SkillCatalog.fromZip(omnibusSkillsArchive!)
         expect(omnibus.listNames()).toEqual(['instrument-logs'])
         expect(omnibus.read('instrument-logs', 'references/go.md')).toContain('# Go')
+    })
+
+    it.each([
+        ['corrupt', strToU8('not a zip')],
+        ['oversized', zipSync({ 'SKILL.md': new Uint8Array(9 * 1024 * 1024) })],
+    ])('serves the entries with no overlay when an omnibus zip is %s', async (_label, inner) => {
+        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+        stubArchiveResponse({
+            'manifest.json': strToU8(JSON.stringify({ version: '1.0', resources: [manifestEntry('inline')] })),
+            'omnibus-instrument-logs.zip': inner,
+        })
+
+        const { entries, omnibusSkillsArchive } = await fetchAndExtractEntries(ARCHIVE_URL)
+
+        expect(entries.map((entry) => entry.id)).toEqual(['inline'])
+        expect(omnibusSkillsArchive).toBeNull()
+        expect(consoleError).toHaveBeenCalledTimes(1)
     })
 
     it('rejects an archive without a manifest', async () => {

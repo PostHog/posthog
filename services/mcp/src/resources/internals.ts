@@ -1,11 +1,14 @@
 import { type Unzipped, strFromU8, strToU8, unzipSync, zipSync } from 'fflate'
 
+import { MAX_ARCHIVE_FILE_BYTES, MAX_ARCHIVE_FILES, MAX_ARCHIVE_UNCOMPRESSED_BYTES } from '@/skills/skill-catalog'
+
 import { loadContextMillManifest } from './manifest-loader'
 import type { ContextMillManifest, ContextMillResource } from './manifest-types'
 
 const CONTEXT_MILL_URL = 'https://github.com/PostHog/context-mill/releases/latest/download/skills-mcp-resources.zip'
 
 const OMNIBUS_ARCHIVE_PATTERN = /^omnibus-([a-z0-9]+(?:-[a-z0-9]+)*)\.zip$/
+const DECLARED_NAME_PATTERN = /^name:[ \t]*(?:omnibus-)?(\S+)[ \t]*$/m
 // A fixed mtime keeps the repacked bytes, and so their sha, stable across refreshes of
 // an unchanged release; a wall-clock mtime would make every pod re-parse every refresh.
 const OMNIBUS_ARCHIVE_MTIME = new Date('2000-01-01T00:00:00Z')
@@ -77,21 +80,56 @@ export function filterValidEntries(entries: readonly ContextMillResource[], arch
 
 export function buildOmnibusSkillsArchive(archive: Unzipped): Uint8Array | null {
     const files: Record<string, Uint8Array> = {}
+    let fileCount = 0
+    let totalUncompressedBytes = 0
     for (const [entryName, entryBytes] of Object.entries(archive)) {
         const match = OMNIBUS_ARCHIVE_PATTERN.exec(entryName)
         if (!match) {
             continue
         }
         const skillName = match[1]!
-        for (const [path, bytes] of Object.entries(unzipSync(entryBytes))) {
-            if (path.endsWith('/')) {
-                continue
-            }
+        // The catalog applies the same limits to the repacked archive, but only after this
+        // inflate has already allocated; the filter stops a crafted release before that.
+        const inner = unzipSync(entryBytes, {
+            filter: (file) => {
+                if (file.name.endsWith('/')) {
+                    return false
+                }
+                fileCount += 1
+                totalUncompressedBytes += file.originalSize
+                if (
+                    fileCount > MAX_ARCHIVE_FILES ||
+                    file.originalSize > MAX_ARCHIVE_FILE_BYTES ||
+                    totalUncompressedBytes > MAX_ARCHIVE_UNCOMPRESSED_BYTES
+                ) {
+                    throw new Error(`Omnibus archive "${entryName}" exceeds the extraction limit`)
+                }
+                return true
+            },
+        })
+        const skillFile = inner['SKILL.md']
+        const declaredName = skillFile ? DECLARED_NAME_PATTERN.exec(strFromU8(skillFile))?.[1] : undefined
+        if (declaredName !== skillName) {
+            // The served name comes from the filename, so a release cannot publish under another skill's name.
+            console.warn(`[context-mill] skipping "${entryName}": SKILL.md declares the name "${declaredName}"`)
+            continue
+        }
+        for (const [path, bytes] of Object.entries(inner)) {
             files[`${skillName}/${path}`] =
                 path === 'SKILL.md' ? strToU8(strFromU8(bytes).replace(/^(name:[ \t]*)omnibus-/m, '$1')) : bytes
         }
     }
     return Object.keys(files).length > 0 ? zipSync(files, { mtime: OMNIBUS_ARCHIVE_MTIME }) : null
+}
+
+// A bad omnibus zip must not cost the manifest, which the resource list depends on.
+function repackOmnibusSkills(archive: Unzipped): Uint8Array | null {
+    try {
+        return buildOmnibusSkillsArchive(archive)
+    } catch (error) {
+        console.error('[context-mill] omnibus skills could not be repacked; serving none:', error)
+        return null
+    }
 }
 
 /**
@@ -107,6 +145,6 @@ export async function fetchAndExtractEntries(localUrl?: string): Promise<Context
     const manifest = loadManifestFromArchive(archive)
     return {
         entries: filterValidEntries(manifest.resources, archive),
-        omnibusSkillsArchive: buildOmnibusSkillsArchive(archive),
+        omnibusSkillsArchive: repackOmnibusSkills(archive),
     }
 }

@@ -164,7 +164,7 @@ class McpDispatcher {
     constructor(catalog: ToolCatalog, redis: RedisLike) {
         const env = getEnv()
         this.catalog = catalog
-        const omnibusSkills = new OmnibusSkillsCache(redis)
+        const omnibusSkills = env.POSTHOG_MCP_OMNIBUS_SKILLS === 'off' ? undefined : new OmnibusSkillsCache(redis)
         this.resourceCatalog = new ResourceCatalog(env, redis, omnibusSkills)
         this.stateResolver = new RequestStateResolver(catalog, redis, env)
         this.instructionsBuilder = new InstructionsBuilder(GUIDELINES)

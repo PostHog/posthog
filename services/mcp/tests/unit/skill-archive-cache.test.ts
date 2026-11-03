@@ -379,6 +379,14 @@ describe('SkillCatalogService', () => {
         )
         await service.poll()
         expect(service.getCatalog()?.listNames()).toEqual(['instrument-tracing', 'product'])
+
+        const pinned = new SkillCatalogService(redis, {
+            fetchArchive: async () => downloaded(makeArchive('product')),
+            expectedArchiveSha: hashBytes(makeArchive('product')),
+            omnibusSkills: omnibus,
+        })
+        await pinned.warmup()
+        expect(pinned.getCatalog()?.listNames()).toEqual(['product'])
     })
 
     it('loads a new pin at the same URL without reusing an older cached archive', async () => {

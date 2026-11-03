@@ -8,9 +8,9 @@ export const MAX_GLOBAL_SKILLS = 10
 const MAX_GLOBAL_SNIPPETS = 2
 const MAX_SCOPED_MATCHES = 50
 const SEARCH_CONTEXT_LINES = 2
-const MAX_ARCHIVE_FILES = 5_000
-const MAX_ARCHIVE_FILE_BYTES = 8 * 1024 * 1024
-const MAX_ARCHIVE_UNCOMPRESSED_BYTES = 64 * 1024 * 1024
+export const MAX_ARCHIVE_FILES = 5_000
+export const MAX_ARCHIVE_FILE_BYTES = 8 * 1024 * 1024
+export const MAX_ARCHIVE_UNCOMPRESSED_BYTES = 64 * 1024 * 1024
 const EXACT_NAME_SCORE_BONUS = 5_000
 // context-mill's omnibus skills ship docs snapshots and example apps as references, and
 // snippet matches in those would crowd the workflow skills out of the result limit. Search
@@ -78,15 +78,15 @@ export class SkillCatalog {
     }
 
     static fromZip(bytes: Uint8Array, overlayBytes?: Uint8Array): SkillCatalog {
-        const skillsByName = new Map(parseSkillArchive(bytes).map((skill) => [skill.name, skill]))
+        const skillsByName = indexSkillsByName(parseSkillArchive(bytes))
         if (overlayBytes) {
-            for (const skill of parseSkillArchive(overlayBytes)) {
-                if (skillsByName.has(skill.name)) {
-                    // The disk-based consumers unzip context-mill over this repo's skills, so the
-                    // overlay wins here too and the two deliveries agree on what a name serves.
-                    console.warn(`[SkillCatalog] overlay skill "${skill.name}" replaces the product skill of that name`)
+            for (const [name, skill] of indexSkillsByName(parseSkillArchive(overlayBytes))) {
+                if (skillsByName.has(name)) {
+                    // The product archive can be sha-pinned and the overlay is not, so the overlay never replaces a product skill.
+                    console.warn(`[SkillCatalog] overlay skill "${name}" ignored: a product skill has that name`)
+                    continue
                 }
-                skillsByName.set(skill.name, skill)
+                skillsByName.set(name, skill)
             }
         }
         return new SkillCatalog([...skillsByName.values()].sort((left, right) => left.name.localeCompare(right.name)))
@@ -376,6 +376,17 @@ export function formatLearnSearchResults(results: readonly LearnSearchResult[]):
         return lines.join('\n')
     })
     return fitLearnOutput(sections.join('\n\n'))
+}
+
+function indexSkillsByName(skills: readonly SkillDefinition[]): Map<string, SkillDefinition> {
+    const byName = new Map<string, SkillDefinition>()
+    for (const skill of skills) {
+        if (byName.has(skill.name)) {
+            throw new Error(`Duplicate skill name: "${skill.name}"`)
+        }
+        byName.set(skill.name, skill)
+    }
+    return byName
 }
 
 function parseSkillArchive(bytes: Uint8Array): SkillDefinition[] {

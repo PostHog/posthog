@@ -105,7 +105,7 @@ describe('SkillCatalog and exec learn', () => {
         })
     })
 
-    it('overlays a second archive and lets it win on a shared name', () => {
+    it('overlays a second archive, keeps the product skill on a shared name, and rejects duplicates within one archive', () => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
         try {
             const catalog = SkillCatalog.fromZip(
@@ -120,8 +120,16 @@ describe('SkillCatalog and exec learn', () => {
             )
 
             expect(catalog.listNames()).toEqual(['funnels', 'instrument-logs', 'retention-analysis'])
-            expect(catalog.describe('funnels')).toBe('Overlay funnels.')
+            expect(catalog.describe('funnels')).toBe('Product funnels.')
             expect(warn).toHaveBeenCalledTimes(1)
+            expect(() =>
+                SkillCatalog.fromZip(
+                    makeArchive({
+                        'a/SKILL.md': makeSkill('twice', 'One.', '# One'),
+                        'b/SKILL.md': makeSkill('twice', 'Two.', '# Two'),
+                    })
+                )
+            ).toThrow('Duplicate skill name')
         } finally {
             warn.mockRestore()
         }
