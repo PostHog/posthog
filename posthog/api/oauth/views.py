@@ -1786,6 +1786,16 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                 "scopes": scope_str.split(),
                 "was_defaulted": scopes_were_defaulted,
                 **({"already_granted_scopes": already_granted_scopes} if already_granted_scopes else {}),
+                **(
+                    {
+                        "earlier_access": {
+                            "scoped_teams": step_up_grant.earlier_access.scoped_teams,
+                            "scoped_organizations": step_up_grant.earlier_access.scoped_organizations,
+                        }
+                    }
+                    if step_up_grant and step_up_grant.earlier_access
+                    else {}
+                ),
             },
         }
 

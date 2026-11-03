@@ -388,7 +388,7 @@ class TestOAuthAPI(APIBaseTest):
         ]
     )
     @time_machine.travel("2026-03-01 12:00:00", tick=False)
-    def test_mcp_reauthorize_lists_prior_scopes_as_already_granted_for_a_step_up_app(
+    def test_mcp_reauthorize_keeps_prior_scopes_and_preselects_the_prior_projects_for_a_step_up_app(
         self,
         _name,
         supports_step_up,
@@ -406,6 +406,7 @@ class TestOAuthAPI(APIBaseTest):
             token="pha_prior_grant",
             expires=timezone.now() - timedelta(hours=1),
             scope="openid insight:write",
+            scoped_teams=[self.team.id],
         )
         OAuthRefreshToken.objects.create(
             application=self.confidential_application,
@@ -416,7 +417,13 @@ class TestOAuthAPI(APIBaseTest):
 
         consent = self.client.get(f"{self.base_authorization_url}&scope={quote('comment:write')}{resource_param}")
         authorize = self.client.post(
-            "/oauth/authorize/", {**self.base_authorization_post_body, "scope": submitted_scope}
+            "/oauth/authorize/",
+            {
+                **self.base_authorization_post_body,
+                "scope": submitted_scope,
+                "access_level": OAuthApplicationAccessLevel.TEAM.value,
+                "scoped_teams": [self.team.id],
+            },
         )
         code = authorize.json()["redirect_to"].split("code=")[1].split("&")[0]
         token = self.post("/oauth/token/", {**self.base_token_body, "code": code}).json()
@@ -424,6 +431,10 @@ class TestOAuthAPI(APIBaseTest):
         resolution = consent.context["posthog_app_context"]["oauth_scope_resolution"]
         self.assertEqual(resolution["scopes"], expected_consent)
         self.assertEqual(resolution.get("already_granted_scopes"), expected_already_granted)
+        self.assertEqual(
+            resolution.get("earlier_access"),
+            {"scoped_teams": [self.team.id], "scoped_organizations": []} if expected_already_granted else None,
+        )
         self.assertEqual(set(token["scope"].split()), expected_token_scopes)
 
     @patch("posthog.api.oauth.views.render_template")

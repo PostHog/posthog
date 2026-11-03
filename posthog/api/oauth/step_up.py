@@ -85,11 +85,20 @@ STEP_UP_DEFAULT_RESOURCE_SCOPES: frozenset[str] = frozenset(
 
 
 @frozen
+class GrantAccess:
+    scoped_teams: list[int]
+    scoped_organizations: list[str]
+    """Both lists empty means the grant reaches everything the user can reach."""
+
+
+@frozen
 class StepUpGrant:
     scopes: list[str]
     """What the grant carries, which the consent screen lists in full."""
     already_granted_scopes: list[str]
     """Scopes of the grant this user granted the app before, which the screen shows as granted."""
+    earlier_access: GrantAccess | None
+    """Where the newest earlier grant applies. The consent screen pre-selects it, so a step-up keeps the token's projects."""
 
 
 def resolve_step_up_grant(
@@ -109,11 +118,15 @@ def resolve_step_up_grant(
         # scopes alone would only force a second consent for the scope it asked for.
         if not any(":" in scope for scope in narrowed):
             narrowed = requested
-        return StepUpGrant(scopes=sorted(_union(narrowed, required)), already_granted_scopes=[])
+        return StepUpGrant(scopes=sorted(_union(narrowed, required)), already_granted_scopes=[], earlier_access=None)
 
     scopes = sorted(_union(granted, requested, required))
     already_granted = [scope for scope in scopes if not scopes_not_covered(granted, [scope])]
-    return StepUpGrant(scopes=scopes, already_granted_scopes=already_granted)
+    return StepUpGrant(
+        scopes=scopes,
+        already_granted_scopes=already_granted,
+        earlier_access=newest_live_grant_access(application=application, user_id=user_id),
+    )
 
 
 def narrow_to_step_up_default(requested: Iterable[str]) -> list[str]:
@@ -142,6 +155,21 @@ def live_granted_scopes(*, application: OAuthApplication, user_id: int) -> set[s
     for scope_string in _live_access_tokens(application, user_id).values_list("scope", flat=True):
         granted = (granted or set()) | set((scope_string or "").split())
     return granted
+
+
+def newest_live_grant_access(*, application: OAuthApplication, user_id: int) -> GrantAccess | None:
+    newest = (
+        _live_access_tokens(application, user_id)
+        .order_by("-created")
+        .values("scoped_teams", "scoped_organizations")
+        .first()
+    )
+    if newest is None:
+        return None
+    return GrantAccess(
+        scoped_teams=list(newest["scoped_teams"] or []),
+        scoped_organizations=[str(org) for org in newest["scoped_organizations"] or []],
+    )
 
 
 def _live_access_tokens(application: OAuthApplication, user_id: int) -> QuerySet[OAuthAccessToken]:

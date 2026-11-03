@@ -25,7 +25,7 @@ import { userLogic } from 'scenes/userLogic'
 import type { OAuthApplicationPublicMetadata, OrganizationBasicType, TeamBasicType, UserType } from '~/types'
 
 export type OAuthAuthorizationFormValues = {
-    scoped_organizations: number[]
+    scoped_organizations: string[]
     scoped_teams: number[]
     access_type: 'all' | 'organizations' | 'teams'
 }
@@ -1024,10 +1024,26 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             const teamIdParam = Number(searchParams['team_id'])
             const teamHint = Number.isInteger(teamIdParam) && teamIdParam > 0 ? teamIdParam : null
 
+            // A step-up keeps the projects the token already applies to, so the screen starts there.
+            // The user can still pick others.
+            const earlierAccess = scopeResolution?.earlier_access
+            const earlierTeam = requiredAccessLevel === 'team' ? (earlierAccess?.scoped_teams[0] ?? null) : null
+
             actions.setScopesWereDefaulted(scopesWereDefaulted)
             actions.setAlreadyGrantedScopes(scopeResolution?.already_granted_scopes ?? [])
-            actions.setTeamHint(teamHint)
+            actions.setTeamHint(teamHint ?? earlierTeam)
             actions.setRequiredAccessLevel(requiredAccessLevel || null)
+            if (earlierAccess && !requiredAccessLevel) {
+                actions.setOauthAuthorizationValues(
+                    earlierAccess.scoped_teams.length
+                        ? { access_type: 'teams', scoped_teams: earlierAccess.scoped_teams }
+                        : earlierAccess.scoped_organizations.length
+                          ? { access_type: 'organizations', scoped_organizations: earlierAccess.scoped_organizations }
+                          : { access_type: 'all' }
+                )
+            } else if (earlierAccess?.scoped_organizations.length && requiredAccessLevel === 'organization') {
+                actions.setOauthAuthorizationValue('scoped_organizations', [earlierAccess.scoped_organizations[0]])
+            }
             actions.loadOAuthApplication()
             actions.loadAllTeams()
 
