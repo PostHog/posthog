@@ -47,7 +47,7 @@ use deltalake::{DeltaTable, ObjectStore, PartitionFilter, PartitionValue, Path};
 use futures::{StreamExt, TryStreamExt};
 use metrics::{counter, histogram};
 use parquet::arrow::arrow_reader::ArrowReaderMetadata;
-use parquet::arrow::async_reader::ParquetObjectReader;
+use parquet::arrow::async_reader::{ParquetObjectReader, ParquetRecordBatchStream};
 use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use parquet::arrow::ProjectionMask;
 use parquet::file::metadata::ParquetMetaData;
@@ -76,7 +76,7 @@ const WHOLE_TABLE: &str = "__deltalite_whole_table__";
 /// the observed batch size after the first decode.
 pub(crate) const INITIAL_DECODE_ESTIMATE_BYTES: usize = 4 * 1024 * 1024;
 /// First-iteration pre-decode reservation for narrow PK-column probe batches.
-const INITIAL_PROBE_ESTIMATE_BYTES: usize = 256 * 1024;
+pub(crate) const INITIAL_PROBE_ESTIMATE_BYTES: usize = 256 * 1024;
 
 /// Default per-call fetch budget. Readers of ordinary files (a few MB per row group)
 /// never wait on it at the default `max_parallel_files`; readers of files whose single
@@ -407,7 +407,7 @@ impl RelaxCache {
     /// committed. Valid only when the commit landed directly on the verified version
     /// (`committed == verified + 1`): a bigger jump means another writer's actions are
     /// part of the new version, so the memo stays behind and the next upsert rescans.
-    fn advance_own_commit(&mut self, committed: u64) {
+    pub(crate) fn advance_own_commit(&mut self, committed: u64) {
         if self.version.is_some_and(|v| committed == v + 1) {
             self.version = Some(committed);
         }
@@ -855,7 +855,7 @@ async fn upsert_with_relax(
 /// (present with nulls, or absent so the cast will null-pad it) or in the table's own
 /// files (Add-action `nullCount` stats). Only positive evidence relaxes: files without
 /// stats are left alone, so a clean table's schema is never touched.
-async fn columns_needing_relax(
+pub(crate) async fn columns_needing_relax(
     table: &DeltaTable,
     source_batches: &[RecordBatch],
     source_schema: &Schema,
@@ -936,7 +936,10 @@ async fn columns_needing_relax(
 /// the upsert that follows plans against the relaxed schema; concurrent writers see a
 /// MetadataChanged conflict and re-plan (or fall back), exactly as for any other
 /// schema evolution.
-async fn relax_columns_to_nullable(table: &DeltaTable, columns: &[String]) -> Result<()> {
+pub(crate) async fn relax_columns_to_nullable(
+    table: &DeltaTable,
+    columns: &[String],
+) -> Result<()> {
     let snapshot = table.snapshot()?;
     let schema = snapshot.schema();
     let relaxed = StructType::try_new(schema.fields().map(|f| {
@@ -1297,7 +1300,7 @@ pub(crate) async fn best_effort_log_maintenance(
 
 /// Explicit argument > table property (already folded with delta-rs's default by the
 /// caller). Zero/absent explicit values fall through to the table's value.
-fn resolve_target_file_size(explicit: Option<usize>, table_value: usize) -> usize {
+pub(crate) fn resolve_target_file_size(explicit: Option<usize>, table_value: usize) -> usize {
     match explicit {
         Some(v) if v > 0 => v,
         _ => table_value,
@@ -1569,7 +1572,7 @@ fn source_pk_range(source: &PartitionSource, col_idx: usize) -> Result<Option<(V
 ///
 /// Each list keeps the snapshot's file order, as the per-partition filter did. Where
 /// the index cannot reproduce the filter's equality exactly, this falls back to it.
-async fn list_files_by_partition(
+pub(crate) async fn list_files_by_partition(
     table: &DeltaTable,
     partition_col: Option<&str>,
     values: &[&str],
@@ -1832,7 +1835,7 @@ fn file_cannot_match(
         || matches!(json_cmp(fmin, src_max), Some(std::cmp::Ordering::Greater))
 }
 
-fn json_cmp(a: &Value, b: &Value) -> Option<std::cmp::Ordering> {
+pub(crate) fn json_cmp(a: &Value, b: &Value) -> Option<std::cmp::Ordering> {
     match (a, b) {
         (Value::String(x), Value::String(y)) => Some(x.cmp(y)),
         (Value::Number(x), Value::Number(y)) => x.as_f64()?.partial_cmp(&y.as_f64()?),
@@ -1840,7 +1843,7 @@ fn json_cmp(a: &Value, b: &Value) -> Option<std::cmp::Ordering> {
     }
 }
 
-fn min_max_json(col: &dyn Array) -> Option<(Value, Value)> {
+pub(crate) fn min_max_json(col: &dyn Array) -> Option<(Value, Value)> {
     use arrow_array::cast::AsArray;
     use arrow_array::types::*;
 
@@ -1919,7 +1922,11 @@ fn min_max_json(col: &dyn Array) -> Option<(Value, Value)> {
 /// read back from storage is missing the column that the writer needs in order to route
 /// the rows back to the same partition. Getting this wrong would silently misroute
 /// rewritten rows.
-fn add_partition_column(batch: &RecordBatch, name: &str, value: &str) -> Result<RecordBatch> {
+pub(crate) fn add_partition_column(
+    batch: &RecordBatch,
+    name: &str,
+    value: &str,
+) -> Result<RecordBatch> {
     let n = batch.num_rows();
     let arr: Arc<dyn Array> = Arc::new(StringArray::from(vec![value; n]));
     let mut fields: Vec<Field> = batch
@@ -2302,24 +2309,16 @@ struct FileOutcome {
     remove: Action,
 }
 
-/// Stream one existing file, drop replaced rows, and send surviving batches to the
-/// partition's writer task. Every batch sent carries byte-budget permits acquired
-/// *before* the send; the writer releases them only after `write()` has copied the
-/// batch into its buffer, so queued + in-write survivor data across the whole process
-/// never exceeds the budgets.
-#[allow(clippy::too_many_arguments)]
-async fn filter_file(
-    store: Arc<dyn ObjectStore>,
-    f: TargetFile,
-    pkset: Arc<PkSet>,
-    table_schema: SchemaRef,
-    partition_col: Option<String>,
-    partition_value: String,
-    opts: Arc<UpsertOptions>,
-    budgets: Budgets,
-    tx: mpsc::UnboundedSender<(RecordBatch, BudgetPermit)>,
-) -> Result<FileOutcome> {
-    let (mut builder, held_fetch) = open_builder(&store, &f, &budgets).await?;
+/// Open a full-width stream over `f` for a rewrite, holding the fetch permit for the
+/// compressed bytes the reader will hold. The permit must outlive the stream.
+pub(crate) async fn open_rewrite_stream(
+    store: &Arc<dyn ObjectStore>,
+    f: &TargetFile,
+    budgets: &Budgets,
+    read_ahead_row_groups: bool,
+    read_batch_size: usize,
+) -> Result<(ParquetRecordBatchStream<ParquetObjectReader>, FetchPermit)> {
+    let (mut builder, held_fetch) = open_builder(store, f, budgets).await?;
     // Reserve the compressed bytes the reader will hold before it fetches any data.
     // Taken once per file and before any decode budget (see `Budgets::acquire_fetch`).
     let fetch = match held_fetch {
@@ -2327,7 +2326,7 @@ async fn filter_file(
         None => {
             let meta = builder.metadata().clone();
             let pair = max_row_group_pair_fetch_bytes(&meta);
-            if opts.read_ahead_row_groups
+            if read_ahead_row_groups
                 && meta.num_row_groups() > 1
                 && pair <= budgets.fetch_cap_bytes()
             {
@@ -2349,9 +2348,36 @@ async fn filter_file(
     let batch_rows = byte_bounded_batch_rows(
         builder.metadata(),
         INITIAL_DECODE_ESTIMATE_BYTES,
-        opts.read_batch_size,
+        read_batch_size,
     );
-    let mut stream = builder.with_batch_size(batch_rows).build()?;
+    Ok((builder.with_batch_size(batch_rows).build()?, fetch))
+}
+
+/// Stream one existing file, drop replaced rows, and send surviving batches to the
+/// partition's writer task. Every batch sent carries byte-budget permits acquired
+/// *before* the send; the writer releases them only after `write()` has copied the
+/// batch into its buffer, so queued + in-write survivor data across the whole process
+/// never exceeds the budgets.
+#[allow(clippy::too_many_arguments)]
+async fn filter_file(
+    store: Arc<dyn ObjectStore>,
+    f: TargetFile,
+    pkset: Arc<PkSet>,
+    table_schema: SchemaRef,
+    partition_col: Option<String>,
+    partition_value: String,
+    opts: Arc<UpsertOptions>,
+    budgets: Budgets,
+    tx: mpsc::UnboundedSender<(RecordBatch, BudgetPermit)>,
+) -> Result<FileOutcome> {
+    let (mut stream, fetch) = open_rewrite_stream(
+        &store,
+        &f,
+        &budgets,
+        opts.read_ahead_row_groups,
+        opts.read_batch_size,
+    )
+    .await?;
 
     let mut rows_updated = 0usize;
     let mut rows_copied = 0usize;
@@ -2731,7 +2757,7 @@ async fn rewrite_partition(
 /// source write holds about as many decoded bytes as a survivor batch, and a row group
 /// passes the cap by at most that much on either path. Otherwise one `read_batch_size`
 /// slice of wide rows goes in one write and closes as one row group, far past the cap.
-fn source_slice_rows(
+pub(crate) fn source_slice_rows(
     batch: &RecordBatch,
     read_batch_size: usize,
     max_row_group_bytes: Option<usize>,
@@ -2747,7 +2773,7 @@ fn source_slice_rows(
 }
 
 /// Close the open file at `target_file_size`, else its row group at `max_row_group_bytes`.
-async fn roll_writer(
+pub(crate) async fn roll_writer(
     writer: &mut StreamingWriter,
     adds: &mut Vec<Add>,
     target_file_size: usize,

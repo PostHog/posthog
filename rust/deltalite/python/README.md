@@ -102,6 +102,7 @@ rejected (raising `DeltaLiteError`) rather than silently double-inserted.
 | `DeltaLiteTable.is_deltatable(uri, storage_options=None)` | `True` if a Delta table exists at `uri`. |
 | `DeltaLiteTable.table_exists(uri, storage_options=None)` | `True` if the log at `uri` holds a commit or a checkpoint, the same check as `DeltaTable.is_deltatable`. Storage errors raise; they never read as `False`. |
 | `.upsert(data, primary_keys, partition_key=None, **opts)` | Insert-or-replace `data` by key. Returns `UpsertStats`. See knobs below. |
+| `.history_upsert(data, key_columns, order_column, valid_from_column, valid_to_column, partition_column, current_partition, tie_break_column, **opts)` | Apply versions to an SCD2 history table in one data commit. Returns `HistoryUpsertStats`. See "History upsert" below. |
 | `.compact(**opts)` | Small-file compaction, the replacement for `DeltaTable.optimize.compact`. Returns a stats dict. See "Compaction" below. |
 | `.restore(version, *, commit_metadata=None)` | delta-rs's restore to `version`, in one commit, with the GIL released. Returns `numRemovedFile`, `numRestoredFile` and the committed `version`. The handle moves onto the restored table. |
 | `.version()` | Current table version (`int`). |
@@ -138,6 +139,38 @@ summed over partitions, part of `rewrite_ms`), `commit_ms`
 (committing to the Delta log), `maintenance_ms` (checkpoint/log cleanup,
 non-zero only on checkpoint-boundary commits). `columns_relaxed` counts
 non-nullable columns flipped to nullable before the write.
+
+### History upsert
+
+`history_upsert` writes an SCD2 history table: one row per version of a key.
+Open versions (`valid_to_column` null) live in the `current_partition` value of `partition_column`.
+A closed version lives in the partition named by its `valid_to_column` as `%Y-%m` in UTC, which is what `pyarrow.compute.strftime(valid_to, "%Y-%m")` returns for a UTC timestamp.
+The table must be partitioned by exactly `partition_column`, a string column, or the call raises `DeltaLiteUnsupportedTableError`.
+
+Per key (`key_columns`, compared null-safely: a null key part matches a null key part):
+
+1. Rows with the same `order_column` value collapse to the one with the highest `tie_break_column` value. On an equal tie-break value, the later row wins.
+2. Only rows with an order value strictly greater than the key's open row are kept. Equal rows count as `rows_reread`, lower rows as `rows_backwards`.
+3. The kept rows form a chain: each closes at the next kept row's `valid_from_column`, and the newest stays open.
+4. When a key keeps a row and has an open row, the open row closes at the first kept row's `valid_from_column` and moves to its month partition.
+
+The source must not carry `valid_to_column` or `partition_column`, since the operation sets them.
+A null order value or a null `valid_from_column` raises `DeltaLiteError`.
+`tie_break_column` is written only when the table has that column.
+Closed rows are only appended, so earlier closed versions of a key stay.
+A source that keeps no row, such as a re-run of the same input, makes no commit and returns `committed=False`, so a re-run after a crash is safe.
+
+Each call reads the key and order columns of every current-partition file that its stats do not rule out, so a file that holds only re-read keys is not rewritten.
+The probe cache is not used.
+The knobs are the `upsert` ones that apply: `commit_metadata`, `max_parallel_files`, `max_buffered_bytes`, `max_fetch_bytes`, `probe_concurrency`, `commit_max_retries`, `read_batch_size`, `target_file_size`, `max_row_group_bytes`, `max_source_bytes`, `read_ahead_row_groups` and the multipart and ranged-read settings.
+`max_parallel_partitions` is accepted and has no effect, because only the current partition is rewritten.
+
+`HistoryUpsertStats` counts `rows_in`, `rows_deduped`, `rows_reread`, `rows_backwards`, `versions_opened`, `versions_closed` (open rows closed), `chain_rows_closed` (kept rows written closed), `rows_copied`, `files_added`, `files_removed`, `files_carried_over`, `files_probed`, `bytes_read` (stored size of the rewritten files) and `bytes_written`, with `version`, `committed` and the `upsert` timings.
+
+`deltalite.key_buckets(data, key_columns, n)` returns a `pyarrow.UInt32Array` with a bucket id in `0..n` for every row, for splitting a source that is too large for one call into calls on disjoint keys.
+Each key is encoded with arrow-row (null-safe) and hashed with xxHash64 under a fixed seed, then reduced modulo `n`.
+The ids never change between processes or releases.
+They depend on the key columns' Arrow types, so pass the same types to get the same ids.
 
 ### Compaction
 
@@ -338,7 +371,8 @@ labels only): `deltalite_upserts_total` (`outcome`, `prune_strategy`,
   `deltalite.upsert` and asserts identical logical content — not by version
   equality.
 - **Not supported:** tables with deletion vectors or column mapping (detected
-  and raised as `DeltaLiteUnsupportedTableError`), and SCD2 merges.
+  and raised as `DeltaLiteUnsupportedTableError`). SCD2 history tables are
+  written with `history_upsert`, not with `upsert`.
 - deltalite rejects duplicate source primary keys that `MERGE` silently
   double-inserts — check pre-existing data if you migrate an existing pipeline.
 
