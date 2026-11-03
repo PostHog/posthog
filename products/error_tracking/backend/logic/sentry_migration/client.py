@@ -25,6 +25,13 @@ MAX_RESPONSE_BYTES = 5 * 1024 * 1024
 # Far more filters than a project needs. Without a limit, a response under the size cap can hold millions
 # of one-character patterns, and each one becomes a preview item.
 MAX_FILTER_PATTERNS = 1000
+# Sentry pages hold 100 items, but a self-hosted server can send thousands of small ones in a page under the size
+# cap. One budget covers every list in a PostHog request, so nested project lists can't multiply it.
+MAX_LIST_ITEMS = 2000
+_TOO_MUCH_DATA_MESSAGE = (
+    "This token can see more Sentry data than PostHog can read in one go. "
+    "Use a token whose user belongs to fewer organizations, then connect again."
+)
 
 
 class SentryApiError(Exception):
@@ -83,6 +90,7 @@ class SentryApiClient:
         self._token = connection.auth_token
         self._base_url = normalize_base_url(connection.base_url)
         self._deadline = time.monotonic() + TOTAL_TIMEOUT_SECONDS
+        self._list_items_left = MAX_LIST_ITEMS
 
     def list_projects(self) -> list[SentryProject]:
         projects: list[SentryProject] = []
@@ -151,16 +159,16 @@ class SentryApiClient:
             page = self._json(response)
             if not isinstance(page, list):
                 raise SentryApiError("Sentry returned a list in a format PostHog can't read.")
+            if len(page) > self._list_items_left:
+                raise SentryApiError(_TOO_MUCH_DATA_MESSAGE)
+            self._list_items_left -= len(page)
             results.extend(item for item in page if isinstance(item, dict))
             next_link = response.links.get("next", {})
             # Sentry always sends a next link, and marks whether it leads to more results.
             if next_link.get("results") != "true" or not next_link.get("cursor"):
                 return results
             cursor = next_link["cursor"]
-        raise SentryApiError(
-            "This token can see more Sentry data than PostHog can read in one go. "
-            "Use a token whose user belongs to fewer organizations, then connect again."
-        )
+        raise SentryApiError(_TOO_MUCH_DATA_MESSAGE)
 
     def _get(self, api_url: str, path: str) -> Any:
         return self._json(self._request(f"{api_url}{path}"))
