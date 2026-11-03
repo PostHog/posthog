@@ -47,7 +47,7 @@ export function AccountViewComponent({
         case 'properties':
             return <AccountPropertiesWidget accountId={accountId} projectId={projectId} {...tileProps} />
         case 'dot_matrix':
-            return isDotMatrixEnabled ? <AccountDotMatrixTile {...tileProps} /> : <></>
+            return isDotMatrixEnabled ? <AccountDotMatrixTile accountId={accountId} {...tileProps} /> : <></>
         case 'session_replays':
             return <AccountSessionReplays accountId={accountId} externalId={externalId} {...tileProps} />
         case 'notes':

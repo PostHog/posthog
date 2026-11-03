@@ -1,41 +1,43 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { resetContext } from 'kea'
 
-import {
-    type DotMatrixMockDatum,
-    type DotMatrixMockDatasetName,
-} from 'lib/components/DotMatrix/examples/dotMatrixMockTypes'
 import type { DotMatrixProps } from 'lib/components/DotMatrix/types'
 
+import { performQuery } from '~/queries/query'
+import type { AccountActivityMatrixResult } from '~/queries/schema/schema-general'
+import { initKeaTests } from '~/test/init'
+
+import type { AccountActivityMatrixDatum } from './accountActivityMatrix'
+import { EMPTY_ACCOUNT_ACTIVITY_MATRIX } from './accountActivityMatrix'
 import { AccountDotMatrixTile } from './AccountDotMatrixTile'
 
-jest.mock('lib/components/DotMatrix/DotMatrix', () => {
-    const { normalizeDotMatrixData, getDotMatrixCellCount } = jest.requireActual(
-        'lib/components/DotMatrix/dotMatrixData'
-    )
-    return {
-        DotMatrix: (props: DotMatrixProps<DotMatrixMockDatum>) => {
-            const matrix = normalizeDotMatrixData(props)
-            const cell = matrix.getCell(matrix.rows[0].key, matrix.columns[0].key)
-            return (
-                <>
-                    <button data-attr="matrix-selection" onClick={() => props.onSelectedSeriesChange?.(['replay'])}>
-                        {props.selectedSeries?.length ? props.selectedSeries.join(',') : 'Select replay'}
-                    </button>
-                    <span data-attr="matrix-count-label">
-                        {typeof props.legend === 'object' ? props.legend.countLabel : ''}
-                    </span>
-                    <span data-attr="matrix-count">{getDotMatrixCellCount(cell, props)}</span>
-                    <span data-attr="matrix-scale">{props.countScale?.[0].color}</span>
-                    {props.renderTooltip?.(cell)}
-                </>
-            )
-        },
-    }
-})
+jest.mock('~/queries/query', () => ({ performQuery: jest.fn() }))
+const mockPerformQuery = performQuery as jest.Mock
+
+jest.mock('lib/components/DotMatrix/DotMatrix', () => ({
+    DotMatrix: (props: DotMatrixProps<AccountActivityMatrixDatum>) => (
+        <>
+            <button data-attr="matrix-selection" onClick={() => props.onSelectedSeriesChange?.(['replay'])}>
+                {props.selectedSeries?.length ? props.selectedSeries.join(',') : 'Select replay'}
+            </button>
+            {!props.loading && !props.rows?.length ? <span data-attr="matrix-empty">{props.emptyState}</span> : null}
+        </>
+    ),
+}))
+
+const WITH_SERIES: AccountActivityMatrixResult = {
+    ...EMPTY_ACCOUNT_ACTIVITY_MATRIX,
+    series: [
+        { key: 'pa', label: 'Insights' },
+        { key: 'replay', label: 'Replay' },
+    ],
+}
 
 describe('AccountDotMatrixTile', () => {
-    beforeEach(() => resetContext())
+    beforeEach(() => {
+        initKeaTests()
+        mockPerformQuery.mockReset()
+        mockPerformQuery.mockResolvedValue({ results: WITH_SERIES })
+    })
     afterEach(cleanup)
 
     it('keeps identically named document tiles independent across mounted account views', () => {
@@ -43,22 +45,24 @@ describe('AccountDotMatrixTile', () => {
         const secondSave = jest.fn()
         render(
             <>
-                <AccountDotMatrixTile instanceId="same-document-node:0" onConfigChange={firstSave} />
-                <AccountDotMatrixTile instanceId="same-document-node:0" onConfigChange={secondSave} />
+                <AccountDotMatrixTile accountId="account-1" instanceId="same-node:0" onConfigChange={firstSave} />
+                <AccountDotMatrixTile accountId="account-1" instanceId="same-node:0" onConfigChange={secondSave} />
             </>
         )
         fireEvent.click(screen.getAllByTestId('matrix-selection')[0])
-        expect(firstSave).toHaveBeenLastCalledWith({ dataset: 'people', mode: 'dots', selectedSeries: ['replay'] })
+        expect(firstSave).toHaveBeenLastCalledWith({ mode: 'dots', weeks: 8, selectedSeries: ['replay'] })
         expect(secondSave).not.toHaveBeenCalled()
         expect(screen.getAllByTestId('matrix-selection').map((button) => button.textContent)).toEqual([
             'replay',
             'Select replay',
         ])
     })
+
     it('restores changed parent config without writing it back', () => {
         const onConfigChange = jest.fn()
         const { rerender } = render(
             <AccountDotMatrixTile
+                accountId="account-1"
                 instanceId="saved-tile"
                 initialConfig={{ selectedSeries: ['replay'] }}
                 onConfigChange={onConfigChange}
@@ -67,6 +71,7 @@ describe('AccountDotMatrixTile', () => {
         expect(screen.getByTestId('matrix-selection').textContent).toBe('replay')
         rerender(
             <AccountDotMatrixTile
+                accountId="account-1"
                 instanceId="saved-tile"
                 initialConfig={{ selectedSeries: ['pa'] }}
                 onConfigChange={onConfigChange}
@@ -75,53 +80,56 @@ describe('AccountDotMatrixTile', () => {
         expect(screen.getByTestId('matrix-selection').textContent).toBe('pa')
         expect(onConfigChange).not.toHaveBeenCalled()
     })
+
     it('retains readonly exploration when an unchanged saved config gets a new object', () => {
         const { rerender } = render(
-            <AccountDotMatrixTile instanceId="readonly-tile" initialConfig={{ selectedSeries: [] }} />
+            <AccountDotMatrixTile
+                accountId="account-1"
+                instanceId="readonly-tile"
+                initialConfig={{ selectedSeries: [] }}
+            />
         )
         fireEvent.click(screen.getByTestId('matrix-selection'))
         expect(screen.getByTestId('matrix-selection').textContent).toBe('replay')
         rerender(
             <AccountDotMatrixTile
+                accountId="account-1"
                 instanceId="readonly-tile"
-                initialConfig={{ dataset: 'people', mode: 'dots', selectedSeries: [] }}
+                initialConfig={{ mode: 'dots', weeks: 8, selectedSeries: [] }}
             />
         )
         expect(screen.getByTestId('matrix-selection').textContent).toBe('replay')
     })
 
-    it.each<{
-        dataset: DotMatrixMockDatasetName
-        selectedSeries: string[]
-        count: number
-        label: string
-        scale: string
-    }>([
-        { dataset: 'product_activity', selectedSeries: [], count: 9, label: 'Products used', scale: 'green' },
+    it.each<{ name: string; response: () => Promise<unknown>; text: string }>([
         {
-            dataset: 'product_activity',
-            selectedSeries: ['pa'],
-            count: 12,
-            label: 'Users of Product analytics',
-            scale: 'blue',
+            name: 'no usage metrics',
+            response: () => Promise.resolve({ results: { ...WITH_SERIES, emptyReason: 'no_metrics' } }),
+            text: 'Add a usage metric in project settings to see activity here.',
         },
         {
-            dataset: 'product_activity',
-            selectedSeries: ['pa', 'web', 'surveys'],
-            count: 12,
-            label: 'Users of any of these 3 products',
-            scale: 'blue',
+            name: 'no account group type',
+            response: () => Promise.resolve({ results: { ...WITH_SERIES, emptyReason: 'no_group_type' } }),
+            text: 'Choose an account group type in Customer analytics settings to see activity here.',
         },
-        { dataset: 'people', selectedSeries: ['pa'], count: 1, label: 'Users of Product analytics', scale: 'blue' },
-        { dataset: 'ci', selectedSeries: ['job-1', 'job-3'], count: 2, label: 'Failing jobs', scale: 'green' },
-    ])(
-        'keeps $dataset count, label, and scale consistent for $selectedSeries',
-        ({ dataset, selectedSeries, count, label, scale }) => {
-            render(<AccountDotMatrixTile initialConfig={{ dataset, mode: 'count', selectedSeries }} />)
-            expect(screen.getByTestId('matrix-count').textContent).toBe(String(count))
-            expect(screen.getByTestId('matrix-count-label').textContent).toBe(label)
-            expect(screen.getByTestId('matrix-scale').textContent).toBe(`var(--dot-matrix-demo-${scale}-1)`)
-            expect(screen.queryByText('Distinct users') !== null).toBe(dataset !== 'ci' && selectedSeries.length > 0)
-        }
-    )
+        {
+            name: 'no linked activity',
+            response: () => Promise.resolve({ results: { ...WITH_SERIES, emptyReason: 'no_external_id' } }),
+            text: "This account isn't linked to any activity yet.",
+        },
+        {
+            name: 'no activity in the window',
+            response: () => Promise.resolve({ results: WITH_SERIES }),
+            text: 'No activity for this account in the last 8 weeks.',
+        },
+        {
+            name: 'a failed request',
+            response: () => Promise.reject(Object.assign(new Error('boom'), { status: 500 })),
+            text: "Couldn't load activity for this account.",
+        },
+    ])('tells the viewer what to do next for $name', async ({ response, text }) => {
+        mockPerformQuery.mockImplementation(response)
+        render(<AccountDotMatrixTile accountId="account-1" instanceId="state-tile" />)
+        expect(await screen.findByText(text)).toBeTruthy()
+    })
 })

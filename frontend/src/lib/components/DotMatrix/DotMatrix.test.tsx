@@ -57,6 +57,30 @@ describe('DotMatrix', () => {
         }
     )
 
+    it('keeps every series dot visible when one series is selected', () => {
+        const { container } = render(
+            <DotMatrix
+                data={[...data, { location: 'North', period: 'Morning', check: 'Fire', total: 4 }]}
+                fields={fields}
+                selectedSeries={['Fire']}
+            />
+        )
+        expect(container.querySelector('.DotGlyph')?.getAttribute('aria-label')).toBe(
+            'North, Morning: Safety 12, Fire 4'
+        )
+    })
+
+    it('mounts only one page of rows when a page size is set', () => {
+        const { container } = render(
+            <DotMatrix
+                data={[...data, { location: 'South', period: 'Morning', check: 'Safety', total: 3 }]}
+                fields={fields}
+                pageSize={1}
+            />
+        )
+        expect(container.querySelectorAll('.DotGlyph').length).toBe(1)
+    })
+
     it('matches the count legend to colors when caller bins are unordered', () => {
         const { container } = render(
             <DotMatrix
