@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 
+import 'lib/components/Cards/InsightCard/InsightCard.scss'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { cn } from 'lib/utils/css-classes'
 

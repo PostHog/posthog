@@ -77,8 +77,6 @@ export type State = {
     Record<PrefixedString<'integrationKindsFetchedAt'>, number | undefined> &
     Record<PrefixedString<'gatewayTools'>, Schemas.AvailableToolsResponse | undefined> &
     Record<PrefixedString<'gatewayToolsFetchedAt'>, number | undefined> &
-    Record<PrefixedString<'warehouseObjectCount'>, number | undefined> &
-    Record<PrefixedString<'warehouseObjectCountFetchedAt'>, number | undefined> &
     Record<PrefixedString<'businessKnowledgeContent'>, BusinessKnowledgeContent | undefined> &
     Record<PrefixedString<'businessKnowledgeContentFetchedAt'>, number | undefined>
 

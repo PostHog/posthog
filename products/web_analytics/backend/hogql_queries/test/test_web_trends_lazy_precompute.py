@@ -219,6 +219,7 @@ class TestWebTrendsLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
         assert pre_series["count"] == live_series["count"]
         assert pre_series["label"] == live_series["label"]
         assert pre_series["order"] == live_series["order"]
+        assert pre_series["custom_name"] == live_series["custom_name"] == "My metric"
 
     @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_compare_period_matches_live_trends(self) -> None:

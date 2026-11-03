@@ -37,6 +37,7 @@ export const manifest: ProductManifest = {
             ] as FileSystemIconColor,
             href: (ref: string) => urls.cohort(ref),
             listHref: () => urls.cohorts(),
+            listSearchParam: 'search',
             filterKey: 'cohort',
         },
     },
