@@ -804,17 +804,27 @@ class TestTraceExportViews(APIBaseTest):
         assert (export["status"], export["exception"]) == expected
         assert (status["status"], status["exception"]) == expected
 
+    @parameterized.expand([("a download", "", True), ("a copy", "?purpose=copy", False)])
     @patch("products.ai_observability.backend.presentation.views.report_user_action")
-    def test_tracks_a_download(self, report_user_action: MagicMock) -> None:
+    def test_tracks_only_downloads(self, _name: str, query: str, tracked: bool, report_user_action: MagicMock) -> None:
         export_id = self._create()["id"]
         ExportedAsset.objects.filter(id=export_id).update(content=b'{"trace":{},"nodes":[]}')
 
         with self.captureOnCommitCallbacks(execute=True):
-            self.client.get(self._url(_encode("a/b"), export_id, "content/"))
+            response = self.client.get(self._url(_encode("a/b"), export_id, f"content/{query}"))
 
-        report_user_action.assert_called_once_with(
-            self.user, "llma trace export downloaded", {"export_id": export_id}, team=self.team, request=ANY
-        )
+        assert (response.status_code, response.content) == (200, b'{"trace":{},"nodes":[]}')
+        if tracked:
+            report_user_action.assert_called_once_with(
+                self.user, "llma trace export downloaded", {"export_id": export_id}, team=self.team, request=ANY
+            )
+        else:
+            report_user_action.assert_not_called()
+
+    def test_rejects_an_unknown_content_purpose(self) -> None:
+        export_id = self._create()["id"]
+
+        assert self.client.get(self._url(_encode("a/b"), export_id, "content/?purpose=print")).status_code == 400
 
     def test_a_failed_export_reports_its_reason(self) -> None:
         export_id = self._create()["id"]
