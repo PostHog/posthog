@@ -17,6 +17,7 @@ from django.utils.html import escape
 
 import requests
 from oauth2_provider.models import AbstractApplication
+from oauth2_provider.settings import oauth2_settings
 from parameterized import parameterized
 from rest_framework import status
 
@@ -1324,6 +1325,7 @@ class TestCIMDDeviceIntegration(APIBaseTest):
 
         self.assertEqual(token["scope"], "insight:read")
         self.assertEqual(token["scoped_teams"], [self.team.id])
+        self.assertEqual(token["expires_in"], oauth2_settings.ACCESS_TOKEN_EXPIRE_SECONDS)
 
     @parameterized.expand([("the current refresh token", "current"), ("the refresh token it replaced", "rotated")])
     @patch("posthog.api.oauth.cimd.requests.Session.get")

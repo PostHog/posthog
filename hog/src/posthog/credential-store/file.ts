@@ -31,6 +31,10 @@ export class FileStore implements CredentialStore {
             : {}
     }
 
+    async hosts(): Promise<string[]> {
+        return Object.keys(await this.readAll())
+    }
+
     async read(host: string): Promise<StoredSecret | undefined> {
         return parseSecret((await this.readAll())[hostKey(host)])
     }

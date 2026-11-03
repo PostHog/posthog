@@ -201,7 +201,7 @@ hog's folder is `~/Library/Application Support/hog` on macOS, `$XDG_CONFIG_HOME/
 - Each login checks that hog can use the keychain, and records where it stored the token in `settings.json` in hog's folder, so other commands don't check again. The keychain, or the credentials file, keeps only the secrets. The rest of the login, such as the project and the scopes, is in `settings.json`. When the keychain shows a dialog, choose "Always Allow".
 - Self-hosted PostHog has to reach posthog.com to log hog in, because hog's OAuth client is described there. Without that, set the environment variables above.
 - In CI, skip login and set the environment variables above.
-- `hog auth status` checks the credentials against PostHog, and names where they come from, their scopes and when the token expires. `hog auth logout` revokes the login on this machine in PostHog, removes it from this machine, and warns when an environment variable still holds a key.
+- `hog auth status` checks the credentials against PostHog, and names where they come from, their scopes and when the token expires. `hog auth logout` revokes the login on this machine in PostHog and removes it from this machine. `hog auth logout --all` does the same for every login hog stored. Both warn when an environment variable still holds a key.
 
 ## Develop
 

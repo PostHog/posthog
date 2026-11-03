@@ -505,6 +505,50 @@ describe('hog auth login', () => {
         expect(result.keychain).toEqual({})
     })
 
+    test('logout --all removes every login, and the leftovers settings.json no longer names', async () => {
+        const record = (host: string, store: string): Record<string, string> => ({
+            store,
+            type: 'personal_api_key',
+            projectId: '42',
+            host,
+        })
+        const result = await runHog(['auth', 'logout', '--all'], {
+            env: { CLAUDECODE: '1' },
+            files: {
+                [SETTINGS_FILE]: JSON.stringify({
+                    logins: {
+                        'https://eu.posthog.com': record('https://eu.posthog.com', 'keychain'),
+                        'https://us.posthog.com': record('https://us.posthog.com', 'file'),
+                    },
+                    host: 'https://us.posthog.com',
+                }),
+                [HOG_CREDENTIALS_FILE]: JSON.stringify({
+                    'https://us.posthog.com': { apiKey: 'phx_us' },
+                    'https://posthog.example.com': { apiKey: 'phx_orphan' },
+                }),
+                [PENDING_FILE]: PENDING,
+            },
+            keychain: {
+                ...KEYCHAIN_LOGIN.keychain,
+                'https://us.posthog.com': JSON.stringify({ apiKey: 'phx_before_fallback' }),
+            },
+        })
+
+        expect(result.exitCode).toBe(0)
+        expect(result.json()).toMatchObject({
+            status: 'logged_out',
+            hosts: [
+                { host: 'https://eu.posthog.com', revokeUrl: 'https://eu.posthog.com/settings/user-api-keys' },
+                { host: 'https://us.posthog.com', revokeUrl: 'https://us.posthog.com/settings/user-api-keys' },
+                { host: 'https://posthog.example.com', revokeUrl: null },
+            ],
+        })
+        expect(result.keychain).toEqual({})
+        expect(result.files[HOG_CREDENTIALS_FILE]).toBeUndefined()
+        expect(JSON.parse(result.files[SETTINGS_FILE] ?? '{}')).toEqual({ logins: {} })
+        expect(result.files[PENDING_FILE]).toBeUndefined()
+    })
+
     test.each([
         [
             "a key posthog-cli saved moves into the keychain, and posthog-cli's file stays",
