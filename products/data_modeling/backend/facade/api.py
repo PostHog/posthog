@@ -11,6 +11,7 @@ _B = "products.data_modeling.backend."
 
 _LAZY = {
     "UnsatisfiableFrequencyError": "logic.freshness",
+    "SCHEDULABLE_BUCKETS": "logic.freshness",
     "UnsupportedFrequencyTargetError": "logic.freshness",
     "humanize_cadence": "logic.freshness",
     "get_model_usage": "logic.usage",

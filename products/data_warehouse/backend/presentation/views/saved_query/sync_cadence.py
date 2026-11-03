@@ -97,16 +97,6 @@ class SyncFrequencyOptionSerializer(serializers.Serializer):
         help_text="True when at least one view this cadence speeds up sits outside the caller's access "
         "grants, so `speeds_up` is incomplete."
     )
-    delays_if_pinned = SyncFrequencyBlockerSerializer(
-        many=True,
-        help_text="Downstream views and endpoints that refresh more often than this cadence, so they "
-        "would read data older than their own cadence if this view were pinned to it. Only views the "
-        "caller may read are listed.",
-    )
-    delays_if_pinned_withheld = serializers.BooleanField(
-        help_text="True when at least one view this pin would delay sits outside the caller's access "
-        "grants, so `delays_if_pinned` is incomplete."
-    )
 
 
 class SyncFrequencyBoundsSerializer(serializers.Serializer):
@@ -119,10 +109,6 @@ class SyncFrequencyBoundsSerializer(serializers.Serializer):
         help_text="What governs this view's cadence. 'tiered' is the only mode where `options` is "
         "meaningful and `sync_frequency` is writable per view. 'managed_viewset' means PostHog owns "
         "the view, and 'no_node' means the view has no data modeling node to store a cadence on.",
-    )
-    pinned = serializers.BooleanField(
-        help_text="True when this view holds its own cadence instead of refreshing as often as its "
-        "downstream views and endpoints need. See `sync_frequency_pinned`."
     )
     options = SyncFrequencyOptionSerializer(
         many=True,
@@ -162,7 +148,6 @@ def _unbounded_frequency_payload(mode: str) -> dict[str, Any]:
     """The payload for a view whose cadence no lineage governs, so there is nothing to withhold."""
     return {
         "frequency_mode": mode,
-        "pinned": False,
         "options": [],
         "floor": None,
         "ceiling": None,
@@ -173,9 +158,7 @@ def _unbounded_frequency_payload(mode: str) -> dict[str, Any]:
 
 def _blocker_node_ids(resolved: Any) -> set[str]:
     """Every node the bounds would name, across the two bounds, the options and the best-effort list."""
-    node_ids: set[str] = set(resolved.best_effort_source_ids).union(
-        *resolved.speeds_up.values(), *resolved.delays_if_pinned.values()
-    )
+    node_ids: set[str] = set(resolved.best_effort_source_ids).union(*resolved.speeds_up.values())
     for bound in (resolved.bounds.floor, resolved.bounds.ceiling):
         if bound is not None and bound.blocker is not None:
             node_ids.add(bound.blocker)
@@ -262,7 +245,6 @@ def _frequency_bounds_payload(resolved: Any, visible_names: dict[str, str]) -> d
     options = []
     for option in resolved.bounds.options:
         sped_up_ids = sped_up(option)
-        delayed_ids = sorted(resolved.delays_if_pinned.get(option.value, ()))
         options.append(
             {
                 "cadence": sync_frequency_interval_to_sync_frequency(option.value),
@@ -271,13 +253,10 @@ def _frequency_bounds_payload(resolved: Any, visible_names: dict[str, str]) -> d
                 "blocker": blocker(option.blocker),
                 "speeds_up": [blocker(node_id) for node_id in sped_up_ids if node_id in visible_names],
                 "speeds_up_withheld": any(node_id not in visible_names for node_id in sped_up_ids),
-                "delays_if_pinned": [blocker(node_id) for node_id in delayed_ids if node_id in visible_names],
-                "delays_if_pinned_withheld": any(node_id not in visible_names for node_id in delayed_ids),
             }
         )
     return {
         "frequency_mode": "tiered",
-        "pinned": resolved.pinned,
         "options": options,
         "floor": bound(resolved.bounds.floor),
         "ceiling": bound(resolved.bounds.ceiling),
@@ -298,23 +277,6 @@ def resolve_sync_frequency(root: serializers.BaseSerializer, view: DataWarehouse
     if state is not None and state.declared_target is not None:
         return sync_frequency_interval_to_sync_frequency(state.declared_target)
     return sync_frequency_interval_to_sync_frequency(view.sync_frequency_interval)
-
-
-def resolve_sync_frequency_pinned(root: serializers.BaseSerializer, view: DataWarehouseSavedQuery) -> bool:
-    """Whether the view's DAG node holds its cadence instead of following its consumers."""
-    state = rendered_node_states.rendered_node_states(root, view).get(str(view.pk))
-    return state is not None and state.pinned
-
-
-class SyncFrequencyPinnedField(serializers.BooleanField):
-    """Writable pin for the view's cadence, read from its DAG node and consumed by `create()` and `update()`."""
-
-    def __init__(self, **kwargs: Any) -> None:
-        kwargs.setdefault("required", False)
-        super().__init__(**kwargs)
-
-    def get_attribute(self, instance: DataWarehouseSavedQuery) -> bool:
-        return resolve_sync_frequency_pinned(self.root, instance)
 
 
 class SyncFrequencyField(serializers.ChoiceField):
