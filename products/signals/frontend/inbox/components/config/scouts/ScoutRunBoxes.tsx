@@ -33,17 +33,9 @@ const OUTCOME_BOX_CLASS: Record<ScoutRunOutcome, string> = {
 const MAX_BOXES = 24
 const TOOLTIP_DELAY_MS = 400
 const BOX_CLASS = 'block h-3 w-2 shrink-0 rounded-[2px] transition-transform duration-100 hover:scale-y-125'
-// A box column always keeps the marker's height, priced or not, so the strip does not jump a few
-// pixels when the costs land a moment after the runs.
-const COLUMN_CLASS = 'flex h-4 w-2 shrink-0 flex-col items-center justify-end gap-px'
-const MARKER_CLASS = 'block h-[3px] w-2 rounded-[1px] bg-brand-yellow'
+const COLUMN_CLASS = 'flex h-4 w-2 shrink-0 flex-col items-center justify-end'
 
-function runDescription(
-    run: SignalScoutRunSummary,
-    now: Date,
-    costUsd: number | undefined,
-    expensive: boolean
-): string {
+function runDescription(run: SignalScoutRunSummary, now: Date, costUsd: number | undefined): string {
     const parts = [scoutRunOutcomeLabel(run, now)]
     const duration = formatRunDuration(runDurationSeconds(run, now))
     if (duration) {
@@ -52,15 +44,9 @@ function runDescription(
     if (run.started_at) {
         parts.push(humanFriendlyDetailedTime(run.started_at))
     }
-    // Only staff are given costs, and only for runs with model spend attributed to them, so the
-    // rest of the tooltip reads the same as before.
+    // Only runs with recorded usage carry a cost, so every other run's tooltip omits the segment.
     if (costUsd !== undefined) {
         parts.push(formatRunCost(costUsd))
-    }
-    // The marker is a colored bar, so say the same thing in words for anyone reading the tooltip
-    // or the screen-reader label.
-    if (expensive) {
-        parts.push('top 10% of runs by cost')
     }
     if (run.task_url) {
         parts.push('open task run')
@@ -108,25 +94,18 @@ function activeBoxOf(column: HTMLElement): ActiveBox {
 export const ScoutRunBoxes = memo(function ScoutRunBoxes({
     runs,
     costs,
-    costThreshold,
 }: {
     runs: SignalScoutRunSummary[]
     costs?: Map<string, number>
-    costThreshold?: number | null
 }): JSX.Element | null {
     const visible = useMemo(() => {
         const now = new Date()
-        return runs.slice(-MAX_BOXES).map((run) => {
-            const costUsd = costs?.get(run.run_id)
-            const expensive = costUsd !== undefined && costThreshold != null && costUsd >= costThreshold
-            return {
-                run,
-                outcome: deriveRunOutcome(run, now),
-                expensive,
-                description: runDescription(run, now, costUsd, expensive),
-            }
-        })
-    }, [runs, costs, costThreshold])
+        return runs.slice(-MAX_BOXES).map((run) => ({
+            run,
+            outcome: deriveRunOutcome(run, now),
+            description: runDescription(run, now, costs?.get(run.run_id)),
+        }))
+    }, [runs, costs])
     const [activeBox, setActiveBox] = useState<ActiveBox | null>(null)
     const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
     const pendingRunId = useRef<string | null>(null)
@@ -215,21 +194,13 @@ export const ScoutRunBoxes = memo(function ScoutRunBoxes({
             onBlur={close}
             onClick={close}
         >
-            {newestFirst.map(({ run, outcome, expensive, description }) => {
+            {newestFirst.map(({ run, outcome, description }) => {
                 const boxClass = `${BOX_CLASS} ${OUTCOME_BOX_CLASS[outcome]}`
                 // The label is an attribute, not an `sr-only` child: the roster renders a strip per
                 // scout, so one more node per box adds thousands of nodes to a large fleet.
-                const column = (
-                    <>
-                        {expensive ? <span className={MARKER_CLASS} /> : null}
-                        <span className={boxClass} role="img" aria-label={`Run ${description}`} />
-                    </>
-                )
+                const column = <span className={boxClass} role="img" aria-label={`Run ${description}`} />
                 // The whole column links, not only the box, because the tooltip spans the column
-                // and offers to open the task run. A marker left outside the link would not
-                // navigate there: the roster card holds no handler above the box, and the roster
-                // table's row handler pushes the scout page for every click that is not inside an
-                // `a` or `button`.
+                // and offers to open the task run.
                 return run.task_url ? (
                     <Link key={run.run_id} to={run.task_url} className={COLUMN_CLASS} data-run-id={run.run_id}>
                         {column}

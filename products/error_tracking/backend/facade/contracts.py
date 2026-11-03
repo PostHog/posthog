@@ -129,6 +129,22 @@ class ErrorTrackingFingerprint:
 
 
 @dataclass(frozen=True)
+class ErrorTrackingIssueImpact:
+    id: UUID
+    name: str | None
+    description: str | None
+    severity: str | None
+    is_assigned: bool
+    source: str | None
+    first_seen: datetime
+    last_seen: datetime
+    occurrences: int
+    users: int
+    sessions: int
+    daily_occurrences: tuple[int, ...]
+
+
+@dataclass(frozen=True)
 class ErrorTrackingIssuePreview:
     id: UUID
     status: str
@@ -192,7 +208,6 @@ class ErrorTrackingSettings:
     per_issue_rate_limit_value: int | None
     per_issue_rate_limit_bucket_size_minutes: int | None
     ingestion_enabled: bool
-    linear_status_sync_enabled: bool
 
 
 @dataclass(frozen=True)

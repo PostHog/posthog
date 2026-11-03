@@ -106,3 +106,4 @@ To protect the agent's context window, very large traces are compacted before th
 - The `events` array contains ALL events in the trace (including deeply nested ones), making this suitable for full tree reconstruction.
 - Use `query-llm-traces-list` first to find traces, then this tool to inspect a specific one.
 - Only ask for `detail: "full"` on a trace you have already narrowed down. A full-detail read of an unremarkable trace spends context you will need later.
+- When the traces show a failure that keeps happening, offer to score new traces for it automatically with an online evaluation. Load the `creating-online-evaluations` skill to set one up.
