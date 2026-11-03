@@ -180,6 +180,35 @@ class TestRecordVerdictChange(ClickhouseTestMixin, APIBaseTest):
                 now=FIRING_AT + timedelta(minutes=20),
             )
 
+    def test_a_grouped_follow_up_names_its_group(self) -> None:
+        change = VerdictChange(
+            team_id=self.team.id,
+            configuration_id=self.configuration.id,
+            firing_evaluation_key=FIRING_KEY,
+            episode_started_at=FIRING_AT,
+            firing_event_id=FIRING_EVENT,
+            grouping_key="checkout",
+        )
+        with team_scope(self.team.id):
+            platform_testing.start_firing(
+                self.configuration.id, team_id=self.team.id, at=FIRING_AT, grouping_key="checkout"
+            )
+            PlatformAlert.objects.filter(configuration=self.configuration, grouping_key="checkout").update(
+                labels={"service_name": "checkout"}
+            )
+            with patch(
+                "products.alerts_platform.backend.logic.verdict_changes.record_history", return_value=1
+            ) as recorded:
+                follow_up = record_verdict_change(change, now=FIRING_AT + timedelta(minutes=20))
+
+        [[_team_id, [row]], _] = recorded.call_args
+        assert (row.grouping_key, row.labels, row.evaluation_key) == (
+            "checkout",
+            {"service_name": "checkout"},
+            change.evaluation_key,
+        )
+        assert follow_up is not None and follow_up.evaluation_key == change.evaluation_key
+
 
 class TestVerdictChangeKey(SimpleTestCase):
     def test_each_group_gets_a_key_that_fits_a_thread(self) -> None:
