@@ -124,23 +124,29 @@ def parse_and_validate_metric(metric: object, *, error_prefix: str) -> Experimen
 
     `error_prefix` locates the metric in the request, for example "Invalid metric at index 2: ".
     """
+    # Every raise names a specific `code`: MCP telemetry keeps the machine code and the
+    # field but strips the free-text detail by design (see describeToolError in
+    # services/mcp/src/hono/tool-executor.ts), so without one every rejection here lands
+    # in a single `invalid_input` bucket and the common agent mistakes cannot be ranked.
     if not isinstance(metric, dict):
-        raise ValidationError(f"{error_prefix}must be a dict")
+        raise ValidationError(f"{error_prefix}must be a dict", code="metric_not_dict")
 
     kind = metric.get("kind")
     if isinstance(kind, str) and kind in LEGACY_METRIC_KINDS:
         raise ValidationError(
-            f"{error_prefix}legacy metric kind '{kind}' is no longer supported. Use 'ExperimentMetric' instead."
+            f"{error_prefix}legacy metric kind '{kind}' is no longer supported. Use 'ExperimentMetric' instead.",
+            code="legacy_metric_kind",
         )
     if kind != "ExperimentMetric":
-        raise ValidationError(f"{error_prefix}metric kind must be 'ExperimentMetric'")
+        raise ValidationError(f"{error_prefix}metric kind must be 'ExperimentMetric'", code="metric_kind_invalid")
 
     metric_type = metric.get("metric_type")
     if metric_type is None:
-        raise ValidationError(f"{error_prefix}ExperimentMetric requires a metric_type")
+        raise ValidationError(f"{error_prefix}ExperimentMetric requires a metric_type", code="metric_type_missing")
     if not isinstance(metric_type, str) or metric_type not in METRIC_BUILDERS:
         raise ValidationError(
-            f"{error_prefix}ExperimentMetric metric_type must be 'mean', 'funnel', 'ratio', or 'retention'"
+            f"{error_prefix}ExperimentMetric metric_type must be 'mean', 'funnel', 'ratio', or 'retention'",
+            code="metric_type_invalid",
         )
 
     try:
@@ -148,14 +154,14 @@ def parse_and_validate_metric(metric: object, *, error_prefix: str) -> Experimen
         # reports errors for the chosen variant only, and .root is the concrete metric type.
         parsed = ExperimentMetricUnion.model_validate(metric).root
     except pydantic.ValidationError as e:
-        raise ValidationError(f"{error_prefix}{_pydantic_error_message(e)}")
+        raise ValidationError(f"{error_prefix}{_pydantic_error_message(e)}", code="metric_schema_invalid")
 
     error = _semantic_error(parsed)
     if error is None and metric_uses_warehouse_native_source(parsed):
         # The source kind exists so the rest of the product can be built against it; nothing can run it yet.
         error = "warehouse-native sources are not supported yet."
     if error:
-        raise ValidationError(f"{error_prefix}{error}")
+        raise ValidationError(f"{error_prefix}{error}", code="metric_semantic_invalid")
     return parsed
 
 
@@ -180,7 +186,7 @@ def validate_saved_metric_link_overrides(metadata: dict, *, error_prefix: str) -
     try:
         _SavedMetricLinkOverrides.model_validate(metadata)
     except pydantic.ValidationError as e:
-        raise ValidationError(f"{error_prefix}{_pydantic_error_message(e)}")
+        raise ValidationError(f"{error_prefix}{_pydantic_error_message(e)}", code="saved_metric_override_invalid")
 
 
 def metric_nodes(metric: dict) -> list[dict]:
@@ -312,7 +318,8 @@ def validate_metric_action_ids(
         missing_str = ", ".join(str(aid) for aid in sorted(missing))
         raise ValidationError(
             f"Action(s) with ID {missing_str} not found or deleted. "
-            "Each ActionsNode must reference an existing action belonging to this project."
+            "Each ActionsNode must reference an existing action belonging to this project.",
+            code="metric_action_not_found",
         )
 
     # Synthetic principals (project secret API keys) and userless system writes bypass access control.
