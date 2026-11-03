@@ -2,7 +2,6 @@ import { CopyObjectCommand, PutObjectCommand, S3Client, S3ServiceException } fro
 import { Counter } from 'prom-client'
 
 import { ConcurrencyController } from '~/common/utils/concurrencyController'
-import { sealV4Frame } from '~/ingestion/pipelines/sessionreplay/ai-research/v4-keys/frame'
 import type { TeamMonthKeys } from '~/ingestion/pipelines/sessionreplay/ai-research/v4-keys/team-month-keys'
 
 import type { FetchCandidate } from './collected-urls-record'
@@ -11,7 +10,7 @@ import type { RefreshingImageSink } from './image-sink'
 import { InvalidImageTransportError } from './image-transport'
 import { ImageFetchProcessingMetrics } from './processing-metrics'
 import { URL_ASSET_RULES } from './url-asset-rules'
-import { V4UrlAsset, V4UrlRef, parseV4UrlRef, publicFontRefOf } from './v4-url-ref'
+import { V4UrlAsset, V4UrlRef, parseV4UrlRef, publicFontRefOf, sealFetchedImage } from './v4-native'
 
 const S3_WRITE_TIMEOUT_MS = 30_000
 const CONTENT_TYPE = 'application/octet-stream'
@@ -132,11 +131,7 @@ export class RawImageStore implements RefreshingImageSink {
                 storedImages.labels(asset, key.status === 'deleted' ? 'deleted' : 'missing_key').inc()
                 return
             }
-            stored = sealV4Frame(
-                key.key,
-                { teamId, keyMonth, kind: rules.frameKind, codec: 'none', ref: candidate.originalRef },
-                body
-            )
+            stored = await sealFetchedImage(key.key, candidate.originalRef, body)
         }
         await this.s3.send(
             new PutObjectCommand({

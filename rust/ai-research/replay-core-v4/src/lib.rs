@@ -4,6 +4,7 @@ pub mod bytescan;
 pub mod compression;
 pub mod envelope;
 pub mod fetch_history;
+pub mod fetched_image;
 pub mod fonts;
 pub mod gate;
 pub mod inspect;

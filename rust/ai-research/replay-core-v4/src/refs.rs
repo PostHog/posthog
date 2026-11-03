@@ -37,11 +37,14 @@ pub fn public_font_url_ref(url: &CanonicalUrl) -> Option<String> {
         && parsed.port().is_none()
         && parsed.path().starts_with(PUBLIC_FONT_PATH_PREFIX)
         && parsed.query().is_none();
-    shared.then(|| {
-        let mut encoded = URL_SAFE_NO_PAD.encode(Sha256::digest(url.fetch.as_bytes()));
-        encoded.truncate(HASH_CHARS);
-        public_font_ref(&encoded)
-    })
+    shared.then(|| public_font_ref(&public_url_hash(&url.fetch)))
+}
+
+/// The unkeyed hash of a public font reference, which the fetcher also binds the font's cached validators with.
+pub fn public_url_hash(url: &str) -> String {
+    let mut encoded = URL_SAFE_NO_PAD.encode(Sha256::digest(url.as_bytes()));
+    encoded.truncate(HASH_CHARS);
+    encoded
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

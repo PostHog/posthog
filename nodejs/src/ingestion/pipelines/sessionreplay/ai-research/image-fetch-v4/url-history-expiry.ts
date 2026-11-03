@@ -1,6 +1,6 @@
 import { explicitFreshnessLifetimeMs } from './configuration-policy'
 import { HttpCacheMetadata } from './crawl-history'
-import { parseV4UrlRef } from './v4-url-ref'
+import { parseV4UrlRef } from './v4-native'
 
 /** A reference is fetched again after the crawl history TTL, or later when the response stays fresh for longer. */
 export function urlHistoryExpiresAtMs(nowMs: number, seenTtlSeconds: number, cache?: HttpCacheMetadata): number {

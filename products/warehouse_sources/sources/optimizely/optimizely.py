@@ -1,3 +1,6 @@
+from collections.abc import Callable
+from typing import Any
+
 from products.warehouse_sources.sources.optimizely.settings import OPTIMIZELY_ENDPOINTS, OptimizelyEndpointConfig
 from products.warehouse_sources.sources.sdk import (
     ClientConfig,
@@ -6,8 +9,10 @@ from products.warehouse_sources.sources.sdk import (
     Resource,
     ResponseAction,
     RESTAPIConfig,
+    ResumableSourceManager,
     SinglePagePaginator,
     SourceResponse,
+    frozen,
     make_tracked_session,
     rest_api_resource,
     rest_api_resources,
@@ -18,6 +23,16 @@ OPTIMIZELY_API_HOST = "api.optimizely.com"
 OPTIMIZELY_BASE_URL = f"https://{OPTIMIZELY_API_HOST}/v2"
 # Optimizely list pages cap at 100 items.
 PAGE_SIZE = 100
+
+
+@frozen
+class OptimizelyResumeConfig:
+    # What the framework handed the resume hook: the next `Link` URL of a list endpoint, or the
+    # finished and in-progress projects of a project fan-out. Stored unchanged.
+    paginator_state: dict[str, Any] | None = None
+    # The last page of a list endpoint is handed on, so a resume reads nothing again.
+    completed: bool = False
+
 
 _SKIP_INACCESSIBLE: list[ResponseAction] = [
     {"status_code": 400, "action": "ignore"},
@@ -42,7 +57,12 @@ def _client_config(api_token: str) -> ClientConfig:
 
 
 def _simple_source(
-    api_token: str, endpoint: str, config: OptimizelyEndpointConfig, team_id: int, job_id: str
+    api_token: str,
+    endpoint: str,
+    config: OptimizelyEndpointConfig,
+    team_id: int,
+    job_id: str,
+    manager: ResumableSourceManager[OptimizelyResumeConfig],
 ) -> Resource:
     rest_config: RESTAPIConfig = {
         "client": _client_config(api_token),
@@ -59,7 +79,14 @@ def _simple_source(
             }
         ],
     }
-    return rest_api_resource(rest_config, team_id, job_id, None)
+    return rest_api_resource(
+        rest_config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=_resume_hook(manager),
+        initial_paginator_state=_initial_state(manager),
+    )
 
 
 def _project_scoped_resource(name: str, path: str) -> EndpointResource:
@@ -107,7 +134,12 @@ def _per_parent_resource(endpoint: str, path: str, parent: str, parent_id_param:
 
 
 def _fan_out_source(
-    api_token: str, endpoint: str, config: OptimizelyEndpointConfig, team_id: int, job_id: str
+    api_token: str,
+    endpoint: str,
+    config: OptimizelyEndpointConfig,
+    team_id: int,
+    job_id: str,
+    manager: ResumableSourceManager[OptimizelyResumeConfig],
 ) -> Resource:
     resources: list[str | EndpointResource] = [
         {
@@ -129,22 +161,55 @@ def _fan_out_source(
         "resource_defaults": {},
         "resources": resources,
     }
-    built = rest_api_resources(rest_config, team_id, job_id, None)
+    # The framework resumes a fan-out with one dependent level only. The per-parent results tables
+    # chain two levels, so they read every project again after a resume (the merge dedupes).
+    built = rest_api_resources(
+        rest_config,
+        team_id,
+        job_id,
+        None,
+        resume_hook=_resume_hook(manager),
+        initial_paginator_state=_initial_state(manager),
+    )
     # Only the requested endpoint's rows are emitted; its ancestors are iterated internally to drive the fan-out.
     return next(resource for resource in built if resource.name == endpoint)
 
 
-def optimizely_source(api_token: str, endpoint: str, team_id: int, job_id: str) -> SourceResponse:
+def _initial_state(manager: ResumableSourceManager[OptimizelyResumeConfig]) -> dict[str, Any] | None:
+    resume = manager.load_state() if manager.can_resume() else None
+    return resume.paginator_state if resume is not None else None
+
+
+def _resume_hook(manager: ResumableSourceManager[OptimizelyResumeConfig]) -> Callable[[dict[str, Any] | None], None]:
+    def save_checkpoint(state: dict[str, Any] | None) -> None:
+        if state:
+            manager.save_state(OptimizelyResumeConfig(paginator_state=state))
+        elif state is None:
+            manager.save_state(OptimizelyResumeConfig(completed=True))
+
+    return save_checkpoint
+
+
+def optimizely_source(
+    api_token: str,
+    endpoint: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[OptimizelyResumeConfig],
+) -> SourceResponse:
     config = OPTIMIZELY_ENDPOINTS[endpoint]
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    completed = resume is not None and resume.completed
 
     if config.project_scoped:
-        resource = _fan_out_source(api_token, endpoint, config, team_id, job_id)
+        resource = _fan_out_source(api_token, endpoint, config, team_id, job_id, resumable_source_manager)
     else:
-        resource = _simple_source(api_token, endpoint, config, team_id, job_id)
+        resource = _simple_source(api_token, endpoint, config, team_id, job_id, resumable_source_manager)
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: resource,
+        on_complete=resumable_source_manager.clear_state,
+        items=lambda: [] if completed else resource,
         primary_keys=[config.primary_key],
         partition_count=1,
         partition_size=1,

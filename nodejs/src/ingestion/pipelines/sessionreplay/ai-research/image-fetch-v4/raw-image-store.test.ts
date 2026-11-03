@@ -151,22 +151,32 @@ describe('RawImageStore', () => {
     })
 
     it('holds a further image back while the write limit is full, so a slow S3 does not pile up images in memory', async () => {
-        let finishWrite!: () => void
+        const finishWrites: (() => void)[] = []
+        let writeStarted!: () => void
+        let started = new Promise<void>((resolve) => (writeStarted = resolve))
         const s3 = {
-            send: jest.fn(() => new Promise((resolve) => (finishWrite = () => resolve({})))),
+            send: jest.fn(
+                () =>
+                    new Promise((resolve) => {
+                        finishWrites.push(() => resolve({}))
+                        writeStarted()
+                    })
+            ),
         }
         const keyReads = jest.fn(() => Promise.resolve(STORED))
         const sink = new RawImageStore({ get: keyReads }, s3 as any, 'images-v4', 1)
 
         const first = sink.publishImage(candidate(), fetched())
         const second = sink.publishImage(candidate(), fetched())
+        await started
         await new Promise((resolve) => setImmediate(resolve))
         expect([s3.send.mock.calls.length, keyReads.mock.calls.length]).toEqual([1, 1])
 
-        finishWrite()
+        started = new Promise<void>((resolve) => (writeStarted = resolve))
+        finishWrites[0]()
         await first
-        await new Promise((resolve) => setImmediate(resolve))
-        finishWrite()
+        await started
+        finishWrites[1]()
         await second
         expect(s3.send).toHaveBeenCalledTimes(2)
     })

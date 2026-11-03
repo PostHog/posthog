@@ -11,7 +11,7 @@ import {
     serializeFrontierRecord,
 } from './collected-urls-record'
 import { ImageFetchRequestMetrics, RepublishTopic } from './metrics'
-import { urlAssetOf } from './v4-url-ref'
+import { urlAssetOf } from './v4-native'
 
 export interface DelayTier {
     topic: string
