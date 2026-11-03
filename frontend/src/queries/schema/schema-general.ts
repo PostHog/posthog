@@ -1896,6 +1896,9 @@ export type TrendsFilter = {
     yAxisMax?: number
     /** @default false */
     showMultipleYAxes?: boolean
+    /** Draws horizontal grid lines at the y-axis ticks.
+     * @default true */
+    showGridLines?: boolean
     hiddenLegendIndexes?: integer[]
     /**
      * Wether result datasets are associated by their values or by their order.
@@ -2600,6 +2603,9 @@ export type StickinessFilter = {
     legendPosition?: 'top' | 'bottom' | 'left' | 'right'
     showValuesOnSeries?: boolean
     showMultipleYAxes?: boolean
+    /** Draws horizontal grid lines at the y-axis ticks.
+     * @default true */
+    showGridLines?: boolean
     hiddenLegendIndexes?: integer[]
     stickinessCriteria?: StickinessCriteria
     computedAs?: StickinessComputationMode

@@ -90,6 +90,8 @@ export interface BuildTrendsBarTimeSeriesConfigOpts {
     isPercentStackView: boolean
     isGrouped: boolean
     yAxisScaleType?: string | null
+    /** @default true */
+    showGrid?: boolean
     interval?: TimeInterval | null
     timezone?: string
     allDays?: string[]
@@ -111,7 +113,7 @@ export function buildTrendsBarTimeSeriesConfig(
     // display type is dropped rather than silently truncating bars with no control left to clear it.
     const yAxis = buildTrendsYAxisConfig(opts.trendsFilter, opts.isPercentStackView, opts.baseCurrency, {
         yAxisScaleType: opts.yAxisScaleType,
-        showGrid: true,
+        showGrid: opts.showGrid ?? true,
     })
     const goalLineConfigs = schemaGoalLinesToConfigs(opts.goalLines)
     return {

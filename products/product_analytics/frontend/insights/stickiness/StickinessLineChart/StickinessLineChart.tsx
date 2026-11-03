@@ -60,6 +60,7 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
         interval,
         yAxisScaleType,
         showMultipleYAxes,
+        showGridLines,
         getTrendsColor,
         currentPeriodResult,
         breakdownFilter,
@@ -133,6 +134,7 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
         () => ({
             ...buildStickinessLineTimeSeriesConfig({
                 yAxisScaleType,
+                showGrid: showGridLines !== false,
                 valueLabels: showValuesOnSeries ? { formatter: stickinessPercentFormatter } : false,
                 showCrosshair: true,
                 tooltip: tooltipConfig,
@@ -141,7 +143,7 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
             // Interactive legend is a component concern, kept out of the pure transform.
             legend: legendConfig,
         }),
-        [yAxisScaleType, showValuesOnSeries, legendConfig, tooltipConfig, stickinessFilter?.chartStyle]
+        [yAxisScaleType, showGridLines, showValuesOnSeries, legendConfig, tooltipConfig, stickinessFilter?.chartStyle]
     )
 
     const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal

@@ -124,6 +124,7 @@ export function TrendsBarChart({
         goalLines,
         showValuesOnSeries,
         showMultipleYAxes,
+        showGridLines,
         isSingleSeriesDefinition,
         compareFilter,
     } = useValues(trendsDataLogic(insightProps))
@@ -269,6 +270,7 @@ export function TrendsBarChart({
                 isPercentStackView,
                 isGrouped,
                 yAxisScaleType,
+                showGrid: showGridLines !== false,
                 interval,
                 timezone,
                 allDays: currentPeriodResult?.days ?? [],
@@ -289,6 +291,7 @@ export function TrendsBarChart({
             isPercentStackView,
             isGrouped,
             yAxisScaleType,
+            showGridLines,
             interval,
             timezone,
             currentPeriodResult?.days,

@@ -8507,6 +8507,7 @@ class StickinessFilter(BaseModel):
             description="Customizations for the appearance of result datasets.",
         )
     )
+    showGridLines: bool | None = Field(default=True, description="Draws horizontal grid lines at the y-axis ticks.")
     showLegend: bool | None = None
     showMultipleYAxes: bool | None = None
     showValuesOnSeries: bool | None = None
@@ -9437,6 +9438,7 @@ class TrendsFilter(BaseModel):
     showAlertThresholdLines: bool | None = False
     showAnnotations: bool | None = True
     showConfidenceIntervals: bool | None = None
+    showGridLines: bool | None = Field(default=True, description="Draws horizontal grid lines at the y-axis ticks.")
     showLabelsOnSeries: bool | None = None
     showLegend: bool | None = False
     showMovingAverage: bool | None = None

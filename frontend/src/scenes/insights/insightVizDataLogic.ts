@@ -120,6 +120,7 @@ import {
     getShowAnnotations,
     getShowLabelsOnSeries,
     getShowLegend,
+    getShowGridLines,
     getShowMultipleYAxes,
     getShowPercentagesOnSeries,
     getShowPercentStackView,
@@ -309,6 +310,7 @@ export interface insightVizDataLogicValues {
     showAnnotations: boolean | null | undefined
     showLabelOnSeries: boolean | null | undefined
     showLegend: boolean | null | undefined
+    showGridLines: boolean | null | undefined
     showMultipleYAxes: boolean | null | undefined
     showPercentStackView: boolean | null | undefined
     showPercentagesOnSeries: boolean | null | undefined
@@ -1014,6 +1016,19 @@ export interface insightVizDataLogicMeta {
                 | WebStatsTableQuery
                 | null
         ) => string | null | undefined
+        showGridLines: (
+            querySource:
+                | FunnelsQuery
+                | LifecycleQuery
+                | PathsQuery
+                | PathsV2Query
+                | RetentionQuery
+                | StickinessQuery
+                | TrendsQuery
+                | WebOverviewQuery
+                | WebStatsTableQuery
+                | null
+        ) => boolean | null | undefined
         showMultipleYAxes: (
             querySource:
                 | FunnelsQuery
@@ -2079,6 +2094,21 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                     | import('~/queries/schema/schema-general').WebOverviewQuery
                     | import('~/queries/schema/schema-general').WebStatsTableQuery
             ) => (q ? getShowMultipleYAxes(q) : null),
+        ],
+        showGridLines: [
+            (s) => [s.querySource],
+            (
+                q:
+                    | FunnelsQuery
+                    | LifecycleQuery
+                    | RetentionQuery
+                    | StickinessQuery
+                    | TrendsQuery
+                    | null
+                    | import('~/queries/schema/schema-general').PathsQuery
+                    | import('~/queries/schema/schema-general').WebOverviewQuery
+                    | import('~/queries/schema/schema-general').WebStatsTableQuery
+            ) => (q ? getShowGridLines(q) : null),
         ],
         resultCustomizationBy: [
             (s) => [s.querySource],

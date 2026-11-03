@@ -157,6 +157,7 @@ export interface trendsDataLogicValues {
     showAnnotations: boolean | null | undefined // insightVizDataLogic
     showLabelOnSeries: boolean | null | undefined // insightVizDataLogic
     showLegend: boolean | null | undefined // insightVizDataLogic
+    showGridLines: boolean | null | undefined // insightVizDataLogic
     showMultipleYAxes: boolean | null | undefined // insightVizDataLogic
     showPercentStackView: boolean | null | undefined // insightVizDataLogic
     showPercentagesOnSeries: boolean | null | undefined // insightVizDataLogic
@@ -516,6 +517,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'vizSpecificOptions',
                 'yAxisScaleType',
                 'showMultipleYAxes',
+                'showGridLines',
                 'resultCustomizationBy as resultCustomizationByRaw',
                 'getTheme',
                 'theme',

@@ -187,6 +187,8 @@ export interface BuildTrendsLineTimeSeriesConfigOpts<R extends TrendsResultLike>
     yAxisStartAtZero?: boolean | null
     yAxisMin?: number | null
     yAxisMax?: number | null
+    /** @default true */
+    showGrid?: boolean
     interval?: TimeInterval | null
     timezone?: string
     allDays?: string[]
@@ -221,7 +223,7 @@ export function buildTrendsLineTimeSeriesConfig<R extends TrendsResultLike>(
 ): TimeSeriesLineChartConfig {
     const yAxis = buildTrendsYAxisConfig(opts.trendsFilter, opts.isPercentStackView, opts.baseCurrency, {
         yAxisScaleType: opts.yAxisScaleType,
-        showGrid: true,
+        showGrid: opts.showGrid ?? true,
         startAtZero: opts.yAxisStartAtZero,
         min: opts.yAxisMin,
         max: opts.yAxisMax,

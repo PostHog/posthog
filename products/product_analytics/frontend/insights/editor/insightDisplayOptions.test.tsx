@@ -120,6 +120,17 @@ describe('insight Y-axis range options', () => {
         await waitFor(() => expect(committedFilter().yAxisMin).toBeUndefined())
     })
 
+    // Grid lines are on by default, so turning them back on clears the key instead of saving `true`.
+    it.each<[string, TrendsFilter, boolean | undefined]>([
+        ['turning grid lines off saves false', {}, false],
+        ['turning grid lines back on clears the setting', { showGridLines: false }, undefined],
+    ])('%s', async (_name, trendsFilter, expected) => {
+        const container = setup(trendsFilter)
+        fireEvent.click(control(container, 'trends-y-axis-grid-lines'))
+
+        await waitFor(() => expect(committedFilter().showGridLines).toBe(expected))
+    })
+
     // The chart falls back to its automatic range on an inverted pair, so the message explains a
     // real effect. While the minimum is disabled there is no such effect to explain.
     it.each<[string, TrendsFilter, boolean]>([

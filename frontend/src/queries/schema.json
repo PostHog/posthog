@@ -54508,6 +54508,11 @@
                     ],
                     "description": "Customizations for the appearance of result datasets."
                 },
+                "showGridLines": {
+                    "default": true,
+                    "description": "Draws horizontal grid lines at the y-axis ticks.",
+                    "type": "boolean"
+                },
                 "showLegend": {
                     "type": "boolean"
                 },
@@ -57088,6 +57093,11 @@
                     "type": "boolean"
                 },
                 "showConfidenceIntervals": {
+                    "type": "boolean"
+                },
+                "showGridLines": {
+                    "default": true,
+                    "description": "Draws horizontal grid lines at the y-axis ticks.",
                     "type": "boolean"
                 },
                 "showLabelsOnSeries": {

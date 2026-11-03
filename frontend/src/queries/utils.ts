@@ -437,6 +437,15 @@ export const getShowMultipleYAxes = (query: InsightQueryNode): boolean | undefin
     return undefined
 }
 
+export const getShowGridLines = (query: InsightQueryNode): boolean | undefined => {
+    if (isTrendsQuery(query)) {
+        return query.trendsFilter?.showGridLines
+    } else if (isStickinessQuery(query)) {
+        return query.stickinessFilter?.showGridLines
+    }
+    return undefined
+}
+
 export const getResultCustomizationBy = (query: InsightQueryNode): ResultCustomizationBy | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.resultCustomizationBy

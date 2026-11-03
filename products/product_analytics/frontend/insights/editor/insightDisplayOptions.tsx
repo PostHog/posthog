@@ -63,6 +63,7 @@ interface InsightDisplayContext
             | 'showPercentagesOnSeries'
             | 'yAxisScaleType'
             | 'showMultipleYAxes'
+            | 'showGridLines'
             | 'showAlertThresholdLines'
             | 'showAnnotations'
             | 'annotationsScope'
@@ -132,6 +133,7 @@ function useInsightDisplayContext(): InsightDisplayContext {
         showPercentagesOnSeries,
         yAxisScaleType,
         showMultipleYAxes,
+        showGridLines,
         showAlertThresholdLines,
         showAnnotations,
         annotationsScope,
@@ -262,6 +264,7 @@ function useInsightDisplayContext(): InsightDisplayContext {
         mightContainFractionalNumbers,
         yAxisScaleType,
         showMultipleYAxes,
+        showGridLines,
         showAlertThresholdLines,
         showAnnotations,
         annotationsScope,
@@ -529,6 +532,17 @@ const INSIGHT_BINDINGS: DisplayOptionBindings<InsightDisplayContext> = {
         value: (c) => !!c.showMultipleYAxes,
         onChange: (showMultipleYAxes, c) => c.updateInsightFilter({ showMultipleYAxes }),
         changedCount: (c) => c.showMultipleYAxes,
+    },
+    // The horizontal bar chart draws its value axis along the bottom, so it has no horizontal grid lines.
+    yAxisGridLines: {
+        showCondition: (c) =>
+            (c.isTrends || c.isStickiness) &&
+            (c.isLineDisplay || c.isBarDisplay) &&
+            c.display !== ChartDisplayType.ActionsBarValue,
+        value: (c) => c.showGridLines !== false,
+        onChange: (showGridLines, c) => c.updateInsightFilter({ showGridLines: showGridLines ? undefined : false }),
+        changedCount: (c) => c.showGridLines === false,
+        dataAttr: 'trends-y-axis-grid-lines',
     },
     yAxisScale: {
         showCondition: (c) => c.showYAxisScale,

@@ -58,6 +58,7 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
         display,
         interval,
         yAxisScaleType,
+        showGridLines,
         getTrendsColor,
         currentPeriodResult,
         breakdownFilter,
@@ -134,13 +135,14 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
             ...buildStickinessBarTimeSeriesConfig({
                 yAxisScaleType,
                 isGrouped,
+                showGrid: showGridLines !== false,
                 valueLabels: showValuesOnSeries ? { formatter: stickinessPercentFormatter } : false,
                 tooltip: tooltipConfig,
             }),
             // Interactive legend is a component concern, kept out of the pure transform.
             legend: legendConfig,
         }),
-        [yAxisScaleType, isGrouped, showValuesOnSeries, legendConfig, tooltipConfig]
+        [yAxisScaleType, isGrouped, showGridLines, showValuesOnSeries, legendConfig, tooltipConfig]
     )
 
     // Close over the primitives so the click memos don't invalidate when unrelated
