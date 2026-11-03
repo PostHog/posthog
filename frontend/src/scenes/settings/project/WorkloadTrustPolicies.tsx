@@ -25,7 +25,9 @@ export function WorkloadTrustPolicies(): JSX.Element {
                 : 'Loading the supported CI providers'
             : providers.supported.length === 0
               ? 'No CI provider is supported on this instance'
-              : undefined
+              : policiesLoading
+                ? 'Loading trusted workloads'
+                : undefined
 
     // Policies hand out tokens that act as the organization owner, so the section asks for a recent login.
     return (
