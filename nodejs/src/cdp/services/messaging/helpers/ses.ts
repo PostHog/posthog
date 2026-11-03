@@ -537,6 +537,78 @@ export class SesWebhookHandler {
         return lines.join('\n') + '\n'
     }
 
+    /**
+     * The part of a delivery that has to happen on the request: read the body, prove the envelope
+     * is AWS's and from a topic we subscribed to, and answer the two subscription handshakes.
+     *
+     * Returns the HTTP answer when the request is finished here, or null when the payload is a
+     * verified notification whose SES events still have to be processed. None of it reads a
+     * database, so a datastore failure cannot make this answer a 5xx.
+     */
+    async accept(opts: {
+        body: any
+        headers: Record<string, string | string[] | undefined>
+        verifySignature?: boolean
+    }): Promise<{ status: number; body: unknown } | null> {
+        logger.info('[SesWebhookHandler] accept', { body: opts.body, headers: opts.headers })
+        const parsed = this.parseIncomingBody(opts.body)
+
+        logger.info('[SesWebhookHandler] parsed', { parsed })
+
+        // When verification is required the message must be a signed SNS envelope. Raw deliveries
+        // carry no signature, and prod uses envelope delivery, so reject them to block forged events.
+        if (opts.verifySignature) {
+            if (!('envelope' in parsed)) {
+                return { status: 403, body: { error: 'Unsigned raw delivery not allowed' } }
+            }
+            logger.info('[SesWebhookHandler] verifying signature', { envelope: parsed.envelope })
+            const ok = await this.verifySnsSignature(parsed.envelope)
+            logger.info('[SesWebhookHandler] signature verified', { ok })
+            if (!ok) {
+                return { status: 403, body: { error: 'Invalid SNS signature' } }
+            }
+        }
+
+        // Restrict accepted SNS envelopes (Notification, SubscriptionConfirmation, UnsubscribeConfirmation)
+        // to the configured TopicArn allowlist. SNS signature verification proves the message came from
+        // AWS, but not from a specific topic — this narrows accepted sources to the workflow SES topic.
+        if ('envelope' in parsed && !this.isTopicAllowed(parsed.envelope.TopicArn)) {
+            logger.warn('[SesWebhookHandler] Rejecting event from disallowed TopicArn', {
+                topicArn: parsed.envelope.TopicArn,
+            })
+            return { status: 403, body: { error: 'SNS TopicArn not allowed' } }
+        }
+
+        // Handle confirmation flow. Stays on the request: it is an HTTP callback to AWS with no
+        // datastore of its own, and a failed callback leaves the subscription unconfirmed, which
+        // is the one case where an SNS retry is the repair.
+        if (parsed.mode === 'sns' && 'envelope' in parsed && parsed.envelope?.Type === 'SubscriptionConfirmation') {
+            logger.info('[SesWebhookHandler] confirming subscription', { envelope: parsed.envelope })
+            // Confirm by visiting the top-level SubscribeURL field; Message is human-readable text here.
+            const subscribeUrl = parsed.envelope.SubscribeURL
+            if (subscribeUrl) {
+                if (!this.isValidSnsSubscribeUrl(subscribeUrl)) {
+                    logger.warn('[SesWebhookHandler] Invalid SubscribeURL, rejecting', {
+                        url: subscribeUrl,
+                    })
+                    return { status: 403, body: { error: 'Invalid SubscribeURL' } }
+                }
+                await this.fetchText(subscribeUrl)
+            } else {
+                logger.warn('[SesWebhookHandler] SubscriptionConfirmation without SubscribeURL - cannot confirm')
+                return { status: 400, body: { error: 'Missing SubscribeURL' } }
+            }
+            return { status: 200, body: { ok: true } }
+        }
+
+        if (parsed.mode === 'sns' && 'envelope' in parsed && parsed.envelope?.Type === 'UnsubscribeConfirmation') {
+            logger.info('[SesWebhookHandler] confirming unsubscribe', { envelope: parsed.envelope })
+            return { status: 200, body: { ok: true } }
+        }
+
+        return null
+    }
+
     async handleWebhook(opts: {
         body: any
         headers: Record<string, string | string[] | undefined>
@@ -598,59 +670,11 @@ export class SesWebhookHandler {
             timestamp?: string
         }[]
     }> {
-        logger.info('[SesWebhookHandler] handleWebhook', { body: opts.body, headers: opts.headers })
+        const answer = await this.accept(opts)
+        if (answer) {
+            return answer
+        }
         const parsed = this.parseIncomingBody(opts.body)
-
-        logger.info('[SesWebhookHandler] parsed', { parsed })
-
-        // When verification is required the message must be a signed SNS envelope. Raw deliveries
-        // carry no signature, and prod uses envelope delivery, so reject them to block forged events.
-        if (opts.verifySignature) {
-            if (!('envelope' in parsed)) {
-                return { status: 403, body: { error: 'Unsigned raw delivery not allowed' } }
-            }
-            logger.info('[SesWebhookHandler] verifying signature', { envelope: parsed.envelope })
-            const ok = await this.verifySnsSignature(parsed.envelope)
-            logger.info('[SesWebhookHandler] signature verified', { ok })
-            if (!ok) {
-                return { status: 403, body: { error: 'Invalid SNS signature' } }
-            }
-        }
-
-        // Restrict accepted SNS envelopes (Notification, SubscriptionConfirmation, UnsubscribeConfirmation)
-        // to the configured TopicArn allowlist. SNS signature verification proves the message came from
-        // AWS, but not from a specific topic — this narrows accepted sources to the workflow SES topic.
-        if ('envelope' in parsed && !this.isTopicAllowed(parsed.envelope.TopicArn)) {
-            logger.warn('[SesWebhookHandler] Rejecting event from disallowed TopicArn', {
-                topicArn: parsed.envelope.TopicArn,
-            })
-            return { status: 403, body: { error: 'SNS TopicArn not allowed' } }
-        }
-
-        // Handle confirmation flow
-        if (parsed.mode === 'sns' && 'envelope' in parsed && parsed.envelope?.Type === 'SubscriptionConfirmation') {
-            logger.info('[SesWebhookHandler] confirming subscription', { envelope: parsed.envelope })
-            // Confirm by visiting the top-level SubscribeURL field; Message is human-readable text here.
-            const subscribeUrl = parsed.envelope.SubscribeURL
-            if (subscribeUrl) {
-                if (!this.isValidSnsSubscribeUrl(subscribeUrl)) {
-                    logger.warn('[SesWebhookHandler] Invalid SubscribeURL, rejecting', {
-                        url: subscribeUrl,
-                    })
-                    return { status: 403, body: { error: 'Invalid SubscribeURL' } }
-                }
-                await this.fetchText(subscribeUrl)
-            } else {
-                logger.warn('[SesWebhookHandler] SubscriptionConfirmation without SubscribeURL - cannot confirm')
-                return { status: 400, body: { error: 'Missing SubscribeURL' } }
-            }
-            return { status: 200, body: { ok: true } }
-        }
-
-        if (parsed.mode === 'sns' && 'envelope' in parsed && parsed.envelope?.Type === 'UnsubscribeConfirmation') {
-            logger.info('[SesWebhookHandler] confirming unsubscribe', { envelope: parsed.envelope })
-            return { status: 200, body: { ok: true } }
-        }
 
         // Process SES events
         const records = parsed.mode === 'raw' ? parsed.records : parsed.records!

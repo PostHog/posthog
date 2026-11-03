@@ -11,10 +11,12 @@ import {
     MinimalAppMetric,
 } from '~/cdp/types'
 import { ModifiedRequest } from '~/common/api/router'
+import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { isDevEnv, isTestEnv } from '~/common/utils/env-utils'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 
+import { SES_WEBHOOKS_OUTPUT, SesWebhooksOutput } from '../../outputs/outputs'
 import { CapturedEventsService } from '../captured-events/captured-events.service'
 import { HogFlowManagerService } from '../hogflows/hogflow-manager.service'
 import { HogFunctionManagerService } from '../managers/hog-function-manager.service'
@@ -220,7 +222,9 @@ export class EmailTrackingService {
         private capturedEventsService: CapturedEventsService,
         private teamWorkflowsConfigService: TeamWorkflowsConfigService,
         private trackingCodeSigner: EmailTrackingCodeSigner,
-        private emailSuppressionService: EmailSuppressionService
+        private emailSuppressionService: EmailSuppressionService,
+        private outputs: IngestionOutputs<SesWebhooksOutput>,
+        private queueEnabled: boolean
     ) {
         const allowedTopicArns = (process.env.SES_ALLOWED_SNS_TOPIC_ARNS ?? '').split(',')
         this.sesWebhookHandler = new SesWebhookHandler(this.trackingCodeSigner, allowedTopicArns)
@@ -418,15 +422,64 @@ export class EmailTrackingService {
         await this.hogFunctionMonitoringService.flush()
     }
 
+    /**
+     * Verify the delivery and hand it off, nothing more.
+     *
+     * Processing reads Postgres and writes several stores. Doing it here let a datastore failure
+     * answer SNS with a 5xx after part of the notification had already been counted, and SNS
+     * redelivers on a 5xx, so that part was counted again on every attempt. Past the produce below
+     * the only failure AWS can see is a failed produce, which recorded nothing.
+     */
     public async handleSesWebhook(req: ModifiedRequest): Promise<{ status: number; message?: string }> {
         if (!req.body) {
             return { status: 403, message: 'Missing request body' }
         }
 
+        let body: unknown
+        try {
+            body = parseJSON(req.body)
+        } catch {
+            // A body we cannot read will not become readable on redelivery, so answer terminally.
+            emailTrackingErrorsCounter.inc({ error_type: 'unparseable_body', source: 'ses' })
+            return { status: 400, message: 'Invalid body' }
+        }
+
+        const answer = await this.sesWebhookHandler.accept({
+            body,
+            headers: req.headers,
+            verifySignature: true,
+        })
+        if (answer) {
+            return { status: answer.status, message: answer.body as string }
+        }
+
+        if (!this.queueEnabled) {
+            // The consumer is not deployed yet, so recording still runs here and a failure still
+            // answers SNS with a 5xx. Remove this branch once every region has the consumer.
+            await this.processSesNotification(body)
+            return { status: 200, message: 'ok' }
+        }
+
+        // Keyed by the SNS message id so every redelivery of one notification lands on the same
+        // partition, and the consumer sees them in the order AWS sent them.
+        const messageId = (body as { MessageId?: unknown })?.MessageId
+        await this.outputs.produce(SES_WEBHOOKS_OUTPUT, {
+            key: typeof messageId === 'string' ? Buffer.from(messageId) : null,
+            value: Buffer.from(JSON.stringify(body)),
+        })
+
+        return { status: 200, message: 'queued' }
+    }
+
+    /**
+     * Record one verified SES notification: metrics, log entries, suppression-list writes.
+     *
+     * Runs in the consumer, off the request. A failure here replays through Kafka instead of
+     * asking SNS to redeliver a notification whose metrics are already partly recorded.
+     */
+    public async processSesNotification(body: unknown): Promise<void> {
         try {
             const {
-                status,
-                body,
                 metrics,
                 logEntries,
                 transientBounceRecipients,
@@ -434,9 +487,10 @@ export class EmailTrackingService {
                 complainedRecipients,
                 deliveredRecipients,
             } = await this.sesWebhookHandler.handleWebhook({
-                body: parseJSON(req.body),
-                headers: req.headers,
-                verifySignature: true,
+                body,
+                headers: {},
+                // Proven on the request before this was ever produced.
+                verifySignature: false,
             })
 
             // A single SNS notification can yield several metrics (a Click emits its rollup plus a
@@ -475,7 +529,7 @@ export class EmailTrackingService {
                     }))
                 )
             } catch (error) {
-                logger.error('[EmailTrackingService] handleSesWebhook: Failed to track logs', { error })
+                logger.error('[EmailTrackingService] processSesNotification: Failed to track logs', { error })
                 emailTrackingErrorsCounter.inc({ error_type: 'track_logs_failed', source: 'ses' })
             }
 
@@ -516,11 +570,9 @@ export class EmailTrackingService {
                 logger.error('[EmailTrackingService] Failed to update suppression list', { error })
                 emailTrackingErrorsCounter.inc({ error_type: 'suppression_update_failed', source: 'ses' })
             }
-
-            return { status, message: body as string }
         } catch (error) {
             emailTrackingErrorsCounter.inc({ error_type: error.name || 'unknown' })
-            logger.error('[EmailService] handleWebhook: SES webhook error', { error })
+            logger.error('[EmailTrackingService] processSesNotification: SES webhook error', { error })
             throw error
         }
     }

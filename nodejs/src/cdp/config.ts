@@ -1,6 +1,7 @@
 import {
     KAFKA_APP_METRICS_2,
     KAFKA_CDP_EVENTS_DLQ,
+    KAFKA_CDP_SES_WEBHOOKS,
     KAFKA_EVENTS_JSON,
     KAFKA_HOG_INVOCATION_RESULTS,
     KAFKA_LOG_ENTRIES,
@@ -130,6 +131,13 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_DLQ_BATCH_FAIL_RATIO: number
     CDP_EVENTS_DLQ_TOPIC: string
     CDP_EVENTS_DLQ_PRODUCER: CdpProducerName
+    // Verified SES notifications, handed off by the webhook so processing runs off the request.
+    CDP_SES_WEBHOOKS_TOPIC: string
+    CDP_SES_WEBHOOKS_PRODUCER: CdpProducerName
+    // Off until the topic exists and its consumer is deployed. The webhook and the consumer roll
+    // as separate apps, so turning this on in the image would queue SES events to a topic nothing
+    // reads yet — the deploy-ordering trap this whole change exists to close.
+    CDP_SES_WEBHOOKS_QUEUE_ENABLED: boolean
     // Replay worker. Scaled to zero replicas; an operator scales it up to drain the topic.
     CDP_DLQ_REPLAY_TOPIC: string
 
@@ -344,6 +352,10 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Same cyclotron Warpstream cluster as every other CDP topic — the replay worker
         // consumes from there, and no ClickHouse table reads these topics.
         CDP_EVENTS_DLQ_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
+        CDP_SES_WEBHOOKS_TOPIC: KAFKA_CDP_SES_WEBHOOKS,
+        // Same cyclotron Warpstream cluster as every other CDP topic; no ClickHouse table reads it.
+        CDP_SES_WEBHOOKS_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
+        CDP_SES_WEBHOOKS_QUEUE_ENABLED: false,
         CDP_DLQ_REPLAY_TOPIC: KAFKA_CDP_EVENTS_DLQ,
 
         CDP_EMAIL_TRACKING_URL: 'http://localhost:8010',

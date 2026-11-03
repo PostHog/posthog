@@ -10,10 +10,11 @@ import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { insertHogFunction } from '~/cdp/_tests/fixtures'
 import { insertHogFlow } from '~/cdp/_tests/fixtures-hogflows'
 import { CdpApi } from '~/cdp/cdp-api'
+import { createCdpCoreServices } from '~/cdp/cdp-services'
 import { CyclotronJobInvocationHogFunction, HogFunctionType } from '~/cdp/types'
 import { setupExpressApp } from '~/common/api/router'
 import { defaultConfig } from '~/common/config/config'
-import { KAFKA_APP_METRICS_2, KAFKA_LOG_ENTRIES } from '~/common/config/kafka-topics'
+import { KAFKA_APP_METRICS_2, KAFKA_CDP_SES_WEBHOOKS, KAFKA_LOG_ENTRIES } from '~/common/config/kafka-topics'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import * as envUtils from '~/common/utils/env-utils'
@@ -23,6 +24,7 @@ import { createTestTeamFixture } from '~/tests/helpers/sql'
 
 import { Hub, Team } from '../../../types'
 import {
+    EmailTrackingService,
     METRIC_NAME_TO_EVENT_NAME,
     PIXEL_GIF,
     addTrackingToEmail,
@@ -38,12 +40,25 @@ describe('EmailTrackingService', () => {
 
     const signer = new EmailTrackingCodeSigner(defaultConfig.ENCRYPTION_SALT_KEYS, defaultConfig.CDP_EMAIL_TRACKING_URL)
 
+    // The webhook verifies a notification and queues it; the consumer records what it says. Tests
+    // that assert what a notification records run both halves, the way the deployed pair does.
+    let sesQueueCursor = 0
+    const recordQueuedSesNotifications = async (service: EmailTrackingService): Promise<void> => {
+        const queued = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_CDP_SES_WEBHOOKS)
+        const pending = queued.slice(sesQueueCursor)
+        sesQueueCursor = queued.length
+        for (const message of pending) {
+            await service.processSesNotification(message.value)
+        }
+    }
+
     beforeEach(async () => {
         hub = await createHub({})
         team = (await createTestTeamFixture(hub.postgres)).team
 
         mockFetch.mockClear()
         mockProducerObserver.resetKafkaProducer()
+        sesQueueCursor = 0
     })
 
     afterEach(async () => {
@@ -238,12 +253,17 @@ describe('EmailTrackingService', () => {
         let hogFunction: HogFunctionType
         const invocationId = 'invocation-id'
         let server: Server
+        let emailTrackingService: EmailTrackingService
 
         beforeEach(async () => {
+            // The shipped end state. The flag only covers the window before the consumer is
+            // deployed in every region.
+            hub.CDP_SES_WEBHOOKS_QUEUE_ENABLED = true
             api = new CdpApi(hub, createCdpConsumerDeps(hub), {
                 hogQueue: createMockJobQueue(),
                 hogflowQueue: createMockJobQueue(),
             })
+            emailTrackingService = createCdpCoreServices(hub, createCdpConsumerDeps(hub)).emailTrackingService
             app = setupExpressApp()
             app.use('/', api.router())
             server = app.listen(0, () => {})
@@ -347,15 +367,17 @@ describe('EmailTrackingService', () => {
                 functionId,
                 parentRunId,
                 workflowVersion,
+                distinctId,
             }: {
                 functionId: string
                 parentRunId?: string
                 workflowVersion?: number
+                distinctId?: string
             }): Promise<supertest.Response> => {
                 // Third arg opts into the versioned payload, which `generate` won't emit by default
                 // until phase two of the rollout — see EMIT_VERSIONED_PAYLOAD in tracking-code.ts.
                 const trackingCode = signer.generate(
-                    { functionId, id: invocationId, teamId: team.id, parentRunId, workflowVersion },
+                    { functionId, id: invocationId, teamId: team.id, parentRunId, workflowVersion, distinctId },
                     false,
                     workflowVersion !== undefined
                 )
@@ -390,13 +412,24 @@ describe('EmailTrackingService', () => {
                     .send(JSON.stringify(envelope))
             }
 
+            const postBounceAndRecord = async (opts: {
+                functionId: string
+                parentRunId?: string
+                workflowVersion?: number
+                distinctId?: string
+            }): Promise<supertest.Response> => {
+                const res = await postBounce(opts)
+                await recordQueuedSesNotifications(emailTrackingService)
+                return res
+            }
+
             it('writes a hog_flow log entry for a bounce that resolves to a flow', async () => {
                 const hogFlow = await insertHogFlow(
                     hub.postgres,
                     new FixtureHogFlowBuilder().withTeamId(team.id).build()
                 )
 
-                const res = await postBounce({ functionId: hogFlow.id })
+                const res = await postBounceAndRecord({ functionId: hogFlow.id })
                 expect(res.status).toBe(200)
 
                 await waitForExpect(() => {
@@ -423,7 +456,7 @@ describe('EmailTrackingService', () => {
             })
 
             it('records the metric but writes no log entry when the bounce resolves to a hog_function', async () => {
-                const res = await postBounce({ functionId: hogFunction.id })
+                const res = await postBounceAndRecord({ functionId: hogFunction.id })
                 expect(res.status).toBe(200)
 
                 await waitForExpect(() => {
@@ -449,7 +482,7 @@ describe('EmailTrackingService', () => {
                     version: 5,
                 })
 
-                const res = await postBounce({ functionId: hogFlow.id, workflowVersion: 2 })
+                const res = await postBounceAndRecord({ functionId: hogFlow.id, workflowVersion: 2 })
                 expect(res.status).toBe(200)
 
                 await waitForExpect(() => {
@@ -465,6 +498,30 @@ describe('EmailTrackingService', () => {
                 })
             })
 
+            it('acks and queues the notification when the datastore is down, so SNS never redelivers', async () => {
+                // Recording used to run on the request. A failing read answered SNS with a 5xx
+                // after part of the notification was already counted, and SNS redelivers on a 5xx,
+                // so every attempt counted that part again. Verification is all that is left here,
+                // and it reads no database.
+                const originalQuery = hub.postgres.query.bind(hub.postgres)
+                jest.spyOn(hub.postgres, 'query').mockImplementation(((...args: any[]) => {
+                    if (args[3] === 'fetch-team-workflows-configs') {
+                        return Promise.reject(new Error('column "some_new_column" does not exist'))
+                    }
+                    return originalQuery(...(args as Parameters<typeof originalQuery>))
+                }) as any)
+
+                const res = await postBounce({ functionId: hogFunction.id, distinctId: 'user-1' })
+                expect(res.status).toBe(200)
+
+                // Queued verbatim, so a fix can replay it.
+                const queued = mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_CDP_SES_WEBHOOKS)
+                expect(queued).toHaveLength(1)
+                expect(queued[0].value).toMatchObject({ Type: 'Notification', MessageId: 'sns-message-id' })
+                // Nothing counted on the request, so there is nothing a redelivery could count twice.
+                expect(mockProducerObserver.getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)).toHaveLength(0)
+            })
+
             it('keys the log entry under parentRunId for batch-triggered runs', async () => {
                 const hogFlow = await insertHogFlow(
                     hub.postgres,
@@ -472,7 +529,7 @@ describe('EmailTrackingService', () => {
                 )
                 const parentRunId = 'batch-run-id'
 
-                const res = await postBounce({ functionId: hogFlow.id, parentRunId })
+                const res = await postBounceAndRecord({ functionId: hogFlow.id, parentRunId })
                 expect(res.status).toBe(200)
 
                 await waitForExpect(() => {
@@ -498,14 +555,17 @@ describe('EmailTrackingService', () => {
         let app: express.Application
         let server: Server
         let verifySignatureSpy: jest.SpyInstance
+        let emailTrackingService: EmailTrackingService
 
         beforeEach(() => {
             hub.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD = 1
+            hub.CDP_SES_WEBHOOKS_QUEUE_ENABLED = true
 
             api = new CdpApi(hub, createCdpConsumerDeps(hub), {
                 hogQueue: createMockJobQueue(),
                 hogflowQueue: createMockJobQueue(),
             })
+            emailTrackingService = createCdpCoreServices(hub, createCdpConsumerDeps(hub)).emailTrackingService
             app = setupExpressApp()
             app.use('/', api.router())
             server = app.listen(0, () => {})
@@ -549,10 +609,12 @@ describe('EmailTrackingService', () => {
                 Signature: 'stubbed',
                 SigningCertURL: 'https://sns.us-east-1.amazonaws.com/cert.pem',
             }
-            return await supertest(app)
+            const res = await supertest(app)
                 .post('/public/m/ses_webhook')
                 .set('Content-Type', 'text/plain')
                 .send(JSON.stringify(envelope))
+            await recordQueuedSesNotifications(emailTrackingService)
+            return res
         }
 
         const postPermanentBounce = async (functionId: string, emailAddress: string): Promise<supertest.Response> => {
@@ -582,10 +644,12 @@ describe('EmailTrackingService', () => {
                 Signature: 'stubbed',
                 SigningCertURL: 'https://sns.us-east-1.amazonaws.com/cert.pem',
             }
-            return await supertest(app)
+            const res = await supertest(app)
                 .post('/public/m/ses_webhook')
                 .set('Content-Type', 'text/plain')
                 .send(JSON.stringify(envelope))
+            await recordQueuedSesNotifications(emailTrackingService)
+            return res
         }
 
         const postComplaint = async (functionId: string, emailAddress: string): Promise<supertest.Response> => {
@@ -615,10 +679,12 @@ describe('EmailTrackingService', () => {
                 Signature: 'stubbed',
                 SigningCertURL: 'https://sns.us-east-1.amazonaws.com/cert.pem',
             }
-            return await supertest(app)
+            const res = await supertest(app)
                 .post('/public/m/ses_webhook')
                 .set('Content-Type', 'text/plain')
                 .send(JSON.stringify(envelope))
+            await recordQueuedSesNotifications(emailTrackingService)
+            return res
         }
 
         it('inserts a suppression row and marks it suppressed after a Transient bounce webhook', async () => {
@@ -628,8 +694,8 @@ describe('EmailTrackingService', () => {
             const res = await postTransientBounce(hogFlow.id, email)
             expect(res.status).toBe(200)
 
-            // handleSesWebhook awaits the suppression write inline, so the row is present
-            // as soon as the 200 returns — no waitForExpect needed.
+            // The helper awaits the suppression write, so the row is present on return —
+            // no waitForExpect needed.
             const result = await hub.postgres.query<{
                 identifier: string
                 source: string

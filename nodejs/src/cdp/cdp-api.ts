@@ -53,7 +53,6 @@ import { JobQueue } from './services/job-queue/job-queue.interface'
 import { GroupsManagerService } from './services/managers/groups-manager.service'
 import { HogFunctionManagerService } from './services/managers/hog-function-manager.service'
 import { EmailTrackingService } from './services/messaging/email-tracking.service'
-import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
 import { RecipientTokensService } from './services/messaging/recipient-tokens.service'
 import {
     HogWatcherService,
@@ -188,15 +187,7 @@ export class CdpApi {
         this.hogQueue = jobQueues.hogQueue
         this.hogflowQueue = jobQueues.hogflowQueue
         this.cdpSourceWebhooksConsumer = new CdpSourceWebhooksConsumer(config, deps, jobQueues)
-        this.emailTrackingService = new EmailTrackingService(
-            this.hogFunctionManager,
-            this.hogFlowManager,
-            services.hogFunctionMonitoringService,
-            services.capturedEventsService,
-            services.teamWorkflowsConfigService,
-            new EmailTrackingCodeSigner(config.ENCRYPTION_SALT_KEYS, config.CDP_EMAIL_TRACKING_URL),
-            services.emailSuppressionService
-        )
+        this.emailTrackingService = services.emailTrackingService
         this.groupsManager = new GroupsManagerService(deps.teamManager, deps.groupRepository)
         this.batchExportHogFunctionService = new BatchExportHogFunctionService(
             config.SITE_URL,
