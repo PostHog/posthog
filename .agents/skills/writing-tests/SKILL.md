@@ -166,15 +166,12 @@ Escalating to the next rung is the last resort, not the default.
     Do not assume a debounce, `setTimeout`, kea breakpoint, or fast mock will still be
     pending on the next line. Test setup may shorten internal delays without changing
     production behavior.
-- **No `time.sleep` in test code.** Ruff rule TID251 bans it in test files, and CI runs that rule with `--ignore-noqa`, so an inline `noqa` changes nothing.
-  The only exemption is a file path under `per-file-ignores` in `pyproject.toml`, reserved for a fake that must be slow.
-  A sleep guesses how long the work takes, so it flakes on a loaded runner and slows every run on a fast one.
-  Pick the replacement by what the test waits for:
-  - Code that reads `time.time()` or `datetime.now()`: `time_machine.travel(..., tick=False)`, then `traveller.shift(...)`.
-  - Code that reads `time.monotonic()`: time-machine does not patch it. Give the code a `clock` parameter and pass a fake.
-  - Work on another thread or process: wait on a signal it sets (`threading.Event`, a future, `thread.join()`), or poll the observable state with `posthog.test.waiting.wait_until`.
-  - A fake that must hang: block it on an `Event` that teardown sets, so no thread outlives the test.
-  - Something that must not happen: `assert not event.wait(timeout=...)` on the event the bug would set.
+- **No `time.sleep` in test code.** `[lint: TID251]` CI runs the rule with `--ignore-noqa`, so a `noqa` does nothing; a slow fake gets a path in `per-file-ignores`.
+  Replace the sleep with the control that matches the wait:
+  - `time.time()` or `datetime.now()`: `time_machine.travel(..., tick=False)`, then `traveller.shift(...)`.
+  - `time.monotonic()`: time-machine does not patch it, so give the code a `clock` parameter.
+  - Another thread or process: `threading.Event`, a future, `thread.join()`, or `posthog.test.waiting.wait_until`.
+  - Something that must not happen: `assert not event.wait(timeout=...)`.
   - Order between two writes: set each timestamp yourself.
 - **An absolute date in a test is a time bomb until you pin the clock.**
   A fixture date keeps its meaning only while the real clock stays where you left it.
