@@ -1,6 +1,6 @@
 import type { Runtime } from '@/core/runtime'
 
-import { credentialFromStorage, type Credential, type CredentialStorage } from './credential'
+import { credentialFromStorage, type Credential, type CredentialStorage, type LogoutOutcome } from './credential'
 import { hostKey, openStore, type FileStore, type KeychainStore } from './credential-store'
 import { loginFor, readSettings, withLogin, writeSettings, type HogSettings } from './settings'
 
@@ -56,4 +56,15 @@ export async function removeLogin(runtime: Runtime, login: StoredLogin): Promise
     const lastLogin = settings.host !== undefined && hostKey(settings.host) === hostKey(host)
     await writeSettings(runtime, lastLogin ? { logins: settings.logins } : settings)
     return removed
+}
+
+// Logs this machine out of `host`: the credential revokes itself where it can, and hog removes its
+// stored copy. Resolves to undefined when hog had no login to remove.
+export async function logout(runtime: Runtime, host: string): Promise<LogoutOutcome | undefined> {
+    const login = await readLogin(runtime, await readSettings(runtime), host)
+    if (!login) {
+        return undefined
+    }
+    const [outcome, removed] = await Promise.all([login.credential.logout(runtime), removeLogin(runtime, login)])
+    return removed ? outcome : undefined
 }

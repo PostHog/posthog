@@ -5,7 +5,7 @@ import { EXIT_USAGE, HogError } from '@/core/errors'
 import { escapeControls } from '@/core/output'
 import type { Prompts } from '@/core/prompts'
 import { PersonalApiKey } from '@/posthog/credential'
-import type { StoreChoice } from '@/posthog/credential-store'
+import { trimHost, type StoreChoice } from '@/posthog/credential-store'
 import { checkApiKey, checkHost, checkProjectId } from '@/posthog/credentials'
 import type { Approval } from '@/posthog/device-auth'
 import { loginFlow, saveLogin, type LoggedIn } from '@/posthog/login'
@@ -63,7 +63,7 @@ async function keyLogin(ctx: Context, prompts: Prompts): Promise<LoginResult> {
     const host = await prompts.text('PostHog host', { initialValue: REGIONS.us, validate: checkHost })
     const projectId = await prompts.text('Project ID, the number in your project URL', { validate: checkProjectId })
     const apiKey = await prompts.password('Personal API key', { validate: checkApiKey })
-    return loggedInResult(await saveLogin(ctx.runtime, new PersonalApiKey(host.replace(/\/+$/, ''), projectId, apiKey)))
+    return loggedInResult(await saveLogin(ctx.runtime, new PersonalApiKey(trimHost(host), projectId, apiKey)))
 }
 
 export default defineCommand({
