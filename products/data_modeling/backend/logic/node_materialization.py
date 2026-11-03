@@ -50,6 +50,8 @@ MANAGED_WAREHOUSE_UNAVAILABLE_REFUSAL = "This organization has no managed wareho
 # Long enough for the state changes that follow the start to commit before the workflow first reads them.
 MANUAL_TRINO_RUN_START_DELAY = timedelta(seconds=5)
 MAX_NAMED_BUILDING_MODELS = 5
+BUILDING_LOOKUP_CONCURRENCY = 20
+BUILDING_LOOKUP_TIMEOUT = timedelta(seconds=5)
 
 
 def start_node_materialization(node: Node, *, resume: bool = True, triggered_by_id: int | None = None) -> None:
@@ -179,11 +181,17 @@ async def _nodes_building_on_trino(temporal: Client, dag_id: str, node_ids: list
 
     This check only gives a clear error before the run starts. The fixed build id is the lock, so a node
     whose build cannot be read counts as free, and the run skips that node if another run holds it.
+    Lookups are bounded in number and time, so a large selection cannot flood Temporal or stall the request.
     """
+
+    limit = asyncio.Semaphore(BUILDING_LOOKUP_CONCURRENCY)
 
     async def is_building(node_id: str) -> bool:
         try:
-            description = await temporal.get_workflow_handle(trino_build_workflow_id(dag_id, node_id)).describe()
+            async with limit:
+                description = await temporal.get_workflow_handle(trino_build_workflow_id(dag_id, node_id)).describe(
+                    rpc_timeout=BUILDING_LOOKUP_TIMEOUT
+                )
         except RPCError:
             return False
         return description.status == WorkflowExecutionStatus.RUNNING
