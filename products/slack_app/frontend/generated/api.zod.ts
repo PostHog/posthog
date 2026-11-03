@@ -23,7 +23,7 @@ export const SlackAppWorkspaceSetupDefaultProjectCreateBody = /* @__PURE__ */ zo
  */
 export const slackAppWorkspaceSetupJoinChannelsCreateBodyChannelIdsMax = 20
 
-export const slackAppWorkspaceSetupJoinChannelsCreateBodyPostWelcomeDefault = false
+export const slackAppWorkspaceSetupJoinChannelsCreateBodyPostWelcomeDefault = true
 
 export const SlackAppWorkspaceSetupJoinChannelsCreateBody = /* @__PURE__ */ zod.object({
     channel_ids: zod

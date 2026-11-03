@@ -263,7 +263,7 @@ export const slackAppWorkspaceSetupLogic = kea<slackAppWorkspaceSetupLogicType>(
             },
         ],
         postWelcome: [
-            false,
+            true,
             {
                 setPostWelcome: (_, { postWelcome }) => postWelcome,
             },
