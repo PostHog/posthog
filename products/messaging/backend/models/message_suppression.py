@@ -14,6 +14,9 @@ class SuppressionSource(models.TextChoices):
     # Added automatically after the recipient reported a message as spam (a mailbox provider
     # complaint relayed through the SES webhook path).
     COMPLAINT = "COMPLAINT"
+    # Added automatically when the cross-team known-invalid list blocked one of this team's sends.
+    # Another team's send to the address hard-bounced because the address does not exist.
+    KNOWN_INVALID = "KNOWN_INVALID", "Known invalid"
 
 
 class MessageSuppression(TeamScopedRootMixin, UUIDModel):
@@ -60,6 +63,9 @@ class MessageSuppression(TeamScopedRootMixin, UUIDModel):
     # When the address last hard-bounced. Set on every row, manual entries included, and cleared when a
     # user removes the suppression. A suppressed row with this set also blocks transactional messages.
     hard_bounced_at = models.DateTimeField(null=True, blank=True)
+    # When a user last removed the address from this team's list. While set, the cross-team known-invalid
+    # list does not block the address for this team, so the removal sticks.
+    known_invalid_allowed_at = models.DateTimeField(null=True, blank=True)
 
     # Whether the address is actively suppressed. A row can exist while still only counting
     # bounces (suppressed=False) before it crosses the threshold.

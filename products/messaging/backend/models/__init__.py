@@ -1,3 +1,4 @@
+from .known_invalid_email_address import KnownInvalidEmailAddress
 from .message_category import MessageCategory, MessageCategoryType
 from .message_preferences import ALL_MESSAGE_PREFERENCE_CATEGORY_ID, MessageRecipientPreference, PreferenceStatus
 from .message_suppression import MessageSuppression, SuppressionSource
@@ -8,6 +9,7 @@ from .supabase_auth_email_config import SupabaseAuthEmailConfig
 
 __all__ = [
     "ALL_MESSAGE_PREFERENCE_CATEGORY_ID",
+    "KnownInvalidEmailAddress",
     "MessageCategory",
     "MessageCategoryType",
     "MessageRecipientPreference",
