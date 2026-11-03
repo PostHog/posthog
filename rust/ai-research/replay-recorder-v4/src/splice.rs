@@ -5,13 +5,13 @@ use std::collections::{BTreeMap, HashMap};
 
 use metrics::counter;
 use replay_core_v4::bytescan::{unescape, write_json_string, Span};
-use replay_core_v4::inspect::css::{write_css_edit, CssEdit};
+use replay_core_v4::inspect::css::{in_css_string, write_css_edit, CssEdit};
 use replay_core_v4::inspect::dom::{for_each_srcset_candidate, RemoteKind};
-use replay_core_v4::inspect::edits::{Edit, EditSource, EventEdits, Slot};
+use replay_core_v4::inspect::edits::{Edit, EditSource, EventEdits, LinkForm, Slot};
 use replay_core_v4::inspect::srcset::{shown_candidate, SrcsetSlot};
-use replay_core_v4::refs::UrlAsset;
+use replay_core_v4::refs::{declined_url_ref, UrlAsset};
 use replay_core_v4::seal::image_url_key;
-use replay_core_v4::url_policy::{is_remote, without_credentials};
+use replay_core_v4::url_policy::{checked_url, is_remote, without_credentials, Decline};
 use replay_core_v4::v4_image_refs::{bundled_font_ref, ImageDecline, IMAGE_DECLINED_PREFIX};
 
 use crate::urls::url_reference;
@@ -166,6 +166,13 @@ impl<'b> Splicer<'b> {
                 text: reference,
                 decline: None,
             },
+            // A redacted URL that the policy still refuses is one the two read differently, so the slot keeps none of it.
+            (_, Err(Decline::Credential)) => Named {
+                text: without_credentials(url)
+                    .filter(|kept| checked_url(kept).err() != Some(Decline::Credential))
+                    .unwrap_or_else(|| declined_url_ref(asset, Decline::Credential)),
+                decline: Some(Decline::Credential.label()),
+            },
             (_, Err(decline)) => Named {
                 text: kept(url),
                 decline: Some(decline.label()),
@@ -192,14 +199,32 @@ impl<'b> Splicer<'b> {
                 if is_remote(url) {
                     Some(self.named(url, RemoteKind::Image).text)
                 } else {
-                    without_credentials(text)
+                    self.redacted(without_credentials(text))
                 }
             }
             Slot::Srcset(slot) => self.rebuilt_srcset(text, *slot),
             Slot::Css(edit) => Some(self.written_css(text, edit)),
-            Slot::Link { srcset: false } => without_credentials(text),
-            Slot::Link { srcset: true } => Some(links_without_credentials(text)),
+            Slot::Link(LinkForm::Url) => self.redacted(without_credentials(text)),
+            Slot::Link(LinkForm::Srcset) => self.redacted(Some(links_without_credentials(text))),
+            Slot::Link(LinkForm::Urls) => self.redacted(Some(
+                text.split_ascii_whitespace()
+                    .map(kept)
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            )),
         }
+    }
+
+    /// Counts a URL that keeps its place without its credentials and gets no reference.
+    fn redacted(&mut self, redacted: Option<String>) -> Option<String> {
+        if redacted.is_some() {
+            *self
+                .counters
+                .url_rewrites
+                .entry((kind_label(RemoteKind::Link), "redacted", "credential"))
+                .or_default() += 1;
+        }
+        redacted
     }
 
     fn written_css(&mut self, text: &str, edit: &CssEdit) -> String {
@@ -217,9 +242,12 @@ impl<'b> Splicer<'b> {
                 *self.counters.css_rewrites.entry(kind).or_default() += 1;
             }
         }
-        write_css_edit(text, edit, &mut |url| match url.kind {
-            RemoteKind::Link => kept(&url.url),
-            kind => self.named(&url.url, kind).text,
+        write_css_edit(text, edit, &mut |url| {
+            let written = match url.kind {
+                RemoteKind::Link => self.redacted(Some(kept(&url.url))).unwrap_or_default(),
+                kind => self.named(&url.url, kind).text,
+            };
+            in_css_string(&written).into_owned()
         })
     }
 

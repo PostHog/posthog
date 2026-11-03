@@ -867,13 +867,38 @@ mod tests {
                 "{lines}"
             );
         }
+        // Such a node's text may not be CSS, so an accepted URL in it gets no reference.
+        let accepted = ".a{background:url(https://cdn.example.com/a.png)}";
         let events = json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "removes": [], "attributes": [],
-            "texts": [{"id": 99, "value": format!(".a{{background:url({signed})}}")}],
+            "texts": [{"id": 99, "value": format!(".a{{background:url({signed})}}")}, {"id": 96, "value": accepted}],
             "adds": [{"parentId": 98, "node": {"type": 2, "tagName": "source", "attributes": {"srcset": format!("{signed} 1x")}, "childNodes": [], "id": 97}}]}}])
         .to_string();
         let lines = stored_lines(&events);
         assert!(
-            !lines.is_empty() && !lines.contains("X-Amz-Signature"),
+            lines.contains(accepted) && !lines.contains("X-Amz-Signature"),
+            "{lines}"
+        );
+        // The URL parser keeps a backslash in a query, so the rewrite escapes it, and the CSS string still ends.
+        let style = r#"background-image:url("https://cdn.example.com/a.png?token=abc123&q=\\")"#;
+        let lines = stored_lines(
+            &json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "adds": [], "removes": [], "texts": [],
+                "attributes": [{"id": 99, "attributes": {"style": style}}]}}])
+            .to_string(),
+        );
+        let escaped =
+            json!(r#"background-image:url("https://cdn.example.com/a.png?q=\\")"#).to_string();
+        assert!(lines.contains(&escaped), "{escaped} in {lines}");
+        // A property set on its own, by a style diff or a style declaration event, loses its credential too.
+        let events = json!([
+            {"type": 3, "timestamp": 1, "data": {"source": 0, "adds": [], "removes": [], "texts": [],
+                "attributes": [{"id": 99, "attributes": {"style": {"filter": format!("url({signed})")}}}]}},
+            {"type": 3, "timestamp": 2, "data": {"source": 13, "id": 3, "set": {"property": "filter", "value": format!("url({signed})")}}},
+        ])
+        .to_string();
+        let lines = stored_lines(&events);
+        assert!(
+            lines.matches("bucket.s3.amazonaws.com/avatar.png").count() == 2
+                && !lines.contains("X-Amz-Signature"),
             "{lines}"
         );
         // The player loads the last of a repeated attribute, so the inspector names that one.
@@ -935,7 +960,20 @@ mod tests {
             json!([style(
                 "background-image:image-set(url(/a.png?X-Amz-Signature=abc123) 1x)"
             )]),
-            json!([{"parentId": 1, "node": {"type": 2, "tagName": "style", "attributes": {"_cssText": "@import url(\"https://cdn.example.com/a.css?X-Amz-Signature=abc123\");@import \"/b.css?token=abc123\";"}, "childNodes": [], "id": 11}}]),
+            json!([{"parentId": 1, "node": {"type": 2, "tagName": "style", "attributes": {"_cssText": "@import url(\"https://cdn.example.com/a.css?X-Amz-Signature=abc123\");@import \"/b.css?token=abc123\";@import \"https://cdn.example.com/c\\2e css?token=abc123\";"}, "childNodes": [], "id": 11}}]),
+            json!([link(
+                "a",
+                json!({"ping": format!("{signed} https://cdn.example.com/b")})
+            )]),
+            // The policy reads a host without its trailing dot, and a path once it is decoded.
+            json!([link(
+                "img",
+                json!({"src": "https://objectstorage.us-ashburn-1.oraclecloud.com./p/X-Amz-Signature/n/ns/b/bucket/o/a.png"})
+            )]),
+            json!([link(
+                "img",
+                json!({"src": "https://cdn.example.com/image/upload%2Fs--X-Amz-Signature--%2Fv1/a.png"})
+            )]),
         ] {
             let copy = json!(signed).to_string();
             let events = json!([{"type": 3, "timestamp": 1, "data": {"source": 0, "adds": adds, "removes": [], "texts": [],

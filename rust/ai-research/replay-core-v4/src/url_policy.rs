@@ -376,32 +376,19 @@ pub fn canonicalize(raw: &str) -> Option<CanonicalUrl> {
 /// scheme, so it is remote. A browser reads a backslash as a slash in an `https` URL, so `\\host` and `/\host` count too.
 pub fn is_protocol_relative(raw: &str) -> bool {
     matches!(
-        as_parsed(raw).trim().as_bytes(),
+        parsed_start(raw, 8).trim_start().as_bytes(),
         [b'/' | b'\\', b'/' | b'\\', ..]
     )
 }
 
-/// Other spellings of `raw` that a browser loads as the same URL: without its tabs and line breaks, and as the URL
-/// parser writes it, with the scheme and host in lower case and each backslash after the scheme a slash.
-pub fn same_url_spellings(raw: &str) -> Vec<String> {
-    let raw = raw.trim();
-    let parsed = as_parsed(raw);
-    let with_scheme = if is_protocol_relative(&parsed) {
-        format!("https:{parsed}")
-    } else {
-        parsed.to_string()
-    };
-    let serialized = Url::parse(&with_scheme).ok().map(String::from);
-    let mut spellings: Vec<String> = Vec::new();
-    for spelling in [Some(parsed.into_owned()), serialized]
-        .into_iter()
-        .flatten()
-    {
-        if spelling != raw && !spellings.contains(&spelling) {
-            spellings.push(spelling);
-        }
-    }
-    spellings
+/// The first `len` characters of `raw` as [`as_parsed`] reads them, from no more of `raw` than they need, because a
+/// slot can hold a data URI of many megabytes.
+pub fn parsed_start(raw: &str, len: usize) -> String {
+    raw.trim_start_matches(|ch: char| ch <= ' ')
+        .chars()
+        .filter(|ch| !matches!(ch, '\t' | '\n' | '\r'))
+        .take(len)
+        .collect()
 }
 
 /// The URL parser strips C0 controls and spaces from both ends of a URL and drops every ASCII tab and line break anywhere in it, so `\u{1}https://cdn.example.com` and `/\n/cdn.example.com` load from that host.
@@ -419,8 +406,8 @@ pub fn as_parsed(raw: &str) -> Cow<'_, str> {
 /// all on a page of another scheme, so `https:\\host` and `https:host` can load from the host too. A
 /// protocol-relative URL does as well.
 pub fn is_remote(url: &str) -> bool {
-    let url = as_parsed(url);
-    let url = url.as_ref();
+    let url = parsed_start(url, 7);
+    let url = url.as_str();
     let after_scheme = ["https:", "http:"].iter().find_map(|scheme| {
         url.get(..scheme.len())
             .filter(|start| start.eq_ignore_ascii_case(scheme))

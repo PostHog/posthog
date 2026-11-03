@@ -15,8 +15,8 @@ use url::Url;
 use super::dom::{RemoteKind, RemoteUrl};
 use crate::fonts::bundled_font;
 use crate::url_policy::{
-    as_parsed, is_fetched_image_type, is_protocol_relative, is_remote, try_canonicalize,
-    without_credentials, MAX_URL_LEN,
+    as_parsed, is_fetched_image_type, is_protocol_relative, is_remote, parsed_start,
+    try_canonicalize, without_credentials, MAX_URL_LEN,
 };
 
 /// Each resolution copies the page's origin, so one event resolves at most this many relative URLs.
@@ -249,10 +249,20 @@ fn link_urls(value: &str, edit_budget: Option<&AtomicUsize>, found: &mut impl Fn
 /// `@import "…"` names its sheet with a string, not a `url()`.
 fn import_string(prelude: &str, found: &mut impl FnMut(CssUrl<'_>)) {
     let mut input = Parser::new(prelude);
+    input.skip_whitespace();
+    let start = input.position();
     if let Ok(Token::QuotedString(url)) = input.next() {
-        if without_credentials(url).is_some() {
-            found(CssUrl::Link(url));
+        if let Some(kept) = without_credentials(url) {
+            found(redacted(input.slice_from(start), &kept));
         }
+    }
+}
+
+/// The URLs with a credential in a text that may not be CSS, such as the text of a node the window does not know. Only
+/// such a URL changes, and none is fetched, so text that only looks like CSS keeps its bytes.
+pub fn text_link_urls(text: &str, resolver: &mut Resolver<'_>, found: &mut impl FnMut(CssUrl<'_>)) {
+    if may_hold_url(text) {
+        link_urls(text, resolver.edit_budget(), found);
     }
 }
 
@@ -264,27 +274,9 @@ pub fn declaration_image_urls(
 ) {
     if can_hold_image(property.trim()) {
         value_urls(value, resolver, found);
+    } else if may_hold_url(value) {
+        link_urls(value, resolver.edit_budget(), found);
     }
-}
-
-/// `text` as CSSOM writes it inside an identifier, as a selector holds the URL of a class like `bg-[url(https://…)]`.
-pub fn escape_in_identifier(text: &str) -> String {
-    let mut escaped = String::with_capacity(text.len() * 2);
-    for character in text.chars() {
-        match character {
-            '\0' => escaped.push('\u{fffd}'),
-            '\u{1}'..='\u{1f}' | '\u{7f}' => {
-                escaped.push_str(&format!("\\{:x} ", u32::from(character)));
-            }
-            'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' => escaped.push(character),
-            _ if !character.is_ascii() => escaped.push(character),
-            _ => {
-                escaped.push('\\');
-                escaped.push(character);
-            }
-        }
-    }
-    escaped
 }
 
 fn can_hold_image(property: &str) -> bool {
@@ -660,18 +652,7 @@ fn url_function_urls(
 }
 
 fn redacted<'f>(function: &'f str, kept: &str) -> CssUrl<'f> {
-    let mut replacement = String::from(URL_FUNCTION_OPEN);
-    for ch in kept.chars() {
-        match ch {
-            '"' | '\\' => {
-                replacement.push('\\');
-                replacement.push(ch);
-            }
-            '\0'..='\u{1f}' | '\u{7f}' => replacement.push_str(&format!("\\{:x} ", u32::from(ch))),
-            _ => replacement.push(ch),
-        }
-    }
-    replacement.push_str("\")");
+    let replacement = format!("{URL_FUNCTION_OPEN}{}\")", in_css_string(kept));
     CssUrl::Rewrite {
         rewrite: CssRewrite {
             text: function.to_owned(),
@@ -700,7 +681,6 @@ fn escaped_url_function_urls(
     } else {
         Cow::Borrowed(written)
     };
-    // A serialized URL percent-encodes `"` and holds no backslash, so the quotes of the rewrite hold it.
     let Some(absolute) = Url::parse(&decoded)
         .ok()
         .filter(|url| matches!(url.scheme(), "http" | "https"))
@@ -731,12 +711,32 @@ fn escaped_url_function_urls(
 }
 
 fn is_root_relative(source: &str) -> bool {
-    as_parsed(source).starts_with('/') && !is_protocol_relative(source)
+    parsed_start(source, 1) == "/" && !is_protocol_relative(source)
 }
 
 const URL_FUNCTION_OPEN: &str = "url(\"";
 
-/// A serialized URL percent-encodes `"`, so the quotes hold any URL that [`Resolver`] returns.
+/// `text` as a quoted CSS string holds it. A serialized URL keeps a `\\` in its query and fragment, which would escape
+/// the closing quote.
+pub fn in_css_string(text: &str) -> Cow<'_, str> {
+    if !text.contains(|ch: char| matches!(ch, '"' | '\\' | '\0'..='\u{1f}' | '\u{7f}')) {
+        return Cow::Borrowed(text);
+    }
+    let mut escaped = String::with_capacity(text.len() + 8);
+    for ch in text.chars() {
+        match ch {
+            '"' | '\\' => {
+                escaped.push('\\');
+                escaped.push(ch);
+            }
+            '\0'..='\u{1f}' | '\u{7f}' => escaped.push_str(&format!("\\{:x} ", u32::from(ch))),
+            _ => escaped.push(ch),
+        }
+    }
+    Cow::Owned(escaped)
+}
+
+/// The writer writes the URL that this `url()` holds with [`in_css_string`].
 fn url_function(url: &str) -> (String, Range<usize>) {
     (
         format!("{URL_FUNCTION_OPEN}{url}\")"),
@@ -902,7 +902,10 @@ enum CandidateStart<'i> {
     Url(CowRcStr<'i>),
     String(CowRcStr<'i>),
     UrlFunction,
-    Other { holds_url: bool },
+    /// Such as `cross-fade()`, which can hold a `url()` that the set keeps as the page wrote it.
+    Other {
+        holds_url: bool,
+    },
 }
 
 fn image_set_candidate<'i>(input: &mut Parser<'i>) -> Option<ImageSetCandidate<'i>> {

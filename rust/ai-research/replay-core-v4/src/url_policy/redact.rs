@@ -2,87 +2,122 @@
 //! removes only these, from the URLs that it does not replace with a reference.
 
 use std::ops::Range;
+use std::sync::LazyLock;
 
 use percent_encoding::percent_decode_str;
+use url::{form_urlencoded, Url};
 
-use super::{is_credential_param, path_tokens, PathToken};
+use super::{
+    as_parsed, decoded_lowercase_path, has_credential_path, has_credential_query,
+    is_credential_param, path_tokens, PathToken,
+};
 
 /// The URL parser reads these with an authority, and a backslash in them as a slash. A URL with no scheme resolves
 /// against a page of one of them.
 const SPECIAL_SCHEMES: &[&str] = &["http", "https", "ws", "wss", "ftp", "file"];
 
-/// `raw` without its userinfo, the credential parameters of its query and fragment, and the path segments that hold a
-/// token. The rest stays as the page wrote it. `None` when `raw` holds none of them.
-pub fn without_credentials(raw: &str) -> Option<String> {
-    // The URL parser drops tabs and line breaks anywhere, so the parts are found without them and keep them in place.
-    let all: Vec<(usize, char)> = raw
-        .char_indices()
-        .filter(|&(_, ch)| !matches!(ch, '\t' | '\n' | '\r'))
-        .collect();
-    let first = all.iter().position(|&(_, ch)| ch > ' ')?;
-    let last = all.iter().rposition(|&(_, ch)| ch > ' ')?;
-    let end_byte = all[last].0 + all[last].1.len_utf8();
-    let chars = &all[first..=last];
-    let url = Parts::of(chars)?;
-    let byte = |at: usize| chars.get(at).map_or(end_byte, |&(byte, _)| byte);
-    let text = |range: Range<usize>| &raw[byte(range.start)..byte(range.end)];
+/// A relative URL resolves against this, so that the policy reads its path and query as it reads an absolute URL's.
+static RELATIVE_BASE: LazyLock<Url> =
+    LazyLock::new(|| Url::parse("https://relative.invalid/").expect("a valid base"));
 
-    let mut changed = false;
-    let mut out = String::with_capacity(raw.len());
-    out.push_str(&raw[..byte(0)]);
-    let head_end = url.authority.as_ref().map_or(url.path.start, |a| a.start);
-    out.push_str(text(0..head_end));
-    let mut host = String::new();
-    if let Some(authority) = url.authority.clone() {
-        let userinfo_end = chars[authority.clone()]
-            .iter()
-            .rposition(|&(_, ch)| ch == '@')
-            .map_or(authority.start, |at| authority.start + at + 1);
-        changed |= userinfo_end > authority.start + 1;
-        let kept = if userinfo_end > authority.start + 1 {
-            userinfo_end
-        } else {
-            authority.start
-        };
-        out.push_str(text(kept..authority.end));
-        host = chars[userinfo_end..authority.end]
-            .iter()
-            .map(|&(_, ch)| ch.to_ascii_lowercase())
-            .take_while(|&ch| ch != ':')
-            .collect();
+/// `raw` without its userinfo, the credential parameters of its query and fragment, and the path segments that hold a
+/// token. The rest stays as the page wrote it, apart from the tabs, line breaks and outer spaces that the URL parser
+/// drops. `None` when the policy reads no credential in `raw`. When the policy still reads one after those cuts, as in
+/// a path that hides a token behind a dot segment, only the URL's origin stays.
+pub fn without_credentials(raw: &str) -> Option<String> {
+    // A `data:` URI can be tens of megabytes, so its scheme is read before anything else.
+    if !is_hierarchical(raw) {
+        return None;
     }
-    let cuts = url.path_cuts(chars, &host);
-    changed |= !cuts.is_empty();
-    let mut copied_to = url.path.start;
-    for cut in cuts {
-        out.push_str(text(copied_to..cut.start));
-        copied_to = cut.end;
+    let url = as_parsed(raw);
+    if !may_hold_credential(&url) || !holds_credential(&url) {
+        return None;
     }
-    out.push_str(text(copied_to..url.path.end));
-    for (mark, part) in [('?', url.query), ('#', url.fragment)] {
-        let Some(part) = part else { continue };
-        // A fragment holds parameters only by convention, as an OAuth callback's `#access_token=` does.
-        let holds_parameters = mark == '?' || chars[part.clone()].iter().any(|&(_, ch)| ch == '=');
-        match holds_parameters
-            .then(|| without_credential_params(chars, part.clone(), &text))
-            .flatten()
-        {
-            Some(kept) => {
-                changed = true;
-                if !kept.is_empty() {
-                    out.push(mark);
-                    out.push_str(&kept);
-                }
-            }
-            None => out.push_str(text(part.start - 1..part.end)),
-        }
+    let parts = Parts::of(&url)?;
+    let cut = parts.without_credentials(&url);
+    if !holds_credential(&cut) {
+        return Some(cut);
     }
-    out.push_str(&raw[end_byte..]);
-    changed.then_some(out)
+    Some(parts.origin(&url))
 }
 
-/// The parts of a URL, by index in its characters without tabs and line breaks. The query and the fragment start after
-/// their `?` and `#`.
+/// Whether the policy reads a credential in `url`, with the checks that make it refuse a URL as a credential.
+fn holds_credential(url: &str) -> bool {
+    // The policy parses a URL with a scheme on its own, where `https:host` names a host.
+    let Ok(parsed) = Url::parse(url).or_else(|_| RELATIVE_BASE.join(url)) else {
+        return false;
+    };
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return true;
+    }
+    if has_credential_query(&parsed).unwrap_or(true) {
+        return true;
+    }
+    let host = parsed.host_str().unwrap_or_default();
+    let host = host.strip_suffix('.').unwrap_or(host);
+    match decoded_lowercase_path(&parsed) {
+        Ok(path) if has_credential_path(&path, host) => return true,
+        Ok(_) => {}
+        Err(_) => return true,
+    }
+    // A fragment holds parameters only by convention, as an OAuth callback's `#access_token=` does.
+    parsed.fragment().is_some_and(|fragment| {
+        fragment.contains('=')
+            && form_urlencoded::parse(fragment.as_bytes())
+                .any(|(name, value)| is_credential_param(&name, &value))
+    })
+}
+
+/// A credential needs userinfo, a query or fragment, a path parameter, an escape, or one of the path tokens that the
+/// policy knows, so a URL with none of those needs no parse.
+fn may_hold_credential(url: &str) -> bool {
+    let bytes = url.as_bytes();
+    bytes
+        .iter()
+        .any(|byte| matches!(byte, b'@' | b'?' | b'#' | b';' | b'%'))
+        || url.contains("--")
+        || contains_ignoring_case(bytes, b"bcdn_token")
+        || contains_ignoring_case(bytes, b"oraclecloud")
+        || contains_ignoring_case(bytes, b"/sign/")
+}
+
+fn contains_ignoring_case(bytes: &[u8], needle: &[u8]) -> bool {
+    bytes
+        .windows(needle.len())
+        .any(|window| window.eq_ignore_ascii_case(needle))
+}
+
+/// A URL of a scheme such as `data:` or `mailto:` holds no path to a host. The URL parser drops tabs and line breaks
+/// in a scheme too.
+fn is_hierarchical(raw: &str) -> bool {
+    let bytes = raw.as_bytes();
+    let ignored = |byte: &u8| matches!(byte, b'\t' | b'\n' | b'\r');
+    let mut scheme = Vec::new();
+    let mut at = bytes
+        .iter()
+        .position(|&byte| byte > b' ')
+        .unwrap_or(bytes.len());
+    while let Some(&byte) = bytes.get(at) {
+        at += 1;
+        match byte {
+            _ if ignored(&byte) => {}
+            b':' => {
+                if SPECIAL_SCHEMES.contains(&String::from_utf8_lossy(&scheme).as_ref()) {
+                    return true;
+                }
+                let mut rest = bytes[at..].iter().filter(|byte| !ignored(byte));
+                return rest.next() == Some(&b'/') && rest.next() == Some(&b'/');
+            }
+            b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'+' | b'-' | b'.' if scheme.len() < 16 => {
+                scheme.push(byte.to_ascii_lowercase())
+            }
+            _ => return true,
+        }
+    }
+    true
+}
+
+/// The parts of a URL by byte offset. The query and the fragment start after their `?` and `#`.
 struct Parts {
     special: bool,
     authority: Option<Range<usize>>,
@@ -92,26 +127,19 @@ struct Parts {
 }
 
 impl Parts {
-    /// `None` for a URL of a scheme such as `data:` or `mailto:`, which holds no path to a host.
-    fn of(chars: &[(usize, char)]) -> Option<Self> {
-        let char_at = |at: usize| chars.get(at).map(|&(_, ch)| ch);
-        let scheme_end = chars
+    fn of(url: &str) -> Option<Self> {
+        let bytes = url.as_bytes();
+        let byte_at = |at: usize| bytes.get(at).copied();
+        let scheme_end = bytes
             .iter()
-            .position(|&(_, ch)| !(ch.is_ascii_alphanumeric() || matches!(ch, '+' | '-' | '.')))
-            .filter(|&end| {
-                end > 0 && chars[0].1.is_ascii_alphabetic() && char_at(end) == Some(':')
-            });
-        let scheme: String = scheme_end.map_or_else(String::new, |end| {
-            chars[..end]
-                .iter()
-                .map(|&(_, ch)| ch.to_ascii_lowercase())
-                .collect()
-        });
+            .position(|&byte| !(byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'-' | b'.')))
+            .filter(|&end| end > 0 && bytes[0].is_ascii_alphabetic() && byte_at(end) == Some(b':'));
+        let scheme = scheme_end.map_or_else(String::new, |end| url[..end].to_ascii_lowercase());
         let special = scheme.is_empty() || SPECIAL_SCHEMES.contains(&scheme.as_str());
-        let is_slash = |ch: char| ch == '/' || (special && ch == '\\');
+        let is_slash = |byte: u8| byte == b'/' || (special && byte == b'\\');
         let after_scheme = scheme_end.map_or(0, |end| end + 1);
         let mut at = after_scheme;
-        while char_at(at).is_some_and(is_slash) {
+        while byte_at(at).is_some_and(is_slash) {
             at += 1;
         }
         let has_authority = (special && !scheme.is_empty()) || at - after_scheme >= 2;
@@ -123,26 +151,27 @@ impl Parts {
         }
         let authority = has_authority.then(|| {
             let start = at;
-            while char_at(at).is_some_and(|ch| !(is_slash(ch) || ch == '?' || ch == '#')) {
+            while byte_at(at).is_some_and(|byte| !(is_slash(byte) || byte == b'?' || byte == b'#'))
+            {
                 at += 1;
             }
             start..at
         });
         let path_start = at;
-        while char_at(at).is_some_and(|ch| ch != '?' && ch != '#') {
+        while byte_at(at).is_some_and(|byte| byte != b'?' && byte != b'#') {
             at += 1;
         }
         let path = path_start..at;
         let mut query = None;
-        if char_at(at) == Some('?') {
+        if byte_at(at) == Some(b'?') {
             at += 1;
             let start = at;
-            while char_at(at).is_some_and(|ch| ch != '#') {
+            while byte_at(at).is_some_and(|byte| byte != b'#') {
                 at += 1;
             }
             query = Some(start..at);
         }
-        let fragment = (char_at(at) == Some('#')).then(|| at + 1..chars.len());
+        let fragment = (byte_at(at) == Some(b'#')).then(|| at + 1..bytes.len());
         Some(Self {
             special,
             authority,
@@ -152,14 +181,84 @@ impl Parts {
         })
     }
 
+    /// Where the host starts after any userinfo, and the host in lower case without a trailing dot.
+    fn host(&self, url: &str) -> (usize, String) {
+        let Some(authority) = self.authority.clone() else {
+            return (0, String::new());
+        };
+        let host_start = url[authority.clone()]
+            .rfind('@')
+            .map_or(authority.start, |at| authority.start + at + 1);
+        let host = url[host_start..authority.end]
+            .split(':')
+            .next()
+            .unwrap_or_default();
+        let host = percent_decode_str(host)
+            .decode_utf8_lossy()
+            .to_ascii_lowercase();
+        let host = host.strip_suffix('.').unwrap_or(&host).to_owned();
+        (host_start, host)
+    }
+
+    fn without_credentials(&self, url: &str) -> String {
+        let mut out = String::with_capacity(url.len());
+        let (host_start, host) = self.host(url);
+        match &self.authority {
+            Some(authority) => {
+                out.push_str(&url[..authority.start]);
+                out.push_str(&url[host_start..authority.end]);
+            }
+            None => out.push_str(&url[..self.path.start]),
+        }
+        let mut copied_to = self.path.start;
+        for cut in self.path_cuts(url, &host) {
+            out.push_str(&url[copied_to..cut.start]);
+            copied_to = cut.end;
+        }
+        out.push_str(&url[copied_to..self.path.end]);
+        for (mark, part) in [('?', &self.query), ('#', &self.fragment)] {
+            let Some(part) = part.clone() else { continue };
+            let holds_parameters = mark == '?' || url[part.clone()].contains('=');
+            match holds_parameters
+                .then(|| without_credential_params(&url[part.clone()]))
+                .flatten()
+            {
+                Some(kept) if kept.is_empty() => {}
+                Some(kept) => {
+                    out.push(mark);
+                    out.push_str(&kept);
+                }
+                None => out.push_str(&url[part.start - 1..part.end]),
+            }
+        }
+        out
+    }
+
+    /// The scheme and host without the userinfo, or `/` for a relative URL.
+    fn origin(&self, url: &str) -> String {
+        match &self.authority {
+            Some(authority) => {
+                let (host_start, _) = self.host(url);
+                format!(
+                    "{}{}/",
+                    &url[..authority.start],
+                    &url[host_start..authority.end]
+                )
+            }
+            None if url.starts_with(['/', '\\']) => "/".to_owned(),
+            None => String::new(),
+        }
+    }
+
     /// The ranges of the path to drop, in order: each segment that holds a token with the slash before it, and each
     /// `;jsessionid=` parameter.
-    fn path_cuts(&self, chars: &[(usize, char)], host: &str) -> Vec<Range<usize>> {
-        let is_slash = |ch: char| ch == '/' || (self.special && ch == '\\');
+    fn path_cuts(&self, url: &str, host: &str) -> Vec<Range<usize>> {
+        let bytes = url.as_bytes();
+        let is_slash = |byte: u8| byte == b'/' || (self.special && byte == b'\\');
         let mut segments = Vec::new();
         let mut start = self.path.start;
         for at in self.path.clone() {
-            if is_slash(chars[at].1) {
+            if is_slash(bytes[at]) {
                 segments.push(start..at);
                 start = at + 1;
             }
@@ -168,26 +267,24 @@ impl Parts {
         let decoded: Vec<String> = segments
             .iter()
             .map(|segment| {
-                let written: String = chars[segment.clone()].iter().map(|&(_, ch)| ch).collect();
-                percent_decode_str(&written)
+                percent_decode_str(&url[segment.clone()])
                     .decode_utf8_lossy()
                     .to_ascii_lowercase()
             })
             .collect();
         let decoded: Vec<&str> = decoded.iter().map(String::as_str).collect();
-        let mut cuts: Vec<Range<usize>> = path_tokens(&decoded, host)
-            .into_iter()
-            .map(|token| match token {
+        let mut cuts: Vec<Range<usize>> = Vec::new();
+        for token in path_tokens(&decoded, host) {
+            match token {
                 PathToken::Segment(index) => {
                     let segment = segments[index].clone();
-                    segment.start.saturating_sub(1).max(self.path.start)..segment.end
+                    cuts.push(segment.start.saturating_sub(1).max(self.path.start)..segment.end);
                 }
                 PathToken::SessionId(index) => {
-                    let segment = segments[index].clone();
-                    session_id_parameter(chars, segment)
+                    cuts.extend(session_id_parameters(url, segments[index].clone()))
                 }
-            })
-            .collect();
+            }
+        }
         cuts.sort_by_key(|cut| cut.start);
         cuts.dedup_by(|later, earlier| {
             let overlaps = later.start < earlier.end;
@@ -200,47 +297,39 @@ impl Parts {
     }
 }
 
-/// The `;jsessionid=` parameter of `segment` up to the next `;`, or the whole segment when the page percent-encoded it.
-fn session_id_parameter(chars: &[(usize, char)], segment: Range<usize>) -> Range<usize> {
-    const NAME: &str = ";jsessionid=";
-    let written: Vec<char> = chars[segment.clone()].iter().map(|&(_, ch)| ch).collect();
-    let Some(at) = (0..written.len()).find(|&at| {
-        written.len() - at >= NAME.len()
-            && written[at..at + NAME.len()]
-                .iter()
-                .zip(NAME.chars())
-                .all(|(ch, name)| ch.eq_ignore_ascii_case(&name))
-    }) else {
-        return segment;
-    };
-    let end = (at + 1..written.len())
-        .find(|&end| written[end] == ';')
-        .unwrap_or(written.len());
-    segment.start + at..segment.start + end
+/// Each `;jsessionid=` parameter of `segment` up to the next `;`, or the whole segment when the page percent-encoded
+/// one.
+fn session_id_parameters(url: &str, segment: Range<usize>) -> Vec<Range<usize>> {
+    const NAME: &[u8] = b";jsessionid=";
+    let written = &url.as_bytes()[segment.clone()];
+    let mut cuts = Vec::new();
+    let mut at = 0;
+    while at + NAME.len() <= written.len() {
+        if !written[at..at + NAME.len()].eq_ignore_ascii_case(NAME) {
+            at += 1;
+            continue;
+        }
+        let end = written[at + 1..]
+            .iter()
+            .position(|&byte| byte == b';')
+            .map_or(written.len(), |next| at + 1 + next);
+        cuts.push(segment.start + at..segment.start + end);
+        at = end;
+    }
+    if cuts.is_empty() {
+        cuts.push(segment);
+    }
+    cuts
 }
 
 /// The parameters of `part` that are not credentials, joined by `&`, or `None` when it holds no credential. A name
 /// that does not decode is dropped as well, because the policy cannot tell what it names.
-fn without_credential_params<'r>(
-    chars: &[(usize, char)],
-    part: Range<usize>,
-    text: &impl Fn(Range<usize>) -> &'r str,
-) -> Option<String> {
-    let mut pairs = Vec::new();
-    let mut start = part.start;
-    for at in part.clone() {
-        if chars[at].1 == '&' {
-            pairs.push(start..at);
-            start = at + 1;
-        }
-    }
-    pairs.push(start..part.end);
+fn without_credential_params(part: &str) -> Option<String> {
     let mut dropped = false;
-    let kept: Vec<&str> = pairs
-        .into_iter()
+    let kept: Vec<&str> = part
+        .split('&')
         .filter(|pair| {
-            let written: String = chars[pair.clone()].iter().map(|&(_, ch)| ch).collect();
-            let (name, value) = written.split_once('=').unwrap_or((&written, ""));
+            let (name, value) = pair.split_once('=').unwrap_or((pair, ""));
             let credential = match form_decoded(name) {
                 Some(name) => is_credential_param(&name, &lossy_form_decoded(value)),
                 None => true,
@@ -248,7 +337,6 @@ fn without_credential_params<'r>(
             dropped |= credential;
             !credential
         })
-        .map(text)
         .collect();
     dropped.then(|| kept.join("&"))
 }
@@ -303,7 +391,7 @@ mod tests {
             ),
             (
                 " //cdn.example.com/a.png?to\tken=abc&w=1 ",
-                Some(" //cdn.example.com/a.png?w=1 "),
+                Some("//cdn.example.com/a.png?w=1"),
             ),
             ("/api/img?access_token=abc", Some("/api/img")),
             ("img/a.png?w=1&token=abc", Some("img/a.png?w=1")),
@@ -316,12 +404,26 @@ mod tests {
                 Some("https://app.example.com/a;x=1/b.png"),
             ),
             (
+                "https://app.example.com/a;jsessionid=first;jsessionid=abc/b.png",
+                Some("https://app.example.com/a/b.png"),
+            ),
+            (
                 "https://res.example.com/image/upload/s--abc123--/v1/a.png",
                 Some("https://res.example.com/image/upload/v1/a.png"),
             ),
             (
                 "https://cdn.example.com/a.png?%ff=1&w=2",
                 Some("https://cdn.example.com/a.png?w=2"),
+            ),
+            // The policy reads these paths only once they are decoded and their dot segments are gone, so only the
+            // origin stays.
+            (
+                "https://res.example.com/v1%2Fs--abc--/a.png",
+                Some("https://res.example.com/"),
+            ),
+            (
+                "https://cdn.example.com/x/../bcdn_token=abc/a.png",
+                Some("https://cdn.example.com/"),
             ),
             ("https://cdn.example.com/a.png?w=10", None),
             ("https://cdn.example.com/a.png#token", None),
@@ -333,13 +435,18 @@ mod tests {
     }
 
     #[test]
-    fn leaves_a_url_the_policy_does_not_refuse_as_a_credential() {
+    fn leaves_no_url_that_the_policy_refuses_as_a_credential() {
         for raw in [
             "https://cdn.example.com/a.png?w=10&X-Amz-Signature=abc&X-Amz-Credential=k",
             "https://user:secret@cdn.example.com/a.png",
             "https://cdn.example.com/a.png?s=0123456789abcdef0123456789abcdef",
             "https://objectstorage.us-ashburn-1.oraclecloud.com/p/secret/n/ns/b/bucket/o/a.png",
+            "https://objectstorage.us-ashburn-1.oraclecloud.com./p/secret/n/ns/b/bucket/o/a.png",
+            "https://%6fbjectstorage.us-ashburn-1.oraclecloud.com/p/secret/n/ns/b/bucket/o/a.png",
             "https://cdn.example.com/bcdn_token=secret&expires=1/a.png",
+            "https://cdn.example.com/image/upload%2Fs--secret--%2Fv1/a.png",
+            "https://cdn.example.com/a;jsessionid=first;jsessionid=secret",
+            "https://cdn.example.com/x/./../bcdn_token=secret/a.png",
         ] {
             assert_eq!(checked_url(raw).err(), Some(Decline::Credential), "{raw}");
             let kept = without_credentials(raw).unwrap();
@@ -350,5 +457,11 @@ mod tests {
             );
             assert!(!kept.contains("secret") && !kept.contains("abc"), "{kept}");
         }
+    }
+
+    #[test]
+    fn reads_no_more_of_a_data_uri_than_its_scheme() {
+        let data = format!("data:image/png;base64,{}", "A/".repeat(16 * 1024 * 1024));
+        assert_eq!(without_credentials(&data), None);
     }
 }
