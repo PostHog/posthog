@@ -982,7 +982,7 @@ fn limits_snapshot(py: Python<'_>) -> PyResult<Py<PyAny>> {
     Ok(d.into_any().unbind())
 }
 
-/// A stable, null-safe bucket id in `0..n` (`pyarrow.UInt32Array`) for every row of
+/// A null-safe bucket id in `0..n` (`pyarrow.UInt32Array`) for every row of
 /// `data`, from the values of `key_columns`. See the README.
 #[pyfunction]
 fn key_buckets(

@@ -44,8 +44,8 @@ SOURCE_SCHEMA = pa.schema(
 )
 
 
+# The product names month partitions with `pc.strftime(valid_to, "%Y-%m")`.
 def month(instant: datetime) -> str:
-    """The product's month partition name: `pc.strftime(valid_to, "%Y-%m")`."""
     return pc.strftime(pa.array([instant], TS), format="%Y-%m")[0].as_py()
 
 
@@ -146,9 +146,23 @@ def create(tmp_path: Path, partition_by: list[str] | None = None) -> str:
     return uri
 
 
-def history_upsert(uri: str, rows: list[Src], **kwargs) -> deltalite.HistoryUpsertStats:
+def split_into_batches(table: pa.Table, rng: random.Random) -> pa.Table:
+    cuts = sorted(rng.randint(0, table.num_rows) for _ in range(rng.randint(0, 4)))
+    bounds = [0, *cuts, table.num_rows]
+    batches = [b for start, end in zip(bounds, bounds[1:]) for b in table.slice(start, end - start).to_batches()]
+    if rng.random() < 0.5:
+        batches.insert(rng.randint(0, len(batches)), pa.RecordBatch.from_pylist([], schema=SOURCE_SCHEMA))
+    return pa.Table.from_batches(batches, schema=SOURCE_SCHEMA)
+
+
+def history_upsert(
+    uri: str, rows: list[Src], split_rng: random.Random | None = None, **kwargs
+) -> deltalite.HistoryUpsertStats:
+    data = source_table(rows)
+    if split_rng is not None:
+        data = split_into_batches(data, split_rng)
     return deltalite.DeltaLiteTable.open(uri).history_upsert(
-        source_table(rows), ["id", "n"], "ts", "ts", "valid_to", "p", CURRENT, "seq", **kwargs
+        data, ["id", "n"], "ts", "ts", "valid_to", "p", CURRENT, "seq", **kwargs
     )
 
 
@@ -165,6 +179,8 @@ def test_matches_the_reference_model_over_random_calls(tmp_path, seed):
     uri = create(tmp_path)
     keys = [(rng.choice(["a", "b", "c", None]), rng.choice([1, 2, None])) for _ in range(rng.randint(1, 8))]
     small_files = rng.random() < 0.5
+    # Its own generator, so the batch cuts do not change the rows each seed generates.
+    split_rng = random.Random(f"split-{seed}")
     expected: list[Row] = []
     seq = 0
     for call in range(rng.randint(2, 5)):
@@ -177,6 +193,7 @@ def test_matches_the_reference_model_over_random_calls(tmp_path, seed):
         stats = history_upsert(
             uri,
             source,
+            split_rng,
             **({"target_file_size": 2048, "read_batch_size": 3} if small_files else {}),
         )
         got = Counts(
@@ -219,7 +236,7 @@ def test_key_buckets_are_null_safe_and_independent_of_batching():
     )
     buckets = deltalite.key_buckets(data, ["id", "n"], 16)
     assert isinstance(buckets, pa.UInt32Array)
-    # Pinned in the Rust suite too: the ids must never change.
+    # Pinned in the Rust suite too, so an encoding change shows up on the upgrade that makes it.
     assert buckets.to_pylist() == [4, 12, 0, 6, 6]
     rechunked = pa.Table.from_batches(data.slice(3).to_batches() + data.slice(0, 3).to_batches())
     assert deltalite.key_buckets(rechunked, ["id", "n"], 16).to_pylist() == [6, 6, 4, 12, 0]

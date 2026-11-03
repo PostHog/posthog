@@ -5,7 +5,11 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use arrow_array::{Array, Int64Array, RecordBatch, StringArray, TimestampMicrosecondArray};
+use arrow_array::types::Int32Type;
+use arrow_array::{
+    Array, DictionaryArray, Int32Array, Int64Array, RecordBatch, StringArray,
+    TimestampMicrosecondArray,
+};
 use arrow_schema::{DataType, Field, Schema, SchemaRef, TimeUnit};
 use chrono::DateTime;
 use deltalake::kernel::{DataType as KernelType, PrimitiveType, StructField};
@@ -381,9 +385,10 @@ async fn a_rerun_of_the_same_input_makes_no_commit() {
             rerun.rows_reread,
             rerun.rows_backwards,
             rerun.files_added,
-            rerun.files_removed
+            rerun.files_removed,
+            rerun.files_carried_over
         ),
-        (2, 1, 0, 0),
+        (2, 1, 0, 0, 1),
         "{rerun:?}"
     );
     assert_eq!(h.version(), first.version);
@@ -506,23 +511,40 @@ async fn refuses_input_it_cannot_apply() {
         &[(Some("a"), 1, "2026-01-01T00:00:00Z", "a", 1)],
     )
     .await;
-    let mut batch = source(&[(Some("a"), 2, "2026-02-01T00:00:00Z", "a", 2)]);
-    let mut cols = batch.columns().to_vec();
-    cols[1] = Arc::new(Int64Array::from(vec![None::<i64>]));
-    batch = RecordBatch::try_new(source_schema(), cols).unwrap();
-    let err = history
-        .history_upsert(
-            vec![batch],
-            source_schema(),
-            opts(),
-            MultipartConfig::default(),
+    // A null order value, and a null hidden in the dictionary of a dictionary-encoded
+    // `valid_from`, which a plain null count does not see.
+    let valid = source(&[(Some("a"), 2, "2026-02-01T00:00:00Z", "a", 2)]);
+    let null_dictionary_value: Arc<dyn Array> = Arc::new(
+        DictionaryArray::<Int32Type>::try_new(
+            Int32Array::from(vec![0]),
+            Arc::new(TimestampMicrosecondArray::from(vec![None::<i64>]).with_timezone("UTC")),
         )
-        .await
-        .unwrap_err();
-    assert!(
-        matches!(err, Error::Generic(ref m) if m.contains("null")),
-        "{err}"
+        .unwrap(),
     );
+    let null_order: Arc<dyn Array> = Arc::new(Int64Array::from(vec![None::<i64>]));
+    for (case, column, value) in [
+        ("null order", 1, null_order),
+        ("null dictionary valid_from", 2, null_dictionary_value),
+    ] {
+        let mut fields: Vec<Field> = source_schema()
+            .fields()
+            .iter()
+            .map(|f| f.as_ref().clone())
+            .collect();
+        fields[column] = Field::new(fields[column].name(), value.data_type().clone(), true);
+        let schema: SchemaRef = Arc::new(Schema::new(fields));
+        let mut cols = valid.columns().to_vec();
+        cols[column] = value;
+        let batch = RecordBatch::try_new(schema.clone(), cols).unwrap();
+        let err = history
+            .history_upsert(vec![batch], schema, opts(), MultipartConfig::default())
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, Error::Generic(ref m) if m.contains("null")),
+            "{case}: {err}"
+        );
+    }
 
     for (case, partition_by) in [("unpartitioned", vec![]), ("other column", vec!["q"])] {
         let dir = tempfile::tempdir().unwrap();

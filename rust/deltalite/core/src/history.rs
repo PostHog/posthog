@@ -284,7 +284,7 @@ fn validate_source(
         let idx = source_schema.index_of(column)?;
         let nulls: usize = source_batches
             .iter()
-            .map(|b| b.column(idx).null_count())
+            .map(|b| b.column(idx).logical_null_count())
             .sum();
         if nulls > 0 {
             return Err(Error::Generic(format!(
@@ -1105,10 +1105,11 @@ async fn write_closed(
     let sorted = take_record_batch(batch, &order)?;
     let runs = arrow_ord::partition::partition(&[sorted.column(partition_idx).clone()])?;
     for run in runs.ranges() {
-        if writer.open_files() >= MAX_OPEN_MONTH_FILES {
+        let month = sorted.slice(run.start, run.end - run.start);
+        if writer.open_files() >= MAX_OPEN_MONTH_FILES && !writer.holds_partition_of(&month)? {
             adds.extend(writer.flush().await?);
         }
-        writer.write(sorted.slice(run.start, run.end - run.start))?;
+        writer.write(month)?;
         roll_writer(writer, adds, target_file_size, max_row_group_bytes).await?;
     }
     Ok(())
@@ -1130,8 +1131,21 @@ impl SourceWriter<'_> {
         writer: &mut StreamingWriter,
         adds: &mut Vec<Add>,
     ) -> Result<()> {
-        let batch_refs: Vec<&RecordBatch> = self.plan.batches.iter().collect();
-        let located: Vec<(usize, usize)> = rows.iter().map(|(r, _)| self.plan.locate(*r)).collect();
+        // Hand interleave only the batches this chunk reads; its cost grows with the
+        // number of batches it is given.
+        let mut batch_slots: HashMap<usize, usize> = HashMap::new();
+        let mut batch_refs: Vec<&RecordBatch> = Vec::new();
+        let located: Vec<(usize, usize)> = rows
+            .iter()
+            .map(|(r, _)| {
+                let (batch, row) = self.plan.locate(*r);
+                let slot = *batch_slots.entry(batch).or_insert_with(|| {
+                    batch_refs.push(&self.plan.batches[batch]);
+                    batch_refs.len() - 1
+                });
+                (slot, row)
+            })
+            .collect();
         let closes: UInt32Array = rows.iter().map(|(_, next)| *next).collect();
         let selected = stamp_validity(
             &interleave_record_batch(&batch_refs, &located)?,
@@ -1263,6 +1277,7 @@ async fn history_inner(
     stats.chain_rows_closed = decision.chain_rows_closed;
     if decision.writes.is_empty() {
         // Nothing kept means nothing closes either: the table already holds this input.
+        stats.files_carried_over += probed.len();
         return Ok((stats, None));
     }
 
@@ -1459,10 +1474,10 @@ async fn history_inner(
 
 /// A bucket in `0..n` for every row of `batches`, from the values of `key_columns`.
 ///
-/// The ids are stable across processes and releases: each key is encoded with arrow-row
-/// (null-safe, so null key parts hash alike) and hashed with xxHash64 seeded with
-/// [`KEY_BUCKET_SEED`], then reduced modulo `n`. The encoding depends on the key columns'
-/// Arrow types, so callers that need equal ids for equal keys must pass equal types.
+/// Each key is encoded with arrow-row (null-safe, so null key parts hash alike) and hashed
+/// with xxHash64 seeded with [`KEY_BUCKET_SEED`], then reduced modulo `n`. The ids are the
+/// same in every process that runs one deltalite build, for keys of the same Arrow types.
+/// arrow-row may change its encoding between arrow releases, so do not persist the ids.
 pub fn key_buckets(batches: &[RecordBatch], key_columns: &[String], n: u32) -> Result<UInt32Array> {
     if n == 0 {
         return Err(Error::Generic("key_buckets needs n >= 1".into()));
@@ -1497,4 +1512,59 @@ pub fn key_buckets(batches: &[RecordBatch], key_columns: &[String], n: u32) -> R
         }));
     }
     Ok(UInt32Array::from(out))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use arrow_array::Int64Array;
+    use deltalake::kernel::{DataType as KernelType, StructField};
+    use deltalake::operations::create::CreateBuilder;
+
+    #[tokio::test]
+    async fn closed_rows_hold_at_most_the_month_file_limit_open() {
+        let dir = tempfile::tempdir().unwrap();
+        let table = CreateBuilder::new()
+            .with_location(dir.path().to_str().unwrap())
+            .with_columns(vec![
+                StructField::new("v", KernelType::LONG, true),
+                StructField::new("p", KernelType::STRING, false),
+            ])
+            .with_partition_columns(vec!["p".to_string()])
+            .await
+            .unwrap();
+        let schema = RecordBatchWriter::for_table(&table).unwrap().arrow_schema();
+        let batch = |months: &[String]| {
+            RecordBatch::try_new(
+                schema.clone(),
+                vec![
+                    Arc::new(Int64Array::from_iter_values(0..months.len() as i64)),
+                    Arc::new(StringArray::from_iter_values(months.iter().rev())),
+                ],
+            )
+            .unwrap()
+        };
+        let months: Vec<String> = (0..MAX_OPEN_MONTH_FILES)
+            .map(|i| format!("{}-{:02}", 2000 + i / 12, i % 12 + 1))
+            .collect();
+        let mut writer = StreamingWriter::for_table(&table).unwrap();
+        let mut adds = Vec::new();
+        let mut write = async |months: &[String]| {
+            write_closed(&mut writer, &batch(months), 1, &mut adds, usize::MAX, None)
+                .await
+                .unwrap();
+            (adds.len(), writer.open_files())
+        };
+
+        assert_eq!(write(&months).await, (0, MAX_OPEN_MONTH_FILES));
+        assert_eq!(
+            write(&months[..1]).await,
+            (0, MAX_OPEN_MONTH_FILES),
+            "a month already open needs no flush"
+        );
+        assert_eq!(
+            write(&["1999-12".to_string()]).await,
+            (MAX_OPEN_MONTH_FILES, 1)
+        );
+    }
 }

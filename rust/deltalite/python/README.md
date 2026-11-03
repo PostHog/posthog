@@ -170,8 +170,8 @@ A commit that finds a newer table version is never rebased onto it, since delta-
 
 `deltalite.key_buckets(data, key_columns, n)` returns a `pyarrow.UInt32Array` with a bucket id in `0..n` for every row, for splitting a source that is too large for one call into calls on disjoint keys.
 Each key is encoded with arrow-row (null-safe) and hashed with xxHash64 under a fixed seed, then reduced modulo `n`.
-The ids never change between processes or releases.
-They depend on the key columns' Arrow types, so pass the same types to get the same ids.
+The ids are the same in every process that runs one deltalite build, for keys of the same Arrow types.
+arrow-row may change its encoding between arrow releases, so do not persist the ids.
 
 ### Compaction
 
