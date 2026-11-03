@@ -362,7 +362,9 @@ class DjangoCheckpointer(BaseCheckpointSaver[str]):
             # Thread.lock() will prevent race conditions though to the same checkpoints within a single pod.
             # nosemgrep: idor-lookup-without-team (internal LangGraph checkpoint)
             checkpoint, _ = ConversationCheckpoint.objects.get_or_create(
-                id=checkpoint_id, thread_id=thread_id, checkpoint_ns=checkpoint_ns
+                id=checkpoint_id,  # type: ignore[misc]  # LangGraph passes the config from put(), which sets checkpoint_id
+                thread_id=thread_id,
+                checkpoint_ns=checkpoint_ns,
             )
 
             writes_to_create = []

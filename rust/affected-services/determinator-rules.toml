@@ -52,6 +52,12 @@ globs = [
 ]
 mark-changed = ["feature-flags", "hypercache-server", "common-hypercache"]
 
+# common-cohort-team-access tests its query against the table that these migrations build.
+# Must come BEFORE the catch-all rule below.
+[[path-rule]]
+globs = ["../products/cohorts/backend/migrations/**"]
+mark-changed = ["common-cohort-team-access"]
+
 # replay-core-v4's tests read the encryption vectors the Node writers pin.
 # Must come BEFORE the catch-all rule below.
 [[path-rule]]
@@ -86,6 +92,12 @@ globs = [
     "../.github/actions/rust-compute-affected/**",
 ]
 mark-changed = "all"
+
+# The out-of-band domain list: common-dns mirrors it, and a parity test in that crate
+# fails when the two differ. Must come BEFORE the catch-all rule below.
+[[path-rule]]
+globs = ["../posthog/security/crosslang/**"]
+mark-changed = ["common-dns"]
 
 # Catch-all for files outside the rust workspace (Python, frontend, CI, docs,
 # etc.) — these are not crate source and should not trigger rust rebuilds.

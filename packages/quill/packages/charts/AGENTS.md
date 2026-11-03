@@ -41,6 +41,7 @@ const theme = useChartTheme() // reads CSS vars, tracks light/dark switches
 <LineChart series={series} labels={labels} theme={theme} />
 ```
 
+- `theme` is optional. A chart without it uses the nearest `ChartThemeProvider` (`<ChartThemeProvider value={theme}>`), then the CSS vars. Wrap the app root once instead of passing `theme` to every chart.
 - Series colors come from `--data-color-1..15`; chrome from `--color-graph-axis-label` / `--color-graph-axis-line` / `--color-graph-crosshair`. `themeFromCssVars()` is the one-shot version; `DEFAULT_CHART_COLORS` is the no-DOM fallback.
 - Omit `color` on a series to get palette assignment by index (preferred). An explicit `color` must be a concrete color (hex, rgb): line, area, and bar series hand it to the canvas unresolved, so resolve `var(--...)` in the host first. Only `Heatmap`, `ScatterChart`, and `SankeyChart` (node and link colors) resolve `var()` themselves.
 - The theme helpers carry the default chrome (faint dashed grid, stronger axis line, dashed crosshair), and `DEFAULT_CHART_CONFIG` carries the matching switches. Consumers opt out field by field (`showGrid: false`). Details: [docs/axes.md](./src/docs/axes.md).
@@ -105,7 +106,7 @@ Charts fill their container and need a parent with real dimensions — a zero-he
 
 ## Testing
 
-Import helpers from `@posthog/quill-charts/testing` (jsdom only): `getHogChart` reads rendered overlays through stable `data-attr` hooks, `renderHogChart` adds tooltip-context capture for library tests, `hoverAtIndex` / `clickAtIndex` / `hoverUntilTooltip` / `dragSelection` drive gestures, and `createDefaultTooltipAccessor` reads the built-in tooltip. The `data-attr` selectors are a public contract. [docs/TESTING.md](./src/docs/TESTING.md)
+Import helpers from `@posthog/quill-charts/testing` (jsdom only): `setupChartTests()` sets up a test file, `findChart()` waits for the chart and returns an accessor over its stable `data-attr` hooks, and `chart.hoverTooltip(i)` reads the tooltip at a label. `renderChart` adds tooltip-context capture for library tests. The `data-attr` selectors are a public contract. [docs/TESTING.md](./src/docs/TESTING.md)
 
 ## Docs index
 

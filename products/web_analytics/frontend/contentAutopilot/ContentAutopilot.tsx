@@ -15,6 +15,7 @@ import {
 import { ContentAutopilotDrafts } from './ContentAutopilotDrafts'
 import { contentAutopilotLogic } from './contentAutopilotLogic'
 import { ContentAutopilotOpportunities } from './ContentAutopilotOpportunities'
+import { ContentAutopilotPrompts } from './ContentAutopilotPrompts'
 import { ContentAutopilotProposalDetail } from './ContentAutopilotProposalDetail'
 import { ContentAutopilotSetup } from './ContentAutopilotSetup'
 
@@ -146,6 +147,11 @@ export const ContentAutopilot = (): JSX.Element => {
                                             ? `Drafts (${readyDraftCount} ready to review)`
                                             : `Drafts (${draftRows.length})`,
                                         content: <ContentAutopilotDrafts />,
+                                    },
+                                    {
+                                        key: 'prompts',
+                                        label: 'Prompts',
+                                        content: <ContentAutopilotPrompts />,
                                     },
                                 ]}
                             />

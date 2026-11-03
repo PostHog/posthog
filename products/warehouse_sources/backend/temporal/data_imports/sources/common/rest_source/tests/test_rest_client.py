@@ -351,6 +351,7 @@ class TestRESTClient:
         [
             pytest.param(lambda: _make_response({"error": "rate limited"}, status_code=429), id="429"),
             pytest.param(lambda: _make_response({"error": "internal"}, status_code=500), id="500"),
+            pytest.param(lambda: _make_response({"error": "timeout"}, status_code=408), id="408"),
             pytest.param(_make_truncated_response, id="truncated_json"),
         ],
     )
@@ -359,7 +360,7 @@ class TestRESTClient:
         "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client.make_tracked_session"
     )
     def test_send_request_retries_transient_error_then_succeeds(self, MockSession, mock_sleep, make_error) -> None:
-        # A 429, a 5xx, and a truncated body are all transient: retry, then succeed.
+        # A 429, a 5xx, a 408, and a truncated body are all transient: retry, then succeed.
         mock_session = MockSession.return_value
         mock_session.headers = {}
         mock_session.prepare_request.return_value = MagicMock()

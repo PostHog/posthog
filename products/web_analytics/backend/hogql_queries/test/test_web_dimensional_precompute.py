@@ -6,6 +6,8 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _
 
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
@@ -137,6 +139,22 @@ class TestWebDimensionalPrecompute(ClickhouseTestMixin, APIBaseTest):
         # No new jobs created — the window is already fresh.
         assert jobs_after_second == jobs_after_first
         assert set(second.job_ids) == set(first.job_ids)
+
+    @parameterized.expand([("UTC",), ("Pacific/Honolulu",), ("Asia/Tokyo",)])
+    def test_current_utc_day_refreshes_hourly_in_any_team_timezone(self, timezone: str):
+        # 16:00 UTC is after local midnight in both non-UTC zones, so team-timezone TTL bands would
+        # put the current UTC day in the 1-day band and skip the second build.
+        self.team.timezone = timezone
+        self.team.save()
+        today_start, today_end = datetime(2024, 1, 15, tzinfo=UTC), datetime(2024, 1, 16, tzinfo=UTC)
+
+        with time_machine.travel("2024-01-15T16:00:00Z", tick=False):
+            first = ensure_web_stats_dimensional_precomputed(self.team, today_start, today_end)
+        with time_machine.travel("2024-01-15T17:01:00Z", tick=False):
+            second = ensure_web_stats_dimensional_precomputed(self.team, today_start, today_end)
+
+        assert first.ready and second.ready
+        assert set(second.job_ids).isdisjoint(first.job_ids)
 
     @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_bounces_ensure_creates_jobs_and_correct_totals(self):

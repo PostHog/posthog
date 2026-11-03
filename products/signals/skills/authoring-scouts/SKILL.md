@@ -183,7 +183,7 @@ For an **existing scout**, tune with `posthog:scout-config-update` (find the `id
 - `output_destinations` — defaults to none.
   When adding Slack to an existing scout, first read `output_destinations`, then send the full object with every key preserved. Updates replace the object, so sending only `slack` removes an existing `webhook` pointer.
   Set `slack` to deliver every surfaced report the scout emits (`ready` or `pending_input`) to Slack as well as the inbox; a report the judge suppressed stays out of Slack by design: an `integration_id` for the workspace, plus either a `channel` (`channel_id|#channel-name`) or up to five `users` to DM (`member_id|@display-name`), never both.
-  A scoped API key or OAuth token needs `integration:read` and `task:read` (or the matching write scopes) on top of `signal_scout:write` to set `slack`; a minimally scoped credential gets a permission error.
+  A scoped API key or OAuth token needs `integration:read` and `inbox:read` (or the matching write scopes) on top of `signal_scout:write` to set `slack`; a minimally scoped credential gets a permission error.
   `thread_reports: true` posts a report as a short lead message with the rest split into replies at the summary's section labels, so a long report isn't clipped; it doesn't change how findings post.
   Slack delivery is a firehose of that one scout's output — no priority filter, no reviewer routing — so it suits a scout whose bar is already tight rather than a chatty one you're still calibrating.
   A Slack-delivered scout is also exempt from the ignored-reports auto-pause, since consumption there isn't measurable.
@@ -232,7 +232,7 @@ The tools (reads on the public `signal_scout:read` scope; because scouts read no
   `skill_name: "pipeline:report-research"` addresses the report pipeline's research stage instead of any scout, for guidance about how the reports it builds from clustered signals get researched, judged, and routed ("route billing-adjacent reports to the billing folks"). Reports a scout authors directly never pass through that stage, so a rule for them belongs in a fleet-wide note (omit `skill_name`) or a per-scout one. It is the only `pipeline:*` audience; any other value is rejected.
 - `posthog:scout-notes-list` — browse the active notes; pass `skill_name` to see what a given scout will read.
   Expect system-derived notes alongside the human ones: a dismissal or snooze note, a Discuss question, a thumbs-rating note, and a reviewer add/remove on a report are each forwarded to the relevant scout as a note, labelled by `origin` (`report_dismissal`, `report_discussion`, `report_feedback`, `report_reviewer_correction`; a note left directly is `human`). Derived notes expire on their own after ~30 days.
-  Three caveats: a Discuss question or rating note only forwards when the person had the notes-write authorization themselves (skill-editor access plus, on a scoped credential, `signal_scout:write` and `llm_skill:write`); a reviewer correction only forwards when the person had skill-editor access on the canonical project (the reviewer change itself still lands on the report); and the list hides every derived origin from a caller without report read access (`task:read`), since they quote report content. A missing derived note can mean either. A dismissal note is still on the report and a Discuss question on its discussion task, but a rating note exists only as the forwarded scout note (plus an analytics event), so a rating note that did not forward is gone.
+  Three caveats: a Discuss question or rating note only forwards when the person had the notes-write authorization themselves (skill-editor access plus, on a scoped credential, `signal_scout:write` and `llm_skill:write`); a reviewer correction only forwards when the person had skill-editor access on the canonical project (the reviewer change itself still lands on the report); and the list hides every derived origin from a caller without report read access (`inbox:read`), since they quote report content. A missing derived note can mean either. A dismissal note is still on the report and a Discuss question on its discussion task, but a rating note exists only as the forwarded scout note (plus an analytics event), so a rating note that did not forward is gone.
 - `posthog:scout-notes-delete {"id": "..."}` — retire a note that's been acted on or no longer applies.
 - `posthog:scout-run-now {"id": <config_id>, "note": "..."}`: steer one run only. The note (up to 1,000 characters) is read by that run next to the durable notes and is never delivered to a later run as a note, so use it for "check this now" instead of a note every scheduled run would keep reading. It does stay visible in that run's metadata (`run_note`) when a later run reads its history, so phrase it as a dated one-off ("today only: ...") rather than standing policy. It needs skill-editor access and, on a scoped credential, `llm_skill:write` on top of the base `signal_scout:write`, the same two scopes as a durable note (a 403 otherwise; drop the note to run without it), and spends a run like any manual dispatch.
 
@@ -243,6 +243,35 @@ The scout closes the loop in its run summary (which notes it acted on and how) a
 Choosing between a note and an edit: a note is the right tool for _this project, right now_ steering and for trying a nudge before committing to it; a skill edit is the right tool once the steer is permanent policy (a disqualifier, a threshold, a scope change).
 A note that you keep re-leaving is a skill edit waiting to happen — promote it.
 Note lifecycle stays with humans: scouts never delete notes, so retire acted-on notes yourself (or set `expires_at` up front) to keep the channel high-signal.
+
+## Workflow-triggered runs
+
+A workflow's "Run scout" step starts a run when an event fires, for example a new GitHub issue or a pull request.
+Every run's prompt names how it started in _Your run identity_: `triggered_by` is `schedule`, `manual`, `workflow`, or `check` (`experiment` on a private trial run).
+A workflow run also carries `trigger_workflow_id`, the id of the workflow that fired.
+Branch on that value in the body ("if `triggered_by` is `workflow` ...") rather than on whether a note is present.
+
+What the run sees depends on the step's note:
+
+- **With a note**, the harness makes the subject the note names the run's first job.
+  The run handles that subject completely before anything else: it investigates, decides, files a report or records why it rejected the subject, and writes the memory the body asks for.
+  The scout's routine is optional on that run.
+  If the body says nothing about workflow-triggered runs, the run skips the routine and leaves it to the schedule.
+- **Without a note**, the run is told a workflow started it and that nothing names the event.
+  It runs the body as it would on a schedule, unless the body says what to do on a workflow-triggered run.
+
+Write a workflow-triggered section in the body when the default is wrong for the scout.
+For example, "on a workflow-triggered run, also refresh the label cache", or "on a workflow-triggered run with no note, only check the last hour".
+
+**Incremental state needs a full pass.**
+A run that skipped its routine or cut it short must leave cursors, baselines, and "last swept" markers as they were, and write memory only about the subject it handled.
+The harness tells every workflow run with a note this.
+Name the scout's own incremental keys in the body, because only the body knows which scratchpad entries a partial pass must not move.
+
+**Write the step's note from identifiers.**
+Use a pull request number, an issue URL, or an alert id, for example `Issue #{event.properties.issue_number}`.
+Do not paste a title, a body, or other free text from the event.
+The scout reads the note as untrusted input, and an identifier gives it something to look up with its own tools.
 
 ## Test loop
 

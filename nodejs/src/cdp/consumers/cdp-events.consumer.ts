@@ -7,7 +7,7 @@ import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 
 import { convertToHogFunctionInvocationGlobals } from '../../cdp/utils'
-import { HealthCheckResult, PluginsServerConfig, RawClickHouseEvent } from '../../types'
+import { HealthCheckResult, PluginsServerConfig, RawClickHouseEvent, Team } from '../../types'
 import { CDP_EVENTS_DLQ_OUTPUT } from '../outputs/outputs'
 import { CdpDeadLetterService } from '../services/dead-letter/cdp-dead-letter.service'
 import { HogFlowInvocationPipeline } from '../services/hog-flow-invocation-pipeline.service'
@@ -15,7 +15,8 @@ import { HogFunctionInvocationPipeline } from '../services/hog-function-invocati
 import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { CyclotronJobInvocation, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
-import { counterParseError } from './metrics'
+import { parseBatch, readTeamIdHeader } from './message-parsing'
+import { counterTeamIdHeaderMismatch, counterTeamIdSource } from './metrics'
 import { PUSH_NOTIFICATION_OPENED_EVENT, buildPushOpenedMetric } from './push-open-tracking'
 
 export class CdpEventsConsumer<
@@ -70,6 +71,7 @@ export class CdpEventsConsumer<
             hogWatcherMirror: this.hogWatcherMirror,
             hogMasker: this.hogMasker,
             hogFunctionMonitoringService: this.hogFunctionMonitoringService,
+            workflowsActivationReporter: this.workflowsActivationReporter,
             quotaLimiting: deps.quotaLimiting,
             redis: this.redis,
             valkeyShadow: this.valkeyShadow,
@@ -91,22 +93,31 @@ export class CdpEventsConsumer<
         // TODO: Add a helper to hog functions to determine if they require groups or not and then only load those
         await this.groupsManager.addGroupsToGlobalsList(invocationGlobals)
 
-        const [hogInvocations, hogflowInvocations] = await Promise.all([
-            this.hogFunctionPipeline.buildInvocations(invocationGlobals, {
+        const [hogBuild, hogflowBuild] = await Promise.all([
+            this.hogFunctionPipeline.buildInvocationsWithRelease(invocationGlobals, {
                 hogTypes: this.hogTypes,
                 filterFn: (fn) => (fn.filters?.source ?? 'events') === 'events',
             }),
             // Source-compatibility lives in the consumer. The events consumer matches event-triggered
             // flows only; other trigger types (data-warehouse-table, batch, schedule, webhook, manual)
             // are dispatched from their respective consumers and never reach the executor from here.
-            this.hogFlowPipeline.buildInvocations(invocationGlobals, {
+            this.hogFlowPipeline.buildInvocationsWithRelease(invocationGlobals, {
                 eligibilityFn: (flow) => flow.trigger.type === 'event',
             }),
         ])
+        const hogInvocations = hogBuild.invocations
+        const hogflowInvocations = hogflowBuild.invocations
 
         const invocationsToBeQueued = [...hogInvocations, ...hogflowInvocations]
 
-        await beforeQueue?.()
+        try {
+            await beforeQueue?.()
+        } catch (error) {
+            // The build already wrote the masking claims. The batch is read again after this throw. A
+            // claim left in place would mask the retried event as a duplicate.
+            await Promise.all([hogBuild.release(), hogflowBuild.release()])
+            throw error
+        }
 
         // Emit a `running` lifecycle row for each freshly-created invocation.
         // This fires ONCE per invocation_id at creation — not on every dequeue
@@ -181,51 +192,61 @@ export class CdpEventsConsumer<
 
     @instrumented('cdpConsumer.handleEachBatch.parseKafkaMessages')
     public async _parseKafkaBatch(messages: Message[]): Promise<HogFunctionInvocationGlobals[]> {
-        const events: HogFunctionInvocationGlobals[] = []
-
-        await Promise.all(
-            messages.map(async (message) => {
-                try {
-                    const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
-
-                    const [teamHogFunctions, teamHogFlows, team] = await Promise.all([
-                        this.hogFunctionManager.getHogFunctionsForTeam(clickHouseEvent.team_id, this.hogTypes),
-                        this.hogFlowManager.getHogFlowsForTeam(clickHouseEvent.team_id),
-                        this.deps.teamManager.getTeam(clickHouseEvent.team_id),
-                    ])
-
-                    if ((!teamHogFunctions.length && !teamHogFlows.length) || !team) {
-                        return
-                    }
-
+        const park =
+            (step: 'parse' | 'lookup') =>
+            (message: Message, error: string): boolean =>
+                this.deadLetterService.recordMessageFailure(message, { step, error })
+        return await parseBatch(messages, {
+            errorLog: 'Error parsing message',
+            parse: (message) => {
+                const parseEvent = (): RawClickHouseEvent => parseJSON(message.value!.toString()) as RawClickHouseEvent
+                const buildGlobals = (team: Team, clickHouseEvent: RawClickHouseEvent) => {
                     const globals = convertToHogFunctionInvocationGlobals(clickHouseEvent, team, this.config.SITE_URL)
                     // The one place holding both. A failure found later in the pipeline carries
                     // these globals, and this is how it gets back to the bytes to park.
                     this.messageByGlobals.set(globals, message)
-                    events.push(globals)
-                } catch (e) {
-                    // A dependency outage is not a poison message. Rethrowing fails the batch, so the
-                    // offsets stay put and the consumer retries, instead of dropping every event of a
-                    // team for the length of a Postgres blip.
-                    if (e?.isRetriable === true) {
-                        throw e
-                    }
-                    // A thrown non-Error has no `message`, and an undefined reason fails the
-                    // produce, which stalls the partition on the message this exists to keep.
-                    const error = e instanceof Error ? e.message : String(e)
-                    logger.error('Error parsing message', e)
-                    counterParseError.labels({ error }).inc()
-                    // Parked rather than dropped: a schema we cannot read today is often one a
-                    // later version can.
-                    this.deadLetterService.recordMessageFailure(message, {
-                        step: 'parse',
-                        error,
-                    })
+                    return globals
                 }
-            })
-        )
 
-        return events
+                const headerTeamId = readTeamIdHeader(message)
+                if (headerTeamId !== null) {
+                    counterTeamIdSource.labels({ source: 'header' }).inc()
+                    // The body stays unparsed until `toGlobals` runs, and it only runs for a team that
+                    // has a destination or a flow. Most events belong to a team with neither.
+                    return {
+                        teamId: headerTeamId,
+                        toGlobals: (team) => {
+                            const clickHouseEvent = parseEvent()
+                            if (clickHouseEvent.team_id !== headerTeamId) {
+                                // The loaded team comes from the header and the event data comes from
+                                // the body. Building globals from two teams would evaluate one team's
+                                // event against another team's destinations and send it there.
+                                counterTeamIdHeaderMismatch.inc()
+                                throw new Error('team_id_header_mismatch')
+                            }
+                            return buildGlobals(team, clickHouseEvent)
+                        },
+                    }
+                }
+
+                counterTeamIdSource.labels({ source: 'body' }).inc()
+                const clickHouseEvent = parseEvent()
+                return {
+                    teamId: clickHouseEvent.team_id,
+                    toGlobals: (team) => buildGlobals(team, clickHouseEvent),
+                }
+            },
+            loadTeam: (teamId) => this.loadTeamWithHogFunctionsOrFlows(teamId, this.hogTypes),
+            // Parked rather than dropped: a schema we cannot read today is often one a later
+            // version can.
+            onError: park('parse'),
+            // A lookup error that repeats stops the partition when it fails the batch, so this parks the
+            // message for a replay. The loaders send the team ids of the whole batch in one query, so one
+            // failed query parks every message in it. With the dead-letter topic off, nothing keeps the
+            // message, so the error fails the batch. A failed query that covers enough of the batch trips
+            // the dead-letter circuit breaker, which also fails the batch.
+            parkLookupError: park('lookup'),
+        })
     }
 
     protected async startQueueProducers(): Promise<void> {

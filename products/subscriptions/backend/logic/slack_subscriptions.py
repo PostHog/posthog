@@ -1,4 +1,3 @@
-import re
 import json
 import asyncio
 from dataclasses import dataclass, field
@@ -8,15 +7,15 @@ from django.conf import settings
 
 import aiohttp
 import structlog
-from markdown_it import MarkdownIt
 from slack_sdk.errors import SlackApiError
 from slack_sdk.web.async_client import AsyncWebClient
 from slack_sdk.web.async_slack_response import AsyncSlackResponse
 
 from posthog.dataclasses import frozen
-from posthog.helpers.markdown_safety import is_allowed_link_url
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.integrations import IntegrationManager, IntegrationRecord
+from posthog.models.integration import SlackIntegration
 from posthog.slack.formatting import channel_id_from_target
+from posthog.slack.markdown import slack_rich_text
 from posthog.storage import object_storage
 from posthog.sync import database_sync_to_async
 from posthog.utils import absolute_uri
@@ -88,6 +87,10 @@ class SlackGallery:
     blocks: list[dict[str, Any]] = field(default_factory=list)
 
 
+def _ai_data_processing_approved(subscription: Subscription, integration: IntegrationRecord | None) -> bool:
+    return integration is not None and bool(subscription.team.organization.is_ai_data_processing_approved)
+
+
 def _asset_image_bytes(asset: ExportedAsset) -> bytes | None:
     if asset.content:
         return bytes(asset.content)
@@ -132,7 +135,6 @@ def _subscription_title(
     if is_new_subscription:
         return (
             f"This channel has been subscribed to {display_name} on PostHog! 🎉\n\n"
-            f"This subscription is {subscription.summary}.\n"
             f"The next one will be sent on {next_delivery_date_display(subscription)}"
         )
     return f"Your subscription to {display_name} is ready! 🎉"
@@ -164,71 +166,11 @@ def _subscription_header_blocks(
             "type": "context",
             "elements": [{"type": "plain_text", "text": f"{resource_icon} {resource_info.kind}: {resource_info.name}"}],
         },
-        {
-            "type": "context",
-            "elements": [{"type": "plain_text", "text": f"🕒 {subscription.summary.removeprefix('sent ')}"}],
-        },
     ]
 
 
-_SUMMARY_INLINE_MARKUP = re.compile(
-    r"(?P<link>\[[^\[\]\n]*\]\((?:[^()\s]|\([^)]*\))+\))|"
-    r"<u>(?P<underline>[\s\S]+?)</u>|(?P<bold_marker>\*{1,2})(?P<bold>[^*\n]+)(?P=bold_marker)|"
-    r"(?<!\w)_(?P<italic>[^_\n]+)_(?!\w)|~(?P<strike>[^~\n]+)~|`(?P<code>[^`\n]+)`"
-)
-
-
-def _summary_inline_elements(text: str, style: dict[str, bool]) -> list[dict[str, Any]]:
-    elements: list[dict[str, Any]] = []
-    cursor = 0
-    for match in _SUMMARY_INLINE_MARKUP.finditer(text):
-        if match.start() > cursor:
-            elements.append({"type": "text", "text": text[cursor : match.start()], "style": style})
-        if match.group("link") is not None:
-            tokens = MarkdownIt("commonmark", {"html": False}).parseInline(match.group("link"))[0].children or []
-            destination = next((str(token.attrGet("href")) for token in tokens if token.type == "link_open"), "")
-            label = "".join(token.content for token in tokens if token.type in {"text", "code_inline"})
-            if is_allowed_link_url(destination, absolute_uri("/")):
-                elements.append({"type": "link", "url": destination, "text": label, "style": style})
-            else:
-                elements.append({"type": "text", "text": label, "style": style})
-        for name in ("bold", "italic", "underline", "strike", "code"):
-            content = match.group(name)
-            if content is not None:
-                nested_style = {**style, name: True}
-                if name == "code":
-                    elements.append({"type": "text", "text": content, "style": nested_style})
-                else:
-                    elements.extend(_summary_inline_elements(content, nested_style))
-                break
-        cursor = match.end()
-    if cursor < len(text):
-        elements.append({"type": "text", "text": text[cursor:], "style": style})
-    return elements
-
-
 def _summary_rich_text(summary: str) -> dict[str, Any]:
-    elements: list[dict[str, Any]] = []
-    for line in summary.splitlines():
-        line = line.strip()
-        if not line:
-            if elements and elements[-1]["type"] == "rich_text_list":
-                elements.append({"type": "rich_text_section", "elements": [{"type": "text", "text": "\n"}]})
-            continue
-        bullet = re.match(r"^(?:[•*-]\s+|(\d+)[.)]\s+)(.+)$", line)
-        content = line
-        if bullet:
-            content = bullet.group(2)
-        section = {"type": "rich_text_section", "elements": _summary_inline_elements(content, {})}
-        if bullet:
-            list_style = "ordered" if bullet.group(1) else "bullet"
-            if elements and elements[-1]["type"] == "rich_text_list" and elements[-1]["style"] == list_style:
-                elements[-1]["elements"].append(section)
-            else:
-                elements.append({"type": "rich_text_list", "style": list_style, "elements": [section]})
-        else:
-            elements.append(section)
-    return {"type": "rich_text", "elements": elements}
+    return slack_rich_text(summary, allowed_root=absolute_uri("/"))
 
 
 def _ai_summary_block(change_summary: str) -> dict[str, Any]:
@@ -245,7 +187,7 @@ def _ai_summary_block(change_summary: str) -> dict[str, Any]:
 
 
 def _subscription_footer_blocks(
-    subscription: Subscription, resource_info: SubscriptionResource, integration: Integration | None
+    subscription: Subscription, resource_info: SubscriptionResource, integration: IntegrationRecord | None
 ) -> list[dict[str, Any]]:
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
     action_elements: list[dict] = [
@@ -265,7 +207,7 @@ def _subscription_footer_blocks(
         {"type": "divider"},
         {"type": "actions", "elements": action_elements},
     ]
-    ai_enabled = bool(integration and integration.team.organization.is_ai_data_processing_approved)
+    ai_enabled = _ai_data_processing_approved(subscription, integration)
     if explore_hint := slack_followup_invite(integration, utm_tags=utm_tags, ai_enabled=ai_enabled):
         blocks.append(explore_hint)
 
@@ -279,7 +221,7 @@ def _prepare_slack_gallery(
     is_new_subscription: bool = False,
     change_summary: str | None = None,
     summary_skipped_over_budget: bool = False,
-    integration: Integration | None = None,
+    integration: IntegrationRecord | None = None,
 ) -> SlackGallery:
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
     resource_info = subscription.resource_info
@@ -324,7 +266,7 @@ def _prepare_slack_gallery(
             unattached_assets.append(asset)
             continue
         file_uploads.append({"content": content, "filename": asset.filename, "title": _insight_name(asset)})
-        if asset.insight:
+        if subscription.dashboard_id and asset.insight:
             if insight_links:
                 insight_links.append({"type": "text", "text": " · "})
             insight_links.append({"type": "link", "url": asset.insight.url, "text": _insight_name(asset)})
@@ -337,7 +279,7 @@ def _prepare_slack_gallery(
         f"<{resource_info.url}?{utm_tags}|View in PostHog> · <{subscription.url}?{utm_tags}|Manage subscription>"
     )
 
-    ai_enabled = bool(integration and integration.team.organization.is_ai_data_processing_approved)
+    ai_enabled = _ai_data_processing_approved(subscription, integration)
     if explore_hint := slack_followup_invite_text(integration, utm_tags=utm_tags, ai_enabled=ai_enabled):
         lines.append(explore_hint)
 
@@ -381,7 +323,7 @@ def _prepare_slack_gallery(
     )
 
 
-def _blocks_for_asset(asset: ExportedAsset, resource_url: str) -> list[dict]:
+def _blocks_for_asset(asset: ExportedAsset, resource_url: str, *, include_insight_link: bool = True) -> list[dict]:
     if _has_asset_failed(asset):
         details = failed_asset_details(asset)
         support_url = subscription_support_url(resource_url)
@@ -447,15 +389,16 @@ def _blocks_for_asset(asset: ExportedAsset, resource_url: str) -> list[dict]:
         image_url = DEBUG_PLACEHOLDER_IMAGE_URL
 
     blocks = []
-    if link := _insight_link_block(asset):
-        blocks.append(link)
+    if include_insight_link:
+        if link := _insight_link_block(asset):
+            blocks.append(link)
     blocks.append({"type": "image", "image_url": image_url, "alt_text": alt_text})
     return blocks
 
 
-def get_slack_integration_for_team(team_id: int) -> Integration | None:
+def get_slack_integration_for_team(team_id: int) -> IntegrationRecord | None:
     """Get Slack integration for a team. Returns None if not found."""
-    return Integration.objects.filter(team_id=team_id, kind="slack").first()
+    return IntegrationManager.slack.oauth.find(team_id)
 
 
 def send_slack_subscription_report(
@@ -482,7 +425,7 @@ def _prepare_slack_message(
     is_new_subscription: bool = False,
     change_summary: str | None = None,
     summary_skipped_over_budget: bool = False,
-    integration: Integration | None = None,
+    integration: IntegrationRecord | None = None,
 ) -> SlackMessage:
     """Prepare Slack message content. Pure function with no side effects."""
     utm_tags = f"{UTM_TAGS_BASE}&utm_medium=slack"
@@ -508,7 +451,11 @@ def _prepare_slack_message(
         notice = summary_skipped_over_budget_message(f"<{billing_url}|Billing settings>")
         blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": f"_{notice}_"}]})
 
-    blocks.extend(_blocks_for_asset(first_asset, resource_url=resource_info.url))
+    blocks.extend(
+        _blocks_for_asset(
+            first_asset, resource_url=resource_info.url, include_insight_link=bool(subscription.dashboard_id)
+        )
+    )
 
     if other_assets:
         blocks.append(
@@ -523,7 +470,9 @@ def _prepare_slack_message(
     # Prepare additional messages for thread
     thread_messages = []
     for asset in other_assets:
-        asset_blocks = _blocks_for_asset(asset, resource_url=resource_info.url)
+        asset_blocks = _blocks_for_asset(
+            asset, resource_url=resource_info.url, include_insight_link=bool(subscription.dashboard_id)
+        )
         thread_messages.append({"blocks": asset_blocks})
 
     if total_asset_count > len(assets):
@@ -553,7 +502,7 @@ def _prepare_slack_message(
 
 
 def send_slack_message_with_integration(
-    integration: Integration,
+    integration: IntegrationRecord,
     subscription: Subscription,
     assets: list[ExportedAsset],
     total_asset_count: int,
@@ -629,7 +578,7 @@ async def _send_slack_message_with_retry(
 
 
 async def deliver_slack_message_data(
-    integration: Integration,
+    integration: IntegrationRecord,
     subscription: Subscription,
     message_data: SlackMessage,
 ) -> SlackDeliveryResult:
@@ -685,7 +634,7 @@ async def deliver_slack_message_data(
 
 
 async def deliver_slack_gallery(
-    integration: Integration, subscription: Subscription, gallery: SlackGallery
+    integration: IntegrationRecord, subscription: Subscription, gallery: SlackGallery
 ) -> SlackDeliveryResult:
     slack_integration = SlackIntegration(integration, source="subscriptions")
     async with aiohttp.ClientSession(trust_env=True) as slack_session:
@@ -733,7 +682,7 @@ async def deliver_slack_gallery(
 
 
 async def send_slack_message_with_integration_async(
-    integration: Integration,
+    integration: IntegrationRecord,
     subscription: Subscription,
     assets: list[ExportedAsset],
     total_asset_count: int,

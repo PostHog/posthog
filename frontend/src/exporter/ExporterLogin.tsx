@@ -1,15 +1,14 @@
-import '../scenes/authentication/login/Login.scss'
-
-import clsx from 'clsx'
 import { MakeLogicType, actions, kea, path, reducers, useValues } from 'kea'
 import { Form, forms } from 'kea-forms'
 import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 
-import { BridgePage } from 'lib/components/BridgePage/BridgePage'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
+import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
+import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
+import { AUTH_NOTES } from 'scenes/authentication/shared/authScene/authNotes'
+import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { ERROR_MESSAGES } from 'scenes/authentication/shared/loginErrorMessages'
 import { SupportModalButton } from 'scenes/authentication/shared/SupportModalButton'
 
@@ -151,68 +150,45 @@ export interface ExporterLoginProps {
 export function ExporterLogin(props: ExporterLoginProps): JSX.Element {
     const { isLoginSubmitting, generalError, isSuccess } = useValues(loginLogic())
 
-    const login = (
-        <div className="space-y-4">
-            <h2>Access share</h2>
-            {generalError && (
-                <LemonBanner type="error">
-                    {generalError.detail || ERROR_MESSAGES[generalError.code] || (
-                        <>
-                            Could not unlock the content.
-                            <br />
-                            Please try again.
-                        </>
-                    )}
-                </LemonBanner>
-            )}
-            <Form logic={loginLogic} formKey="login" enableFormOnSubmit className="space-y-4">
-                <div className={clsx('PasswordWrapper')}>
-                    <LemonField
-                        name="password"
-                        label={
-                            <div className="flex flex-1 items-center justify-between gap-2">
-                                <span>Password</span>
-                            </div>
-                        }
-                    >
+    return (
+        // A white-labelled share shows no PostHog branding, so it drops the corner notes and the logo
+        <AuthScene notes={props.whitelabel ? [] : AUTH_NOTES.exporter.default}>
+            <AuthSceneCard top={props.whitelabel ? null : undefined} footer={<SupportModalButton />}>
+                <AuthCardTitle
+                    title="Access share"
+                    sub="Don't have a password? Ask the person who shared this with you."
+                />
+                {generalError && (
+                    <AuthBanner variant="danger" className="mb-4">
+                        {generalError.detail ||
+                            ERROR_MESSAGES[generalError.code] ||
+                            'Could not unlock the content. Please try again.'}
+                    </AuthBanner>
+                )}
+                <Form logic={loginLogic} formKey="login" enableFormOnSubmit className="flex flex-col gap-4">
+                    <LemonField name="password" label="Password">
                         <LemonInput
                             type="password"
                             className="ph-ignore-input"
                             data-attr="password"
                             placeholder="••••••••••"
                             autoComplete="current-password"
+                            fullWidth
                         />
                     </LemonField>
-                </div>
-
-                <LemonButton
-                    type="primary"
-                    status={isSuccess ? 'default' : 'alt'}
-                    htmlType="submit"
-                    data-attr="password-login"
-                    fullWidth
-                    center
-                    loading={isLoginSubmitting && !isSuccess}
-                    size="large"
-                >
-                    {isSuccess ? 'Access granted!' : 'Unlock'}
-                </LemonButton>
-            </Form>
-            <div className="text-center mt-4">Don't have a password? Ask the person who shared this with you!</div>
-        </div>
-    )
-
-    if (props.whitelabel) {
-        return (
-            <BridgePage noLogo view="login" footer={<SupportModalButton />}>
-                {login}
-            </BridgePage>
-        )
-    }
-
-    return (
-        <BridgePage view="login" footer={<SupportModalButton />}>
-            {login}
-        </BridgePage>
+                    <LemonButton
+                        type="primary"
+                        htmlType="submit"
+                        data-attr="password-login"
+                        fullWidth
+                        center
+                        loading={isLoginSubmitting && !isSuccess}
+                        size="large"
+                    >
+                        {isSuccess ? 'Access granted!' : 'Unlock'}
+                    </LemonButton>
+                </Form>
+            </AuthSceneCard>
+        </AuthScene>
     )
 }

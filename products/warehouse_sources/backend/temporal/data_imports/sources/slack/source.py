@@ -1,12 +1,15 @@
+from collections.abc import Mapping
 from dataclasses import field
-from typing import TYPE_CHECKING, Optional, cast
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 from products.warehouse_sources.backend.facade.codebase_detection import detect
 
 if TYPE_CHECKING:
-    from posthog.models.integration import Integration
+    from posthog.integrations import IntegrationRecord
 
     from products.cdp.backend.templates.hog_function_template import HogFunctionTemplateDC
+
+from temporalio import activity
 
 from posthog.dataclasses import frozen
 
@@ -29,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.can
     CanonicalDescriptions,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import OAuthMixin
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.oauth_pointers import PointerPath
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
@@ -46,6 +50,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.slack.slac
     validate_credentials as validate_slack_credentials,
 )
 from products.warehouse_sources.backend.types import ExternalDataSourceType
+
+# Joining is one rate-limited call per channel, so a large workspace can't finish in one pass. The setup
+# wizard and a manual refresh discover schemas inside a web request, which the gateway ends at 120
+# seconds. The discovery activity times out at 10 minutes and runs again every few hours.
+_REQUEST_JOIN_BUDGET_SECONDS = 30.0
+_ACTIVITY_JOIN_BUDGET_SECONDS = 300.0
+# Sources made before bring-your-own point at PostHog's shared Slack app with this key. No form field declares it.
+_LEGACY_INTEGRATION_KEY = "slack_integration_id"
 
 
 @frozen
@@ -153,8 +165,16 @@ class SlackSource(ResumableSource[SlackSourceConfig, SlackResumeConfig], Webhook
     def get_webhook_source_manager(self, inputs: SourceInputs) -> WebhookSourceManager:
         return WebhookSourceManager(inputs, inputs.logger)
 
+    def in_use_oauth_slot(self, job_inputs: Mapping[str, Any]) -> PointerPath | None:
+        # The legacy OAuth pointer has no form field. A pasted token wins over it, as in `_resolve_access_token`.
+        return None if job_inputs.get("slack_access_token") else (_LEGACY_INTEGRATION_KEY,)
+
+    @property
+    def oauth_pointer_paths(self) -> frozenset[PointerPath]:
+        return frozenset({(_LEGACY_INTEGRATION_KEY,)})
+
     @staticmethod
-    def _get_authed_user_id(integration: "Integration") -> str | None:
+    def _get_authed_user_id(integration: "IntegrationRecord") -> str | None:
         return (integration.config or {}).get("authed_user", {}).get("id")
 
     def _resolve_access_token(self, config: SlackSourceConfig, team_id: int) -> SlackAccess:
@@ -270,6 +290,7 @@ Invite the bot to any channel whose messages you want to sync (`/invite @PostHog
                     ),
                     SourceFieldSwitchGroupConfig(
                         name="join_public_channels",
+                        sync_setting=True,
                         label="Automatically join public channels",
                         caption="On by default: the bot joins every public channel so their new messages sync without inviting it to each one. Turn it off to pick channels manually. Private channels always need a manual invite. Uses the `channels:join` scope, which the manifest above already includes.",
                         default=True,
@@ -382,7 +403,16 @@ Prefer a manifest? Paste this when creating the app — it wires the request URL
         # Joining is idempotent and only touches public channels the bot isn't in, so running it on
         # each discovery/refresh also picks up channels created since the last pass.
         if config.slack_access_token and config.join_public_channels and config.join_public_channels.enabled:
-            join_public_channels(access.access_token, access.cache_id, access.authed_user_id)
+            # The discovery activity runs as soon as a source is created, with the larger budget, so it
+            # joins what a request pass leaves.
+            join_public_channels(
+                access.access_token,
+                access.cache_id,
+                access.authed_user_id,
+                time_budget_seconds=_ACTIVITY_JOIN_BUDGET_SECONDS
+                if activity.in_activity()
+                else _REQUEST_JOIN_BUDGET_SECONDS,
+            )
         channels = get_channels(
             access.cache_id, access.access_token, access.authed_user_id, force_refresh=force_refresh
         )

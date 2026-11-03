@@ -1,6 +1,6 @@
 # Warehouse sources — implementation status & communication methods
 
-This file is the authoritative inventory of every source registered in [`products/warehouse_sources/backend/temporal/data_imports/sources/__init__.py`](__init__.py),
+This file is the authoritative inventory of every source the loader in [`products/warehouse_sources/backend/temporal/data_imports/sources/__init__.py`](__init__.py) registers (vendor directories here and in the `products/warehouse_sources/sources/` tree),
 the wire protocol it uses to talk to its upstream, and whether its outbound traffic is currently routed
 through the [tracked HTTP transport](common/http/) (so it shows up in our HTTP logs, metrics, and
 sample-capture pipeline).
@@ -1063,6 +1063,7 @@ doesn't conflict with concurrent PRs.
 - aws_connect
 - aws_health
 - aws_rds_performance_insights
+- aws_s3_tables
 - aws_support
 - aws_trusted_advisor
 - aws_xray
@@ -1083,6 +1084,7 @@ doesn't conflict with concurrent PRs.
 - backblaze
 - basecamp
 - bcms
+- beacons
 - bexio
 - billit
 - bitly
@@ -1157,6 +1159,7 @@ doesn't conflict with concurrent PRs.
 - drchrono
 - dreamdata
 - dremio
+- dripify
 - dropbox
 - dubsado
 - ducklake
@@ -1174,6 +1177,7 @@ doesn't conflict with concurrent PRs.
 - facebook_pages
 - faros_ai
 - fastbill
+- fathom
 - fauna
 - feishu
 - fieldwire
@@ -1346,6 +1350,7 @@ doesn't conflict with concurrent PRs.
 - moodle
 - msg91
 - mycase
+- nango
 - nasa
 - nationbuilder
 - navan
@@ -1487,6 +1492,7 @@ doesn't conflict with concurrent PRs.
 - solarwinds_service_desk
 - sonar_cloud
 - sonatype_nexus
+- soniox
 - spacelift
 - spotify_ads
 - sprinklr
@@ -1494,6 +1500,7 @@ doesn't conflict with concurrent PRs.
 - sprout_social
 - sqlite
 - stackadapt
+- stamped
 - starburst
 - stockx
 - strato
@@ -1567,6 +1574,7 @@ doesn't conflict with concurrent PRs.
 - wistia
 - wiz
 - wompi
+- woopayments
 - workato
 - workflowmax
 - workramp

@@ -7,7 +7,6 @@ import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 
 import { RATE_LIMITED_MESSAGE } from './evaluationOverviewDisplay'
 import { EvaluationOverviewResults } from './EvaluationOverviewResults'
-import { EvaluationOverviewTiles } from './EvaluationOverviewTiles'
 import { EvaluationScopePicker } from './EvaluationScopePicker'
 import { OVERVIEW_DATE_OPTIONS, evaluationsOverviewLogic } from './evaluationsOverviewLogic'
 
@@ -68,7 +67,6 @@ export function EvaluationsOverview(): JSX.Element {
                             Couldn't load the evaluation list, so editing evaluations and picking them is unavailable.
                         </LemonBanner>
                     )}
-                    <EvaluationOverviewTiles />
                     <EvaluationOverviewResults />
                 </>
             )}

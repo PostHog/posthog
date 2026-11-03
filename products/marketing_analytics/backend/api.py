@@ -43,6 +43,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.documentation import _FallbackSerializer
 from posthog.api.mixins import validated_request
 from posthog.api.project import capture_team_config_diff
+from posthog.api.query import CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.client.limit import (
     ConcurrencyLimitExceeded,
@@ -149,7 +150,6 @@ def _setup_enabled(request: Request, team: Team, *, include_read_only: bool = Fa
         )
         for flag in (
             "marketing-analytics-setup",
-            "new-marketing-analytics-dashboard",
             *(
                 ("marketing-analytics-source-onboarding", "marketing-analytics-setup-plan-mcp")
                 if include_read_only
@@ -1251,10 +1251,9 @@ class ConversionRecordingsResponseSerializer(serializers.Serializer):
 
 
 class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
-    # `marketing_analytics` is gated by the API scope of the same name and inherits
-    # RBAC from `web_analytics` (see RESOURCE_INHERITANCE_MAP). Custom @action methods
-    # below are not standard CRUD names, so each declares its own `required_scopes`;
-    # actions without it stay session-only (not reachable via API key / OAuth / MCP).
+    # `marketing_analytics` is gated by the API scope and the RBAC resource of the same
+    # name. Custom @action methods below are not standard CRUD names, so each declares
+    # its own `required_scopes`; actions without it stay session-only (not reachable via API key / OAuth / MCP).
     scope_object = "marketing_analytics"
     serializer_class = _FallbackSerializer
     permission_classes = [IsAuthenticated]
@@ -1300,7 +1299,10 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                     limit=data["limit"],
                 )
         except ConcurrencyLimitExceeded as error:
-            raise Throttled(detail="Too many queries are running. Try again in a moment.") from error
+            raise Throttled(
+                wait=CONCURRENCY_LIMIT_RETRY_AFTER_SECONDS,
+                detail="Too many queries are running. Try again in a moment.",
+            ) from error
         return Response(ConversionRecordingsResponseSerializer(result).data)
 
     @validated_request(

@@ -14,6 +14,7 @@ from rest_framework.response import Response
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.monitoring import monitor
+from posthog.api.pagination import page_link
 from posthog.api.statement_timeout import statement_timeout
 from posthog.permissions import get_authenticator_scopes
 
@@ -31,7 +32,6 @@ from products.ai_observability.backend.api.offline_experiment_read_serializers i
     OfflineExperimentQuerySerializer,
     OfflineExperimentReadSerializer,
     OfflineHistoryPageSerializer,
-    OfflineHistoryQuerySerializer,
     OfflineItemPageSerializer,
     OfflineItemPayloadReadSerializer,
     OfflineItemReadSerializer,
@@ -40,6 +40,7 @@ from products.ai_observability.backend.api.offline_experiment_read_serializers i
     OfflineResultPageSerializer,
     OfflineResultPayloadReadSerializer,
     OfflineResultQuerySerializer,
+    OfflineScorerHistoryQuerySerializer,
     OfflineSummaryPageSerializer,
     OfflineSummaryQuerySerializer,
 )
@@ -125,6 +126,11 @@ class OfflineEvaluationReadViewSet(OfflineEvaluationViewSet):
         ):
             return Response(serializer(read()).data)
 
+    def _page_response(self, read: Callable[[], object], serializer: type[serializers.Serializer]) -> Response:
+        response = self._read_response(read, serializer)
+        response.data["next"] = page_link(self.request, "cursor", response.data["next_cursor"])
+        return response
+
 
 class OfflineExperimentReadViewSet(OfflineEvaluationReadViewSet):
     @validated_request(
@@ -150,7 +156,7 @@ class OfflineExperimentReadViewSet(OfflineEvaluationReadViewSet):
     def list(self, request: ValidatedRequest, **kwargs: object) -> Response:
         query = cast(OfflineReadQuery, request.validated_query_data)
         service = self._read_service(query)
-        return self._read_response(lambda: service.list_experiments(query), OfflineExperimentPageSerializer)
+        return self._page_response(lambda: service.list_experiments(query), OfflineExperimentPageSerializer)
 
     @validated_request(
         query_serializer=EmptyQuerySerializer,
@@ -176,7 +182,7 @@ class OfflineExperimentReadViewSet(OfflineEvaluationReadViewSet):
     def items(self, request: ValidatedRequest, **kwargs: object) -> Response:
         query = cast(OfflineReadQuery, request.validated_query_data)
         service = self._read_service(query)
-        return self._read_response(lambda: service.list_items(self._path_id(), query), OfflineItemPageSerializer)
+        return self._page_response(lambda: service.list_items(self._path_id(), query), OfflineItemPageSerializer)
 
     @validated_request(
         query_serializer=EmptyQuerySerializer,
@@ -203,7 +209,7 @@ class OfflineExperimentReadViewSet(OfflineEvaluationReadViewSet):
     def item_results(self, request: ValidatedRequest, **kwargs: object) -> Response:
         query = cast(OfflineReadQuery, request.validated_query_data)
         service = self._read_service(query)
-        return self._read_response(
+        return self._page_response(
             lambda: service.list_item_results(self._path_id(), self._path_id("item_id"), query),
             OfflineResultPageSerializer,
         )
@@ -248,12 +254,12 @@ class OfflineExperimentReadViewSet(OfflineEvaluationReadViewSet):
     def scorer_summaries(self, request: ValidatedRequest, **kwargs: object) -> Response:
         query = cast(OfflineReadQuery, request.validated_query_data)
         service = self._read_service(query)
-        return self._read_response(lambda: service.list_summaries(self._path_id(), query), OfflineSummaryPageSerializer)
+        return self._page_response(lambda: service.list_summaries(self._path_id(), query), OfflineSummaryPageSerializer)
 
 
 class OfflineScorerViewSet(OfflineEvaluationReadViewSet):
     @validated_request(
-        query_serializer=OfflineHistoryQuerySerializer,
+        query_serializer=OfflineScorerHistoryQuerySerializer,
         operation_id="ai_observability_offline_scorers_history_list",
         parameters=[OpenApiParameter("id", UUID, OpenApiParameter.PATH, description="Scorer definition UUID.")],
         responses={200: OfflineHistoryPageSerializer, **READ_ERROR_RESPONSES},
@@ -264,4 +270,4 @@ class OfflineScorerViewSet(OfflineEvaluationReadViewSet):
     def history(self, request: ValidatedRequest, **kwargs: object) -> Response:
         query = cast(OfflineReadQuery, request.validated_query_data)
         service = self._read_service(query)
-        return self._read_response(lambda: service.scorer_history(self._path_id(), query), OfflineHistoryPageSerializer)
+        return self._page_response(lambda: service.scorer_history(self._path_id(), query), OfflineHistoryPageSerializer)

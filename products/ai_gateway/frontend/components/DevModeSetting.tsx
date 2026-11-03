@@ -127,6 +127,17 @@ export function DevModeSetting(): JSX.Element {
                         render: (_, token) => <span translate="no">${token.cap_usd}</span>,
                     },
                     {
+                        title: 'Left',
+                        key: 'remaining_usd',
+                        tooltip: 'Budget left on a live token, net of requests still in flight.',
+                        render: (_, token) =>
+                            token.status !== 'live' ? null : token.remaining_usd != null ? (
+                                <span translate="no">${Number(token.remaining_usd).toFixed(4)}</span>
+                            ) : (
+                                <span className="text-secondary">Unknown</span>
+                            ),
+                    },
+                    {
                         key: 'actions',
                         width: 0,
                         render: (_, token) =>

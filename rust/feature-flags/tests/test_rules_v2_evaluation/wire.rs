@@ -1,4 +1,4 @@
-//! Validates a `/flags?v=3` response the way the harness does.
+//! Validates a `/flags?v=4` response the way the harness does.
 
 use std::sync::LazyLock;
 
@@ -8,7 +8,7 @@ use serde_json::Value;
 use crate::corpus;
 
 const PRODUCER_ID: &str =
-    "https://posthog.com/contracts/feature_flag_rules_v2/flags_response_v3.schema.json";
+    "https://posthog.com/contracts/feature_flag_rules_v2/flags_response_v4.schema.json";
 
 struct Vendored;
 
@@ -18,7 +18,7 @@ impl Retrieve for Vendored {
         uri: &Uri<String>,
     ) -> Result<Value, Box<dyn std::error::Error + Send + Sync>> {
         if uri.as_str() == PRODUCER_ID {
-            Ok(corpus::load("schemas/flags_response_v3.schema.json"))
+            Ok(corpus::load("schemas/flags_response_v4.schema.json"))
         } else {
             Err(format!("unexpected $ref {uri}").into())
         }
@@ -34,9 +34,9 @@ fn validator(path: &str) -> Validator {
 }
 
 static PRODUCER: LazyLock<Validator> =
-    LazyLock::new(|| validator("schemas/flags_response_v3.schema.json"));
+    LazyLock::new(|| validator("schemas/flags_response_v4.schema.json"));
 static PRESENCE: LazyLock<Validator> =
-    LazyLock::new(|| validator("schemas/flags_response_v3_presence.schema.json"));
+    LazyLock::new(|| validator("schemas/flags_response_v4_presence.schema.json"));
 
 fn first_error(validator: &Validator, instance: &Value) -> Option<String> {
     validator
@@ -81,7 +81,7 @@ fn first_seed(value: &Value, path: &str) -> Option<String> {
 }
 
 /// `Err((layer, detail))` names the first failing layer.
-pub fn validate_v3(response: &Value) -> Result<(), (&'static str, String)> {
+pub fn validate_v4(response: &Value) -> Result<(), (&'static str, String)> {
     if let Some(error) = first_error(&PRODUCER, response) {
         return Err(("schema", error));
     }

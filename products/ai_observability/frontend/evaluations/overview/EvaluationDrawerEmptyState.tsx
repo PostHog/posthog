@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
-import { IconCalendar, IconGear, IconClockRewind, IconPlay } from '@posthog/icons'
+import { IconCalendar, IconGear, IconPlay } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
@@ -15,6 +15,7 @@ import { llmEvaluationsLogic } from '../llmEvaluationsLogic'
 import { statusReasonLabel, statusReasonRecoveryLabel } from '../statusDisplay'
 import type { EvaluationStatusReason } from '../types'
 import { evaluationResultDrawerLogic } from './evaluationResultDrawerLogic'
+import { EvaluationRunOnPastDataButton } from './EvaluationRunOnPastDataButton'
 import { evaluationsOverviewLogic } from './evaluationsOverviewLogic'
 
 const HedgehogSearching = pngHoggie(magnifyingGlassPng)
@@ -48,16 +49,12 @@ export function EvaluationDrawerEmptyState({ row }: { row: EvaluationResultApi }
           : "It's turned off, so new generations aren't scored."
 
     const runOnPastData = (
-        <LemonButton
+        <EvaluationRunOnPastDataButton
+            row={row}
             type="secondary"
-            icon={<IconClockRewind />}
-            to={evaluationUrl(row.id, { evaluation_tab: 'backfills' })}
             onClick={() => trackEmptyStateAction('run_on_past_data', state)}
-            disabledReason={editorReason}
-            data-attr="evaluation-overview-drawer-empty-backfill"
-        >
-            Run on past data
-        </LemonButton>
+            dataAttr="evaluation-overview-drawer-empty-backfill"
+        />
     )
 
     return (

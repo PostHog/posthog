@@ -1119,8 +1119,6 @@ export const customerTasksUpdateBodyNameMax = 400
 
 export const CustomerTasksUpdateBody = /* @__PURE__ */ zod.object({
     account_id: zod.uuid().nullish().describe('UUID of a visible account, or null to remove the account link.'),
-    name: zod.string().max(customerTasksUpdateBodyNameMax).describe('Replacement task name.'),
-    description: zod.string().nullish().describe('Replacement description, or null to clear it.'),
     assigned_to_id: zod.number().nullish().describe('Replacement assignee ID, or null to unassign.'),
     due_at: zod.iso
         .datetime({ offset: true })
@@ -1135,14 +1133,14 @@ export const CustomerTasksUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Replacement task status.\n\n\* `open` - Open\n\* `in_progress` - In progress\n\* `completed` - Completed\n\* `canceled` - Canceled'
         ),
+    name: zod.string().max(customerTasksUpdateBodyNameMax).describe('Replacement task name.'),
+    description: zod.string().nullish().describe('Replacement description, or null to clear it.'),
 })
 
 export const customerTasksPartialUpdateBodyNameMax = 400
 
 export const CustomerTasksPartialUpdateBody = /* @__PURE__ */ zod.object({
     account_id: zod.uuid().nullish().describe('UUID of a visible account, or null to remove the account link.'),
-    name: zod.string().max(customerTasksPartialUpdateBodyNameMax).optional().describe('Replacement task name.'),
-    description: zod.string().nullish().describe('Replacement description, or null to clear it.'),
     assigned_to_id: zod.number().nullish().describe('Replacement assignee ID, or null to unassign.'),
     due_at: zod.iso
         .datetime({ offset: true })
@@ -1157,6 +1155,41 @@ export const CustomerTasksPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Replacement task status.\n\n\* `open` - Open\n\* `in_progress` - In progress\n\* `completed` - Completed\n\* `canceled` - Canceled'
         ),
+    name: zod.string().max(customerTasksPartialUpdateBodyNameMax).optional().describe('Replacement task name.'),
+    description: zod.string().nullish().describe('Replacement description, or null to clear it.'),
+})
+
+/**
+ * Update selected tasks in one transaction. No tasks change if any task fails validation.
+ */
+export const customerTasksBulkUpdateCreateBodyTaskIdsMax = 100
+
+export const CustomerTasksBulkUpdateCreateBody = /* @__PURE__ */ zod.object({
+    task_ids: zod
+        .array(zod.uuid())
+        .min(1)
+        .max(customerTasksBulkUpdateCreateBodyTaskIdsMax)
+        .describe('UUIDs of up to 100 tasks to update together.'),
+    updates: zod
+        .object({
+            account_id: zod.uuid().nullish().describe('UUID of a visible account, or null to remove the account link.'),
+            assigned_to_id: zod.number().nullish().describe('Replacement assignee ID, or null to unassign.'),
+            due_at: zod.iso
+                .datetime({ offset: true })
+                .nullish()
+                .describe('Replacement ISO 8601 deadline, or null to clear it.'),
+            status: zod
+                .enum(['open', 'in_progress', 'completed', 'canceled'])
+                .describe(
+                    '\* `open` - Open\n\* `in_progress` - In progress\n\* `completed` - Completed\n\* `canceled` - Canceled'
+                )
+                .optional()
+                .describe(
+                    'Replacement task status.\n\n\* `open` - Open\n\* `in_progress` - In progress\n\* `completed` - Completed\n\* `canceled` - Canceled'
+                ),
+            archived: zod.boolean().optional().describe('Archive tasks when true, or restore them when false.'),
+        })
+        .describe('Changes to apply to every selected task.'),
 })
 
 /**

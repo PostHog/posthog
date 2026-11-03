@@ -109,6 +109,12 @@ DataOpsVariant = Literal["trino", "duckdb"]
 
 
 def managed_warehouse_domain() -> str:
+    """The zone managed warehouse hostnames are served under in this deployment.
+
+    The value is shared with `managed_ingress`, which the warehouse-source host guard reads. It
+    is defined here because a presentation module cannot import a plain backend module without
+    breaking the facade contract.
+    """
     deployment = (getattr(settings, "CLOUD_DEPLOYMENT", None) or "").upper()
     return _MANAGED_WAREHOUSE_DOMAINS.get(deployment, "test.local")
 

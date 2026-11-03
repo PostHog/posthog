@@ -25,6 +25,7 @@ class ReportTaskActionKind(LabeledStrEnum):
     GET_IT_MERGED = "get_it_merged", "Get it merged"
     MAKE_IT_GREEN = "make_it_green", "Make it green"
     SUGGESTED_PROMPT = "suggested_prompt", "Suggested prompt"
+    ASK = "ask", "Ask"
 
 
 class ReviewerSelectionOutcome(LabeledStrEnum):
@@ -38,6 +39,15 @@ class ReviewerEditAction(LabeledStrEnum):
     REMOVE = "remove", "Remove"
     REPLACE = "replace", "Replace"
     CONFIRM = "confirm", "Confirm"
+
+
+class ReviewerRemovalReason(LabeledStrEnum):
+    # Why a person removed a reviewer. Each value leads to a different instruction for research and the
+    # scouts, so a new value needs its own guidance in `reviewer_correction_notes`.
+    WRONG_AREA = "wrong_area", "Not their area"
+    ALREADY_COVERED = "already_covered", "Someone else is on it"
+    UNAVAILABLE = "unavailable", "No bandwidth"
+    OTHER = "other", "Other"
 
 
 class ReportLinkKind(LabeledStrEnum):
@@ -72,9 +82,11 @@ class SuggestedSourceProduct(LabeledStrEnum):
 class ReportLinkWritePath(StrEnum):
     # Which surface wrote a `report_link`. `EMIT` writes it with the report, before auto-start reads
     # the link gates. `EDIT` writes it on a report that exists, possibly after auto-start ran.
+    # `MERGE` writes the `duplicate_of` link when the merge endpoint folds a report into another.
     EMIT = "emit"
     EDIT = "edit"
     PIPELINE = "pipeline"
+    MERGE = "merge"
 
 
 class SignalSourceProduct(StrEnum):

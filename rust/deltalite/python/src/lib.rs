@@ -14,7 +14,7 @@ use arrow_schema::SchemaRef;
 use deltalake::writer::RecordBatchWriter;
 use deltalite_core::errors::Error;
 use deltalite_core::handle::TableHandle;
-use deltalite_core::limits::ProcessLimits;
+use deltalite_core::limits::{Budget, ProcessLimits};
 use deltalite_core::probecache::ProbeCache;
 use deltalite_core::schema::import_column;
 use deltalite_core::table::{open_table, table_exists, MultipartConfig};
@@ -31,6 +31,7 @@ create_exception!(deltalite, DeltaLiteSchemaMismatchError, DeltaLiteError);
 create_exception!(deltalite, DeltaLiteTableNotFoundError, DeltaLiteError);
 create_exception!(deltalite, DeltaLiteUnsupportedTableError, DeltaLiteError);
 create_exception!(deltalite, DeltaLiteSourceTooLargeError, DeltaLiteError);
+create_exception!(deltalite, DeltaLiteTimeoutError, DeltaLiteError);
 
 /// Map a core error onto the matching Python exception class.
 fn to_py_err(e: Error) -> PyErr {
@@ -41,6 +42,7 @@ fn to_py_err(e: Error) -> PyErr {
         Error::Unsupported(_) => DeltaLiteUnsupportedTableError::new_err(msg),
         Error::Conflict(_) => DeltaLiteCommitConflictError::new_err(msg),
         Error::SourceTooLarge(_) => DeltaLiteSourceTooLargeError::new_err(msg),
+        Error::Timeout(_) => DeltaLiteTimeoutError::new_err(msg),
         Error::Generic(_) => DeltaLiteError::new_err(msg),
     }
 }
@@ -737,12 +739,38 @@ fn probe_cache_stats(py: Python<'_>) -> PyResult<Py<PyAny>> {
     Ok(d.into_any().unbind())
 }
 
+/// Free and total permits of each process-wide budget that every upsert and compaction
+/// of this process shares, and the acquisitions that wait for each:
+/// `{"partitions": {"available": .., "total": .., "waiters": ..}, "files": {..},
+/// "buffer_kb": {..}, "fetch_kb": {..}}`. The byte budgets count KiB. It takes no
+/// lock and does no I/O, so a caller can read it while a call of this process hangs.
+#[pyfunction]
+fn limits_snapshot(py: Python<'_>) -> PyResult<Py<PyAny>> {
+    let s = ProcessLimits::global().snapshot();
+    let d = PyDict::new(py);
+    for budget in [
+        Budget::Partitions,
+        Budget::Files,
+        Budget::Buffer,
+        Budget::Fetch,
+    ] {
+        let b = s.get(budget);
+        let entry = PyDict::new(py);
+        entry.set_item("available", b.available)?;
+        entry.set_item("total", b.total)?;
+        entry.set_item("waiters", b.waiters)?;
+        d.set_item(budget.name(), entry)?;
+    }
+    Ok(d.into_any().unbind())
+}
+
 #[pymodule]
 fn deltalite(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<DeltaLiteTable>()?;
     m.add_function(wrap_pyfunction!(set_probe_cache_max_bytes, m)?)?;
     m.add_function(wrap_pyfunction!(clear_probe_cache, m)?)?;
     m.add_function(wrap_pyfunction!(probe_cache_stats, m)?)?;
+    m.add_function(wrap_pyfunction!(limits_snapshot, m)?)?;
     m.add_class::<UpsertStats>()?;
     m.add("DeltaLiteError", m.py().get_type::<DeltaLiteError>())?;
     m.add(
@@ -764,6 +792,10 @@ fn deltalite(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add(
         "DeltaLiteSourceTooLargeError",
         m.py().get_type::<DeltaLiteSourceTooLargeError>(),
+    )?;
+    m.add(
+        "DeltaLiteTimeoutError",
+        m.py().get_type::<DeltaLiteTimeoutError>(),
     )?;
     Ok(())
 }

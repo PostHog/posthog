@@ -348,6 +348,8 @@ WHERE {periods_expression}
             results=results,
             modifiers=self.modifiers,
             preComputeStrategy=WebAnalyticsPreComputeStrategy.LAZY_PRECOMPUTE,
+            preComputeStale=self.lazy_precompute_stale(),
+            preComputedAt=self.lazy_precompute_computed_at_iso(),
         )
 
     def event_properties(self) -> ast.Expr:

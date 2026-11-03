@@ -5,21 +5,11 @@ so a user who cannot view one of those may not see the subscription either. The 
 subqueries over the target tables, so the access filter stays a single query.
 """
 
+from typing import Any, Protocol
+
 from django.contrib.postgres.expressions import ArraySubquery
 from django.contrib.postgres.fields import ArrayField
-from django.db.models import (
-    BigIntegerField,
-    BooleanField,
-    CharField,
-    F,
-    Func,
-    JSONField,
-    Manager,
-    Q,
-    QuerySet,
-    TextField,
-    Value,
-)
+from django.db.models import BigIntegerField, BooleanField, CharField, F, Func, JSONField, Q, QuerySet, TextField, Value
 from django.db.models.functions import Cast, Concat
 
 from posthog.dataclasses import frozen
@@ -32,6 +22,11 @@ from products.product_analytics.backend.facade.models import Insight
 from products.subscriptions.backend.facade.contracts import SubscriptionRequestInvalidError
 
 
+class _Filterable(Protocol):
+    # A Protocol, not Manager, because type checkers read a Manager-typed field as a descriptor.
+    def filter(self, *args: Any, **kwargs: Any) -> QuerySet[Any]: ...
+
+
 @frozen
 class _TargetLookups:
     insight: str
@@ -42,9 +37,9 @@ class _TargetLookups:
     rendered_snapshot: str | None
     exported_insights: str
     no_selection: str
-    insights: Manager
-    dashboards: Manager
-    tiles: Manager
+    insights: _Filterable
+    dashboards: _Filterable
+    tiles: _Filterable
 
 
 _SUBSCRIPTION_TARGETS = _TargetLookups(
@@ -150,7 +145,8 @@ def _target_filter(user_access_control: UserAccessControl, team_id: int, targets
         return Q()
 
     team_dashboards = targets.dashboards.filter(team_id=team_id)
-    blocked_insights = blocked_target_ids(user_access_control, targets.insights.filter(team_id=team_id), "insight")
+    target_insights = targets.insights.filter(team_id=team_id)
+    blocked_insights = blocked_target_ids(user_access_control, target_insights, "insight")
     blocked_dashboards = blocked_target_ids(user_access_control, team_dashboards, "dashboard")
     # Distinct so the context-ref array below holds one entry per dashboard, not one per blocked tile.
     dashboards_with_blocked_tiles = (

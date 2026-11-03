@@ -1564,16 +1564,53 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
         earliest = dt.datetime.fromisoformat(rows[0]["time"]).astimezone(dt.UTC)
         self.assertEqual(earliest, self.anchor)
 
-    def test_mismatched_bounds_raise(self):
-        self._seed_histogram([(self.anchor + dt.timedelta(seconds=0), [1, 1, 1, 0])], temporality="delta")
+    def test_mismatched_bounds_merge_onto_one_layout(self):
+        # Two endpoints with their own buckets chart together instead of failing.
+        self._seed_histogram([(self.anchor + dt.timedelta(seconds=0), [10, 0, 0, 0])], temporality="delta")
         self._seed_histogram(
-            [(self.anchor + dt.timedelta(seconds=10), [1, 1, 1, 0])],
+            [(self.anchor + dt.timedelta(seconds=10), [0, 10, 0, 0])],
             temporality="delta",
             bounds=[0.2, 0.6, 2.0],
             resource_labels={"k8s.pod.name": "other"},
         )
-        with self.assertRaises(ValueError):
-            self._run(0.5)
+        rows = self._run(0.75)
+        self.assertEqual(len(rows), 1)
+        # Union edges [0.1, 0.2, 0.5, 0.6, 1.0, 2.0] get counts [10, 0, 7.5, 2.5, 0, 0, 0], so p75 is 2/3 into (0.2, 0.5].
+        self.assertAlmostEqual(rows[0]["value"], 0.4)
+        # The (0.2, 0.6] bucket holds observations, so the 0.5 edge adds no precision.
+        self.assertEqual(rows[0]["histogram_bounds"], [0.1, 0.2, 0.6, 1.0, 2.0])
+
+    def test_cumulative_bucket_count_change_does_not_fail(self):
+        # metrics4 keeps one bounds array per series-hour, so samples can carry more counts than bounds.
+        self._seed_histogram(
+            [
+                (self.anchor + dt.timedelta(seconds=0), [1, 1, 1, 0]),
+                (self.anchor + dt.timedelta(seconds=30), [2, 2, 2, 0, 0]),
+            ],
+            temporality="cumulative",
+        )
+        self.assertEqual(self._run(0.5), [])
+
+    def test_exponential_histogram_reads_upper_edges(self):
+        # Ingest stores lower edges [0.1, 0.2, 0.4]: every value is in (0.2, 0.4].
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="latency",
+            metric_type="exponential_histogram",
+            aggregation_temporality="delta",
+            histogram_bounds=[0.1, 0.2, 0.4],
+            histogram_counts=[0, 10, 0],
+            points=[(self.anchor, 0.0)],
+        )
+        rows = self._run(0.5)
+        self.assertEqual(len(rows), 1)
+        self.assertAlmostEqual(rows[0]["value"], 0.3)
+        self.assertEqual(rows[0]["histogram_bounds"], [0.1, 0.2, 0.4, 0.8])
+
+    def test_rows_carry_the_bucket_edges(self):
+        self._seed_histogram([(self.anchor, [10, 10, 10, 0])], temporality="delta")
+        rows = self._run(0.5)
+        self.assertEqual(rows[0]["histogram_bounds"], self.BOUNDS)
 
     def test_histogram_quantile_via_api(self):
         self._seed_histogram(
@@ -1598,6 +1635,8 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
         points = response.json()["results"][0]["points"]
         self.assertEqual(len(points), 1)
         self.assertAlmostEqual(points[0]["value"], 0.3)
+        # The chart reads the edges to tell how coarse the estimate is.
+        self.assertEqual(response.json()["results"][0]["histogram_bounds"], self.BOUNDS)
 
     def test_histogram_quantile_via_api_requires_quantile(self):
         response = self.client.post(

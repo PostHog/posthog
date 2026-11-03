@@ -22,9 +22,7 @@ from posthog.schema import (
     TrendsQuery,
 )
 
-from posthog.clickhouse.workload import Workload
 from posthog.hogql_queries.validation.validation import QueryValidationContext
-from posthog.models.instance_setting import override_instance_config
 
 from products.product_analytics.backend.hogql_queries.trends.trend_validation_rules import (
     DisallowDaysOfWeekWithSmoothing,
@@ -443,21 +441,16 @@ class TestTrendsQueryRunnerSeriesFanOut(BaseTest):
         self.assertEqual(len(runner.series), 150)
 
     @parameterized.expand([(False,), (True,)])
-    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False, CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
-    def test_actor_options_execute_on_the_selected_cluster(self, native: bool) -> None:
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
+    def test_actor_options_read_the_selected_events_table(self, native: bool) -> None:
         query = TrendsQuery(
             series=[EventsNode(event="$pageview")],
             dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-08"),
             breakdownFilter=BreakdownFilter(breakdown="$browser", breakdown_type=BreakdownType.EVENT),
-            modifiers=HogQLQueryModifiers(useNewEventsCluster=native, useNewEventsSchema=native),
+            modifiers=HogQLQueryModifiers(useNewEventsSchema=native),
         )
-        with (
-            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_HOST", "native.example.com"),
-            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_TEAMS", [self.team.pk]),
-            patch("posthog.hogql.query.sync_execute", return_value=([], [])) as execute,
-        ):
+        with patch("posthog.hogql.query.sync_execute", return_value=([], [])) as execute:
             result = TrendsQueryRunner(query=query, team=self.team).to_actors_query_options()
         assert result.breakdown == []
         execute.assert_called_once()
-        assert execute.call_args.kwargs["workload"] == (Workload.NEW_EVENTS_CLUSTER if native else Workload.DEFAULT)
         assert ("events_json" in execute.call_args.args[0]) is native
