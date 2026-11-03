@@ -72,6 +72,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
         showPercentagesOnSeries,
         showLegend,
         legendPosition,
+        showGridLines,
     } = useValues(trendsDataLogic(insightProps))
     const { timezone, weekStartDay, baseCurrency } = useValues(teamLogic)
 
@@ -137,6 +138,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
                 trendsFilter,
                 baseCurrency,
                 yAxisScaleType,
+                showGrid: showGridLines !== false,
                 interval,
                 timezone,
                 allDays: currentPeriodResult?.days ?? [],
@@ -153,6 +155,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
             trendsFilter,
             baseCurrency,
             yAxisScaleType,
+            showGridLines,
             interval,
             timezone,
             showValuesOnSeries,

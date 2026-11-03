@@ -202,10 +202,21 @@ export function RetentionLineChart({
                 isIntervalView,
                 period,
                 timezone,
+                showGrid: retentionFilter?.showGridLines !== false,
             }),
             curve: chartStyleCurve(retentionFilter?.chartStyle),
         }),
-        [isPercentage, goalLines, showTrendLines, series, isIntervalView, period, timezone, retentionFilter?.chartStyle]
+        [
+            isPercentage,
+            goalLines,
+            showTrendLines,
+            series,
+            isIntervalView,
+            period,
+            timezone,
+            retentionFilter?.showGridLines,
+            retentionFilter?.chartStyle,
+        ]
     )
 
     if (filteredTrendSeries.length === 0 && hasValidBreakdown) {

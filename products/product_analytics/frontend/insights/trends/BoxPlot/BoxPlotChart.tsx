@@ -57,10 +57,10 @@ export function BoxPlotChart({ showPersonsModal = true, context }: ChartParams):
             yTickFormatter: formatValue,
             hideXAxis: hideAxes,
             hideYAxis: hideAxes,
-            showGrid: true,
+            showGrid: trendsFilter?.showGridLines !== false,
             tooltip: { pinnable: true, placement: 'cursor' },
         }),
-        [yAxisScaleType, formatValue, hideAxes]
+        [yAxisScaleType, formatValue, hideAxes, trendsFilter?.showGridLines]
     )
 
     const handleBoxClick = useCallback(

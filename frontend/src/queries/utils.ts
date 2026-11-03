@@ -442,6 +442,12 @@ export const getShowGridLines = (query: InsightQueryNode): boolean | undefined =
         return query.trendsFilter?.showGridLines
     } else if (isStickinessQuery(query)) {
         return query.stickinessFilter?.showGridLines
+    } else if (isLifecycleQuery(query)) {
+        return query.lifecycleFilter?.showGridLines
+    } else if (isRetentionQuery(query)) {
+        return query.retentionFilter?.showGridLines
+    } else if (isFunnelsQuery(query)) {
+        return query.funnelsFilter?.showGridLines
     }
     return undefined
 }

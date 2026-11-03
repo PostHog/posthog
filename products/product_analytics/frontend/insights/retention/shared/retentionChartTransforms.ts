@@ -118,6 +118,8 @@ export interface BuildRetentionChartConfigOpts {
     isIntervalView?: boolean
     period?: string
     timezone?: string
+    /** @default true */
+    showGrid?: boolean
 }
 
 function buildTrendLines(
@@ -152,7 +154,7 @@ export function buildRetentionLineChartConfig(opts: BuildRetentionChartConfigOpt
         yAxis: {
             format: opts.isPercentage ? 'percentage' : 'numeric',
             scale: 'linear',
-            showGrid: true,
+            showGrid: opts.showGrid ?? true,
         },
         goalLines: buildGoalLines(opts.goalLines),
         trendLines: buildTrendLines(opts.series, opts.showTrendLines),
@@ -168,7 +170,7 @@ export function buildRetentionBarChartConfig(
         yAxis: {
             format: opts.isPercentage ? 'percentage' : 'numeric',
             scale: 'linear',
-            showGrid: true,
+            showGrid: opts.showGrid ?? true,
         },
         // Bars side-by-side so the retention trend per cohort stays distinguishable.
         barLayout: 'grouped',

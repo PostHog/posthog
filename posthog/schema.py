@@ -6547,6 +6547,7 @@ class LifecycleFilter(BaseModel):
         default=LegendPosition.BOTTOM,
         description=("Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend."),
     )
+    showGridLines: bool | None = Field(default=True, description="Draws horizontal grid lines at the y-axis ticks.")
     showLegend: bool | None = False
     showPercentagesOnSeries: bool | None = Field(
         default=None,
@@ -31157,6 +31158,7 @@ class RetentionFilter(BaseModel):
         default=None,
         description=("The selected interval to display across all cohorts (null = show all intervals for each cohort)"),
     )
+    showGridLines: bool | None = Field(default=True, description="Draws horizontal grid lines at the y-axis ticks.")
     showMeanLine: bool | None = Field(
         default=None,
         description="Draw the mean across cohorts as one line on the retention graph.",
@@ -32028,6 +32030,7 @@ class FunnelsFilter(BaseModel):
         default=True,
         description=("Whether to render annotations on the chart. Only applies to historical-trends funnels."),
     )
+    showGridLines: bool | None = Field(default=True, description="Draws horizontal grid lines at the y-axis ticks.")
     showLegend: bool | None = Field(
         default=False,
         description=(

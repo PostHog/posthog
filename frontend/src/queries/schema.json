@@ -29039,6 +29039,11 @@
                     "description": "Whether to render annotations on the chart. Only applies to historical-trends funnels.",
                     "type": "boolean"
                 },
+                "showGridLines": {
+                    "default": true,
+                    "description": "Draws horizontal grid lines at the y-axis ticks.",
+                    "type": "boolean"
+                },
                 "showLegend": {
                     "default": false,
                     "description": "Whether to show a legend describing the series. The legend only renders when the funnel has multiple series. Only applies to historical-trends funnels.",
@@ -31874,6 +31879,11 @@
                     "description": "Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend.",
                     "enum": ["top", "bottom", "left", "right"],
                     "type": "string"
+                },
+                "showGridLines": {
+                    "default": true,
+                    "description": "Draws horizontal grid lines at the y-axis ticks.",
+                    "type": "boolean"
                 },
                 "showLegend": {
                     "default": false,
@@ -52423,6 +52433,11 @@
                         }
                     ],
                     "description": "The selected interval to display across all cohorts (null = show all intervals for each cohort)"
+                },
+                "showGridLines": {
+                    "default": true,
+                    "description": "Draws horizontal grid lines at the y-axis ticks.",
+                    "type": "boolean"
                 },
                 "showMeanLine": {
                     "description": "Draw the mean across cohorts as one line on the retention graph.",

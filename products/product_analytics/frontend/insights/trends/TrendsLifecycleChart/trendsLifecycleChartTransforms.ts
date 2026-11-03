@@ -121,6 +121,8 @@ export interface BuildTrendsLifecycleConfigOpts {
     baseCurrency?: string
     isStacked: boolean
     yAxisScaleType?: string | null
+    /** @default true */
+    showGrid?: boolean
     interval?: TimeInterval | null
     timezone?: string
     allDays?: string[]
@@ -134,7 +136,7 @@ export function buildTrendsLifecycleConfig(
 ): TimeSeriesBarChartConfig & { yAxis?: YAxisConfig } {
     const yAxis = buildTrendsYAxisConfig(opts.trendsFilter, false, opts.baseCurrency, {
         yAxisScaleType: opts.yAxisScaleType,
-        showGrid: true,
+        showGrid: opts.showGrid ?? true,
     })
     return {
         xAxis: {

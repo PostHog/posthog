@@ -81,6 +81,8 @@ export interface BuildFunnelLineConfigOpts {
     goalLines?: SchemaGoalLine[] | null
     incompletenessOffsetFromEnd?: number
     showTrendLines: boolean
+    /** @default true */
+    showGrid?: boolean
     valueLabels?: TimeSeriesLineChartConfig['valueLabels']
     tooltip?: TooltipConfig
     showCrosshair?: boolean
@@ -102,6 +104,7 @@ export function buildFunnelLineTimeSeriesConfig(opts: BuildFunnelLineConfigOpts)
         goalLines: opts.goalLines,
         incompletenessOffsetFromEnd: opts.incompletenessOffsetFromEnd,
         showTrendLines: opts.showTrendLines,
+        showGrid: opts.showGrid,
         valueLabels: opts.valueLabels,
         tooltip: opts.tooltip,
         showCrosshair: opts.showCrosshair,

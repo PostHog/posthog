@@ -166,8 +166,9 @@ export function RetentionBarChart({
                 isIntervalView,
                 period,
                 timezone,
+                showGrid: retentionFilter?.showGridLines !== false,
             }),
-        [isPercentage, goalLines, series, isIntervalView, period, timezone]
+        [isPercentage, goalLines, series, isIntervalView, period, timezone, retentionFilter?.showGridLines]
     )
 
     if (filteredTrendSeries.length === 0 && hasValidBreakdown) {

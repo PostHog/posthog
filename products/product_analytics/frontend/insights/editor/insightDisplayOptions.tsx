@@ -536,9 +536,13 @@ const INSIGHT_BINDINGS: DisplayOptionBindings<InsightDisplayContext> = {
     // The horizontal bar chart draws its value axis along the bottom, so it has no horizontal grid lines.
     yAxisGridLines: {
         showCondition: (c) =>
-            (c.isTrends || c.isStickiness) &&
-            (c.isLineDisplay || c.isBarDisplay) &&
-            c.display !== ChartDisplayType.ActionsBarValue,
+            ((c.isTrends || c.isStickiness) &&
+                (c.isLineDisplay || c.isBarDisplay) &&
+                c.display !== ChartDisplayType.ActionsBarValue) ||
+            c.isBoxPlot ||
+            c.isLifecycle ||
+            c.isRetention ||
+            c.isTrendsFunnel,
         value: (c) => c.showGridLines !== false,
         onChange: (showGridLines, c) => c.updateInsightFilter({ showGridLines: showGridLines ? undefined : false }),
         changedCount: (c) => c.showGridLines === false,

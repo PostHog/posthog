@@ -2189,6 +2189,9 @@ export type FunnelsFilter = {
     goalLines?: GoalLine[]
     /** Display linear regression trend lines on the chart (only for historical trends viz) */
     showTrendLines?: boolean
+    /** Draws horizontal grid lines at the y-axis ticks.
+     * @default true */
+    showGridLines?: boolean
     /**
      * Whether to show a legend describing the series. The legend only renders when the funnel has
      * multiple series. Only applies to historical-trends funnels.
@@ -2297,6 +2300,9 @@ export type RetentionFilter = {
     display?: ChartDisplayType
     dashboardDisplay?: RetentionDashboardDisplayType
     showTrendLines?: boolean
+    /** Draws horizontal grid lines at the y-axis ticks.
+     * @default true */
+    showGridLines?: boolean
     /** Draw the mean across cohorts as one line on the retention graph. */
     showMeanLine?: boolean
     /** The selected interval to display across all cohorts (null = show all intervals for each cohort) */
@@ -2689,6 +2695,9 @@ export type LifecycleFilter = {
     legendPosition?: 'top' | 'bottom' | 'left' | 'right'
     /** @default true */
     stacked?: boolean
+    /** Draws horizontal grid lines at the y-axis ticks.
+     * @default true */
+    showGridLines?: boolean
 }
 
 // See posthog/hogql_queries/query_runner.py `ExecutionMode` for details on what the types mean
