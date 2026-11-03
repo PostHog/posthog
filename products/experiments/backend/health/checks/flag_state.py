@@ -12,8 +12,9 @@ show. Only the server reports that case.
 A paused experiment is another exception. Only the server reads the experiment's activity log, so only the server
 tells a pause from the experiment from a flag disabled elsewhere, and reports the pause with its own subcode.
 
-An ended experiment whose flag has no recorded call since the end is the last exception. Only the server reads the
-flag's latest call, so only the server reports that case, with its own subcode.
+An ended experiment is the last exception. Only the server reads the flag's latest call and the other experiments on
+the flag. So only the server stays silent when the flag now serves a later experiment, and reports as info a flag that
+a draft also uses, a flag with no recent call, and a flag whose calls it can't read yet, each with its own subcode.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -26,11 +27,13 @@ from products.experiments.backend.facade.contracts import (
 )
 from products.experiments.backend.health.context import (
     ConditionSetTraffic,
+    ExperimentOnFlag,
     FlagHistoryNotChecked,
     FlagState,
     HealthContext,
     PauseHistory,
 )
+from products.experiments.backend.health.delays import ENDED_FLAG_QUIET_PERIOD
 from products.experiments.backend.health.skips import NO_FLAG, CheckOutcome, not_applicable
 from products.experiments.backend.health.split_changes import (
     SplitChangeShape,
@@ -52,6 +55,8 @@ RUNNING_BUT_FLAG_DELETED = "running_but_flag_deleted"
 ASSIGNED_OUTSIDE_FLAG_SERVICE = "assigned_outside_flag_service"
 PAUSED_FROM_EXPERIMENT = "paused_from_experiment"
 ENDED_FLAG_NOT_CALLED = "ended_flag_not_called"
+ENDED_FLAG_CALLS_UNKNOWN = "ended_flag_calls_unknown"
+ENDED_FLAG_SHARED_WITH_DRAFT = "ended_flag_shared_with_draft"
 
 # The experiment's Pause and Resume write activity log entries since August 25, 2026, and a pause before then has
 # none. So a missing entry shows that the flag was disabled outside the experiment only for an experiment launched
@@ -121,10 +126,14 @@ def flag_state(ctx: HealthContext) -> CheckOutcome:
                 evidence={"variant_key": variant_key},
             )
     elif ctx.has_ended:
-        if flag.active and _has_multiple_variants_active(flag) and not zero_rollout and not single_variant_shipped:
-            if ctx.flag_called_after_end is False and ctx.ended_at is not None:
-                return _ended_flag_not_called(ctx.ended_at, ctx.team_timezone)
-            return _live_after_end(called_after_end=ctx.flag_called_after_end is True)
+        if (
+            flag.active
+            and _has_multiple_variants_active(flag)
+            and not zero_rollout
+            and not single_variant_shipped
+            and ctx.ended_at is not None
+        ):
+            return _live_after_end(ctx, ctx.ended_at)
     elif not ctx.archived:
         # The draft state is also reached again when resetting experiment measurements.
         if flag.active and _has_multiple_variants_active(flag) and not zero_rollout:
@@ -211,8 +220,14 @@ def _no_rollout(*, observed: bool) -> ExperimentHealthFinding:
     )
 
 
-def _live_after_end(*, called_after_end: bool) -> ExperimentHealthFinding:
-    if called_after_end:
+def _live_after_end(ctx: HealthContext, ended_at: datetime) -> ExperimentHealthFinding | None:
+    others = ctx.other_experiments_on_flag or ()
+    # The flag's state belongs to the later experiment, and that experiment's own check reports it.
+    if any(_serves_later_experiment(other, ended_at) for other in others):
+        return None
+    if any(other.launched_at is None and not other.archived for other in others):
+        return _shared_with_draft(ended_at, ctx.team_timezone)
+    if ctx.flag_called_after_end is True:
         return _finding(
             code=ExperimentHealthFindingCode.FLAG_LIVE_AFTER_END,
             subcode=ENDED_BUT_MULTIPLE_VARIANTS_ROLLED_OUT,
@@ -222,10 +237,14 @@ def _live_after_end(*, called_after_end: bool) -> ExperimentHealthFinding:
                 "traffic across multiple variants. Disable the flag, or resume the experiment."
             ),
         )
-    # Without a call recorded after the end, the finding says only what the flag's settings show.
+    if ctx.flag_called_after_end is False:
+        return _ended_flag_not_called(ended_at, ctx.flag_last_called_at, ctx.team_timezone)
+    # Info, because only a recorded call shows that users still get a variant. PostHog can't tell yet in the first
+    # days after the end, and never for an organization whose flag calls it can't read.
     return _finding(
         code=ExperimentHealthFindingCode.FLAG_LIVE_AFTER_END,
-        subcode=ENDED_BUT_MULTIPLE_VARIANTS_ROLLED_OUT,
+        subcode=ENDED_FLAG_CALLS_UNKNOWN,
+        severity=ExperimentHealthFindingSeverity.INFO,
         title="The experiment has ended, but its feature flag is still active with multiple variants",
         detail=(
             "This experiment has ended, but the linked feature flag is still active with multiple variants, so users "
@@ -234,9 +253,38 @@ def _live_after_end(*, called_after_end: bool) -> ExperimentHealthFinding:
     )
 
 
-def _ended_flag_not_called(ended_at: datetime, team_timezone: str) -> ExperimentHealthFinding:
+def _serves_later_experiment(other: ExperimentOnFlag, ended_at: datetime) -> bool:
+    return other.launched_at is not None and (other.ended_at is None or other.launched_at > ended_at)
+
+
+def _shared_with_draft(ended_at: datetime, team_timezone: str) -> ExperimentHealthFinding:
+    # Info, because the draft's own check reports a flag that is active before launch.
+    return _finding(
+        code=ExperimentHealthFindingCode.FLAG_LIVE_AFTER_END,
+        subcode=ENDED_FLAG_SHARED_WITH_DRAFT,
+        severity=ExperimentHealthFindingSeverity.INFO,
+        title="The feature flag is still active, and a draft experiment uses it",
+        detail=(
+            f"The experiment ended on {format_change_time(ended_at, team_timezone)}, and the linked feature flag is "
+            "still active with multiple variants. A draft experiment uses the same flag, so users get its variants "
+            "whenever your code reads the flag, before that experiment launches. This is expected while you test its "
+            "variants. Otherwise, disable the flag until you launch it."
+        ),
+        evidence={"ended_at": ended_at.astimezone(UTC).isoformat()},
+    )
+
+
+def _ended_flag_not_called(
+    ended_at: datetime, last_called_at: datetime | None, team_timezone: str
+) -> ExperimentHealthFinding:
     # Info, because a flag that nothing reads exposes nobody. The finding says only what `last_called_at` shows,
     # because reads that record no call can still get a variant.
+    last_call = (
+        f"PostHog last recorded a call of the flag on {format_change_time(last_called_at, team_timezone)}, and none "
+        f"in the last {ENDED_FLAG_QUIET_PERIOD.days} days."
+        if last_called_at is not None and last_called_at > ended_at
+        else "PostHog hasn't recorded a call of the flag since then."
+    )
     return _finding(
         code=ExperimentHealthFindingCode.FLAG_LIVE_AFTER_END,
         subcode=ENDED_FLAG_NOT_CALLED,
@@ -244,12 +292,14 @@ def _ended_flag_not_called(ended_at: datetime, team_timezone: str) -> Experiment
         title="The feature flag is still active after the experiment ended",
         detail=(
             f"The experiment ended on {format_change_time(ended_at, team_timezone)}, and the linked feature flag is "
-            "still active with multiple variants. PostHog hasn't recorded a call of the flag since then. Reading only "
-            "a payload or a list of all flags records no call, and neither does a call with send_event set to false, "
-            "so your code may still read the flag that way. If nothing reads the flag anymore, disable or archive it "
-            "to clean up."
+            f"still active with multiple variants. {last_call} Reading only a payload or a list of all flags records "
+            "no call, and neither does a call with send_event set to false, so your code may still read the flag that "
+            "way. If nothing reads the flag anymore, disable or archive it to clean up."
         ),
-        evidence={"ended_at": ended_at.astimezone(UTC).isoformat()},
+        evidence={
+            "ended_at": ended_at.astimezone(UTC).isoformat(),
+            "last_called_at": last_called_at.astimezone(UTC).isoformat() if last_called_at is not None else None,
+        },
     )
 
 
