@@ -82,6 +82,11 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSource,
 )
 
+_SEQUENTIAL_STATS_CONFIG: dict[str, Any] = {
+    "method": "frequentist",
+    "frequentist": {"sequential_testing_enabled": True},
+}
+
 _QUANTILE_METRIC: dict[str, Any] = {
     "kind": "ExperimentMetric",
     "metric_type": "quantile",
@@ -859,6 +864,90 @@ class TestExperimentService(APIBaseTest):
 
     @parameterized.expand(
         [
+            # (name, team default sequential, stats_config at create, quantile at create, update, rejected)
+            ("create_inline", False, _SEQUENTIAL_STATS_CONFIG, "inline", None, True),
+            ("create_linked_saved_with_team_default", True, {"method": "frequentist"}, "saved", None, True),
+            ("create_bayesian", True, {"method": "bayesian"}, "inline", None, False),
+            ("update_adds_inline", False, _SEQUENTIAL_STATS_CONFIG, None, "inline", True),
+            ("update_links_saved", False, _SEQUENTIAL_STATS_CONFIG, None, "saved", True),
+            ("update_enables_sequential_testing", False, {"method": "frequentist"}, "inline", "stats_config", True),
+            (
+                "update_keeps_existing_under_team_default",
+                False,
+                {"method": "frequentist"},
+                "inline",
+                "team_default",
+                False,
+            ),
+        ]
+    )
+    def test_percentile_metric_with_sequential_testing(
+        self,
+        _: str,
+        team_default_sequential: bool,
+        stats_config: dict,
+        quantile_at_create: str | None,
+        update: str | None,
+        rejected: bool,
+    ) -> None:
+        team_config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        team_config.default_sequential_testing_enabled = team_default_sequential
+        team_config.save()
+        self._create_flag(key="quantile-sequential")
+        saved_metric = ExperimentSavedMetric.objects.create(
+            team=self.team, name="Shared latency", query={**_QUANTILE_METRIC, "uuid": "saved-quantile-uuid"}
+        )
+        inline_metrics = [{**_QUANTILE_METRIC, "uuid": "inline-quantile-uuid"}]
+        saved_links = [{"id": saved_metric.id, "metadata": {"type": "primary"}}]
+        service = self._service()
+
+        def create() -> Experiment:
+            return service.create_experiment(
+                name="Latency experiment",
+                feature_flag_key="quantile-sequential",
+                stats_config=stats_config,
+                metrics=inline_metrics if quantile_at_create == "inline" else None,
+                saved_metrics_ids=saved_links if quantile_at_create == "saved" else None,
+                allow_unknown_events=True,
+            )
+
+        def run() -> None:
+            if update is None:
+                create()
+                return
+            experiment = create()
+            if update == "team_default":
+                team_config.default_sequential_testing_enabled = True
+                team_config.save()
+                update_data: dict = {
+                    "metrics": [
+                        *experiment.metrics,
+                        {
+                            "kind": "ExperimentMetric",
+                            "metric_type": "mean",
+                            "uuid": "mean-uuid",
+                            "source": {"kind": "EventsNode", "event": "app_ready"},
+                        },
+                    ]
+                }
+            else:
+                update_data = {
+                    "inline": {"metrics": inline_metrics},
+                    "saved": {"saved_metrics_ids": saved_links},
+                    "stats_config": {"stats_config": _SEQUENTIAL_STATS_CONFIG},
+                }[update]
+            service.update_experiment(experiment, update_data, allow_unknown_events=True)
+
+        if rejected:
+            with self.assertRaisesMessage(
+                ValidationError, "Sequential testing isn't supported for percentile metrics yet."
+            ):
+                run()
+        else:
+            run()
+
+    @parameterized.expand(
+        [
             (
                 "not_a_dict",
                 "not-a-dict",
@@ -1118,6 +1207,18 @@ class TestExperimentService(APIBaseTest):
             ),
             ("valid_quantile", _QUANTILE_METRIC),
             (
+                "valid_quantile_numerical_event_property",
+                {
+                    **_QUANTILE_METRIC,
+                    "source": {
+                        "kind": "EventsNode",
+                        "event": "app_ready",
+                        "math_property": "app_ready_ms",
+                        "math_property_type": "numerical_event_properties",
+                    },
+                },
+            ),
+            (
                 "valid_retention_exposure_start",
                 {
                     "kind": "ExperimentMetric",
@@ -1168,6 +1269,26 @@ class TestExperimentService(APIBaseTest):
                 "quantile_without_math_property",
                 [{**_QUANTILE_METRIC, "source": {"kind": "EventsNode", "event": "app_ready"}}],
                 "percentile metrics require a numeric property",
+            ),
+            (
+                "quantile_with_session_duration",
+                [{**_QUANTILE_METRIC, "source": {"kind": "EventsNode", "math_property": "$session_duration"}}],
+                "percentile metrics need a numeric event property",
+            ),
+            (
+                "quantile_with_person_property",
+                [
+                    {
+                        **_QUANTILE_METRIC,
+                        "source": {
+                            "kind": "EventsNode",
+                            "event": "app_ready",
+                            "math_property": "age",
+                            "math_property_type": "person_properties",
+                        },
+                    }
+                ],
+                "percentile metrics need a numeric event property",
             ),
             (
                 "quantile_with_breakdown",
