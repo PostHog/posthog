@@ -10,6 +10,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import {
+    FirstDataSurface,
     FirstDataWatch,
     MCPOnboardingSignals,
     mcpAnalyticsOnboardingLogic,
