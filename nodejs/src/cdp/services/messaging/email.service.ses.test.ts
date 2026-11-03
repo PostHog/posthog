@@ -28,7 +28,7 @@ describe('EmailService with local SES', () => {
     let params: CyclotronInvocationQueueParametersEmailType
     let ses: LocalSes
     let limiter: RateLimiterService
-    // One pool for the whole suite: RedisV2 has no close, so a pool per test would leave a connection per test.
+    // One pool of one client for the whole suite, because RedisV2 has no close. afterAll quits that client so Jest can exit.
     let redis: RedisV2 | undefined
     let configService: TeamWorkflowsConfigService
     let suppression: EmailSuppressionService
@@ -183,6 +183,10 @@ describe('EmailService with local SES', () => {
         }
         process.env = { ...originalEnv }
         jest.restoreAllMocks()
+    })
+
+    afterAll(async () => {
+        await redis?.useClient({ name: 'email-outcomes-test-close' }, (client) => client.quit())
     })
 
     it('delivers the email through the real SDK with bodies, addresses and custom headers', async () => {
