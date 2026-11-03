@@ -1,7 +1,7 @@
 import asyncio
 import threading
 import contextvars
-from collections.abc import AsyncIterable, AsyncIterator, Iterable
+from collections.abc import AsyncIterable, AsyncIterator, Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
 from typing import TypeVar, cast
 
@@ -11,6 +11,13 @@ T = TypeVar("T")
 # (e.g. Stripe API pagination) can't starve the default executor which is
 # shared by logging, DB operations, and S3 writes.
 _SOURCE_ITERATOR_EXECUTOR = ThreadPoolExecutor(max_workers=32, thread_name_prefix="source-iter")
+
+
+async def run_in_source_executor(func: Callable[[], T]) -> T:
+    """Run a blocking source call on the dedicated source thread pool, keeping contextvars."""
+    loop = asyncio.get_running_loop()
+    ctx = contextvars.copy_context()
+    return await loop.run_in_executor(_SOURCE_ITERATOR_EXECUTOR, ctx.run, func)
 
 
 async def async_iterate(iterable: Iterable[T] | AsyncIterable[T]) -> AsyncIterator[T]:
