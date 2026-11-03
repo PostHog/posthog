@@ -234,6 +234,12 @@ Models that invalidate the flags cache:
 - `FeatureFlagEvaluationTag` - Evaluation tags changed
 - `Tag` - Tag renamed
 
+Deleting a `Team` clears its local evaluation entry from Redis and S3 after the deletion commits.
+The rebuild task cannot run for a deleted team, and `/flags/definitions` falls back to the S3 copy, which has no TTL.
+
+The staff cache tools `clear` action also accepts the ids of deleted teams.
+Use it to purge an orphaned entry for a team that no longer exists.
+
 ## Remote config caching
 
 Remote config uses a different caching strategy than local evaluation. It prioritizes zero-overhead cache hits by using Redis-only caching for serving, with HyperCache used only for background sync operations.
