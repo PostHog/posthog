@@ -198,10 +198,21 @@ class OauthConfig:
 # StrEnum declared in posthog/schema.py (generated from the SlackIntegrationScope enum in
 # frontend/src/types.ts via `hogli build:schema`), so widening it on either side stays in sync.
 #
-# Every scope here is approved for the public Cloud app, so the same list is requested on every
-# instance. Staging a scope Slack hasn't approved needs a DEV/local-only branch again — see the
-# note by SlackIntegrationScope in frontend/src/types.ts.
+# Every scope here is approved for the public Cloud app, so every instance requests it.
 POSTHOG_SLACK_SCOPE = ",".join(scope.value for scope in SlackIntegrationScope)
+
+# Scopes that wait on Slack app-directory review. Only the DEV instance and local development
+# request them, because their Slack app manifests list them. The US and EU apps reject an
+# unapproved scope with `invalid_scope`, so every install there would fail. Keep this the same as
+# SLACK_INTEGRATION_SCOPES_IN_REVIEW in frontend/src/types.ts. The schema codegen cannot carry it,
+# because it turns a one-value enum into a `const` instead of a `StrEnum`.
+SLACK_SCOPES_IN_REVIEW: tuple[str, ...] = ("channels:join",)
+
+
+def posthog_slack_scope() -> str:
+    if settings.DEBUG or settings.CLOUD_DEPLOYMENT == "DEV":
+        return ",".join([POSTHOG_SLACK_SCOPE, *SLACK_SCOPES_IN_REVIEW])
+    return POSTHOG_SLACK_SCOPE
 
 
 def _apple_ads_acl_accounts(access_token: str) -> list[dict[str, Any]]:
@@ -669,7 +680,7 @@ class OauthIntegration:
             return OauthConfig(
                 authorize_url="https://slack.com/oauth/v2/authorize",
                 token_url="https://slack.com/api/oauth.v2.access",
-                scope=POSTHOG_SLACK_SCOPE,
+                scope=posthog_slack_scope(),
                 id_path="team.id",
                 name_path="team.name",
             )

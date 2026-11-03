@@ -5715,13 +5715,19 @@ export enum SlackIntegrationScope {
 
 export const SLACK_INTEGRATION_SCOPES = Object.values(SlackIntegrationScope)
 
-// Nothing is pending Slack app-directory review right now, so there is no in-review list.
-// To stage a scope that Slack hasn't approved yet, reintroduce a `SlackIntegrationScopeInReview`
-// enum here holding only the pending entries, re-export it from schema-general.ts, and have
-// `POSTHOG_SLACK_SCOPE` (posthog/models/integration/oauth.py) and `useSlackRequiredScopes` append it on
-// DEV/local only — requesting an unapproved scope anywhere else fails with `invalid_scope`.
-// The enum cannot be left empty between rounds: JSON Schema rejects a zero-length `enum`, so
-// `hogli build:schema` fails on it.
+// Scopes that wait on Slack app-directory review. Only the DEV instance and local development
+// request them (see `requestsSlackInReviewScopes`), because their Slack app manifests list them.
+// The US and EU apps reject an unapproved scope with `invalid_scope`, so every install there would fail.
+// When Slack approves a scope, add it to the US and EU manifests, then move it into
+// `SlackIntegrationScope`. This list does not go through the schema codegen, so keep it the same
+// as `SLACK_SCOPES_IN_REVIEW` in posthog/models/integration/oauth.py.
+export const SLACK_INTEGRATION_SCOPES_IN_REVIEW: string[] = ['channels:join']
+
+export function slackRequestedScopes(includeInReview: boolean): string[] {
+    return includeInReview
+        ? [...SLACK_INTEGRATION_SCOPES, ...SLACK_INTEGRATION_SCOPES_IN_REVIEW]
+        : [...SLACK_INTEGRATION_SCOPES]
+}
 
 export interface IntegrationType {
     id: number
