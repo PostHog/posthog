@@ -20,7 +20,7 @@ import {
 import { urls } from 'scenes/urls'
 
 import type { Breakdown, EventsNode, ExperimentMetric } from '~/queries/schema/schema-general'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind, isExperimentQuantileMetric } from '~/queries/schema/schema-general'
 import type { Experiment } from '~/types'
 
 import {
@@ -266,18 +266,26 @@ export const MetricHeader = ({
                                     [
                                         {
                                             items: [
-                                                canAddBreakdown && {
-                                                    label: () => (
-                                                        <AddBreakdownMenuItem
-                                                            experiment={experiment}
-                                                            onChange={(breakdown) => {
-                                                                onBreakdownChange(breakdown)
-                                                                closeMenu()
-                                                            }}
-                                                        />
-                                                    ),
-                                                    custom: true,
-                                                },
+                                                canAddBreakdown &&
+                                                    isExperimentQuantileMetric(metric) && {
+                                                        label: 'Add breakdown',
+                                                        icon: <IconStack />,
+                                                        disabledReason:
+                                                            "Breakdowns aren't available for percentile metrics yet",
+                                                    },
+                                                canAddBreakdown &&
+                                                    !isExperimentQuantileMetric(metric) && {
+                                                        label: () => (
+                                                            <AddBreakdownMenuItem
+                                                                experiment={experiment}
+                                                                onChange={(breakdown) => {
+                                                                    onBreakdownChange(breakdown)
+                                                                    closeMenu()
+                                                                }}
+                                                            />
+                                                        ),
+                                                        custom: true,
+                                                    },
                                                 {
                                                     label: 'Duplicate',
                                                     icon: <IconCopy />,

@@ -16,6 +16,13 @@ import {
     isWinning,
 } from './utils'
 
+const quantileMetric: ExperimentMetric = {
+    kind: NodeKind.ExperimentMetric,
+    metric_type: ExperimentMetricType.QUANTILE,
+    quantile: 0.9,
+    source: { kind: NodeKind.EventsNode, event: 'page_loaded', math_property: 'load_ms' },
+}
+
 describe('getMetricTag', () => {
     it('handles different metric types correctly', () => {
         const experimentMetric: ExperimentMetric = {
@@ -45,6 +52,7 @@ describe('getMetricTag', () => {
         }
 
         expect(getMetricTag(experimentMetric)).toBe('Mean')
+        expect(getMetricTag(quantileMetric)).toBe('Percentile')
         expect(getMetricTag(funnelMetric)).toBe('Funnel')
         expect(getMetricTag(trendMetric)).toBe('Trend')
     })
@@ -352,6 +360,19 @@ describe('formatMetricValue', () => {
 
     it('returns "—" for a ratio metric with a zero denominator', () => {
         expect(formatMetricValue({ sum: 3, denominator_sum: 0 }, ratioMetric)).toBe('—')
+    })
+
+    it('formats a quantile metric as the quantile, not as a mean of the below-quantile count', () => {
+        expect(
+            formatMetricValue(
+                { sum: 450, number_of_samples: 120, denominator_sum: 500, quantile_grid: [842.5, 790, 901] },
+                quantileMetric
+            )
+        ).toBe('843')
+    })
+
+    it('returns "—" for a quantile metric without a quantile grid', () => {
+        expect(formatMetricValue({ sum: 0, number_of_samples: 120, denominator_sum: 0 }, quantileMetric)).toBe('—')
     })
 
     it('returns "—" when the value is not a number', () => {

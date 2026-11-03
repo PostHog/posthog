@@ -15,6 +15,8 @@ export interface ExperimentVariantStats {
     chance_to_win?: number | null
     credible_interval?: number[] | null
     step_counts?: number[] | null
+    // Percentile metrics only: the percentile value comes first, then the bounds the stats use
+    quantile_grid?: number[] | null
 }
 
 export interface ExperimentMetricResult {
@@ -153,10 +155,17 @@ function significanceCell(row: VariantRow): ReactElement | string {
 function buildRows(result: ExperimentMetricResult): VariantRow[] {
     const baseline = result.baseline
     const variants = result.variant_results ?? []
-    const baselineMean = baseline && baseline.number_of_samples > 0 ? baseline.sum / baseline.number_of_samples : null
+    // A percentile metric's `sum` is a count of events at or below the percentile, not a total to average
+    const variantValue = (stats: ExperimentVariantStats): number | null =>
+        stats.quantile_grid != null
+            ? (stats.quantile_grid[0] ?? null)
+            : stats.number_of_samples > 0
+              ? stats.sum / stats.number_of_samples
+              : null
+    const baselineMean = baseline ? variantValue(baseline) : null
 
     const toRow = (stats: ExperimentVariantStats, isBaseline: boolean): VariantRow => {
-        const perUser = stats.number_of_samples > 0 ? stats.sum / stats.number_of_samples : null
+        const perUser = variantValue(stats)
         const lift =
             !isBaseline && perUser != null && baselineMean != null && baselineMean !== 0
                 ? perUser / baselineMean - 1
@@ -227,6 +236,7 @@ function MetricCard({ entry }: { entry: MetricEntry }): ReactElement {
     const rows = result ? buildRows(result) : []
     const isFunnel =
         result?.baseline?.step_counts != null || (result?.variant_results ?? []).some((v) => v.step_counts != null)
+    const isPercentile = result?.baseline?.quantile_grid != null
 
     const columns: DataTableColumn<VariantRow>[] = [
         {
@@ -242,7 +252,7 @@ function MetricCard({ entry }: { entry: MetricEntry }): ReactElement {
         { key: 'exposures', header: 'Exposures', align: 'right', render: (row) => formatCount(row.exposures) },
         {
             key: 'perUser',
-            header: isFunnel ? 'Conversion' : 'Mean',
+            header: isFunnel ? 'Conversion' : isPercentile ? 'Percentile' : 'Mean',
             align: 'right',
             render: (row) => (row.perUser != null ? formatPerUser(row.perUser, isFunnel) : '—'),
         },
