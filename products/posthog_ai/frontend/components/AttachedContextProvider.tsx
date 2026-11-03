@@ -1,5 +1,6 @@
+import type { AttachedContextItem } from '~/layout/ai/attachedContext'
+
 import { useAttachedContext } from '../hooks/useAttachedContext'
-import type { AttachedContextItem } from '../types/contextTypes'
 
 export interface AttachedContextProviderProps {
     items: AttachedContextItem[] | null

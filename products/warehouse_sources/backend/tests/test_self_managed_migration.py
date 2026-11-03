@@ -742,12 +742,6 @@ class TestUploadedTableMigration(_MigrationTest):
             ("csv_without_a_header", DataWarehouseTableFormat.CSV, None, "has no import equivalent"),
             ("delta", DataWarehouseTableFormat.Delta, None, "has no import equivalent"),
             (
-                "nested_columns",
-                DataWarehouseTableFormat.Parquet,
-                {"tags": {"clickhouse": "Array(Nullable(String))", "hogql": "StringArrayDatabaseField"}},
-                "'tags' is a Array",
-            ),
-            (
                 "json_unknown_time_zone",
                 DataWarehouseTableFormat.JSON,
                 {"at": {"clickhouse": "DateTime('Nowhere/Land')", "hogql": "DateTimeDatabaseField"}},
@@ -779,6 +773,33 @@ class TestUploadedTableMigration(_MigrationTest):
         assert outcome.status.state == TableMigrationState.SKIPPED
         assert reason in (outcome.status.reason or "")
         assert not ExternalDataSource.objects.filter(team=self.team).exists()
+
+    def test_an_uploaded_table_with_nested_columns_is_linked_and_reports_the_type(self) -> None:
+        table = self._uploaded("orders", "managed/team_{team}/orders.parquet", DataWarehouseTableFormat.Parquet)
+        DataWarehouseTable.raw_objects.filter(pk=table.pk).update(
+            columns={"tags": {"clickhouse": "Array(Nullable(String))", "hogql": "StringArrayDatabaseField"}}
+        )
+
+        dry_run = StringIO()
+        call_command("migrate_self_managed_tables", team_id=self.team.pk, stdout=dry_run)
+
+        note = "note=(after the first sync these columns are stored as JSON text: tags (Array(Nullable(String))))"
+        dry_run_line = dry_run.getvalue().splitlines()[0]
+        assert "state=pending (not linked yet)" in dry_run_line
+        assert note in dry_run_line
+        assert "action=would_link" in dry_run_line
+
+        [outcome] = self._migrate()
+
+        assert (outcome.action, outcome.status.state) == ("linked", TableMigrationState.AWAITING_SYNC)
+        assert _schema_for(table).should_sync is False
+
+        linked_status = StringIO()
+        call_command("migrate_self_managed_tables", team_id=self.team.pk, stdout=linked_status)
+        linked_line = linked_status.getvalue().splitlines()[0]
+        assert "state=awaiting_sync" in linked_line
+        assert "action=none" in linked_line
+        assert note in linked_line
 
     @parameterized.expand(
         [

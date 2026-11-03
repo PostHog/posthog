@@ -1,4 +1,5 @@
-import { hogql } from '~/queries/utils'
+import { hogql } from 'lib/utils/hogql'
+
 import {
     AnyPropertyFilter,
     CyclotronJobFilterActions,

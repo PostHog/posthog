@@ -1,0 +1,185 @@
+from typing import Optional, cast
+
+from products.warehouse_sources.sources.aws_ses._config import AwsSesSourceConfig
+from products.warehouse_sources.sources.aws_ses.aws_ses import (
+    AwsSesResumeConfig,
+    aws_ses_source,
+    probe_endpoint_permissions,
+    validate_credentials as validate_aws_ses_credentials,
+)
+from products.warehouse_sources.sources.aws_ses.settings import ENDPOINT_DESCRIPTIONS, ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.sdk import (
+    AWS_AUTH_NON_RETRYABLE_ERRORS,
+    AWS_FLAT_STORED_SELECTS,
+    AwsAuthError,
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    aws_auth_endpoint_reasons,
+    aws_auth_field,
+    build_endpoint_schemas,
+    detect,
+    resolve_aws_credentials,
+)
+
+
+@SourceRegistry.register
+class AwsSesSource(ResumableSource[AwsSesSourceConfig, AwsSesResumeConfig]):
+    # A bare /^AWS_/ would fire on every AWS project, so we match only
+    # the SES-specific prefix.
+    codebase_detection = detect(
+        env=("^AWS_SES_",),
+        npm=("@aws-sdk/client-ses", "@aws-sdk/client-sesv2"),
+        cargo=("aws-sdk-ses", "aws-sdk-sesv2"),
+        go=("github.com/aws/aws-sdk-go-v2/service/ses", "github.com/aws/aws-sdk-go-v2/service/sesv2"),
+        maven=(
+            "software.amazon.awssdk:ses",
+            "software.amazon.awssdk:sesv2",
+            "com.amazonaws:aws-java-sdk-ses",
+            "com.amazonaws:aws-java-sdk-sesv2",
+        ),
+        rubygems=("aws-sdk-ses", "aws-sdk-sesv2"),
+    )
+
+    lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs
+    supported_versions = ("v2",)
+    default_version = "v2"
+    api_docs_url = "https://docs.aws.amazon.com/ses/latest/APIReference-V2/Welcome.html"
+
+    flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    credential_kind = "aws-ses"
+
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.AWSSES
+
+    @property
+    def connection_host_fields(self) -> list[str]:
+        # The region picks the endpoint the signed request, and so the customer's key, is sent to.
+        return ["aws_region"]
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {
+            **AWS_AUTH_NON_RETRYABLE_ERRORS,
+            "Amazon SES request failed: UnrecognizedClientException": "AWS rejected the access key. Please check the access key ID and secret access key, and that the key is still active.",
+            "Amazon SES request failed: InvalidClientTokenId": "AWS rejected the access key. Please check the access key ID and secret access key, and that the key is still active.",
+            "Amazon SES request failed: SignatureDoesNotMatch": "AWS rejected the request signature. Please re-enter the secret access key.",
+            "Amazon SES request failed: InvalidSignatureException": "AWS rejected the request signature. If you are using temporary credentials, the session token has expired.",
+            "Amazon SES request failed: ExpiredTokenException": "The AWS session token has expired. Please reconnect with fresh credentials.",
+            "Amazon SES request failed: AccessDeniedException": "These AWS credentials are missing SES read permissions. Grant ses:GetAccount, ses:ListConfigurationSets, ses:GetConfigurationSet, ses:ListEmailIdentities, ses:GetEmailIdentity, ses:ListSuppressedDestinations, ses:ListEmailTemplates, ses:GetEmailTemplate, ses:ListContactLists, ses:GetContactList, ses:ListDedicatedIpPools, ses:GetDedicatedIpPool, ses:GetDedicatedIps, ses:ListCustomVerificationEmailTemplates, ses:GetCustomVerificationEmailTemplate and ses:ListMultiRegionEndpoints to the IAM user or role.",
+            # No retry turns a 400 into rows. `None` keeps the raised message, which names the
+            # table; a fixed string here could not say which of the ten tables AWS rejected.
+            # A stale pagination token also surfaces as a 400, so the walk restarts itself once
+            # before one can reach this map.
+            "Amazon SES request failed: BadRequestException": None,
+            "Invalid AWS region": "Enter a valid AWS region code like us-east-1.",
+        }
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        from products.warehouse_sources.sources.aws_ses.canonical_descriptions import CANONICAL_DESCRIPTIONS
+
+        return CANONICAL_DESCRIPTIONS
+
+    def get_schemas(
+        self,
+        config: AwsSesSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
+        api_version: str | None = None,
+    ) -> list[SourceSchema]:
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, descriptions=ENDPOINT_DESCRIPTIONS)
+
+    def validate_credentials(
+        self,
+        config: AwsSesSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        api_version: str | None = None,
+    ) -> tuple[bool, str | None]:
+        try:
+            credentials = resolve_aws_credentials(config.aws_auth, team_id)
+        except AwsAuthError as error:
+            return False, str(error)
+        return validate_aws_ses_credentials(
+            credentials,
+            config.aws_region,
+            schema_name=schema_name,
+        )
+
+    def get_endpoint_permissions(
+        self, config: AwsSesSourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
+    ) -> dict[str, str | None]:
+        try:
+            credentials = resolve_aws_credentials(config.aws_auth, team_id)
+        except AwsAuthError as error:
+            return aws_auth_endpoint_reasons(error, endpoints)
+        return probe_endpoint_permissions(
+            credentials,
+            config.aws_region,
+            endpoints,
+        )
+
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[AwsSesResumeConfig]:
+        return ResumableSourceManager[AwsSesResumeConfig](inputs, AwsSesResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: AwsSesSourceConfig,
+        resumable_source_manager: ResumableSourceManager[AwsSesResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
+        return aws_ses_source(
+            credentials=resolve_aws_credentials(config.aws_auth, inputs.team_id),
+            aws_region=config.aws_region,
+            endpoint=inputs.schema_name,
+            resumable_source_manager=resumable_source_manager,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value
+            if inputs.should_use_incremental_field
+            else None,
+            logger=inputs.logger,
+        )
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.AWSSES,
+            category=DataWarehouseSourceCategory.MARKETING___EMAIL,
+            label="Amazon SES",
+            caption="""Sync your Amazon SES account data into the PostHog Data warehouse.
+
+Create an IAM user or role with the `ses:GetAccount`, `ses:ListConfigurationSets`, `ses:GetConfigurationSet`, `ses:ListEmailIdentities`, `ses:GetEmailIdentity`, `ses:ListSuppressedDestinations`, `ses:ListEmailTemplates`, `ses:GetEmailTemplate`, `ses:ListContactLists`, `ses:GetContactList`, `ses:ListDedicatedIpPools`, `ses:GetDedicatedIpPool`, `ses:GetDedicatedIps`, `ses:ListCustomVerificationEmailTemplates`, `ses:GetCustomVerificationEmailTemplate` and `ses:ListMultiRegionEndpoints` permissions. Connect with the IAM role, or paste an access key ID and secret access key. Add a session token too if you are using temporary credentials.
+
+SES data is regional, so connect one source per AWS Region you send email from. This source syncs account-level data. Per-message send, bounce, and complaint events are only available through SES event destinations, not the SES API.""",
+            iconPath="/static/services/aws_ses.png",
+            docsUrl="https://posthog.com/docs/cdp/sources/aws-ses",
+            releaseStatus=ReleaseStatus.GA,
+            keywords=["aws", "ses", "simple email service", "email"],
+            fields=cast(
+                list[FieldType],
+                [
+                    aws_auth_field(),
+                    SourceFieldInputConfig(
+                        name="aws_region",
+                        label="AWS region",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=True,
+                        placeholder="us-east-1",
+                        secret=False,
+                    ),
+                ],
+            ),
+        )

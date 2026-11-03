@@ -1,0 +1,153 @@
+from typing import cast
+
+from products.warehouse_sources.sources.aws_macie._config import AwsMacieSourceConfig
+from products.warehouse_sources.sources.aws_macie.aws_macie import (
+    AwsMacieResumeConfig,
+    aws_macie_source,
+    validate_credentials,
+)
+from products.warehouse_sources.sources.aws_macie.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.aws_macie.settings import (
+    API_DOCS_URL,
+    ENDPOINT_DESCRIPTIONS,
+    ENDPOINTS,
+    ERROR_MESSAGES,
+    INCREMENTAL_FIELDS,
+    MACIE_API_VERSION,
+)
+from products.warehouse_sources.sources.sdk import (
+    AWS_AUTH_NON_RETRYABLE_ERRORS,
+    AWS_FLAT_STORED_SELECTS,
+    AwsAuthError,
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    ResumableSource,
+    ResumableSourceManager,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    aws_auth_field,
+    build_endpoint_schemas,
+    detect,
+    resolve_aws_credentials,
+)
+
+
+@SourceRegistry.register
+class AwsMacieSource(ResumableSource[AwsMacieSourceConfig, AwsMacieResumeConfig]):
+    codebase_detection = detect(
+        env=("^(AWS_MACIE|AWSMACIE)_",),
+        npm=("@aws-sdk/client-macie2",),
+        cargo=("aws-sdk-macie2",),
+        go=("github.com/aws/aws-sdk-go-v2/service/macie2",),
+        maven=(
+            "software.amazon.awssdk:macie2",
+            "com.amazonaws:aws-java-sdk-macie2",
+            "com.amazonaws:aws-java-sdk-macie",
+            "software.amazon.awssdk:macie",
+        ),
+        rubygems=("aws-sdk-macie2",),
+    )
+
+    lists_tables_without_credentials = True
+    supported_versions = (MACIE_API_VERSION,)
+    default_version = MACIE_API_VERSION
+    api_docs_url = API_DOCS_URL
+
+    flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    credential_kind = "aws-macie"
+
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.AWSMACIE
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return {**AWS_AUTH_NON_RETRYABLE_ERRORS, **ERROR_MESSAGES}
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        return CANONICAL_DESCRIPTIONS
+
+    def get_schemas(
+        self,
+        config: AwsMacieSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
+        api_version: str | None = None,
+    ) -> list[SourceSchema]:
+        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names, descriptions=ENDPOINT_DESCRIPTIONS)
+
+    def validate_credentials(
+        self,
+        config: AwsMacieSourceConfig,
+        team_id: int,
+        schema_name: str | None = None,
+        api_version: str | None = None,
+    ) -> tuple[bool, str | None]:
+        try:
+            credentials = resolve_aws_credentials(config.aws_auth, team_id)
+        except AwsAuthError as error:
+            return False, str(error)
+        return validate_credentials(config, credentials, schema_name, self.resolve_api_version(api_version))
+
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[AwsMacieResumeConfig]:
+        return ResumableSourceManager(inputs, AwsMacieResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: AwsMacieSourceConfig,
+        resumable_source_manager: ResumableSourceManager[AwsMacieResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
+        return aws_macie_source(
+            config,
+            resolve_aws_credentials(config.aws_auth, inputs.team_id),
+            inputs.schema_name,
+            resumable_source_manager,
+            since=inputs.db_incremental_field_last_value if inputs.should_use_incremental_field else None,
+            api_version=self.resolve_api_version(inputs.api_version),
+        )
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.AWSMACIE,
+            category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
+            label="AWS Macie",
+            caption=(
+                "Sync Amazon Macie findings, S3 bucket inventory, bucket sensitivity profiles, discovery jobs, "
+                "member accounts, and usage. Enable Macie in the region you select.\n\n"
+                "Grant these IAM permissions for the tables you select: "
+                "`macie2:ListFindings`, `macie2:GetFindings`, `macie2:DescribeBuckets`, "
+                "`macie2:ListClassificationJobs`, `macie2:ListMembers`, `macie2:GetResourceProfile`, "
+                "`macie2:ListResourceProfileDetections`, `macie2:ListResourceProfileArtifacts`, and "
+                "`macie2:GetUsageStatistics`. "
+                "The resource profile tables need automated sensitive data discovery turned on. "
+                "Use credentials from the Macie administrator account to sync members."
+            ),
+            iconPath="/static/services/aws_macie.png",
+            releaseStatus=ReleaseStatus.BETA,
+            keywords=["aws", "macie", "security", "s3"],
+            fields=cast(
+                list[FieldType],
+                [
+                    aws_auth_field(),
+                    SourceFieldInputConfig(
+                        name="region",
+                        label="AWS region",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=True,
+                        placeholder="us-east-1",
+                        secret=False,
+                    ),
+                ],
+            ),
+        )

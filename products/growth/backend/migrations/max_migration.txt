@@ -1,1 +1,1 @@
-0010_icp_scoring_rules
+0012_daily_health_rollups_autovacuum

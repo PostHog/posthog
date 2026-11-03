@@ -36,6 +36,7 @@ from products.signals.backend.pull_requests import (
 )
 from products.signals.backend.report_claims import (
     ReportClaim,
+    actor_can_release_claim,
     actor_owns_claim,
     actor_works_under_claim,
     claim_from_artefact,
@@ -428,13 +429,13 @@ def claim_report(
         before = assignment_snapshot(locked_report, assignment, include_pull_request=include_pull_request)
         if claim_id and (assignment is None or str(assignment.claim_id) != claim_id):
             raise ReportClaimConflict("This claim is no longer active.")
-        if claim_id and assignment is not None and not actor_works_under_claim(assignment, actor):
+        if claim_id and assignment is not None and not release and not actor_works_under_claim(assignment, actor):
             raise ReportClaimConflict("This claim belongs to another actor.")
 
         if release:
             if assignment is None:
                 return None
-            if assignment.actor_kind and not actor_owns_claim(assignment, actor):
+            if assignment.actor_kind and not actor_can_release_claim(assignment, actor):
                 raise ReportClaimConflict("Only the current assignee can release this report.")
             release_claim(assignment, actor)
             assignment = None

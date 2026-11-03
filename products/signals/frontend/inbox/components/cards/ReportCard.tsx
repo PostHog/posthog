@@ -19,7 +19,6 @@ import { inboxReportDetailUrl } from '../../utils/inboxReportUrls'
 import {
     deriveHeadline,
     displayConventionalCommitTitle,
-    parseConventionalCommitTitle,
     parsePrUrlParts,
     safeHttpUrl,
 } from '../../utils/reportPresentation'
@@ -35,6 +34,7 @@ import {
 import { useReportClaim } from '../badges/useReportClaim'
 import { inboxCardRowClassName } from './inboxCardRowClassName'
 import { ReportCardImpactMetric } from './ReportCardImpactMetric'
+import { ReportCardRankingPill } from './ReportCardRankingPill'
 import { ReportCardRankingTag } from './ReportCardRankingTag'
 import { useReportCardSelection } from './useReportCardSelection'
 import { useReportDismiss } from './useReportDismiss'
@@ -116,6 +116,7 @@ function ReportCardRaw({
     preview = false,
     selectable = false,
     rankingSortField = null,
+    rankingPill = false,
     timestampField = 'updated_at',
     hideOwnClaim = false,
 }: {
@@ -133,6 +134,8 @@ function ReportCardRaw({
     selectable?: boolean
     /** The active model sort, if any. The meta row then shows the report's probability for that head. */
     rankingSortField?: InboxRankingSortField | null
+    /** The Recommended list asked for score pills. The meta row then shows all three scores. A model sort shows its own tag instead. */
+    rankingPill?: boolean
     /** The time the card shows. Match it to the active time sort, so the list reads in order. */
     timestampField?: 'created_at' | 'updated_at'
     /** Hide the user's own claim marker, for views where every card is theirs. */
@@ -149,12 +152,10 @@ function ReportCardRaw({
     const repoSlug = prUrlParts?.repoSlug ?? null
 
     const isReady = report.status === 'ready'
-    const conventionalTitle = parseConventionalCommitTitle(report.title)
     const cardTitle = displayConventionalCommitTitle(report.title, hasPr ? 'Untitled pull request' : 'Untitled report')
     const headline = deriveHeadline(report.summary)
     const cardTime = timestampField === 'created_at' ? report.created_at : (report.updated_at ?? report.created_at)
     const cardTimeTitle = timestampField === 'created_at' ? 'Created' : 'Last updated'
-    const plainReportTitles = useFeatureFlag('SIGNALS_PLAIN_REPORT_TITLES', 'test')
     // The impact column carries its own flag: its figures come from live queries, so it rolls out
     // per team as the metric quality is verified.
     const showImpactColumn = useFeatureFlag('SIGNALS_REPORT_METRICS')
@@ -226,9 +227,6 @@ function ReportCardRaw({
                         hasPr && showImpactColumn && '@lg:pr-0'
                     )}
                 >
-                    {hasPr && !plainReportTitles && conventionalTitle && (
-                        <ConventionalCommitScopeTag type={conventionalTitle.type} scope={conventionalTitle.scope} />
-                    )}
                     {cardTitle}
                 </div>
 
@@ -282,7 +280,11 @@ function ReportCardRaw({
                         </Tooltip>
                     )}
                     <SignalReportBillingBadge report={report} />
-                    {rankingSortField && <ReportCardRankingTag report={report} sortField={rankingSortField} />}
+                    {rankingSortField ? (
+                        <ReportCardRankingTag report={report} sortField={rankingSortField} />
+                    ) : rankingPill ? (
+                        <ReportCardRankingPill report={report} />
+                    ) : null}
                     {!showImpactColumn && (
                         <span className="ml-auto flex shrink-0 items-center gap-2">
                             {claimAvatar}

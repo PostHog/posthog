@@ -73,6 +73,9 @@ service PersonHogService {
   rpc ReleaseFences(personhog.types.v1.ReleaseFencesRequest) returns (personhog.types.v1.ReleaseFencesResponse);
   rpc FoldPersonDocument(personhog.types.v1.FoldPersonDocumentRequest) returns (personhog.types.v1.FoldPersonDocumentResponse);
 
+  // Consistency repair version raise (routed to leader)
+  rpc RaisePersonVersion(personhog.types.v1.RaisePersonVersionRequest) returns (personhog.types.v1.RaisePersonVersionResponse);
+
   // Person deletes
   // DeletePersons tombstones the persons and reports the versions written. A caller that
   // hard-deletes tombstoned persons must use DeleteTombstonedPersons instead, which re-checks

@@ -2,7 +2,6 @@ import { MakeLogicType, actions, connect, kea, listeners, path, reducers, select
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { pluralize } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -18,6 +17,7 @@ import type { SignalReportAssigneeApi } from '../../generated/api.schemas'
 import { captureInboxReportAction } from '../inboxAnalytics'
 import type { SignalReport } from '../types'
 import { type DismissalFeedback, type ResolveReasonValue, suppressDismissalPayload } from '../utils/dismissalReasons'
+import { setReportState } from '../utils/writeTimeout'
 
 /** Tally of a bulk operation that ran one request per selected report. */
 interface BulkActionResult {
@@ -134,6 +134,9 @@ export interface inboxBulkActionsLogicActions {
     reportStateChanged: () => {
         value: true
     }
+    reportWriteFailed: (reportIds: string[]) => {
+        reportIds: string[]
+    }
     selectAll: (reportIds: string[]) => {
         reportIds: string[]
     }
@@ -215,6 +218,9 @@ export const inboxBulkActionsLogic = kea<inboxBulkActionsLogicType>([
          * the detail pane), so every mounted list reconciles itself. Persisting the change is the
          * caller's responsibility. */
         reportStateChanged: true,
+        /** Broadcast that a write to these reports failed. A write that timed out or lost its response can still
+         * have saved, so every mounted list and the open report reload from the server. */
+        reportWriteFailed: (reportIds: string[]) => ({ reportIds }),
         /** Broadcast that a report's suggested reviewers were saved, with the PostHog user uuids now on
          * it, so a list scoped to a reviewer who is no longer on the report drops the row in place. */
         reportReviewersChanged: (reportId: string, reviewerUuids: string[]) => ({ reportId, reviewerUuids }),
@@ -348,7 +354,7 @@ export const inboxBulkActionsLogic = kea<inboxBulkActionsLogicType>([
             })
             const results = await Promise.allSettled(
                 reportIds.map((id) =>
-                    api.signalReports.setState(id, {
+                    setReportState(id, {
                         state: 'suppressed',
                         ...suppressDismissalPayload(dismissal),
                     })
@@ -362,10 +368,10 @@ export const inboxBulkActionsLogic = kea<inboxBulkActionsLogicType>([
 
             actions.clearSelection()
 
-            // Total failure: nothing was suppressed, so there's nothing for the list to drop.
             if (result.successCount === 0) {
                 lemonToast.error(formatBulkSummary(result, 'dismissed'))
                 actions.bulkDismissFailure()
+                actions.reportWriteFailed(reportIds)
                 return
             }
             // Any success (partial or full) must reload so the suppressed reports leave the list.
@@ -396,7 +402,7 @@ export const inboxBulkActionsLogic = kea<inboxBulkActionsLogicType>([
             })
             const results = await Promise.allSettled(
                 reportIds.map((id) =>
-                    api.signalReports.setState(id, {
+                    setReportState(id, {
                         state: 'resolved',
                         dismissal_reason: reason,
                         ...(trimmedNote ? { dismissal_note: trimmedNote } : {}),
@@ -414,6 +420,7 @@ export const inboxBulkActionsLogic = kea<inboxBulkActionsLogicType>([
             if (result.successCount === 0) {
                 lemonToast.error(formatBulkSummary(result, 'resolved'))
                 actions.bulkResolveFailure()
+                actions.reportWriteFailed(reportIds)
                 return
             }
             if (result.failureCount > 0) {
