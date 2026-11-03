@@ -129,4 +129,26 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "_broadcast_id": "ID of the broadcast the link belongs to.",
         },
     },
+    "usage": {
+        "description": "A snapshot of the account's current usage and plan limits. The table holds one row.",
+        "docs_url": "https://resend.com/docs/api-reference/usage/retrieve-usage",
+        "columns": {
+            "object": "Always `usage`.",
+            "emails": (
+                "Email sending and receiving quota. `daily` is a rolling 24-hour quota and `monthly` a "
+                "calendar-month quota, each with used, limit, sent, received, and resets_at. The daily "
+                "limit is null on paid sending plans."
+            ),
+            "contacts": "Contacts used and the plan limit.",
+            "segments": "Segments used and the plan limit. The limit is null on paid contacts plans.",
+            "broadcasts": "Broadcasts used. The limit is always null because broadcasts have no cap.",
+            "ai_credits": (
+                "AI credits used, the limit, and next_increase_at: when the oldest use leaves the rolling "
+                "window and frees quota."
+            ),
+            "automation_runs": "Automation runs used, the limit, and when the count resets.",
+            "domains": "Domains used and the plan limit. The limit is null when the plan has no domain cap.",
+            "rate_limit": "The account's API rate limit: the request limit and its window duration, such as 1000ms.",
+        },
+    },
 }

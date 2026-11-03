@@ -8,7 +8,11 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    FieldType,
+    ResumableSource,
+    VersionDeprecation,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
@@ -21,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sch
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.fleetio.fleetio import (
     DEFAULT_VERSION,
+    FLEETIO_LEGACY_VERSION,
     SUPPORTED_VERSIONS,
     FleetioResumeConfig,
     fleetio_source,
@@ -42,6 +47,9 @@ class FleetioSource(ResumableSource[FleetioSourceConfig, FleetioResumeConfig]):
 
     supported_versions = SUPPORTED_VERSIONS
     default_version = DEFAULT_VERSION
+    # Fleetio deprecated path-segment endpoint versions (`/api/v1`, `/api/v2`), which the "v1" pin
+    # still reads, but still serves them and has announced no sunset date.
+    deprecated_versions = (VersionDeprecation(version=FLEETIO_LEGACY_VERSION, sunset_at=None),)
     api_docs_url = "https://developer.fleetio.com/docs/overview/versioning"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs

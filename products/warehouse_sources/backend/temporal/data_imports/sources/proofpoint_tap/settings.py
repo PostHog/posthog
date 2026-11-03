@@ -1,4 +1,5 @@
 from datetime import timedelta
+from typing import Literal
 
 from posthog.dataclasses import frozen
 
@@ -13,30 +14,74 @@ MIN_WINDOW = timedelta(seconds=30)
 OVERLAP = timedelta(minutes=1)
 
 
+# Campaign ID listings accept at most one day per request and allow 50 requests a day.
+CAMPAIGN_WINDOW = timedelta(days=1)
+CAMPAIGN_PAGE_SIZE = 200
+# The People API accepts 14, 30 or 90 days and allows 50 requests a day.
+PEOPLE_WINDOW_DAYS = 90
+
+
 @frozen
 class TapEndpoint:
+    kind: Literal["siem", "threats", "campaigns", "people"]
     path: str
     selector: str
     primary_key: str
-    event_time: str
+    partition_key: str | None = None
+    page_size: int | None = None
 
 
 ENDPOINTS = {
     "clicks_blocked": TapEndpoint(
-        path="clicks/blocked", selector="clicksBlocked", primary_key="id", event_time="clickTime"
+        kind="siem", path="siem/clicks/blocked", selector="clicksBlocked", primary_key="id", partition_key="clickTime"
     ),
     "clicks_permitted": TapEndpoint(
-        path="clicks/permitted", selector="clicksPermitted", primary_key="id", event_time="clickTime"
+        kind="siem",
+        path="siem/clicks/permitted",
+        selector="clicksPermitted",
+        primary_key="id",
+        partition_key="clickTime",
     ),
     "messages_blocked": TapEndpoint(
-        path="messages/blocked", selector="messagesBlocked", primary_key="GUID", event_time="messageTime"
+        kind="siem",
+        path="siem/messages/blocked",
+        selector="messagesBlocked",
+        primary_key="GUID",
+        partition_key="messageTime",
     ),
     "messages_delivered": TapEndpoint(
-        path="messages/delivered", selector="messagesDelivered", primary_key="GUID", event_time="messageTime"
+        kind="siem",
+        path="siem/messages/delivered",
+        selector="messagesDelivered",
+        primary_key="GUID",
+        partition_key="messageTime",
+    ),
+    "threats": TapEndpoint(
+        kind="threats", path="threat/summary/{id}", selector="", primary_key="id", partition_key="identifiedAt"
+    ),
+    "campaigns": TapEndpoint(
+        kind="campaigns",
+        path="campaign/{id}",
+        selector="campaigns",
+        primary_key="id",
+        partition_key="startDate",
+        page_size=CAMPAIGN_PAGE_SIZE,
+    ),
+    "very_attacked_people": TapEndpoint(
+        kind="people", path="people/vap", selector="users", primary_key="guid", page_size=1000
+    ),
+    "top_clickers": TapEndpoint(
+        kind="people", path="people/top-clickers", selector="users", primary_key="guid", page_size=200
     ),
 }
 
-INCREMENTAL_FIELDS = {name: [incremental_field("query_end_time")] for name in ENDPOINTS}
+SIEM_ALL_PATH = "siem/all"
+CAMPAIGN_IDS_PATH = "campaign/ids"
+SIEM_SELECTORS = ("clicksBlocked", "clicksPermitted", "messagesBlocked", "messagesDelivered")
+
+INCREMENTAL_FIELDS = {
+    name: [incremental_field("query_end_time")] for name, endpoint in ENDPOINTS.items() if endpoint.kind != "people"
+}
 
 AUTH_ERRORS = {
     401: "Proofpoint TAP authentication failed. Check your service principal and secret.",

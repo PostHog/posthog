@@ -256,6 +256,19 @@ class ChangeOperation:
             bulk=bulk,
         )
 
+    @classmethod
+    def for_automation(cls, team_id: int) -> "ChangeOperation | None":
+        """Start an operation that no person made, or return None when the change log is off for the team."""
+        if not issue_change_log_enabled(team_id):
+            return None
+        return cls(
+            id=uuid7(),
+            team_id=team_id,
+            actor_type=ErrorTrackingIssueChange.ActorType.AUTOMATION,
+            actor_user_id=None,
+            bulk=False,
+        )
+
 
 @frozen
 class IssueChange:

@@ -16,9 +16,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.syn
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.plausible.settings import (
     DEFAULT_BACKFILL_DAYS,
-    PLAUSIBLE_ENDPOINTS,
     REPORT_LOOKBACK_DAYS,
     PlausibleEndpointConfig,
+    get_endpoint_config,
 )
 
 # Plausible Cloud; self-hosted instances override this via the source's host field.
@@ -207,7 +207,7 @@ def plausible_source(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
-    config = PLAUSIBLE_ENDPOINTS[endpoint]
+    config = get_endpoint_config(endpoint)
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     window = _resolve_window(resume_config, should_use_incremental_field, db_incremental_field_last_value)

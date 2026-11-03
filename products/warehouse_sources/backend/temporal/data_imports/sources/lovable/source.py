@@ -8,7 +8,11 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    FieldType,
+    ResumableSource,
+    VersionDeprecation,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
@@ -45,6 +49,10 @@ class LovableSource(ResumableSource[LovableSourceConfig, LovableResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog, safe for public docs
     supported_versions = (LOVABLE_API_VERSION_V1, LOVABLE_API_VERSION_2026_09_11)
     default_version = LOVABLE_API_VERSION_2026_09_11
+    # Lovable lists 2026-09-11 as its only supported version and serves it to requests without a
+    # `Lovable-Version` header, so v1's request path no longer gets the wire it was built for.
+    # Lovable publishes no retirement date for v1.
+    deprecated_versions = (VersionDeprecation(version=LOVABLE_API_VERSION_V1, sunset_at=None),)
     api_docs_url = "https://api.lovable.dev/v1/docs"
 
     @property

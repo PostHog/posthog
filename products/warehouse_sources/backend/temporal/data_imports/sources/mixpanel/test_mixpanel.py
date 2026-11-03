@@ -312,6 +312,22 @@ class TestExportIterator:
         assert result.params("from_date") == ["2024-01-02"]
         assert [row["event"] for row in result.rows] == ["B"]
 
+    @time_machine.travel("2024-01-01", tick=False)
+    def test_browser_version_is_always_text(self) -> None:
+        lines = [
+            orjson.dumps({"event": "A", "properties": {"time": 1, "$browser_version": version}})
+            for version in (120, 120.0, 17.4, "130.0.0.0")
+        ]
+        result = _driver().run(
+            "export",
+            [_export_answer(*lines)],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=date(2024, 1, 1),
+        )
+        assert result.raised is None
+        assert [row["$browser_version"] for row in result.rows] == ["120", "120", "17.4", "130.0.0.0"]
+        assert [row["time"] for row in result.rows] == [1, 1, 1, 1]
+
 
 class TestExportStreamRetry:
     def _line(self, insert_id: str) -> bytes:

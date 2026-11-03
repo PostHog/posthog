@@ -38,6 +38,7 @@ from posthog.models import Organization
 from posthog.models.oauth import (
     OAuthApplication,
     OAuthApplicationAccessLevel,
+    OAuthGrant,
     TokenEndpointAuthMethod,
     create_cimd_verification_token,
 )
@@ -160,14 +161,19 @@ def test_validate_cimd_url_accepts_valid(_mock):
     "mock_return,url,expected_error",
     [
         (
-            (False, "Private IP address not allowed"),
-            "https://10.0.0.1/metadata.json",
-            "URL blocked: Private IP address not allowed",
+            (False, "Disallowed target IP: 10.0.0.1"),
+            "https://internal.example.com/metadata.json",
+            "CIMD client_id host is not a public internet address",
         ),
         (
             (False, "Local/metadata host"),
             "https://169.254.169.254/metadata.json",
-            "URL blocked: Local/metadata host",
+            "CIMD client_id host is not a public internet address",
+        ),
+        (
+            (False, "Could not resolve host"),
+            "https://missing.example.com/metadata.json",
+            "CIMD client_id host name does not resolve",
         ),
     ],
 )
@@ -189,6 +195,51 @@ class TestFetchCimdMetadata(SimpleTestCase):
         assert "client_name" in result
         self.assertEqual(result["client_name"], "Test MCP Client")
         self.assertEqual(ttl, 3600)
+
+    @parameterized.expand(
+        [
+            ("timeout", requests.ConnectTimeout("HTTPSConnectionPool(host='10.1.2.3', port=443)"), "timed out"),
+            ("tls", requests.exceptions.SSLError("certificate verify failed for 10.1.2.3"), "TLS certificate"),
+            ("connection", requests.ConnectionError("Max retries exceeded with url (10.1.2.3)"), "could not connect"),
+        ]
+    )
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
+    def test_fetch_failure_names_the_kind_without_connection_details(self, _name, exc, expected, mock_get, _url_mock):
+        mock_get.side_effect = exc
+        with self.assertRaises(CIMDFetchError) as ctx:
+            fetch_cimd_metadata(VALID_CIMD_URL)
+        self.assertIn(expected, str(ctx.exception))
+        self.assertNotIn("10.1.2.3", str(ctx.exception))
+
+    # Patched in the body: a method-level patch of the class-patched resolver would lose to it.
+    def test_unresolvable_host_says_so(self, _url_mock):
+        with patch("posthog.security.url_validation.resolve_host_ips", return_value=set()):
+            with self.assertRaisesRegex(CIMDValidationError, "host name does not resolve"):
+                fetch_cimd_metadata(VALID_CIMD_URL)
+
+    def test_internal_address_is_refused_without_naming_it(self, _url_mock):
+        with patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("10.0.0.5")}):
+            with self.assertRaises(CIMDValidationError) as ctx:
+                fetch_cimd_metadata(VALID_CIMD_URL)
+        self.assertIn("not a public internet address", str(ctx.exception))
+        self.assertNotIn("10.0.0.5", str(ctx.exception))
+
+    # Whoever calls /authorize picks the URL PostHog fetches, so errors must not read back the response.
+    @parameterized.expand(
+        [
+            ("client_id_value", _make_metadata(client_id="https://secret-value.example.com/x.json"), 200),
+            ("auth_method_value", _make_metadata(token_endpoint_auth_method="secret-value"), 200),
+            ("status_code", None, 418),
+            ("redirect_status", None, 307),
+        ]
+    )
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
+    def test_errors_do_not_echo_the_fetched_response(self, _name, metadata, status_code, mock_get, _url_mock):
+        mock_get.return_value = _mock_response(metadata, status_code=status_code)
+        with self.assertRaises((CIMDValidationError, CIMDFetchError)) as ctx:
+            fetch_cimd_metadata(VALID_CIMD_URL)
+        self.assertNotIn("secret-value", str(ctx.exception))
+        self.assertNotIn(str(status_code), str(ctx.exception))
 
     @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_client_id_mismatch(self, mock_get, _url_mock):
@@ -240,7 +291,7 @@ class TestFetchCimdMetadata(SimpleTestCase):
         mock_get.return_value = _mock_response(status_code=404)
         with self.assertRaises(CIMDFetchError) as ctx:
             fetch_cimd_metadata(VALID_CIMD_URL)
-        self.assertIn("404", str(ctx.exception))
+        self.assertIn("did not return HTTP 200", str(ctx.exception))
 
     @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_timeout(self, mock_get, _url_mock):
@@ -256,7 +307,17 @@ class TestFetchCimdMetadata(SimpleTestCase):
         mock_get.return_value = _mock_response(_make_metadata(token_endpoint_auth_method=auth_method))
         with self.assertRaises(CIMDValidationError) as ctx:
             fetch_cimd_metadata(VALID_CIMD_URL)
-        self.assertIn(auth_method, str(ctx.exception))
+        self.assertNotIn(auth_method, str(ctx.exception))
+        self.assertIn("token_endpoint_auth_method must be", str(ctx.exception))
+
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
+    def test_internal_jwks_uri_is_refused_without_naming_its_address(self, mock_get, _url_mock):
+        metadata = _make_metadata(token_endpoint_auth_method="private_key_jwt", jwks_uri=CIMD_JWKS_URI)
+        mock_get.return_value = _mock_response(metadata)
+        with patch("posthog.api.oauth.cimd.is_url_allowed", return_value=(False, "Disallowed target IP: 10.9.8.7")):
+            with self.assertRaises(CIMDValidationError) as ctx:
+                fetch_cimd_metadata(VALID_CIMD_URL)
+        self.assertEqual(str(ctx.exception), "jwks_uri is not allowed: jwks_uri host is not a public internet address")
 
     @parameterized.expand([("missing_jwks_uri", None), ("non_https_jwks_uri", "http://app.example.com/jwks.json")])
     @patch("posthog.api.oauth.cimd.requests.Session.get")
@@ -395,6 +456,25 @@ class TestFetchAndUpsertCimdApplication(APIBaseTest):
         else:
             self.assertEqual(refreshed.client_type, OAuthApplication.CLIENT_PUBLIC)
 
+    @parameterized.expand(
+        [
+            ("document_logo", {"logo_uri": "https://cdn.example.com/logo.png"}, "https://cdn.example.com/logo.png"),
+            (
+                "host_icon_without_logo",
+                {"client_uri": "https://someone-else.example.org"},
+                "https://app.example.com/apple-touch-icon.png",
+            ),
+        ]
+    )
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
+    def test_stores_logo_or_document_host_icon(self, _name, overrides, expected_logo_uri, mock_get, _url_mock):
+        mock_get.return_value = _mock_response(_make_metadata(**overrides), headers={})
+
+        app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        assert app is not None
+        self.assertEqual(app.logo_uri, expected_logo_uri)
+
     @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_updates_existing_application(self, mock_get, _url_mock):
         metadata1 = _make_metadata(client_name="Original Name")
@@ -422,14 +502,87 @@ class TestFetchAndUpsertCimdApplication(APIBaseTest):
 
         real_cache.delete(_fetch_lock_key(VALID_CIMD_URL))
 
+    @parameterized.expand(
+        [
+            ("posthog_prefix", "PostHog Helper"),
+            ("posthog_anywhere", "Claude for PostHog"),
+            ("posthog_split_by_space", "Acme Post Hog Sync"),
+            ("posthog_split_by_punctuation", "Acme post-hog sync"),
+            ("blocked_word", "Acme Verified Client"),
+        ]
+    )
     @patch("posthog.api.oauth.cimd.requests.Session.get")
-    def test_blocked_name_uses_default(self, mock_get, _url_mock):
-        metadata = _make_metadata(client_name="PostHog Official Client")
+    def test_disallowed_name_rejects_new_client(self, _name, client_name, mock_get, _url_mock):
+        mock_get.return_value = _mock_response(_make_metadata(client_name=client_name), headers={})
+
+        with self.assertRaisesRegex(CIMDValidationError, "client_name is not allowed"):
+            fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        self.assertFalse(OAuthApplication.objects.filter(client_id=VALID_CIMD_URL).exists())
+
+    @parameterized.expand(
+        [
+            ("posthog_com_subdomain", "https://artifacts.posthog.com/oauth/client-metadata.json"),
+            ("posthog_com_apex", "https://posthog.com/.well-known/oauth/hogli/client-metadata.json"),
+            ("posthog_net", "https://tools.posthog.net/client-metadata.json"),
+            ("posthog_dev", "https://posthog.dev/client-metadata.json"),
+        ]
+    )
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
+    def test_posthog_owned_domain_may_use_posthog_in_name(self, _name, url, mock_get, _url_mock):
+        mock_get.return_value = _mock_response(_make_metadata(url=url, client_name="PostHog Artifacts"), headers={})
+
+        app = fetch_and_upsert_cimd_application(url)
+
+        assert app is not None
+        self.assertEqual(app.name, "PostHog Artifacts")
+
+    @parameterized.expand(
+        [
+            ("lookalike_domain", "https://evilposthog.com/client-metadata.json"),
+            ("posthog_as_subdomain_label", "https://posthog.com.example.com/client-metadata.json"),
+            ("customer_webhook_host", "https://webhooks.us.posthog.com/public/webhooks/abc123"),
+            ("customer_webhook_path_on_app_host", "https://app.dev.posthog.dev/public/webhooks/abc123"),
+        ]
+    )
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
+    def test_customer_controlled_url_may_not_use_posthog_in_name(self, _name, url, mock_get, _url_mock):
+        mock_get.return_value = _mock_response(_make_metadata(url=url, client_name="PostHog Artifacts"), headers={})
+
+        with self.assertRaisesRegex(CIMDValidationError, "client_name is not allowed"):
+            fetch_and_upsert_cimd_application(url)
+
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
+    def test_posthog_owned_domain_still_blocks_other_words(self, mock_get, _url_mock):
+        url = "https://artifacts.posthog.com/oauth/client-metadata.json"
+        mock_get.return_value = _mock_response(_make_metadata(url=url, client_name="PostHog Official"), headers={})
+
+        with self.assertRaisesRegex(CIMDValidationError, "official"):
+            fetch_and_upsert_cimd_application(url)
+
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
+    def test_missing_name_uses_default(self, mock_get, _url_mock):
+        metadata = _make_metadata()
+        del metadata["client_name"]
         mock_get.return_value = _mock_response(metadata, headers={})
 
         app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
         assert app is not None
         self.assertEqual(app.name, "CIMD Client")
+
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
+    def test_refresh_with_disallowed_name_keeps_existing_name(self, mock_get, _url_mock):
+        mock_get.return_value = _mock_response(_make_metadata(), headers={})
+        created = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+        assert created is not None
+
+        real_cache.delete(_fetch_lock_key(VALID_CIMD_URL))
+        mock_get.return_value = _mock_response(_make_metadata(client_name="Claude for PostHog"), headers={})
+        refreshed = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        assert refreshed is not None
+        self.assertEqual(refreshed.name, "Test MCP Client")
 
     @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_fetch_failure_propagates(self, mock_get, _url_mock):
@@ -1113,6 +1266,56 @@ class TestCIMDAuthorizeIntegration(APIBaseTest):
         self.assertIn("client metadata document", response.json()["error_description"])
 
     @patch("posthog.api.oauth.cimd.requests.Session.get")
+    def test_rejected_document_names_the_reason(self, mock_get, _url_mock):
+        mock_get.return_value = _mock_response(_make_metadata(client_name="Claude for PostHog"))
+
+        response = self.client.get(self._authorize_url(VALID_CIMD_URL))
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(
+            "PostHog could not use the client metadata document at this client_id: client_name is not allowed",
+            response.json()["error_description"],
+        )
+
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
+    def test_fetch_failure_reason_hides_connection_details(self, mock_get, _url_mock):
+        mock_get.side_effect = requests.ConnectionError("Max retries exceeded (host='10.1.2.3')")
+
+        response = self.client.get(self._authorize_url(VALID_CIMD_URL))
+
+        self.assertEqual(response.status_code, 400)
+        description = response.json()["error_description"]
+        self.assertIn("could not connect", description)
+        self.assertNotIn("10.1.2.3", description)
+
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
+    def test_sign_in_only_client_gets_identity_scopes_but_no_resource_scope(self, mock_get, _url_mock):
+        metadata = _make_metadata(com_posthog={"scopes": ["openid", "profile", "email"]})
+        mock_get.return_value = _mock_response(metadata)
+        get_or_create_cimd_application(VALID_CIMD_URL)
+
+        consent = self.client.post(
+            "/oauth/authorize/",
+            {
+                "client_id": VALID_CIMD_URL,
+                "redirect_uri": "http://127.0.0.1:3000/callback",
+                "response_type": "code",
+                "code_challenge": self.code_challenge,
+                "code_challenge_method": "S256",
+                "allow": True,
+                "access_level": OAuthApplicationAccessLevel.ALL.value,
+                "scoped_organizations": [],
+                "scoped_teams": [],
+                "scope": "openid profile email insight:read",
+            },
+        )
+
+        self.assertEqual(consent.status_code, 200)
+        code = consent.json()["redirect_to"].split("code=")[1].split("&")[0]
+        granted = set(OAuthGrant.objects.get(code=code).scope.split())
+        self.assertEqual(granted, {"openid", "profile", "email"})
+
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_cimd_mismatched_redirect_uri_rejected(self, mock_get, _url_mock):
         metadata = _make_metadata()
         mock_get.return_value = _mock_response(metadata)
@@ -1460,6 +1663,42 @@ class TestCIMDComPostHogNamespace(APIBaseTest):
     # A present, non-empty com.posthog.scopes that strips to nothing is rejected, not
     # stored as [] (which would widen the app to the broad UNPRIVILEGED default via the
     # empty-ceiling fallback). Mirrors DCR's all-stripped rejection; no app is created.
+    @parameterized.expand(
+        [
+            ("all_three", ["openid", "profile", "email"], ["openid", "profile", "email"]),
+            ("openid_only", ["openid"], ["openid"]),
+            ("deduped", ["openid", "email", "openid"], ["openid", "email"]),
+        ]
+    )
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
+    def test_oidc_only_scopes_create_a_sign_in_only_ceiling(self, _name, declared, expected, mock_get, _url_mock):
+        mock_get.return_value = _mock_response(_make_metadata(com_posthog={"scopes": declared}), headers={})
+
+        app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        assert app is not None
+        self.assertEqual(app.scopes, expected)
+
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
+    def test_oidc_scopes_next_to_resource_scopes_are_dropped(self, mock_get, _url_mock):
+        metadata = _make_metadata(com_posthog={"scopes": ["openid", "email", "insight:read"]})
+        mock_get.return_value = _mock_response(metadata, headers={})
+
+        app = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        assert app is not None
+        self.assertEqual(app.scopes, ["insight:read"])
+
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
+    def test_optional_scopes_on_a_sign_in_only_ceiling_is_rejected_with_the_reason(self, mock_get, _url_mock):
+        metadata = _make_metadata(com_posthog={"scopes": ["openid"], "optional_scopes": ["insight:read"]})
+        mock_get.return_value = _mock_response(metadata, headers={})
+
+        with self.assertRaisesRegex(CIMDValidationError, "optional_scopes requires at least one resource scope"):
+            fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+
+        self.assertFalse(OAuthApplication.objects.filter(client_id=VALID_CIMD_URL).exists())
+
     @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_all_non_grantable_scopes_on_creation_rejected(self, mock_get, _url_mock):
         only_non_grantable = [*sorted(PRIVILEGED_SCOPES), "not_a_real_scope:write"]
@@ -1507,5 +1746,11 @@ class TestResolveScopes(SimpleTestCase):
         self.assertEqual(resolved, ["insight:read"])
 
     def test_all_non_grantable_raises(self) -> None:
-        with self.assertRaises(CIMDValidationError):
+        with self.assertRaises(CIMDValidationError) as ctx:
             _resolve_scopes({"com.posthog": {"scopes": ["llm_gateway:read", "not_a_real_scope:write"]}})
+        self.assertNotIn("llm_gateway:read", str(ctx.exception))
+
+    def test_oidc_only_is_a_sign_in_only_ceiling(self) -> None:
+        self.assertEqual(
+            _resolve_scopes({"com.posthog": {"scopes": ["openid", "profile", "email"]}}), ["openid", "profile", "email"]
+        )

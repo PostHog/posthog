@@ -704,6 +704,12 @@ inbox-source-configs-partial-update
 { "id": "<source_config_uuid>", "enabled": false }
 ```
 
+To edit individual source settings, send only the top-level keys to change in `config_set` and keys to delete in `config_remove`.
+These edits preserve unrelated settings even when another editor saves at the same time.
+For guidance, set `config_set.steering` and include `default_not_actionable` in `config_remove`.
+Use `config_set.linear_team_ids` for Linear team selection.
+Reserve `config` for an intentional whole-object replacement; do not combine it with key edits.
+
 ## Tips
 
 - **Check setup before assuming the inbox is empty.** If `inbox-reports-list` returns `count: 0`,

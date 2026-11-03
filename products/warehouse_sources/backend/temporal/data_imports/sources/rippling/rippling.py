@@ -61,9 +61,10 @@ def _build_params(
     if should_use_incremental_field and config.incremental_fields and db_incremental_field_last_value is not None:
         cursor_field = incremental_field or config.default_incremental_field
         params["filter"] = f"{cursor_field} ge {_format_filter_timestamp(db_incremental_field_last_value)}"
-        # Ascending order on the cursor field so the incremental watermark
-        # advances monotonically as pages are consumed (order_by defaults to asc).
-        params["order_by"] = cursor_field
+        if config.order_by:
+            # Ascending order on the cursor field so the incremental watermark
+            # advances monotonically as pages are consumed (order_by defaults to asc).
+            params["order_by"] = cursor_field
     elif config.order_by:
         # Full refresh: a stable creation-time sort prevents page-boundary
         # skips/duplicates if rows change mid-sync.
@@ -217,6 +218,7 @@ def rippling_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
-        sort_mode="asc",
+        # Endpoints that accept no order_by return rows in an undocumented order.
+        sort_mode="asc" if config.order_by else None,
         column_hints=resource.column_hints,
     )

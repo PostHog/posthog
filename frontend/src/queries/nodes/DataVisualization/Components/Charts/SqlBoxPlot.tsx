@@ -5,11 +5,10 @@ import { useEffect, useMemo } from 'react'
 import { BoxPlot } from '@posthog/quill-charts'
 import type { BoxPlotConfig } from '@posthog/quill-charts'
 
+import { makeChartErrorHandler } from 'lib/charts/chartErrorHandler'
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 
 import { ChartSettings } from '~/queries/schema/schema-general'
-
-import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
 import { Column } from '../../dataVisualizationLogic'
 import { buildSqlBoxPlotModel } from './sqlBoxPlotAdapter'

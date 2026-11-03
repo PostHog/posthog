@@ -901,6 +901,12 @@ export const todayLogic = kea<todayLogicType>([
                     }
                 }
             },
+            // A verdict that failed without an answer can still have saved, so the list reloads from the server.
+            [todayVerdictLogic.actionTypes.setReportVerdictFailure]: () => {
+                if (!values.useSampleData) {
+                    actions.loadTopReports()
+                }
+            },
             showMoreForYou: () => {
                 actions.setListExpanded('for_you', true)
                 if (values.canLoadMoreReports) {

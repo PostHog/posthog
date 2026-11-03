@@ -143,8 +143,8 @@ class PowerBiAdminSource(ResumableSource[PowerBiAdminSourceConfig, PowerBiAdminR
             keywords=["power bi", "powerbi", "fabric", "microsoft"],
             caption=(
                 "Sync tenant-wide Power BI and Fabric governance data: the audit log of views, edits, exports "
-                "and shares, plus the workspace, semantic model, report, dashboard, dataflow, and capacity "
-                "inventories.\n\n"
+                "and shares, the workspace, semantic model, report, dashboard, dataflow, and capacity "
+                "inventories, plus dashboard tiles and capacity refresh statistics.\n\n"
                 "Create an Entra ID app registration, add a client secret, and put the app in a security group "
                 "that is allowed to use the read-only admin APIs in the Fabric admin portal. The app must not "
                 "have any admin-consent Power BI permissions set on it. Then enter the directory (tenant) ID, "

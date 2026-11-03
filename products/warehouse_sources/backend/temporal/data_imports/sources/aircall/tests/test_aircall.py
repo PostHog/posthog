@@ -95,6 +95,13 @@ class TestPagination:
         # State is saved only while a next page exists.
         assert result.saved_states == [AircallResumeConfig(next_url="https://api.aircall.io/v1/users?page=2")]
 
+    def test_unpaginated_endpoint_sends_no_page_size(self) -> None:
+        result = _driver().run("trackers", [ScriptedResponse(json={"trackers": [{"id": 1}, {"id": 2}]})])
+
+        assert result.raised is None
+        assert [row["id"] for row in result.rows] == [1, 2]
+        assert result.urls == ["https://api.aircall.io/v1/trackers"]
+
     def test_resumes_from_saved_state(self) -> None:
         resume_url = "https://api.aircall.io/v1/users?page=5"
         result = _driver().run(
@@ -215,11 +222,47 @@ class TestConversationIntelligenceFanout:
         assert [row["call_id"] for row in result.rows] == [2]
 
 
+class TestCampaignFanout:
+    def test_call_outcomes_follow_each_campaigns_cursor(self) -> None:
+        # Unlike the per-call CI children, a campaign's call outcomes are a cursor-paginated list,
+        # so each campaign's chain is walked to its end before the next campaign starts.
+        result = _driver().run(
+            "campaign_call_outcomes",
+            [
+                _page("campaigns", [{"id": "c1"}, {"id": "c2"}], None),
+                _page("call_outcomes", [{"id": "o1"}], "https://api.aircall.io/v1/campaigns/c1/call_outcomes?cursor=x"),
+                _page("call_outcomes", [{"id": "o2"}], None),
+                _page("call_outcomes", [{"id": "o3"}], None),
+            ],
+        )
+
+        assert result.raised is None
+        assert [(row["campaign_id"], row["id"]) for row in result.rows] == [("c1", "o1"), ("c1", "o2"), ("c2", "o3")]
+        assert result.urls[1:] == [
+            "https://api.aircall.io/v1/campaigns/c1/call_outcomes?per_page=50",
+            "https://api.aircall.io/v1/campaigns/c1/call_outcomes?cursor=x",
+            "https://api.aircall.io/v1/campaigns/c2/call_outcomes?per_page=50",
+        ]
+
+    def test_stats_unwraps_object_and_skips_deleted_campaigns(self) -> None:
+        result = _driver().run(
+            "campaign_stats",
+            [
+                _page("campaigns", [{"id": "c1"}, {"id": "c2"}], None),
+                ScriptedResponse(status=404, json={"error": "not found"}),
+                ScriptedResponse(json={"stats": {"total_contacts": 500, "connected_contacts": 130}}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"total_contacts": 500, "connected_contacts": 130, "campaign_id": "c2"}]
+
+
 class TestAircallSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_response_metadata_per_endpoint(self, endpoint: str) -> None:
         config = AIRCALL_ENDPOINTS[endpoint]
-        schema_name = "calls" if config.fanout else endpoint
+        schema_name = config.fanout.parent_name if config.fanout else endpoint
         result = _driver().run(endpoint, [_page(schema_name, [], None)])
         response = result.response
 
@@ -227,7 +270,7 @@ class TestAircallSourceResponse:
         assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == [config.primary_key]
-        assert response.sort_mode == "asc"
+        assert response.sort_mode == (None if config.fanout and config.fanout.parent_name == "campaigns" else "asc")
         if config.partition_key:
             assert response.partition_mode == "datetime"
             assert response.partition_keys == [config.partition_key]

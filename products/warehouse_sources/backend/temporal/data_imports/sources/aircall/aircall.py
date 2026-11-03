@@ -103,7 +103,7 @@ def _reaches_record_cap(url: str) -> bool:
 
 
 def _build_params(config: AircallEndpointConfig, from_value: Optional[int]) -> dict[str, Any]:
-    params: dict[str, Any] = {"per_page": PAGE_SIZE}
+    params: dict[str, Any] = {"per_page": PAGE_SIZE} if config.paginated else {}
     # Ascending creation order keeps already-fetched pages stable and lets the incremental
     # watermark advance monotonically. `from` filters on the resource creation date.
     if config.incremental_fields or config.reanchor_field:
@@ -254,18 +254,21 @@ def _fanout_source(
     team_id: int,
     job_id: str,
 ) -> SourceResponse:
-    """Fan a per-call Conversation Intelligence endpoint out over the calls list.
+    """Fan a per-call or per-campaign sub-resource out over its parent list.
 
-    The parent calls list is re-fetched each sync (there is no incremental filter on the child
-    sub-resource), so the parent keeps the calls paginator to page past the 10k cap and reach
-    every call. The child returns one flat object per call, so it needs a single-page paginator
-    and the whole body as the row — the parent and child therefore run different paginators,
-    set per endpoint rather than on the shared client.
+    The parent list is re-fetched each sync (there is no incremental filter on the child
+    sub-resources), so the parent keeps its own paginator. For calls that paginator pages past the
+    10k cap. A child that returns one object per parent needs a single-page paginator, while a
+    paginated child follows its own next-page links. The parent and child therefore run different
+    paginators, set per endpoint rather than on the shared client.
     """
     config = AIRCALL_ENDPOINTS[endpoint]
     assert config.fanout is not None
-    calls_config = AIRCALL_ENDPOINTS[config.fanout.parent_name]
-    parent_paginator = AircallPaginator(calls_config, calls_config.reanchor_field, from_value=None)
+    parent_config = AIRCALL_ENDPOINTS[config.fanout.parent_name]
+    parent_paginator = AircallPaginator(parent_config, parent_config.reanchor_field, from_value=None)
+    child_paginator: BasePaginator = (
+        AircallPaginator(config, cursor_field=None, from_value=None) if config.paginated else SinglePagePaginator()
+    )
 
     dependent_resource = cast(
         Iterable[Any],
@@ -281,8 +284,8 @@ def _fanout_source(
             db_incremental_field_last_value=None,
             should_use_incremental_field=False,
             page_size_param="per_page",
-            parent_endpoint_extra={"paginator": parent_paginator, "data_selector": calls_config.data_key},
-            child_endpoint_extra={"paginator": SinglePagePaginator(), "data_selector": config.data_key},
+            parent_endpoint_extra={"paginator": parent_paginator, "data_selector": parent_config.data_key},
+            child_endpoint_extra={"paginator": child_paginator, "data_selector": config.data_key},
         ),
     )
 
@@ -290,8 +293,9 @@ def _fanout_source(
         name=endpoint,
         items=lambda: dependent_resource,
         primary_keys=[config.primary_key],
-        # Child rows arrive in the parent's ascending-by-started_at order.
-        sort_mode="asc",
+        # Child rows arrive in the parent's order, which is ascending only for a parent walked
+        # by its re-anchor field (calls by started_at). The campaigns list has no documented order.
+        sort_mode="asc" if parent_config.reanchor_field else None,
         partition_count=1,
         partition_size=1,
     )

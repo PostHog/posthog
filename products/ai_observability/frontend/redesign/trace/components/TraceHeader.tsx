@@ -2,6 +2,7 @@ import { IconArrowLeft } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { LabeledLink } from '../types'
+import { TraceExportButton, TraceExportButtonProps } from './TraceExportButton'
 import { TraceNeighbourLinks } from './TraceNeighbourLinks'
 import { TraceSearchBox, TraceSearchBoxProps } from './TraceSearchBox'
 import { TraceStatusBadge } from './TraceStatusBadge'
@@ -13,6 +14,7 @@ export interface TraceHeaderProps {
     newerHref: string | null
     backLink: LabeledLink
     search?: TraceSearchBoxProps | null
+    exportAction?: TraceExportButtonProps
 }
 
 export function TraceHeader({
@@ -22,6 +24,7 @@ export function TraceHeader({
     newerHref,
     backLink,
     search = null,
+    exportAction,
 }: TraceHeaderProps): JSX.Element {
     return (
         <header className="flex flex-wrap items-center gap-2">
@@ -37,6 +40,7 @@ export function TraceHeader({
             <TraceStatusBadge hasError={hasError} />
             <div className="ml-auto flex min-w-0 flex-wrap items-center gap-2">
                 {search ? <TraceSearchBox {...search} /> : null}
+                {exportAction ? <TraceExportButton {...exportAction} /> : null}
                 <TraceNeighbourLinks olderHref={olderHref} newerHref={newerHref} />
             </div>
         </header>

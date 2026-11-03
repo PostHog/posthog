@@ -876,23 +876,31 @@ def _iter_action_traces(
     windows: deque[tuple[int, int]] = deque([(since, before)])
     while windows:
         window_since, window_before = windows.popleft()
-        rows = (
-            _fetch_v2(
-                session,
-                api_token,
-                "/tracing/traces/performance",
-                logger,
-                body={
-                    "site_ids": [app_id],
-                    "namespace": namespace,
-                    "action_name": action_name,
-                    "from": _to_iso(window_since),
-                    "to": _to_iso(window_before),
-                    "pagination": {"per_page": V2_PAGE_SIZE, "order": "ASC", "cursor": "Time"},
-                },
+        try:
+            rows = (
+                _fetch_v2(
+                    session,
+                    api_token,
+                    "/tracing/traces/performance",
+                    logger,
+                    body={
+                        "site_ids": [app_id],
+                        "namespace": namespace,
+                        "action_name": action_name,
+                        "from": _to_iso(window_since),
+                        "to": _to_iso(window_before),
+                        "pagination": {"per_page": V2_PAGE_SIZE, "order": "ASC", "cursor": "Time"},
+                    },
+                )
+                or []
             )
-            or []
-        )
+        except requests.HTTPError as error:
+            # Same documented terminal statuses as `/deploys/stats`: an action whose trace data
+            # aged out of retention between the actions listing and this query has nothing to
+            # report, and AppSignal answers 422 for a query it cannot run rather than an empty list.
+            if error.response is None or error.response.status_code not in (404, 422):
+                raise
+            rows = []
         rows = [row for row in rows if isinstance(row, dict)]
 
         if len(rows) >= V2_PAGE_SIZE and (window_before - window_since) >= 2 * MIN_WINDOW_SECONDS:
@@ -1105,6 +1113,30 @@ def _walk_aggregate_windows(
         resumable_source_manager.save_state(AppsignalResumeConfig(window_start=window.before))
 
 
+def _fetch_tracing_range_or_empty_if_aged_out(
+    session: requests.Session,
+    api_token: str,
+    path: str,
+    logger: FilteringBoundLogger,
+    body: dict[str, Any],
+) -> list[Any]:
+    """POST a tracing V2 endpoint, treating a `from`/`to` range outside retention as empty.
+
+    AppSignal returns 404 or 422 for a range older than the account's tracing retention, the
+    same response `/deploys/stats` returns for a revision whose data has aged out (see
+    `_fetch_deploy_stats`). Any other error status still raises: a broad, persistent 404/422
+    would instead mean a genuinely malformed request, and `validate_credentials` already
+    confirms the token and app ID before a sync starts.
+    """
+    try:
+        return _fetch_v2(session, api_token, path, logger, body=body) or []
+    except requests.HTTPError as error:
+        if error.response is None or error.response.status_code not in (404, 422):
+            raise
+        logger.warning(f"AppSignal: {path} range {body.get('from')}-{body.get('to')} is outside tracing retention")
+        return []
+
+
 def _fetch_slow_events(
     session: requests.Session,
     api_token: str,
@@ -1112,20 +1144,17 @@ def _fetch_slow_events(
     window: TimeWindow,
     logger: FilteringBoundLogger,
 ) -> list[dict[str, Any]]:
-    events = (
-        _fetch_v2(
-            session,
-            api_token,
-            "/tracing/slow_events",
-            logger,
-            body={
-                "site_id": app_id,
-                "from": _to_iso(window.since),
-                "to": _to_iso(window.before),
-                "limit": SLOW_EVENTS_LIMIT,
-            },
-        )
-        or []
+    events = _fetch_tracing_range_or_empty_if_aged_out(
+        session,
+        api_token,
+        "/tracing/slow_events",
+        logger,
+        body={
+            "site_id": app_id,
+            "from": _to_iso(window.since),
+            "to": _to_iso(window.before),
+            "limit": SLOW_EVENTS_LIMIT,
+        },
     )
     return [event for event in events if isinstance(event, dict) and event.get("digest")]
 
@@ -1346,20 +1375,17 @@ def _get_slow_event_action_rows(
         for event in _fetch_slow_events(session, api_token, app_id, window, logger):
             digests_fetched += 1
             digest = event["digest"]
-            actions = (
-                _fetch_v2(
-                    session,
-                    api_token,
-                    "/tracing/slow_events/actions",
-                    logger,
-                    body={
-                        "site_id": app_id,
-                        "from": _to_iso(window.since),
-                        "to": _to_iso(window.before),
-                        "digest": digest,
-                    },
-                )
-                or []
+            actions = _fetch_tracing_range_or_empty_if_aged_out(
+                session,
+                api_token,
+                "/tracing/slow_events/actions",
+                logger,
+                body={
+                    "site_id": app_id,
+                    "from": _to_iso(window.since),
+                    "to": _to_iso(window.before),
+                    "digest": digest,
+                },
             )
             rows.extend(
                 {**action, "digest": digest, "timestamp": bucket}

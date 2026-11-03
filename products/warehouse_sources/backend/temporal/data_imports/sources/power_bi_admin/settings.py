@@ -18,6 +18,9 @@ ACTIVITY_EVENTS_RETENTION_DAYS = 28
 
 # `$top` ceiling documented for the AsAdmin inventory list endpoints.
 ODATA_PAGE_SIZE = 5000
+# The refreshables reference only documents paging "beyond the first 1000", so ask for no more than
+# that: a page the server silently truncates below `$top` would end the walk early.
+REFRESHABLES_PAGE_SIZE = 1000
 
 # Hard caps so a misbehaving continuation token or an `$skip` walk that never shortens
 # can't spin forever. Both are far above any realistic tenant.
@@ -42,6 +45,14 @@ class PowerBiAdminEndpointConfig:
     # OData `$top`/`$skip` paging. Activity events use continuation tokens instead, and
     # `capacities` returns the whole tenant list in one response.
     supports_odata_paging: bool = True
+    page_size: int = ODATA_PAGE_SIZE
+    # Extra query params sent on every page, such as `$expand`.
+    params: dict[str, str] = field(default_factory=dict)
+    # When set, each parent row's list under `child_key` becomes the table's rows, stamped
+    # with the parent `id` as `parent_id_column`. Expanding children inline on the parent
+    # list costs one request per page instead of one per parent against a 200/hour limit.
+    child_key: Optional[str] = None
+    parent_id_column: Optional[str] = None
 
 
 POWER_BI_ADMIN_ENDPOINTS: dict[str, PowerBiAdminEndpointConfig] = {
@@ -93,6 +104,23 @@ POWER_BI_ADMIN_ENDPOINTS: dict[str, PowerBiAdminEndpointConfig] = {
         primary_keys=["id"],
         description="Premium and Fabric capacities assigned to the tenant",
         supports_odata_paging=False,
+    ),
+    "dashboard_tiles": PowerBiAdminEndpointConfig(
+        name="dashboard_tiles",
+        path="/dashboards",
+        primary_keys=["dashboard_id", "id"],
+        description="Tiles on every dashboard in the tenant, with the report and dataset behind each tile",
+        params={"$expand": "tiles"},
+        child_key="tiles",
+        parent_id_column="dashboard_id",
+    ),
+    "refreshables": PowerBiAdminEndpointConfig(
+        name="refreshables",
+        path="/capacities/refreshables",
+        primary_keys=["id"],
+        description="Refresh statistics for every semantic model on a capacity over the last seven days",
+        page_size=REFRESHABLES_PAGE_SIZE,
+        params={"$expand": "capacity,group"},
     ),
 }
 

@@ -108,6 +108,13 @@ class TestPlanhatSourceResponse:
             ("tickets", "/tickets"),
             ("invoices", "/invoices"),
             ("sales", "/sales"),
+            ("churn", "/churn"),
+            ("opportunities", "/opportunities"),
+            ("line_items", "/lineitems"),
+            ("products", "/products"),
+            ("tasks", "/tasks"),
+            ("custom_fields", "/customfields"),
+            ("metrics", "/dimensiondata"),
         ]
     )
     def test_source_response_shape(self, endpoint: str, expected_path: str) -> None:

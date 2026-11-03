@@ -130,7 +130,7 @@ class AppsFlyerSource(SimpleSource[AppsFlyerSourceConfig]):
             label="AppsFlyer",
             caption="""Enter your AppsFlyer credentials to pull aggregate performance reports and raw event data into the PostHog Data warehouse.
 
-You can find your API token (V2) in AppsFlyer under your account menu > Security center > AppsFlyer API tokens. The app id is your app's identifier as shown in the dashboard (e.g. `id123456789` for iOS or the package name for Android). Add one source per app.
+You can find your API token (V2) in AppsFlyer under your account menu > Security center > AppsFlyer API tokens. You can find your app ID in AppsFlyer on the My apps page, under the app name (e.g. `id123456789` for iOS or the package name for Android). Add one source per app.
 
 Raw data tables (installs, in-app events, uninstalls, retargeting conversions, ad revenue and the Protect360 fraud reports) and the Master API report need an AppsFlyer subscription that covers them. Protect360 is a separate add-on. AppsFlyer limits raw data to the last 90 days.""",
             iconPath="/static/services/appsflyer.png",
@@ -145,6 +145,7 @@ Raw data tables (installs, in-app events, uninstalls, retargeting conversions, a
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="id123456789",
+                        caption="In AppsFlyer, open My apps and copy the ID under your app name, such as `id123456789` for iOS or `com.example.app` for Android.",
                         secret=False,
                     ),
                     SourceFieldInputConfig(

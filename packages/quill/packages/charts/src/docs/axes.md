@@ -29,6 +29,9 @@ Theme-side restyle knobs, all optional: `theme.axisLineColor` strokes the baseli
 - Labels must be unique. The x-scale keys positions off the strings, so a duplicate collapses onto the first occurrence and draws the series backwards. On time-series charts pass ISO date strings, never formatted display labels that repeat across years. Set `xAxis.timezone` to format ticks and tooltip headers. The library infers the interval from `allDays` or chart labels; set `interval` only to override it. `tickFormatter` overrides automatic formatting.
 - `xAxis.tickLabelRotation` (`-45` tilts left) fixes the rotation, clamped to `-90..90`. Omit it to keep horizontal labels and the collision behavior.
 - `maxCategoryLabelWidth` truncates category labels with an ellipsis and reveals the full value on hover. It also clamps the axis margin, so a long label cannot push the plot off screen. On horizontal charts the cap grows to 30% of the chart width when that is wider, so a wider chart shows more of each label. `MAX_CATEGORY_LABEL_WIDTH` is the exported default.
+- `TimeSeriesLineChart` `xScale: 'time'` places each point at its time, so a stretch with no samples keeps its width. Labels parse in `xAxis.timezone` and must be ascending. `xDomain: [from, to]` in epoch ms spans the axis past the data. Ticks stay on the data labels.
+- `LineChart` `timeScale: { parse, domain }` places each label at its time instead of evenly by index. `parse` returns epoch milliseconds, and labels outside `domain` are not drawn. Memoize the object.
+- A missing (non-finite) value breaks the line and area. `connectNulls: true` draws across it instead.
 
 ## Y-axis format
 
@@ -65,7 +68,7 @@ A single object stays single-axis.
 
 - Charts fill their container and need a parent with real dimensions. A zero-height flex child renders nothing. Give the wrapper an explicit height (`h-64`, or `flex-1` in a sized column). `Sparkline` alone takes `height` and `width` props.
 - A wrapper that measures under one pixel wide or high does not resize the chart. `useChartCanvas` keeps the last painted frame and waits for the next real size, so a chart whose container collapses for a moment (an ancestor set to `display: none`, Chromium capturing a screenshot taller than the viewport) does not go blank or lay out again.
-- `ChartConfig.margins` (also available on all `TimeSeries*` configs) overrides only the sides it sets. A side left `undefined` keeps the computed margin, so an object built conditionally (`{ top: reserveOrUndefined }`) is safe. `SlopeChart` merges consumer margins over its computed label gutters with the same rule (`applyMarginOverride`). Pass a module-level constant.
+- `ChartConfig.margins` (also available on all `TimeSeries*` configs) overrides only the sides it sets. A side left `undefined` keeps the computed margin, so an object built conditionally (`{ top: reserveOrUndefined }`) is safe. `SlopeChart` merges consumer margins over its computed label gutters with the same rule (`applyMarginOverride`). An inline object is fine: charts compare the four sides, not the object.
 
 ## When the plot is blank
 

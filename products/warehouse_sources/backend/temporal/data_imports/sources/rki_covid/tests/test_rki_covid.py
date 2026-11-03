@@ -88,6 +88,37 @@ class TestRKICovid:
             {"age_group": "A80+", "casesMale": 3, "casesFemale": 4},
         ]
 
+    def test_vaccinations_snapshot_drops_per_state_figures_and_keeps_meta(self) -> None:
+        # The per-state figures belong to vaccinations_states; keeping them would nest 17 states into one cell.
+        body = {
+            "data": {"vaccinated": 10, "quote": 0.5, "states": {"BY": {"vaccinated": 3}}},
+            "meta": {"lastUpdate": "2024-07-09T07:00:22.000Z"},
+        }
+        assert _run("vaccinations", [_ok(body)]).rows == [
+            {"vaccinated": 10, "quote": 0.5, "meta": {"lastUpdate": "2024-07-09T07:00:22.000Z"}}
+        ]
+
+    def test_states_history_flattens_each_state_history_with_state_identity(self) -> None:
+        # History rows only carry date and cases; without the state key they collide on the primary key.
+        body = {
+            "data": {
+                "SH": {"id": 1, "name": "Schleswig-Holstein", "history": [{"cases": 4, "date": "2026-07-19"}]},
+                "BY": {
+                    "id": 9,
+                    "name": "Bayern",
+                    "history": [{"cases": 1, "date": "2026-07-19"}, {"cases": 2, "date": "2026-07-20"}],
+                },
+            },
+            "meta": {},
+        }
+        result = _run("states_history_cases", [_ok(body)], history_days=30)
+        assert result.paths == ["/states/history/cases/30"]
+        assert result.rows == [
+            {"abbreviation": "SH", "id": 1, "name": "Schleswig-Holstein", "cases": 4, "date": "2026-07-19"},
+            {"abbreviation": "BY", "id": 9, "name": "Bayern", "cases": 1, "date": "2026-07-19"},
+            {"abbreviation": "BY", "id": 9, "name": "Bayern", "cases": 2, "date": "2026-07-20"},
+        ]
+
     def test_states_yield_one_row_per_dict_value(self) -> None:
         body = {
             "data": {
@@ -148,6 +179,8 @@ class TestRKICovid:
             ("missing_data", "states", {"meta": {}}),
             ("wrong_data_type", "germany_history_cases", {"data": {"unexpected": "shape"}, "meta": {}}),
             ("missing_history", "testing_history", {"data": {}, "meta": {}}),
+            ("missing_state_history", "states_history_cases", {"data": {"BY": {"id": 9}}, "meta": {}}),
+            ("missing_vaccinations_data", "vaccinations", {"meta": {}}),
         ]
     )
     def test_malformed_data_yields_no_rows_instead_of_crashing(self, _name: str, endpoint: str, body: dict) -> None:
@@ -160,6 +193,7 @@ class TestRKICovid:
             ("germany_history_cases", ["date"], "date"),
             ("germany_history_hospitalization", ["date"], "date"),
             ("states", ["abbreviation"], None),
+            ("states_history_cases", ["abbreviation", "date"], "date"),
             ("districts", ["ags"], None),
             ("testing_history", ["calendarWeek"], None),
         ]
