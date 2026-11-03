@@ -231,11 +231,12 @@ class TestSearch(APIBaseTest):
             ("every word", "first event", {"first event"}),
             ("shared word", "event", {"first event", "second event", "third event"}),
             ("word inside a snake_case name", "view", {"page_view_v2"}),
+            ("dotted capital I folded like the rank", "istanbul", {"İstanbul office"}),
             ("no match", "missing", set()),
         ]
     )
     def test_event_definitions(self, _name: str, query: str, expected: set[str]) -> None:
-        for name in ("first event", "second event", "third event", "page_view_v2"):
+        for name in ("first event", "second event", "third event", "page_view_v2", "İstanbul office"):
             EventDefinition.objects.create(name=name, team=self.team)
 
         with CaptureQueriesContext(connection) as queries:

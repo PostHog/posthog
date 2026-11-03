@@ -3,7 +3,7 @@ from collections import defaultdict
 from typing import Any, Literal, TypedDict, cast
 
 from django.db.models import BigIntegerField, CharField, F, Model, OuterRef, QuerySet, Subquery, Value
-from django.db.models.functions import Cast, JSONObject
+from django.db.models.functions import Cast, JSONObject, Lower
 from django.http import HttpResponse
 
 from drf_spectacular.utils import extend_schema
@@ -403,8 +403,10 @@ def class_queryset(
         if klass in (EventDefinition, PropertyDefinition):
             # Every word the rank keeps appears in the name, so a cheap substring check runs first
             # and the costly ts_rank only scores names that can match, not every definition.
+            qs = qs.alias(_lower_name=Lower("name"))
             for word in re.findall(r"[^\W_]+", query):
-                qs = qs.filter(name__icontains=word)
+                # Postgres lower() folds case as the rank does, where UPPER() would miss names such as "İstanbul".
+                qs = qs.filter(_lower_name__contains=Lower(Value(word)))
         qs = qs.annotate(rank=build_rank(search_fields, query, config="simple"))
         qs = qs.filter(rank__gt=0.05)
         values.append("rank")
