@@ -66,7 +66,7 @@ const USAGE_RECORD_KEYS: ['bytes' | 'bytesRecords' | 'records', string, string][
 export function addMetricsUsageRecords(usageBatch: UsageRecordBatch, usage: MetricsUsageAccumulator): void {
     for (const message of usage.allowedMessages()) {
         for (const [key, usageKey, unit] of USAGE_RECORD_KEYS) {
-            usageBatch.add(message.teamId, usageKey, message.recordId, message[key], unit)
+            usageBatch.add(message.teamId, usageKey, message.recordId, message[key], unit, message.timestampMs)
         }
     }
 }

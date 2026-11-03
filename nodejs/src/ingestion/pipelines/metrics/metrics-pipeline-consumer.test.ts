@@ -47,6 +47,7 @@ describe('MetricsPipelineConsumer', () => {
         partition: 0,
         offset: 0,
         size: 0,
+        timestamp: 1_700_000_000_000,
     }
 
     beforeEach(() => {
@@ -93,6 +94,7 @@ describe('MetricsPipelineConsumer', () => {
             expect.arrayContaining([
                 expect.objectContaining({
                     recordId: 'metrics_ingestion:0:0',
+                    timestampMs: 1_700_000_000_000,
                     teamId: team.id,
                     usageKey: 'metrics_bytes',
                     unit: 'bytes',

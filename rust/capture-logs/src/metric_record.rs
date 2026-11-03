@@ -55,8 +55,6 @@ pub struct KafkaMetricRow {
     pub retention_days: Option<i32>,
 }
 
-const ORIGINAL_TIMESTAMP_ATTRIBUTE: &str = "$originalTimestamp";
-
 /// Billable size of one point, independent of wire format and batching: value, buckets, name and every label.
 pub fn compute_kafka_metric_row_bytes(row: &KafkaMetricRow) -> u64 {
     let mut total = size_of::<f64>()
@@ -66,12 +64,7 @@ pub fn compute_kafka_metric_row_bytes(row: &KafkaMetricRow) -> u64 {
     if row.instrumentation_scope.len() > 50 {
         total += row.instrumentation_scope.len();
     }
-    // Capture adds this point label itself, so it is not billed.
-    let point_attributes = row
-        .attributes
-        .iter()
-        .filter(|(k, _)| k.as_str() != ORIGINAL_TIMESTAMP_ATTRIBUTE);
-    for (k, v) in row.resource_attributes.iter().chain(point_attributes) {
+    for (k, v) in row.resource_attributes.iter().chain(&row.attributes) {
         total += k.len() + v.len();
     }
     total as u64
@@ -339,10 +332,7 @@ fn build_number_row(
     );
 
     if let Some(original) = original_timestamp {
-        attributes.insert(
-            ORIGINAL_TIMESTAMP_ATTRIBUTE.to_string(),
-            original.to_rfc3339(),
-        );
+        attributes.insert("$originalTimestamp".to_string(), original.to_rfc3339());
     }
 
     let observed_timestamp = Utc::now();
@@ -621,22 +611,19 @@ mod tests {
         row.metric_name = "rpc.latency".to_string();
         row.histogram_bounds = vec![1.0, 5.0];
         row.histogram_counts = vec![1, 2, 3];
-        row.resource_attributes = HashMap::from([
-            ("host".to_string(), "web-1".to_string()),
-            ("$originalTimestamp".to_string(), "x".to_string()),
-        ]);
+        row.resource_attributes = HashMap::from([("host".to_string(), "web-1".to_string())]);
         row.attributes = HashMap::from([("route".to_string(), "/api".to_string())]);
 
         assert_eq!(
             compute_kafka_metric_row_bytes(&row),
-            8 + 16 + 24 + 11 + 9 + 19 + 9
+            8 + 16 + 24 + 11 + 9 + 9
         );
 
-        // The second row's overridden timestamp adds an unbilled `$originalTimestamp` label.
+        // The second row's overridden timestamp adds a 43-byte `$originalTimestamp` label.
         row.instrumentation_scope = "s".repeat(51);
         assert_eq!(
             sum_kafka_metric_row_bytes(&[row, build_test_row(&[])]),
-            8 + 16 + 24 + 11 + 9 + 19 + 9 + 51 + (8 + "test.metric".len() as u64)
+            8 + 16 + 24 + 11 + 9 + 9 + 51 + (8 + "test.metric".len() as u64 + 43)
         );
     }
 

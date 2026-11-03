@@ -2,7 +2,7 @@ import { ChunkProcessingStep } from '~/ingestion/framework/builders'
 import { drop, ok } from '~/ingestion/framework/results'
 
 import { metricMessageDroppedCounter } from './metrics'
-import { MetricsUsageAccumulator, kafkaMessageRecordId } from './metrics-usage'
+import { MetricsUsageAccumulator, kafkaMessageUsageIdentity } from './metrics-usage'
 import { MetricsRateLimiterService } from './services/metrics-rate-limiter.service'
 import { MetricsIngestionMessage } from './types'
 
@@ -22,7 +22,7 @@ export function createRateLimitMetricsStep<T extends MetricsIngestionMessage & {
             }
             value.usage.recordAllowed(
                 value.teamId,
-                kafkaMessageRecordId(value.message),
+                kafkaMessageUsageIdentity(value.message),
                 value.bytesUncompressed,
                 value.recordCount,
                 value.bytesUncompressedRecords

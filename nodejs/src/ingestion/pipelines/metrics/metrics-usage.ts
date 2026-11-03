@@ -25,14 +25,15 @@ type UsageStatsByTeam = Map<number, UsageStats>
 export interface AllowedMetricsMessage {
     teamId: number
     recordId: string
+    timestampMs?: number
     bytes: number
     bytesRecords: number
     records: number
 }
 
-/** Stable across Kafka replays, so usage-ingestion dedups a replayed message instead of counting it twice. */
-export function kafkaMessageRecordId(message: Message): string {
-    return `${message.topic}:${message.partition}:${message.offset}`
+/** Stable across Kafka replays. Usage-ingestion dedups on the record ID and the day of the timestamp. */
+export function kafkaMessageUsageIdentity(message: Message): { recordId: string; timestampMs?: number } {
+    return { recordId: `${message.topic}:${message.partition}:${message.offset}`, timestampMs: message.timestamp }
 }
 
 export class MetricsUsageAccumulator {
@@ -45,12 +46,18 @@ export class MetricsUsageAccumulator {
         stats.recordsReceived += records
     }
 
-    recordAllowed(teamId: number, recordId: string, bytes: number, records: number, bytesRecords: number): void {
+    recordAllowed(
+        teamId: number,
+        identity: { recordId: string; timestampMs?: number },
+        bytes: number,
+        records: number,
+        bytesRecords: number
+    ): void {
         const stats = this.statsFor(teamId)
         stats.bytesAllowed += bytes
         stats.bytesAllowedRecords += bytesRecords
         stats.recordsAllowed += records
-        this.allowed.push({ teamId, recordId, bytes, bytesRecords, records })
+        this.allowed.push({ teamId, ...identity, bytes, bytesRecords, records })
     }
 
     allowedMessages(): readonly AllowedMetricsMessage[] {
