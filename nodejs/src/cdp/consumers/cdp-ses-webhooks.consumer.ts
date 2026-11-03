@@ -31,9 +31,6 @@ export class CdpSesWebhooksConsumer extends CdpConsumerBase {
     }
 
     public async processBatch(messages: Message[]): Promise<void> {
-        // One at a time: two notifications about one recipient have to reach the suppression
-        // counters in the order SES produced them, and the webhook keys them onto one partition
-        // so that order is what arrives here.
         for (const message of messages) {
             let body: unknown
             try {

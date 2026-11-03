@@ -460,8 +460,8 @@ export class EmailTrackingService {
             return { status: 200, message: 'ok' }
         }
 
-        // Keyed by the SNS message id so every redelivery of one notification lands on the same
-        // partition, and the consumer sees them in the order AWS sent them.
+        // Keyed by the SNS message id, so a redelivery of one notification lands on the partition
+        // that already took it. That is what a later dedupe on the message id would need.
         const messageId = (body as { MessageId?: unknown })?.MessageId
         await this.outputs.produce(SES_WEBHOOKS_OUTPUT, {
             key: typeof messageId === 'string' ? Buffer.from(messageId) : null,
