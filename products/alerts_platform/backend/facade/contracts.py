@@ -544,8 +544,7 @@ class AlertEventKind(StrEnum):
     RESOLVED = "resolved"
     ERRORED = "errored"
     BROKEN = "broken"
-    # A follow-up about a firing that already went out, written by `record_verdict_change` and never
-    # by a check. It replies in the firing's thread, and history readers leave it out of the checks.
+    # A follow-up about a firing that already went out. History readers leave it out of the checks.
     VERDICT_CHANGED = "verdict_changed"
 
     @property

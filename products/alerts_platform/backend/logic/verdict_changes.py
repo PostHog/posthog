@@ -47,7 +47,6 @@ def record_verdict_change(change: VerdictChange, *, now: datetime) -> AlertDeliv
         alert=alert,
         evaluation_key=change.evaluation_key,
         kind=AlertEventKind.VERDICT_CHANGED.value,
-        # The state the alert is in. A follow-up moves nothing, so a reader of state changes skips it.
         previous_state=alert.state,
         state=alert.state,
         episode_started_at=change.episode_started_at,
