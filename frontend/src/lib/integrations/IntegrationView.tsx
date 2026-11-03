@@ -221,7 +221,7 @@ export function IntegrationView({
             ) : integration.needs_webhook_reconnect ? (
                 <div className="p-2">
                     <LemonBanner
-                        type="warning"
+                        type="info"
                         action={{
                             children: 'Reconnect',
                             disableClientSideRouting: true,
@@ -239,8 +239,8 @@ export function IntegrationView({
                         }}
                     >
                         <span>
-                            Reconnect this workspace so that linked error tracking issues resolve and reopen with their
-                            Linear tickets. First switch to <strong>{integration.display_name}</strong> in Linear.
+                            Error tracking issues can now sync their status with linked Linear tickets. To turn this on,
+                            switch to <strong>{integration.display_name}</strong> in Linear and reconnect.
                         </span>
                     </LemonBanner>
                 </div>
