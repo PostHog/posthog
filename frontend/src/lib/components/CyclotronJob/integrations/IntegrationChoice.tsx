@@ -16,7 +16,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 
 import { findIntegrationByFormValue, matchesIntegrationIdValue } from './integrationLookup'
-import { getIntegrationSetup } from './integrationSetupRegistry'
+import { IntegrationSetupPurpose, getIntegrationSetup } from './integrationSetupRegistry'
 
 export type IntegrationConfigureProps = {
     value?: number
@@ -26,6 +26,7 @@ export type IntegrationConfigureProps = {
     integration?: string
     beforeRedirect?: () => void
     allowClear?: boolean
+    purpose?: IntegrationSetupPurpose
 }
 
 export function IntegrationChoice({
@@ -36,6 +37,7 @@ export function IntegrationChoice({
     redirectUrl,
     beforeRedirect,
     allowClear = true,
+    purpose,
 }: IntegrationConfigureProps): JSX.Element | null {
     const { integrationsLoading, integrations, newIntegrationModalKind, newIntegrationModalId, slackAvailable } =
         useValues(integrationsLogic)
@@ -216,6 +218,7 @@ export function IntegrationChoice({
                     isOpen
                     kind={kind}
                     integration={integrationKind || undefined}
+                    purpose={purpose}
                     onComplete={handleModalComplete}
                     onClose={closeNewIntegrationModal}
                 />

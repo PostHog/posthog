@@ -17,7 +17,14 @@ const POSTHOG_ROLE_ARN_BY_REGION: Partial<Record<Region, string>> = {
  * The first two steps are the same for every AWS service, so callers only supply the permissions
  * their service needs.
  */
-export function AwsRoleRequirements({ permissions }: { permissions: JSX.Element }): JSX.Element {
+export function AwsRoleRequirements({
+    permissions,
+    jobs = 'exports',
+}: {
+    permissions: JSX.Element
+    /** What stops working without the external ID condition, e.g. "exports" or "syncs". */
+    jobs?: string
+}): JSX.Element {
     const { currentOrganization } = useValues(organizationLogic)
     const { preflight } = useValues(preflightLogic)
 
@@ -37,7 +44,7 @@ export function AwsRoleRequirements({ permissions }: { permissions: JSX.Element 
         ),
         <>
             The trust policy must require an <code>sts:ExternalId</code> condition equal to{' '}
-            <code>posthog-{currentOrganization?.id}</code>. PostHog verifies this condition is enforced and exports will
+            <code>posthog-{currentOrganization?.id}</code>. PostHog verifies this condition is enforced and {jobs} will
             fail without it.
         </>,
         permissions,

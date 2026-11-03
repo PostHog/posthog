@@ -143,8 +143,8 @@ registerIntegrationSetup({
         label: 'Configure new AWS S3 connection',
         onClick: () => openModal('aws-s3'),
     }),
-    SetupModal: ({ isOpen, integration, onComplete }) => (
-        <AwsS3SetupModal isOpen={isOpen} integration={integration} onComplete={onComplete} />
+    SetupModal: ({ isOpen, integration, purpose, onComplete }) => (
+        <AwsS3SetupModal isOpen={isOpen} integration={integration} purpose={purpose} onComplete={onComplete} />
     ),
 })
 
