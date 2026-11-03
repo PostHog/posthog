@@ -2,7 +2,7 @@
 //! `replay-core-v4-node`, and a reader rebuilds its context from the file's URL reference. A public font file belongs
 //! to no team, so the fetcher stores it unsealed.
 
-use posthog_replay_anonymizer::v4_image_refs::{parse, Parsed, Ref, RefKind};
+use crate::v4_image_refs::{parse, Parsed, Ref, RefKind};
 
 use crate::envelope::{seal_frame, Codec, Context, EnvelopeError, Version};
 use crate::refs::{public_font_url_ref, reference_hash, UrlAsset};
