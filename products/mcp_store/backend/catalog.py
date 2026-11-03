@@ -173,7 +173,7 @@ MCP_SERVER_CATALOG: list[CatalogEntry] = [
         url="https://mcp.granola.ai/mcp",
         description="Search Granola meeting notes, transcripts, and meeting insights.",
         auth_type="oauth",
-        category="dev",
+        category="productivity",
         icon_domain="granola.ai",
     ),
     CatalogEntry(
