@@ -1,4 +1,5 @@
 import { useValues } from 'kea'
+import { Suspense } from 'react'
 
 import { IconGear } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
@@ -10,12 +11,18 @@ import { NotificationsMenu } from 'lib/components/NotificationsMenu/Notification
 import { PosthogStatusShownOnlyIfNotOperational } from 'lib/components/PosthogStatus/PosthogStatusShownOnlyIfNotOperational'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
-import { WizardRunSidebarWidget } from 'products/wizard/frontend/views/run-sidebar/WizardRunSidebarWidget'
-
 import { PostHogTeamCohortBanner } from './PostHogTeamCohortBanner'
+
+// Flag-gated, so users without the flag skip the wizard chunk on every page.
+const WizardRunSidebarWidget = lazyWithRetry(() =>
+    import('products/wizard/frontend/views/run-sidebar/WizardRunSidebarWidget').then(({ WizardRunSidebarWidget }) => ({
+        default: WizardRunSidebarWidget,
+    }))
+)
 
 export function NavBarFooter({ isLayoutNavCollapsed }: { isLayoutNavCollapsed: boolean }): JSX.Element {
     const isNotificationsEnabled = useFeatureFlag('REAL_TIME_NOTIFICATIONS')
@@ -37,7 +44,9 @@ export function NavBarFooter({ isLayoutNavCollapsed }: { isLayoutNavCollapsed: b
 
             {wizardUiEnabled && !isLayoutNavCollapsed && currentProjectId !== null && (
                 <div className="w-full pb-1">
-                    <WizardRunSidebarWidget projectId={String(currentProjectId)} />
+                    <Suspense fallback={null}>
+                        <WizardRunSidebarWidget projectId={String(currentProjectId)} />
+                    </Suspense>
                 </div>
             )}
 
