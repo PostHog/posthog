@@ -121,26 +121,6 @@ vi.mock("@posthog/ui/features/inbox/hooks/useInboxAllReports", () => ({
   },
 }));
 
-vi.mock("@posthog/ui/features/inbox/hooks/useInboxSectionCounts", () => ({
-  useInboxSectionCounts: () => ({
-    reviewAndMerge: mocks.activeReports.filter(
-      (report) => report.status === "ready" && !!report.implementation_pr_url,
-    ).length,
-    needsPr: mocks.activeReports.filter(
-      (report) =>
-        (report.status === "ready" || report.status === "pending_input") &&
-        !report.implementation_pr_url,
-    ).length,
-    resolved: mocks.activeReports.filter(
-      (report) => report.status === "resolved",
-    ).length,
-    dismissed: mocks.activeReports.filter(
-      (report) => report.status === "suppressed",
-    ).length,
-    isLoading: false,
-  }),
-}));
-
 vi.mock("@posthog/ui/features/inbox/hooks/useSelfDrivingSetupStatus", () => ({
   useSelfDrivingSetupStatus: () => ({
     isLoading: mocks.setupStatusLoading,

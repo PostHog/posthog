@@ -11,8 +11,8 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { objectsEqual } from 'lib/utils/objects'
 
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { isInsightVizNode } from '~/queries/schema/node-guards'
 import { EndpointRequest } from '~/queries/schema/schema-general'
-import { isInsightVizNode } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType, EndpointType, EndpointVersionType } from '~/types'
 
 import { endpointLogic } from './endpointLogic'

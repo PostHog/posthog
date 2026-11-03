@@ -3,12 +3,18 @@ import { urls } from 'scenes/urls'
 
 import { ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
 
-import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { ActivityScope, FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 import type { MessagingNavTabKey } from './frontend/messagingTabs'
 import type { WorkflowsSceneTab } from './frontend/WorkflowsScene'
 
 export const manifest: ProductManifest = {
     name: 'Workflows',
+    activityDescribers: {
+        [ActivityScope.HOG_FLOW]: () =>
+            import('./frontend/Workflows/misc/workflowActivityDescriber').then(
+                (module) => module.workflowActivityDescriber
+            ),
+    },
     scenes: {
         Workflows: {
             import: () => import('./frontend/WorkflowsScene'),
@@ -127,6 +133,7 @@ export const manifest: ProductManifest = {
             path: 'Workflows',
             intents: [ProductKey.WORKFLOWS],
             href: urls.workflows(),
+            searchKeywords: ['automations', 'campaigns', 'messaging'],
             searchTabs: [
                 { name: 'Library', href: urls.workflows('library') },
                 { name: 'Channels', href: urls.workflows('channels') },
@@ -145,6 +152,7 @@ export const manifest: ProductManifest = {
             path: 'Broadcasts',
             intents: [ProductKey.WORKFLOWS],
             href: urls.broadcasts(),
+            searchKeywords: ['newsletter', 'email blast'],
             type: 'broadcasts',
             category: ProductItemCategory.MESSAGING,
             iconType: 'broadcasts',
@@ -155,6 +163,7 @@ export const manifest: ProductManifest = {
             path: 'Transactional',
             intents: [ProductKey.WORKFLOWS],
             href: urls.transactional(),
+            searchKeywords: ['transactional email'],
             type: 'transactional',
             category: ProductItemCategory.MESSAGING,
             iconType: 'transactional',

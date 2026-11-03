@@ -375,7 +375,7 @@ describe('dataVisualizationLogic', () => {
         })
     })
 
-    it('resets axes when y-axis columns are no longer numerical', async () => {
+    it('resets axes when y-axis columns are no longer numerical and keeps column settings', async () => {
         const dataNode = dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId })
 
         dataNode.actions.setResponse({
@@ -421,6 +421,8 @@ describe('dataVisualizationLogic', () => {
             ],
         })
 
+        logic.actions.updateSeries('2', { formatting: { prefix: '$', suffix: '' } })
+
         dataNode.actions.setResponse({
             columns: ['1', '2', '3'],
             types: [
@@ -433,16 +435,11 @@ describe('dataVisualizationLogic', () => {
 
         await expectLogic(logic).toMatchValues({
             selectedXAxis: '1',
-            selectedYAxis: [
-                {
-                    name: '2',
-                    settings: {
-                        formatting: {
-                            prefix: '',
-                            suffix: '',
-                        },
-                    },
-                },
+            selectedYAxis: [{ name: '2', settings: { formatting: { prefix: '$', suffix: '' } } }],
+            tabularColumnSettings: [
+                { name: '1', settings: { formatting: { prefix: '', suffix: '' } } },
+                { name: '2', settings: { formatting: { prefix: '$', suffix: '' } } },
+                { name: '3', settings: { formatting: { prefix: '', suffix: '' } } },
             ],
         })
     })
@@ -952,6 +949,39 @@ describe('dataVisualizationLogic', () => {
         expect(logic.values.query.source).toEqual(defaultQuery.source)
         expect(logic.values.query.tableSettings?.transpose).toEqual(true)
     })
+
+    it.each([
+        { change: 'unchanged', nextQuery: { ...defaultQuery }, resyncs: false },
+        {
+            change: 'changed',
+            nextQuery: { ...defaultQuery, display: ChartDisplayType.ActionsLineGraph },
+            resyncs: true,
+        },
+    ])(
+        're-syncs a visualization without setQuery only when its query prop is $change',
+        async ({ nextQuery, resyncs }) => {
+            dataNodeLogic({ key: testKey, query: defaultQuery.source, dataNodeCollectionId }).actions.setResponse({
+                columns: ['value'],
+                types: [['value', 'Int64']],
+                results: [[1]],
+            })
+            expect(logic.values.query).not.toEqual(defaultQuery)
+            await expectLogic(logic).toFinishAllListeners().clearHistory()
+
+            const rerenderWithQuery = (): void => {
+                dataVisualizationLogic({
+                    key: testKey,
+                    query: nextQuery,
+                    dataNodeCollectionId,
+                } as DataVisualizationLogicProps)
+            }
+            if (resyncs) {
+                await expectLogic(logic, rerenderWithQuery).toDispatchActions(['_setQuery'])
+            } else {
+                await expectLogic(logic, rerenderWithQuery).toNotHaveDispatchedActions(['_setQuery'])
+            }
+        }
+    )
 
     it('flags the table as sorted only after setTableSorted', async () => {
         await expectLogic(logic).toMatchValues({ hasSortedTable: false })

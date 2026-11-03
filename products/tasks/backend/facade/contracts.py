@@ -99,6 +99,10 @@ class AgentStartupFailure:
             "worktree_unverified",
             "cli_version_too_old",
             "bypass_root",
+            "sandbox_required_unavailable",
+            "provider_not_allowed",
+            "org_config_required_unavailable",
+            "org_config_refused",
         ]
         | None
     )
@@ -849,6 +853,7 @@ class TaskRunSandboxConnectionDTO:
 
 SPACE_SETUP_SCOPES = (
     "task:write",
+    "inbox:write",
     "canvas:write",
     "hog_flow:write",
     # workflows-schedule-create and workflows-test-run require these beside hog_flow:write.

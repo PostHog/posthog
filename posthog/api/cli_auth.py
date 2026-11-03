@@ -13,6 +13,7 @@ Flow:
 
 import string
 import secrets
+from datetime import datetime
 
 from django.core.cache import cache
 from django.utils import timezone
@@ -35,6 +36,10 @@ DEVICE_CODE_EXPIRY_SECONDS = 600
 
 # CLI polling interval (5 seconds)
 CLI_POLL_INTERVAL_SECONDS = 5
+
+# How long an approved key stays retrievable after the first poll that returns it, so a client
+# whose response was lost can poll again. Also the floor when a code is approved just before it expires.
+AUTHORIZED_RETRIEVAL_SECONDS = 60
 
 # Scopes granted to CLI
 CLI_SCOPES = [
@@ -64,6 +69,14 @@ def get_device_cache_key(device_code: str) -> str:
 def get_user_code_cache_key(user_code: str) -> str:
     """Get cache key for user code"""
     return f"cli_user_code:{user_code}"
+
+
+def remaining_device_code_seconds(device_data: dict) -> int:
+    created_at = device_data.get("created_at")
+    if not created_at:
+        return AUTHORIZED_RETRIEVAL_SECONDS
+    elapsed = (timezone.now() - datetime.fromisoformat(created_at)).total_seconds()
+    return max(int(DEVICE_CODE_EXPIRY_SECONDS - elapsed), AUTHORIZED_RETRIEVAL_SECONDS)
 
 
 def get_validation_error_description(error: serializers.ValidationError) -> str:
@@ -288,8 +301,9 @@ class CLIAuthViewSet(viewsets.ViewSet):
         device_data["authorized_at"] = timezone.now().isoformat()
         device_data["user_id"] = user.id
 
-        # Update cache with longer TTL to ensure CLI can poll
-        cache.set(device_cache_key, device_data, timeout=60)  # 1 minute to retrieve
+        # An agent can resume `hog auth login --wait` long after the person approves, so the key
+        # stays until the code expires.
+        cache.set(device_cache_key, device_data, timeout=remaining_device_code_seconds(device_data))
 
         return Response(
             {
@@ -343,10 +357,10 @@ class CLIAuthViewSet(viewsets.ViewSet):
                 "scopes": device_data.get("scopes", []),
             }
 
-            # Clean up - key has been retrieved
-            cache.delete(device_cache_key)
-            user_code_cache_key = get_user_code_cache_key(device_data["user_code"])
-            cache.delete(user_code_cache_key)
+            if "retrieved_at" not in device_data:
+                device_data["retrieved_at"] = timezone.now().isoformat()
+                cache.set(device_cache_key, device_data, timeout=AUTHORIZED_RETRIEVAL_SECONDS)
+                cache.delete(get_user_code_cache_key(device_data["user_code"]))
 
             response_serializer = DevicePollResponseSerializer(response_data)
             return Response(response_serializer.data, status=status.HTTP_200_OK)

@@ -44,8 +44,10 @@ def add_manual_suppression(team_id: int, identifier: str, created_by_id: int | N
 
 
 def remove_suppression(team_id: int, identifier: str) -> bool:
-    # Soft-delete and un-suppress. Reset the bounce counter so a previously-dead address that
-    # a user deliberately re-enables starts from a clean slate. `source` is reset to BOUNCE so
+    # Soft-delete and un-suppress. Reset the bounce counter and the hard-bounce mark so a
+    # previously-dead address that a user deliberately re-enables starts from a clean slate. The reason is cleared too,
+    # because the node writes treat a BOUNCE row with a legacy hard-bounce reason as hard-bounced, and the next soft
+    # bounce or complaint would set the mark again. `source` is reset to BOUNCE so
     # a future auto-suppression can re-suppress this row — the node upserts skip rows with
     # source='MANUAL' (to protect user-managed entries), so a removed MANUAL row would otherwise
     # be permanently invisible to the bounce-driven write path.
@@ -56,6 +58,8 @@ def remove_suppression(team_id: int, identifier: str) -> bool:
             suppressed=False,
             deleted=True,
             transient_bounce_count=0,
+            hard_bounced_at=None,
+            reason=None,
             source=SuppressionSource.BOUNCE,
             updated_at=timezone.now(),
         )

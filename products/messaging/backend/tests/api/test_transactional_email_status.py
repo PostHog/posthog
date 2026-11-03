@@ -112,9 +112,17 @@ class TestTransactionalEmailStatus(ClickhouseTestMixin, APIBaseTest):
     def test_reports_the_latest_status_of_the_send(self, _flag, _name, rows, expected_status, status_offset, reason):
         self._status_rows(rows)
 
-        response = self.client.get(self._url(self.message_id))
+        with patch(
+            "products.messaging.backend.presentation.views.transactional_email_status.posthoganalytics.capture"
+        ) as capture:
+            response = self.client.get(self._url(self.message_id))
 
         assert response.status_code == status.HTTP_200_OK, response.json()
+        assert capture.call_args.kwargs["properties"] == {
+            "team_id": self.team.id,
+            "outcome": "found",
+            "status": expected_status,
+        }
         assert response.json() == {
             "id": self.message_id,
             "status": expected_status,
@@ -137,9 +145,13 @@ class TestTransactionalEmailStatus(ClickhouseTestMixin, APIBaseTest):
             self._status_rows([("sent", 2, "")], team=Team.objects.create(organization=self.organization, name="Other"))
         ids = {"message_id": self.message_id, "old": self._message_id(datetime.now(UTC) - timedelta(days=31))}
 
-        response = self.client.get(self._url(ids.get(message_id, message_id)))
+        with patch(
+            "products.messaging.backend.presentation.views.transactional_email_status.posthoganalytics.capture"
+        ) as capture:
+            response = self.client.get(self._url(ids.get(message_id, message_id)))
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert capture.call_args.kwargs["properties"]["outcome"] == "not_found"
 
     @parameterized.expand(
         [

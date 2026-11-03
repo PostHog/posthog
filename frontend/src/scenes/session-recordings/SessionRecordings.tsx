@@ -1,7 +1,6 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { useState } from 'react'
 
 import * as explorerPng from '@posthog/brand/hoggies/png/explorer'
 import { IconDocument, IconGear, IconHeadset } from '@posthog/icons'
@@ -9,7 +8,6 @@ import { LemonButton, LemonSegmentedButton, Link } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 import { PostHogCaptureOnViewed } from '@posthog/react'
 
-import { isAccessDeniedError, shouldReportApiFailure } from 'lib/api-error'
 import { pngHoggie } from 'lib/brand/hoggies'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
@@ -18,7 +16,6 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -27,7 +24,7 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { LiveRecordingsCount } from 'scenes/session-recordings/components/LiveRecordingsCount'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
-import { NEW_REPLAY_LAYOUTS, ReplayLayout } from 'scenes/session-recordings/playlist/replayLayout'
+import { NEW_REPLAY_LAYOUTS, ReplayLayout, isNewReplayLayout } from 'scenes/session-recordings/playlist/replayLayout'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -40,8 +37,8 @@ import { AccessControlLevel, AccessControlResourceType, ReplayTab, ReplayTabs } 
 import { sessionReplayEmptyState } from 'products/replay/frontend/emptyState/sessionReplayEmptyState'
 
 import { SessionRecordingCollections } from './collections/SessionRecordingCollections'
+import { useNewCollection } from './collections/useNewCollection'
 import { SessionRecordingsPlaylistRedesign } from './playlist-redesign/SessionRecordingsPlaylistRedesign'
-import { createPlaylist } from './playlist/playlistUtils'
 import { SessionRecordingsPlaylist } from './playlist/SessionRecordingsPlaylist'
 import {
     SessionRecordingPlaylistLogicProps,
@@ -64,29 +61,8 @@ function Header(): JSX.Element {
     const { watchLayoutOffered, replayLayout, canOverrideLayout, staffLayoutOverride } = useValues(playerSettingsLogic)
     const { setPreferClassicReplayLayout, setStaffLayoutOverride } = useActions(playerSettingsLogic)
     const recordingsDisabled = currentTeam && !currentTeam?.session_recording_opt_in
-    const [loading, setLoading] = useState(false)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
-    const handleNewPlaylist = async (): Promise<void> => {
-        setLoading(true)
-        try {
-            await createPlaylist(
-                { _create_in_folder: 'Unfiled/Replay playlists', type: 'collection', creation_method: 'new' },
-                true
-            )
-        } catch (error: any) {
-            if (isAccessDeniedError(error)) {
-                lemonToast.error('You do not have access to create collections.')
-            } else {
-                lemonToast.error('Could not create the collection. Please try again.')
-            }
-            // Not a kea loader, so initKea's report gate does not run. Apply the same gate here.
-            if (shouldReportApiFailure(error)) {
-                posthog.captureException(error)
-            }
-        } finally {
-            setLoading(false)
-        }
-    }
+    const { createCollection: handleNewPlaylist, creating: loading } = useNewCollection()
 
     return (
         <div className="flex items-center gap-2">
@@ -342,8 +318,12 @@ const ReplayPageTabs: ReplayTab[] = [
     },
 ]
 
-export function SessionRecordingsPageTabs(): JSX.Element {
+export function SessionRecordingsPageTabs(): JSX.Element | null {
     const { tab } = useValues(sessionReplaySceneLogic)
+    const { replayLayout } = useValues(playerSettingsLogic)
+    if (tab === ReplayTabs.Home && isNewReplayLayout(replayLayout)) {
+        return null
+    }
     return (
         <LemonTabs
             activeKey={tab}

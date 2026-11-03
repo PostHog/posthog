@@ -11,9 +11,10 @@ import { ApiError } from 'lib/api'
 import { uploadFile } from 'lib/hooks/useUploadFiles'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { uuid } from 'lib/utils/dom'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
+
+import { membersLogic } from '~/models/membersLogic'
 
 import type { OrganizationMemberType, TeamPublicType, TeamType, UserBasicType } from '../../../../../frontend/src/types'
 import {

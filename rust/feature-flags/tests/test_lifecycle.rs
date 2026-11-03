@@ -1,5 +1,9 @@
-use anyhow::Result;
+use std::time::Duration;
+
+use anyhow::{bail, Context, Result};
 use reqwest::StatusCode;
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::net::TcpStream;
 
 use crate::common::*;
 use feature_flags::config::DEFAULT_TEST_CONFIG;
@@ -10,6 +14,32 @@ async fn get_status(addr: &std::net::SocketAddr, path: &str) -> Result<StatusCod
     let client = reqwest::Client::new();
     let resp = client.get(format!("http://{addr}{path}")).send().await?;
     Ok(resp.status())
+}
+
+/// Sends `GET path` on an open HTTP/1.1 connection and returns the response head as
+/// lowercase lines. Reads the body too, so the next request starts on a clean boundary.
+async fn get_on(conn: &mut BufReader<TcpStream>, path: &str) -> Result<Vec<String>> {
+    conn.get_mut()
+        .write_all(format!("GET {path} HTTP/1.1\r\nHost: localhost\r\n\r\n").as_bytes())
+        .await?;
+    let mut head = Vec::new();
+    loop {
+        let mut line = String::new();
+        if conn.read_line(&mut line).await? == 0 {
+            bail!("connection closed before the response head ended");
+        }
+        let line = line.trim_end().to_ascii_lowercase();
+        if line.is_empty() {
+            break;
+        }
+        head.push(line);
+    }
+    let content_length = head
+        .iter()
+        .find_map(|line| line.strip_prefix("content-length:"))
+        .map_or(Ok(0), |len| len.trim().parse())?;
+    conn.read_exact(&mut vec![0; content_length]).await?;
+    Ok(head)
 }
 
 /// Readiness returns 200 while running, then 503 once the shutdown token is cancelled.
@@ -109,4 +139,51 @@ async fn drop_triggers_shutdown() -> Result<()> {
         }
     }
     panic!("server still accepting /_readiness requests ~10s after drop (last status: {last_status:?})");
+}
+
+/// While the pod drains, the server still answers on a keep-alive connection opened
+/// before the drain, then closes it, so the client reconnects to a pod that stays.
+#[tokio::test]
+async fn drain_closes_keep_alive_connections_after_the_response() -> Result<()> {
+    let prestop_dir = tempfile::tempdir()?;
+    let prestop_path = prestop_dir.path().join("shutdown");
+    let server =
+        ServerHandle::for_config_with_prestop_drain(DEFAULT_TEST_CONFIG.clone(), &prestop_path)
+            .await;
+    server.wait_until_ready().await;
+
+    let mut conn = BufReader::new(TcpStream::connect(server.addr).await?);
+    for _ in 0..2 {
+        let head = get_on(&mut conn, "/flags").await?;
+        assert!(
+            !head.iter().any(|line| line == "connection: close"),
+            "a serving pod must keep the connection open, got {head:?}"
+        );
+    }
+
+    std::fs::write(&prestop_path, "")?;
+    // The listener stays open while draining, so readiness answers 503 rather than
+    // refusing the connection.
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while get_status(&server.addr, "/_readiness").await? != StatusCode::SERVICE_UNAVAILABLE {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        anyhow::Ok(())
+    })
+    .await
+    .context("readiness did not fail after the pre-stop file appeared")??;
+
+    let head = get_on(&mut conn, "/flags").await?;
+    assert!(
+        head.iter().any(|line| line == "connection: close"),
+        "a draining pod must ask the client to close the connection, got {head:?}"
+    );
+    let closed = tokio::time::timeout(Duration::from_secs(5), conn.read(&mut [0; 1]))
+        .await
+        .context("the server kept the connection open after the response")??;
+    assert_eq!(
+        closed, 0,
+        "the server must close the connection after the response"
+    );
+    Ok(())
 }

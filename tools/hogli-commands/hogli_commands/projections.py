@@ -15,9 +15,10 @@ each output, keyed by its repo-relative path. It never writes files and never pa
 arguments; this module does both, so ``--check`` and the write path cannot disagree.
 
 A renderer returns valid source and leaves the style to the formatter of the workspace
-that owns the output: oxfmt at the repo root, Biome under ``products/desktop`` and
-``packages/agent``. The runner formats every output before it compares or writes, so a
-generated file looks like the code around it and no formatter needs an exemption for it.
+that owns the output: ruff for Python, oxfmt at the repo root, and Biome under
+``products/desktop``, ``products/mobile`` and ``packages/agent``. The runner formats every
+output before it compares or writes, so a generated file looks like the code around it
+and no formatter needs an exemption for it.
 """
 
 from __future__ import annotations
@@ -25,8 +26,10 @@ from __future__ import annotations
 import sys
 import json
 import runpy
+import tomllib
 import tempfile
 import subprocess
+import importlib.metadata
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
@@ -72,6 +75,7 @@ PROJECTIONS: tuple[Projection, ...] = (
             "products/desktop/packages/core/src/inbox/objectKinds.generated.ts",
             "packages/agent/packages/agent-contracts/src/objectTagKinds.generated.ts",
             "frontend/src/lib/components/AgentObjectTags/objectKinds.generated.ts",
+            "products/mobile/src/features/chat/objectKinds.generated.ts",
         ),
     ),
     Projection(
@@ -100,6 +104,16 @@ PROJECTIONS: tuple[Projection, ...] = (
             "products/commands/commands.generated.json",
             "products/commands/COMMANDS.generated.md",
         ),
+    ),
+    Projection(
+        name="integration-kinds",
+        renderer="posthog/integrations/kinds_projection.py",
+        inputs=(
+            "posthog/integrations/catalogue.py",
+            "posthog/integrations/contracts.py",
+            "posthog/integrations/enums.py",
+        ),
+        outputs=("posthog/integrations/kinds_generated.py",),
     ),
 )
 
@@ -140,11 +154,31 @@ AGENT_BIOME = Formatter(
     lockfile="packages/agent/pnpm-lock.yaml",
     stdin_args=("format", "--stdin-file-path"),
 )
-FORMATTERS = (OXFMT, BIOME, AGENT_BIOME)
+MOBILE_BIOME = Formatter(
+    package="@biomejs/biome",
+    binary="biome",
+    workspace="products/mobile",
+    config="products/mobile/biome.json",
+    lockfile="products/mobile/pnpm-lock.yaml",
+    stdin_args=("format", "--stdin-file-path"),
+)
+# A Python package, not an npm one: the runner reads its version from uv.lock and runs it from the
+# Python environment, which the Python CI job has without node_modules.
+RUFF = Formatter(
+    package="ruff",
+    binary="ruff",
+    workspace=".",
+    config="pyproject.toml",
+    lockfile="uv.lock",
+    stdin_args=("format", "--stdin-filename"),
+)
+FORMATTERS = (OXFMT, BIOME, AGENT_BIOME, MOBILE_BIOME, RUFF)
 
 
 def formatter_for(path: str) -> Formatter:
-    for formatter in (BIOME, AGENT_BIOME):
+    if path.endswith(".py"):
+        return RUFF
+    for formatter in (BIOME, AGENT_BIOME, MOBILE_BIOME):
         if path.startswith(f"{formatter.workspace}/"):
             return formatter
     return OXFMT
@@ -175,6 +209,9 @@ class OutputFormatter:
         self._npm_prefix = tempfile.TemporaryDirectory()
 
     def _locked_version(self, formatter: Formatter) -> str:
+        if formatter == RUFF:
+            lock = tomllib.loads((self.repo_root / formatter.lockfile).read_text())
+            return next(package["version"] for package in lock["package"] if package["name"] == formatter.package)
         loader = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
         lock = yaml.load((self.repo_root / formatter.lockfile).read_text(), Loader=loader)
         return lock["importers"]["."]["devDependencies"][formatter.package]["version"]
@@ -182,6 +219,17 @@ class OutputFormatter:
     def _command(self, formatter: Formatter) -> list[str]:
         # The installed copy when it matches the lockfile, so a local run stays offline.
         # CI's Python job has no node_modules, so it runs the locked version through npm.
+        if formatter not in self._commands and formatter == RUFF:
+            version = self._locked_version(formatter)
+            installed_version: str | None
+            try:
+                installed_version = importlib.metadata.version(formatter.package)
+            except importlib.metadata.PackageNotFoundError:
+                installed_version = None
+            if installed_version == version:
+                self._commands[formatter] = [sys.executable, "-m", formatter.binary]
+            else:
+                self._commands[formatter] = ["uvx", f"{formatter.package}=={version}"]
         if formatter not in self._commands:
             version = self._locked_version(formatter)
             node_modules = self.repo_root / formatter.workspace / "node_modules"

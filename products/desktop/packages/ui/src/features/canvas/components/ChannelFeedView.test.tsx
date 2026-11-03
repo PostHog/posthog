@@ -103,6 +103,9 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannels", () => ({
 vi.mock("@posthog/ui/features/canvas/hooks/useFileTaskToChannel", () => ({
   useFileTaskToChannel: () => vi.fn(),
 }));
+vi.mock("@posthog/ui/features/sidebar/useToggleTaskRead", () => ({
+  useTaskReadItem: () => ({ isUnread: false, toggle: vi.fn() }),
+}));
 vi.mock("@posthog/ui/features/browser-tabs/useOpenBrowserTab", () => ({
   useOpenBrowserTab: () => vi.fn(),
 }));
@@ -388,6 +391,7 @@ describe("ChannelFeedView", () => {
 
     await waitFor(() => expect(screen.getByText("Pin")).toBeInTheDocument());
     for (const label of [
+      "Mark as unread",
       "Pin",
       "Rename",
       "Add to Command Center…",
