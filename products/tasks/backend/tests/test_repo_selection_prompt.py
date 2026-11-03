@@ -275,10 +275,12 @@ def test_select_repository_asks_again_after_a_progress_note(
 
 
 def test_select_repository_reports_a_usage_limit_refusal() -> None:
+    on_session = MagicMock()
     github = MagicMock()
     github.list_all_cached_repositories.return_value = [{"full_name": "acme/a"}, {"full_name": "acme/b"}]
 
     async def start(**kwargs):
+        await kwargs["on_task_run_created"](MagicMock(task_id="example-task", id="example-run"))
         # The runner swallows a raising fallback and raises its own parse error instead.
         with pytest.raises(ValueError):
             kwargs["fallback_from_text"]("API Error: 402 Your team has used its monthly PostHog AI credits.")
@@ -300,7 +302,10 @@ def test_select_repository_reports_a_usage_limit_refusal() -> None:
             priority=Priority.NORMAL,
             github=github,
             candidate_repos=["acme/a", "acme/b"],
+            on_research_session=on_session,
         )
+
+    on_session.assert_called_once_with("example-task", "example-run")
 
 
 def test_source_repository_section_included_only_when_given() -> None:
