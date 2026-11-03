@@ -2733,6 +2733,10 @@ class TestIsConnectionDroppedError:
             # error code, so it's matched on the full phrase including the ":closed" reason; same
             # transient class as the pooler drops above and recovers on reconnect.
             psycopg.errors.InternalError_("Internal error (authenticated): :closed"),
+            # Same Supavisor pooler-drop shape, but raised with Erlang's ":einval" (POSIX EINVAL)
+            # reason instead of ":closed" — gen_tcp returns it when an operation hits a backend
+            # socket the pooler has already torn down. Same transient class; recovers on reconnect.
+            psycopg.errors.InternalError_("Internal error (authenticated): :einval"),
             # Supavisor reports a transient timeout reaching the upstream backend as a
             # ConnectionFailure (08006, an OperationalError) carrying the Erlang-tuple reason
             # "{:error, :etimedout}" — a transient drop the in-process recovery must catch.

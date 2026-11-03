@@ -1,4 +1,3 @@
-import { RE2JS } from 're2js'
 import { useEffect, useState } from 'react'
 
 import { LemonBanner, LemonDropdownProps, LemonSelect, LemonSelectProps, LemonSelectSection } from '@posthog/lemon-ui'
@@ -20,7 +19,7 @@ import {
     isOperatorRegex,
     isOperatorSemver,
 } from 'lib/utils/operators'
-import { RE2_DOCS_LINK, formatRE2Error } from 'lib/utils/regexp'
+import { RE2Engine, RE2_DOCS_LINK, formatRE2Error, getLoadedRE2, loadRE2 } from 'lib/utils/regexp'
 
 import { PropValue } from '~/models/propertyDefinitionsModel'
 import { getCoreFilterDefinition } from '~/taxonomy/helpers'
@@ -156,17 +155,18 @@ interface OperatorSelectProps extends Omit<LemonSelectProps<any>, 'options'> {
     startVisible?: LemonDropdownProps['startVisible']
 }
 
-function getRegexValidationError(operator: PropertyOperator, value: any): string | null {
-    if (!isOperatorRegex(operator)) {
+function getRegexValidationError(operator: PropertyOperator, value: any, re2: RE2Engine | null): string | null {
+    // Until the RE2 engine loads, the pattern is not validated yet, so no error shows.
+    if (!isOperatorRegex(operator) || !re2) {
         return null
     }
     // A regex operator can hold several values (e.g. a multi-value `visited_page` filter), so the
-    // value is an array. RE2JS.compile expects a single string and crashes on an array, so validate
+    // value is an array. re2.compile expects a single string and crashes on an array, so validate
     // each pattern and surface the first that fails.
     const patterns: unknown[] = Array.isArray(value) ? value : [value]
     for (const pattern of patterns) {
         try {
-            RE2JS.compile(String(pattern))
+            re2.compile(String(pattern))
         } catch (error) {
             return formatRE2Error(error as Error, String(pattern))
         }
@@ -174,8 +174,13 @@ function getRegexValidationError(operator: PropertyOperator, value: any): string
     return null
 }
 
-export function getValidationError(operator: PropertyOperator, value: any, property?: string): string | null {
-    const regexErrorMessage = getRegexValidationError(operator, value)
+export function getValidationError(
+    operator: PropertyOperator,
+    value: any,
+    re2: RE2Engine | null,
+    property?: string
+): string | null {
+    const regexErrorMessage = getRegexValidationError(operator, value, re2)
     if (regexErrorMessage != null) {
         return regexErrorMessage
     }
@@ -349,7 +354,21 @@ export function OperatorValueSelect({
         }
     }, [propertyDefinition, propertyKey, operator, operatorAllowlist, type]) // oxlint-disable-line react-hooks/exhaustive-deps
 
-    const validationError = currentOperator && value ? getValidationError(currentOperator, value, propertyKey) : null
+    const needsRE2 = !!value && isOperatorRegex(currentOperator)
+    const [re2, setRE2] = useState<RE2Engine | null>(getLoadedRE2)
+    useEffect(() => {
+        if (needsRE2 && !re2) {
+            // The engine is a class, so wrap it: React would call a bare function as a state updater.
+            loadRE2().then(
+                (engine) => setRE2(() => engine),
+                () => {}
+            )
+        }
+        // A failed load leaves re2 null, so the next edit of the value tries again.
+    }, [needsRE2, re2, value])
+
+    const validationError =
+        currentOperator && value ? getValidationError(currentOperator, value, re2, propertyKey) : null
 
     return (
         <>

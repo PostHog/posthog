@@ -1,5 +1,5 @@
 import { defineCommand } from '@/core/command'
-import { API_KEY_ENV_VARS, posthogFile } from '@/posthog/credentials'
+import { API_KEY_ENV_VAR, posthogFile } from '@/posthog/credentials'
 import { clearPendingLogin } from '@/posthog/login'
 
 interface LogoutResult {
@@ -12,6 +12,7 @@ interface LogoutResult {
 
 export default defineCommand({
     description: 'Remove the personal API key hog stored on this machine',
+    writes: true,
     notes: 'The key itself stays valid until you delete it in PostHog under Settings > Personal API keys.',
     examples: ['hog auth logout'],
 
@@ -32,7 +33,7 @@ export default defineCommand({
             status: stored ? 'logged_out' : 'not_logged_in',
             credentialsPath,
             revokeUrl: host ? new URL('settings/user-api-keys', `${host.replace(/\/+$/, '')}/`).toString() : null,
-            stillSet: API_KEY_ENV_VARS.filter((name) => runtime.env[name]),
+            stillSet: runtime.env[API_KEY_ENV_VAR] ? [API_KEY_ENV_VAR] : [],
         }
     },
 

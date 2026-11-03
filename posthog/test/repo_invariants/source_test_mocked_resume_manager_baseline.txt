@@ -41,7 +41,6 @@ products/warehouse_sources/backend/temporal/data_imports/sources/moengage/tests/
 products/warehouse_sources/backend/temporal/data_imports/sources/nager_date/tests/test_nager_date.py
 products/warehouse_sources/backend/temporal/data_imports/sources/paymongo/tests/test_paymongo.py
 products/warehouse_sources/backend/temporal/data_imports/sources/proofpoint_tap/tests/test_proofpoint_tap.py
-products/warehouse_sources/backend/temporal/data_imports/sources/razorpay/tests/test_razorpay_source.py
 products/warehouse_sources/backend/temporal/data_imports/sources/scalr/tests/test_scalr.py
 products/warehouse_sources/backend/temporal/data_imports/sources/sentry/tests/test_sentry.py
 products/warehouse_sources/backend/temporal/data_imports/sources/servicem8/tests/test_servicem8_source.py

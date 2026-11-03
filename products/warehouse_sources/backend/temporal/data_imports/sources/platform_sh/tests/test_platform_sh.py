@@ -1,3 +1,4 @@
+import dataclasses
 from typing import Any
 
 import pytest
@@ -19,6 +20,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.platform_s
     AUTH_FAILED_MESSAGE,
     PlatformShAuthenticationError,
     PlatformShClient,
+    PlatformShPageCapExceededError,
+    PlatformShPaginationError,
     PlatformShResumeConfig,
     PlatformShUntrustedURLError,
     platform_sh_source,
@@ -107,21 +110,28 @@ class TestPlatformShClientAuth:
 
 
 class TestGetRowsOrganizations:
-    def test_follows_relative_next_link_and_checkpoints_after_each_page(self) -> None:
+    @parameterized.expand([("organizations", "items"), ("regions", "regions")])
+    def test_follows_relative_next_link_and_checkpoints_after_each_page(self, endpoint: str, items_key: str) -> None:
         # `_links.next.href` is a relative HAL link; failing to resolve it against the request URL
-        # would silently sync only the first page.
+        # would silently sync only the first page. /regions names its list `regions`, so reading
+        # `items` there would silently sync nothing.
         result = _driver().run(
-            "organizations",
+            endpoint,
             [
                 _token(),
-                ScriptedResponse(json=_envelope([{"id": "org-1"}], next_href="/organizations?page%5Bafter%5D=org-1")),
-                ScriptedResponse(json=_envelope([{"id": "org-2"}])),
+                ScriptedResponse(
+                    json={
+                        items_key: [{"id": "row-1"}],
+                        "_links": {"next": {"href": f"/{endpoint}?page%5Bafter%5D=row-1"}},
+                    }
+                ),
+                ScriptedResponse(json={items_key: [{"id": "row-2"}]}),
             ],
         )
 
         assert result.raised is None
-        assert result.items == [[{"id": "org-1"}], [{"id": "org-2"}]]
-        second_url = f"{API}/organizations?page%5Bafter%5D=org-1"
+        assert result.items == [[{"id": "row-1"}], [{"id": "row-2"}]]
+        second_url = f"{API}/{endpoint}?page%5Bafter%5D=row-1"
         assert result.urls[-1] == second_url
         # Saved once, after yielding the first page, pointing at the second.
         assert result.saved_states == [PlatformShResumeConfig(next_url=second_url)]
@@ -201,6 +211,116 @@ class TestGetRowsOrgFanOut:
                     "project_id": "proj-1",
                 }
             ]
+        ]
+
+    @parameterized.expand(
+        [
+            ("stops_on_empty_page", None, [[{"id": "inv-3"}], []], ["inv-1", "inv-2", "inv-3"], [None, "2", "3"], None),
+            (
+                "raises_when_page_param_is_ignored",
+                None,
+                [[{"id": "inv-1"}, {"id": "inv-2"}]],
+                ["inv-1", "inv-2"],
+                [None, "2"],
+                PlatformShPaginationError,
+            ),
+            ("empty_probe_at_cap_completes", 1, [[]], ["inv-1", "inv-2"], [None, "2"], None),
+            (
+                "rows_past_cap_raise",
+                1,
+                [[{"id": "inv-3"}]],
+                ["inv-1", "inv-2"],
+                [None, "2"],
+                PlatformShPageCapExceededError,
+            ),
+        ]
+    )
+    def test_invoices_fall_back_to_page_numbers_without_next_link(
+        self,
+        _name: str,
+        max_pages: int | None,
+        later_pages: list[list[dict[str, Any]]],
+        expected_ids: list[str],
+        expected_page_params: list[str | None],
+        expected_error: type[Exception] | None,
+    ) -> None:
+        # Invoices document only a `page` param and no `_links`. Stopping after the first page, or
+        # treating a repeated page as the end, would silently sync a short table; a list that ends
+        # exactly at the page cap must still complete.
+        first_page = [
+            {"id": "inv-1", "total": 10.0, "invoice_pdf": {"url": "https://example.com/inv-1.pdf"}},
+            {"id": "inv-2", "total": 20.0},
+        ]
+        invoices_config = PLATFORM_SH_ENDPOINTS["invoices"]
+        if max_pages is not None:
+            invoices_config = dataclasses.replace(invoices_config, max_pages_per_parent=max_pages)
+        with mock.patch.dict(PLATFORM_SH_ENDPOINTS, {"invoices": invoices_config}):
+            result = _driver().run(
+                "invoices",
+                [
+                    _token(),
+                    ScriptedResponse(json=_envelope([{"id": "org-1"}])),
+                    ScriptedResponse(json=_envelope(first_page)),
+                    *[ScriptedResponse(json=_envelope(page)) for page in later_pages],
+                ],
+            )
+
+        if expected_error is None:
+            assert result.raised is None
+        else:
+            assert isinstance(result.raised, expected_error)
+        assert [row["id"] for row in result.rows] == expected_ids
+        assert all(row["organization_id"] == "org-1" and "invoice_pdf" not in row for row in result.rows)
+        invoice_requests = [request for request in result.requests if request.path.endswith("/invoices")]
+        assert [request.param("page") for request in invoice_requests] == expected_page_params
+
+    def test_deployments_fan_out_through_environments(self) -> None:
+        # Deployment ids ("current") repeat in every environment, so both parent ids must be
+        # injected for the composite key. Branch names with "/" must be escaped in the path, an
+        # inactive environment has nothing deployed, an environment deleted mid-sync must not fail
+        # the whole table, and app-level variables can hold secrets.
+        result = _driver().run(
+            "deployments",
+            [
+                _token(),
+                ScriptedResponse(json=_envelope([{"id": "org-1"}])),
+                ScriptedResponse(json=_envelope([{"id": "proj-1"}])),
+                ScriptedResponse(
+                    json=[
+                        {"id": "old", "status": "inactive"},
+                        {"id": "feature/x", "status": "active"},
+                        {"id": "gone", "status": "active"},
+                    ]
+                ),
+                ScriptedResponse(
+                    json=[
+                        {
+                            "id": "current",
+                            "variables": [{"name": "API_KEY", "value": "hunter2"}],
+                            "http_access": {"is_enabled": True, "basic_auth": {"admin": "hunter2"}},
+                            "webapps": {"app": {"type": "python:3.12", "variables": {"env": {"API_KEY": "hunter2"}}}},
+                        }
+                    ]
+                ),
+                ScriptedResponse(status=404, json={}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.items == [
+            [
+                {
+                    "id": "current",
+                    "http_access": {"is_enabled": True},
+                    "webapps": {"app": {"type": "python:3.12"}},
+                    "project_id": "proj-1",
+                    "environment_id": "feature/x",
+                }
+            ]
+        ]
+        assert result.urls[-2:] == [
+            f"{API}/projects/proj-1/environments/feature%2Fx/deployments",
+            f"{API}/projects/proj-1/environments/gone/deployments",
         ]
 
 
@@ -295,5 +415,8 @@ class TestPlatformShSourceResponse:
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
         assert response.sort_mode == config.sort_mode
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == [config.partition_key]
+        if config.partition_key:
+            assert response.partition_mode == "datetime"
+            assert response.partition_keys == [config.partition_key]
+        else:
+            assert response.partition_mode is None

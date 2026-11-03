@@ -51,7 +51,6 @@ from products.warehouse_sources.backend.facade.models import (
 )
 from products.warehouse_sources.backend.facade.source_inputs import SourceInputsStore, UnreadableSourceInputsError
 from products.warehouse_sources.backend.facade.source_management import (
-    CDC_SEQ_COLUMN,
     PREVIEW_DEFAULT_ROWS,
     PREVIEW_MAX_ROWS,
     AnySource,
@@ -72,10 +71,14 @@ from products.warehouse_sources.backend.facade.source_management import (
     fetch_docs_text,
     filter_dwh_columns_by_enabled_columns,
     get_cdc_adapter,
-    history_column_collisions,
     is_history_table_mode,
     is_team_allowlisted_for_internal_hosts,
+    new_history_names_taken,
+    new_history_naming,
     new_source_requires_ssl,
+    pin_history_naming,
+    reserved_column_collisions,
+    reserved_column_names,
     sql_schema_metadata,
     validate_and_coerce_row_filters,
 )
@@ -86,8 +89,10 @@ from products.warehouse_sources.backend.presentation.views.destination_links imp
     set_source_destinations,
 )
 from products.warehouse_sources.backend.presentation.views.external_data_schema import (
+    PINNED_TABLE_IDS_CONTEXT_KEY,
     ExternalDataSchemaListSerializer,
     ExternalDataSchemaSerializer,
+    pinned_table_ids,
     source_supports_column_selection,
     unsupported_row_filter_reason,
 )
@@ -144,6 +149,10 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
     supports_column_selection = serializers.SerializerMethodField(
         read_only=True,
         help_text="Whether this source supports per-column sync selection via `enabled_columns`.",
+    )
+    file_name = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="The name of the file a file upload source imports. Null for other sources or when it is unknown.",
     )
     # Optional on both create and update. On create, missing values default to `api`
     # in the viewset to preserve backward compatibility with direct API callers that
@@ -244,6 +253,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "user_access_level",
             "supports_webhooks",
             "supports_column_selection",
+            "file_name",
             "api_version",
             "api_version_deprecation",
             "connection_warning",
@@ -263,6 +273,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "access_method",
             "supports_webhooks",
             "supports_column_selection",
+            "file_name",
             "api_version",
             "api_version_deprecation",
             "connection_warning",
@@ -331,6 +342,14 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             capture_exception(e)
             return False
 
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_file_name(self, instance: ExternalDataSource) -> str | None:
+        try:
+            return SourceRegistry.get_source(ExternalDataSourceType(instance.source_type)).uploaded_file_name(instance)
+        except Exception as e:
+            capture_exception(e)
+            return None
+
     def get_supports_column_selection(self, instance: ExternalDataSource) -> bool:
         return source_supports_column_selection(instance.source_type)
 
@@ -390,7 +409,11 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         # The source list embeds every schema of every source; large projects have tens of thousands.
         # The list UI only reads a handful of per-schema fields, so serialize the trimmed shape there
         # and reserve the full serializer for single-source reads.
-        context = {**self.context, "error_redaction_values": self._error_redaction_values(instance)}
+        context = {
+            **self.context,
+            "error_redaction_values": self._error_redaction_values(instance),
+            PINNED_TABLE_IDS_CONTEXT_KEY: pinned_table_ids(schemas, instance.team_id),
+        }
         if self.context.get("schemas_list_only"):
             return ExternalDataSchemaListSerializer(schemas, many=True, read_only=True, context=context).data
         return ExternalDataSchemaSerializer(schemas, many=True, read_only=True, context=context).data
@@ -1390,6 +1413,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
 
         # Pre-fetch PK column names for CDC tables
         pk_columns_by_table: dict[str, list[str]] = {}
+        history_naming_config_by_schema: dict[str, dict[str, Any]] = {}
         if cdc_enabled:
             cdc_table_names_by_schema: dict[str, set[str]] = {}
             cdc_schema_name_by_location: dict[tuple[str, str], str] = {}
@@ -1454,18 +1478,24 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                     },
                 )
 
-            # Capture stamps each change with this column, so a source column of the same name would
-            # fail the source's first sync. Refuse before any replication state exists.
+            # Capture and the history table write their own columns next to the source's, so a synced
+            # source column that loads under one of those names would fail the source's first sync.
+            # Refuse before any replication state exists.
+            new_history = new_history_naming(new_source_model)
+            reserved_columns_by_table = {
+                schema["name"]: reserved_column_collisions(
+                    [column[0] for column in getattr(source_schemas_by_name.get(schema["name"]), "columns", [])],
+                    reserved_column_names(new_history if is_history_table_mode(schema.get("cdc_table_mode")) else None),
+                    enabled_columns=_payload_enabled_columns(schema),
+                    primary_keys=pk_columns_by_table.get(schema["name"]),
+                )
+                for schema in payload_schemas
+                if schema.get("sync_type") == "cdc"
+                and schema.get("should_sync", False)
+                and isinstance(schema.get("name"), str)
+            }
             tables_with_reserved_column = sorted(
-                {
-                    schema["name"]
-                    for schema in payload_schemas
-                    if schema.get("sync_type") == "cdc"
-                    and schema.get("should_sync", False)
-                    and isinstance(schema.get("name"), str)
-                    and CDC_SEQ_COLUMN
-                    in {column[0] for column in getattr(source_schemas_by_name.get(schema["name"]), "columns", [])}
-                }
+                f"{table} ({', '.join(columns)})" for table, columns in reserved_columns_by_table.items() if columns
             )
             if tables_with_reserved_column:
                 new_source_model.delete()
@@ -1473,43 +1503,43 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                     status=status.HTTP_400_BAD_REQUEST,
                     data={
                         "message": (
-                            "Change data capture can't sync a column named _ph_cdc_seq, because PostHog uses "
-                            "that name. Rename the column on your database, or choose another sync method for "
-                            f"these tables: {', '.join(tables_with_reserved_column)}."
+                            "Change data capture can't sync a column that loads under a name PostHog writes. Rename "
+                            "the column on your database, leave it out of the synced columns, or change the sync "
+                            f"method or output tables for these tables: {'; '.join(tables_with_reserved_column)}."
                         )
                     },
                 )
 
-            # The history table stamps each row version with these columns, so a synced source column
-            # of the same name would fail every load into it.
-            tables_with_validity_column = sorted(
-                {
-                    schema["name"]
-                    for schema in payload_schemas
-                    if schema.get("sync_type") == "cdc"
-                    and schema.get("should_sync", False)
-                    and is_history_table_mode(schema.get("cdc_table_mode"))
-                    and isinstance(schema.get("name"), str)
-                    and history_column_collisions(
-                        [column[0] for column in getattr(source_schemas_by_name.get(schema["name"]), "columns", [])],
-                        _payload_enabled_columns(schema),
-                        pk_columns_by_table.get(schema["name"]),
-                    )
-                }
+            synced_names = [
+                schema["name"]
+                for schema in payload_schemas
+                if schema.get("should_sync", False) and isinstance(schema.get("name"), str)
+            ]
+            history_names = [
+                schema["name"]
+                for schema in payload_schemas
+                if schema.get("sync_type") == "cdc"
+                and schema.get("should_sync", False)
+                and is_history_table_mode(schema.get("cdc_table_mode"))
+                and isinstance(schema.get("name"), str)
+            ]
+            tables_with_taken_history_name = new_history_names_taken(
+                new_source_model, new_history, history_names, synced_names
             )
-            if tables_with_validity_column:
+            if tables_with_taken_history_name:
                 new_source_model.delete()
                 return Response(
                     status=status.HTTP_400_BAD_REQUEST,
                     data={
                         "message": (
-                            "A history table can't store a column that loads as valid_from or valid_to, because "
-                            "PostHog uses those names to record when each version was current. Rename the column on "
-                            "your database, or choose the consolidated table only for these tables: "
-                            f"{', '.join(tables_with_validity_column)}."
+                            "A history table would have the same name as another table you chose to sync. Choose "
+                            "the consolidated table only, or leave the other table out, for these tables: "
+                            f"{', '.join(tables_with_taken_history_name)}."
                         )
                     },
                 )
+            for name in history_names:
+                pin_history_naming(history_naming_config_by_schema.setdefault(name, {}), new_history)
 
         # Engine-side CDC resource setup runs after PK validation so we don't leave
         # replication state on the source for a config we're about to refuse.
@@ -1725,6 +1755,7 @@ class ExternalDataSourceSetupMixin(base.ExternalDataSourceViewSetBase):
                     "schema_metadata": schema_metadata,
                     "cdc_table_mode": cdc_table_mode,
                 }
+                sync_type_config.update(history_naming_config_by_schema.get(schema_name, {}))
             else:
                 sync_type_config = {"schema_metadata": schema_metadata}
 

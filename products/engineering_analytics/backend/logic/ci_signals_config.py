@@ -19,7 +19,7 @@ from products.engineering_analytics.backend.logic.sources import (
     list_github_sources,
 )
 from products.signals.backend.facade.api import set_signal_source_types_enabled, signal_source_types_state
-from products.signals.backend.models import SignalSourceConfig
+from products.signals.backend.facade.source_configs import get_source_config, latest_enabled_source_config
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 from products.warehouse_sources.backend.facade.sources import github_schema_repo_endpoint
 from products.warehouse_sources.backend.facade.types import ExternalDataSchemaStatus
@@ -37,12 +37,8 @@ DRY_RUN_CONFIG_KEY = "dry_run"
 
 
 def is_dry_run(*, team: Team) -> bool:
-    row = (
-        SignalSourceConfig.objects.filter(team=team, source_product=SOURCE_PRODUCT, source_type=SOURCE_TYPE_FLAKY_CHECK)
-        .only("config")
-        .first()
-    )
-    if row is None or not isinstance(row.config, dict):
+    row = get_source_config(team_id=team.id, source_product=SOURCE_PRODUCT, source_type=SOURCE_TYPE_FLAKY_CHECK)
+    if row is None:
         return False
     return bool(row.config.get(DRY_RUN_CONFIG_KEY, False))
 
@@ -111,19 +107,12 @@ def list_authorized_ci_signal_sources(*, team: Team) -> list[AuthorizedCISignalS
     """The sources the coordinator may scan: the enabled snapshot re-filtered through the enabling
     user's *current* access. Every edge fails closed (deleted/revoked source, missing snapshot,
     deactivated authorizer) and never widens to all of the team's sources."""
-    row = (
-        SignalSourceConfig.objects.filter(
-            team_id=team.id,
-            source_product=SOURCE_PRODUCT,
-            source_type__in=CI_SIGNAL_SOURCE_TYPES,
-            enabled=True,
-        )
-        .order_by("-updated_at")
-        .first()
+    row = latest_enabled_source_config(
+        team_id=team.id, source_product=SOURCE_PRODUCT, source_types=CI_SIGNAL_SOURCE_TYPES
     )
     if row is None or row.created_by_id is None:
         return []
-    snapshot = row.config.get(AUTHORIZED_SOURCES_CONFIG_KEY) if isinstance(row.config, dict) else None
+    snapshot = row.config.get(AUTHORIZED_SOURCES_CONFIG_KEY)
     if not isinstance(snapshot, list) or not snapshot:
         return []
     user = resolve_authorizer(team=team, user_id=row.created_by_id)

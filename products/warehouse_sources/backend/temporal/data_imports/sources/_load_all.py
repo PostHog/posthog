@@ -443,6 +443,7 @@ from .faire.source import FaireSource
 from .faros_ai.source import FarosAiSource
 from .fastbill.source import FastbillSource
 from .fastly.source import FastlySource
+from .fathom.source import FathomSource
 from .fauna.source import FaunaSource
 from .featurebase.source import FeaturebaseSource
 from .feishu.source import FeishuSource
@@ -1193,6 +1194,7 @@ from .square.source import SquareSource
 from .squarespace.source import SquarespaceSource
 from .stack_overflow_for_teams.source import StackOverflowForTeamsSource
 from .stackadapt.source import StackAdaptSource
+from .stamped.source import StampedSource
 from .starburst.source import StarburstSource
 from .statsig.source import StatsigSource
 from .statuscake.source import StatuscakeSource

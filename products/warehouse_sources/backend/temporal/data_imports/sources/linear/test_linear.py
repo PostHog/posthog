@@ -352,6 +352,41 @@ class TestLinearSourceNonRetryableErrors:
         assert not any(key in observed_error for key in non_retryable_errors)
 
 
+class TestLinearSourceRetryableErrors:
+    @parameterized.expand(
+        [
+            # Messages linear.py actually raises once LinearRetryableError exhausts its own
+            # in-process retry budget - these must be classified as retryable so the exhausted-retry
+            # failure is logged as a warning and the whole activity retries, instead of being
+            # reported to error tracking as a bug.
+            ("server_error", "Linear: server error 503"),
+            ("http_rate_limited", "Linear: rate limited (429)"),
+            ("graphql_rate_limited", "Linear: rate limited - RATELIMITED"),
+            ("graphql_internal_server_error", "Linear: internal server error - Internal server error"),
+            (
+                "transient_network_error",
+                "Linear: transient network error - HTTPSConnectionPool(host='api.linear.app', port=443): Read timed out. (read timeout=60)",
+            ),
+            ("incomplete_json_response", "Linear: incomplete JSON response (Expecting value: line 1 column 1)"),
+        ]
+    )
+    def test_retryable_errors_match(self, _name: str, observed_error: str) -> None:
+        retryable_errors = LinearSource().get_retryable_errors()
+        assert any(key in observed_error for key in retryable_errors)
+
+    @parameterized.expand(
+        [
+            # A genuine GraphQL error (not rate-limiting or an internal-server blip) is a real bug
+            # or unsupported request shape, so it must not be swallowed as a benign retry.
+            ("graphql_error", "Linear GraphQL error: Something failed"),
+            ("unexpected_response_format", "Unexpected Linear response format. Keys: ['foo']"),
+        ]
+    )
+    def test_retryable_errors_does_not_match_non_transient(self, _name: str, observed_error: str) -> None:
+        retryable_errors = LinearSource().get_retryable_errors()
+        assert not any(key in observed_error for key in retryable_errors)
+
+
 class TestValidateCredentials:
     @parameterized.expand(
         [

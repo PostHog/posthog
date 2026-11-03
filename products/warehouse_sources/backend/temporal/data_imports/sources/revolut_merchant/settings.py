@@ -7,6 +7,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.types import IncrementalField
 
 API_VERSION = "2026-08-17"
+CREATED_DATE_PAGE_SIZE = 500
 BASE_URLS = {
     "production": "https://merchant.revolut.com/api",
     "sandbox": "https://sandbox-merchant.revolut.com/api",
@@ -20,6 +21,8 @@ class RevolutMerchantEndpoint:
     partition_key: str = "created_at"
     sort_mode: SortMode | None = None
     parent: str | None = None
+    parent_id_column: str | None = None
+    created_date_pagination: bool = False
     incremental_fields: list[IncrementalField] = field(default_factory=list)
 
 
@@ -46,6 +49,7 @@ ENDPOINTS: dict[str, RevolutMerchantEndpoint] = {
         },
         primary_keys=["order_id", "id"],
         parent="orders",
+        parent_id_column="order_id",
     ),
     "customers": RevolutMerchantEndpoint(
         endpoint={
@@ -73,6 +77,49 @@ ENDPOINTS: dict[str, RevolutMerchantEndpoint] = {
             "data_selector_required": True,
             "paginator": {"type": "cursor", "cursor_path": "next_page_token", "cursor_param": "page_token"},
         },
+    ),
+    "subscription_cycles": RevolutMerchantEndpoint(
+        endpoint={
+            "path": "/subscriptions/{subscription_id}/cycles",
+            "params": {
+                "subscription_id": {"type": "resolve", "resource": "subscriptions", "field": "id"},
+                "limit": 500,
+            },
+            "data_selector": "cycles",
+            "data_selector_required": True,
+            "paginator": {"type": "cursor", "cursor_path": "next_page_token", "cursor_param": "page_token"},
+        },
+        primary_keys=["subscription_id", "id"],
+        partition_key="start_date",
+        parent="subscriptions",
+        parent_id_column="subscription_id",
+    ),
+    "subscription_usages": RevolutMerchantEndpoint(
+        endpoint={
+            "path": "/subscription-usages",
+            "params": {"limit": 500},
+            "data_selector": "subscription_usages",
+            "data_selector_required": True,
+            "paginator": {"type": "cursor", "cursor_path": "next_page_token", "cursor_param": "page_token"},
+        },
+    ),
+    "payouts": RevolutMerchantEndpoint(
+        endpoint={
+            "path": "/payouts",
+            "params": {"limit": CREATED_DATE_PAGE_SIZE},
+            "data_selector": None,
+            "data_selector_required": True,
+        },
+        created_date_pagination=True,
+    ),
+    "disputes": RevolutMerchantEndpoint(
+        endpoint={
+            "path": "/disputes",
+            "params": {"limit": CREATED_DATE_PAGE_SIZE},
+            "data_selector": None,
+            "data_selector_required": True,
+        },
+        created_date_pagination=True,
     ),
 }
 

@@ -19,7 +19,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.tally.sett
     SUBMISSION_FILTER_ALL,
     SUBMISSION_FILTER_COMPLETED,
     SUBMISSIONS_PAGE_SIZE,
+    TALLY_API_VERSION_2025_02_01,
+    TALLY_API_VERSION_2026_10_27,
     TALLY_BASE_URL,
+    TALLY_VERSION_HEADER,
     WEBHOOKS_PAGE_SIZE,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.tally.source import TallySource
@@ -136,6 +139,25 @@ class TestFanOut:
         }
         result = _driver(submission_filter).run("submissions", _by_url(responses))
         assert result.requests[1].param("filter") == submission_filter
+
+    @parameterized.expand(
+        [
+            ("unpinned", None, TALLY_API_VERSION_2026_10_27),
+            ("pinned_2025_02_01", TALLY_API_VERSION_2025_02_01, TALLY_API_VERSION_2025_02_01),
+            ("pinned_2026_10_27", TALLY_API_VERSION_2026_10_27, TALLY_API_VERSION_2026_10_27),
+        ]
+    )
+    def test_every_request_sends_the_pinned_version(
+        self, _name: str, api_version: str | None, expected_header: str
+    ) -> None:
+        responses = {
+            FORMS_PAGE_1: [_page([{"id": "F1"}])],
+            f"{BASE}/forms/F1/submissions?limit={SUBMISSIONS_PAGE_SIZE}&page=1&filter={SUBMISSION_FILTER_COMPLETED}": [
+                _resp({"submissions": [], "hasMore": False})
+            ],
+        }
+        result = _driver().run("submissions", _by_url(responses), api_version=api_version)
+        assert [request.headers.get(TALLY_VERSION_HEADER) for request in result.requests] == [expected_header] * 2
 
     def test_resume_continues_mid_form_from_the_saved_page(self) -> None:
         responses = {

@@ -266,11 +266,11 @@ def _candlestick_source(
     )
 
 
-def _weather_index_rows(
+def _city_rows(
     client: RESTClient,
+    config: KalshiEndpointConfig,
     resumable_source_manager: ResumableSourceManager[KalshiResumeConfig],
-    from_ms: int,
-    to_ms: int,
+    params: dict[str, Any],
 ) -> Iterator[list[dict[str, Any]]]:
     cities = list(WEATHER_INDEX_CITIES)
     if resumable_source_manager.can_resume():
@@ -281,10 +281,10 @@ def _weather_index_rows(
     for position, city in enumerate(cities):
         rows: list[dict[str, Any]] = []
         for page in client.paginate(
-            path=f"/live_data/weather/{city}",
-            params={"from": from_ms, "to": to_ms},
+            path=config.path.format(city=city),
+            params=params,
             paginator=SinglePagePaginator(),
-            data_selector="timeseries",
+            data_selector=config.data_key,
             data_selector_required=True,
         ):
             rows.extend({"city": city, **point} for point in page)
@@ -297,20 +297,22 @@ def _weather_index_rows(
             resumable_source_manager.safe_point()
 
 
-def _weather_index_source(
+def _city_source(
     config: KalshiEndpointConfig,
     resumable_source_manager: ResumableSourceManager[KalshiResumeConfig],
     last_value: Optional[Any],
 ) -> SourceResponse:
     client = RESTClient(base_url=KALSHI_BASE_URL, headers={"Accept": "application/json"})
-    from_ms = _WEATHER_INDEX_EARLIEST_MS
-    if last_value is not None:
-        from_ms = max(int(last_value) - _WEATHER_INDEX_OVERLAP_MS, _WEATHER_INDEX_EARLIEST_MS)
-    to_ms = int(datetime.now(UTC).timestamp() * 1000)
+    params: dict[str, Any] = {}
+    if config.supports_incremental:
+        from_ms = _WEATHER_INDEX_EARLIEST_MS
+        if last_value is not None:
+            from_ms = max(int(last_value) - _WEATHER_INDEX_OVERLAP_MS, _WEATHER_INDEX_EARLIEST_MS)
+        params = {"from": from_ms, "to": int(datetime.now(UTC).timestamp() * 1000)}
 
     return SourceResponse(
         name=config.name,
-        items=lambda: _weather_index_rows(client, resumable_source_manager, from_ms, to_ms),
+        items=lambda: _city_rows(client, config, resumable_source_manager, params),
         primary_keys=config.primary_keys,
         # Rows arrive grouped by city, not by time, so the watermark can only advance once the
         # walk completes.
@@ -447,7 +449,7 @@ def kalshi_source(
         return _candlestick_source(config, resumable_source_manager, last_value)
 
     if config.city_fan_out:
-        return _weather_index_source(config, resumable_source_manager, last_value)
+        return _city_source(config, resumable_source_manager, last_value)
 
     if config.subaccount_fan_out and auth is not None:
         return _subaccount_source(config, resumable_source_manager, auth, last_value)
@@ -493,7 +495,7 @@ def kalshi_source(
         name=endpoint,
         items=lambda: resource,
         primary_keys=config.primary_keys,
-        # Trades, fills, and settlements arrive strictly newest-first and the API offers no ascending option, so the
+        # Trades, fills, settlements, and credits arrive strictly newest-first and the API offers no ascending option, so the
         # watermark can only advance once the walk completes.
         sort_mode="desc" if config.newest_first else "asc",
         partition_count=1,

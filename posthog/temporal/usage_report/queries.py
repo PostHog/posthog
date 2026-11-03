@@ -47,6 +47,7 @@ from django.db.models import Count
 
 from posthog.models.group_type_mapping import count_group_type_mappings_per_team
 from posthog.tasks.usage_report import (
+    TeamUsageRows,
     get_all_event_metrics_in_period,
     get_teams_with_active_batch_exports_in_period,
     get_teams_with_active_external_data_schemas_in_period,
@@ -73,6 +74,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_logs_records_in_period,
     get_teams_with_logs_retention_byte_days_in_period,
     get_teams_with_logs_retention_bytes_in_period,
+    get_teams_with_mcp_event_count_in_period,
     get_teams_with_metrics_usage_in_period,
     get_teams_with_mobile_billable_recording_count_in_period,
     get_teams_with_posthog_code_credits_used_in_period,
@@ -81,6 +83,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_recording_count_in_period,
     get_teams_with_replay_vision_credits_used_in_period,
     get_teams_with_replay_vision_observation_count_in_period,
+    get_teams_with_replay_vision_spend_projection,
     get_teams_with_rows_exported_in_period,
     get_teams_with_rows_synced_in_period,
     get_teams_with_sdk_logs_records_in_period,
@@ -228,6 +231,14 @@ def _task_sandbox_usage(begin: datetime, end: datetime) -> dict[str, list[tuple[
     }
 
 
+def _replay_vision_spend_projection(begin: datetime, end: datetime) -> dict[str, TeamUsageRows]:
+    projection = get_teams_with_replay_vision_spend_projection(begin, end)
+    return {
+        "scanner_credits": projection.scanner_credits,
+        "backfill_credits": projection.backfill_credits,
+    }
+
+
 def _sandbox_compute_usage(begin: datetime, end: datetime) -> dict[str, list[tuple[int, int]]]:
     usage = get_teams_with_billable_sandbox_compute_usage_in_period(begin, end)
     return {
@@ -274,6 +285,11 @@ QUERIES: list[QuerySpec] = [
     QuerySpec(
         name="teams_with_event_count_with_groups_in_period",
         fn=lambda b, e: get_teams_with_event_count_with_groups_in_period(b, e, count_distinct=True),
+        timeout_minutes=30,
+    ),
+    QuerySpec(
+        name="teams_with_mcp_event_count_in_period",
+        fn=get_teams_with_mcp_event_count_in_period,
         timeout_minutes=30,
     ),
     QuerySpec(
@@ -725,6 +741,16 @@ QUERIES: list[QuerySpec] = [
         fn=_replay_vision_scanner_active_count,
         timeout_minutes=5,
         kind="snapshot",
+    ),
+    QuerySpec(
+        name="replay_vision_spend_projection",
+        fn=_replay_vision_spend_projection,
+        timeout_minutes=5,
+        output="multi",
+        multi_keys_mapping={
+            "scanner_credits": "teams_with_replay_vision_scanner_projected_credits",
+            "backfill_credits": "teams_with_replay_vision_backfill_committed_credits",
+        },
     ),
     QuerySpec(
         name="teams_with_issues_created_total",

@@ -2,6 +2,7 @@ from datetime import UTC, date, datetime
 from typing import Any
 
 import pytest
+from unittest import mock
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     DriveResult,
@@ -17,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.recall_ai.
     _to_iso8601,
     base_url_for_region,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.recall_ai.settings import USAGE_BACKFILL_DAYS
 from products.warehouse_sources.backend.temporal.data_imports.sources.recall_ai.source import RecallAISource
 
 BASE_URL = "https://us-east-1.recall.ai"
@@ -177,6 +179,51 @@ class TestRecallAICredentialScrubbing:
 
         assert len(result.urls) == 1
         assert result.rows == expected_rows
+
+
+class TestRecallAIUsage:
+    TODAY = date(2026, 3, 10)
+
+    def _drive_usage(self, days: int, **inputs: Any) -> DriveResult:
+        script = [_page({"bot_total": float(index * 60)}) for index in range(days)]
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.recall_ai.recall_ai._utc_today",
+            return_value=self.TODAY,
+        ):
+            return _drive("usage", script, **inputs)
+
+    def test_incremental_run_rereads_restated_days_and_requests_one_utc_day_each(self) -> None:
+        result = self._drive_usage(5, incremental_field="date", db_incremental_field_last_value=date(2026, 3, 9))
+
+        assert result.params("start") == [
+            "2026-03-06T00:00:00Z",
+            "2026-03-07T00:00:00Z",
+            "2026-03-08T00:00:00Z",
+            "2026-03-09T00:00:00Z",
+            "2026-03-10T00:00:00Z",
+        ]
+        assert result.params("end") == [
+            "2026-03-07T00:00:00Z",
+            "2026-03-08T00:00:00Z",
+            "2026-03-09T00:00:00Z",
+            "2026-03-10T00:00:00Z",
+            "2026-03-11T00:00:00Z",
+        ]
+        assert result.rows[0] == {"date": "2026-03-06", "bot_total": 0.0}
+        assert result.rows[-1] == {"date": "2026-03-10", "bot_total": 240.0}
+        assert result.saved_states[-1] == RecallAIResumeConfig(next_date="2026-03-10")
+        assert result.response is not None and result.response.sort_mode == "asc"
+
+    def test_first_run_backfills_a_bounded_window(self) -> None:
+        result = self._drive_usage(USAGE_BACKFILL_DAYS + 1)
+
+        assert len(result.requests) == USAGE_BACKFILL_DAYS + 1
+        assert result.rows[-1]["date"] == "2026-03-10"
+
+    def test_resume_starts_at_saved_day(self) -> None:
+        result = self._drive_usage(2, resume_state=RecallAIResumeConfig(next_date="2026-03-09"))
+
+        assert [row["date"] for row in result.rows] == ["2026-03-09", "2026-03-10"]
 
 
 class TestRecallAIHelpers:

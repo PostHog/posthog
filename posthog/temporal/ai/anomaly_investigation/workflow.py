@@ -6,7 +6,6 @@ Triggered from posthog/temporal/alerts/workflows.py for a firing check the budge
 
 from __future__ import annotations
 
-import re
 import json
 import asyncio
 from dataclasses import dataclass
@@ -21,13 +20,16 @@ from asgiref.sync import sync_to_async
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
+from posthog.dataclasses import frozen
 from posthog.models import Team, User
 from posthog.tasks.alerts.charts import png_to_b64, render_series_chart
 from posthog.tasks.alerts.metric_definition import describe_metric_definition
 from posthog.tasks.alerts.utils import (
+    InvestigationSummaryLine,
     _inconclusive_is_suppressed,
     _should_suppress_notification,
     dispatch_alert_notification,
+    investigation_summary_teaser,
     prepare_alert_insight_chart_url,
     record_alert_delivery,
 )
@@ -70,8 +72,6 @@ ANOMALY_INVESTIGATION_ACTIVITY_START_TO_CLOSE = 40 * 60  # 40 minutes
 ANOMALY_INVESTIGATION_ACTIVITY_HEARTBEAT_TIMEOUT = 5 * 60  # 5 minutes
 ANOMALY_INVESTIGATION_ACTIVITY_MAX_ATTEMPTS = 2
 
-MAX_SUMMARY_CHARS = 500
-
 _VERDICT_LABELS = {
     "true_positive": "True positive",
     "false_positive": "False positive",
@@ -85,10 +85,6 @@ _VERDICT_CHANGE_FOLLOWUP_KEY = "investigation_verdict_change"
 # (a conservative margin even for token-dense text) so a long agent report can't get the signal
 # rejected and silently dropped.
 _MAX_DESCRIPTION_CHARS = 3000
-
-# Matches a sentence-ending punctuation mark followed by whitespace or end-of-string,
-# used to clip the summary teaser on a sentence boundary instead of mid-word.
-_SENTENCE_END_RE = re.compile(r"[.!?](?=\s|$)")
 
 
 @dataclass
@@ -236,12 +232,12 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
     # last verdict of an earlier check in the same firing episode.
     episode = await sync_to_async(episode_investigations, thread_sensitive=False)(alert, alert_check)
 
-    summary_for_list = _truncate_summary(result.report.summary)
+    summary = result.report.summary.strip()
     await sync_to_async(AlertCheck.objects.filter(id=alert_check.id).update, thread_sensitive=False)(
         investigation_notebook_id=notebook.id,
         investigation_status=InvestigationStatus.DONE,
         investigation_verdict=result.report.verdict,
-        investigation_summary=summary_for_list,
+        investigation_summary=summary or None,
         investigation_error=None,
     )
 
@@ -258,7 +254,7 @@ async def investigate_anomaly_activity(inputs: AnomalyInvestigationWorkflowInput
         alert_check=alert_check,
         verdict=result.report.verdict,
         previous_verdict=episode.previous_verdict,
-        summary=summary_for_list or "",
+        summary=summary,
         notebook_short_id=notebook.short_id,
         insight_chart_url=insight_chart_url,
     )
@@ -504,7 +500,7 @@ def _deliver_investigation_outcome(
             )
             return
 
-        breaches = _build_breach_descriptions(
+        descriptions = _build_breach_descriptions(
             alert_check=check,
             verdict=verdict,
             previous_verdict=previous_verdict,
@@ -524,7 +520,12 @@ def _deliver_investigation_outcome(
             # render_chart=False: the chart was already rendered above, before this
             # transaction took its row lock.
             deliveries = dispatch_alert_notification(
-                alert, check, breaches, extra_properties=extra_properties or None, render_chart=False
+                alert,
+                check,
+                descriptions.lines,
+                extra_properties=extra_properties or None,
+                render_chart=False,
+                investigation_summary=descriptions.summary,
             )
             record_alert_delivery(alert, check, deliveries, stamp_on_empty=True)
         except Exception:
@@ -569,7 +570,7 @@ def _dispatch_verdict_change_followup(
     if receipts.get(_VERDICT_CHANGE_FOLLOWUP_KEY):
         return
 
-    breaches = _build_breach_descriptions(
+    descriptions = _build_breach_descriptions(
         alert_check=check,
         verdict=verdict,
         previous_verdict=previous_verdict,
@@ -590,9 +591,10 @@ def _dispatch_verdict_change_followup(
             deliveries = dispatch_alert_notification(
                 alert,
                 check,
-                breaches,
+                descriptions.lines,
                 extra_properties=extra_properties,
                 idempotency_key=f"{check.id}:investigation-verdict-change",
+                investigation_summary=descriptions.summary,
                 # The caller holds a row lock, and this check was already notified, so
                 # prepare_alert_insight_chart_url would return None anyway.
                 render_chart=False,
@@ -632,6 +634,12 @@ def _dispatch_verdict_change_followup(
     )
 
 
+@frozen
+class _BreachDescriptions:
+    lines: list[str]
+    summary: InvestigationSummaryLine | None
+
+
 def _build_breach_descriptions(
     *,
     alert_check,
@@ -639,10 +647,12 @@ def _build_breach_descriptions(
     previous_verdict: str | None,
     summary: str,
     notebook_short_id: str | None,
-) -> list[str]:
+) -> _BreachDescriptions:
     """Compose the strings that populate the `match_descriptions` list in the
     existing alert email template. Keeps the current template working while
     giving gated notifications richer body content.
+
+    The summary line holds a plain-text teaser. Email renders the full Markdown in its place.
     """
     lines: list[str] = []
     if previous_verdict and verdict and verdict != previous_verdict:
@@ -664,41 +674,15 @@ def _build_breach_descriptions(
     verdict_label = _VERDICT_LABELS.get(verdict or "", "")
     if verdict_label:
         lines.append(f"Investigation verdict: {verdict_label}.")
-    if summary:
-        lines.append(summary)
+    summary_line = None
+    teaser = investigation_summary_teaser(summary)
+    if teaser:
+        summary_line = InvestigationSummaryLine(index=len(lines), markdown=summary)
+        lines.append(teaser)
     if notebook_short_id:
         notebook_url = absolute_uri(f"/notebooks/{notebook_short_id}")
         lines.append(f"See {notebook_url} for the full investigation.")
-    return lines
-
-
-def _truncate_summary(summary: str | None) -> str | None:
-    """Clamp the agent's summary for list rendering and email/Slack follow-ups.
-
-    The full write-up already lives in the notebook — this field is just a teaser.
-    """
-    if not summary:
-        return None
-    trimmed = summary.strip()
-    if not trimmed:
-        return None
-    if len(trimmed) <= MAX_SUMMARY_CHARS:
-        return trimmed
-
-    window = trimmed[:MAX_SUMMARY_CHARS]
-    # Prefer clipping at the last complete sentence, but only if it keeps enough of the
-    # teaser — otherwise a short lead sentence would drop most of the summary.
-    sentence_ends = [match.end() for match in _SENTENCE_END_RE.finditer(window)]
-    if sentence_ends and sentence_ends[-1] >= MAX_SUMMARY_CHARS // 2:
-        # Always append the ellipsis: the boundary might be an abbreviation (e.g. "U.S."),
-        # not a real sentence end, so a clean-looking stop would hide that we dropped the rest.
-        return window[: sentence_ends[-1]].rstrip() + " …"
-
-    # No usable sentence boundary — fall back to the last word boundary with an ellipsis.
-    word_end = window.rstrip().rfind(" ")
-    if word_end != -1:
-        return window[:word_end].rstrip() + "…"
-    return trimmed[: MAX_SUMMARY_CHARS - 1].rstrip() + "…"
+    return _BreachDescriptions(lines=lines, summary=summary_line)
 
 
 async def _update_status(alert_check, status: str) -> None:
