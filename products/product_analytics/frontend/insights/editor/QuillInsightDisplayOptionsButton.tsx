@@ -36,7 +36,11 @@ export function QuillInsightDisplayOptionsButton({
                 </span>
                 <IconEllipsis className="hidden @max-[780px]:block" />
             </PopoverTrigger>
-            <PopoverContent align="end" className="w-auto p-0 max-h-[var(--available-height)] overflow-y-auto">
+            {/* The switches' enlarged hit areas reach past the panel padding, which would add a horizontal scrollbar. */}
+            <PopoverContent
+                align="end"
+                className="w-auto p-0 max-h-[var(--available-height)] overflow-y-auto overflow-x-hidden"
+            >
                 <InsightDisplayOptionsPanel tabs={tabs} />
             </PopoverContent>
         </Popover>
