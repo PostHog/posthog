@@ -649,17 +649,20 @@ impl UrlRewrite {
         let Some(spellings) = &self.declined_spellings else {
             return;
         };
-        if !self.css_escape.is_match(bytes) {
-            return;
-        }
-        for_each_escaped_match(&spellings.urls, bytes, |pattern, (start, end)| {
+        let mut note = |pattern: usize, (start, end): (usize, usize)| {
             if !spellings.replaced[pattern]
                 .iter()
                 .any(|spelling| bytes[start..end] == spelling[..])
             {
                 self.declined_respelled.insert(spellings.targets[pattern]);
             }
-        });
+        };
+        for found in spellings.urls.find_iter(bytes) {
+            note(found.pattern().as_usize(), (found.start(), found.end()));
+        }
+        if self.css_escape.is_match(bytes) {
+            for_each_escaped_match(&spellings.urls, bytes, &mut note);
+        }
     }
 
     fn replace_escaped_urls<'b>(&mut self, bytes: &'b [u8]) -> Cow<'b, [u8]> {

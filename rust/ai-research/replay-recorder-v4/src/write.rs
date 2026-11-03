@@ -914,8 +914,8 @@ mod tests {
             "{lines}"
         );
         assert!(!stored_lines(&event, &[public]).is_empty());
-        // So is a copy that a selector spells with other CSS escapes than the rewrite replaces, beside a plain copy.
-        for (url, selector) in [
+        // So is a copy in other CSS escapes or another letter case than the rewrite replaces, beside a plain copy.
+        for (url, before) in [
             (
                 signed,
                 r".a-\[https\3a \2f \2f bucket\.s3\.amazonaws\.com\2f avatar\.png\3f X-Amz-Signature\3d abc123\]",
@@ -928,14 +928,18 @@ mod tests {
                 "https://bucket.s3.amazonaws.com/café.png?X-Amz-Signature=abc123",
                 r".a-\[https\3a //bucket\.s3\.amazonaws\.com/café\.png\?X-Amz-Signature\=abc123\]",
             ),
+            (
+                signed,
+                r#".a::after{content:"HTTPS://BUCKET.S3.AMAZONAWS.COM/avatar.png?X-Amz-Signature=abc123"} .b"#,
+            ),
         ] {
             let events = json!([{"type": 3, "timestamp": 1, "data": {"source": 8, "id": 3,
-                "replaceSync": format!("{selector}{{background:url({url})}}")}}])
+                "replaceSync": format!("{before}{{background:url({url})}}")}}])
             .to_string();
             let lines = stored_lines(&events, &[]);
             assert!(
                 !lines.is_empty() && !lines.contains("X-Amz-Signature"),
-                "{selector}: {lines}"
+                "{before}: {lines}"
             );
         }
         // A declined URL that a longer URL also holds is overwritten there too, and the block is kept.
