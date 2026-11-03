@@ -69,7 +69,18 @@ class TestRefreshBackgroundBands:
         with patch(_SYNC_EXECUTE, return_value=rows):
             outcome = refresh_background_bands(_NOW)
 
-        bands = dict(SignalScoutBackgroundBand.all_teams.values_list("team_id", "band"))
-        assert bands == {paying.id: 1, free.id: 3, second_project.id: 1}
+        not_set_up, set_up_audience = SignalScoutBackgroundBand.Audience
+        bands = {
+            team_id: (band, audience)
+            for team_id, band, audience in SignalScoutBackgroundBand.all_teams.values_list(
+                "team_id", "band", "audience"
+            )
+        }
+        assert bands == {
+            paying.id: (1, not_set_up),
+            free.id: (3, not_set_up),
+            second_project.id: (1, not_set_up),
+            set_up.id: (1, set_up_audience),
+        }
         assert not SignalScoutBackgroundBand.all_teams.filter(pk=stale.pk).exists()
-        assert outcome.written == 3
+        assert outcome.written == 4

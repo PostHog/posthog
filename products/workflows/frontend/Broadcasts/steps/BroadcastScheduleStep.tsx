@@ -5,18 +5,21 @@ import { LemonCalendarSelectInput, LemonSearchableSelect } from '@posthog/lemon-
 
 import { dayjs } from 'lib/dayjs'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { timeZoneLabel } from 'lib/utils/timezones'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { SendDayPicker } from '../../SendCalendar/SendDayPicker'
 import { EmailSendingRateLimitPicker } from '../../Workflows/hogflows/steps/components/EmailSendingRateLimitPicker'
 import { RecurringSchedulePicker } from '../../Workflows/hogflows/steps/components/RecurringSchedulePicker'
 import { broadcastWizardLogic } from '../broadcastWizardLogic'
 
-function SendingRateLimit(): JSX.Element {
-    const { emailRateLimit } = useValues(broadcastWizardLogic)
+function SendingRateLimit(): JSX.Element | null {
+    const { emailRateLimit, channel } = useValues(broadcastWizardLogic)
     const { setEmailRateLimit } = useActions(broadcastWizardLogic)
 
+    if (channel !== 'email') {
+        return null
+    }
     return (
         <div className="max-w-160">
             <EmailSendingRateLimitPicker value={emailRateLimit} onChange={setEmailRateLimit} />
@@ -55,6 +58,7 @@ export function BroadcastScheduleStep(): JSX.Element {
         recurringRepeating,
         effectiveTimezone,
         stepValidationErrors,
+        channel,
     } = useValues(broadcastWizardLogic)
     const {
         setScheduleMode,
@@ -68,7 +72,9 @@ export function BroadcastScheduleStep(): JSX.Element {
     return (
         <div className="flex flex-col gap-4">
             <div>
-                <h2 className="m-0 text-xl font-semibold">When should this email go out?</h2>
+                <h2 className="m-0 text-xl font-semibold">
+                    When should this {channel === 'push' ? 'notification' : 'email'} go out?
+                </h2>
                 <p className="m-0 text-secondary">Send it right away, pick a time, or set up a repeating schedule.</p>
             </div>
 

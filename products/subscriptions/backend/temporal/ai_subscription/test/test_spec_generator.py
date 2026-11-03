@@ -1,3 +1,4 @@
+import re
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -8,6 +9,8 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from posthog.schema import CachedTeamTaxonomyQueryResponse, TeamTaxonomyItem, TeamTaxonomyQuery
+
+from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS
 
 from posthog.exceptions import ClickHouseQueryTimeOut
 from posthog.models import EventDefinition, EventProperty, PropertyDefinition, Team
@@ -20,6 +23,7 @@ from products.subscriptions.backend.temporal.ai_subscription.spec_generator impo
     MAX_PINNED_EVENTS,
     PROMPT_MAX_LENGTH,
     RELEVANT_EVENTS_LIMIT,
+    WINDOW_PLACEHOLDERS,
     ReportWindow,
     StoredPlanInvalidError,
     _event_property_names,
@@ -38,6 +42,7 @@ from products.subscriptions.backend.temporal.ai_subscription.spec_generator impo
     get_ai_query_plan_status,
     sanitize_prompt,
     validate_stored_query_plan,
+    window_token_problems,
 )
 
 _SG = "products.subscriptions.backend.temporal.ai_subscription.spec_generator"
@@ -46,6 +51,64 @@ _SG = "products.subscriptions.backend.temporal.ai_subscription.spec_generator"
 def _window(days: int = 7) -> ReportWindow:
     end = datetime.now(tz=UTC)
     return ReportWindow(start=end - timedelta(days=days), end=end)
+
+
+# Strict targets such as toDate and toDateTime64 raise on a string they can't parse, so ClickHouse
+# already rejects an invented placeholder there. Only the targets that return NULL hide it.
+_NULL_ON_FAILURE_DATE_ALIASES = sorted(
+    name
+    for name, meta in HOGQL_CLICKHOUSE_FUNCTIONS.items()
+    if meta.clickhouse_name.endswith(("OrNull", "OrZero"))
+    and re.search(r"Date|^toModifiedJulianDay", meta.clickhouse_name)
+)
+
+
+@pytest.mark.parametrize("alias", _NULL_ON_FAILURE_DATE_ALIASES)
+def test_window_token_problems_covers_every_null_on_failure_date_parser(alias: str) -> None:
+    assert window_token_problems(f"SELECT {alias}('{{{{D-1}}}}') FROM events") == [
+        "The query uses `{{D-1}}`, which the report doesn't fill in."
+    ]
+
+
+_RENDER_WINDOW = ReportWindow(start=datetime(2026, 6, 8, tzinfo=UTC), end=datetime(2026, 6, 15, tzinfo=UTC))
+
+
+@pytest.mark.parametrize(
+    "hogql,expected",
+    [
+        pytest.param(
+            "WHERE {{date_range}}",
+            "WHERE timestamp >= toDateTime('2026-06-08 00:00:00') AND timestamp < toDateTime('2026-06-15 00:00:00')",
+            id="date_range",
+        ),
+        pytest.param(
+            "WHERE {{compare_date_range}}",
+            "WHERE timestamp >= toDateTime('2026-06-01 00:00:00') AND timestamp < toDateTime('2026-06-15 00:00:00')",
+            id="compare_date_range",
+        ),
+        pytest.param(
+            "WHERE timestamp >= {{window_start}}",
+            "WHERE timestamp >= toDateTime('2026-06-08 00:00:00')",
+            id="window_start",
+        ),
+        pytest.param(
+            "WHERE timestamp < {{window_end}}",
+            "WHERE timestamp < toDateTime('2026-06-15 00:00:00')",
+            id="window_end",
+        ),
+        pytest.param(
+            "WHERE first_seen >= {{compare_window_start}}",
+            "WHERE first_seen >= toDateTime('2026-06-01 00:00:00')",
+            id="compare_window_start",
+        ),
+    ],
+)
+def test_render_window_filter_fills_in_each_window_token(hogql: str, expected: str) -> None:
+    assert _RENDER_WINDOW.render_window_filter(hogql) == expected
+
+
+def test_render_window_filter_fills_in_every_supported_token() -> None:
+    assert "{{" not in _RENDER_WINDOW.render_window_filter(" AND ".join(WINDOW_PLACEHOLDERS))
 
 
 class TestSanitizePrompt:

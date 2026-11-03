@@ -9,8 +9,10 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { ValidatedPasswordResult, validatePassword } from 'lib/components/PasswordStrength'
+import { getReferralFollowUp } from 'lib/components/SignupReferralSource'
 import { CLOUD_HOSTNAMES, FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { splitFullName } from 'lib/utils/strings'
 import { getRelativeNextPath } from 'lib/utils/url'
 import { readPendingOAuthConnection } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
@@ -18,7 +20,6 @@ import {
     clearPendingVerificationEmail,
     setPendingVerificationEmail,
 } from 'scenes/authentication/shared/verificationCode'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { getPasskeyErrorMessage, isWebAuthnCancellation } from 'scenes/settings/user/passkeys/utils'
 import { RegistrationBeginResponse } from 'scenes/settings/user/passkeySettingsLogic'
 import { urls } from 'scenes/urls'
@@ -44,6 +45,7 @@ export interface SignupPanelOnboardingForm {
     role_at_organization: string
     referral_source: string
     referral_source_ai_prompt: string
+    referral_source_influencer: string
 }
 
 export interface PendingInvite {
@@ -468,6 +470,7 @@ export const signupLogic = kea<signupLogicType>([
                 // The partner that started the OAuth connection is where this person heard about PostHog
                 referral_source: readPendingOAuthConnection()?.clientName ?? '',
                 referral_source_ai_prompt: '',
+                referral_source_influencer: '',
             } as SignupPanelOnboardingForm,
             errors: ({ name, role_at_organization }) => ({
                 name: !name?.trim() ? 'Please enter your name' : undefined,
@@ -485,13 +488,16 @@ export const signupLogic = kea<signupLogicType>([
                 try {
                     const nextUrl = getRelativeNextPath(new URLSearchParams(location.search).get('next'), location)
 
+                    // An answer typed into a follow-up that a later referral source edit hid again must not be sent
+                    const followUp = getReferralFollowUp(payload.referral_source ?? '')
                     const signupData: Record<string, any> = {
                         email: values.signupEmail,
                         ...splitFullName(payload.name),
                         organization_name: payload.organization_name?.trim() || undefined,
                         role_at_organization: payload.role_at_organization,
                         referral_source: payload.referral_source,
-                        referral_source_ai_prompt: payload.referral_source_ai_prompt,
+                        referral_source_ai_prompt: followUp === 'ai' ? payload.referral_source_ai_prompt : '',
+                        referral_source_influencer: followUp === 'influencer' ? payload.referral_source_influencer : '',
                         next_url: nextUrl ?? undefined,
                     }
 
@@ -604,7 +610,9 @@ export const signupLogic = kea<signupLogicType>([
     listeners(({ actions, values }) => ({
         precheckSignupEmail: async ({ email }, breakpoint) => {
             actions.setPasskeyError(null)
-            actions.setSignupPanelAuthManualErrors({})
+            // Reset rather than `setSignupPanelAuthManualErrors({})`: kea-forms turns error display on with
+            // any manual errors call, so the empty password field would open with a red error
+            actions.resetSignupPanelAuth()
             let precheckResponse: SignupEmailPrecheckResponse
             try {
                 // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.

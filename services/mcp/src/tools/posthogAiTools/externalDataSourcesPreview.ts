@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { ExternalDataSourcePayloadSchema, ExternalDataSourceTypeSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
-// Mirrors PREVIEW_MAX_ROWS / PREVIEW_DEFAULT_ROWS in posthog/temporal/data_imports/sources/custom/source.py.
+// Mirrors PREVIEW_MAX_ROWS / PREVIEW_DEFAULT_ROWS in products/warehouse_sources/backend/temporal/data_imports/sources/custom/source.py.
 // The backend serializer enforces both regardless; naming them here keeps the two sides greppable together.
 const PREVIEW_MAX_ROWS = 50
 const PREVIEW_DEFAULT_ROWS = 10

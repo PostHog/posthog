@@ -34,6 +34,10 @@ export const config = {
     tunerTargetMemoryUsage: parseFraction(process.env.TUNER_TARGET_MEMORY_USAGE, 0.7),
     tunerTargetCpuUsage: parseFraction(process.env.TUNER_TARGET_CPU_USAGE, 0.9),
     tunerRampThrottleMs: parsePositiveInt(process.env.TUNER_RAMP_THROTTLE_MS, 10_000),
+    // On SIGTERM (deploy, scale-down, node replacement) the worker waits this long for in-flight renders before
+    // the SDK cancels them. The SDK default is 0, which cancels every running render at once. Keep it below the
+    // pod's terminationGracePeriodSeconds (1800s in prod) so the process still exits before it is killed.
+    shutdownGraceTimeMs: parsePositiveInt(process.env.SHUTDOWN_GRACE_TIME_MS, 25 * 60 * 1000),
     browserRecycleAfter: parsePositiveInt(process.env.BROWSER_RECYCLE_AFTER, 100),
     // Browsers held warm beyond this are closed on release: each idle Chromium pins 100-250MB RSS,
     // and a pod that once ran at full concurrency would otherwise keep that footprint forever.

@@ -1,3 +1,4 @@
+import re
 from collections.abc import Collection
 from contextlib import ExitStack
 from datetime import UTC, datetime, timedelta
@@ -6,13 +7,16 @@ from zoneinfo import ZoneInfo
 
 from django.db.models import Q
 from django.utils import timezone
+from django.utils.html import format_html
 
 import pytz
 import structlog
+from markdown_it import MarkdownIt
 
 from posthog.schema import AlertCalculationInterval, AlertState, ChartDisplayType, NodeKind, TrendsQuery
 
 from posthog.dataclasses import frozen
+from posthog.helpers.email_formatting import render_ai_email_html
 from posthog.models.user import User
 from posthog.ph_client import ph_background_capture
 from posthog.slo.context import get_current_slo
@@ -53,6 +57,14 @@ from products.exports.backend.facade import api as exports
 logger = structlog.get_logger(__name__)
 
 INSIGHT_ALERT_FIRING_EVENT = "$insight_alert_firing"
+
+INVESTIGATION_SUMMARY_TEASER_MAX_CHARS = 500
+
+# Matches a sentence-ending punctuation mark followed by whitespace or end-of-string,
+# used to clip the summary teaser on a sentence boundary instead of mid-word.
+_SENTENCE_END_RE = re.compile(r"[.!?](?=\s|$)")
+
+_SUMMARY_MARKDOWN = MarkdownIt("commonmark")
 
 # How long the insight stack keeps evaluating an alert after the platform takes it over, so the two
 # stacks' checks can be compared. It sends nothing for the alert in that time.
@@ -260,11 +272,77 @@ def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> 
     return receipts
 
 
+@frozen
+class InvestigationSummaryLine:
+    """The entry of `breaches` that holds the investigation summary.
+
+    `breaches` carries the plain-text teaser, which chat destinations show as is. Email
+    renders `markdown` in place of that entry.
+    """
+
+    index: int
+    markdown: str
+
+
+def _clip_summary(text: str) -> str:
+    if len(text) <= INVESTIGATION_SUMMARY_TEASER_MAX_CHARS:
+        return text
+    window = text[:INVESTIGATION_SUMMARY_TEASER_MAX_CHARS]
+    # Prefer clipping at the last complete sentence, but only if it keeps enough of the
+    # teaser — otherwise a short lead sentence would drop most of the summary.
+    sentence_ends = [match.end() for match in _SENTENCE_END_RE.finditer(window)]
+    if sentence_ends and sentence_ends[-1] >= INVESTIGATION_SUMMARY_TEASER_MAX_CHARS // 2:
+        # Always append the ellipsis: the boundary might be an abbreviation (e.g. "U.S."),
+        # not a real sentence end, so a clean-looking stop would hide that we dropped the rest.
+        return window[: sentence_ends[-1]].rstrip() + " …"
+    # No usable sentence boundary — fall back to the last word boundary with an ellipsis.
+    word_end = window.rstrip().rfind(" ")
+    if word_end != -1:
+        return window[:word_end].rstrip() + "…"
+    return text[: INVESTIGATION_SUMMARY_TEASER_MAX_CHARS - 1].rstrip() + "…"
+
+
+def investigation_summary_teaser(summary: str | None) -> str | None:
+    """The Markdown investigation summary as short plain text, for chat destinations.
+
+    Email and the alert history render the full Markdown. Chat destinations show the text
+    as is, so they get the words without markup, clamped like a teaser. The notebook has
+    the full write-up.
+    """
+    if not summary or not summary.strip():
+        return None
+    sentences: list[str] = []
+    for token in _SUMMARY_MARKDOWN.parse(summary):
+        if token.type != "inline":
+            continue
+        words = "".join(
+            child.content if child.type in ("text", "code_inline", "html_inline") else " "
+            for child in token.children or []
+            if child.type in ("text", "code_inline", "html_inline", "softbreak", "hardbreak")
+        )
+        sentence = " ".join(words.split())
+        if sentence:
+            sentences.append(sentence if sentence[-1] in ".!?:;" else f"{sentence}.")
+    if not sentences:
+        return None
+    return _clip_summary(" ".join(sentences))
+
+
+def chat_investigation_summary(alert: AlertConfiguration, summary: str | None) -> str | None:
+    """The stored investigation summary in the form chat destinations show.
+
+    Only the anomaly investigation agent writes Markdown. The metrics alert investigation
+    stores plain text, which chat shows as is.
+    """
+    return investigation_summary_teaser(summary) if alert.detector_config else summary
+
+
 def send_notifications_for_breaches(
     alert: AlertConfiguration,
     breaches: list[str],
     idempotency_key: str,
     extra_properties: dict[str, Any] | None = None,
+    investigation_summary: InvestigationSummaryLine | None = None,
 ) -> list[AlertDelivery]:
     """A stable idempotency_key (typically alert_check.id) lets MessagingRecord enforce
     per-recipient at-most-once email delivery on retries.
@@ -280,6 +358,14 @@ def send_notifications_for_breaches(
         insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
         alert_url = f"{insight_url}?alert_id={alert.id}"
         logger.info("send_notifications_for_breaches", alert_id=alert.id, anomaly_count=len(breaches))
+        match_descriptions_html: list[str] = []
+        if investigation_summary is not None:
+            match_descriptions_html = [
+                render_ai_email_html(investigation_summary.markdown)
+                if index == investigation_summary.index
+                else format_html("<p>{}</p>", breach)
+                for index, breach in enumerate(breaches)
+            ]
         email_sent = send_alert_email(
             recipients=email_targets,
             campaign_key=campaign_key,
@@ -287,6 +373,7 @@ def send_notifications_for_breaches(
             template_name="alert_check_firing",
             template_context={
                 "match_descriptions": breaches,
+                "match_descriptions_html": match_descriptions_html,
                 "insight_url": insight_url,
                 "insight_name": alert.insight.name,
                 "alert_url": alert_url,
@@ -540,6 +627,7 @@ def dispatch_alert_notification(
     extra_properties: dict[str, Any] | None = None,
     idempotency_key: str | None = None,
     render_chart: bool = True,
+    investigation_summary: InvestigationSummaryLine | None = None,
 ) -> list[AlertDelivery] | None:
     """Route an AlertCheck to the correct notification sender.
 
@@ -655,7 +743,9 @@ def dispatch_alert_notification(
                             .order_by("tag__name")[:10]
                         ),
                         metric_name=alert.insight.name or alert.insight.derived_name or "Insight",
-                        summary=properties.get("investigation_summary") or alert_check.investigation_summary,
+                        summary=chat_investigation_summary(
+                            alert, properties.get("investigation_summary") or alert_check.investigation_summary
+                        ),
                         verdict=properties.get("investigation_verdict") or alert_check.investigation_verdict,
                         investigation_status=alert_check.investigation_status,
                         detected_at=detected_at,
@@ -677,13 +767,13 @@ def dispatch_alert_notification(
                     chart_url = prepare_alert_insight_chart_url(alert=alert, alert_check=alert_check)
                     if chart_url:
                         properties["insight_chart_url"] = chart_url
-                # Only forward extra_properties when there's something to add, keeping the
-                # common threshold-alert call unchanged when nothing was attached.
+                # Only forward what is set, keeping the common threshold-alert call unchanged.
+                optional_kwargs: dict[str, Any] = {}
                 if properties:
-                    return send_notifications_for_breaches(
-                        alert, breaches, idempotency_key=key, extra_properties=properties
-                    )
-                return send_notifications_for_breaches(alert, breaches, idempotency_key=key)
+                    optional_kwargs["extra_properties"] = properties
+                if investigation_summary is not None:
+                    optional_kwargs["investigation_summary"] = investigation_summary
+                return send_notifications_for_breaches(alert, breaches, idempotency_key=key, **optional_kwargs)
             case _:
                 raise AssertionError(f"dispatch_alert_notification: unhandled alert state: {alert_check.state}")
 

@@ -364,7 +364,7 @@ class TestCreateCohortBackfillRunCommand(BaseTest):
 
     @override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="none")
     def test_non_allowlisted_team_errors(self) -> None:
-        with self.assertRaisesMessage(CommandError, "realtime cohort allowlist"):
+        with self.assertRaisesMessage(CommandError, "not processed by the realtime cohort pipeline"):
             call_command("create_cohort_backfill_run", team_id=self.team.id, trigger="team_enablement")
 
     @mock.patch("products.cohorts.backend.backfill.runs.estimate_person_seed_topic_bytes")

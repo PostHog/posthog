@@ -1762,6 +1762,8 @@ export interface HogQLQueryModifiersApi {
     inCohortVia?: InCohortViaApi | null
     inlineCohortCalculation?: InlineCohortCalculationApi | null
     materializationMode?: MaterializationModeApi | null
+    /** Reuse eligible bounded event aggregates within one query execution. When unset, the server may enable it via the cloud feature flag. */
+    materializeRepeatedCTEs?: boolean | null
     materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationModeApi | null
     /** Merge sibling aggregating LEFT JOINs over federated Postgres tables into one UNION ALL join, so their scans overlap */
     mergeFederatedAggregateJoins?: boolean | null
@@ -1799,6 +1801,43 @@ export interface HogQLQueryModifiersApi {
     useWebAnalyticsPreAggregatedTables?: boolean | null
     /** Serve filters on the stored session-entry attribution properties (`$channel_type`, `$entry_utm_*`, `$entry_referring_domain`) by recomputing the value from the session's first pageview. Resolved server-side; not intended to be set by clients. */
     webAnalyticsFirstPageviewFilters?: boolean | null
+}
+
+export type AccountsTableCustomPropertyDisplayTypeApi =
+    (typeof AccountsTableCustomPropertyDisplayTypeApi)[keyof typeof AccountsTableCustomPropertyDisplayTypeApi]
+
+export const AccountsTableCustomPropertyDisplayTypeApi = {
+    Text: 'text',
+    Link: 'link',
+    Number: 'number',
+    Currency: 'currency',
+    Percent: 'percent',
+    Date: 'date',
+    Datetime: 'datetime',
+    Boolean: 'boolean',
+    Select: 'select',
+} as const
+
+export interface AccountsTableCustomPropertyOptionApi {
+    color: string
+    id?: string | null
+    label: string
+}
+
+export interface AccountsTableCustomPropertySourceApi {
+    id: string
+}
+
+export interface AccountsTableCustomPropertyDefinitionApi {
+    description?: string | null
+    display_type: AccountsTableCustomPropertyDisplayTypeApi
+    has_workflow_reference: boolean
+    id: string
+    is_big_number?: boolean | null
+    is_canonical: boolean
+    name: string
+    options?: AccountsTableCustomPropertyOptionApi[] | null
+    source?: AccountsTableCustomPropertySourceApi | null
 }
 
 export interface ClickhouseQueryProgressApi {
@@ -1901,9 +1940,19 @@ export interface QueryStatusApi {
     team_id: number
 }
 
+export interface AccountsTableRelationshipDefinitionApi {
+    description?: string | null
+    id: string
+    is_controlled: boolean
+    is_single_holder?: boolean | null
+    name: string
+}
+
 export interface ResolvedDateRangeResponseApi {
     date_from: string
     date_to: string
+    /** The earliest timestamp the query reads, when only its first interval depends on rows from before date_from. Lifecycle sets it to the start of the interval before the range. */
+    read_from?: string | null
 }
 
 export interface AccountsTableCustomPropertyHistoryPointApi {
@@ -1998,6 +2047,17 @@ export interface AccessControlFilterWarningApi {
 }
 
 export interface AccountsTableQueryResponseApi {
+    columns?:
+        | (
+              | AccountsTableAccountFieldColumnApi
+              | AccountsTableTagsColumnApi
+              | AccountsTableNoteCountColumnApi
+              | AccountsTableRelationshipColumnApi
+              | AccountsTableCustomPropertyColumnApi
+              | AccountsTableCustomPropertyHistoryColumnApi
+          )[]
+        | null
+    customPropertyDefinitions?: AccountsTableCustomPropertyDefinitionApi[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
     hasMore: boolean
@@ -2012,6 +2072,7 @@ export interface AccountsTableQueryResponseApi {
     offset: number
     /** Query status indicates whether next to the provided data, a query is still running. */
     query_status?: QueryStatusApi | null
+    relationshipDefinitions?: AccountsTableRelationshipDefinitionApi[] | null
     /** The resolved previous/comparison period date range, when comparing against another period */
     resolved_compare_date_range?: ResolvedDateRangeResponseApi | null
     /** The date range used for the query */
@@ -2087,6 +2148,8 @@ export interface AccountsTableQueryApi {
               | AccountsTableCustomPropertyFilterApi
           )[]
         | null
+    /** Omit missing definitions and custom-property filters incompatible with their current types. */
+    ignoreMissingDefinitions?: boolean | null
     /** Include churned accounts. Churned accounts are hidden by default. */
     includeChurned?: boolean | null
     /** Include ignored accounts. Ignored accounts are hidden by default. */
@@ -2103,6 +2166,7 @@ export interface AccountsTableQueryApi {
     response?: AccountsTableQueryResponseApi | null
     sort?: AccountsTableSortApi | null
     tags?: QueryLogTagsApi | null
+    useDefaultColumns?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
 }
@@ -4835,6 +4899,7 @@ export type AccountNotesListParams = {
     created_by?: number[]
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -4850,17 +4915,30 @@ export type AccountNotesListParams = {
 export type AccountRelationshipDefinitionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Return all definitions in one response when set to none.
+     */
+    pagination?: AccountRelationshipDefinitionsListPagination
 }
+
+export type AccountRelationshipDefinitionsListPagination =
+    (typeof AccountRelationshipDefinitionsListPagination)[keyof typeof AccountRelationshipDefinitionsListPagination]
+
+export const AccountRelationshipDefinitionsListPagination = {
+    None: 'none',
+} as const
 
 export type AccountTrackRulesRunsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -4895,6 +4973,7 @@ export type AccountsListParams = {
     include_ignored?: boolean
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -4944,6 +5023,7 @@ export type AccountsRelationshipsListParams = {
 export type AccountsEmailThreadsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -4955,6 +5035,7 @@ export type AccountsEmailThreadsListParams = {
 export type AccountsEmailThreadMessagesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 200
      */
     limit?: number
     /**
@@ -4966,6 +5047,7 @@ export type AccountsEmailThreadMessagesListParams = {
 export type AccountsMeetingsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -4981,6 +5063,7 @@ export type AccountsMeetingsListParams = {
 export type AccountsSummariesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -4992,6 +5075,7 @@ export type AccountsSummariesListParams = {
 export type AccountsSupportTicketMessagesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 200
      */
     limit?: number
     /**
@@ -5012,6 +5096,7 @@ export type AccountsByExternalIdRetrieveParams = {
 export type AnnouncementsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -5023,13 +5108,25 @@ export type AnnouncementsListParams = {
 export type CustomPropertyDefinitionsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
      * The initial index from which to return the results.
      */
     offset?: number
+    /**
+     * Return all definitions in one response when set to none.
+     */
+    pagination?: CustomPropertyDefinitionsListPagination
 }
+
+export type CustomPropertyDefinitionsListPagination =
+    (typeof CustomPropertyDefinitionsListPagination)[keyof typeof CustomPropertyDefinitionsListPagination]
+
+export const CustomPropertyDefinitionsListPagination = {
+    None: 'none',
+} as const
 
 export type CustomPropertyDefinitionsValuesRetrieveParams = {
     /**
@@ -5045,6 +5142,7 @@ export type CustomPropertyDefinitionsValuesRetrieveParams = {
 export type CustomPropertySourcesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -5056,6 +5154,7 @@ export type CustomPropertySourcesListParams = {
 export type CustomPropertySourcesRunsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -5071,6 +5170,7 @@ export type CustomPropertySourcesRunsListParams = {
 export type CustomerJourneysListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -5082,6 +5182,7 @@ export type CustomerJourneysListParams = {
 export type CustomerProfileConfigsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -5214,6 +5315,7 @@ export type FeatureRequestsListParams = {
     created_by_ids?: number[]
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
