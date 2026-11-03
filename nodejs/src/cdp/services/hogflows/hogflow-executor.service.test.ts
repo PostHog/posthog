@@ -3642,7 +3642,7 @@ if (not res.success) { throw Error(res.error) }`,
                 expected: () => ({ type: 'email', ...storedStep(), attachments: [attachmentFile] }),
             },
         ])('hands the email queue $name', async ({ step, send, expected }) => {
-            await insertEmailSetup('maildev')
+            await insertEmailSetup('ses')
             const invocation = flowInvocation(emailFlow(step()))
             invocation.state.variables = { name: 'Ada' }
             invocation.state.send = send()
@@ -3660,7 +3660,9 @@ if (not res.success) { throw Error(res.error) }`,
             },
             { name: 'delivers a code-key step with an accepted send', send: codeSend, sent: 1 },
         ])('$name', async ({ send, sent }) => {
-            await insertEmailSetup('maildev')
+            await insertEmailSetup('ses')
+            const sesSend = jest.spyOn(SESv2Client.prototype, 'send') as jest.SpyInstance
+            sesSend.mockResolvedValue({ MessageId: 'code-key-email' })
             const invocation = flowInvocation(emailFlow(codeKeyStep()))
             invocation.state.send = send()
 
@@ -3672,6 +3674,7 @@ if (not res.success) { throw Error(res.error) }`,
             }
 
             expect(metrics.filter((m) => m.metric_name === 'email_sent')).toHaveLength(sent)
+            expect(sesSend).toHaveBeenCalledTimes(sent)
         })
 
         it.each([
@@ -3687,7 +3690,9 @@ if (not res.success) { throw Error(res.error) }`,
         ])(
             "captures the email's events by the code send's choice $captureEngagement and the team switch $teamCaptures, step state saved without the send: $savedWithoutSend",
             async ({ captureEngagement, teamCaptures, savedWithoutSend, captured }) => {
-                await insertEmailSetup('maildev')
+                await insertEmailSetup('ses')
+                const sesSend = jest.spyOn(SESv2Client.prototype, 'send') as jest.SpyInstance
+                sesSend.mockResolvedValue({ MessageId: 'captured-email' })
                 await hub.postgres.query(
                     PostgresUse.COMMON_WRITE,
                     `INSERT INTO workflows_teamworkflowsconfig
@@ -3713,6 +3718,7 @@ if (not res.success) { throw Error(res.error) }`,
                 expect(
                     events.map((event) => event.event).filter((event) => event.startsWith('$workflows_email_'))
                 ).toEqual(captured)
+                expect(sesSend).toHaveBeenCalledTimes(1)
             }
         )
     })
