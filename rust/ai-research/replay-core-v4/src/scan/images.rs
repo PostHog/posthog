@@ -3,10 +3,9 @@
 //! marker.
 //!
 //! The scan looks for `data:image/` in any case, at each colon and near each CSS escape, because a stylesheet can write
-//! any character of a data URI's header as an escape and a browser still reads it. A data URI looks the same in an
-//! attribute, a CSS `url()`, a `srcset` candidate or stylesheet text, so the scan needs no knowledge of where it sits.
-//! Every other byte is copied as it is. An SVG data URI stays inline, because SVG is text that the text scrub reads in
-//! place.
+//! any character of a data URI's header as an escape. A data URI looks the same in an attribute, a CSS `url()`, a
+//! `srcset` candidate or stylesheet text, so the scan needs no knowledge of where it sits. Every other byte is
+//! copied as it is. An SVG data URI stays inline, because SVG is text that the text scrub reads in place.
 
 use std::borrow::Cow;
 use std::collections::HashSet;
@@ -29,8 +28,7 @@ const FORGIVING_BASE64: GeneralPurpose = GeneralPurpose::new(
         .with_decode_allow_trailing_bits(true),
 );
 
-/// The most bytes that one character of a data URI's header takes: a CSS escape of six hex digits and the CRLF after
-/// it, with the backslash and the line break escaped again by JSON.
+/// A header character takes at most 12 bytes as a CSS escape in JSON: a doubled backslash, six hex digits and an escaped CRLF.
 const MAX_HEADER_CHAR_BYTES: usize = 12;
 
 #[derive(Debug, Clone, Copy)]
@@ -340,9 +338,7 @@ fn percent_decoded(raw: &[u8]) -> Option<Vec<u8>> {
     Some(percent_encoding::percent_decode(text.as_bytes()).collect())
 }
 
-/// The character of a data URI's header at `at` and the bytes that spell it, or `None` at the end of a JSON string or
-/// at an escape the scan does not read. A JSON writer may escape a `/` as `\/` or `\u002F`, and CSS reads an escape
-/// such as `\61` or `\:` as its character, so a browser reads the header through both.
+/// Reads the header through CSS escapes and the JSON escapes of `/`, as a browser does. The end of the JSON string, or any other JSON escape, gives `None`.
 fn header_char(bytes: &[u8], at: usize) -> Option<(char, usize)> {
     match bytes.get(at..)? {
         [b'\\', b'/', ..] => Some(('/', 2)),
@@ -353,8 +349,7 @@ fn header_char(bytes: &[u8], at: usize) -> Option<(char, usize)> {
     }
 }
 
-/// The character that a CSS escape names, and the bytes after its backslash that spell it. A hex escape takes the one
-/// whitespace after it, as CSS reads it.
+/// The length counts from after the backslash, and a hex escape takes the one whitespace after it, as CSS reads it.
 fn css_escape(escaped: &[u8]) -> Option<(char, usize)> {
     let digits = escaped
         .iter()
@@ -491,8 +486,7 @@ fn escaped_schemes(bytes: &[u8]) -> Vec<(usize, usize)> {
         if escaped != Some(&b'\\') {
             continue;
         }
-        // The escape is one of the five characters of `data:`, so the scheme starts with it or at a `d` at most four
-        // characters before it. A scheme that starts with an earlier escape was found when the loop met that escape.
+        // The escape spells one of the five characters of `data:`, so the scheme starts at it or at a `d` up to four characters before it.
         let first_candidates = (escape.saturating_sub(4 * MAX_HEADER_CHAR_BYTES)..escape)
             .filter(|&start| matches!(bytes[start], b'd' | b'D'))
             .chain([escape]);
@@ -532,13 +526,11 @@ fn data_schemes(bytes: &[u8]) -> impl Iterator<Item = (usize, usize)> + '_ {
 }
 
 /// Replaces every inline image in `bytes` but SVG with its reference or a marker. Returns the input unchanged when it holds none.
-/// The scan reads the CSS escapes in a data URI's header but no JSON escape except that of a `/`, so a JSON escape of a
-/// letter hides the image. Give it bytes that [`canonical_strings`](crate::bytescan::canonical_strings) wrote.
+/// A JSON escape of a letter hides an image from the scan, so give it bytes that [`canonical_strings`](crate::bytescan::canonical_strings) wrote.
 pub fn extract_images<'b>(bytes: &'b [u8], sink: &mut ImageSink<'_>) -> Cow<'b, [u8]> {
     let mut out: Option<Vec<u8>> = None;
     let mut copied_to = 0;
-    // A header can run to the end of its JSON string. The scan reads each header once, and takes a `data:` inside it as
-    // part of that URI, so that the scan stays linear.
+    // A header can run to the end of its JSON string, so the scan reads each header once and takes a `data:` inside it as part of that URI, to stay linear.
     let mut headers_read_to = 0;
     for (start, meta_start) in data_schemes(bytes) {
         if start < copied_to.max(headers_read_to) {
