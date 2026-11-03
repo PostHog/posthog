@@ -882,6 +882,19 @@ class ChannelsAPITestCase(TestCase):
         listed = self.client.get(f"{self._tasks_url()}?archived=true").json()["results"]
         self.assertEqual([task["id"] for task in listed], [task_id])
 
+    def test_task_without_a_channel_creates_and_lands_in_the_personal_channel(self):
+        self.assertFalse(Channel.objects.unscoped().filter(team=self.team).exists())
+
+        task_id = self.client.post(
+            self._tasks_url(),
+            {"title": "First chat", "description": "d", "origin_product": "posthog_ai"},
+        ).json()["id"]
+
+        channel = Task.objects.select_related("channel").get(id=task_id).channel
+        assert channel is not None
+        self.assertEqual(channel.channel_type, Channel.ChannelType.PERSONAL)
+        self.assertEqual(channel.created_by_id, self.user.id)
+
     def test_cannot_file_task_into_someone_elses_personal_channel(self):
         self._provision()
         personal = Channel.objects.unscoped().get(team=self.team, channel_type=Channel.ChannelType.PERSONAL)
