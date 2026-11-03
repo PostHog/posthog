@@ -234,6 +234,21 @@ export interface teamLogicActions {
         currentTeam: TeamPublicType | TeamType | null
         payload?: any
     }
+    addFullStageTeamFields: (fields: Partial<TeamType>) => Partial<TeamType>
+    addFullStageTeamFieldsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    addFullStageTeamFieldsSuccess: (
+        currentTeam: TeamPublicType | TeamType | null,
+        payload?: Partial<TeamType>
+    ) => {
+        currentTeam: TeamPublicType | TeamType | null
+        payload?: Partial<TeamType>
+    }
     deleteTeam: (team: TeamType) => {
         team: TeamType
     }
@@ -412,6 +427,9 @@ export const teamLogic = kea<teamLogicType>([
                         return values.currentTeam
                     }
                 },
+                // No listeners, so the late fields do not rerun what a team load triggers.
+                addFullStageTeamFields: (fields: Partial<TeamType>) =>
+                    values.currentTeam ? { ...values.currentTeam, ...fields } : null,
                 refreshCurrentTeam: async () => {
                     const projectId = values.currentTeam?.project_id
                     if (!projectId) {

@@ -903,11 +903,17 @@ AppContextStage = Literal["inline", "boot", "full"]
 def _serialize_app_context_stage(
     serializer: "Serializer", full_stage_fields: frozenset[str], stage: AppContextStage
 ) -> dict[str, Any]:
-    if stage != "inline":
-        for name in list(serializer.fields):
-            if (name in full_stage_fields) != (stage == "full"):
-                serializer.fields.pop(name)
-    return serializer.data
+    if stage == "inline":
+        return serializer.data
+
+    def in_stage(name: str) -> bool:
+        return (name in full_stage_fields) == (stage == "full")
+
+    for name in list(serializer.fields):
+        if not in_stage(name):
+            serializer.fields.pop(name)
+    # A `to_representation` hook can add a field back, such as the `shortcut_position` backfill, so filter the output too.
+    return {name: value for name, value in serializer.data.items() if in_stage(name)}
 
 
 def add_user_app_context(

@@ -429,6 +429,8 @@ class TestGetContextForTemplate(APIBaseTest):
             request.user = self.user
             return request
 
+        self.user.shortcut_position = "below"
+        self.user.save()
         inline = get_context_for_template("index.html", user_request("/?deferred_app_context=0"))
         deferred = get_context_for_template("index.html", user_request("/?deferred_app_context=1"))
         fetched = json.loads(app_context(user_request("/_app_context")).content)

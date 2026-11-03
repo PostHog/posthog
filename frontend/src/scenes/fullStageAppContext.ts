@@ -35,17 +35,17 @@ export function applyFullStageAppContext(fullStage: FullStageAppContext): void {
     userLogic.findMounted()?.actions.addFullStageUserFields(fullStage.current_user)
 
     // The server sends the user's current team, which can differ from the page's team after a switch in another tab.
-    const teamId = fullStage.current_team?.id
-    if (teamId !== undefined && context.current_team?.id === teamId) {
-        Object.assign(context.current_team, fullStage.current_team)
+    const fullStageTeam = fullStage.current_team
+    const teamId = fullStageTeam?.id
+    if (fullStageTeam && teamId !== undefined && context.current_team?.id === teamId) {
+        Object.assign(context.current_team, fullStageTeam)
         if (context.current_project) {
             Object.assign(context.current_project, fullStage.current_project)
         }
         context.has_person_email = fullStage.has_person_email ?? false
         const mountedTeamLogic = teamLogic.findMounted()
-        const currentTeam = mountedTeamLogic?.values.currentTeam
-        if (mountedTeamLogic && currentTeam?.id === teamId) {
-            mountedTeamLogic.actions.loadCurrentTeamSuccess({ ...currentTeam, ...fullStage.current_team })
+        if (mountedTeamLogic?.values.currentTeam?.id === teamId) {
+            mountedTeamLogic.actions.addFullStageTeamFields(fullStageTeam)
         }
         teamFieldsListeners.forEach((listener) => listener())
     }
