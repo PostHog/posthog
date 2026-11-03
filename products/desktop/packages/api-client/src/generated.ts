@@ -10004,6 +10004,7 @@ export namespace Schemas {
      * * `new_flag_no_traffic` - New Flag No Traffic
      * * `early_significance` - Early Significance
      * * `metrics_not_matured` - Metrics Not Matured
+     * * `flag_shared` - Flag Shared
      */
     export type ExperimentHealthFindingCodeEnum =
         | "flag_off_while_running"
@@ -10029,7 +10030,8 @@ export namespace Schemas {
         | "release_conditions_changed_mid_run"
         | "new_flag_no_traffic"
         | "early_significance"
-        | "metrics_not_matured";
+        | "metrics_not_matured"
+        | "flag_shared";
     /**
      * * `critical` - Critical severity
      * * `warning` - Warning severity
@@ -10086,6 +10088,7 @@ export namespace Schemas {
          * * `new_flag_no_traffic` - New Flag No Traffic
          * * `early_significance` - Early Significance
          * * `metrics_not_matured` - Metrics Not Matured
+         * * `flag_shared` - Flag Shared
          */
         code: ExperimentHealthFindingCodeEnum;
         /**
@@ -10127,6 +10130,7 @@ export namespace Schemas {
     };
     /**
      * * `flag_state` - Flag State
+     * * `flag_shared` - Flag Shared
      * * `flag_history` - Flag History
      * * `split_changed_mid_run` - Split Changed Mid Run
      * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
@@ -10151,6 +10155,7 @@ export namespace Schemas {
      */
     export type ExperimentHealthCheckKeyEnum =
         | "flag_state"
+        | "flag_shared"
         | "flag_history"
         | "split_changed_mid_run"
         | "bucketing_changed_mid_run"
@@ -10188,6 +10193,7 @@ export namespace Schemas {
          * Stable identifier of the check. A check can report several finding codes, so the key is not a finding code.
          *
          * * `flag_state` - Flag State
+         * * `flag_shared` - Flag Shared
          * * `flag_history` - Flag History
          * * `split_changed_mid_run` - Split Changed Mid Run
          * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
