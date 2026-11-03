@@ -45142,8 +45142,6 @@ export namespace Schemas {
       per_issue_rate_limit_bucket_size_minutes?: number | null;
       /** Whether the project ingests exception events. When false, ingestion drops every $exception event for this project before it is stored or billed, and the events cannot be recovered. */
       ingestion_enabled?: boolean;
-      /** Whether status changes on linked Linear tickets update the issue. When true, an issue resolves once every linked Linear ticket is closed and at least one is done, and a resolved issue becomes active again when a linked ticket reopens. */
-      linear_status_sync_enabled?: boolean;
     }
 
     /**
@@ -88356,8 +88354,6 @@ export namespace Schemas {
       per_issue_rate_limit_bucket_size_minutes?: number | null;
       /** Whether the project ingests exception events. When false, ingestion drops every $exception event for this project before it is stored or billed, and the events cannot be recovered. */
       ingestion_enabled?: boolean;
-      /** Whether status changes on linked Linear tickets update the issue. When true, an issue resolves once every linked Linear ticket is closed and at least one is done, and a resolved issue becomes active again when a linked ticket reopens. */
-      linear_status_sync_enabled?: boolean;
     }
 
     /**
@@ -91949,6 +91945,13 @@ export namespace Schemas {
          * @nullable
          */
       marketing_frequency_cap_window_days?: number | null;
+      /**
+         * How many hours a marketing message over the frequency cap waits for a free slot before it is skipped. Null skips it right away.
+         * @minimum 1
+         * @maximum 168
+         * @nullable
+         */
+      marketing_frequency_cap_hold_hours?: number | null;
     }
 
     export interface TeamFeatureFlagPolicyConfig {
@@ -96326,6 +96329,13 @@ export namespace Schemas {
          * @nullable
          */
       marketing_frequency_cap_window_days?: number | null;
+      /**
+         * How many hours a marketing message over the frequency cap waits for a free slot before it is skipped. Null skips it right away. A held message sends as soon as one of the person's earlier messages leaves the window.
+         * @minimum 1
+         * @maximum 168
+         * @nullable
+         */
+      marketing_frequency_cap_hold_hours?: number | null;
       /** Whether tracking opens and clicks on marketing email needs the recipient's consent. 'off' follows each email step's own setting, 'opt_out' tracks unless the recipient objected, and 'opt_in' tracks only recipients who consented. Transactional email is never affected.
        *
        * * `off` - Off
@@ -112146,6 +112156,23 @@ export namespace Schemas {
       enabled: boolean;
     }
 
+    /**
+     * Topic key to `false` to opt the recipient out of that topic, or `true` to opt them back in. Opting back in to one marketing topic after an all-marketing opt-out lifts that opt-out, so `all_marketing` becomes `true`, and keeps the other marketing topics opted out. Topics you leave out keep their current choice.
+     */
+    export type SetPreferencesTopics = {[key: string]: boolean};
+
+    export interface SetPreferences {
+      /**
+         * The recipient's email address, exactly as Workflows sends to it. Matching is exact, so `Jane@example.com` and `jane@example.com` are two recipients.
+         * @maxLength 512
+         */
+      identifier: string;
+      /** `false` opts the recipient out of every marketing topic. `true` lifts that opt-out. Applied before `topics`. */
+      all_marketing?: boolean;
+      /** Topic key to `false` to opt the recipient out of that topic, or `true` to opt them back in. Opting back in to one marketing topic after an all-marketing opt-out lifts that opt-out, so `all_marketing` becomes `true`, and keeps the other marketing topics opted out. Topics you leave out keep their current choice. */
+      topics?: SetPreferencesTopics;
+    }
+
     export interface SetTemplateEnabled {
       /** Active catalog template to enable or disable for the team. */
       template_id: string;
@@ -123537,6 +123564,23 @@ export namespace Schemas {
       change: WoWChange | null;
     }
 
+    /**
+     * Topic key to `false` (opted out) or `true` (opted in), for every topic the recipient chose. A topic without a choice is not listed.
+     */
+    export type TopicPreferencesTopics = {[key: string]: boolean};
+
+    export interface TopicPreferences {
+      /** The recipient the preferences belong to. */
+      identifier: string;
+      /**
+         * `false` when the recipient opted out of all marketing, `true` when they opted back in, `null` when they never chose.
+         * @nullable
+         */
+      all_marketing: boolean | null;
+      /** Topic key to `false` (opted out) or `true` (opted in), for every topic the recipient chose. A topic without a choice is not listed. */
+      topics: TopicPreferencesTopics;
+    }
+
     export type TraceNodeIdsByAlias = {[key: string]: string};
 
     export interface TracePerson {
@@ -124447,6 +124491,28 @@ export namespace Schemas {
          */
       connected_at?: string | null;
     }
+
+    /**
+     * * `Redshift` - Redshift
+     * * `Snowflake` - Snowflake
+     * * `BigQuery` - BigQuery
+     * * `Postgres` - Postgres
+     * * `Databricks` - Databricks
+     * * `AzureBlob` - Azure Blob
+     * * `S3` - S3
+     */
+    export type UserCreatableDestinationTypeEnum = typeof UserCreatableDestinationTypeEnum[keyof typeof UserCreatableDestinationTypeEnum];
+
+
+    export const UserCreatableDestinationTypeEnum = {
+      Redshift: 'Redshift',
+      Snowflake: 'Snowflake',
+      BigQuery: 'BigQuery',
+      Postgres: 'Postgres',
+      Databricks: 'Databricks',
+      AzureBlob: 'AzureBlob',
+      S3: 'S3',
+    } as const;
 
     export interface UserCustomerAnalyticsConfig {
       /** Account properties pinned in sidebar display order. */
@@ -126329,6 +126395,16 @@ export namespace Schemas {
          * @nullable
          */
       warehouse_source_type: string | null;
+      /** Warehouse destination PostHog can send data to when the tool is that warehouse, or null for any other tool.
+       *
+       * * `Redshift` - Redshift
+       * * `Snowflake` - Snowflake
+       * * `BigQuery` - BigQuery
+       * * `Postgres` - Postgres
+       * * `Databricks` - Databricks
+       * * `AzureBlob` - Azure Blob
+       * * `S3` - S3 */
+      warehouse_destination_type: UserCreatableDestinationTypeEnum | null;
       /** How the wizard sets up the source: in the terminal or in the app. Null for a tool with no warehouse source.
        *
        * * `in-cli` - In the terminal
@@ -127232,6 +127308,13 @@ export namespace Schemas {
          * @nullable
          */
       marketing_frequency_cap_window_days?: number | null;
+      /**
+         * How many hours a marketing message over the frequency cap waits for a free slot before it is skipped. Null skips it right away. A held message sends as soon as one of the person's earlier messages leaves the window.
+         * @minimum 1
+         * @maximum 168
+         * @nullable
+         */
+      marketing_frequency_cap_hold_hours?: number | null;
       /** Whether tracking opens and clicks on marketing email needs the recipient's consent. 'off' follows each email step's own setting, 'opt_out' tracks unless the recipient objected, and 'opt_in' tracks only recipients who consented. Transactional email is never affected.
        *
        * * `off` - Off
