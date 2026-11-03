@@ -11,8 +11,7 @@ export type StoreKind = 'keychain' | 'file' | 'memory'
 // The stores a login can use. The memory store exists for tests only.
 export type StoreChoice = Exclude<StoreKind, 'memory'>
 
-// Where hog keeps the secrets of the logins `hog auth login` saves, one per host. Commands only see
-// this interface, so each store behaves the same to them.
+// Where hog keeps the secrets of the logins `hog auth login` saves, one per host.
 export interface CredentialStore {
     readonly kind: StoreKind
     // The file that holds the secrets. Null for a store that isn't a file.

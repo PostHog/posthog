@@ -6,7 +6,6 @@ import { openStore } from '@/posthog/credential-store/open'
 import { hostKey } from '@/posthog/host'
 import { loginFor, readSettings, withLogin, writeSettings, type HogSettings } from '@/posthog/settings'
 
-// A login hog stored, and the store that holds its secrets.
 export interface StoredLogin {
     key: AccessKey
     store: KeychainStore | FileStore
@@ -27,7 +26,6 @@ export async function readLogin(
     return key ? { key, store } : undefined
 }
 
-// How a login's key reads and saves its stored copy when it renews itself.
 export function loginStorage(runtime: Runtime, login: StoredLogin): AccessKeyStorage {
     const { host } = login.key
     return {
@@ -50,7 +48,7 @@ export async function writeLogin(
     await writeSettings(runtime, options.lastLogin ? { ...settings, host: key.host } : settings)
 }
 
-// Removes the login's secrets and its record. Resolves to false when hog had no login for the host.
+// Resolves to false when hog had no login for the host.
 export async function removeLogin(runtime: Runtime, login: StoredLogin): Promise<boolean> {
     const { host } = login.key
     const removed = await login.store.remove(host)

@@ -6,7 +6,6 @@ import { sendRequest } from './api'
 import { hostUrl } from './host'
 import type { LoginRecord } from './settings'
 
-// What logging out did in PostHog.
 export interface LogoutOutcome {
     // Whether PostHog revoked the login. Null for a key hog can't revoke.
     revoked: boolean | null
