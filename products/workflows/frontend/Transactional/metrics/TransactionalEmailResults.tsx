@@ -6,14 +6,13 @@ import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TaxonomicPopover } from 'lib/components/TaxonomicPopover/TaxonomicPopover'
 
 import { messageTemplatesLogic } from '../../TemplateLibrary/messageTemplatesLogic'
-import { transactionalEmailPerformanceLogic } from './transactionalEmailPerformanceLogic'
+import { transactionalEmailMetricsLogic } from './transactionalEmailMetricsLogic'
 import { TransactionalEmailResultsStats } from './TransactionalEmailResultsStats'
 
 export function TransactionalEmailResults(): JSX.Element {
-    const { resultsQuery, results, resultsLoading, resultsFailed, canLoadResults, templatesFailed } = useValues(
-        transactionalEmailPerformanceLogic
-    )
-    const { setResultsQuery, loadResults, loadTemplates } = useActions(transactionalEmailPerformanceLogic)
+    const { resultsQuery, results, resultsLoading, resultsFailed, canLoadResults, templatesFailed } =
+        useValues(transactionalEmailMetricsLogic)
+    const { setResultsQuery, loadResults, loadTemplates } = useActions(transactionalEmailMetricsLogic)
     const { transactionalTemplates, templatesLoading } = useValues(messageTemplatesLogic)
 
     const emailOptions = transactionalTemplates

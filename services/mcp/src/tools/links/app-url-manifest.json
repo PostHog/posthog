@@ -1869,13 +1869,13 @@
         "params": [],
         "scope": "project"
     },
-    "transactionalNew": {
-        "template": "/transactional/new",
+    "transactionalMetrics": {
+        "template": "/transactional/metrics",
         "params": [],
         "scope": "project"
     },
-    "transactionalPerformance": {
-        "template": "/transactional/performance",
+    "transactionalNew": {
+        "template": "/transactional/new",
         "params": [],
         "scope": "project"
     },

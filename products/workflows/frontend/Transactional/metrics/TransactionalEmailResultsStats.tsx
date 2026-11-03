@@ -4,10 +4,10 @@ import { AnalyticsMetricCard } from 'lib/components/AnalyticsMetricCard/Analytic
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 
-import { transactionalEmailPerformanceLogic } from './transactionalEmailPerformanceLogic'
+import { transactionalEmailMetricsLogic } from './transactionalEmailMetricsLogic'
 
 export function TransactionalEmailResultsStats(): JSX.Element {
-    const { resultsQuery, results, resultsLoading } = useValues(transactionalEmailPerformanceLogic)
+    const { resultsQuery, results, resultsLoading } = useValues(transactionalEmailMetricsLogic)
 
     return (
         <div

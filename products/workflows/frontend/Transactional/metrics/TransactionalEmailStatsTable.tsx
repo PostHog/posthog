@@ -20,7 +20,7 @@ const RATE_BASE: Record<Rate, 'sent' | 'delivered'> = {
 const RATE_TITLE: Record<Rate, string> = {
     delivered: 'Delivered',
     bounced: 'Bounced',
-    complained: 'Spam reports',
+    complained: 'Marked as spam',
     opened: 'Opened',
     clicked: 'Clicked',
 }
@@ -86,7 +86,7 @@ export function TransactionalEmailStatsTable({
                     render: (_: unknown, row: TransactionalEmailStatsRowApi) => <RateCell row={row} rate={rate} />,
                 })),
                 {
-                    title: 'Not sent',
+                    title: 'Failed',
                     key: 'failed',
                     align: 'right',
                     render: (_, row) => (

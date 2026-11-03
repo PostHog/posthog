@@ -7,15 +7,14 @@ import { urls } from 'scenes/urls'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
-import { PERFORMANCE_DATE_RANGES, transactionalEmailPerformanceLogic } from './transactionalEmailPerformanceLogic'
+import { METRICS_DATE_RANGES, transactionalEmailMetricsLogic } from './transactionalEmailMetricsLogic'
 import { TransactionalEmailResults } from './TransactionalEmailResults'
 import { TransactionalEmailStatsTable } from './TransactionalEmailStatsTable'
 
-export function TransactionalEmailPerformance(): JSX.Element {
-    const { hours, templateStats, templateStatsLoading, domainStats, domainStatsLoading, statsFailed } = useValues(
-        transactionalEmailPerformanceLogic
-    )
-    const { setHours, loadTemplateStats, loadDomainStats } = useActions(transactionalEmailPerformanceLogic)
+export function TransactionalEmailMetrics(): JSX.Element {
+    const { hours, templateStats, templateStatsLoading, domainStats, domainStatsLoading, statsFailed } =
+        useValues(transactionalEmailMetricsLogic)
+    const { setHours, loadTemplateStats, loadDomainStats } = useActions(transactionalEmailMetricsLogic)
     const emptyState = statsFailed ? "The numbers couldn't load" : 'No transactional emails were sent in this period'
 
     return (
@@ -29,7 +28,7 @@ export function TransactionalEmailPerformance(): JSX.Element {
                             loadTemplateStats()
                             loadDomainStats()
                         },
-                        'data-attr': 'transactional-email-performance-retry',
+                        'data-attr': 'transactional-email-metrics-retry',
                     }}
                 >
                     The numbers couldn't load. Check your connection and try again.
@@ -37,14 +36,14 @@ export function TransactionalEmailPerformance(): JSX.Element {
             )}
             <SceneSection
                 title="By email"
-                description="Delivered and bounced count against what was sent. Spam reports, opens and clicks count against what was delivered."
+                description="Delivered and bounced are shares of what was sent. Marked as spam, opened and clicked are shares of what was delivered."
                 actions={
                     <LemonSelect
                         size="small"
                         value={hours}
                         onChange={setHours}
-                        options={PERFORMANCE_DATE_RANGES.map((range) => ({ value: range.value, label: range.label }))}
-                        data-attr="transactional-email-performance-date-filter"
+                        options={METRICS_DATE_RANGES.map((range) => ({ value: range.value, label: range.label }))}
+                        data-attr="transactional-email-metrics-date-filter"
                     />
                 }
             >
@@ -54,7 +53,7 @@ export function TransactionalEmailPerformance(): JSX.Element {
                     groupTitle="Email"
                     linkFor={(row) => (row.label ? urls.transactionalTemplate(row.key) : null)}
                     emptyState={emptyState}
-                    dataAttr="transactional-email-performance-by-email"
+                    dataAttr="transactional-email-metrics-by-email"
                 />
             </SceneSection>
             <SceneDivider />
@@ -64,7 +63,7 @@ export function TransactionalEmailPerformance(): JSX.Element {
                     loading={domainStatsLoading}
                     groupTitle="Sending domain"
                     emptyState={emptyState}
-                    dataAttr="transactional-email-performance-by-domain"
+                    dataAttr="transactional-email-metrics-by-domain"
                 />
             </SceneSection>
             <SceneDivider />
