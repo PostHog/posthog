@@ -5447,7 +5447,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             let tilesRefreshedCachedCount = 0
             let tilesErroredCount = 0
             let tilesAbortedCount = 0
-            const { currentTeamId, dashboardLoadData } = values
+            const { currentTeamId, dashboardLoadData, dashboard } = values
 
             if (sortedTilesToRefresh.length > 0) {
                 // Mark tiles as queued before the breakpoint's await, so there's no render gap
@@ -5579,7 +5579,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.setPreviewedDashboardSettings(settingsToRefresh)
             }
 
-            if (isInitialLoad) {
+            if (isInitialLoad && dashboard) {
                 // capture time to see data
                 const { dashboardQueryId, startTime, responseBytes } = dashboardLoadData
                 eventUsageLogic.actions.reportTimeToSeeData({

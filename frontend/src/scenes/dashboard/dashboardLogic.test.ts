@@ -4161,12 +4161,17 @@ describe('dashboardLogic', () => {
             // settles as a 404 — and must NOT set it before the request has been made.
             it('sets error404 after a settled 404 and not before', async () => {
                 expect(logic.values.error404).toBe(false)
+                const reportTimeToSeeData = jest.spyOn(eventUsageLogic.actions, 'reportTimeToSeeData').mockClear()
 
                 await expectLogic(logic).toFinishAllListeners()
 
                 expect(logic.values.dashboard).toBeNull()
                 expect(logic.values.dashboardFailedToLoad).toBe(false)
                 expect(logic.values.error404).toBe(true)
+                expect(reportTimeToSeeData).not.toHaveBeenCalledWith(
+                    expect.objectContaining({ type: 'dashboard_load', status: 'success' })
+                )
+                reportTimeToSeeData.mockRestore()
             })
 
             // Logging in lands a person on their configured home. When that home is this dashboard and
