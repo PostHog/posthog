@@ -57,14 +57,14 @@ export function CatalogToReviewList({ suggestionsItem }: CatalogToReviewListProp
             count: proposedJoins,
             title: pluralize(proposedJoins, 'proposed join'),
             description: 'Joins between tables waiting for someone to accept or reject them.',
-            href: combineUrl(urls.dataCatalog('relationships'), { [TABLES_FILTER_PARAM]: PROPOSED_TABLES_FILTER }).url,
+            href: urls.dataCatalog('relationships'),
         },
         {
             key: 'metrics',
             count: proposedMetrics,
             title: pluralize(proposedMetrics, 'proposed metric'),
             description: 'Metric definitions waiting for approval.',
-            href: combineUrl(urls.dataCatalog('metrics'), { [TABLES_FILTER_PARAM]: PROPOSED_TABLES_FILTER }).url,
+            href: urls.dataCatalog('metrics'),
         },
     ].filter(({ count }) => count > 0)
 
