@@ -1,8 +1,10 @@
 import re
+import operator
 from collections import defaultdict
+from functools import reduce
 from typing import Any, Literal, TypedDict, cast
 
-from django.db.models import BigIntegerField, CharField, F, Model, OuterRef, QuerySet, Subquery, Value
+from django.db.models import BigIntegerField, CharField, F, Model, OuterRef, Q, QuerySet, Subquery, Value
 from django.db.models.functions import Cast, JSONObject, Lower
 from django.http import HttpResponse
 
@@ -401,12 +403,14 @@ def class_queryset(
     # full-text search rank
     if query:
         if klass in (EventDefinition, PropertyDefinition):
-            # Every word the rank keeps appears in the name, so a cheap substring check runs first
-            # and the costly ts_rank only scores names that can match, not every definition.
-            qs = qs.alias(_lower_name=Lower("name"))
-            for word in re.findall(r"[^\W_]+", query):
-                # Postgres lower() folds case as the rank does, where UPPER() would miss names such as "İstanbul".
-                qs = qs.filter(_lower_name__contains=Lower(Value(word)))
+            # ts_rank keeps a name only when at least one search word matches it, so a cheap substring
+            # check runs first and the costly rank only scores names that can match, not every definition.
+            # Postgres lower() folds case as the rank does, where UPPER() would miss names such as "İstanbul".
+            words = re.findall(r"[^\W_]+", query)
+            if words:
+                qs = qs.alias(_lower_name=Lower("name")).filter(
+                    reduce(operator.or_, (Q(_lower_name__contains=Lower(Value(word))) for word in words))
+                )
         qs = qs.annotate(rank=build_rank(search_fields, query, config="simple"))
         qs = qs.filter(rank__gt=0.05)
         values.append("rank")

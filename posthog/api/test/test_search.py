@@ -229,6 +229,7 @@ class TestSearch(APIBaseTest):
         [
             ("prefix", "sec", {"second event"}),
             ("every word", "first event", {"first event"}),
+            ("some words, as the rank allows", "first event missing", {"first event"}),
             ("shared word", "event", {"first event", "second event", "third event"}),
             ("word inside a snake_case name", "view", {"page_view_v2"}),
             ("dotted capital I folded like the rank", "istanbul", {"İstanbul office"}),
