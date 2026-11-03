@@ -30,6 +30,7 @@ import { markBootPhase } from 'lib/utils/bootTiming'
 import { getAppContext } from 'lib/utils/getAppContext'
 import { isChunkLoadError } from 'lib/utils/isChunkLoadError'
 import { addProjectIdIfMissing, getProjectIdentifierInPath, removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { handleLoginRedirect } from 'lib/utils/loginRedirect'
 import { retryImport } from 'lib/utils/retryImport'
 import { isStableChunkBuild, reloadAfterChunkLoadError } from 'lib/utils/stableChunks'
 import { identifierToHuman } from 'lib/utils/strings'
@@ -59,7 +60,6 @@ import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
 import { loadCoreFilterDefinitions } from '~/taxonomy/loadCoreFilterDefinitions'
 import { AccessControlLevel, UserType } from '~/types'
 
-import { handleLoginRedirect } from './authentication/auth/loginLogic'
 import { parseCouponCampaign } from './coupons/utils'
 import { isOnboardingRedirectSuppressed } from './onboarding/onboardingDelegationState'
 import { organizationLogic } from './organizationLogic'
@@ -126,7 +126,7 @@ function leaveBlockedOrganizationPath(): boolean {
 
 // `/` and `/home` both resolve the configured homepage through this, so anything asking whether a
 // location is the homepage has to derive it the same way.
-const homepageTargetPathname = (homepage: SceneTab): string => {
+export const homepageTargetPathname = (homepage: SceneTab): string => {
     const targetPathname = addProjectIdIfMissing(homepage.pathname || urls.projectHomepage())
     return removeProjectIdIfPresent(targetPathname) === '/'
         ? addProjectIdIfMissing(urls.projectHomepage())
@@ -135,7 +135,7 @@ const homepageTargetPathname = (homepage: SceneTab): string => {
 
 // Bootstrapped by Django into APP_CONTEXT so the configured homepage is known on first paint,
 // before any async fetch — otherwise urlToAction runs with a null homepage and /home can't redirect.
-const getBootstrappedHomepage = (): SceneTab | null => {
+export const getBootstrappedHomepage = (): SceneTab | null => {
     const homepage = getAppContext()?.homepage
     if (!homepage) {
         return null
