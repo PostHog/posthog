@@ -1,3 +1,4 @@
+import { IconDrag } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { StepIcon } from './StepIcon'
@@ -11,6 +12,8 @@ export function StepPaletteRow({
     active,
     onHover,
     onChoose,
+    onDragStart,
+    onDragEnd,
 }: {
     item: PaletteItem<CanvasCommand>
     id: string
@@ -18,8 +21,12 @@ export function StepPaletteRow({
     active: boolean
     onHover: () => void
     onChoose: () => void
+    /** Set for a step row on the canvas, which a drag can drop on a +. */
+    onDragStart?: () => void
+    onDragEnd?: () => void
 }): JSX.Element {
-    return (
+    const draggable = item.kind === 'step' && !!onDragStart
+    const button = (
         <LemonButton
             fullWidth
             size="small"
@@ -37,6 +44,7 @@ export function StepPaletteRow({
                     </span>
                 )
             }
+            sideIcon={draggable && active ? <IconDrag className="text-secondary" /> : undefined}
             onMouseEnter={onHover}
             onClick={onChoose}
         >
@@ -47,5 +55,21 @@ export function StepPaletteRow({
                 )}
             </span>
         </LemonButton>
+    )
+    if (!draggable) {
+        return button
+    }
+    return (
+        <div
+            draggable
+            onDragStart={(event) => {
+                event.dataTransfer.effectAllowed = 'move'
+                event.dataTransfer.setData('text/plain', item.label)
+                onDragStart?.()
+            }}
+            onDragEnd={onDragEnd}
+        >
+            {button}
+        </div>
     )
 }

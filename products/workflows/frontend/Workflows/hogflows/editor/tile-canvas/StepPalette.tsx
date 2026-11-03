@@ -53,6 +53,8 @@ export function StepPalette({
     placeholder,
     trigger,
     onSelectStep,
+    onDragStep,
+    onDragEnd,
     onClose,
 }: {
     sections: PaletteSection[]
@@ -61,6 +63,9 @@ export function StepPalette({
     placeholder: string
     trigger?: RefObject<HTMLElement>
     onSelectStep: (step: CreateActionType) => void
+    /** Lets a step row drag onto the canvas. */
+    onDragStep?: (step: CreateActionType) => void
+    onDragEnd?: () => void
     onClose: () => void
 }): JSX.Element {
     const [query, setQuery] = useState(initialQuery)
@@ -151,6 +156,13 @@ export function StepPalette({
                             active={index === activeIndex}
                             onHover={() => setActiveIndex(index)}
                             onChoose={() => choose(item)}
+                            onDragStart={
+                                onDragStep && item.kind === 'step'
+                                    ? // The browser draws the drag image after dragstart, so the palette may hide only after that.
+                                      () => requestAnimationFrame(() => onDragStep(item.step))
+                                    : undefined
+                            }
+                            onDragEnd={onDragEnd}
                         />
                     </div>
                 ))}

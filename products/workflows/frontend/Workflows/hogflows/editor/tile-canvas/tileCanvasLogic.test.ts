@@ -238,12 +238,40 @@ describe('tileCanvasLogic', () => {
                 source: 'quick add',
                 add: (): void => logic.actions.addStepAt(delayStep, logic.values.workflow.edges[0]),
             },
+            {
+                source: 'drag',
+                add: (): void => {
+                    logic.actions.openCommandPalette('d')
+                    logic.actions.startDraggingNewStep(delayStep)
+                    logic.actions.dropAt(logic.values.workflow.edges[0])
+                    logic.actions.endDraggingNewStep()
+                },
+            },
         ])('counts a step added from the $source', ({ source, add }) => {
             const capture = jest.spyOn(posthog, 'capture')
 
             add()
 
             expect(capture).toHaveBeenCalledWith('workflows tile canvas step added', { source, step_type: 'delay' })
+        })
+
+        it.each([
+            { outcome: 'lands on a +', drop: true, palette: null, addedSteps: 1 },
+            { outcome: 'lets go elsewhere', drop: false, palette: 'd', addedSteps: 0 },
+        ])('closes the palette only when a step dragged out of it $outcome', async ({ drop, palette, addedSteps }) => {
+            const stepCount = logic.values.workflow.actions.length
+            logic.actions.openCommandPalette('d')
+            logic.actions.startDraggingNewStep(delayStep)
+            if (drop) {
+                logic.actions.dropAt(logic.values.workflow.edges[0])
+            }
+
+            await expectLogic(logic, () => logic.actions.endDraggingNewStep()).toMatchValues({
+                commandPaletteQuery: palette,
+                nodeToBeAdded: null,
+                isDraggingNewStep: false,
+            })
+            expect(logic.values.workflow.actions).toHaveLength(stepCount + addedSteps)
         })
 
         it.each(['startMovingNode', 'startCopyingNode'] as const)(

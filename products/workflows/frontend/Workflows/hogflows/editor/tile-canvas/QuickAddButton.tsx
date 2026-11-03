@@ -26,9 +26,10 @@ export function QuickAddButton({
     isDropTarget?: boolean
 }): JSX.Element | null {
     const buttonRef = useRef<HTMLButtonElement>(null)
-    const { quickAddEdgeKey, isPlacing, paletteSections, placementLabel, placeableEdgeKeys } =
+    const { quickAddEdgeKey, isPlacing, paletteSections, placementLabel, placeableEdgeKeys, isDraggingNewStep } =
         useValues(tileCanvasLogic)
-    const { openQuickAdd, closeQuickAdd, addStepAt, placeAt } = useActions(tileCanvasLogic)
+    const { openQuickAdd, closeQuickAdd, addStepAt, placeAt, startDraggingNewStep, endDraggingNewStep } =
+        useActions(tileCanvasLogic)
     const key = getEdgeId(edge)
     const isOpen = quickAddEdgeKey === key
 
@@ -43,6 +44,7 @@ export function QuickAddButton({
         >
             <Popover
                 visible={isOpen}
+                className={isDraggingNewStep ? 'invisible' : undefined}
                 placement="right-start"
                 fallbackPlacements={['left-start', 'left', 'left-end', 'bottom-start', 'top-start']}
                 overlay={
@@ -51,6 +53,8 @@ export function QuickAddButton({
                         placeholder="Search steps"
                         trigger={buttonRef}
                         onSelectStep={(step) => addStepAt(step, edge)}
+                        onDragStep={startDraggingNewStep}
+                        onDragEnd={endDraggingNewStep}
                         onClose={closeQuickAdd}
                     />
                 }
