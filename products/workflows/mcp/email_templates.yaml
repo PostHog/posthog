@@ -179,11 +179,11 @@ tools:
                 description: >
                     Distinct ID of the recipient's person. The send and its engagement events are recorded against that
                     person. Defaults to the recipient's email address.
+        feature_flag: workflows-email-from-code
         confirmed_action:
-            message: >
+            message: |
                 About to send the email '{subject}' to {to}. Reply 'confirm' to send it.
             action_label: send email
-        feature_flag: workflows-email-from-code
     workflows-show-email-template:
         operation: messaging_templates_retrieve
         enabled: true
