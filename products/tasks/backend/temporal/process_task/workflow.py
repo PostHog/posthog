@@ -1987,13 +1987,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 def connection_changed(observed_version: int = version) -> bool:
                     return self._task_completed or self._github_access_version != observed_version
 
-                # Replaying histories must retain any polling timer they already scheduled.
-                timeout = (
-                    remaining
-                    if workflow.patched("self-driving-github-event-recovery")
-                    else min(remaining, timedelta(minutes=5))
-                )
-                if readiness.status == "retry" and workflow.patched("self-driving-github-event-recovery"):
+                timeout = remaining
+                if readiness.status == "retry":
                     transient_attempts += 1
                     if transient_attempts <= 5:
                         timeout = min(remaining, timedelta(seconds=10 * 2 ** (transient_attempts - 1)))

@@ -5,10 +5,14 @@ from uuid import uuid4
 import pytest
 
 from temporalio import activity, workflow
+from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
-from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+from temporalio.worker import Replayer, UnsandboxedWorkflowRunner, Worker
 
 from products.tasks.backend.github_recovery import GitHubRecoveryCheck
+from products.tasks.backend.temporal.process_task.activities.check_github_readiness import (
+    check_self_driving_github_readiness,
+)
 from products.tasks.backend.temporal.process_task.activities.update_task_run_status import UpdateTaskRunStatusInput
 from products.tasks.backend.temporal.process_task.workflow import ProcessTaskWorkflow
 
@@ -25,6 +29,58 @@ class GitHubRecoveryTestWorkflow:
     @workflow.run
     async def run(self, run_id: str) -> bool:
         return await self.process._wait_for_github_readiness(run_id)
+
+
+@workflow.defn(name="GitHubRecoveryTestWorkflow")
+class LegacyGitHubRecoveryTestWorkflow:
+    @workflow.run
+    async def run(self, run_id: str) -> bool:
+        for _attempt in range(2):
+            result = await workflow.execute_activity(
+                check_self_driving_github_readiness,
+                run_id,
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+            if result.status == "ready":
+                return True
+            try:
+                await workflow.wait_condition(lambda: False, timeout=timedelta(minutes=5))
+            except TimeoutError:
+                pass
+        return False
+
+
+@pytest.mark.asyncio
+async def test_recovery_replays_a_previously_recorded_polling_timer() -> None:
+    check_count = 0
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        deadline = await env.get_current_time() + timedelta(days=7)
+
+        @activity.defn(name="check_self_driving_github_readiness")
+        async def check_access(run_id: str) -> GitHubRecoveryCheck:
+            nonlocal check_count
+            check_count += 1
+            return GitHubRecoveryCheck(status="suspended" if check_count == 1 else "ready", retry_until=deadline)
+
+        async with Worker(
+            env.client,
+            task_queue="github-recovery-replay-test",
+            workflows=[LegacyGitHubRecoveryTestWorkflow],
+            activities=[check_access],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            handle = await env.client.start_workflow(
+                LegacyGitHubRecoveryTestWorkflow.run,
+                "example-run",
+                id=str(uuid4()),
+                task_queue="github-recovery-replay-test",
+            )
+            assert await handle.result() is True
+            history = await handle.fetch_history()
+        await Replayer(
+            workflows=[GitHubRecoveryTestWorkflow], workflow_runner=UnsandboxedWorkflowRunner()
+        ).replay_workflow(history)
 
 
 @pytest.mark.asyncio
