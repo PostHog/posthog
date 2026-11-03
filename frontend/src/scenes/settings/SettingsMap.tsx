@@ -2234,7 +2234,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'environment-trusted-workloads',
                 title: 'Trusted workloads',
                 description:
-                    'Let workloads you trust, such as CI jobs from one repository, get short-lived tokens for this project without storing a secret.',
+                    'Let workloads you trust, such as CI jobs, get short-lived tokens for this project without storing a secret.',
                 component: <WorkloadTrustPolicies />,
                 keywords: [
                     'workload',

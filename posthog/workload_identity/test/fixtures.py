@@ -2,7 +2,7 @@ from typing import TYPE_CHECKING
 
 from unittest.mock import patch
 
-from posthog.workload_identity.providers import AudienceCheck, WorkloadClaimMapping, WorkloadProvider
+from posthog.workload_identity.providers import AudienceCheck, WorkloadClaim, WorkloadProvider
 
 if TYPE_CHECKING:
     from unittest.mock import _patch
@@ -16,14 +16,19 @@ FAKE_WORKLOAD_PROVIDER = WorkloadProvider(
     issuer=FAKE_WORKLOAD_ISSUER,
     jwks_url="https://ci.example.com/.well-known/jwks",
     audience_check=AudienceCheck.SITE_URL,
-    pinned_claim="repository_id",
-    claims=WorkloadClaimMapping(
-        repository="repository",
-        ref="ref",
-        environment="environment",
-        workflow="workflow",
-        run_id="run_id",
-        sha="sha",
+    subject_claim=WorkloadClaim(name="repository_id", label="Repository ID"),
+    subject_name_claim=WorkloadClaim(name="repository", label="Repository"),
+    condition_claims=(
+        WorkloadClaim(name="ref", label="Branch or tag", help_text="For example refs/heads/main."),
+        WorkloadClaim(name="environment", label="Environment"),
+    ),
+    recorded_claims=(
+        WorkloadClaim(name="repository", label="Repository"),
+        WorkloadClaim(name="workflow", label="Workflow"),
+        WorkloadClaim(name="run_id", label="Run"),
+        WorkloadClaim(name="sha", label="Commit"),
+        WorkloadClaim(name="ref", label="Branch or tag"),
+        WorkloadClaim(name="environment", label="Environment"),
     ),
     actor_label_template="{repository} · {workflow} run {run_id}",
     run_url_template="https://ci.example.com/{repository}/runs/{run_id}",

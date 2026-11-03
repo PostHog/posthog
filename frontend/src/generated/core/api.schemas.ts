@@ -5689,6 +5689,25 @@ export interface UploadedMediaUploadStartedApi {
     readonly expires_in: number
 }
 
+/**
+ * The label of each condition claim the provider allows, keyed by claim name.
+ */
+export type WorkloadClaimLabelsApiConditions = { [key: string]: string }
+
+export interface WorkloadClaimLabelsApi {
+    /** What the provider calls the subject, for example Repository ID. */
+    subject: string
+    /** What the provider calls the subject name, for example Repository. */
+    subject_name: string
+    /** The label of each condition claim the provider allows, keyed by claim name. */
+    conditions: WorkloadClaimLabelsApiConditions
+}
+
+/**
+ * Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition.
+ */
+export type WorkloadTrustPolicyApiConditions = { [key: string]: string }
+
 export interface WorkloadTrustPolicyApi {
     readonly id: string
     /**
@@ -5697,35 +5716,29 @@ export interface WorkloadTrustPolicyApi {
      */
     name: string
     /**
-     * The OIDC issuer of the CI provider, from the list of supported providers.
+     * The OIDC issuer of the workload provider, from the list of supported providers.
      * @maxLength 255
      */
     issuer: string
     /**
-     * The key of the CI provider the issuer belongs to.
+     * The key of the workload provider the issuer belongs to.
      * @nullable
      */
     readonly provider: string | null
     /**
-     * The repository's full name, for example `acme/web`. Matched exactly.
+     * The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly.
      * @maxLength 255
      */
-    repository: string
+    subject_name: string
     /**
-     * The repository's immutable ID from the CI provider. Matched together with the name, so a deleted and re-created repository with the same name does not match.
-     * @maxLength 100
-     */
-    repository_id: string
-    /**
-     * The git ref the job must run on, for example `refs/heads/main`. Empty matches any ref.
+     * The workload's immutable ID, from the provider's subject claim, for example a repository ID. Matched exactly together with the name, so a deleted and re-created workload with the same name does not match.
      * @maxLength 255
      */
-    ref?: string
-    /**
-     * The deployment environment the job must run in. Empty matches any environment.
-     * @maxLength 255
-     */
-    environment?: string
+    subject: string
+    /** Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition. */
+    conditions?: WorkloadTrustPolicyApiConditions
+    /** How the provider names the subject, the subject name and each condition claim, for display. */
+    readonly claim_labels: WorkloadClaimLabelsApi
     /**
      * The scopes every token minted under this policy carries. Scopes that manage credentials or access are refused.
      * @items.maxLength 100
@@ -5747,6 +5760,11 @@ export interface PaginatedWorkloadTrustPolicyListApi {
     results: WorkloadTrustPolicyApi[]
 }
 
+/**
+ * Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition.
+ */
+export type PatchedWorkloadTrustPolicyApiConditions = { [key: string]: string }
+
 export interface PatchedWorkloadTrustPolicyApi {
     readonly id?: string
     /**
@@ -5755,35 +5773,29 @@ export interface PatchedWorkloadTrustPolicyApi {
      */
     name?: string
     /**
-     * The OIDC issuer of the CI provider, from the list of supported providers.
+     * The OIDC issuer of the workload provider, from the list of supported providers.
      * @maxLength 255
      */
     issuer?: string
     /**
-     * The key of the CI provider the issuer belongs to.
+     * The key of the workload provider the issuer belongs to.
      * @nullable
      */
     readonly provider?: string | null
     /**
-     * The repository's full name, for example `acme/web`. Matched exactly.
+     * The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly.
      * @maxLength 255
      */
-    repository?: string
+    subject_name?: string
     /**
-     * The repository's immutable ID from the CI provider. Matched together with the name, so a deleted and re-created repository with the same name does not match.
-     * @maxLength 100
-     */
-    repository_id?: string
-    /**
-     * The git ref the job must run on, for example `refs/heads/main`. Empty matches any ref.
+     * The workload's immutable ID, from the provider's subject claim, for example a repository ID. Matched exactly together with the name, so a deleted and re-created workload with the same name does not match.
      * @maxLength 255
      */
-    ref?: string
-    /**
-     * The deployment environment the job must run in. Empty matches any environment.
-     * @maxLength 255
-     */
-    environment?: string
+    subject?: string
+    /** Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition. */
+    conditions?: PatchedWorkloadTrustPolicyApiConditions
+    /** How the provider names the subject, the subject name and each condition claim, for display. */
+    readonly claim_labels?: WorkloadClaimLabelsApi
     /**
      * The scopes every token minted under this policy carries. Scopes that manage credentials or access are refused.
      * @items.maxLength 100
@@ -5801,21 +5813,13 @@ export interface PatchedWorkloadTrustPolicyApi {
  */
 export type WorkloadProvidersResponseApiRiskyScopes = { [key: string]: string }
 
-export interface WorkloadProviderClaimsApi {
-    /** Claim that carries the repository's full name. */
-    repository: string
-    /** Claim that carries the repository's immutable ID. */
-    repository_id: string
-    /**
-     * Claim that carries the git ref, or null.
-     * @nullable
-     */
-    ref: string | null
-    /**
-     * Claim that carries the environment, or null.
-     * @nullable
-     */
-    environment: string | null
+export interface WorkloadClaimApi {
+    /** The claim's name in the provider's OIDC token. */
+    name: string
+    /** What to call the claim in the UI. */
+    label: string
+    /** A hint that says where to find the claim's value. */
+    help_text: string
 }
 
 export interface WorkloadProviderApi {
@@ -5827,8 +5831,12 @@ export interface WorkloadProviderApi {
     issuer: string
     /** Where to read how to set the provider up. */
     docs_url: string
-    /** Which token claims a policy matches on. */
-    claims: WorkloadProviderClaimsApi
+    /** The claim that carries the workload's immutable ID. */
+    subject_claim: WorkloadClaimApi
+    /** The claim that carries the workload's readable name. */
+    subject_name_claim: WorkloadClaimApi
+    /** The claims a policy can require an exact value for, in display order. */
+    condition_claims: WorkloadClaimApi[]
 }
 
 export interface UnsupportedWorkloadProviderApi {
@@ -5862,6 +5870,11 @@ export const WorkloadTrustPolicyRequestStatusEnumApi = {
 } as const
 
 /**
+ * Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition.
+ */
+export type WorkloadTrustPolicyRequestApiConditions = { [key: string]: string }
+
+/**
  * What each risky scope in the request lets a token do, keyed by scope. Show it before approving.
  */
 export type WorkloadTrustPolicyRequestApiRiskyScopes = { [key: string]: string }
@@ -5874,40 +5887,34 @@ export interface WorkloadTrustPolicyRequestApi {
      */
     name: string
     /**
-     * The OIDC issuer of the CI provider, from the list of supported providers.
+     * The OIDC issuer of the workload provider, from the list of supported providers.
      * @maxLength 255
      */
     issuer: string
     /**
-     * The key of the CI provider the issuer belongs to.
+     * The key of the workload provider the issuer belongs to.
      * @nullable
      */
     readonly provider: string | null
     /**
-     * The display name of the CI provider, or null.
+     * The display name of the workload provider, or null.
      * @nullable
      */
     readonly provider_name: string | null
     /**
-     * The repository's full name, for example `acme/web`. Matched exactly.
+     * The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly.
      * @maxLength 255
      */
-    repository: string
+    subject_name: string
     /**
-     * The repository's immutable ID from the CI provider. Matched together with the name, so a deleted and re-created repository with the same name does not match.
-     * @maxLength 100
-     */
-    repository_id: string
-    /**
-     * The git ref the job must run on, for example `refs/heads/main`. Empty matches any ref.
+     * The workload's immutable ID, from the provider's subject claim, for example a repository ID. Matched exactly together with the name, so a deleted and re-created workload with the same name does not match.
      * @maxLength 255
      */
-    ref?: string
-    /**
-     * The deployment environment the job must run in. Empty matches any environment.
-     * @maxLength 255
-     */
-    environment?: string
+    subject: string
+    /** Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition. */
+    conditions?: WorkloadTrustPolicyRequestApiConditions
+    /** How the provider names the subject, the subject name and each condition claim, for display. */
+    readonly claim_labels: WorkloadClaimLabelsApi
     /**
      * The scopes the policy's tokens would carry.
      * @items.maxLength 100
