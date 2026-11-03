@@ -757,6 +757,7 @@ class BillingManager:
                 mcp_events=usage_summary.get("mcp_events", {}),
                 ai_credits=usage_summary.get("ai_credits", {}),
                 signals_credits=usage_summary.get("signals_credits", {}),
+                signals_spend_credits=usage_summary.get("signals_spend_credits", {}),
                 posthog_code_credits=usage_summary.get("posthog_code_credits", {}),
                 posthog_code_token_credits=usage_summary.get("posthog_code_token_credits", {}),
                 sandbox_compute_credits=usage_summary.get("sandbox_compute_credits", {}),
@@ -774,13 +775,7 @@ class BillingManager:
             )
 
             had_quota_limiting_markers = _has_quota_limiting_markers(organization.usage)
-            usage_changed = set_org_usage_summary(
-                organization,
-                new_usage=cast(
-                    OrganizationUsageInfo,
-                    {**usage_info, "signals_spend_credits": usage_summary.get("signals_spend_credits", {})},
-                ),
-            )
+            usage_changed = set_org_usage_summary(organization, new_usage=usage_info)
 
             if usage_changed:
                 org_modified = True
