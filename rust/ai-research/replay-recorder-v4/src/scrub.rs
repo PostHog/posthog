@@ -104,6 +104,17 @@ fn json_unit(bytes: &[u8], at: usize) -> (u32, usize) {
     }
 }
 
+/// The position past the `\n` of a `\r\n` whose `\r` ends at `after`, because CSS reads the pair as one line break.
+fn past_crlf(bytes: &[u8], after: usize, ch: u32) -> usize {
+    if is_char(ch, b'\r') && after < bytes.len() {
+        let (next, next_len) = json_unit(bytes, after);
+        if is_char(next, b'\n') {
+            return after + next_len;
+        }
+    }
+    after
+}
+
 /// The character at `at` after its JSON escape and a CSS escape inside it. A CSS hex escape takes the one whitespace
 /// after it, as CSS reads it.
 fn unit(bytes: &[u8], at: usize) -> Unit {
@@ -138,7 +149,7 @@ fn unit(bytes: &[u8], at: usize) -> Unit {
         if end < bytes.len() {
             let (next, next_len) = json_unit(bytes, end);
             if is_space(next) {
-                end += next_len;
+                end = past_crlf(bytes, end + next_len, next);
             }
         }
         return Unit {
@@ -152,13 +163,7 @@ fn unit(bytes: &[u8], at: usize) -> Unit {
     }
     let (next, next_len) = json_unit(bytes, end);
     if is_char(next, b'\n') || is_char(next, b'\r') || is_char(next, 0x0c) {
-        end += next_len;
-        if is_char(next, b'\r') && end < bytes.len() {
-            let (after, after_len) = json_unit(bytes, end);
-            if is_char(after, b'\n') {
-                end += after_len;
-            }
-        }
+        end = past_crlf(bytes, end + next_len, next);
         return Unit {
             ch: next,
             len: end - at,
@@ -522,6 +527,10 @@ mod tests {
             (
                 r#"{"style":"url('ht\\\r\ntps://cdn.example.com/a.png?token=x')"}"#.to_owned(),
                 format!(r#"{{"style":"url('{m}')"}}"#),
+            ),
+            (
+                r#"{"style":"url(\"\\68\r\nttps://cdn.example.com/a.png?token=x\")"}"#.to_owned(),
+                format!(r#"{{"style":"url(\"{m}\")"}}"#),
             ),
             // A browser reads a backslash as a slash, and the inspector reads any host after two of them as remote.
             (
