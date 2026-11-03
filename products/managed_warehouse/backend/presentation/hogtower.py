@@ -317,6 +317,15 @@ def _delete_team(call: _Call, team_id: str) -> TranslatedResponse:
     return resp
 
 
+def _moved_teams(call: _Call) -> TranslatedResponse:
+    """POST /orgs/:id/moved-teams -> v2 POST /warehouses/:id/moved-teams (hogtower only, no v1 route).
+
+    Removes the warehouse's rows for teams that moved to another organization, with no last-team
+    guard. An org with no live warehouse answers 200 with nothing removed.
+    """
+    return call.send("POST", f"{call.warehouse}/moved-teams", json_body=call.json_body)
+
+
 # --- Trino ------------------------------------------------------------------------------
 
 
@@ -419,6 +428,7 @@ _ORG_ROUTES: dict[tuple[str, str], Callable[[_Call], TranslatedResponse]] = {
     ("POST", "/reset-password"): _reset_password,
     ("GET", "/teams"): _list_teams,
     ("POST", "/teams"): _upsert_team,
+    ("POST", "/moved-teams"): _moved_teams,
     ("GET", "/trino"): _trino,
     ("POST", "/service-credentials"): _mint_credential,
     ("POST", "/service-credentials/refresh"): _refresh_credential,
