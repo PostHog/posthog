@@ -42,7 +42,7 @@ from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration,
 from products.alerts.backend.models.investigation import InsightAlertInvestigation
 from products.alerts.backend.platform_alert_wording import insight_alert_url
 from products.alerts.backend.platform_chart_detail import CHART_PENDING_KEY, RenderedChart
-from products.alerts.backend.platform_investigation import claim_requested_investigations
+from products.alerts.backend.platform_investigation import claim_requested_investigations, run_metrics_investigation
 from products.alerts.backend.platform_investigation_detail import requested_investigation
 from products.alerts.backend.platform_source_cycle import (
     CAPACITY_REJECTED,
@@ -1006,18 +1006,20 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         outcome = self._fire(configuration)
         record_outcomes(self.team.id, (outcome,), CUTOFF)
 
+        claims = claim_requested_investigations(self.team.id, (outcome,))
         with patch(
             "products.alerts.backend.platform_investigation.investigate_metrics_alert",
             side_effect=error,
             return_value="queue.depth moved up.",
         ) as investigate:
-            claims = claim_requested_investigations(self.team.id, (outcome,))
-            claim_requested_investigations(self.team.id, (outcome,))
+            for run in claims.metrics * 2:
+                run_metrics_investigation(run)
 
         assert outcome.held_delivery is None
         assert len(self.deliveries) == 1
-        assert claims.starts == ()
+        assert (claims.starts, len(claims.metrics)) == ((), 1)
         investigate.assert_called_once()
+        assert investigate.call_args.kwargs["fired_at"] == CUTOFF
         investigation = InsightAlertInvestigation.objects.for_team(self.team.id).get()
         assert (investigation.kind, investigation.status) == (InsightAlertInvestigation.Kind.METRICS, status)
         assert investigation.summary == ("queue.depth moved up." if error is None else None)

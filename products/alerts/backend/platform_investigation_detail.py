@@ -14,7 +14,7 @@ from products.alerts_platform.backend.facade.contracts import AlertDeliveryReque
 # The legacy alert whose agent investigates the firing. Recorded with the firing, so history shows
 # which checks asked for an investigation.
 INVESTIGATION_REQUESTED_KEY = "investigation_alert_id"
-# The same, for a metrics alert, whose investigation is a few metric queries the claim runs itself.
+# The same, for a metrics alert, whose investigation is a few metric queries rather than an agent run.
 METRICS_INVESTIGATION_REQUESTED_KEY = "metrics_investigation_alert_id"
 
 
@@ -45,10 +45,19 @@ class InvestigationStart:
 
 
 @frozen
+class MetricsInvestigationRun:
+    """A metrics investigation the claim granted, which the workflow runs in an activity of its own."""
+
+    team_id: int
+    investigation_id: str
+
+
+@frozen
 class InvestigationClaims:
     starts: tuple[InvestigationStart, ...] = ()
     # Held firings whose claim was refused, released by the firing's last verdict and due to start.
     deliveries: tuple[AlertDeliveryRequest, ...] = ()
+    metrics: tuple[MetricsInvestigationRun, ...] = ()
 
 
 @frozen
