@@ -1,4 +1,5 @@
 import { clearPending, type ApprovalFlow } from '@/core/approval'
+import { HogError } from '@/core/errors'
 import type { Runtime } from '@/core/runtime'
 
 import type { Credential } from './credential'
