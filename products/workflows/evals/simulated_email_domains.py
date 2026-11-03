@@ -220,7 +220,7 @@ class _SimulatedSes:
         return {
             "MailFromDomainAttributes": {
                 domain: {
-                    "MailFromDomainStatus": self._status([_mail_from_mx_record(mail_from_domain)]),
+                    "MailFromDomainStatus": self._mail_from_status(mail_from_domain),
                     "MailFromDomain": mail_from_domain,
                 }
                 for domain in Identities
@@ -230,6 +230,12 @@ class _SimulatedSes:
 
     def _status(self, required: list[DnsRecord]) -> str:
         return "Success" if all(self._domains.is_published(record) for record in required) else "Pending"
+
+    def _mail_from_status(self, mail_from_domain: str) -> str:
+        # SES needs the expected MX to be the only one on the MAIL FROM domain.
+        expected = _mail_from_mx_record(mail_from_domain)
+        answers = self._domains.answers(expected.name, expected.record_type)
+        return "Success" if answers == {expected.value} else "Pending"
 
 
 class _SimulatedSesV2:

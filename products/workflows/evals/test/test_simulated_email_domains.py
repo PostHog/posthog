@@ -22,6 +22,7 @@ from products.workflows.evals.seeders import (
 )
 from products.workflows.evals.simulated_email_domains import (
     DOMAIN_CONNECT_ROOT_DOMAIN,
+    DnsRecord,
     SimulatedEmailDomains,
     publish_domain_connect_support,
     ses_records,
@@ -37,17 +38,22 @@ def _records_by_name(records: list) -> dict[tuple[str, str], str]:
 
 
 @pytest.mark.parametrize(
-    "published_label,expected_status",
+    "published_label,extra_mail_from_mx,expected_status",
     [
-        (None, "pending"),
-        ("feedback", "success"),
-        ("bounce", "pending"),
+        (None, False, "pending"),
+        ("feedback", False, "success"),
+        ("bounce", False, "pending"),
+        ("feedback", True, "pending"),
     ],
 )
-def test_verify_status_follows_published_records(published_label: str | None, expected_status: str) -> None:
+def test_verify_status_follows_published_records(
+    published_label: str | None, extra_mail_from_mx: bool, expected_status: str
+) -> None:
     domains = SimulatedEmailDomains()
     if published_label:
         domains.publish(ses_records(DOMAIN, published_label))
+    if extra_mail_from_mx:
+        domains.publish([DnsRecord(name=f"feedback.{DOMAIN}", record_type="MX", value="mx.other-provider.example.net")])
     domains.associate(TEAM_ID, DOMAIN)
 
     with simulated_email_domains(domains):

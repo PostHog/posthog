@@ -37,7 +37,8 @@ Ask which domain to send from if the person has not said.
 Recommend the `mail.` subdomain, for example `mail.example.com`, or `send.example.com` if `mail.` is taken: it keeps marketing reputation and DMARC changes away from the root domain the company uses for everyday mail.
 Accept the root domain if they prefer it.
 
-If they only give a domain, default the sender to `hello@<domain>` with the company name as the display name, and tell them both can change later.
+If they only give a domain, default the sender to `hello@<domain>` with the company name as the display name.
+Tell them the display name can change later, but the address cannot: a different address needs a new sender.
 Free mailbox domains such as gmail.com are rejected, and so is a domain another PostHog organization already uses; relay that error and suggest contacting support for the second case.
 
 Check `integrations-list` with `kind=email` first; each sender's `display_name` is its address.
@@ -94,7 +95,8 @@ A `pending` DMARC record can also mean the lookup timed out, so confirm the doma
 Call `integrations-email-status-retrieve` with `refresh=true` after the records are published, then repeat with at least a minute between calls.
 
 - `pending`: a record is still missing from DNS. Compare the per-record statuses with what was published. DNS usually appears within minutes but can take up to 72 hours.
-- `records_found` or `temporary_failure`: every record is published and the email provider has not confirmed them yet. Keep polling.
+- `records_found`: every record is published and the email provider has not confirmed them yet. Keep polling.
+- `temporary_failure`: the email provider could not check the records yet. Compare the per-record statuses with what was published, then keep polling.
 - `failed`: the provider stopped checking. Fix the records, then call `integrations-email-verify-create` to restart the check.
 - `verified`: call `integrations-email-verify-create` once. When it returns `success`, every sender on this domain in the project can send.
 
