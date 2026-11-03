@@ -1071,10 +1071,7 @@ def _get_mcp_analytics_event_metric_counts(begin: datetime, end: datetime) -> di
     )
 
 
-# Per-SDK MCP usage is the `$mcp_*` events sent under any of the SDK's `$lib` names. Capture v1
-# SDKs keep one SDK identity per client, so their MCP integrations send under the base `$lib`.
-# Older MCP integrations relabel the whole client as `posthog-<sdk>-mcp`, which also labels the
-# app's own events, so those non-MCP events count as base SDK usage instead.
+# Capture v1 SDKs send MCP events under the base `$lib`; older MCP SDKs relabel the whole client, app events too.
 MCP_SDK_EVENT_METRICS: dict[str, tuple[str, ...]] = {
     "node_mcp_events": ("posthog-node", "posthog-node-mcp"),
     "python_mcp_events": ("posthog-python", "posthog-python-mcp"),
@@ -1153,8 +1150,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
     # below over only the $ai_* events, where $ai_lib actually lives, and folded back in instead
     # of reading `properties` for every posthog-node event just to check $ai_lib.
     metric_conditions = [f"event LIKE '{event_prefix}', '{metric}'" for event_prefix, metric in event_prefix_metrics]
-    # The MCP branches come before the `$lib` branches, so an `$mcp_*` event counts as MCP usage
-    # only, and not also as usage of its base SDK.
+    # MCP branches go first, so an `$mcp_*` event counts as MCP usage only.
     for metric, libs in MCP_SDK_EVENT_METRICS.items():
         quoted_libs = ", ".join(f"'{lib}'" for lib in libs)
         metric_conditions.append(
