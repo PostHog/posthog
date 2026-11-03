@@ -600,38 +600,15 @@ context and repo names alone.
 </jsonschema>"""
 
 
-def _names_repository(text: str, repo: str) -> bool:
-    # A longer name that starts with `repo` (`acme/api-client` for `acme/api`) is another repository.
-    # A dot that ends a sentence also ends the name, but a dot before a word (`acme/api.js`) does not.
-    return re.search(rf"(?<![\w.-]){re.escape(repo)}(?![\w-]|\.\w)", text, re.IGNORECASE) is not None
-
-
 def _salvage_repo_selection(text: str, candidate_repos: list[str]) -> RepoSelectionResult:
-    """Read a selection out of an end turn that did not validate against `RepoSelectionResult`.
-
-    A failure here costs the caller its automatic selection, so a reply that names exactly one
-    candidate is still worth keeping. Two or more named candidates leave the conclusion ambiguous:
-    raise instead, because the runner then fails the turn the way it did before this salvage, and
-    the caller keeps its own fallback. Never answer "no repository" from here — callers read that
-    as a decision the agent made.
-
-    A reply that got as far as its `repository` field has stated its choice, so only that value
-    counts. Its `reason` must cite the repositories the agent checked, so a cut-off
-    `{"repository": null, "reason": "checked acme/b...` names a candidate the agent rejected.
-    """
-    stated = re.findall(r'"repository"\s*:\s*(?:null|"([^"]*)")', text)
-    if stated:
-        # The answer comes last, after any tool call or error object that also holds the key.
-        choice = stated[-1].strip().lower()
-        named = {choice} if choice in candidate_repos else set()
-    else:
-        named = {repo for repo in candidate_repos if _names_repository(text, repo)}
-    if len(named) != 1:
-        raise ValueError(f"End-turn text names {len(named)} candidate repositories, so no selection can be read")
-    repository = named.pop()
+    """Recover an explicit leading JSON selection, never a repository mentioned in prose."""
+    stated = re.match(r'\s*(?:```(?:json)?\s*)?\{\s*"repository"\s*:\s*"([^"\\]*)"', text)
+    choice = stated.group(1).strip().lower() if stated else None
+    if choice not in candidate_repos:
+        raise ValueError("End-turn text does not explicitly select a candidate repository")
     return RepoSelectionResult(
-        repository=repository,
-        reason=f"The agent's answer was not readable, but its reply named only {repository}.",
+        repository=choice,
+        reason="The agent explicitly selected this repository, but its full JSON answer was not readable.",
     )
 
 
@@ -801,8 +778,6 @@ async def select_repository(
             spend_signal_id=spend_signal_id,
             ai_stage="repo_selection",
             internal=True,
-            # An unreadable end turn used to fail the whole selection, and the caller then dropped the
-            # user into a manual repository picker. Read the pick out of the raw reply instead.
             fallback_from_text=_salvage,
             json_retry_prompt=REPO_SELECTION_JSON_RETRY_PROMPT,
         )

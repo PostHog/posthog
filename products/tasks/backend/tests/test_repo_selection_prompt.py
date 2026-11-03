@@ -131,7 +131,7 @@ def test_select_repository_renders_team_rules_and_visibility_into_prompt() -> No
 
 @parameterized.expand(
     [
-        ("names_one_candidate", "I checked both trees. The subject is Acme/B.", ["acme/a", "acme/b"], "acme/b"),
+        ("fenced_selection", '```json\n{"repository": "acme/b", "reason":', ["acme/a", "acme/b"], "acme/b"),
         (
             "names_one_candidate_in_broken_json",
             '{"repository": "acme/b", "reason":',
@@ -140,11 +140,11 @@ def test_select_repository_renders_team_rules_and_visibility_into_prompt() -> No
         ),
         (
             "names_a_candidate_that_extends_another",
-            "The subject is acme/api-client.",
+            '{"repository": "acme/api-client", "reason":',
             ["acme/api", "acme/api-client"],
             "acme/api-client",
         ),
-        ("names_a_candidate_at_sentence_end", "The subject is acme/api.", ["acme/api", "acme/api-client"], "acme/api"),
+        ("explicit_selection", '{"repository": "acme/api", "reason":', ["acme/api", "acme/api-client"], "acme/api"),
         (
             "states_a_candidate_and_rejects_another",
             '{"repository": "Acme/A", "reason": "acme/b does not own this',
@@ -153,12 +153,15 @@ def test_select_repository_renders_team_rules_and_visibility_into_prompt() -> No
         ),
     ]
 )
-def test_salvage_reads_a_lone_named_candidate(_name, text, candidates, expected) -> None:
+def test_salvage_reads_an_explicit_candidate(_name, text, candidates, expected) -> None:
     assert _salvage_repo_selection(text, candidates).repository == expected
 
 
 @parameterized.expand(
     [
+        ("progress_mentions_candidate", "Waiting for the acme/a cache query.", ["acme/a", "acme/b"]),
+        ("rejects_only_candidate", "acme/a is unrelated to this request.", ["acme/a", "acme/b"]),
+        ("quotes_example", 'For example: {"repository": "acme/a"}', ["acme/a", "acme/b"]),
         ("names_two_candidates", "Both acme/a and acme/b match the request.", ["acme/a", "acme/b"]),
         ("names_no_candidate", "None of the connected repositories own this.", ["acme/a", "acme/b"]),
         ("names_a_non_candidate_that_extends_one", "The subject is acme/api-client.", ["acme/api", "acme/web"]),
@@ -190,7 +193,7 @@ def test_select_repository_salvages_an_unreadable_end_turn() -> None:
     github.list_all_cached_repositories.return_value = [{"full_name": "acme/a"}, {"full_name": "acme/b"}]
 
     async def start(**kwargs):
-        return session, kwargs["fallback_from_text"]("After checking the trees, acme/b owns this.")
+        return session, kwargs["fallback_from_text"]('{"repository": "acme/b", "reason":')
 
     with (
         patch(f"{_AGENT}.GitHubRepositoryFullCache") as cache,
@@ -216,6 +219,8 @@ def test_select_repository_salvages_an_unreadable_end_turn() -> None:
     [
         ("retry_answers", '{"repository": "acme/b", "reason": "Owns the checkout path."}', "acme/b", None),
         ("retry_still_progress", "Still waiting on the query.", None, ValueError),
+        ("retry_rejects_mentioned_candidate", "acme/a does not own this.", None, ValueError),
+        ("retry_usage_limit", "API Error: 402 No credits remaining.", None, RepoSelectionUsageLimitError),
         ("retry_answers_off_list", '{"repository": "acme/zzz", "reason": "Guess."}', None, RepoSelectionRejectedError),
     ]
 )
