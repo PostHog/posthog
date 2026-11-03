@@ -14,9 +14,7 @@ export const RENDER_UI_TOOL_NAME = 'render-ui'
 export const RENDER_UI_TOOL_TITLE = 'Render a PostHog visualization'
 export const RENDER_UI_TOOL_DESCRIPTION = RENDER_UI_PROMPT.trim()
 
-/** Shared by the `tools/list` entry and the runtime Tool. OpenAI's plugin review does not
- *  publish a tool unless `tools/list` gives explicit values for `readOnlyHint`,
- *  `destructiveHint`, and `openWorldHint`. */
+// OpenAI's plugin review rejects a tools/list entry without these hints.
 export const RENDER_UI_TOOL_ANNOTATIONS = {
     destructiveHint: false,
     idempotentHint: true,
