@@ -1681,17 +1681,19 @@ class SignalReportViewSet(
     queryset = SignalReport.objects.all()
     pagination_class = SignalReportListPagination
 
-    request_dependent_scope_actions = frozenset({"claim"})
+    request_dependent_scope_actions = frozenset({"claim", "bulk_claim"})
 
     def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
         # The title and summary become an implementation task's prompt, so editing them is task work.
         if self.action == "partial_update":
             return ["inbox:write", "task:write"]
-        if self.action == "claim":
+        if self.action in ("claim", "bulk_claim"):
             # A linked PR can be in any repo the team's GitHub integration reaches, and `pr_comments` then returns
-            # its private comments and diff hunks. An inbox-only credential can claim but cannot link a PR.
+            # its private comments and diff hunks. A claim that names a task links the PRs of that task's later runs.
+            # An inbox-only credential can claim for its user, but it cannot link a PR or claim for a task.
             attaches_pull_requests = not _submitted_config_fields(request).isdisjoint({"pr_url", "pull_requests"})
-            return ["inbox:write", "task:write"] if attaches_pull_requests else ["inbox:write"]
+            names_a_task = bool(request.headers.get(TASK_ID_HEADER, "").strip())
+            return ["inbox:write", "task:write"] if attaches_pull_requests or names_a_task else ["inbox:write"]
         return None
 
     # Shared Q for "ready but not actionable" — used in status ranking and suggested-reviewer suppression.
@@ -4475,7 +4477,7 @@ class SignalReportViewSet(
         ),
         operation_id="signals_reports_bulk_claim",
     )
-    @action(detail=False, methods=["post"], url_path="bulk_claim", required_scopes=["inbox:write"])
+    @action(detail=False, methods=["post"], url_path="bulk_claim")
     def bulk_claim(self, request: ValidatedRequest, *args: object, **kwargs: object) -> Response:
         data = request.validated_data
         ordered_ids = list(dict.fromkeys(str(raw_id) for raw_id in data["ids"]))

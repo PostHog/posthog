@@ -28,7 +28,10 @@ from products.signals.backend.models import (
     SignalReportMonitoringAttempt,
     SignalReportPullRequest,
 )
-from products.signals.backend.report_assignments import update_assignments_for_pull_request
+from products.signals.backend.report_assignments import (
+    sync_task_pull_request_to_assignments,
+    update_assignments_for_pull_request,
+)
 from products.signals.backend.report_claims import get_active_claim, get_active_claims, responsible_users
 from products.signals.backend.report_monitoring_attempts import complete_implementation
 
@@ -554,6 +557,44 @@ class TestSignalReportAssignmentAPI(APIBaseTest):
         assert note.status_code == status.HTTP_201_CREATED
         assert note.json()["claim_id"] == claim_id
         assert release.status_code == status.HTTP_409_CONFLICT
+
+    @parameterized.expand(
+        [
+            ("claim_inbox_only", "claim", ["inbox:write"], False),
+            ("bulk_claim_inbox_only", "bulk_claim", ["inbox:write"], False),
+            ("claim_inbox_and_task", "claim", ["inbox:write", "task:write"], True),
+            ("bulk_claim_inbox_and_task", "bulk_claim", ["inbox:write", "task:write"], True),
+            ("claim_legacy_task", "claim", ["task:write"], True),
+        ]
+    )
+    def test_claiming_for_a_task_needs_task_scope(
+        self, _name: str, endpoint: str, scopes: list[str], allowed: bool
+    ) -> None:
+        Task = apps.get_model("tasks", "Task")
+        task = Task.objects.create(
+            team=self.team,
+            created_by=self.user,
+            title="Signal task",
+            description="Implement the report",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+        report = self._create_report()
+        api_key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+        url, body = (
+            (self._claim_url(report), {})
+            if endpoint == "claim"
+            else (f"/api/projects/{self.team.id}/signals/reports/bulk_claim/", {"ids": [str(report.id)]})
+        )
+
+        response = self.client.post(url, data=body, format="json", headers={"X-PostHog-Task-Id": str(task.id)})
+
+        assert response.status_code == (status.HTTP_200_OK if allowed else status.HTTP_403_FORBIDDEN), response.content
+        linked = sync_task_pull_request_to_assignments(
+            team_id=self.team.id, task_id=str(task.id), pr_url="https://github.com/example/private/pull/9"
+        )
+        assert (linked > 0) is allowed
 
     def test_internal_task_claim_uses_task_attribution(self):
         Task = apps.get_model("tasks", "Task")
