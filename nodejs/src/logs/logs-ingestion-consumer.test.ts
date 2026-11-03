@@ -1090,7 +1090,9 @@ describe('LogsIngestionConsumer', () => {
                 },
                 {
                     samplingRulesCache: dropEverything as SamplingRulesCache,
-                    internalSourcePolicies: { hog_flow: { billed, teamRules: false } },
+                    internalSourcePolicies: {
+                        hog_flow: { billed, teamRules: false, serviceName: 'posthog-internal-workflows' },
+                    },
                 }
             )
             // A quota limit drops every billed batch, so it applies only to the rows that test the internal bypass.
