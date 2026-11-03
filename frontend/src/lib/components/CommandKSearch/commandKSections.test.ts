@@ -57,6 +57,7 @@ const input = (mode: CommandKMode, overrides: Partial<SectionsInput>): SectionsI
     settingsInResults: false,
     unifiedRanking: false,
     picks: new Map(),
+    layoutCorrection: null,
     ...overrides,
 })
 
@@ -331,6 +332,33 @@ describe('buildSections', () => {
         expect(pickDisplayedQuery(current, shown, remote)).toEqual({ query: current, stale: false })
         expect(sections.map((section) => section.key)).toEqual(['best-matches'])
         expect(sections[0].rows).toMatchObject([{ kind: 'item', section: 'accounts', item: account }])
+    })
+
+    test.each([
+        [
+            'results',
+            [{ ...dashboard('a', '1'), name: 'API usage', rankKey: [-1, 0, 0, 0, -1, 0, 1, 0, 0] }],
+            ['notice', 'best-matches'],
+        ],
+        ['no results', [], []],
+    ])('a keyboard layout correction with %s shows the notice only above results', (_, results, keys) => {
+        const remote = emptyRemoteSlots()
+        remote.results.cache.api = results
+        const sections = buildSections(
+            input('search', {
+                remote,
+                remoteQueries: { results: 'api' },
+                localQuery: 'api',
+                layoutCorrection: { from: 'фзш', to: 'api' },
+            })
+        )
+
+        expect(sections.map((section) => section.key)).toEqual(keys)
+        if (keys.length) {
+            expect(sections[0].rows).toEqual([
+                expect.objectContaining({ reason: 'layout', missing: ['фзш'], shown: ['api'] }),
+            ])
+        }
     })
 
     it('shows saved objects when the Accounts request settles empty', () => {

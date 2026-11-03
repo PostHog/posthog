@@ -230,6 +230,12 @@ export function strictLocalMatches<T extends { name: string; displayName?: strin
         .map(({ item }) => item)
 }
 
+const UNIFIED_WORD = /[\p{L}\p{N}]+/gu
+
+const unifiedWords = (text: string): string[] => text.toLowerCase().match(UNIFIED_WORD) ?? []
+
+const unifiedSingularText = (text: string): string => unifiedWords(text).map(singular).join(' ')
+
 export const SERVER_FRECENCY_INDEX = 7
 export const SERVER_CREATED_INDEX = 8
 
@@ -307,7 +313,7 @@ function cleanHit(token: string, candidate: RankCandidate, name: Omit<TokenHit, 
         return { ...name, field: 'name' }
     }
     for (const alias of candidate.aliases ?? []) {
-        const hit = hitInWords(token, searchWords(alias))
+        const hit = hitInWords(token, unifiedWords(alias))
         if (hit && isClean(hit)) {
             return { ...hit, position: MAX_POSITION_PENALTY, field: 'alias', alias }
         }
@@ -325,7 +331,7 @@ function tokenHit(token: string, candidate: RankCandidate, nameWords: string[]):
     if (name) {
         return { ...name, field: 'name' }
     }
-    const context = hitInWords(token, (candidate.context ?? []).flatMap(searchWords))
+    const context = hitInWords(token, (candidate.context ?? []).flatMap(unifiedWords))
     if (context) {
         return { ...context, position: MAX_POSITION_PENALTY, field: 'context' }
     }
@@ -335,16 +341,19 @@ function tokenHit(token: string, candidate: RankCandidate, nameWords: string[]):
 }
 
 function wholeQueryTier(query: string, candidate: RankCandidate): MatchTier | null {
-    const exactQuery = searchWords(query).join(' ')
-    const exactName = searchWords(candidate.name).join(' ')
-    const singularQuery = singularText(query)
-    const singularName = singularText(candidate.name)
+    const exactQuery = unifiedWords(query).join(' ')
+    const exactName = unifiedWords(candidate.name).join(' ')
+    const singularQuery = unifiedSingularText(query)
+    const singularName = unifiedSingularText(candidate.name)
     const rawQuery = query.trim().toLowerCase()
     const identity = isIdentityQuery(query) ? (candidate.identity ?? []).map((value) => value.toLowerCase()) : []
     const tiers: [MatchTier, () => boolean][] = [
         [MatchTier.Exact, () => exactName === exactQuery || identity.includes(rawQuery)],
         [MatchTier.ExactSingular, () => singularName === singularQuery],
-        [MatchTier.ExactAlias, () => (candidate.aliases ?? []).some((alias) => singularText(alias) === singularQuery)],
+        [
+            MatchTier.ExactAlias,
+            () => (candidate.aliases ?? []).some((alias) => unifiedSingularText(alias) === singularQuery),
+        ],
         [
             MatchTier.Prefix,
             () => exactName.startsWith(exactQuery) || identity.some((value) => value.startsWith(rawQuery)),
@@ -391,11 +400,11 @@ const usageTier = (frecency: number): number => (frecency >= 1 ? 0 : frecency > 
 
 export function rankCandidate(query: string, candidate: RankCandidate): CandidateRank | null {
     const normalizedQuery = query.trim().toLowerCase().replace(/\s+/g, ' ').slice(0, MAX_LOCAL_QUERY_LENGTH)
-    const tokens = [...new Set(searchWords(normalizedQuery))]
+    const tokens = [...new Set(unifiedWords(normalizedQuery))]
     if (!tokens.length) {
         return null
     }
-    const nameWords = searchWords(candidate.name)
+    const nameWords = unifiedWords(candidate.name)
     const hits = tokens.map((token) => tokenHit(token, candidate, nameWords))
     const found = hits.filter((hit): hit is TokenHit => hit !== null)
     if (!found.length) {

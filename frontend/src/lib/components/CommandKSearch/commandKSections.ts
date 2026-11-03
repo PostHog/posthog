@@ -1,6 +1,7 @@
 import { SearchItem, filterNewItems } from 'lib/components/Search/searchItems'
 import { SETTINGS_THEME_ITEM_ID, filterSearchItems } from 'lib/components/Search/utils'
 
+import type { LayoutCorrection } from './commandKLayout'
 import { CursorContext, FilterDefinition, FilterOptions, ValueOption, matchValueOptions } from './commandKQuery'
 import { buildRankedResults } from './commandKRankedResults'
 import { FILTER_TOKEN, freeWords, strictLocalMatches } from './commandKRanking'
@@ -58,7 +59,7 @@ export type CommandKRow =
       }
     | { kind: 'ask-ai'; key: string; question: string }
     | { kind: 'scope'; key: string; type: string; label: string }
-    | { kind: 'notice'; key: string; reason: 'partial' | 'typos'; missing: string[]; shown: string[] }
+    | { kind: 'notice'; key: string; reason: 'partial' | 'typos' | 'layout'; missing: string[]; shown: string[] }
     | { kind: 'loading-more'; key: string }
 
 export interface CommandKSection {
@@ -237,6 +238,7 @@ export interface SectionsInput extends SectionsQuery {
     settingsInResults: boolean
     unifiedRanking: boolean
     picks: Map<string, number>
+    layoutCorrection: LayoutCorrection | null
 }
 
 const isRanked = (query: SectionsQuery): boolean =>
@@ -401,7 +403,31 @@ function lowerSections(
         : all
 }
 
+function withLayoutNotice(sections: CommandKSection[], correction: LayoutCorrection | null): CommandKSection[] {
+    if (!correction || !sections.some((section) => section.rows.some((row) => row.kind === 'item'))) {
+        return sections
+    }
+    const row: CommandKRow = {
+        kind: 'notice',
+        key: 'notice/layout',
+        reason: 'layout',
+        missing: [correction.from],
+        shown: [correction.to],
+    }
+    const notice = sections.find((section) => section.key === 'notice')
+    if (notice) {
+        return sections.map((section) => (section === notice ? { ...section, rows: [row, ...section.rows] } : section))
+    }
+    const index = sections.findIndex((section) => section.key !== 'filters' && section.key !== 'suggestions')
+    const at = index < 0 ? sections.length : index
+    return [...sections.slice(0, at), readySection('notice', [row]), ...sections.slice(at)]
+}
+
 export function buildSections(input: SectionsInput): CommandKSection[] {
+    return withLayoutNotice(buildSectionsForQuery(input), input.layoutCorrection)
+}
+
+function buildSectionsForQuery(input: SectionsInput): CommandKSection[] {
     const { mode, context, local, remote, remoteQueries, localQuery } = input
     if (mode === 'empty') {
         return [

@@ -85,6 +85,18 @@ describe('commandKSearchLogic', () => {
         expect(logic.values.pickMemory).toEqual(expected.map((entry) => expect.objectContaining(entry)))
     })
 
+    it('searches a keyboard layout correction until the text changes', () => {
+        logic.actions.inputChanged('фзш', 3, false)
+        logic.actions.correctLayout({ from: 'фзш', to: 'api' })
+
+        expect(logic.values.localQuery).toEqual('api')
+        expect(logic.values.requestQueries.objects).toEqual('api')
+
+        logic.actions.inputChanged('фзшы', 4, false)
+
+        expect(logic.values.localQuery).toEqual('фзшы')
+    })
+
     it('a See all row narrows the search to its type and keeps the words', () => {
         logic.actions.inputChanged('revenue', 7, false)
 
