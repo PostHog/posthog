@@ -169,7 +169,7 @@ class Run(ProductTeamModel):
     metadata = models.JSONField(default=dict, blank=True)
 
     # CI ran only a subset of the test suite
-    is_partial = models.BooleanField(default=False)
+    is_partial = models.BooleanField(default=False, db_default=False)
 
     created_at = models.DateTimeField(auto_now_add=True)
     completed_at = models.DateTimeField(null=True, blank=True)
