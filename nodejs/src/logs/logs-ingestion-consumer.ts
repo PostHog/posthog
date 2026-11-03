@@ -48,6 +48,7 @@ import {
     processLogMessageBuffer,
     sniffJsonLogAttributes,
 } from './log-record-avro'
+import { produceLogsOrDependencyError } from './logs-produce-errors'
 import type { CompiledMetricRule, MetricRuleSource } from './metrics-rules/compile-metric-rules'
 import { withDefaultMetricRules } from './metrics-rules/default-metric-rules'
 import { MetricRulesCache } from './metrics-rules/metric-rules-cache'
@@ -1249,35 +1250,37 @@ export class LogsIngestionConsumer {
 
                         // Await so a rejection here lands in the catch and routes to the DLQ.
                         await this.retryOnDependencyUnavailable(() =>
-                            this.deps.outputs.queueMessages(LOGS_OUTPUT, [
-                                {
-                                    value: processedValue,
-                                    key: null,
-                                    headers: {
-                                        ...withoutInternalLogsHeaders(parseKafkaHeaders(message.message.headers)),
-                                        ...(message.internalLogs !== undefined
-                                            ? { [INTERNAL_SOURCE_HEADER]: message.internalLogs.source }
-                                            : {}),
-                                        token: message.token,
-                                        team_id: message.teamId.toString(),
-                                        'json-parse': jsonParse.toString(),
-                                        'retention-days': retentionDays.toString(),
-                                        // The ingestion lag checkpoint needs the source partition, because
-                                        // both topics use random partitioning.
-                                        source_topic: message.message.topic,
-                                        source_partition: message.message.partition.toString(),
-                                        ...(bytesUncompressedHeaderOverride !== undefined
-                                            ? { bytes_uncompressed: bytesUncompressedHeaderOverride.toString() }
-                                            : {}),
-                                        ...(bytesCompressedHeaderOverride !== undefined
-                                            ? { bytes_compressed: bytesCompressedHeaderOverride.toString() }
-                                            : {}),
-                                        ...(recordCountHeaderOverride !== undefined
-                                            ? { record_count: recordCountHeaderOverride.toString() }
-                                            : {}),
+                            produceLogsOrDependencyError(() =>
+                                this.deps.outputs.queueMessages(LOGS_OUTPUT, [
+                                    {
+                                        value: processedValue,
+                                        key: null,
+                                        headers: {
+                                            ...withoutInternalLogsHeaders(parseKafkaHeaders(message.message.headers)),
+                                            ...(message.internalLogs !== undefined
+                                                ? { [INTERNAL_SOURCE_HEADER]: message.internalLogs.source }
+                                                : {}),
+                                            token: message.token,
+                                            team_id: message.teamId.toString(),
+                                            'json-parse': jsonParse.toString(),
+                                            'retention-days': retentionDays.toString(),
+                                            // The ingestion lag checkpoint needs the source partition, because
+                                            // both topics use random partitioning.
+                                            source_topic: message.message.topic,
+                                            source_partition: message.message.partition.toString(),
+                                            ...(bytesUncompressedHeaderOverride !== undefined
+                                                ? { bytes_uncompressed: bytesUncompressedHeaderOverride.toString() }
+                                                : {}),
+                                            ...(bytesCompressedHeaderOverride !== undefined
+                                                ? { bytes_compressed: bytesCompressedHeaderOverride.toString() }
+                                                : {}),
+                                            ...(recordCountHeaderOverride !== undefined
+                                                ? { record_count: recordCountHeaderOverride.toString() }
+                                                : {}),
+                                        },
                                     },
-                                },
-                            ])
+                                ])
+                            )
                         )
                     } catch (error) {
                         // A dependency outage (Postgres, Redis, Kafka) is infrastructure-scoped. The
