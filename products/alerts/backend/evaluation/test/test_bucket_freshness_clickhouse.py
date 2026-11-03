@@ -39,6 +39,7 @@ class TestHourlyAlertScoresItsOwnWindow(APIBaseTest, ClickhouseDestroyTablesMixi
         alert = AlertConfiguration.objects.create(
             team=self.team,
             insight=insight,
+            created_by=self.user,
             name="hourly funnel",
             condition={"type": "absolute_value"},
             config={"type": "FunnelsAlertConfig", "metric": "conversion_from_start", "funnel_step": None},
