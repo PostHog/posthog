@@ -21,6 +21,7 @@ from posthog.auth import WorkloadAccessTokenAuthentication
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.user_integration import UserIntegration
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.models.workload_trust_policy import WorkloadTrustPolicy, WorkloadTrustPolicyRequest
 from posthog.settings.utils import generate_rsa_private_key_pem
@@ -399,6 +400,25 @@ class TestWorkloadTokenExchange(APIBaseTest):
         response = self._call(method, f"/api/environments/{self.team.id}/{path}", token)
 
         assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN), response.json()
+
+    def test_workload_tokens_see_no_connection_state_in_the_canvas_connector_catalog(self) -> None:
+        UserIntegration.objects.create(
+            user=self.user,
+            kind=UserIntegration.IntegrationKind.GITHUB,
+            integration_id="12345",
+            config={"installation_id": "12345", "account": {"type": "User", "name": "octocat"}},
+            sensitive_config={"access_token": "ghs_test", "user_access_token": "ghu_test"},
+        )
+        self.policy.scopes = ["canvas:read"]
+        self.policy.save()
+        token = self._access_token()
+
+        with patch("products.canvas.backend.presentation.views.canvas_connectors_enabled", return_value=True):
+            response = self._call("get", f"/api/projects/{self.team.id}/canvases/connectors/", token)
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        github = next(entry for entry in response.json()["connectors"] if entry["provider"] == "github")
+        assert github["connected"] is None
 
     def test_a_staff_owners_workload_token_cannot_change_global_dashboard_templates(self) -> None:
         self.user.is_staff = True
