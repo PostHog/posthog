@@ -348,9 +348,13 @@ Each now runs on every new matching generation, or once per matching trace for a
 one-and-done: the user should be aware that they need to keep an eye on results and iterate if the outcome
 is not the expected one. To wire results into a Slack feed, see `feature-usage-feed`.
 
+If the user asked to see results before anything goes live, show the test results for the whole set and ask
+once, in the same reply: "Enable these N now?" Enable the ones they approve right away, in this session. Don't
+end the conversation on a list of drafts: an eval nobody answered about stays disabled and never runs.
+
 Close the loop across the whole set at once — one short list of what's now live with a link each, not a
-play-by-play per eval. Mention any candidate you left disabled (no usable provider key, volume too high to
-enable yet) and what would unblock it.
+play-by-play per eval. Mention any candidate you left disabled (the user said no, no usable provider key,
+volume too high to enable yet), what would unblock it, and the link to enable it later.
 
 ### 2.7 — Offer to evaluate past data
 
@@ -429,6 +433,9 @@ creating so the user can review and toggle it in the UI.
 - **A judge draft needs only a provider and model.** A usable provider key is needed to enable it, not to
   save it, so no `ok` key means keep it disabled — not stop. `provider_key_id` may be `null` to run on the
   team's active key.
+- **Online evals are for live traffic, not a registry.** Don't create disabled online evals as records or
+  placeholders for evals that run elsewhere (CI, a local eval folder, a test suite). Record those as offline
+  experiments (`analyzing-offline-evaluations`). Every online eval you create should be one you mean to enable.
 - **`bytecode` is server-written** for hog evals — never pass it; send only `evaluation_config.source`.
 - For cluster-scoped evals, identify the cluster with `exploring-llm-clusters`, then translate its event
   filter into `conditions`.
