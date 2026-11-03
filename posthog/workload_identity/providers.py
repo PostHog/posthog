@@ -2,8 +2,7 @@
 
 Trust policy validation, the token exchange and the policy settings UI read providers only from
 this registry, so no provider name or issuer appears anywhere else in the backend. A provider is
-supported once it has an entry in `SUPPORTED_WORKLOAD_PROVIDERS`. Providers we know we cannot support
-are listed too, with the reason, so an error can name them.
+supported once it has an entry in `SUPPORTED_WORKLOAD_PROVIDERS`.
 """
 
 from __future__ import annotations
@@ -71,27 +70,11 @@ class WorkloadProvider:
                 raise ValueError(f"{self.key}: templates can only use recorded claims, not {unknown}.")
 
 
-@frozen
-class UnsupportedWorkloadProvider:
-    key: str
-    name: str
-    reason: str
-
-
+# Planned: GitHub Actions, then GitLab.com.
+# Can't be supported with this design:
+# - Bitbucket Pipelines fixes the token's audience per workspace, so a token can't name this PostHog instance.
+# - Self-managed GitLab makes each instance its own issuer, and only the issuers listed here are trusted.
 SUPPORTED_WORKLOAD_PROVIDERS: tuple[WorkloadProvider, ...] = ()
-
-UNSUPPORTED_WORKLOAD_PROVIDERS: tuple[UnsupportedWorkloadProvider, ...] = (
-    UnsupportedWorkloadProvider(
-        key="bitbucket_pipelines",
-        name="Bitbucket Pipelines",
-        reason="The token's audience is fixed per workspace and cannot be set to this PostHog instance.",
-    ),
-    UnsupportedWorkloadProvider(
-        key="gitlab_self_managed",
-        name="Self-managed GitLab",
-        reason="Each instance is its own token issuer, and only the issuers listed here are trusted.",
-    ),
-)
 
 
 def normalize_issuer(issuer: str) -> str:
@@ -100,10 +83,6 @@ def normalize_issuer(issuer: str) -> str:
 
 def get_supported_workload_providers() -> tuple[WorkloadProvider, ...]:
     return SUPPORTED_WORKLOAD_PROVIDERS
-
-
-def get_unsupported_workload_providers() -> tuple[UnsupportedWorkloadProvider, ...]:
-    return UNSUPPORTED_WORKLOAD_PROVIDERS
 
 
 def get_workload_provider_by_issuer(issuer: str) -> WorkloadProvider | None:
