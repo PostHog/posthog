@@ -264,7 +264,7 @@ class SalesforceSource(ResumableSource[SalesforceSourceConfig, SalesforceResumeC
             raise ValueError(f"Salesforce refresh token not found for job {inputs.job_id}")
 
         salesforce_access_token = integration.access_token
-        salesforce_instance_url = integration.config.get("instance_url")
+        salesforce_instance_url = cast(str, integration.config.get("instance_url"))
 
         if not salesforce_access_token:
             salesforce_access_token = salesforce_refresh_access_token(salesforce_refresh_token, salesforce_instance_url)

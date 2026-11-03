@@ -1,4 +1,4 @@
-import type { BillingAlertConfig } from 'scenes/billing/billingLogic'
+import type { BillingAlertConfig } from 'lib/logic/billing/billingLogic'
 
 /**
  * How much a rail signal needs attention. `ok` is a healthy reading worth showing in green,

@@ -343,12 +343,12 @@ class TestDraftGrounding(_VisionAPITestCase):
 
 class TestGenerate:
     def _mock_client(self, mock_client_cls: MagicMock, side_effect: list) -> MagicMock:
-        generate = mock_client_cls.return_value.models.generate_content
+        generate = mock_client_cls.return_value.generate_content
         generate.side_effect = side_effect
         return generate
 
     @parameterized.expand([("quick_blip", 0.5, 2), ("slow_timeout", 60.0, 1)])
-    @patch("products.replay_vision.backend.scanner_draft.genai.Client")
+    @patch("products.replay_vision.backend.scanner_draft.gemini_text_models")
     def test_retries_only_a_quick_failure(self, _name, failure_seconds, expected_calls, mock_client_cls):
         response = MagicMock(text=_draft().model_dump_json())
         generate = self._mock_client(mock_client_cls, [RuntimeError("blip"), response])
@@ -362,7 +362,7 @@ class TestGenerate:
 
         assert generate.call_count == expected_calls
 
-    @patch("products.replay_vision.backend.scanner_draft.genai.Client")
+    @patch("products.replay_vision.backend.scanner_draft.gemini_text_models")
     def test_gives_up_after_the_second_failure(self, mock_client_cls):
         generate = self._mock_client(mock_client_cls, [RuntimeError("blip"), RuntimeError("blip")])
 
@@ -371,7 +371,7 @@ class TestGenerate:
 
         assert generate.call_count == 2
 
-    @patch("products.replay_vision.backend.scanner_draft.genai.Client")
+    @patch("products.replay_vision.backend.scanner_draft.gemini_text_models")
     def test_caps_output_tokens(self, mock_client_cls):
         response = MagicMock(text=_draft().model_dump_json())
         generate = self._mock_client(mock_client_cls, [response])
@@ -381,7 +381,7 @@ class TestGenerate:
         assert generate.call_args.kwargs["config"].max_output_tokens == _MAX_OUTPUT_TOKENS
         assert generate.call_args.kwargs["config"].thinking_config is None
 
-    @patch("products.replay_vision.backend.scanner_draft.genai.Client")
+    @patch("products.replay_vision.backend.scanner_draft.gemini_text_models")
     def test_a_thinking_budget_reaches_the_model_config(self, mock_client_cls):
         response = MagicMock(text=_draft().model_dump_json())
         generate = self._mock_client(mock_client_cls, [response])
@@ -390,7 +390,7 @@ class TestGenerate:
 
         assert generate.call_args.kwargs["config"].thinking_config.thinking_budget == 512
 
-    @patch("products.replay_vision.backend.scanner_draft.genai.Client")
+    @patch("products.replay_vision.backend.scanner_draft.gemini_text_models")
     def test_output_cut_off_by_the_token_budget_is_its_own_failure(self, mock_client_cls):
         # Thinking shares the output budget, so a truncated draft is our cap's fault, not a bad
         # model response — the two used to be indistinguishable as "invalid_response".
@@ -457,6 +457,7 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
                 "estimate_scanner_session_volume",
                 {"return_value": ScannerVolumeEstimate(matched_sessions=300, effective_window_days=30)},
             ),
+            ("has_recent_matching_recording", {"return_value": True}),
         ]
         for target, kwargs in targets:
             patcher = patch(f"{_MODULE}.{target}", **kwargs)
@@ -513,12 +514,175 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
             },
             "rationale": "A classifier fits because you want the mix of visit intents, not a single yes/no.",
             "query": {"kind": "RecordingsQuery", "filter_test_accounts": True},
+            "query_additions": None,
             "sampling_mode": "comprehensive",
             "sampling_rate": 1.0,
             "model": "gemini-3-flash-preview",
             "estimated_monthly_observations": 300,
             **expected_spend,
         }
+
+    @patch(_GENERATE_PATH)
+    def test_a_chosen_query_reaches_the_draft_without_its_date_range(self, mock_generate):
+        mock_generate.return_value = _draft()
+        chosen = {"kind": "RecordingsQuery", "filter_test_accounts": False}
+
+        resp = self.client.post(
+            self.draft_url,
+            data={"goal": "find rage clicks", "free_only": True, "query": {**chosen, "date_from": "-7d"}},
+            format="json",
+        )
+
+        assert resp.status_code == status.HTTP_200_OK, resp.json()
+        assert resp.json()["query"] == chosen
+        assert '"filter_test_accounts":false' in mock_generate.call_args.kwargs["user_content"]
+
+    @parameterized.expand(
+        [
+            (
+                "comment search",
+                {
+                    "kind": "RecordingsQuery",
+                    "comment_text": {
+                        "type": "recording",
+                        "key": "comment_text",
+                        "value": "checkout",
+                        "operator": "icontains",
+                    },
+                },
+                {},
+                "comment_text",
+            ),
+            (
+                "hide viewed recordings",
+                {"kind": "RecordingsQuery", "hide_viewed_recordings": "current-user"},
+                {},
+                "hide_viewed_recordings",
+            ),
+            (
+                "in-session exposure",
+                {"kind": "RecordingsQuery", "experiment_exposure": {"experiment_id": 1, "in_session": True}},
+                {},
+                "in-session",
+            ),
+            ("not an object", ["kind", "RecordingsQuery"], {}, "JSON object"),
+            (
+                "unloadable cohort",
+                {
+                    "kind": "RecordingsQuery",
+                    "properties": [{"type": "cohort", "key": "id", "value": 999999, "operator": "in"}],
+                },
+                {},
+                "cohort 999999",
+            ),
+            (
+                "conflicting experiment",
+                {"kind": "RecordingsQuery", "experiment_exposure": {"experiment_id": 1}},
+                {"experiment_id": 2},
+                "not the experiment",
+            ),
+            ("exposure without an experiment", {"kind": "RecordingsQuery", "experiment_exposure": {}}, {}, "invalid"),
+            ("exposure that is not an object", {"kind": "RecordingsQuery", "experiment_exposure": "x"}, {}, "invalid"),
+            (
+                "exposure with an empty variant list",
+                {"kind": "RecordingsQuery", "experiment_exposure": {"experiment_id": 1, "variants": []}},
+                {},
+                "at least one variant",
+            ),
+            (
+                "exposure with both variant forms",
+                {
+                    "kind": "RecordingsQuery",
+                    "experiment_exposure": {"experiment_id": 1, "variant": "test", "variants": ["control"]},
+                },
+                {},
+                "not both",
+            ),
+        ]
+    )
+    @patch(_GENERATE_PATH)
+    def test_a_chosen_query_the_scanner_cannot_keep_is_refused(self, _name, query, extra, named, mock_generate):
+        resp = self.client.post(
+            self.draft_url,
+            data={"goal": "find rage clicks", "free_only": True, "query": query, **extra},
+            format="json",
+        )
+
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST, resp.json()
+        assert named in str(resp.json())
+        mock_generate.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("action", {"actions": [{"id": 999999, "type": "actions"}]}),
+            ("cohort", {"properties": [{"type": "cohort", "key": "id", "value": 999999, "operator": "in"}]}),
+        ]
+    )
+    @patch(_GENERATE_PATH)
+    def test_a_chosen_query_naming_entities_the_token_cannot_read_is_refused(self, kind, filters, mock_generate):
+        # Refused before anything resolves, so a token without the scope learns nothing about which ids exist.
+        key = self._personal_api_key(["replay_scanner:write", "session_recording:read"])
+
+        resp = self.client.post(
+            self.draft_url,
+            data={"goal": "find rage clicks", "free_only": True, "query": {"kind": "RecordingsQuery", **filters}},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {key}",
+        )
+
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST, resp.json()
+        assert f"uses {kind}s" in str(resp.json())
+        assert "999999" not in str(resp.json())
+        mock_generate.assert_not_called()
+
+    @patch(_GENERATE_PATH)
+    def test_a_chosen_query_scoped_to_an_experiment_keeps_its_variant(self, mock_generate):
+        experiment = _launched_experiment(self.team, self.user, "Billing upgrade prompt")
+        mock_generate.return_value = _draft(
+            filter_experiment="Billing upgrade prompt", filter_experiment_variant="test"
+        )
+
+        resp = self.client.post(
+            self.draft_url,
+            data={
+                "goal": "find rage clicks",
+                "free_only": True,
+                "query": {
+                    "kind": "RecordingsQuery",
+                    "experiment_exposure": {"experiment_id": experiment.id, "variant": "control"},
+                },
+            },
+            format="json",
+        )
+
+        assert resp.status_code == status.HTTP_200_OK, resp.json()
+        assert resp.json()["scanner_type"] == "experiment"
+        assert resp.json()["scanner_config"]["experiment_id"] == experiment.id
+        assert resp.json()["scanner_config"]["variants"] == ["control"]
+        assert "experiment_exposure" not in resp.json()["query"]
+
+    # An empty name must be checked as a variant, or the scanner would widen to every variant.
+    @parameterized.expand([("unknown name", "holdout"), ("empty name", "")])
+    @patch(_GENERATE_PATH)
+    def test_a_chosen_variant_the_experiment_lacks_is_refused(self, _name, variant, mock_generate):
+        experiment = _launched_experiment(self.team, self.user, "Billing upgrade prompt")
+        mock_generate.return_value = _draft(filter_experiment="Billing upgrade prompt")
+
+        resp = self.client.post(
+            self.draft_url,
+            data={
+                "goal": "find rage clicks",
+                "free_only": True,
+                "query": {
+                    "kind": "RecordingsQuery",
+                    "experiment_exposure": {"experiment_id": experiment.id, "variant": variant},
+                },
+            },
+            format="json",
+        )
+
+        assert resp.status_code == status.HTTP_400_BAD_REQUEST, resp.json()
+        assert resp.json()["detail"] == f"The experiment has no variant named {variant!r}."
 
     @parameterized.expand(
         [
@@ -611,7 +775,7 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
         assert "model down" not in resp.content.decode()
 
     @patch(
-        "products.replay_vision.backend.scanner_draft.genai.Client",
+        "products.replay_vision.backend.scanner_draft.gemini_text_models",
         side_effect=ValueError("Missing key inputs argument!"),
     )
     def test_client_construction_failure_is_a_clean_503(self, _mock):
@@ -1632,7 +1796,9 @@ class TestDraftScannerFromGoal(_VisionAPITestCase):
 
         return estimate
 
-    def _drafted_with(self, generate, estimate, experiment_id=None):
+    def _drafted_with(
+        self, generate, estimate, experiment_id=None, chosen_query=None, experiment_variants=None, has_match=None
+    ):
         with (
             patch(f"{_MODULE}.fetch_visited_paths", return_value=(VisitedPath(pathname="/billing", sessions=10),)),
             # Measure every candidate live, so these tests exercise the estimate-based fallback rather
@@ -1643,6 +1809,7 @@ class TestDraftScannerFromGoal(_VisionAPITestCase):
             ),
             patch(_GENERATE_PATH, return_value=generate),
             patch(f"{_MODULE}.estimate_scanner_session_volume", side_effect=estimate),
+            patch(f"{_MODULE}.has_recent_matching_recording", side_effect=has_match or (lambda **kwargs: True)),
         ):
             return draft_scanner_from_goal(
                 team=self.team,
@@ -1651,6 +1818,8 @@ class TestDraftScannerFromGoal(_VisionAPITestCase):
                 monthly_credit_budget=10_000,
                 user_access_control=_access_control(allow=True),
                 experiment_id=experiment_id,
+                experiment_variants=experiment_variants,
+                chosen_query=chosen_query,
             )
 
     def test_an_event_filter_that_matches_nothing_falls_back_to_the_pages(self):
@@ -1704,6 +1873,73 @@ class TestDraftScannerFromGoal(_VisionAPITestCase):
         assert draft.query is not None
         assert [e["id"] for e in draft.query["events"]] == ["billing_limit_set"]
         assert draft.estimated_monthly_observations == 0
+
+    _CHOSEN = {
+        "kind": "RecordingsQuery",
+        "properties": [{"type": "recording", "key": "visited_page", "value": "/billing", "operator": "icontains"}],
+    }
+
+    @parameterized.expand(
+        [
+            ("adds a narrowing filter", _CHOSEN, ["billing_limit_set"], True, True, None),
+            ("drops additions that match nothing", _CHOSEN, ["billing_limit_set"], False, False, "matched_nothing"),
+            ("drops additions it could not check", _CHOSEN, ["billing_limit_set"], None, False, "unverified"),
+            (
+                "drops additions to an OR filter",
+                {**_CHOSEN, "operand": "OR"},
+                ["billing_limit_set"],
+                True,
+                False,
+                "or_operand",
+            ),
+            # The query builder reads a null operand as OR too.
+            (
+                "drops additions to a null-operand filter",
+                {**_CHOSEN, "operand": None},
+                ["billing_limit_set"],
+                True,
+                False,
+                "or_operand",
+            ),
+            ("keeps a chosen filter with nothing proposed", _CHOSEN, [], True, False, None),
+        ]
+    )
+    def test_a_chosen_query_is_the_starting_point(self, _name, chosen, drafted_events, matched, extended, refusal):
+        EventDefinition.objects.create(team=self.team, name="billing_limit_set", last_seen_at=timezone.now())
+        checked: list[str] = []
+        estimated: list[RecordingsQuery] = []
+
+        def has_match(*, team, user, query, sampling_mode):
+            checked.append(sampling_mode)
+            if matched is None:
+                raise RuntimeError("clickhouse timeout")
+            return matched
+
+        def estimate(*, team, query, user, sampling_mode, budget):
+            estimated.append(query)
+            return ScannerVolumeEstimate(matched_sessions=300, effective_window_days=30)
+
+        draft = self._drafted_with(
+            _draft(filter_events=drafted_events, rationale="Watches billing sessions.", sampling_mode="focused"),
+            estimate,
+            chosen_query=chosen,
+            has_match=has_match,
+        )
+
+        assert draft.narrowing_refusal == refusal
+        if extended:
+            assert draft.query is not None
+            assert draft.query["properties"] == chosen["properties"]
+            assert [e["id"] for e in draft.query["events"]] == ["billing_limit_set"]
+            assert draft.query_additions is not None
+            assert [e["id"] for e in draft.query_additions["events"]] == ["billing_limit_set"]
+        else:
+            assert draft.query == chosen
+            assert draft.query_additions is None
+        assert draft.rationale.endswith("This watches the recordings you picked.") == (refusal is not None)
+        assert checked == (["focused"] if drafted_events and refusal != "or_operand" else [])
+        assert len(estimated) == 1
+        assert bool(estimated[0].events) == extended
 
     def test_a_measured_dead_event_is_dropped_before_it_can_zero_the_scan(self):
         # billing_limit_set is a real definition, so grounding's definition-lookup fallback would
@@ -1857,11 +2093,14 @@ class TestDraftScannerFromGoal(_VisionAPITestCase):
 
     @parameterized.expand(
         [
-            ("named_in_the_goal", {"filter_experiment": "Billing upgrade prompt"}, False),
-            ("picked_by_the_user", {}, True),
+            ("named_in_the_goal", {"filter_experiment": "Billing upgrade prompt"}, False, None, ["test"]),
+            ("picked_by_the_user", {}, True, None, ["test"]),
+            ("scoped_by_the_chosen_filter", {}, True, ["control"], ["control"]),
         ]
     )
-    def test_the_watched_experiment_becomes_an_experiment_scanner_and_is_counted(self, _name, overrides, picked):
+    def test_the_watched_experiment_becomes_an_experiment_scanner_and_is_counted(
+        self, _name, overrides, picked, chosen_variants, expected_variants
+    ):
         # The projection has to count that experiment's participants, not every session the pages
         # match, while the query the wizard saves stays the exposure-free blob the API accepts.
         experiment = _launched_experiment(self.team, self.user, "Billing upgrade prompt")
@@ -1875,15 +2114,17 @@ class TestDraftScannerFromGoal(_VisionAPITestCase):
             _draft(filter_pages=["/billing"], filter_experiment_variant="test", **overrides),
             estimate,
             experiment_id=experiment.id if picked else None,
+            experiment_variants=chosen_variants,
+            chosen_query={"kind": "RecordingsQuery"} if chosen_variants else None,
         )
 
         assert draft.scanner_type == "experiment"
         assert draft.scanner_config["experiment_id"] == experiment.id
-        assert draft.scanner_config["variants"] == ["test"]
+        assert draft.scanner_config["variants"] == expected_variants
         assert draft.query is not None and "experiment_exposure" not in draft.query
         assert counted[0].experiment_exposure is not None
         assert counted[0].experiment_exposure.experiment_id == experiment.id
-        assert counted[0].experiment_exposure.variants == ["test"]
+        assert counted[0].experiment_exposure.variants == expected_variants
 
     def test_a_picked_experiment_that_never_launched_is_refused_before_the_model_runs(self):
         experiment = _launched_experiment(self.team, self.user, "Billing upgrade prompt", launched=False)

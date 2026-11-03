@@ -26,7 +26,16 @@ from enum import Enum
 from typing import Annotated, Any, Literal, cast
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, RootModel, ValidationError, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    JsonValue,
+    RootModel,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from products.signals.backend.enums import ReportLinkKind, ReportPriority, SuggestedSourceProduct
 from products.signals.backend.report_checks import CheckComparison, CheckInconclusiveReason, CheckOutcome
@@ -253,6 +262,14 @@ class SuggestedReviewerEntry(BaseModel):
     is_research_selected: bool = Field(
         default=False,
         description="Research selected this reviewer. Autostart requires independent ownership or commit confirmation.",
+    )
+    is_default_owner: bool = Field(
+        default=False,
+        description=(
+            "True when no evidence selected anyone and the report fell back to the project's default owner. "
+            "The entry routes the report, but it is not ownership evidence: removing it is not a routing "
+            "correction, and it never selects the autostart task identity."
+        ),
     )
     source_skill: str | None = Field(
         default=None,
@@ -787,6 +804,21 @@ class NoteArtefact(BaseModel):
 
     note: str = Field(description="The note text (markdown allowed).")
     author: str | None = Field(default=None, description="Optional label for who authored the note.")
+    analytics_query_context: list[dict[str, JsonValue]] | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+        description="Frozen source queries that gate access to the note's evidence.",
+    )
+    restricted_to_user_id: int | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+        description="Acting user allowed to read assessment evidence from additional sources.",
+    )
+    source_check_ids: list[str] | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+        description="Follow-up checks whose evidence informed this note.",
+    )
 
     @field_validator("note")
     @classmethod
@@ -794,6 +826,11 @@ class NoteArtefact(BaseModel):
         if not v.strip():
             raise ValueError("must not be empty or whitespace-only")
         return v
+
+
+class CheckAuthoringStatus(BaseModel):
+    status: Literal["succeeded", "failed"]
+    reason: str = Field(min_length=1)
 
 
 class TitleChange(BaseModel):
@@ -1187,7 +1224,12 @@ class CheckCancelled(CheckLifecycleEntry):
     """
 
     reason: Literal[
-        "stopped_by_person", "stopped_by_scout", "replaced_by_research", "replaced_by_request", "no_check_lane"
+        "stopped_by_person",
+        "stopped_by_scout",
+        "replaced_by_research",
+        "replaced_by_request",
+        "no_check_lane",
+        "monitoring_completed",
     ] = Field(description="Which path stopped the check.")
 
 
@@ -1248,7 +1290,8 @@ class ImpactMeasurementPlan(BaseModel):
 
 
 StatusArtefactContent = (
-    SafetyJudgment
+    CheckAuthoringStatus
+    | SafetyJudgment
     | ActionabilityAssessment
     | PriorityAssessment
     | RepoSelectionResult
@@ -1305,6 +1348,7 @@ ARTEFACT_CONTENT_SCHEMAS: Mapping[str, type[BaseModel]] = {
     "commit": Commit,
     "task_run": TaskRunArtefact,
     "note": NoteArtefact,
+    "check_authoring": CheckAuthoringStatus,
     "title_change": TitleChange,
     "summary_change": SummaryChange,
     "code_review": CodeReview,
@@ -1365,6 +1409,7 @@ NON_WRITABLE_ARTEFACT_TYPES: frozenset[str] = frozenset(
         "check_result",
         "check_observation",
         "check_scheduled",
+        "check_authoring",
         "check_expired",
         "check_cancelled",
         "report_link",

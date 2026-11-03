@@ -129,6 +129,28 @@ describe("ContextMenuService.showTaskContextMenu", () => {
     expect(labels(idle.lastItems)).not.toContain("Stop task");
   });
 
+  it("labels the read toggle by read state and hides it when omitted", async () => {
+    const read = new FakeContextMenu();
+    const toggled = makeService(read).showTaskContextMenu({
+      ...baseTask,
+      isUnread: false,
+    });
+    await read.shown;
+    findItem(read.lastItems, "Mark as unread").click();
+    expect(await toggled).toEqual({ action: { type: "toggle-unread" } });
+
+    const unread = new FakeContextMenu();
+    makeService(unread).showTaskContextMenu({ ...baseTask, isUnread: true });
+    await unread.shown;
+    expect(labels(unread.lastItems)).toContain("Mark as read");
+
+    const omitted = new FakeContextMenu();
+    makeService(omitted).showTaskContextMenu(baseTask);
+    await omitted.shown;
+    expect(labels(omitted.lastItems)).not.toContain("Mark as unread");
+    expect(labels(omitted.lastItems)).not.toContain("Mark as read");
+  });
+
   it("hides Add to Command Center when already in it", async () => {
     const inCc = new FakeContextMenu();
     makeService(inCc).showTaskContextMenu({
