@@ -79,16 +79,12 @@ describe('logs ingestion parity corpus', () => {
         expect(fixtureFiles().length).toBeGreaterThan(0)
     })
 
-    // TODO: remove after #128013 merges. This fixture expects the produce-replay fix that #128013 adds to the existing consumer.
-    const SKIPPED_FOR_EXISTING = new Set(['faults-kafka-delivery.json'])
-
     describe.each([
-        ['LogsIngestionConsumer', CURRENT_CLASSES, SKIPPED_FOR_EXISTING],
-        ['LogsIngestionFrameworkConsumer', FRAMEWORK_CLASSES, new Set<string>()],
-    ])('%s', (_, classes, skipped) => {
+        ['LogsIngestionConsumer', CURRENT_CLASSES],
+        ['LogsIngestionFrameworkConsumer', FRAMEWORK_CLASSES],
+    ])('%s', (_, classes) => {
         for (const file of fixtureFiles()) {
-            const test = skipped.has(file) ? it.skip : it
-            test(file, async () => {
+            it(file, async () => {
                 const fixture: ParityFixture = parseJSON(readFileSync(join(FIXTURE_DIR, file), 'utf8'))
                 expect(await run(fixture.scenario, classes)).toStrictEqual(fixture.expected)
             })
