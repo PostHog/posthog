@@ -437,6 +437,24 @@ def _require_metrics_scope_for_programmatic_auth(context: dict[str, Any], insigh
         raise PermissionDenied("API key missing required scope 'metrics:read'")
 
 
+def _with_insight_metrics_variables(config: Any, query: Any) -> Any:
+    """The config of a new metrics alert, with the variable values of its insight when the request sets none.
+
+    The alert keeps its own copy, so later changes to the insight's values do not change what the alert checks.
+    """
+    if not isinstance(config, dict) or config.get("type") != "MetricsAlertConfig" or config.get("variables"):
+        return config
+    values = query.get("variables") if isinstance(query, dict) else None
+    if not isinstance(values, dict) or not values:
+        return config
+    selections = {
+        name: {"values": list(value.get("values") or []), **({"all": True} if value.get("all") else {})}
+        for name, value in values.items()
+        if isinstance(value, dict)
+    }
+    return {**config, "variables": selections}
+
+
 class AlertConfigUnion(RootModel):
     """Per-insight-kind alert config, discriminated by ``type`` — keeps the OpenAPI (and the
     generated frontend types and MCP tool schemas) in sync with every kind alerts support."""
@@ -1161,6 +1179,12 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 calculation_interval=calculation_interval,
             ):
                 config = {**config, "check_ongoing_interval": True}
+                attrs["config"] = config
+
+        if self.instance is None:
+            with_variables = _with_insight_metrics_variables(config, query)
+            if with_variables is not config:
+                config = with_variables
                 attrs["config"] = config
 
         request_user = self.context["request"].user

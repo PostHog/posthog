@@ -2777,19 +2777,6 @@ class MetricChartSettings(BaseModel):
     )
 
 
-class MetricsAlertConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    check_ongoing_interval: bool | None = Field(
-        default=None,
-        description=(
-            "When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one."
-        ),
-    )
-    type: Literal["MetricsAlertConfig"] = "MetricsAlertConfig"
-
-
 class MetricsDashboardVariableSelection(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -7165,6 +7152,27 @@ class MetricPropertyFilter(BaseModel):
     operator: PropertyOperator
     type: Literal["metric_attribute"] = "metric_attribute"
     value: list[str | float | bool] | str | float | bool | None = None
+
+
+class MetricsAlertConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    check_ongoing_interval: bool | None = Field(
+        default=None,
+        description=(
+            "When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one."
+        ),
+    )
+    type: Literal["MetricsAlertConfig"] = "MetricsAlertConfig"
+    variables: dict[str, MetricsDashboardVariableSelection] | None = Field(
+        default=None,
+        description=(
+            "Values for the `$name` variables in the insight's query, keyed by variable"
+            " name. The alert runs the query with these values. When an alert is"
+            " created without them, it copies the values the insight holds."
+        ),
+    )
 
 
 class MetricsDashboardVariable(BaseModel):
@@ -30590,7 +30598,11 @@ class MetricsHistogramQuery(BaseModel):
     )
     variables: dict[str, MetricsVariableValue] | None = Field(
         default=None,
-        description=("Values of the dashboard variables that the filters or interval refer to as `$name`."),
+        description=(
+            "Values of the dashboard variables that the filters or interval refer to as"
+            " `$name`. The dashboard or the alert sets them when the query runs. A"
+            " saved insight can't store them."
+        ),
     )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -30648,7 +30660,9 @@ class MetricsQuery(BaseModel):
     variables: dict[str, MetricsVariableValue] | None = Field(
         default=None,
         description=(
-            "Values of the dashboard variables that the PromQL, SQL, filters or interval refer to as `$name`."
+            "Values of the dashboard variables that the PromQL, SQL, filters or"
+            " interval refer to as `$name`. The dashboard or the alert sets them when"
+            " the query runs. A saved insight can't store them."
         ),
     )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
