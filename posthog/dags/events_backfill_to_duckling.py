@@ -60,6 +60,7 @@ from dagster import (
     DagsterRunStatus,
     DefaultSensorStatus,
     DynamicPartitionsDefinition,
+    OpExecutionContext,
     RunRequest,
     RunsFilter,
     SensorEvaluationContext,
@@ -560,7 +561,7 @@ class _DuckgresSession:
 
     MAX_ATTEMPTS = 4
 
-    def __init__(self, context: AssetExecutionContext, target: DucklingTarget) -> None:
+    def __init__(self, context: AssetExecutionContext | OpExecutionContext, target: DucklingTarget) -> None:
         self._context = context
         self._target = target
         # Keep one org-scoped credential ID for the session so reconnects
@@ -818,6 +819,11 @@ PERSONS_COLUMNS = """
     now64(6) AS _inserted_at
 """
 
+# A BIGINT person_version column refuses UBIGINT files, so a table converted for Trino needs a signed export.
+PERSONS_COLUMNS_SIGNED_VERSION = PERSONS_COLUMNS.replace(
+    "p.version AS person_version", "toInt64(p.version) AS person_version"
+)
+
 # Expected columns in the duckling's persons table for schema validation
 EXPECTED_DUCKLAKE_PERSONS_COLUMNS = {
     "team_id",
@@ -1036,6 +1042,7 @@ class DucklingBackfillConfig(Config):
     cleanup_existing_partition_data: bool = True  # Delete existing DuckLake data for partition before registering
     create_tables_if_missing: bool = True
     delete_tables: bool = False  # Danger: drops and recreates tables, losing all data
+    rebuild_mismatched_table: bool = False  # A full Trino persons or groups run replaces a table with other types
     dry_run: bool = False
     events_parquet_row_group_size_bytes: int = pydantic.Field(
         default=DEFAULT_EVENTS_PARQUET_ROW_GROUP_SIZE_BYTES,
@@ -1186,6 +1193,14 @@ def table_exists(
         return True
     except (psycopg.errors.UndefinedTable, psycopg.errors.InvalidSchemaName):
         return False
+
+
+def _persons_export_columns(conn: psycopg.Connection[Any], target: DucklingTarget) -> str:
+    if not table_exists(conn, DUCKLAKE_ALIAS, "posthog", target.persons_table):
+        return PERSONS_COLUMNS
+    rows = conn.execute(f"DESCRIBE {DUCKLAKE_ALIAS}.posthog.{target.persons_table}").fetchall()
+    version_types = {str(row[1]) for row in rows if row[0] == "person_version"}
+    return PERSONS_COLUMNS_SIGNED_VERSION if version_types == {"BIGINT"} else PERSONS_COLUMNS
 
 
 def _set_table_partitioning(
@@ -2612,10 +2627,15 @@ def backfill_through_trino(
     partitions_exported = 0
     files_registered = 0
     register = not (config.dry_run or config.skip_ducklake_registration)
-    # A run that replaces the whole table loses nothing when it rebuilds the table, so only such a run may rebuild a
-    # table whose types differ from the export, such as a table with the unsigned columns that duckgres creates.
+    if config.rebuild_mismatched_table and config.skip_schema_validation:
+        raise ValueError(
+            "rebuild_mismatched_table needs the schema validation, because the validation finds the mismatch"
+        )
+    # Only a run that replaces the whole table loses nothing when it rebuilds the table, so only such a run may
+    # replace a table whose types differ from the export, and only when the caller asked for it.
     replaces_table = (
-        config.cleanup_existing_partition_data
+        config.rebuild_mismatched_table
+        and config.cleanup_existing_partition_data
         and bool(exports)
         and all(isinstance(item.replacement, DuckLakeTableReplacement) for item in exports)
     )
@@ -2663,18 +2683,7 @@ def backfill_through_trino(
                 catalog.replace_table(table, column_types)
                 rebuild = False
             if files:
-                try:
-                    catalog.register_files(table, files, import_id=prefix, replacement=replacement)
-                except DuckLakeTableLayoutError:
-                    if not replaces_table:
-                        raise
-                    context.log.warning(
-                        f"{table} does not have the column types of the export, so this run rebuilds it and "
-                        "registers the files again"
-                    )
-                    # The refused add_files committed nothing, so the import id is still unused.
-                    catalog.replace_table(table, column_types)
-                    catalog.register_files(table, files, import_id=prefix, replacement=replacement)
+                catalog.register_files(table, files, import_id=prefix, replacement=replacement)
                 files_registered += len(files)
             elif replacement is not None:
                 catalog.delete_rows(table, replacement)
@@ -3211,6 +3220,12 @@ def _run_duckling_persons_backfill(context: AssetExecutionContext, config: Duckl
                 context.log.info("Validating duckling persons schema compatibility...")
                 session.run("validate persons schema", lambda c: validate_duckling_persons_schema(context, target, c))
 
+        persons_columns = (
+            session.run("read persons column types", lambda c: _persons_export_columns(c, target))
+            if session is not None
+            else PERSONS_COLUMNS
+        )
+
         merged_settings = _merged_clickhouse_settings(context, config)
 
         cluster = _get_cluster()
@@ -3238,6 +3253,7 @@ def _run_duckling_persons_backfill(context: AssetExecutionContext, config: Duckl
                         team_id=team_id,
                         run_id=run_id,
                         settings=merged_settings,
+                        columns=persons_columns,
                     )
 
             s3_glob = cluster.any_host_by_role(
@@ -3292,6 +3308,7 @@ def _run_duckling_persons_backfill(context: AssetExecutionContext, config: Duckl
                             date=date,
                             run_id=run_id,
                             settings=merged_settings,
+                            columns=persons_columns,
                         )
 
                 s3_glob = cluster.any_host_by_role(

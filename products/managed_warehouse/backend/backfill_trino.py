@@ -8,7 +8,6 @@ DuckLake writes for each Trino column.
 
 from __future__ import annotations
 
-import re
 import contextlib
 from collections.abc import Iterator, Mapping, Sequence
 from datetime import date, timedelta
@@ -16,7 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 import structlog
 from tenacity import RetryCallState, retry, retry_if_exception, stop_after_attempt, wait_exponential
-from trino.exceptions import Http502Error, Http503Error, Http504Error, TrinoConnectionError, TrinoQueryError
+from trino.exceptions import Http502Error, Http503Error, Http504Error, TrinoConnectionError
 
 from posthog.hogql.escape_sql import escape_trino_identifier, escape_trino_string
 
@@ -51,9 +50,7 @@ TRANSIENT_DUCKLAKE_ERROR_NAMES = frozenset(
     {"DUCKLAKE_COMMIT_CONFLICT", "DUCKLAKE_CONCURRENT_MODIFICATION", "DUCKLAKE_COMMIT_FAILED"}
 )
 STATEMENT_ATTEMPTS = 4
-PARQUET_TYPE_MISMATCH_PREFIX = "Parquet type does not match column"
-PARQUET_UNSIGNED_INTEGER = re.compile(r"INTEGER\(\d+,\s*false\)")
-REBUILD_HINT = "Only a backfill that replaces the whole table can rebuild it with the export's types."
+REBUILD_HINT = "Run duckling_trino_conversion_job for the team, or a full backfill with rebuild_mismatched_table: true."
 
 
 Replacement = DuckLakeDayReplacement | DuckLakeTableReplacement
@@ -91,17 +88,6 @@ def _refuse_shared_table(table: str, change: str) -> None:
 
 def _column_definitions(columns: Mapping[str, str]) -> str:
     return ", ".join(f"{escape_trino_identifier(name)} {data_type}" for name, data_type in columns.items())
-
-
-def _is_unsigned_column_mismatch(error: TrinoQueryError) -> bool:
-    # DuckLake shows an unsigned column as a wider signed Trino type, so only add_files sees that a table duckgres
-    # created holds one. The connector names the table's type after "versus". Any other mismatch means that the export
-    # wrote a wrong type, which a rebuild cannot fix.
-    message = str(error.message)
-    if error.error_name != "DUCKLAKE_BAD_DATA" or not message.startswith(PARQUET_TYPE_MISMATCH_PREFIX):
-        return False
-    _, _, table_type = message.partition(" versus ")
-    return PARQUET_UNSIGNED_INTEGER.search(table_type) is not None
 
 
 def _is_transient(error: BaseException) -> bool:
@@ -170,6 +156,10 @@ class TrinoBackfillCatalog:
     def _validate(self, table: str, columns: Mapping[str, str]) -> None:
         # A table can have more columns than the export, because add_files reads a missing column as NULL.
         actual = self._columns(table)
+        if not actual:
+            raise ValueError(
+                f"Table {BACKFILL_SCHEMA}.{table} does not exist. Run with create_tables_if_missing: true."
+            )
         mismatched = {
             name: actual.get(name, "missing") for name, data_type in columns.items() if actual.get(name) != data_type
         }
@@ -224,15 +214,7 @@ class TrinoBackfillCatalog:
                 ]
             case DuckLakeTableReplacement():
                 options.append("replace => true")
-        try:
-            rows = self._run(f"ALTER TABLE {self._table(table)} EXECUTE add_files({', '.join(options)})")
-        except TrinoQueryError as error:
-            if _is_unsigned_column_mismatch(error):
-                raise DuckLakeTableLayoutError(
-                    f"add_files refused the files because a column of table {BACKFILL_SCHEMA}.{table} is unsigned: "
-                    f"{error.message}. {REBUILD_HINT}"
-                ) from error
-            raise
+        rows = self._run(f"ALTER TABLE {self._table(table)} EXECUTE add_files({', '.join(options)})")
         return sum(int(row[1]) for row in rows if len(row) > 1 and row[0] == "added_data_files")
 
     def delete_rows(self, table: str, replacement: Replacement) -> None:

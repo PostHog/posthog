@@ -37,11 +37,19 @@ One `add_files` call registers the files of an export and removes the rows they 
 - An export with no files deletes the rows it would replace.
 - With `cleanup_existing_partition_data: false`, the files are added and no rows are removed.
 
-A table that duckgres created can hold unsigned columns, which Trino shows as other types, so `add_files` refuses the export's files.
-A full persons or groups backfill rebuilds such a table with the export's types after the export and before it registers the files.
-The rebuilt table keeps the columns that the export does not write.
-Readers see an empty table until the run registers the files, and a run that fails after the rebuild leaves the table empty until the next full backfill.
-A daily backfill refuses such a table and fails with a message.
+Tables that duckgres created can hold unsigned columns, which Trino shows as other types, so `add_files` refuses the export's files.
+Daily and other Trino runs refuse such a table and fail with a message.
+To change an organization over:
+
+1. Run `duckling_trino_conversion_job` for the team, with `dry_run: true` first.
+   It widens the columns that DuckLake can widen in place, such as groups `group_type_index`, and reports the tables that still need a rebuild.
+   It fails when the events table needs a rebuild, because no snapshot run can rebuild events.
+2. A column that DuckLake cannot widen, such as persons `person_version`, needs a full backfill with `rebuild_mismatched_table: true`.
+   Run it with the organization on the Trino flag, and without `skip_schema_validation`, because the validation finds the mismatch.
+   The run replaces the table after the export and keeps the columns that the export does not write.
+   Readers see an empty table until the run registers the files, and a run that fails after the rebuild leaves the table empty until the next full backfill.
+
+The duckgres path accepts the converted layout, so turning the flag off still works.
 
 The call has an import ID, so a retry after a lost response adds nothing.
 A statement that fails for a transient reason, such as a DuckLake commit conflict, a lost coordinator, or a cluster fault, runs again up to four times.

@@ -214,30 +214,41 @@ class TestEnsureTable:
 
     @parameterized.expand(
         [
-            ("extra_column", {**COLUMNS, "added_later": "varchar"}, None),
-            ("missing_column", {"team_id": "bigint", "timestamp": "timestamp(6) with time zone"}, "person_version"),
-            ("unsigned_column", {**COLUMNS, "person_version": "decimal(20,0)"}, "person_version"),
+            ("extra_column", {**COLUMNS, "added_later": "varchar"}, None, None),
+            (
+                "missing_column",
+                {"team_id": "bigint", "timestamp": "timestamp(6) with time zone"},
+                DuckLakeTableLayoutError,
+                "person_version",
+            ),
+            (
+                "unsigned_column",
+                {**COLUMNS, "person_version": "decimal(20,0)"},
+                DuckLakeTableLayoutError,
+                "person_version",
+            ),
+            ("missing_table", {}, ValueError, "does not exist"),
         ]
     )
     def test_validates_that_exported_files_match_the_table(
-        self, _name: str, actual: dict[str, str], mismatch: str | None
+        self, _name: str, actual: dict[str, str], error: type[Exception] | None, message: str | None
     ) -> None:
         catalog, _ = _catalog(actual)
 
         def ensure() -> None:
             catalog.ensure_table("events_team_7", COLUMNS, drop_first=False, create_if_missing=False, validate=True)
 
-        if mismatch is None:
+        if error is None:
             ensure()
-        else:
-            with pytest.raises(DuckLakeTableLayoutError, match=mismatch):
-                ensure()
+            return
+        with pytest.raises(error, match=message) as raised:
+            ensure()
+        # A rebuild must not create a table that does not exist, so a missing table is not a layout mismatch.
+        assert (raised.type is DuckLakeTableLayoutError) == (error is DuckLakeTableLayoutError)
 
 
-def _query_error(
-    error_class: type[TrinoQueryError], name: str, error_type: str, message: str | None = None
-) -> TrinoQueryError:
-    return error_class({"errorName": name, "errorType": error_type, "message": message or name}, "query-1")
+def _query_error(error_class: type[TrinoQueryError], name: str, error_type: str) -> TrinoQueryError:
+    return error_class({"errorName": name, "errorType": error_type, "message": name}, "query-1")
 
 
 def _register(catalog: TrinoBackfillCatalog) -> int:
@@ -277,42 +288,16 @@ class TestTransientFailures:
 
     @parameterized.expand(
         [
-            (
-                "import_id_reused",
-                _query_error(TrinoUserError, "INVALID_PROCEDURE_ARGUMENT", "USER_ERROR"),
-                TrinoUserError,
-            ),
-            ("bad_data", _query_error(TrinoExternalError, "DUCKLAKE_BAD_DATA", "EXTERNAL"), TrinoExternalError),
-            (
-                "table_column_unsigned",
-                _query_error(
-                    TrinoExternalError,
-                    "DUCKLAKE_BAD_DATA",
-                    "EXTERNAL",
-                    "Parquet type does not match column 'group_type_index': required int32 group_type_index "
-                    "(INTEGER(16,true)) versus optional int32 group_type_index (INTEGER(8,false))",
-                ),
-                DuckLakeTableLayoutError,
-            ),
-            (
-                "export_type_wrong",
-                _query_error(
-                    TrinoExternalError,
-                    "DUCKLAKE_BAD_DATA",
-                    "EXTERNAL",
-                    "Parquet type does not match column 'group_type_index': required int32 group_type_index "
-                    "(INTEGER(8,false)) versus optional int32 group_type_index (INTEGER(16,true))",
-                ),
-                TrinoExternalError,
-            ),
+            ("import_id_reused", _query_error(TrinoUserError, "INVALID_PROCEDURE_ARGUMENT", "USER_ERROR")),
+            ("file_types_differ", _query_error(TrinoExternalError, "DUCKLAKE_BAD_DATA", "EXTERNAL")),
         ]
     )
     def test_raises_a_statement_error_without_repeating_the_statement(
-        self, _sleep, _name: str, failure: Exception, expected: type[Exception]
+        self, _sleep, _name: str, failure: Exception
     ) -> None:
         catalog, connection = _catalog(failures=[failure])
 
-        with pytest.raises(expected):
+        with pytest.raises(type(failure)):
             _register(catalog)
 
         assert len(connection.statements) == 1

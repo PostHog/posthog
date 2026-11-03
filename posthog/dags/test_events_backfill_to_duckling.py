@@ -2,7 +2,7 @@ import os
 import re
 from datetime import UTC, date, datetime, timedelta
 from fnmatch import fnmatch
-from typing import Any, Literal, cast
+from typing import Any, cast
 
 import pytest
 import time_machine
@@ -2627,7 +2627,7 @@ class TestFannedOutLayoutRoundTrip:
 
 
 class _FakeTrinoBackfillCatalog:
-    def __init__(self, layout_mismatch: Literal["ensure", "register"] | None = None, max_files: int = 2_000) -> None:
+    def __init__(self, layout_mismatch: bool = False, max_files: int = 2_000) -> None:
         self.layout_mismatch = layout_mismatch
         self.max_files = max_files
         self.rebuilt = False
@@ -2639,7 +2639,7 @@ class _FakeTrinoBackfillCatalog:
     def ensure_table(
         self, table: str, columns: dict[str, str], *, drop_first: bool, create_if_missing: bool, validate: bool
     ) -> None:
-        if self.layout_mismatch == "ensure" and validate and not self.rebuilt:
+        if self.layout_mismatch and validate and not self.rebuilt:
             raise DuckLakeTableLayoutError("the table has unsigned columns")
         self.tables.append((table, dict(columns)))
 
@@ -2660,8 +2660,6 @@ class _FakeTrinoBackfillCatalog:
         replacement: DuckLakeDayReplacement | DuckLakeTableReplacement | None,
     ) -> int:
         self.calls.append(("register", table, replacement))
-        if self.layout_mismatch == "register" and not self.rebuilt:
-            raise DuckLakeTableLayoutError("the table has unsigned columns")
         self.registered.append((table, list(files), import_id, replacement))
         return len(files)
 
@@ -2692,6 +2690,49 @@ class _FakeExportClickHouse:
                 raise ClickHouseError(f"Can not match any files with path {pattern[1]}")
             return matched
         return [(10,)]
+
+
+class TestDuckgresPersonsExportColumns:
+    @parameterized.expand(
+        [
+            ("bigint_column_gets_a_signed_version", "BIGINT", "2", "toInt64(p.version) AS person_version"),
+            ("ubigint_column_keeps_the_unsigned_version", "UBIGINT", "2", "p.version AS person_version"),
+            ("daily_run_follows_the_table_too", "BIGINT", "2_2026-06-17", "toInt64(p.version) AS person_version"),
+        ]
+    )
+    @time_machine.travel(datetime(2026, 7, 1, tzinfo=UTC), tick=False)
+    def test_exports_the_version_type_that_the_persons_table_accepts(
+        self, _name, version_type, partition_key, expected_column
+    ):
+        clickhouse = _FakeExportClickHouse(files_per_export=1)
+        cluster = MagicMock()
+        cluster.any_host_by_role.side_effect = lambda fn, **_: MagicMock(result=MagicMock(return_value=fn(clickhouse)))
+        conn = MagicMock()
+        conn.execute.return_value.fetchall.return_value = [("person_version", version_type)]
+
+        def run_op(what: str, op: Any) -> Any:
+            return op(conn) if what == "read persons column types" else 0
+
+        context = MagicMock(partition_key=partition_key)
+        context.run.run_id = "0123456789abcdef-run"
+        target = TestBackfillThroughTrino.TARGET
+        with (
+            patch("posthog.dags.events_backfill_to_duckling._resolve_duckling_target", return_value=target),
+            patch("posthog.dags.events_backfill_to_duckling.backfills_through_trino", return_value=False),
+            patch("posthog.dags.events_backfill_to_duckling._get_cluster", return_value=cluster),
+            patch("posthog.dags.events_backfill_to_duckling._DuckgresSession") as duckgres,
+            patch("posthog.dags.events_backfill_to_duckling.record_duckling_backfill_workload"),
+        ):
+            duckgres.return_value.run.side_effect = run_op
+            _run_duckling_persons_backfill(
+                context,
+                DucklingBackfillConfig(
+                    create_tables_if_missing=False, skip_schema_validation=True, cleanup_existing_partition_data=False
+                ),
+            )
+
+        (insert, _settings) = clickhouse.inserts[0]
+        assert expected_column in insert
 
 
 class TestBackfillThroughTrino:
@@ -2784,26 +2825,19 @@ class TestBackfillThroughTrino:
 
     @parameterized.expand(
         [
-            ("full_rebuilds_before_registering", "2", "ensure", True, ["replace", "register", "register"]),
-            (
-                "full_rebuilds_when_add_files_refuses",
-                "2",
-                "register",
-                True,
-                ["register", "replace", "register", "register"],
-            ),
-            ("full_without_cleanup_refuses", "2", "ensure", False, None),
-            ("day_refuses_before_registering", "2_2026-06-17", "ensure", True, None),
-            ("day_refuses_when_add_files_refuses", "2_2026-06-17", "register", True, None),
+            ("full_rebuilds_once_then_registers", "2", True, True, ["replace", "register", "register"]),
+            ("full_without_rebuild_refuses", "2", False, True, None),
+            ("full_without_cleanup_refuses", "2", True, False, None),
+            ("day_refuses", "2_2026-06-17", True, True, None),
         ]
     )
     @time_machine.travel(datetime(2026, 7, 1, tzinfo=UTC), tick=False)
     def test_rebuilds_a_table_with_other_column_types_only_when_the_run_replaces_the_table(
-        self, _name, partition_key, layout_mismatch, cleanup, expected_calls
+        self, _name, partition_key, rebuild, cleanup, expected_calls
     ):
         clickhouse = _FakeExportClickHouse(files_per_export=2)
-        catalog = _FakeTrinoBackfillCatalog(layout_mismatch=layout_mismatch)
-        config = DucklingBackfillConfig(cleanup_existing_partition_data=cleanup)
+        catalog = _FakeTrinoBackfillCatalog(layout_mismatch=True)
+        config = DucklingBackfillConfig(rebuild_mismatched_table=rebuild, cleanup_existing_partition_data=cleanup)
 
         def run() -> None:
             self._run(_run_duckling_persons_backfill, partition_key, clickhouse, config, catalog)
@@ -2819,18 +2853,23 @@ class TestBackfillThroughTrino:
             assert {call[2] for call in catalog.calls if call[0] == "register"} == {DuckLakeTableReplacement()}
             assert len(catalog.registered) == 2
 
+    @parameterized.expand(
+        [
+            ("too_many_files", 1, DucklingBackfillConfig(rebuild_mismatched_table=True), "more than 1"),
+            (
+                "no_schema_validation",
+                2_000,
+                DucklingBackfillConfig(rebuild_mismatched_table=True, skip_schema_validation=True),
+                "needs the schema validation",
+            ),
+        ]
+    )
     @time_machine.travel(datetime(2026, 7, 1, tzinfo=UTC), tick=False)
-    def test_refuses_too_many_files_before_it_rebuilds_the_table(self):
-        catalog = _FakeTrinoBackfillCatalog(layout_mismatch="ensure", max_files=1)
+    def test_refuses_before_it_rebuilds_the_table(self, _name, max_files, config, message):
+        catalog = _FakeTrinoBackfillCatalog(layout_mismatch=True, max_files=max_files)
 
-        with pytest.raises(ValueError, match="more than 1"):
-            self._run(
-                _run_duckling_persons_backfill,
-                "2",
-                _FakeExportClickHouse(files_per_export=2),
-                DucklingBackfillConfig(),
-                catalog,
-            )
+        with pytest.raises(ValueError, match=message):
+            self._run(_run_duckling_persons_backfill, "2", _FakeExportClickHouse(files_per_export=2), config, catalog)
 
         assert catalog.calls == []
 
