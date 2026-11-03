@@ -1,7 +1,6 @@
 import { Fragment, type ReactElement, useMemo } from 'react'
-import { ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native'
+import { ScrollView, StyleSheet, Text, View } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
-
 import { FEATURE_FLAGS, useFeatureFlag } from '@/lib/featureFlags'
 import type { InboxItem } from '@/model/types'
 import { BottomSheet } from '@/ui/BottomSheet'
@@ -12,6 +11,7 @@ import { Pressable44 } from '@/ui/Pressable44'
 import { SegmentedPill } from '@/ui/SegmentedPill'
 import { createStyles, useColors } from '@/ui/theme'
 import { iconSizes, radii, space, type } from '@/ui/tokens'
+import { useSceneDimensions } from '@/ui/useSceneDimensions'
 
 import {
     CREATED_WINDOW_OPTIONS,
@@ -51,7 +51,7 @@ export function InboxFilterSheet({
 }: InboxFilterSheetProps): ReactElement {
     const styles = useStyles()
     const colors = useColors()
-    const { height } = useWindowDimensions()
+    const { height } = useSceneDimensions()
     const listGesture = useMemo(() => Gesture.Native(), [])
     const modelScoreSort = useFeatureFlag(FEATURE_FLAGS.modelScoreSort)
     const sortOptions = modelScoreSort ? [...SORT_OPTIONS, MODEL_SCORE_SORT_OPTION] : SORT_OPTIONS
