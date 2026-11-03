@@ -1535,6 +1535,10 @@ export const ScannerRecordingsFilterSchema = ScannerRecordingsFilterFields.optio
     'Which recordings the scanner watches, as a `RecordingsQuery`. Omit every filter to watch every new recording. The date range is ignored, because the schedule controls time.'
 )
 
+export const ScannerUpdateRecordingsFilterSchema = ScannerRecordingsFilterFields.optional().describe(
+    "The filter that replaces the scanner's current one, as a `RecordingsQuery`. It is not merged: any field you leave out is cleared, and `{}` watches every new recording. To change part of the filter, read the current one with `vision-scanners-get`, change it, and send it back in full. The date range is ignored, because the schedule controls time."
+)
+
 export const ScannerEstimateRecordingsFilterSchema = ScannerRecordingsFilterFields.optional().describe(
     'Which recordings to count, as a `RecordingsQuery`. Omit every filter to count every recording. The date range is ignored, because the estimate counts a recent window (`window_days` in the response) and scales it to 30 days.'
 )

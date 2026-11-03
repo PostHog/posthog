@@ -4,7 +4,11 @@ import { z } from 'zod'
 import type { Schemas } from '@/api/generated'
 import * as orvalSchemas from '@/generated/replay_vision/api'
 import { withUiApp } from '@/resources/ui-apps'
-import { ScannerEstimateRecordingsFilterSchema, ScannerRecordingsFilterSchema } from '@/schema/tool-inputs'
+import {
+    ScannerEstimateRecordingsFilterSchema,
+    ScannerRecordingsFilterSchema,
+    ScannerUpdateRecordingsFilterSchema,
+} from '@/schema/tool-inputs'
 import { castBooleanToString } from '@/tools/cast-helpers'
 import {
     withPostHogUrl,
@@ -1599,7 +1603,7 @@ const VisionScannersUpdateSchema = () => {
     const VisionScannersPartialUpdateParams = orvalSchemas.VisionScannersPartialUpdateParams()
     return VisionScannersPartialUpdateParams.omit({ project_id: true })
         .extend(VisionScannersPartialUpdateBody.shape)
-        .extend({ query: ScannerRecordingsFilterSchema.optional() })
+        .extend({ query: ScannerUpdateRecordingsFilterSchema.optional() })
 }
 
 const visionScannersUpdate = (): ToolBase<ReturnType<typeof VisionScannersUpdateSchema>, Schemas.ReplayScanner> => ({
