@@ -223,6 +223,11 @@ impl UrlLimit {
         }
     }
 
+    /// The scrub replaces only the URL tokens it finds in the text, so it cannot vouch for CSS that the inspector could not read.
+    pub fn drops_block(self) -> bool {
+        matches!(self, UrlLimit::NestedBlocks)
+    }
+
     pub fn is_font_budget(self) -> bool {
         matches!(
             self,

@@ -231,14 +231,21 @@ fn second_fallback(first: &Fallback, report: &RewriteReport) -> Fallback {
 }
 
 /// Writes a block's lines to an output from `open`. A block that the first pass leaves unsafe is written again to a
-/// fresh output with the fallback that makes it safe, so a block is dropped only when even that fails. Moves the
-/// images out and returns them with the output.
+/// fresh output with the fallback that makes it safe, so a block is dropped only when even that fails, or when its
+/// limit leaves nothing a fallback can make safe. Moves the images out and returns them with the output.
 pub fn write_block<W: Write>(
     block: &Block,
     team_key: &[u8; 32],
     key_month: &str,
     mut open: impl FnMut() -> io::Result<W>,
 ) -> io::Result<(W, Vec<Image>, WriterCounts)> {
+    if let Some(limit) = block.url_limit.filter(|limit| limit.drops_block()) {
+        let counts = WriterCounts {
+            dropped: Some(limit.label()),
+            ..WriterCounts::default()
+        };
+        return Ok((open()?, Vec::new(), counts));
+    }
     let first = first_fallback(block);
     let mut out = open()?;
     let (images, mut counts, report) = prepare_block(block, team_key, key_month, &first, &mut out)?;
@@ -820,7 +827,15 @@ mod tests {
         stored(block_of("kept", events), extra)
     }
 
-    fn stored(mut inspected: Block, extra: &[&str]) -> String {
+    fn stored(inspected: Block, extra: &[&str]) -> String {
+        let (lines, counts) = written(inspected, extra);
+        if counts.dropped.is_some() {
+            return String::new();
+        }
+        lines
+    }
+
+    fn written(mut inspected: Block, extra: &[&str]) -> (String, WriterCounts) {
         let mut inspector = replay_core_v4::inspect::session::SessionInspector::default();
         let mut inspection = replay_core_v4::inspect::session::BlockInspection::default();
         for message in &inspected.messages {
@@ -839,10 +854,7 @@ mod tests {
             }));
         let (lines, _, counts) =
             write_block(&inspected, &[6; 32], "2026-10", || Ok(Vec::new())).unwrap();
-        if counts.dropped.is_some() {
-            return String::new();
-        }
-        String::from_utf8(lines).unwrap()
+        (String::from_utf8(lines).unwrap(), counts)
     }
 
     #[test]
@@ -979,26 +991,6 @@ mod tests {
             json!({"type": 2, "tagName": "a", "attributes": {"href": link}, "childNodes": [], "id": 3}),
             json!({"type": 2, "tagName": "style", "attributes": {"_cssText": split_face}, "childNodes": [], "id": 4}),
         ];
-        let deep_face = format!(
-            "{}@font-face{{font-family:Deep;src:url(\"https://fonts.example.com/deep.woff2?token=secret\")}}{}",
-            "@media all{".repeat(80),
-            "}".repeat(80)
-        );
-        let nested_fonts = vec![
-            json!({"type": 2, "tagName": "img", "attributes": {"src": "https://cdn.example.com/a.png"}, "childNodes": [], "id": 2}),
-            json!({"type": 2, "tagName": "style", "attributes": {"_cssText": deep_face}, "childNodes": [], "id": 3}),
-            json!({"type": 2, "tagName": "a", "attributes": {"href": link}, "childNodes": [], "id": 4}),
-        ];
-        let deep_value = format!(
-            "background-image:{}url('https://cdn.example.com/deep.png?token=secret'){}",
-            "var(--a,".repeat(80),
-            ")".repeat(80)
-        );
-        let nested_values = vec![
-            json!({"type": 2, "tagName": "img", "attributes": {"src": "https://cdn.example.com/a.png"}, "childNodes": [], "id": 2}),
-            json!({"type": 2, "tagName": "div", "attributes": {"style": deep_value}, "childNodes": [], "id": 3}),
-            json!({"type": 2, "tagName": "a", "attributes": {"href": link}, "childNodes": [], "id": 4}),
-        ];
         use posthog_replay_anonymizer::v4_image_refs::{
             FONT_URL_UNCHECKED_MARKER, URL_UNCHECKED_MARKER,
         };
@@ -1021,18 +1013,6 @@ mod tests {
                 FONT_URL_UNCHECKED_MARKER,
                 URL_UNCHECKED_MARKER,
             ),
-            (
-                nested_fonts,
-                "imageurl:v4:7:2026-10:",
-                URL_UNCHECKED_MARKER,
-                FONT_URL_UNCHECKED_MARKER,
-            ),
-            (
-                nested_values,
-                "imageurl:v4:7:2026-10:",
-                URL_UNCHECKED_MARKER,
-                FONT_URL_UNCHECKED_MARKER,
-            ),
         ] {
             let events = json!([{"type": 2, "timestamp": 1, "data": {"node": {"type": 0, "id": 1, "childNodes": nodes}}}]).to_string();
             let lines = stored_lines(&events, &[]);
@@ -1049,6 +1029,28 @@ mod tests {
                 marker == FONT_URL_UNCHECKED_MARKER,
                 "only the font budget keeps links"
             );
+        }
+    }
+
+    #[test]
+    fn drops_a_block_whose_css_nests_too_deep_to_read() {
+        let deep_face = format!(
+            "{}@font-face{{font-family:Deep;src:url(\"https://fonts.example.com/deep.woff2?token=secret\")}}{}",
+            "@media all{".repeat(80),
+            "}".repeat(80)
+        );
+        let deep_value = format!(
+            "background-image:{}url('https://cdn.example.com/deep.png?token=secret'){}",
+            "var(--a,".repeat(80),
+            ")".repeat(80)
+        );
+        for node in [
+            json!({"type": 2, "tagName": "style", "attributes": {"_cssText": deep_face}, "childNodes": [], "id": 2}),
+            json!({"type": 2, "tagName": "div", "attributes": {"style": deep_value}, "childNodes": [], "id": 2}),
+        ] {
+            let events = json!([{"type": 2, "timestamp": 1, "data": {"node": {"type": 0, "id": 1, "childNodes": [node]}}}]).to_string();
+            let (_, counts) = written(block_of("kept", &events), &[]);
+            assert_eq!(counts.dropped, Some("too_many_nested_blocks"));
         }
     }
 
