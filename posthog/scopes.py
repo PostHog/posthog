@@ -238,6 +238,8 @@ OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
         # `is_staff`. Distinct from the public `batch_import` object on purpose: that one is
         # OAuth-advertised, and a customer-grantable scope must never name a staff surface.
         "batch_import_support",
+        # Its only route accepts project secret API keys alone, so only that key picker offers it.
+        "messaging_preference",
     }
 )
 

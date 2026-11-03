@@ -247,13 +247,6 @@ export const API_SCOPES: APIScope[] = [
     { key: 'loop', objectName: 'Loop', objectPlural: 'loops' },
     { key: 'marketing_analytics', objectName: 'Marketing analytics', objectPlural: 'marketing analytics' },
     { key: 'mcp_analytics', objectName: 'MCP analytics', objectPlural: 'MCP analytics' },
-    {
-        key: 'messaging_preference',
-        objectName: 'Recipient preference',
-        objectPlural: 'recipient preferences',
-        info: "Opt email recipients in or out of your message topics. This scope can't send email.",
-        disabledActions: ['read'],
-    },
     { key: 'metrics', objectName: 'Metrics', objectPlural: 'metrics' },
     { key: 'notebook', objectName: 'Notebook', objectPlural: 'notebooks' },
     { key: 'organization', objectName: 'Organization', objectPlural: 'organizations', disabledWhenProjectScoped: true },
@@ -618,10 +611,6 @@ export const API_SCOPE_GROUPS: APIScopeGroup[] = [
             'webhook',
             'plugin',
         ],
-    },
-    {
-        label: 'Messaging',
-        objects: ['messaging_preference'],
     },
     {
         label: 'AI & context management tools',
