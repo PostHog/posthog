@@ -459,7 +459,12 @@ jobs:
         if: needs.changes.outputs.devex == 'true'
         # One whole-tree scan is minutes of CPU-bound work and this job ends the Security lane,
         # so the extra vCPUs pay for themselves.
-        runs-on: depot-ubuntu-24.04-4
+        #
+        # Forks stay on GitHub-hosted: the `Scan` step is a container, but the report and ratchet
+        # steps run `bin/semgrep_devex_report.py` from the checkout, so a fork PR controls code
+        # that executes on the runner host. Depot injects shared cache credentials ambiently, which
+        # GitHub withholding fork secrets does not cover. Same rule and guard as ci-frontend.yml.
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04-4' || 'ubuntu-24.04' }}
         timeout-minutes: 20
 
         env:
