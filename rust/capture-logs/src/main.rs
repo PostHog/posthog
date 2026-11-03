@@ -192,7 +192,6 @@ async fn main() {
             "/i/v1/logs/datadog/:token/api/v2/logs",
             post(datadog::export_datadog_logs_http).options(options_handler),
         )
-        // Vercel log drains: the token goes in an Authorization header, the path, or ?token=.
         .route(
             "/i/v1/logs/vercel",
             post(vercel::export_vercel_logs_http).options(options_handler),

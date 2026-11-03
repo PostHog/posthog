@@ -302,7 +302,6 @@ pub fn vercel_log_to_kafka_row(log: VercelLog) -> (KafkaLogRow, bool) {
     (row, was_overridden)
 }
 
-/// Which project tokens may use the drain route while it rolls out.
 #[derive(Clone, Debug, Default)]
 pub struct VercelDrainGate {
     allow_all: bool,
@@ -310,7 +309,6 @@ pub struct VercelDrainGate {
 }
 
 impl VercelDrainGate {
-    /// Reads a comma-separated token list; `*` opens the route to every token.
     pub fn new(enabled_tokens: &str) -> Self {
         let tokens: HashSet<String> = enabled_tokens
             .split(',')
