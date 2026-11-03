@@ -49,12 +49,22 @@ const FIRST_CALL_POLL_MS = 10000
 const tracking = {
     opened: false,
     lastViewedStep: null as string | null,
+    // What an exit event reports when setup mode closes through the URL, after its own params are gone.
+    lastViewed: null as { path: MCPSetupPath | null; step: MCPSetupStep | null } | null,
+}
+
+function resetTracking(): void {
+    tracking.opened = false
+    tracking.lastViewedStep = null
+    tracking.lastViewed = null
 }
 
 export function resetSetupModeTrackingForTests(): void {
-    tracking.opened = false
-    tracking.lastViewedStep = null
+    resetTracking()
 }
+
+/** What setup mode polls for while it is open: the signals until a call lands, then the calls themselves. */
+type SetupPollTarget = 'signals' | 'calls' | null
 
 function capture(event: string, properties: Record<string, unknown>): void {
     if (userLogic.findMounted()?.values.user?.is_impersonated) {
@@ -73,6 +83,7 @@ export interface mcpSetupModeLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     onboardingState: MCPOnboardingState | null // mcpAnalyticsOnboardingLogic
     signals: MCPOnboardingSignals | null // mcpAnalyticsOnboardingLogic
+    signalsLoading: boolean // mcpAnalyticsOnboardingLogic
     location: {
         pathname: string
         search: string
@@ -83,6 +94,7 @@ export interface mcpSetupModeLogicValues {
     connectState: MCPConnectState
     isEnabled: boolean
     isOpen: boolean
+    pollTarget: SetupPollTarget
     recentCalls: MCPActivityRecentCallApi[] | null
     recentCallsFailed: boolean
     recentCallsLoading: boolean
@@ -182,7 +194,7 @@ export const mcpSetupModeLogic = kea<mcpSetupModeLogicType>([
             featureFlagLogic,
             ['featureFlags'],
             mcpAnalyticsOnboardingLogic,
-            ['signals', 'onboardingState'],
+            ['signals', 'signalsLoading', 'onboardingState'],
             teamLogic,
             ['currentProjectId'],
         ],
@@ -257,6 +269,18 @@ export const mcpSetupModeLogic = kea<mcpSetupModeLogicType>([
                 setupPath && step ? `${setupPath}:${step}` : null,
         ],
         connectState: [(s) => [s.onboardingState], connectStateFor],
+        // An unknown step (the first signals query failed) polls the signals too, so a retry comes quickly.
+        pollTarget: [
+            (s) => [s.isOpen, s.step],
+            (isOpen: boolean, step: MCPSetupStep | null): SetupPollTarget =>
+                !isOpen
+                    ? null
+                    : step === null || step === 'connect'
+                      ? 'signals'
+                      : step === 'first-call'
+                        ? 'calls'
+                        : null,
+        ],
     }),
     listeners(({ actions, values }) => ({
         reportSetupInteraction: ({ action, preview }) => {
@@ -293,8 +317,7 @@ export const mcpSetupModeLogic = kea<mcpSetupModeLogicType>([
                 return
             }
             capture('mcp analytics setup mode exited', { path: values.setupPath, step: values.step, reason })
-            tracking.opened = false
-            tracking.lastViewedStep = null
+            resetTracking()
             const searchParams = withoutSetupParams(values.searchParams)
             if (reason === 'finished' || reason === 'ask_ai') {
                 router.actions.push(urls.mcpAnalyticsActivity(), searchParams)
@@ -319,6 +342,11 @@ export const mcpSetupModeLogic = kea<mcpSetupModeLogicType>([
                 }, 'escape')
             } else {
                 cache.disposables.dispose('escape')
+                // Still marked open means it closed without `exitSetupMode`: browser history or a link out.
+                if (tracking.opened) {
+                    capture('mcp analytics setup mode exited', { ...tracking.lastViewed, reason: 'navigated' })
+                    resetTracking()
+                }
             }
             // Anything that opens setup mode without `openSetupMode` came in through the URL: a reload,
             // a shared link, or browser history.
@@ -328,13 +356,7 @@ export const mcpSetupModeLogic = kea<mcpSetupModeLogicType>([
             }
         },
         step: (step: MCPSetupStep | null) => {
-            cache.disposables.dispose('setupPoll')
-            if (step === 'connect') {
-                cache.disposables.add(() => {
-                    const id = window.setInterval(() => actions.loadSignals(), CONNECT_POLL_MS)
-                    return () => clearInterval(id)
-                }, 'setupPoll')
-            } else if (step === 'first-call') {
+            if (step === 'first-call') {
                 // Only the scene keeps a setup mode host once the product has data, so on the welcome page the
                 // reveal would unmount with the empty state. The onboarding step redirects itself, because it must
                 // complete onboarding first.
@@ -342,6 +364,20 @@ export const mcpSetupModeLogic = kea<mcpSetupModeLogicType>([
                 if (!path.startsWith(urls.mcpAnalytics()) && !path.startsWith(urls.onboarding())) {
                     router.actions.replace(urls.mcpAnalytics(), values.searchParams)
                 }
+            }
+        },
+        pollTarget: (pollTarget: SetupPollTarget) => {
+            cache.disposables.dispose('setupPoll')
+            if (pollTarget === 'signals') {
+                cache.disposables.add(() => {
+                    // A query slower than the interval would otherwise be cancelled by the next one, forever.
+                    const id = window.setInterval(
+                        () => !values.signalsLoading && actions.loadSignals(),
+                        CONNECT_POLL_MS
+                    )
+                    return () => clearInterval(id)
+                }, 'setupPoll')
+            } else if (pollTarget === 'calls') {
                 actions.loadRecentCalls()
                 cache.disposables.add(() => {
                     const id = window.setInterval(() => actions.loadRecentCalls(), FIRST_CALL_POLL_MS)
@@ -352,6 +388,7 @@ export const mcpSetupModeLogic = kea<mcpSetupModeLogicType>([
         viewedStep: (viewedStep: string | null) => {
             if (viewedStep && viewedStep !== tracking.lastViewedStep) {
                 tracking.lastViewedStep = viewedStep
+                tracking.lastViewed = { path: values.setupPath, step: values.step }
                 capture('mcp analytics setup mode step viewed', { step: values.step, path: values.setupPath })
             }
         },
