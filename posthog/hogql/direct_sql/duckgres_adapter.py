@@ -383,7 +383,7 @@ class DuckgresRawAdapter:
         )
 
     def prepare_raw_sql(self, sql: str) -> str:
-        return ensure_single_direct_statement(sql)
+        return ensure_single_direct_statement(sql, dialect="duckdb")
 
     def _resolve_source_config(self, request: DirectQueryRequest) -> _DuckgresConnectionConfig:
         metadata = request.source.connection_metadata
