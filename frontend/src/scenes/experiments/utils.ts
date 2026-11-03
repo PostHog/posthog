@@ -598,7 +598,6 @@ export function seriesToExposureConfig(series: SeriesNode[]): ExperimentEventExp
     return undefined
 }
 
-/** True when an inline or shared metric of the experiment is a percentile metric. */
 export function experimentHasQuantileMetric(experiment: Experiment): boolean {
     return [
         ...(experiment.metrics ?? []),
@@ -612,10 +611,7 @@ export function experimentHasQuantileMetric(experiment: Experiment): boolean {
     )
 }
 
-/**
- * Why the metric form can't be saved yet, or undefined when the metric is complete. The backend
- * rejects an incomplete metric too; this lets the save button say what is missing first.
- */
+/** The backend rejects an incomplete metric too, but this lets the save button say what is missing first. */
 export function getMetricIncompleteReason(metric: ExperimentMetric): string | undefined {
     if (isExperimentQuantileMetric(metric) && !metric.source.math_property) {
         return 'Select a numeric property for the percentile'
