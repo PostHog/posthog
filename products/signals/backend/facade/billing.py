@@ -50,10 +50,6 @@ def signals_spend_billing_credits_by_team(
     return [TeamSignalsCredits(team_id=team_id, credits=credits) for team_id, credits in rows]
 
 
-def task_run_uses_usage_billing(*, team_id: int, organization_id: uuid.UUID, run_id: uuid.UUID) -> bool:
-    return spend_billing.task_run_uses_usage_billing(team_id=team_id, organization_id=organization_id, run_id=run_id)
-
-
 def signals_spend_quota_credits_by_team(
     begin: datetime, end: datetime, *, organization_id: str | uuid.UUID | None = None
 ) -> list[TeamSignalsCredits]:

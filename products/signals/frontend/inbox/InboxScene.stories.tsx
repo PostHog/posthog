@@ -184,10 +184,17 @@ export const Settings: Story = {
 }
 
 export const SettingsWithSpendBilling: Story = {
+    parameters: { featureFlags: { [FEATURE_FLAGS.SELF_DRIVING_QUOTA_ENFORCEMENT]: true } },
     decorators: [
         routeTo(urls.inbox('settings')),
         mswDecorator({
             get: {
+                '/api/projects/:team_id/signals/reports/refund-summary/': {
+                    credited_refund_count: 0,
+                    credited_credits: 0,
+                    period_billable_credits: 0,
+                    quota_limited: true,
+                },
                 '/api/billing': () => [
                     200,
                     {
@@ -211,6 +218,8 @@ export const SettingsWithSpendBilling: Story = {
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
         await expect(await canvas.findByText('$12.34')).toBeVisible()
+        await expect(await canvas.findByText('Spending limit reached')).toBeVisible()
+        await expect(canvas.getByText(/Work already underway will finish/)).toBeVisible()
     },
 }
 

@@ -450,12 +450,6 @@ class BillingManager:
                 if todays_usage is not None:
                     usage["todays_usage"] = todays_usage
 
-            # Keep UI meter selection aligned with the cutover retained during plan cleanup.
-            spend_usage = organization.usage.get("signals_spend_credits") or {}
-            if cutoff := spend_usage.get("billing_cutover_date") or spend_usage.get("billing_start_date"):
-                usage_summary.setdefault("signals_spend_credits", {})["billing_cutover_date"] = cutoff
-                response["usage_summary"] = usage_summary
-
         # Extend the products with accurate usage_limit info
         for product in response["products"]:
             usage_key = product.get("usage_key")
@@ -763,7 +757,6 @@ class BillingManager:
                 mcp_events=usage_summary.get("mcp_events", {}),
                 ai_credits=usage_summary.get("ai_credits", {}),
                 signals_credits=usage_summary.get("signals_credits", {}),
-                signals_spend_credits=usage_summary.get("signals_spend_credits", {}),
                 posthog_code_credits=usage_summary.get("posthog_code_credits", {}),
                 posthog_code_token_credits=usage_summary.get("posthog_code_token_credits", {}),
                 sandbox_compute_credits=usage_summary.get("sandbox_compute_credits", {}),
@@ -781,7 +774,13 @@ class BillingManager:
             )
 
             had_quota_limiting_markers = _has_quota_limiting_markers(organization.usage)
-            usage_changed = set_org_usage_summary(organization, new_usage=usage_info)
+            usage_changed = set_org_usage_summary(
+                organization,
+                new_usage=cast(
+                    OrganizationUsageInfo,
+                    {**usage_info, "signals_spend_credits": usage_summary.get("signals_spend_credits", {})},
+                ),
+            )
 
             if usage_changed:
                 org_modified = True

@@ -2458,7 +2458,6 @@ export interface BillingType {
             limit?: number | null
             todays_usage?: number | null
             billing_start_date?: string
-            billing_cutover_date?: string
         }
     >
 

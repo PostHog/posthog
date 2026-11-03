@@ -2,7 +2,7 @@ import sys
 from collections.abc import Collection
 from datetime import datetime, timedelta
 from functools import cache as functools_cache
-from typing import TYPE_CHECKING, Any, Literal, NotRequired, Optional, Self, TypedDict, Union
+from typing import TYPE_CHECKING, Any, Literal, Optional, Self, TypedDict, Union
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
@@ -37,8 +37,6 @@ logger = structlog.get_logger(__name__)
 
 
 class OrganizationUsageResource(TypedDict):
-    billing_start_date: NotRequired[str]
-    billing_cutover_date: NotRequired[str]
     usage: int | None
     limit: int | None
     todays_usage: int | None
@@ -61,7 +59,6 @@ class OrganizationUsageInfo(TypedDict):
     mcp_events: OrganizationUsageResource | None
     ai_credits: OrganizationUsageResource | None
     signals_credits: OrganizationUsageResource | None
-    signals_spend_credits: NotRequired[OrganizationUsageResource | None]
     posthog_code_credits: OrganizationUsageResource | None
     posthog_code_token_credits: OrganizationUsageResource | None
     sandbox_compute_credits: OrganizationUsageResource | None

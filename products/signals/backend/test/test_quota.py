@@ -2,6 +2,7 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 
 import pytest
+import time_machine
 from unittest.mock import patch
 
 from products.signals.backend.quota import (
@@ -136,3 +137,37 @@ def test_scout_quota_notification_is_idempotent_per_limiting_episode(first_usage
     keys = [call.args[0].idempotency_key for call in create.call_args_list]
     assert (keys[0] != keys[1]) is notifies_again
     assert all(key.startswith("signals_scout_quota_paused:0195a000-0000-0000-0000-000000000000:") for key in keys)
+
+
+@time_machine.travel("2026-06-15T12:00:00Z", tick=False)
+@pytest.mark.parametrize(
+    "cutover,limit_name",
+    [(None, "pull request limit"), ("2026-06-16", "pull request limit"), ("2026-06-15", "spending limit")],
+)
+def test_limit_messages_follow_the_billing_cutover(cutover, limit_name):
+    from posthog.exceptions import QuotaLimitExceeded
+
+    from products.signals.backend.scout_harness.run_gates import check_spend_gates
+    from products.tasks.backend.facade.api import enforce_self_driving_pr_quota
+
+    team = _team()
+    team.id = 7
+    team.organization.usage = {"signals_spend_credits": {"billing_start_date": cutover}} if cutover else {}
+    with (
+        patch("products.signals.backend.quota.self_driving_quota_gate", return_value=SelfDrivingQuotaGate(True, True)),
+        patch(
+            "products.signals.backend.scout_harness.run_gates.self_driving_quota_gate",
+            return_value=SelfDrivingQuotaGate(True, True),
+        ),
+        patch("products.signals.backend.quota.capture_signal_report_quota_paused"),
+        patch("products.notifications.backend.facade.api.create_notification") as notification,
+    ):
+        with pytest.raises(QuotaLimitExceeded, match=limit_name):
+            enforce_self_driving_pr_quota(team)
+        rejection = check_spend_gates(team, capture_analytics=False)
+        assert rejection is not None and limit_name in rejection.detail
+        notify_scout_quota_paused(team)
+        message = notification.call_args.args[0]
+        assert limit_name in message.title
+        assert limit_name in message.body
+        assert "Work already underway will finish" in message.body

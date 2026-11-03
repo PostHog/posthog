@@ -174,7 +174,15 @@ export function InboxUsageWidget(): JSX.Element | null {
                 {spendAmountUsd != null && (
                     <span className="text-xs tabular-nums">{currencyFormatter(spendAmountUsd)}</span>
                 )}
-                {quotaLimited && <LemonTag type="warning">Spending limit reached</LemonTag>}
+                {quotaLimited && (
+                    <>
+                        <LemonTag type="warning">Spending limit reached</LemonTag>
+                        <span className="text-xs text-secondary">
+                            New work is paused. Work already underway will finish.
+                            {!canAccessBilling && ' Ask an organization admin to change the limit.'}
+                        </span>
+                    </>
+                )}
                 {canAccessBilling && (
                     <LemonButton size="small" type="secondary" to={urls.organizationBilling()}>
                         View usage and limits
@@ -240,8 +248,7 @@ export function InboxUsageWidget(): JSX.Element | null {
                 )}
                 {quotaLimited && (
                     <span className="text-xs font-medium text-danger">
-                        Agents are paused. They won't write new reports or open pull requests until the limit is raised
-                        or usage resets.
+                        New work is paused until the limit is raised or usage resets. Work already underway will finish.
                     </span>
                 )}
                 {canAccessBilling ? (

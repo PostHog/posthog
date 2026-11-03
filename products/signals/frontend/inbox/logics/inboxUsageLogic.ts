@@ -408,7 +408,7 @@ export const inboxUsageLogic = kea<inboxUsageLogicType>([
             (s) => [s.billing, s.billingDate],
             (billing: BillingType | null, billingDate: string): BillingProductV2Type | null => {
                 const summary = billing?.usage_summary?.signals_spend_credits
-                const cutoff = summary?.billing_cutover_date || summary?.billing_start_date
+                const cutoff = summary?.billing_start_date
                 return cutoff && cutoff <= billingDate
                     ? (billing?.products?.find((product) => product.type === 'inbox_usage') ?? null)
                     : null

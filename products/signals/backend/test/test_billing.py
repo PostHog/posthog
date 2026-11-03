@@ -1,5 +1,5 @@
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 from uuid import uuid4
 
 import time_machine
@@ -12,6 +12,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.models import Organization, Team
+from posthog.models.organization import OrganizationUsageInfo
 from posthog.tasks.usage_report import get_teams_with_signals_spend_credits_used_in_period
 
 from products.signals.backend.artefact_schemas import TASK_RUN_TYPE_IMPLEMENTATION, TASK_RUN_TYPE_RESEARCH
@@ -46,6 +47,9 @@ from ee.billing.quota_limiting import (
     QuotaLimitingCaches,
     QuotaResource,
     list_limited_team_attributes,
+    org_quota_limited_until,
+    self_driving_quota_resource,
+    set_org_usage_summary,
     update_all_orgs_billing_quotas,
 )
 
@@ -835,3 +839,82 @@ class TestSpendBasedBilling(BaseTest):
         assert spend.spend == 10
         assert self._day(10) == {self.team.id: 10}
         assert self._day(11) == {}
+
+    @parameterized.expand(
+        [
+            (None, QuotaResource.SIGNALS_CREDITS),
+            ("2026-06-20", QuotaResource.SIGNALS_CREDITS),
+            ("2026-06-10", QuotaResource.SIGNALS_SPEND_CREDITS),
+        ]
+    )
+    @time_machine.travel(_at(11), tick=False)
+    def test_billing_response_selects_active_meter(self, cutoff: str | None, expected: QuotaResource) -> None:
+        self.organization.usage = {"signals_spend_credits": {"billing_start_date": "2026-06-10", "limit": 20}}
+        spend_usage: dict[str, int | str] = {"usage": 25, "limit": 20}
+        if cutoff:
+            spend_usage["billing_start_date"] = cutoff
+        set_org_usage_summary(
+            self.organization,
+            cast(
+                OrganizationUsageInfo,
+                {
+                    "signals_spend_credits": spend_usage,
+                    "signals_credits": {"usage": 4500, "limit": 3000},
+                    "period": [_at(1, 0).isoformat(), _at(30, 0).isoformat()],
+                },
+            ),
+        )
+        assert self_driving_quota_resource(self.organization) == expected
+        for resource in (QuotaResource.SIGNALS_CREDITS, QuotaResource.SIGNALS_SPEND_CREDITS):
+            assert bool(org_quota_limited_until(self.organization, resource, [])) == (resource == expected)
+
+    def test_distinct_meters_use_billing_cutoff_and_run_age(self) -> None:
+        self.organization.usage = {"signals_spend_credits": {"billing_start_date": "2026-06-10", "limit": 1000}}
+        self.organization.save(update_fields=["usage"])
+        with time_machine.travel(_at(9), tick=False):
+            old_report = _make_report(self.team)
+            legacy_report = _make_report(self.team)
+            SignalSpend.objects.for_team(self.team.id).create(
+                team=self.team,
+                signal_id=uuid4(),
+                kind=SignalSpend.Kind.AD_HOC,
+                spend=500,
+                finalized_at=_at(10),
+            )
+        _make_pr_run(self.team, legacy_report, created_at=_at(9))
+        _make_pr_run(self.team, old_report, created_at=_at(10))
+        with time_machine.travel(_at(10), tick=False):
+            SignalSpend.objects.for_team(self.team.id).create(
+                team=self.team,
+                signal_id=uuid4(),
+                kind=SignalSpend.Kind.AD_HOC,
+                spend=25,
+                finalized_at=_at(10),
+            )
+        with patch("posthoganalytics.get_feature_flag", side_effect=RuntimeError("unavailable")):
+            assert dict(get_signals_billing_credits_by_team(_at(9, 0), _at(11, 0))) == {self.team.id: 1500}
+            assert dict(get_signals_spend_billing_credits_by_team(_at(9, 0), _at(11, 0))) == {self.team.id: 25}
+            assert dict(get_signals_billing_credits_by_team(_at(10, 0), _at(11, 0))) == {}
+
+    @parameterized.expand([("missing", {}), ("default_plan", {"usage": 0, "limit": 0})])
+    def test_unenrolled_org_reports_only_legacy_usage(self, _name: str, spend_usage: dict) -> None:
+        set_org_usage_summary(
+            self.organization,
+            cast(OrganizationUsageInfo, {"signals_spend_credits": spend_usage, "events": {"usage": 12, "limit": 100}}),
+        )
+        self.organization.save(update_fields=["usage"])
+        assert self_driving_quota_resource(self.organization) == QuotaResource.SIGNALS_CREDITS
+        assert self.organization.usage is not None
+        assert self.organization.usage["events"]["usage"] == 12
+        with time_machine.travel(_at(10), tick=False):
+            report = _make_report(self.team)
+            _make_pr_run(self.team, report, created_at=_at(10))
+            SignalSpend.objects.for_team(self.team.id).create(
+                team=self.team,
+                signal_id=uuid4(),
+                kind=SignalSpend.Kind.AD_HOC,
+                spend=25,
+                finalized_at=_at(10),
+            )
+        assert dict(get_signals_spend_billing_credits_by_team(_at(10, 0), _at(10, 0) + timedelta(days=1))) == {}
+        assert dict(get_signals_billing_credits_by_team(_at(10, 0), _at(11, 0))) == {self.team.id: 1500}

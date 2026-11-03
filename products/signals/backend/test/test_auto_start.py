@@ -1456,9 +1456,9 @@ async def test_a_non_link_skip_is_counted_under_its_own_reason_without_a_log_ent
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize("enforced", [True, False])
-async def test_quota_gate_blocks_autostart_only_when_enforced(enforced):
-    # The implementation task is the step that leads to the billable PR: an enforced over-quota
-    # team must start none, while dark launch (limited, flag off) must leave auto-start untouched.
+async def test_admitted_report_can_start_implementation_after_limit_is_reached(enforced):
+    # Implementation finishes an already admitted report/scout pipeline, even when the quota
+    # was crossed during research. Manual reruns still check admission separately.
     # Committed rows for the same reason as the autostart-switch test above.
     Task = apps.get_model("tasks", "Task")
     TaskRun = apps.get_model("tasks", "TaskRun")
@@ -1492,7 +1492,7 @@ async def test_quota_gate_blocks_autostart_only_when_enforced(enforced):
         patch.object(tasks_facade, "create_and_run_task", side_effect=_fake_create_and_run_task) as mock_create,
         patch("products.signals.backend.auto_start.resolve_agent_runtime", return_value=AgentRuntime()),
         patch(
-            "products.signals.backend.auto_start.self_driving_quota_gate",
+            "products.signals.backend.quota.self_driving_quota_gate",
             return_value=SelfDrivingQuotaGate(limited=True, enforced=enforced),
         ),
     ):
@@ -1511,7 +1511,8 @@ async def test_quota_gate_blocks_autostart_only_when_enforced(enforced):
             priority=PriorityAssessment(explanation="Affects many sessions.", priority=Priority.P2),
         )
 
-    assert (mock_create.call_count == 0) is enforced
+    mock_create.assert_called_once()
+    assert mock_create.call_args.kwargs["continue_admitted_pipeline"] is True
 
 
 @pytest.mark.asyncio

@@ -14,6 +14,7 @@ from products.signals.backend.auto_start import (
     start_requested_implementation,
 )
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportTask
+from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.report_generation.research import ActionabilityAssessment, ActionabilityChoice
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
 from products.signals.backend.task_run_artefacts import record_implementation_task
@@ -96,7 +97,9 @@ class TestRequestedImplementation(BaseTest):
 
         with (
             patch("products.signals.backend.auto_start.task_run_usage_limited", return_value=False),
-            patch.object(tasks_facade, "enforce_self_driving_pr_quota"),
+            patch(
+                "products.signals.backend.quota.self_driving_quota_gate", return_value=SelfDrivingQuotaGate(True, True)
+            ),
             patch(
                 "products.signals.backend.auto_start.self_driving_free_trial_enabled", return_value=False
             ) as free_trial_flag,
@@ -129,7 +132,6 @@ class TestRequestedImplementation(BaseTest):
         )
         with (
             patch("products.signals.backend.auto_start.task_run_usage_limited", return_value=False),
-            patch.object(tasks_facade, "enforce_self_driving_pr_quota"),
             patch.object(tasks_facade, "run_task") as run_task,
         ):
             try:
@@ -179,7 +181,6 @@ class TestRequestedImplementation(BaseTest):
 
         with (
             patch("products.signals.backend.auto_start.task_run_usage_limited", return_value=False),
-            patch.object(tasks_facade, "enforce_self_driving_pr_quota"),
             patch.object(tasks_facade, "create_and_run_task", side_effect=fake_create_and_run_task),
             patch("products.signals.backend.auto_start.resolve_agent_runtime", return_value=AgentRuntime()),
             patch("products.signals.backend.auto_start.load_report_steering", return_value=NO_STEERING),
@@ -230,7 +231,6 @@ class TestRequestedImplementation(BaseTest):
 
         with (
             patch("products.signals.backend.auto_start.task_run_usage_limited", return_value=False),
-            patch.object(tasks_facade, "enforce_self_driving_pr_quota"),
             patch.object(tasks_facade, "create_and_run_task", side_effect=fake_create_and_run_task),
             patch("products.signals.backend.auto_start.resolve_agent_runtime", return_value=AgentRuntime()),
             patch("products.signals.backend.auto_start.load_report_steering", return_value=NO_STEERING),

@@ -101,7 +101,6 @@ const mountWithUsage = async (
 
 const mockSpendBilling = (
     cutoff: string | undefined,
-    retainedCutover?: string,
     discountPercent = 0,
     amountUsd: string | null = '12.34'
 ): void => {
@@ -113,7 +112,7 @@ const mockSpendBilling = (
                     products: [PRICED_INBOX_PRODUCT, { type: 'inbox_usage', current_amount_usd: amountUsd }],
                     discount_percent: discountPercent,
                     usage_summary: {
-                        signals_spend_credits: { billing_start_date: cutoff, billing_cutover_date: retainedCutover },
+                        signals_spend_credits: { billing_start_date: cutoff },
                     },
                 },
             ],
@@ -143,17 +142,6 @@ describe('inboxUsageLogic', () => {
         }
     )
 
-    it.each([undefined, '2099-01-01', '2020-01-01'])(
-        'keeps the spend product after plan cleanup changes the start date (%s)',
-        async (cutoff) => {
-            mockSpendBilling(cutoff, '2020-06-10')
-            logic = inboxUsageLogic()
-            logic.mount()
-            await expectLogic(logic).toFinishAllListeners()
-            expect(logic.values.spendProduct?.type).toBe('inbox_usage')
-        }
-    )
-
     afterEach(() => {
         logic?.unmount()
         jest.useRealTimers()
@@ -167,7 +155,7 @@ describe('inboxUsageLogic', () => {
         [30, null, null],
     ])('applies the account discount to spend (%s%%, $%s)', async (discountPercent, amountUsd, expected) => {
         jest.useFakeTimers({ advanceTimers: true, now: new Date('2026-06-11T12:00:00Z') })
-        mockSpendBilling('2026-06-10', undefined, discountPercent, amountUsd)
+        mockSpendBilling('2026-06-10', discountPercent, amountUsd)
         logic = inboxUsageLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()

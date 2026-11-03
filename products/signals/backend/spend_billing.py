@@ -54,20 +54,14 @@ def usage_billing_cutoffs(
     organization_id: str | UUID | None = None,
     organization_ids: Collection[str | UUID] | None = None,
 ) -> dict[UUID, datetime]:
-    organizations = Organization.objects.filter(
-        Q(usage__signals_spend_credits__has_key="billing_start_date")
-        | Q(usage__signals_spend_credits__has_key="billing_cutover_date")
-    )
+    organizations = Organization.objects.filter(usage__signals_spend_credits__billing_start_date__isnull=False)
     if organization_id is not None:
         organizations = organizations.filter(id=organization_id)
     if organization_ids is not None:
         organizations = organizations.filter(id__in=organization_ids)
     cutoffs: dict[UUID, datetime] = {}
     for org_id, usage in organizations.values_list("id", "usage__signals_spend_credits"):
-        value = usage.get("billing_cutover_date") or usage["billing_start_date"]
-        cutoff = date.fromisoformat(value)
-        if cutoff.isoformat() != value:
-            raise ValueError(f"Invalid Inbox billing cutoff for organization {org_id}")
+        cutoff = date.fromisoformat(usage["billing_start_date"])
         cutoffs[org_id] = datetime.combine(cutoff, time.min, UTC)
     return cutoffs
 
@@ -77,20 +71,6 @@ def group_usage_billing_cutoffs(cutoffs: dict[UUID, datetime]) -> dict[datetime,
     for organization_id, cutoff in cutoffs.items():
         grouped[cutoff].append(organization_id)
     return grouped
-
-
-def usage_billing_cutoff(organization_id: UUID) -> datetime | None:
-    return usage_billing_cutoffs(organization_id).get(organization_id)
-
-
-def task_run_uses_usage_billing(*, team_id: int, organization_id: UUID, run_id: UUID) -> bool:
-    cutoff = usage_billing_cutoff(organization_id)
-    return (
-        cutoff is not None
-        and SignalSpend.objects.for_team(team_id)
-        .filter(task_run_id=run_id, created_at__gte=cutoff, billing_exempt=False)
-        .exists()
-    )
 
 
 def spend_billing_credits_by_team(begin: datetime, end: datetime, *, cutoffs: dict[UUID, datetime]) -> dict[int, int]:

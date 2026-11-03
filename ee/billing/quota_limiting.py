@@ -25,7 +25,7 @@ from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.event_usage import report_organization_action
 from posthog.exceptions_capture import capture_exception
-from posthog.models.organization import Organization, OrganizationUsageInfo, OrganizationUsageResource
+from posthog.models.organization import Organization, OrganizationUsageInfo
 from posthog.models.team.team import Team
 from posthog.redis import get_client
 from posthog.tasks.usage_report import (
@@ -106,7 +106,7 @@ class QuotaLimitingCaches(Enum):
 
 def self_driving_quota_resource(organization: Organization) -> QuotaResource:
     summary = (organization.usage or {}).get("signals_spend_credits") or {}
-    cutoff = summary.get("billing_cutover_date") or summary.get("billing_start_date")
+    cutoff = summary.get("billing_start_date")
     if cutoff is not None and date.fromisoformat(cutoff) <= timezone.now().date():
         return QuotaResource.SIGNALS_SPEND_CREDITS
     return QuotaResource.SIGNALS_CREDITS
@@ -1018,41 +1018,6 @@ def set_org_usage_summary(
 
     new_usage = copy.deepcopy(new_usage)
 
-    spend_usage = new_usage.get("signals_spend_credits")
-    previous_spend_usage = original_usage.get("signals_spend_credits")
-    reset_retained_spend = False
-    if not spend_usage:
-        if previous_spend_usage:
-            period = new_usage.get("period")
-            previous_period = original_usage.get("period")
-            reset_retained_spend = bool(period and (not previous_period or period[0] != previous_period[0]))
-            # Keep the pricing decision, but never carry a previous period's spend into a new one.
-            retained_spend_usage: OrganizationUsageResource = previous_spend_usage.copy()
-            if reset_retained_spend:
-                retained_spend_usage["usage"] = 0
-            new_usage["signals_spend_credits"] = retained_spend_usage
-        else:
-            new_usage.pop("signals_spend_credits", None)
-    else:
-        cutoff = spend_usage.get("billing_start_date")
-        previous_cutoff = (previous_spend_usage or {}).get("billing_cutover_date") or (previous_spend_usage or {}).get(
-            "billing_start_date"
-        )
-        effective_cutoff = (
-            previous_cutoff
-            if previous_cutoff and date.fromisoformat(previous_cutoff) <= timezone.now().date()
-            else None
-        )
-        if "billing_start_date" in spend_usage:
-            if not isinstance(cutoff, str) or date.fromisoformat(cutoff).isoformat() != cutoff:
-                raise ValueError("Inbox spend billing requires a canonical billing_start_date")
-            # Plan cleanup must not change which meter owns work that already started.
-            spend_usage["billing_cutover_date"] = effective_cutoff or cutoff
-        elif effective_cutoff:
-            spend_usage["billing_cutover_date"] = effective_cutoff
-        else:
-            spend_usage.pop("billing_cutover_date", None)
-
     for resource in QuotaResource:
         field = resource.value
         original_field_usage = original_usage.get(field, {}) if original_usage else {}
@@ -1080,9 +1045,7 @@ def set_org_usage_summary(
         else:
             # TRICKY: If we are not explicitly setting todays_usage, we want to reset it to 0 IF the incoming new_usage is different
             original_usage_value = original_field_usage.get("usage") if original_field_usage else None
-            if original_usage_value != resource_usage.get("usage") or (
-                field == "signals_spend_credits" and reset_retained_spend
-            ):
+            if original_usage_value != resource_usage.get("usage"):
                 resource_usage["todays_usage"] = 0
             else:
                 todays_usage_value = original_field_usage.get("todays_usage", 0) if original_field_usage else 0
