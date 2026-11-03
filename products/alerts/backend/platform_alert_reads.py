@@ -121,7 +121,7 @@ def moved_alert_check_page(
     investigations = {
         investigation.evaluation_key: investigation
         for investigation in InsightAlertInvestigation.objects.for_team(team_id)
-        .filter(alert_configuration_id=alert_id, evaluation_key__in=keys)
+        .filter(configuration_id=page.configuration_id, evaluation_key__in=keys)
         .select_related("notebook")
         .only("evaluation_key", "status", "verdict", "summary", "notebook__short_id")
     }
