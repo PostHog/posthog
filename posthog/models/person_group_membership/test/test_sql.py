@@ -19,10 +19,12 @@ from posthog.clickhouse.schema import (
 from posthog.models.person_group_membership.sql import (
     DISTRIBUTED_PERSON_GROUP_MEMBERSHIP_CONFIG_TABLE,
     KAFKA_PERSON_GROUP_MEMBERSHIP_COLUMNS,
+    KAFKA_PERSON_GROUP_MEMBERSHIP_TABLE_SQL,
     PERSON_GROUP_MEMBERSHIP_CONFIG_DICTIONARY,
     PERSON_GROUP_MEMBERSHIP_CONFIG_DICTIONARY_SQL,
     PERSON_GROUP_MEMBERSHIP_CONFIG_TABLE,
     PERSON_GROUP_MEMBERSHIP_MV_SELECT_SQL,
+    PERSON_GROUP_MEMBERSHIP_MV_SQL,
     PERSON_GROUP_MEMBERSHIP_TABLE,
     SHARDED_PERSON_GROUP_MEMBERSHIP_TABLE,
     WRITABLE_PERSON_GROUP_MEMBERSHIP_TABLE,
@@ -41,6 +43,15 @@ def test_dictionary_sql(snapshot, mocker, settings) -> None:
     )
     assert PERSON_GROUP_MEMBERSHIP_CONFIG_DICTIONARY_SQL() == snapshot
     creds.assert_called_once_with(ClickHouseUser.DICT_READER)
+
+
+@pytest.mark.parametrize(
+    "build_sql", [KAFKA_PERSON_GROUP_MEMBERSHIP_TABLE_SQL, PERSON_GROUP_MEMBERSHIP_MV_SQL], ids=["kafka_table", "view"]
+)
+def test_ingestion_sql(build_sql: Callable[[], str], snapshot, settings) -> None:
+    settings.CLICKHOUSE_DATABASE = "posthog"
+    settings.CLICKHOUSE_KAFKA_WARPSTREAM_INGESTION_NAMED_COLLECTION = "warpstream_ingestion"
+    assert build_sql() == snapshot
 
 
 @pytest.mark.parametrize(
