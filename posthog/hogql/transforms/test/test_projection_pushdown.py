@@ -118,6 +118,57 @@ class TestProjectionPushdown(BaseTest):
 
         assert optimized.to_hogql() == self.snapshot
 
+    @parameterized.expand(
+        [
+            ("asterisk", "SELECT count() FROM (SELECT * FROM events) AS sub", ["uuid"]),
+            ("explicit_and_asterisk", "SELECT count() FROM (SELECT *, 1 AS one FROM events) AS sub", ["one"]),
+            ("distinct_asterisk", "SELECT count() FROM (SELECT DISTINCT * FROM events) AS sub", None),
+        ]
+    )
+    def test_unread_subquery_keeps_only_what_holds_its_rows(self, _name, query, expected_columns):
+        optimized = self._optimize(query)
+        inner_query = optimized.select_from.table
+        column_names = [self._col_name(col) for col in inner_query.select]
+        if expected_columns is None:
+            assert len(column_names) > 1
+        else:
+            assert column_names == expected_columns
+
+    @parameterized.expand(
+        [
+            ("distinct", "SELECT event FROM (SELECT DISTINCT * FROM events) AS sub"),
+            ("union_distinct", "SELECT event FROM (SELECT * FROM events UNION DISTINCT SELECT * FROM events) AS sub"),
+            ("intersect", "SELECT event FROM (SELECT * FROM events INTERSECT SELECT * FROM events) AS sub"),
+            (
+                "group_by_all",
+                "SELECT count() FROM (SELECT * FROM (SELECT distinct_id, properties FROM events) GROUP BY ALL) AS sub",
+            ),
+            (
+                "positional_group_by",
+                "SELECT count() FROM (SELECT * FROM (SELECT distinct_id, properties FROM events) GROUP BY 1, 2) AS sub",
+            ),
+            (
+                "grouping_sets_ordinals",
+                "SELECT count() FROM (SELECT * FROM (SELECT distinct_id, properties FROM events) GROUP BY GROUPING SETS ((1, 2))) AS sub",
+            ),
+        ]
+    )
+    def test_row_comparison_keeps_every_column(self, _name, query):
+        optimized = self._optimize(query)
+        inner_query = optimized.select_from.table
+        if isinstance(inner_query, ast.SelectSetQuery):
+            inner_query = inner_query.initial_select_query
+        assert len(inner_query.select) > 1
+
+    def test_set_query_branches_keep_lining_up(self):
+        optimized = self._optimize(
+            "SELECT event FROM (SELECT DISTINCT * FROM events UNION ALL SELECT * FROM events) AS sub"
+        )
+        set_query = optimized.select_from.table
+        first = set_query.initial_select_query.select
+        second = set_query.subsequent_select_queries[0].select_query.select
+        assert len(first) == len(second) > 1
+
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_prewhere_clause(self):
         """PREWHERE clause columns should be preserved"""
