@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react'
-import { Text, View } from 'react-native'
+import { ScrollView, Text, View } from 'react-native'
 
 import { track } from '@/lib/analytics'
 import { PostHogLogomark } from '@/ui/icons/PostHogLogomark'
@@ -48,7 +48,7 @@ export function ChatEmptyState({ reportCount, suggestedPrompts, onPrompt }: Chat
         onPrompt(prompt)
     }
     return (
-        <View style={styles.container} testID="chat-empty">
+        <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled" testID="chat-empty">
             <PostHogLogomark height={28} />
             <Text style={styles.title}>{copy.title}</Text>
             <Text style={[styles.sub, prettyWrap]}>{copy.sub}</Text>
@@ -66,13 +66,13 @@ export function ChatEmptyState({ reportCount, suggestedPrompts, onPrompt }: Chat
                     </Pressable44>
                 ))}
             </View>
-        </View>
+        </ScrollView>
     )
 }
 
 const useStyles = createStyles(({ colors }) => ({
     container: {
-        flex: 1,
+        flexGrow: 1,
         alignItems: 'center',
         justifyContent: 'center',
         gap: 10,

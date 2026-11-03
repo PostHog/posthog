@@ -7,6 +7,7 @@ import { track } from '@/lib/analytics'
 import { FloatingCard } from '@/ui/FloatingCard'
 import { ChevronUpDownIcon } from '@/ui/icons/ChevronUpDownIcon'
 import { ExternalLinkIcon } from '@/ui/icons/ExternalLinkIcon'
+import { GlobeIcon } from '@/ui/icons/GlobeIcon'
 import { GripIcon } from '@/ui/icons/GripIcon'
 import { PinIcon } from '@/ui/icons/PinIcon'
 import { SettingsIcon } from '@/ui/icons/SettingsIcon'
@@ -28,6 +29,8 @@ interface NavMenuProps {
     /** A pinned list's rows, at the top while its tab is focused. Null leaves the section out. */
     navList: { onUnpin: () => void; onOpenWeb: (() => void) | null } | null
     onClose: () => void
+    statusUpdate?: string
+    onOpenStatus: () => void
     onSettings: () => void
     onSignOut: () => void
     /** Replaces the rows with the sign-out confirmation. */
@@ -72,6 +75,8 @@ export function NavMenu({
     navList,
     onClose,
     onSettings,
+    statusUpdate,
+    onOpenStatus,
     onSignOut,
     confirmingSignOut,
     signOutPending,
@@ -143,6 +148,26 @@ export function NavMenu({
                     />
                 ) : (
                     <>
+                        <Pressable44
+                            accessibilityRole="link"
+                            accessibilityLabel={statusUpdate ? `PostHog status: ${statusUpdate}` : 'PostHog status'}
+                            pressedBackground={colors.sunken}
+                            style={styles.row}
+                            onPress={onOpenStatus}
+                            testID="nav-status"
+                        >
+                            <GlobeIcon size={iconSizes.control} />
+                            <View style={styles.statusBody}>
+                                <Text style={styles.statusTitle}>PostHog status</Text>
+                                {statusUpdate ? (
+                                    <Text style={styles.statusSummary} numberOfLines={2}>
+                                        {statusUpdate}
+                                    </Text>
+                                ) : null}
+                            </View>
+                            <ExternalLinkIcon size={iconSizes.small} color={colors.tertiary} />
+                        </Pressable44>
+                        <View style={[styles.divider, styles.sectionDivider]} />
                         {navList ? (
                             <>
                                 <MenuRow
@@ -225,6 +250,9 @@ const useStyles = createStyles(({ colors }) => ({
         paddingHorizontal: 14,
         borderRadius: radii.menuRow,
     },
+    statusBody: { flex: 1 },
+    statusTitle: { ...type.menuRow, color: colors.ink },
+    statusSummary: { ...type.meta, color: colors.muted },
     rowLabel: {
         ...type.menuRow,
         color: colors.ink,

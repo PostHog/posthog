@@ -11,6 +11,7 @@ import { useProjectScope } from '@/auth/useProjectScope'
 import { useDataMode } from '@/demo/demoMode'
 import { useArchiveChat } from '@/features/chats/hooks'
 import { setViewedNotificationTask } from '@/features/notifications/foregroundNotifications'
+import { usePostHogStatus } from '@/features/status/usePostHogStatus'
 import { track } from '@/lib/analytics'
 import { isReportId } from '@/lib/ids'
 import { useNow } from '@/lib/useNow'
@@ -24,6 +25,7 @@ import { useScreenInsets } from '@/ui/useScreenInsets'
 import { defaultModelSelection, isPermissionMode, modeLabel } from '../handoff/runOptions'
 import { useModelCatalogue, useRunDefaults } from '../handoff/useRunOptions'
 import { useInboxItems } from '../inbox/hooks'
+import { AiIncidentNotice } from './AiIncidentNotice'
 import { AttachMenuSheet } from './attachments/AttachMenuSheet'
 import { AttachmentChip } from './attachments/AttachmentChip'
 import type { AttachmentSource, PendingAttachment } from './attachments/types'
@@ -99,6 +101,9 @@ export function ChatScreen({
     const [target, setTarget] = useState<SessionOptions>(() => sessionTarget(initialTaskId, initialRunId))
     const session = useSession(target)
     const scope = useProjectScope()
+    const { aiIncident } = usePostHogStatus(scope?.host)
+    const headerInset = insets.top + CHAT_HEADER_HEIGHT
+    const contentInset = aiIncident ? 0 : headerInset
     const demo = useDataMode() === 'demo'
     const keyboard = useReanimatedKeyboardAnimation()
     const blurTarget = useRef<View>(null)
@@ -602,8 +607,13 @@ export function ChatScreen({
                 <View style={styles.page}>
                     <BlurTargetView ref={blurTarget} style={styles.body}>
                         <Animated.View style={[styles.keyboard, keyboardStyle]}>
+                            {aiIncident ? (
+                                <View style={{ paddingTop: headerInset }}>
+                                    <AiIncidentNotice incident={aiIncident} />
+                                </View>
+                            ) : null}
                             {showEmptyState ? (
-                                <View style={[styles.empty, { paddingTop: insets.top + CHAT_HEADER_HEIGHT }]}>
+                                <View style={[styles.empty, { paddingTop: contentInset }]}>
                                     <ChatEmptyState
                                         reportCount={attached.length}
                                         suggestedPrompts={suggestedPrompts}
@@ -613,7 +623,7 @@ export function ChatScreen({
                             ) : (
                                 <SessionThread
                                     session={session}
-                                    topInset={insets.top + CHAT_HEADER_HEIGHT}
+                                    topInset={contentInset}
                                     onRetryHistory={() => {
                                         track('mobile_session_load_retried')
                                         if (session.reconnect) session.reconnect()

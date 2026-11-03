@@ -19,6 +19,13 @@ jest.mock(
     () => jest.requireActual('react-native-safe-area-context/jest/mock').default
 )
 jest.mock('react-native-keyboard-controller', () => jest.requireActual('react-native-keyboard-controller/jest'))
+jest.mock('@/features/status/usePostHogStatus', () => ({
+    usePostHogStatus: () => ({
+        pageUrl: 'https://www.posthogstatus.com/eu',
+        summary: 'Elevated latency',
+        aiIncident: { title: 'Elevated latency', url: 'https://www.posthogstatus.com/incidents/example' },
+    }),
+}))
 jest.mock('@/auth/useProjectScope', () => ({ useProjectScope: () => ({ host: 'https://example.com', projectId: 1 }) }))
 jest.mock('@/demo/demoMode', () => ({ useDataMode: () => 'live' }))
 jest.mock('@/features/chats/hooks', () => ({ useArchiveChat: () => ({ archive: jest.fn() }) }))
@@ -81,6 +88,13 @@ function mockReadyChat(): { session: ReturnType<typeof useSession>; draft: Retur
     jest.mocked(useChatDraft).mockImplementation(() => draft)
     return { session, draft }
 }
+
+test.each([null, 'task-1'])('shows the regional AI incident for chat %s', (taskId) => {
+    const { session } = mockReadyChat()
+    session.taskId = taskId
+    render(<ChatScreen source={{ entry: 'compose', origin: null }} onBack={jest.fn()} />)
+    expect(screen.getByRole('link', { name: 'PostHog AI incident · Elevated latency' })).toBeTruthy()
+})
 
 describe('chat send preparation', () => {
     test('keeps an unsaved draft notice visible and disables retry while saving', () => {
