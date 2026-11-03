@@ -307,6 +307,29 @@ def update_subscription(
     )
 
 
+def take_subscription_ownership(
+    *,
+    team: Team,
+    organization: Organization,
+    user: User,
+    viewer: UserAccessControl,
+    subscription_id: int,
+    analytics_props: AnalyticsProps,
+) -> contracts.SubscriptionRecord:
+    """Make `user` the owner of the subscription and enable it. Deliveries then run with their access.
+
+    Raises the same errors as `update_subscription`.
+    """
+    return subscription_writes.take_subscription_ownership(
+        team=team,
+        organization=organization,
+        user=user,
+        viewer=viewer,
+        subscription_id=subscription_id,
+        analytics_props=analytics_props,
+    )
+
+
 def start_test_delivery(*, team_id: int, subscription_id: int) -> contracts.ManualDeliveryResult:
     """Start one delivery of the subscription now, outside its schedule."""
     return subscription_writes.start_test_delivery(team_id=team_id, subscription_id=subscription_id)
