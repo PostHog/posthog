@@ -542,6 +542,11 @@ build:
         cmd: pnpm --filter=@posthog/mcp run generate-cli-agent-scopes
         description: Generate the CLI `agent` login use-case scope list from the MCP
             tool definitions (must run after build:openapi-mcp-tools)
+    build:openapi-webmcp-exec-tool:
+        cmd: pnpm --filter=@posthog/mcp run generate-webmcp-exec-tool && pnpm exec oxfmt
+            products/webmcp/frontend/execTool.generated.ts
+        description: Render the MCP exec tool that WebMCP registers in the browser
+            (must run after build:openapi-mcp-tools)
     build:desktop-api-client:
         bin_script: build-desktop-api-client.sh
         description: Regenerate the desktop app's typed API client from the OpenAPI
@@ -598,6 +603,7 @@ build:
                   trap - INT TERM
                   exit "$generation_status"
             - build:openapi-cli-agent-scopes
+            - build:openapi-webmcp-exec-tool
             - build:desktop-api-client
         description: 'Generate OpenAPI schema and TypeScript types from the backend.
             Needs the dev stack running (Postgres and ClickHouse): Django starts

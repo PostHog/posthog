@@ -125582,20 +125582,6 @@ export namespace Schemas {
       is_error: boolean;
     }
 
-    /**
-     * JSON Schema of the tool input, as the MCP server advertises it.
-     */
-    export type WebMCPExecToolInputSchema = { [key: string]: unknown };
-
-    export interface WebMCPExecTool {
-      /** Tool name to register with WebMCP. */
-      name: string;
-      /** Tool description from the PostHog MCP server, which tells the agent how to write commands. */
-      description: string;
-      /** JSON Schema of the tool input, as the MCP server advertises it. */
-      input_schema: WebMCPExecToolInputSchema;
-    }
-
     export interface WebhookExternalStatus {
       /** Whether the webhook exists on the external service. */
       exists: boolean;
