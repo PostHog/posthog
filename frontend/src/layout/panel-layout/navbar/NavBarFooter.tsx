@@ -3,6 +3,7 @@ import { Suspense } from 'react'
 
 import { IconGear } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
+import { PostHogErrorBoundary } from '@posthog/react'
 
 import { DebugNotice } from 'lib/components/DebugNotice'
 import { HelpMenu } from 'lib/components/HelpMenu/HelpMenu'
@@ -44,9 +45,13 @@ export function NavBarFooter({ isLayoutNavCollapsed }: { isLayoutNavCollapsed: b
 
             {wizardUiEnabled && !isLayoutNavCollapsed && currentProjectId !== null && (
                 <div className="w-full pb-1">
-                    <Suspense fallback={null}>
-                        <WizardRunSidebarWidget projectId={String(currentProjectId)} />
-                    </Suspense>
+                    {/* A local boundary keeps a failed widget chunk from reaching the shell's
+                        ChunkLoadErrorBoundary, which reloads the whole app. */}
+                    <PostHogErrorBoundary fallback={<></>}>
+                        <Suspense fallback={null}>
+                            <WizardRunSidebarWidget projectId={String(currentProjectId)} />
+                        </Suspense>
+                    </PostHogErrorBoundary>
                 </div>
             )}
 

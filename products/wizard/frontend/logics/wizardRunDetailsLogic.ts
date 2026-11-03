@@ -9,6 +9,7 @@ import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import { ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { isUUIDLike } from 'lib/utils/guards'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
@@ -513,7 +514,8 @@ export const wizardRunDetailsLogic = kea<wizardRunDetailsLogicType>([
     urlToAction(({ actions, values, cache }) => ({
         [urls.wizardRuns()]: (_, searchParams) => {
             const previousRunId = cache.linkedRunId
-            const runId = typeof searchParams.run === 'string' ? searchParams.run : null
+            // The run id becomes part of the API path, so anything other than a UUID is ignored.
+            const runId = typeof searchParams.run === 'string' && isUUIDLike(searchParams.run) ? searchParams.run : null
             cache.linkedRunId = runId
             if (runId) {
                 actions.openLinkedRun(runId)
