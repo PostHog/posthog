@@ -1746,7 +1746,8 @@ class SessionRecordingViewSet(
 
         with _OTEL_PLAYBACK.timed_histogram_twin(GATHER_RECORDING_SOURCES_HISTOGRAM, {"blob_version": "v2"}):
             with timer("list_blocks__gather_session_recording_sources"):
-                blocks = list_blocks(recording)
+                # Uncached, so a recording deleted a moment ago fails here before the player asks for any block.
+                blocks = list_blocks(recording, use_cache=False)
 
             for i, block in enumerate(blocks):
                 sources.append(

@@ -258,6 +258,7 @@ pub fn write_block<W: Write>(
     if let Some(key) = &report.kept_in {
         tracing::info!(
             team_id = block.session.team_id,
+            session_id = %block.session.session_id,
             key,
             "a declined URL stayed inside a longer token"
         );
@@ -762,6 +763,14 @@ mod tests {
                 .unwrap()
                 .entry((bucket.to_owned(), key.to_owned()))
                 .or_insert(body);
+            Ok(())
+        }
+
+        async fn put(&self, bucket: &str, key: &str, body: Vec<u8>) -> Result<(), StoreError> {
+            self.objects
+                .lock()
+                .unwrap()
+                .insert((bucket.to_owned(), key.to_owned()), body);
             Ok(())
         }
     }
