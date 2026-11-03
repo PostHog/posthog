@@ -20,6 +20,8 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
+use clap::Parser;
+use personhog_writer::backfill;
 use personhog_writer::config::Config;
 use personhog_writer::consumer::ConsumerTask;
 use personhog_writer::kafka::{base_client_config, PersonConsumer};
@@ -31,11 +33,21 @@ common_alloc::used!();
 
 const STORE_CLOSE_TIMEOUT: Duration = Duration::from_secs(10);
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let config = Config::init_from_env().expect("Invalid configuration");
-    let mode = config.property_storage_mode;
+/// `personhog-writer backfill`: a one-off run, while the writer group is empty.
+#[derive(clap::Parser)]
+#[command(name = "personhog-writer backfill")]
+struct BackfillArgs {
+    /// Every team when absent.
+    #[arg(long)]
+    team_id: Option<i64>,
+    /// Names the run's progress; rerunning a finished run does nothing.
+    #[arg(long)]
+    run_id: String,
+    #[arg(long, default_value_t = 1000)]
+    page_size: i64,
+}
 
+fn init_tracing() {
     let log_layer = fmt::layer()
         .with_target(true)
         .with_thread_ids(true)
@@ -49,6 +61,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .from_env_lossy(),
         )
         .init();
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    init_tracing();
+    if std::env::args().nth(1).as_deref() == Some("backfill") {
+        return backfill(BackfillArgs::parse_from(std::env::args().skip(1))).await;
+    }
+    let config = Config::init_from_env().expect("Invalid configuration");
+    let mode = config.property_storage_mode;
 
     tracing::info!(property_storage_mode = ?mode, "Starting personhog-writer");
     tracing::info!("Consumer group: {}", config.kafka_consumer_group);
@@ -343,6 +365,98 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
     waited?;
+    Ok(())
+}
+
+async fn backfill(args: BackfillArgs) -> Result<(), Box<dyn std::error::Error>> {
+    let config = Config::init_from_env().expect("Invalid configuration");
+    let store = EtcdStore::connect_with_member_failover(StoreConfig {
+        endpoints: config.etcd_endpoint_list(),
+        prefix: config.etcd_prefix.clone(),
+    })
+    .await?;
+    let store = PersonhogStore::new(store);
+    let Some(loaded) = load_changelog_config(
+        &store,
+        CHANGELOG_BOOT_POLL_INTERVAL,
+        &CancellationToken::new(),
+    )
+    .await?
+    else {
+        return Ok(());
+    };
+    if !loaded.draining.is_empty() {
+        return Err("a changelog migration is draining; backfill after it finishes".into());
+    }
+    store
+        .require_property_store_layout(&PropertyStoreLayout {
+            shards: config.property_store.shards,
+            location: config.property_store.location()?,
+        })
+        .await?;
+
+    let base = base_client_config(&config.kafka);
+    let group = loaded.writer_group.clone();
+    let members = tokio::task::spawn_blocking(move || {
+        backfill::group_members(&base, &group, Duration::from_secs(10))
+    })
+    .await??;
+    if members > 0 {
+        return Err(format!(
+            "writer group {} has {members} members; scale the writer to zero first",
+            loaded.writer_group
+        )
+        .into());
+    }
+
+    let pool = get_pool_with_config(
+        &config.database_url,
+        PoolConfig {
+            max_connections: 2,
+            pool_name: Some("personhog-writer-backfill".to_string()),
+            statement_timeout_ms: Some(30_000),
+            ..Default::default()
+        },
+    )?;
+    let scan = backfill::Scan::new(pool, &config.pg_target_table, args.team_id, args.page_size)?;
+    let object_store = personhog_property_store::object_store(&config.property_store)?;
+    let writer = personhog_property_store::PropertyWriter::new(
+        &config.property_store,
+        Arc::clone(&object_store),
+    );
+    writer.check_partitions(loaded.partitions)?;
+    let progress =
+        backfill::Progress::new(object_store, &config.property_store.prefix, &args.run_id)?;
+
+    tracing::info!(
+        team_id = ?args.team_id,
+        run_id = %args.run_id,
+        table = %config.pg_target_table,
+        topic = %loaded.topic,
+        partitions = loaded.partitions,
+        "starting backfill"
+    );
+    let outcome = backfill::run(
+        &scan,
+        &writer,
+        &progress,
+        &loaded.topic,
+        loaded.partitions,
+        config.property_store.shards,
+    )
+    .await;
+    if tokio::time::timeout(STORE_CLOSE_TIMEOUT, writer.close())
+        .await
+        .is_err()
+    {
+        tracing::warn!("property store shards did not close in time");
+    }
+    match outcome? {
+        backfill::Outcome::Finished(counts) => tracing::info!(?counts, "backfill finished"),
+        backfill::Outcome::AlreadyDone(counts) => {
+            tracing::info!(?counts, "backfill already finished; nothing to do")
+        }
+    }
     Ok(())
 }
 

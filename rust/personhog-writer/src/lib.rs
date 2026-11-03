@@ -1,3 +1,4 @@
+pub mod backfill;
 pub mod buffer;
 pub mod config;
 pub mod consumer;

@@ -1,7 +1,7 @@
 use std::time::Instant;
 
 use metrics::{counter, histogram};
-use personhog_common::properties::rewrite_out_of_range_numbers;
+use personhog_common::properties::parse_stored_properties;
 use sqlx::pool::PoolConnection;
 use sqlx::postgres::PgPool;
 use sqlx::{Postgres, Row};
@@ -128,32 +128,24 @@ async fn load_person_row(
     let is_identified: bool = row.get("is_identified");
     let last_seen_at: Option<chrono::DateTime<chrono::Utc>> = row.get("last_seen_at");
 
-    let properties: serde_json::Value = match serde_json::from_str(properties_text) {
-        Ok(value) => value,
-        // Out-of-range numerics from other writers: rewrite to what
-        // JSON.parse would read (rounding, clamping beyond f64) instead
-        // of leaving the person permanently unloadable. Admission's
-        // sanitizer persists the healed form on the next write-through.
-        Err(strict_err) => {
-            match serde_json::from_str(&rewrite_out_of_range_numbers(properties_text)) {
-                Ok(value) => {
-                    counter!("personhog_leader_pg_properties_rewritten_total").increment(1);
-                    tracing::warn!(
-                        team_id,
-                        person_id = id,
-                        "rewrote out-of-range numerics in stored person properties"
-                    );
-                    value
-                }
-                Err(rewritten_err) => {
-                    return Err(sqlx::Error::Protocol(format!(
-                        "person properties unparseable (team_id={team_id}, person_id={id}): \
-                     {strict_err}; after numeric rewrite: {rewritten_err}"
-                    )));
-                }
-            }
-        }
-    };
+    // Out-of-range numerics from other writers: rewrite to what
+    // JSON.parse would read (rounding, clamping beyond f64) instead
+    // of leaving the person permanently unloadable. Admission's
+    // sanitizer persists the healed form on the next write-through.
+    let parsed = parse_stored_properties(properties_text).map_err(|e| {
+        sqlx::Error::Protocol(format!(
+            "person properties unparseable (team_id={team_id}, person_id={id}): {e}"
+        ))
+    })?;
+    if parsed.rewritten {
+        counter!("personhog_leader_pg_properties_rewritten_total").increment(1);
+        tracing::warn!(
+            team_id,
+            person_id = id,
+            "rewrote out-of-range numerics in stored person properties"
+        );
+    }
+    let properties = parsed.value;
 
     counter!("personhog_leader_pg_fallback_total", "outcome" => "found").increment(1);
 
