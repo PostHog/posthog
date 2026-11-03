@@ -551,11 +551,14 @@ export class HogFunctionHandler implements ActionHandler {
 
         // This check runs last because it also records the send against the cap. If it ran before the
         // opt-out, suppression or bounce checks, a send that one of them skips would still use a slot.
-        const frequencyCap = hogExecutorOptions?.isTest
-            ? ({ capped: false } as const)
-            : await this.recipientPreferencesService.checkFrequencyCap(hogFunctionInvocation, action)
-        if (frequencyCap.capped) {
-            const hold = frequencyCapHold(invocation, frequencyCap)
+        // A held send that wakes after its hold ended is skipped before the check, so it never claims a slot late.
+        const holdExpired = frequencyCapHoldExpired(invocation)
+        const frequencyCap =
+            hogExecutorOptions?.isTest || holdExpired
+                ? ({ capped: false } as const)
+                : await this.recipientPreferencesService.checkFrequencyCap(hogFunctionInvocation, action)
+        if (holdExpired || frequencyCap.capped) {
+            const hold = frequencyCap.capped ? frequencyCapHold(invocation, frequencyCap) : null
             if (hold) {
                 return {
                     finished: false,
@@ -629,13 +632,24 @@ type FrequencyCapHold = { until: DateTime; deadlineAt: string; firstHold: boolea
 
 // Up to a minute of spread, so held sends for one person that wait on the same slot don't all wake at once.
 const FREQUENCY_CAP_HOLD_JITTER_MS = 60_000
+// How late a held send may wake and still check the cap. Covers normal scheduling lag, not a worker backlog.
+const FREQUENCY_CAP_HOLD_GRACE_MS = 5 * 60_000
+
+function frequencyCapHoldExpired(invocation: CyclotronJobInvocationHogFlow): boolean {
+    const deadlineAt = invocation.state.currentAction?.frequencyCapHoldDeadlineAt
+    return (
+        !!deadlineAt &&
+        DateTime.now() > DateTime.fromISO(deadlineAt).plus({ milliseconds: FREQUENCY_CAP_HOLD_GRACE_MS })
+    )
+}
 
 /** When the team holds capped messages and the hold has not ended, returns when to check the cap again. */
 function frequencyCapHold(
     invocation: CyclotronJobInvocationHogFlow,
     cap: Extract<FrequencyCapCheck, { capped: true }>
 ): FrequencyCapHold | null {
-    if (!cap.holdHours) {
+    // A continuation on the email queue carries a pending send that a hold would drop, so it skips as before.
+    if (!cap.holdHours || invocation.state.currentAction?.hogFunctionState) {
         return null
     }
     const now = DateTime.now()
