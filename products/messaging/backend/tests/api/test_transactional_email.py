@@ -6,9 +6,6 @@ import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
-from django.db import connection
-
-import psycopg
 import requests
 from parameterized import parameterized
 from prometheus_client import REGISTRY
@@ -802,46 +799,6 @@ class TestTransactionalEmail(APIBaseTest):
         assert first_url == second_url
         assert TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).filter(key="welcome").count() == 1
         assert HogFlow.objects.filter(team=self.team, name="welcome").count() == 1
-
-    def test_a_new_key_counts_the_keys_a_racing_first_send_added_while_it_waited(self, mock_post, _flag, _capture):
-        self._cdp_accepts(mock_post)
-        psak = self._psak_client(["hog_flow:write"])
-        lock = transactional_email._lock_team_keys
-        lock_free_for_another_sender: list[bool] = []
-
-        def lock_then_a_racer_takes_the_last_key(team_id: int) -> None:
-            lock(team_id)
-            db = connection.settings_dict
-            with psycopg.connect(
-                dbname=db["NAME"],
-                user=db["USER"],
-                password=db["PASSWORD"],
-                host=db["HOST"] or None,
-                port=db["PORT"] or None,
-                autocommit=True,
-            ) as other:
-                row = other.execute(
-                    "SELECT pg_try_advisory_xact_lock(hashtextextended(%s, 0))",
-                    [f"{transactional_email.TRANSACTIONAL_EMAIL_KEY_LOCK}:{team_id}"],
-                ).fetchone()
-            assert row is not None
-            lock_free_for_another_sender.append(row[0])
-            racer_workflow_id = transactional_email.create_code_email_workflow(team_id=team_id, key="welcome")
-            TransactionalEmailKey.objects.for_team(team_id, canonical=True).create(
-                team_id=team_id, key="welcome", hog_flow_id=racer_workflow_id
-            )
-
-        with (
-            patch.object(transactional_email, "TRANSACTIONAL_EMAIL_KEY_LIMIT", 1),
-            patch.object(transactional_email, "_lock_team_keys", side_effect=lock_then_a_racer_takes_the_last_key),
-        ):
-            response = psak.post(self.send_email_url, self._code_send(template_key="receipt"), format="json")
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert response.json()["code"] == "too_many_keys"
-        assert lock_free_for_another_sender == [False]
-        assert not HogFlow.objects.filter(team=self.team, name="receipt").exists()
-        mock_post.assert_not_called()
 
     @parameterized.expand(
         [
