@@ -18,6 +18,7 @@ import {
 import type { RequestProperties } from '@/lib/request-properties'
 import { resolveScopePreset } from '@/lib/scope-preset'
 import { isPrivateScoutTrialTool } from '@/lib/tool-privacy'
+import { parseExecCallInnerToolName } from '@/tools/exec'
 import type { SkillInvocation } from '@/tools/exec-learn'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { MAX_CAPTURED_DESCRIPTION_LENGTH, getToolCategory, getToolDescription } from '@/tools/toolDefinitions'
@@ -346,8 +347,28 @@ const POSTHOG_CONNECTION_TOOL_NAMES: ReadonlySet<string> = new Set([
     'posthog-connection-forward',
 ])
 
+// Its args are the email's subject and body, which can carry a password reset link or a one-time code. Key-based
+// redaction leaves `html` and `text` intact. In single-exec mode the same args arrive inside the `exec` command
+// string, so that call is checked by its inner tool name.
+const EMAIL_SEND_TOOL_PREFIX = 'workflows-send-email'
+
+function sendsEmailContent(toolName: string, input: unknown): boolean {
+    if (toolName.startsWith(EMAIL_SEND_TOOL_PREFIX)) {
+        return true
+    }
+    const command = (input as { command?: unknown } | null | undefined)?.command
+    return (
+        toolName === 'exec' &&
+        typeof command === 'string' &&
+        (parseExecCallInnerToolName(command)?.startsWith(EMAIL_SEND_TOOL_PREFIX) ?? false)
+    )
+}
+
 function shouldCaptureToolSpan(toolName: string, input: unknown): boolean {
     if (isPrivateScoutTrialTool(toolName)) {
+        return false
+    }
+    if (sendsEmailContent(toolName, input)) {
         return false
     }
     // A proxied third-party tool's args and result are the vendor's content — an issue
