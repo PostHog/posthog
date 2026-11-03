@@ -172,6 +172,20 @@ class TestRunQuery:
             self._query(_ndjson_response([], status=403))
 
 
+class TestQueryUrl:
+    @parameterized.expand(
+        [
+            ("us1", "coralogix.us"),
+            ("us2", "cx498.coralogix.com"),
+            ("us3", "us3.coralogix.com"),
+            ("eu2", "eu2.coralogix.com"),
+            ("ap3", "ap3.coralogix.com"),
+        ]
+    )
+    def test_builds_the_regional_query_url(self, _name: str, domain: str) -> None:
+        assert coralogix_module._query_url(domain) == f"https://api.{domain}/api/v1/dataprime/query"
+
+
 class TestGetRows:
     def test_rejects_domains_outside_the_allowlist(self) -> None:
         # The generated config's Literal type is not validated when job inputs are parsed, so
