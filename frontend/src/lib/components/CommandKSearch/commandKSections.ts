@@ -237,7 +237,6 @@ export interface SectionsInput extends SectionsQuery {
     personsFirst: boolean
     settingsInResults: boolean
     unifiedRanking: boolean
-    picks: Map<string, number>
     layoutCorrection: LayoutCorrection | null
 }
 
@@ -321,8 +320,7 @@ function rankedResultsSections(
     persons: SearchItem[],
     accounts: SearchItem[],
     settingsInResults: boolean,
-    unifiedRanking: boolean,
-    picks: Map<string, number>
+    unifiedRanking: boolean
 ): CommandKSection[] {
     const words = freeWords(query)
     // The unified scorer reads punctuation, so a domain or an email address keeps it.
@@ -338,7 +336,6 @@ function rankedResultsSections(
         state,
         scoped: (query.match(FILTER_TOKEN) ?? []).some((token) => token.trim().startsWith('type:')),
         unifiedRanking,
-        picks,
     })
 }
 
@@ -490,8 +487,7 @@ function buildSectionsForQuery(input: SectionsInput): CommandKSection[] {
             leadingPersons,
             accountsQuery ? remote.accounts.cache[accountsQuery] : [],
             input.settingsInResults,
-            input.unifiedRanking,
-            input.picks
+            input.unifiedRanking
         )
         sections.push(
             ...(rankedSections.some((section) => section.key === 'results')

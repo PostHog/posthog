@@ -226,5 +226,4 @@ Every step emits an event so we can see adoption and drop-off:
 - `command k search opened` (source: shortcut, button)
 - `command k filter suggested` / `command k filter committed` (key, value kind, via: tab, enter, space, paste, see-all)
 - `command k result opened` (section, position, has_filters, filter_keys, query_length, ranked_section: `best-matches`, `group-<type>`, or the local section)
-- `command k result opened` and `command k search abandoned` also carry query_words, query_shape, query_has_underscore and layout_corrected. `query_shape` keeps only the words that PostHog's own product and settings names use and writes `*` for every other word, so no search text leaves the browser. The result event adds picked_before (the person picked this result for this search before). The abandon event adds had_results.
-- `command k search abandoned` (closed with no result opened; last mode, had_filters)
+- `command k search abandoned` (closed with no result opened; last mode, had_filters, had_results: whether any result row was on screen)
