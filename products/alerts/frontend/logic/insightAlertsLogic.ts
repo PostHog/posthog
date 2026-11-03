@@ -2,7 +2,7 @@ import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path,
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
-import { NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
+import { INSIGHT_ALERT_INCIDENT_OPENED_EVENT_ID, NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
@@ -294,7 +294,11 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
                     const alertIds = new Set(alerts.map((alert) => alert.id))
                     const response = await api.hogFunctions.list({
                         types: ['internal_destination'],
-                        filter_groups: alerts.map((alert) => buildAlertFilterConfig(alert.id)),
+                        // The opened event alone, so a PagerDuty destination counts once.
+                        filter_groups: alerts.flatMap((alert) => [
+                            buildAlertFilterConfig(alert.id),
+                            buildAlertFilterConfig(alert.id, INSIGHT_ALERT_INCIDENT_OPENED_EVENT_ID),
+                        ]),
                         full: true,
                         limit: 500,
                     })

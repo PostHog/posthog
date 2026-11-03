@@ -250,7 +250,12 @@ export function InlineAlertNotifications({ alertId, pagerDutyAvailable }: Inline
                 key: `pagerduty:${label}`,
                 title: 'PagerDuty',
                 detail: label.replace(/^PagerDuty\s*/, ''),
-                tags: [{ label: enabled ? 'Active' : 'Paused', type: enabled ? 'success' : 'default' }],
+                // Only the alerts platform opens incidents, so this destination stops paging once the alert moves back.
+                tags: [
+                    !pagerDutyAvailable
+                        ? { label: 'Not paging', type: 'warning' }
+                        : { label: enabled ? 'Active' : 'Paused', type: enabled ? 'success' : 'default' },
+                ],
                 onDelete: () => deleteExistingPagerDutyDestination(hogFunctions),
             }
         }

@@ -429,10 +429,6 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
                 await alertsDestinationsDeleteCreate(String(values.currentProjectId), props.alertId, {
                     hog_function_ids: hogFunctions.map((hogFunction) => hogFunction.id),
                 })
-                posthog.capture('insight alert destination deleted', {
-                    alert_id: props.alertId,
-                    type: ALERT_NOTIFICATION_TYPE_PAGERDUTY,
-                })
                 lemonToast.success('PagerDuty destination removed.')
             } catch (error) {
                 console.error('Failed to remove PagerDuty alert destination', error)
@@ -443,14 +439,15 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
 
         createPendingHogFunctions: async ({ alertId, alertName }) => {
             const pending = values.pendingNotifications
-            if (pending.length === 0) {
+            if (pending.length === 0 || values.currentProjectId === null) {
                 return
             }
+            const projectId = String(values.currentProjectId)
 
             const results = await Promise.allSettled(
                 pending.map((notification) => {
                     if (notification.type === ALERT_NOTIFICATION_TYPE_PAGERDUTY) {
-                        return alertsDestinationsPagerdutyCreate(String(values.currentProjectId), alertId, {
+                        return alertsDestinationsPagerdutyCreate(projectId, alertId, {
                             pagerduty_routing_key: notification.routingKey,
                             pagerduty_severity: notification.severity,
                             pagerduty_region: notification.region,
@@ -462,8 +459,9 @@ export const alertNotificationLogic = kea<alertNotificationLogicType>([
             )
 
             // No `alert created`/`alert updated` event captures destination type, so this is emitted per created destination instead.
+            // The alert API captures its own PagerDuty event.
             results.forEach((result, i) => {
-                if (result.status === 'fulfilled') {
+                if (result.status === 'fulfilled' && pending[i].type !== ALERT_NOTIFICATION_TYPE_PAGERDUTY) {
                     posthog.capture('insight alert destination created', {
                         alert_id: alertId,
                         type: pending[i].type,

@@ -223,7 +223,10 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
     const hasPendingNotifications = inlineNotificationsEnabled && pendingNotifications.length > 0
     const hasTestDeliveryTargets =
         (alert?.subscribed_users?.some((user) => Boolean(user.email)) ?? false) ||
-        existingHogFunctions.some((hogFunction) => hogFunction.enabled)
+        // A test sends the firing event, which a PagerDuty destination does not listen on.
+        existingHogFunctions.some(
+            (hogFunction) => hogFunction.enabled && hogFunction.template_id !== 'template-pagerduty'
+        )
 
     const handleClose = useCallback(() => {
         clearSimulation()
