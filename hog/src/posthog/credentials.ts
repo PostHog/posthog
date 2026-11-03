@@ -2,10 +2,10 @@ import { join } from 'node:path'
 
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import type { Env, Runtime } from '@/core/runtime'
+import type { StoreChoice } from '@/posthog/credential-store/types'
+import { loginStorage, readLogin } from '@/posthog/login/stored'
 
 import { PersonalAPIKey, type AccessKey } from './access-key'
-import type { StoreChoice } from './credential-store/types'
-import { loginStorage, readLogin } from './login/stored'
 import { readSettings } from './settings'
 
 // posthog-cli falls back to this host when neither --host nor the credentials name one.
