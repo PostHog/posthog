@@ -88,6 +88,7 @@ export function sanitizeTraceUrlSearchParams(
     delete sanitizedSearchParams.line
     delete sanitizedSearchParams.tab
     delete sanitizedSearchParams.back_to
+    delete sanitizedSearchParams.back_url
     delete sanitizedSearchParams.msg
 
     if (options.removeSearch) {
