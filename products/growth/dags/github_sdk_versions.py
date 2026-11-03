@@ -64,6 +64,7 @@ SDK_FETCH_FUNCTIONS: dict[SdkTypes, Callable[[], dict[str, Any]]] = {
     ),
     "posthog-go-mcp": lambda: fetch_go_sdk_data(),
     "posthog-ruby-mcp": lambda: fetch_ruby_sdk_data(),
+    "posthog-roblox": lambda: fetch_roblox_sdk_data(),
     "js": lambda: fetch_js_lite_sdk_data(),
 }
 
@@ -368,6 +369,11 @@ def fetch_dotnet_sdk_data() -> dict[str, Any]:
     return fetch_sdk_data_from_releases(
         "PostHog/posthog-dotnet", tag_prefixes=prefixed_or_unprefixed_semver_tags("PostHog-v", "v")
     )
+
+
+def fetch_roblox_sdk_data() -> dict[str, Any]:
+    """Fetch Roblox SDK data from GitHub releases API"""
+    return fetch_sdk_data_from_releases("PostHog/posthog-roblox", tag_prefixes=prefixed_or_unprefixed_semver_tags("v"))
 
 
 # ---- Dagster defs
