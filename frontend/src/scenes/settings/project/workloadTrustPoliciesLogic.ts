@@ -34,6 +34,12 @@ export type WorkloadTrustPolicyFormValues = Pick<
     conditions: Record<string, string>
 }
 
+export interface WorkloadTrustPolicyConditionField {
+    name: string
+    label: string
+    helpText: string
+}
+
 export interface WorkloadTrustPolicyScopeRow {
     key: string
     label: string
@@ -58,6 +64,7 @@ export interface workloadTrustPoliciesLogicValues {
         subject: string
         subjectName: string
     }
+    conditionFields: WorkloadTrustPolicyConditionField[]
     editingPolicy: WorkloadTrustPolicyFormValues
     editingPolicyAllErrors: Record<string, any>
     editingPolicyChanged: boolean
@@ -212,7 +219,11 @@ export interface workloadTrustPoliciesLogicMeta {
             providers: WorkloadProvidersResponseApi | null,
             editingPolicy: WorkloadTrustPolicyFormValues
         ) => WorkloadProviderApi | null
-        claimLabels: (editingProvider: any) => {
+        conditionFields: (
+            editingProvider: WorkloadProviderApi | null,
+            editingPolicy: WorkloadTrustPolicyFormValues
+        ) => WorkloadTrustPolicyConditionField[]
+        claimLabels: (editingProvider: WorkloadProviderApi | null) => {
             subject: string
             subjectName: string
         }
@@ -396,6 +407,29 @@ export const workloadTrustPoliciesLogic = kea<workloadTrustPoliciesLogicType>([
             ): WorkloadProviderApi | null =>
                 providers?.supported.find((provider) => provider.issuer === editingPolicy.issuer) ?? null,
         ],
+        conditionFields: [
+            (s) => [s.editingProvider, s.editingPolicy],
+            (
+                editingProvider: WorkloadProviderApi | null,
+                editingPolicy: WorkloadTrustPolicyFormValues
+            ): WorkloadTrustPolicyConditionField[] => {
+                const offered = (editingProvider?.condition_claims ?? []).map((claim) => ({
+                    name: claim.name,
+                    label: claim.label,
+                    helpText: claim.help_text,
+                }))
+                // A stored condition the provider no longer offers stays visible, so the admin can clear it.
+                const offeredNames = new Set(offered.map((field) => field.name))
+                const leftover = Object.keys(editingPolicy.conditions)
+                    .filter((name) => !offeredNames.has(name))
+                    .map((name) => ({
+                        name,
+                        label: name,
+                        helpText: "The provider doesn't offer this condition anymore. Clear it to save the policy.",
+                    }))
+                return [...offered, ...leftover]
+            },
+        ],
         claimLabels: [
             (s) => [s.editingProvider],
             (editingProvider: WorkloadProviderApi | null): { subject: string; subjectName: string } => ({
@@ -410,7 +444,14 @@ export const workloadTrustPoliciesLogic = kea<workloadTrustPoliciesLogicType>([
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, selectors }) => ({
+        setEditingPolicyValue: ({ name }, _, __, previousState) => {
+            const field = Array.isArray(name) ? name[0] : name
+            // Condition claims belong to one provider, so switching provider starts from no conditions.
+            if (field === 'issuer' && selectors.editingPolicy(previousState).issuer !== values.editingPolicy.issuer) {
+                actions.setEditingPolicyValue('conditions', {})
+            }
+        },
         setEditingPolicyId: ({ id }) => {
             if (id === null) {
                 return
