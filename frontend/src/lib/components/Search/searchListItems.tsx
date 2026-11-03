@@ -16,7 +16,7 @@ import { isDefinitionsTabHref } from '~/layout/panel-layout/navbar/tabs/navProdu
 import { getDefaultTreePersons } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { getTreeItemsMetadata, getTreeItemsNew, getTreeItemsProducts } from '~/products'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
-import type { SettingSection, SettingSectionId } from '~/scenes/settings/types'
+import type { SettingId, SettingLevelId, SettingSectionId } from '~/scenes/settings/types'
 import { ActivityTab } from '~/types'
 
 import { SearchItem, fileSystemEntryToSearchItem } from './searchItems'
@@ -344,84 +344,105 @@ export const actionSearchItems = (toggleTerminal: (() => void) | null): SearchIt
  * on mount and only the searchable metadata is kept.
  */
 export interface SettingsSectionSummary {
-    id: SettingSection['id']
-    level: SettingSection['level']
+    id: SettingSectionId
+    level: Exclude<SettingLevelId, 'environment'>
     titleString: string | null
-    hideFromNavigation?: boolean
-    flag?: SettingSection['flag']
     to?: string
     keywords?: string[]
     settings: {
-        id: string
-        hasTitle: boolean
+        id: SettingId
         titleString: string | null
         descriptionString: string | null
         keywords?: string[]
-        flag?: SettingSection['flag']
     }[]
 }
 
-interface SettingsGates {
-    isFlagEnabled: (flag: SettingSection['flag']) => boolean
-    hasOrganizationIntegrations: boolean
-    billingEntryUrl: string | null
+const LEVEL_SEARCH_KEYWORDS: Partial<Record<SettingsSectionSummary['level'], string[]>> = {
+    user: ['account settings', 'personal settings', 'my settings'],
 }
-
-const SHARED_SECTION_TITLES = new Set(['General', 'Danger zone', 'Integrations'])
 
 const sentenceCaseId = (id: string): string => toSentenceCase(id.replace(/-/g, ' '))
 
-const settingSearchTerms = (setting: SettingsSectionSummary['settings'][number]): string[] => [
-    sentenceCaseId(setting.id),
-    ...(setting.titleString ? [setting.titleString] : []),
-    ...(setting.descriptionString ? [setting.descriptionString] : []),
-    ...(setting.keywords ?? []),
-]
+const levelSettingsName = (level: SettingsSectionSummary['level']): string => `${toSentenceCase(level)} settings`
 
-// Sections hidden from navigation are only reachable from their product's own configuration page.
-// Integrations and billing mirror the sidebar gates. billingEntryUrl is null when the user has no
-// billing access, and for view-only members it points at Usage, which keeps them off the admin-only
-// Overview and the restricted state it renders first.
-const isSectionShown = (section: SettingsSectionSummary, gates: SettingsGates): boolean =>
-    !section.hideFromNavigation &&
-    gates.isFlagEnabled(section.flag) &&
-    (section.id !== 'organization-integrations' || gates.hasOrganizationIntegrations) &&
-    (section.id !== 'organization-billing' || !!gates.billingEntryUrl)
+const settingsItem = (
+    id: string,
+    name: string,
+    href: string,
+    record: Record<string, unknown>,
+    fields: Partial<SearchItem> = {}
+): SearchItem => ({
+    id,
+    name,
+    displayName: name,
+    category: 'settings',
+    href,
+    itemType: 'settings',
+    record: { type: 'settings', ...record },
+    ...fields,
+})
 
-const toSettingsSearchItem = (section: SettingsSectionSummary, gates: SettingsGates): SearchItem => {
-    // Environment sections show as project sections.
-    const level = section.level === 'environment' ? 'project' : section.level
-    const sectionId = section.id.replace(/^environment-/, 'project-') as SettingSectionId
-    const levelName = toSentenceCase(level)
+const sectionSearchItems = (section: SettingsSectionSummary, billingEntryUrl: string | null): SearchItem[] => {
+    const levelName = levelSettingsName(section.level)
     const title = section.titleString ?? sentenceCaseId(section.id)
-    const searchTerms = [
-        ...(section.keywords ?? []),
-        ...section.settings
-            .filter((setting) => setting.hasTitle && gates.isFlagEnabled(setting.flag))
-            .flatMap(settingSearchTerms),
+    const ownsSettings = !section.to
+    const isOwnItem = (setting: SettingsSectionSummary['settings'][number]): boolean =>
+        ownsSettings && !!setting.titleString && setting.titleString.toLowerCase() !== title.toLowerCase()
+    const folded = section.settings.filter((setting) => !isOwnItem(setting))
+    const sectionItem = settingsItem(
+        `settings-${section.id}`,
+        title,
+        (section.id === 'organization-billing' && billingEntryUrl) || section.to || urls.settings(section.id),
+        { level: section.level, sectionId: section.id },
+        {
+            parentName: levelName,
+            searchKeywords: [...(section.keywords ?? []), ...folded.flatMap((setting) => setting.keywords ?? [])],
+            hiddenSearchText: folded
+                .flatMap((setting) => [
+                    setting.titleString ?? sentenceCaseId(setting.id),
+                    setting.descriptionString ?? '',
+                ])
+                .join(' '),
+        }
+    )
+    return [
+        sectionItem,
+        ...section.settings.filter(isOwnItem).map((setting) =>
+            settingsItem(
+                `settings-${section.id}-${setting.id}`,
+                setting.titleString!,
+                urls.settings(section.id, setting.id),
+                { level: section.level, sectionId: section.id, settingId: setting.id },
+                {
+                    parentName: `${levelName} › ${title}`,
+                    searchKeywords: setting.keywords,
+                    hiddenSearchText: setting.descriptionString ?? undefined,
+                }
+            )
+        ),
     ]
-    return {
-        id: `settings-${sectionId}`,
-        name: `${levelName}: ${title} (${searchTerms.join(',')})`,
-        displayName: SHARED_SECTION_TITLES.has(title) ? `${title} (${levelName})` : title,
-        category: 'settings',
-        href:
-            (section.id === 'organization-billing' && gates.billingEntryUrl) || section.to || urls.settings(sectionId),
-        itemType: 'settings',
-        record: { type: 'settings', level, sectionId },
-    }
 }
 
-export const settingsSearchItems = (sections: SettingsSectionSummary[], gates: SettingsGates): SearchItem[] => {
-    const items = new Map<string, SearchItem>()
-    for (const section of sections) {
-        if (!isSectionShown(section, gates)) {
-            continue
-        }
-        const item = toSettingsSearchItem(section, gates)
-        if (!items.has(item.id)) {
-            items.set(item.id, item)
-        }
+export const settingsSearchItems = (
+    sections: SettingsSectionSummary[],
+    billingEntryUrl: string | null
+): SearchItem[] => {
+    if (!sections.length) {
+        return []
     }
-    return [...items.values()]
+    const levels = [...new Set(sections.map((section) => section.level))]
+    const items = [
+        settingsItem('settings', 'Settings', urls.settings(), {}, { searchKeywords: ['preferences', 'configuration'] }),
+        ...levels.map((level) =>
+            settingsItem(
+                `settings-level-${level}`,
+                levelSettingsName(level),
+                urls.settings(level),
+                { level },
+                { searchKeywords: LEVEL_SEARCH_KEYWORDS[level] }
+            )
+        ),
+        ...sections.flatMap((section) => sectionSearchItems(section, billingEntryUrl)),
+    ]
+    return [...new Map(items.map((item) => [item.id, item])).values()]
 }

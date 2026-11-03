@@ -395,36 +395,60 @@ describe('buildSections', () => {
     })
 
     test.each([
-        ['no product shares its name', 'Personal API keys', ['best-matches'], 'Personal API keys'],
-        ['a product has its name', 'API keys', ['best-matches', 'settings'], 'API keys'],
-    ])('ranks an exact-match setting with the results when %s', (_, settingName, keys, first) => {
-        const setting: SearchItem = {
-            id: 'settings-api-keys',
-            name: `User: ${settingName} (api keys)`,
-            displayName: settingName,
-            category: 'settings',
-        }
-        const products: SearchItem[] =
-            settingName === 'API keys' ? [{ id: 'product-api-keys', name: 'API keys', category: 'products' }] : []
-        const remote = emptyRemoteSlots()
-        remote.results = {
-            cache: {
-                'api keys': [{ ...dashboard('a', '1'), name: 'Ada board', rankKey: [-1, 0, 0, 0, -1, 0, 1, 0, 0] }],
-            },
-        }
-        const sections = buildSections(
-            input('search', {
-                local: { ...emptyLocal(), settings: [setting], products },
-                remote,
-                remoteQueries: { results: 'api keys' },
-                localQuery: 'api keys',
-            })
-        )
+        ['no product shares its name', 'api keys', 'Personal API keys', [], ['best-matches'], 'settings-item'],
+        [
+            'a product has its name',
+            'api keys',
+            'API keys',
+            [{ id: 'product-api-keys', name: 'API keys', category: 'products' }],
+            ['best-matches', 'settings'],
+            'product-api-keys',
+        ],
+        [
+            'only a product tab has its name',
+            'settings',
+            'Settings',
+            [
+                {
+                    id: 'product-Workflows-tab-Settings',
+                    name: 'Workflows Settings',
+                    displayName: 'Settings',
+                    parentName: 'Workflows',
+                    category: 'tabs',
+                },
+            ],
+            ['best-matches'],
+            'settings-item',
+        ],
+    ] as [string, string, string, SearchItem[], string[], string][])(
+        'ranks an exact-match setting with the results when %s',
+        (_, search, settingName, products, keys, first) => {
+            const setting: SearchItem = {
+                id: 'settings-item',
+                name: settingName,
+                displayName: settingName,
+                category: 'settings',
+            }
+            const remote = emptyRemoteSlots()
+            remote.results = {
+                cache: {
+                    [search]: [{ ...dashboard('a', '1'), name: 'Ada board', rankKey: [-1, 0, 0, 0, -1, 0, 1, 0, 0] }],
+                },
+            }
+            const sections = buildSections(
+                input('search', {
+                    local: { ...emptyLocal(), settings: [setting], products },
+                    remote,
+                    remoteQueries: { results: search },
+                    localQuery: search,
+                })
+            )
 
-        expect(sections.map((section) => section.key)).toEqual(keys)
-        const firstItem = sections[0].rows[0]
-        expect(firstItem.kind === 'item' ? String(firstItem.item.displayName || firstItem.item.name) : null).toBe(first)
-    })
+            expect(sections.map((section) => section.key)).toEqual(keys)
+            const firstItem = sections[0].rows[0]
+            expect(firstItem.kind === 'item' ? firstItem.item.id : null).toBe(first)
+        }
+    )
 
     it('with unified ranking, a pasted snake_case name ranks its matching setting first', () => {
         const setting: SearchItem = {

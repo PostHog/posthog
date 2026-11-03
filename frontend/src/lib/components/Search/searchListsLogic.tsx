@@ -5,17 +5,19 @@ import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { organizationIntegrationsLogic } from 'scenes/settings/organization/organizationIntegrationsLogic'
+import { teamLogic } from 'scenes/teamLogic'
 import { terminalDockLogic } from 'scenes/terminal/terminalDockLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { recentItemsModel } from '~/models/recentItemsModel'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
-import { matchesFlagDefinition } from '~/scenes/settings/flagGating'
+import { SettingsVisibilityGates, isSettingVisible, visibleSettingsSections } from '~/scenes/settings/flagGating'
 import { getTitleText } from '~/scenes/settings/settingsSearch'
 import type { SettingSection } from '~/scenes/settings/types'
-import { IntegrationType, UserType } from '~/types'
+import { IntegrationType, OrganizationType, PreflightStatus, TeamPublicType, TeamType, UserType } from '~/types'
 
 import { SearchItem } from './searchItems'
 import {
@@ -30,27 +32,29 @@ import {
     starredSearchItems,
 } from './searchListItems'
 
-const summarizeSettingsSection = (section: SettingSection): SettingsSectionSummary => ({
-    id: section.id,
-    level: section.level,
-    titleString: getTitleText(section.title) || null,
-    hideFromNavigation: section.hideFromNavigation,
-    flag: section.flag,
-    to: section.to,
-    keywords: section.keywords,
-    settings: section.settings.map((setting) => ({
-        id: setting.id,
-        // A setting can render a title that getTitleText cannot read, such as a whole
-        // component, and it must stay findable via its id token.
-        // hasTitle preserves that distinction.
-        hasTitle: !!setting.title,
-        titleString: getTitleText(setting.title) || null,
-        descriptionString:
-            setting.searchDescription ?? (typeof setting.description === 'string' ? setting.description : null),
-        keywords: setting.keywords,
-        flag: setting.flag,
-    })),
-})
+const summarizeSettingsSections = (
+    sections: SettingSection[],
+    gates: SettingsVisibilityGates
+): SettingsSectionSummary[] =>
+    visibleSettingsSections(sections, gates)
+        .filter((section) => !section.hideFromNavigation)
+        .map((section) => ({
+            id: section.id,
+            level: section.level === 'environment' ? 'project' : section.level,
+            titleString: getTitleText(section.title) || null,
+            to: section.to,
+            keywords: section.keywords,
+            settings: section.settings
+                .filter((setting) => !!setting.title && isSettingVisible(setting, gates))
+                .map((setting) => ({
+                    id: setting.id,
+                    titleString: getTitleText(setting.title) || null,
+                    descriptionString:
+                        setting.searchDescription ??
+                        (typeof setting.description === 'string' ? setting.description : null),
+                    keywords: setting.keywords,
+                })),
+        }))
 
 export interface SearchListsLogicProps {
     /** The command palette runs `onSelect` items, so it gets rows other search surfaces cannot use. */
@@ -62,10 +66,15 @@ export interface searchListsLogicValues {
     billingEntryUrl: string | null // billingLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
     organizationIntegrations: IntegrationType[] | null // organizationIntegrationsLogic
+    isCloudOrDev: boolean | undefined // preflightLogic
     isDev: boolean | undefined // preflightLogic
+    preflight: PreflightStatus | null // preflightLogic
+    currentOrganization: OrganizationType | null // organizationLogic
+    isAdminOrOwner: boolean | null // organizationLogic
     cachedStarred: FileSystemEntry[] // projectTreeDataLogic
     treeGroupItems: FileSystemImport[] // projectTreeDataLogic
     sceneLogViewsByRef: Record<string, string> // recentItemsModel
+    currentTeam: TeamType | TeamPublicType | null // teamLogic
     user: UserType | null // userLogic
     actionItems: SearchItem[]
     dataManagementItems: SearchItem[]
@@ -75,7 +84,7 @@ export interface searchListsLogicValues {
     peopleItems: SearchItem[]
     productsItems: SearchItem[]
     settingsItems: SearchItem[]
-    settingsSections: SettingsSectionSummary[]
+    settingsSections: SettingSection[]
     showTerminal: boolean
     showUnreleased: boolean
     starredItems: SearchItem[]
@@ -86,8 +95,8 @@ export interface searchListsLogicActions {
     toggleTerminal: () => {
         value: true
     } // terminalDockLogic
-    setSettingsSections: (sections: SettingsSectionSummary[]) => {
-        sections: SettingsSectionSummary[]
+    setSettingsSections: (sections: SettingSection[]) => {
+        sections: SettingSection[]
     }
 }
 
@@ -114,10 +123,16 @@ export interface searchListsLogicMeta {
         healthItems: (sceneLogViewsByRef: Record<string, string>) => SearchItem[]
         actionItems: (showTerminal: boolean) => SearchItem[]
         settingsItems: (
-            settingsSections: SettingsSectionSummary[],
+            settingsSections: SettingSection[],
             featureFlags: FeatureFlagsSet,
+            isCloudOrDev: boolean | undefined,
+            preflight: PreflightStatus | null,
+            currentTeam: TeamType | TeamPublicType | null,
+            currentOrganization: OrganizationType | null,
             hasOrganizationIntegrations: boolean,
-            billingEntryUrl: string | null
+            billingEntryUrl: string | null,
+            isAdminOrOwner: boolean | null,
+            user: UserType | null
         ) => SearchItem[]
     }
 }
@@ -144,7 +159,11 @@ export const searchListsLogic = kea<searchListsLogicType>([
             featureFlagLogic,
             ['featureFlags'],
             preflightLogic,
-            ['isDev'],
+            ['isDev', 'isCloudOrDev', 'preflight'],
+            teamLogic,
+            ['currentTeam'],
+            organizationLogic,
+            ['currentOrganization', 'isAdminOrOwner'],
             userLogic,
             ['user'],
             recentItemsModel,
@@ -158,11 +177,11 @@ export const searchListsLogic = kea<searchListsLogicType>([
         ],
     })),
     actions({
-        setSettingsSections: (sections: SettingsSectionSummary[]) => ({ sections }),
+        setSettingsSections: (sections: SettingSection[]) => ({ sections }),
     }),
     reducers({
         settingsSections: [
-            [] as SettingsSectionSummary[],
+            [] as SettingSection[],
             {
                 setSettingsSections: (_, { sections }) => sections,
             },
@@ -222,23 +241,49 @@ export const searchListsLogic = kea<searchListsLogicType>([
                 actionSearchItems(showTerminal ? () => terminalDockLogic.actions.toggleTerminal() : null),
         ],
         settingsItems: [
-            (s) => [s.settingsSections, s.featureFlags, s.hasOrganizationIntegrations, s.billingEntryUrl],
+            (s) => [
+                s.settingsSections,
+                s.featureFlags,
+                s.isCloudOrDev,
+                s.preflight,
+                s.currentTeam,
+                s.currentOrganization,
+                s.hasOrganizationIntegrations,
+                s.billingEntryUrl,
+                s.isAdminOrOwner,
+                s.user,
+            ],
             (
-                settingsSections: SettingsSectionSummary[],
+                settingsSections: SettingSection[],
                 featureFlags: FeatureFlagsSet,
+                isCloudOrDev: boolean | undefined,
+                preflight: PreflightStatus | null,
+                currentTeam: TeamType | TeamPublicType | null,
+                currentOrganization: OrganizationType | null,
                 hasOrganizationIntegrations: boolean,
-                billingEntryUrl: string | null
+                billingEntryUrl: string | null,
+                isAdminOrOwner: boolean | null,
+                user: UserType | null
             ): SearchItem[] =>
-                settingsSearchItems(settingsSections, {
-                    isFlagEnabled: (flag) => matchesFlagDefinition(flag, featureFlags),
-                    hasOrganizationIntegrations,
-                    billingEntryUrl,
-                }),
+                settingsSearchItems(
+                    summarizeSettingsSections(settingsSections, {
+                        featureFlags,
+                        isCloudOrDev,
+                        realm: preflight?.realm,
+                        currentTeam,
+                        currentOrganization,
+                        hasOrganizationIntegrations,
+                        billingEntryUrl,
+                        isAdminOrOwner,
+                        isStaff: !!user?.is_staff,
+                    }),
+                    billingEntryUrl
+                ),
         ],
     }),
     afterMount(({ actions }) => {
         import('~/scenes/settings/SettingsMap')
-            .then(({ SETTINGS_MAP }) => actions.setSettingsSections(SETTINGS_MAP.map(summarizeSettingsSection)))
+            .then(({ SETTINGS_MAP }) => actions.setSettingsSections(SETTINGS_MAP))
             .catch((error) => {
                 console.error('Failed to load SETTINGS_MAP for settings search:', error)
             })

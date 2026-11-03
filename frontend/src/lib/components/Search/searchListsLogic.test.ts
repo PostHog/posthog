@@ -3,6 +3,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { terminalDockLogic } from 'scenes/terminal/terminalDockLogic'
 import { urls } from 'scenes/urls'
 
+import type { Setting } from '~/scenes/settings/types'
 import { initKeaTests } from '~/test/init'
 import { ActivityTab } from '~/types'
 
@@ -154,44 +155,43 @@ describe('searchListsLogic', () => {
         ['on', true, 'Agent preferences', true],
     ])(
         'shows one copy of a section gated on a flag and its negation, with the flag %s',
-        (_state, flagOn, expectedName, expectsGatedKeyword) => {
+        (_state, flagOn, expectedName, expectsGatedSetting) => {
             featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TODAY_RAIL_NAV]: flagOn })
-            const settings = [
-                {
-                    id: 'task-agent-my-preference',
-                    hasTitle: true,
-                    titleString: 'My default model',
-                    descriptionString: null,
-                },
+            const settings: Setting[] = [
+                { id: 'task-agent-my-preference', title: 'My default model', component: {} as JSX.Element },
                 {
                     id: 'task-comments-slack-dm',
-                    hasTitle: true,
-                    titleString: 'Gated setting',
-                    descriptionString: null,
+                    title: 'Gated setting',
+                    component: {} as JSX.Element,
                     keywords: ['zebra'],
-                    flag: 'TODAY_RAIL_NAV' as const,
+                    flag: 'TODAY_RAIL_NAV',
                 },
             ]
             logic.actions.setSettingsSections([
                 {
                     id: 'environment-task-agents',
                     level: 'environment',
-                    titleString: 'Agent preferences',
+                    title: 'Agent preferences',
                     flag: 'TODAY_RAIL_NAV',
                     settings,
                 },
                 {
                     id: 'environment-task-agents',
                     level: 'environment',
-                    titleString: 'Model preferences',
+                    title: 'Model preferences',
                     flag: '!TODAY_RAIL_NAV',
                     settings,
                 },
             ])
 
-            const items = logic.values.settingsItems.filter((item) => item.id === 'settings-project-task-agents')
-            expect(items.map((item) => item.displayName)).toEqual([expectedName])
-            expect(items[0].name.includes('zebra')).toBe(expectsGatedKeyword)
+            const sections = logic.values.settingsItems.filter((item) => item.id === 'settings-project-task-agents')
+            expect(sections.map((item) => [item.displayName, item.parentName])).toEqual([
+                [expectedName, 'Project settings'],
+            ])
+            const gated = filterSearchItems(logic.values.settingsItems, 'zebra').map((item) => item.href)
+            expect(gated).toEqual(
+                expectsGatedSetting ? ['/settings/project-task-agents#task-comments-slack-dm'] : []
+            )
         }
     )
 })

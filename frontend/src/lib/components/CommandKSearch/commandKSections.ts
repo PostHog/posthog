@@ -310,7 +310,7 @@ export const settingsQuery = (localQuery: string, unifiedRanking: boolean): stri
     unifiedRanking ? localQuery.replace(/_/g, ' ') : localQuery
 
 export function rankableSettings(local: LocalLists, localQuery: string): SearchItem[] {
-    const productNames = new Set(local.products.map(plainName))
+    const productNames = new Set(local.products.filter((item) => !item.parentName).map(plainName))
     return exactSettingsMatches(local.settings, localQuery).filter((item) => !productNames.has(plainName(item)))
 }
 
