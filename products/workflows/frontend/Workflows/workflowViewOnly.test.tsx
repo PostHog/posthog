@@ -228,7 +228,7 @@ describe('view-only workflow', () => {
                     count: 2,
                     next: null,
                     previous: null,
-                    results: [1, 2].map((version) => ({
+                    results: [2, 1].map((version) => ({
                         version,
                         created_at: '2026-09-01T10:00:00Z',
                         created_by: null,
@@ -255,7 +255,10 @@ describe('view-only workflow', () => {
         )
 
         fireEvent.click(screen.getByText('Compare instructions with another version'))
-        fireEvent.click(await screen.findByLabelText('Version to compare with'))
+        expect(
+            await screen.findByText('Removed lines are from v2. Added lines are in this step now.')
+        ).toBeInTheDocument()
+        fireEvent.click(screen.getByLabelText('Version to compare with'))
         fireEvent.click(await screen.findByText(/^v1 ·/))
 
         expect(
