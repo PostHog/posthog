@@ -1,7 +1,7 @@
 import { LemonDialog } from '@posthog/lemon-ui'
 
 import { OrganizationMembershipLevel } from 'lib/constants'
-import { billingLogic } from 'scenes/billing/billingLogic'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 
 import { initKeaTests } from '~/test/init'

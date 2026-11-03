@@ -35,6 +35,8 @@ class VendorSchedule:
     # "HH:MM", already converted to UTC.
     time_of_day_utc: str | None = None
     cron: str | None = None
+    # The zone the cron expression runs in: an IANA name, or a fixed offset such as "UTC+03:00".
+    time_zone: str | None = None
     # Empty means every day.
     days_of_week: tuple[str, ...] = ()
 

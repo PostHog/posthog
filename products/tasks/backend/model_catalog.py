@@ -392,6 +392,11 @@ def normalize_model_id(model_id: str) -> str:
     return normalized
 
 
+def is_anthropic_served_model(model_id: str | None) -> bool:
+    """Whether Anthropic's API may serve this model, so its server can run the auto mode classifier checks."""
+    return normalize_model_id(model_id or "").startswith("claude-")
+
+
 def access_flag_for_model(model_id: str) -> str | None:
     """The feature flag a person needs before a picker offers this model, or ``None``."""
     model = _MODEL_BY_ID.get(normalize_model_id(model_id))

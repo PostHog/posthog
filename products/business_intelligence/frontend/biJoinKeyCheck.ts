@@ -1,4 +1,5 @@
-import { escapeRawPropertyAsHogQLIdentifier } from '~/queries/utils'
+import { escapeRawPropertyAsHogQLIdentifier } from 'lib/utils/hogql'
+
 import { DataWarehouseViewLink } from '~/types'
 
 const fieldIdentifier =

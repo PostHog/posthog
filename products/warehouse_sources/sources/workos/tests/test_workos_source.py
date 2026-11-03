@@ -1,0 +1,37 @@
+import pyarrow as pa
+
+from products.warehouse_sources.sources.workos._config import WorkOSSourceConfig
+from products.warehouse_sources.sources.workos.source import WorkOSSource
+from products.warehouse_sources.sources.workos.workos import _webhook_table_transformer
+
+
+class TestWorkOSSource:
+    def setup_method(self):
+        self.source = WorkOSSource()
+        self.team_id = 123
+        self.config = WorkOSSourceConfig(api_key="sk_test_123")
+
+    def test_webhook_transformer_extracts_rows_and_marks_deletes(self):
+        table = pa.Table.from_pylist(
+            [
+                {
+                    "event": "user.updated",
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "data": '{"id":"user_1","email":"old@example.com"}',
+                },
+                {
+                    "event": "user.deleted",
+                    "created_at": "2026-01-02T00:00:00Z",
+                    "data": '{"id":"user_1","email":"old@example.com"}',
+                },
+            ]
+        )
+
+        assert _webhook_table_transformer(table).to_pylist() == [
+            {
+                "id": "user_1",
+                "email": "old@example.com",
+                "workos_deleted": True,
+                "workos_deleted_at": "2026-01-02T00:00:00Z",
+            }
+        ]
