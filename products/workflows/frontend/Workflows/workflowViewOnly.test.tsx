@@ -143,6 +143,7 @@ describe('view-only workflow', () => {
         renderForViewer(
             <ViewOnlyArea>
                 <HogFlowEventFilters
+                    filtersKey="view-only-trigger"
                     filters={{
                         events: [
                             {
