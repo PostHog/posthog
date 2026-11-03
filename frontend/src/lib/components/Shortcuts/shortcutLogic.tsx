@@ -38,6 +38,8 @@ interface ShortcutBase {
     ignoreInEditable?: boolean
     /** Higher priority items appear first in their group. Default: 0 */
     priority?: number
+    /** Runs only when the shortcut is typed, not when it is picked from search */
+    onKeyboardInvoke?: () => void
 }
 
 interface ShortcutWithRef extends ShortcutBase {
@@ -46,10 +48,8 @@ interface ShortcutWithRef extends ShortcutBase {
     callback?: never
 }
 
-export type ShortcutInvocationSource = 'keyboard' | 'search'
-
 interface ShortcutWithCallback extends ShortcutBase {
-    callback: (source?: ShortcutInvocationSource) => void
+    callback: () => void
     interaction: 'function'
     ref?: never
 }
@@ -82,12 +82,14 @@ function triggerShortcut(shortcut: ShortcutType, triggeredKeybind: string[]): vo
         mechanism: 'shortcut',
     })
 
+    shortcut.onKeyboardInvoke?.()
+
     if (shortcut.interaction === 'click') {
         shortcut.ref.current?.click()
     } else if (shortcut.interaction === 'focus') {
         shortcut.ref.current?.focus()
     } else if (shortcut.interaction === 'function') {
-        shortcut.callback('keyboard')
+        shortcut.callback()
     }
 }
 
@@ -195,7 +197,7 @@ export const shortcutLogic = kea<shortcutLogicType>([
                             } else if (shortcut.interaction === 'focus') {
                                 shortcut.ref.current?.focus()
                             } else {
-                                shortcut.callback?.('search')
+                                shortcut.callback?.()
                             }
                         },
                         record: { type: 'shortcut', ref: shortcut.name },

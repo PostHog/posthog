@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { isMac } from 'lib/utils/dom'
 
-import { ShortcutInvocationSource, ShortcutType, shortcutLogic } from './shortcutLogic'
+import { ShortcutType, shortcutLogic } from './shortcutLogic'
 
 const IS_MAC = isMac()
 
@@ -29,6 +29,8 @@ interface UseShortcutOptionsBase {
     ignoreInEditable?: boolean
     /** Higher priority items appear first in their group. Default: 0 */
     priority?: number
+    /** Runs only when the shortcut is typed, not when it is picked from search */
+    onKeyboardInvoke?: () => void
 }
 
 interface UseShortcutOptionsWithRef extends UseShortcutOptionsBase {
@@ -43,7 +45,7 @@ interface UseShortcutOptionsWithCallback extends UseShortcutOptionsBase {
     /** 'function' calls your callback directly - no ref needed */
     interaction: 'function'
     /** The function to call when the shortcut is triggered */
-    callback: (source?: ShortcutInvocationSource) => void
+    callback: () => void
     externalRef?: never
 }
 
@@ -119,6 +121,9 @@ export function useShortcut<T extends HTMLElement = HTMLElement>(options: UseSho
         priority,
     } = options
 
+    const onKeyboardInvokeRef = useRef(options.onKeyboardInvoke)
+    onKeyboardInvokeRef.current = options.onKeyboardInvoke
+
     const internalRef = useRef<T>(null)
     const [isRefReady, setIsRefReady] = useState(false)
     const { registerShortcut, unregisterShortcut } = useActions(shortcutLogic)
@@ -149,7 +154,8 @@ export function useShortcut<T extends HTMLElement = HTMLElement>(options: UseSho
             registerShortcut({
                 name,
                 keybind: platformAgnosticKeybinds,
-                callback: (source) => callbackFnRef.current?.(source),
+                callback: () => callbackFnRef.current?.(),
+                onKeyboardInvoke: () => onKeyboardInvokeRef.current?.(),
                 intent,
                 interaction: 'function',
                 scope,
@@ -162,6 +168,7 @@ export function useShortcut<T extends HTMLElement = HTMLElement>(options: UseSho
                 name,
                 keybind: platformAgnosticKeybinds,
                 ref: ref as React.RefObject<HTMLElement>,
+                onKeyboardInvoke: () => onKeyboardInvokeRef.current?.(),
                 intent,
                 interaction,
                 scope,
