@@ -375,6 +375,7 @@ const conversationsTicketsRetrieve = (): ToolBase<
             'message_count',
             'unread_team_count',
             'tags',
+            'ai_triage',
             'sla_due_at',
             'anonymous_traits',
             'session_context',
