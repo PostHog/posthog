@@ -4355,11 +4355,14 @@ class TestOAuthAPI(APIBaseTest):
         data = response.json()
         self.assertFalse(data["active"])
 
-    @parameterized.expand([True, False])
-    def test_self_introspection_succeeds_without_introspection_scope(self, impersonated: bool) -> None:
+    @parameterized.expand([(True, False), (False, True)])
+    def test_self_introspection_succeeds_without_introspection_scope(
+        self, impersonated: bool, supports_step_up: bool
+    ) -> None:
         access_token, _ = self._create_access_and_refresh_tokens(scopes="openid user:read")
         access_token.impersonated_by = self.user if impersonated else None
-        access_token.save(update_fields=["impersonated_by"])
+        access_token.supports_step_up = supports_step_up
+        access_token.save(update_fields=["impersonated_by", "supports_step_up"])
 
         response = self.post(
             "/oauth/introspect/",
@@ -4372,6 +4375,7 @@ class TestOAuthAPI(APIBaseTest):
         self.assertTrue(data["active"])
         self.assertEqual(data["scope"], "openid user:read")
         self.assertEqual(data["is_impersonated"], impersonated)
+        self.assertEqual(data["supports_step_up"], supports_step_up)
 
     def test_self_introspection_via_get_succeeds_without_introspection_scope(self):
         """Self-introspection also works via GET method."""
