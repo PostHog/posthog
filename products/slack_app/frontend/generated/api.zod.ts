@@ -17,3 +17,22 @@ export const SlackAppWorkspaceSetupDefaultProjectCreateBody = /* @__PURE__ */ zo
         .number()
         .describe('ID of the Slack integration of the project that becomes the workspace default.'),
 })
+
+/**
+ * @summary Add PostHog to public channels of a Slack app install
+ */
+export const slackAppWorkspaceSetupJoinChannelsCreateBodyChannelIdsMax = 20
+
+export const slackAppWorkspaceSetupJoinChannelsCreateBodyPostWelcomeDefault = false
+
+export const SlackAppWorkspaceSetupJoinChannelsCreateBody = /* @__PURE__ */ zod.object({
+    channel_ids: zod
+        .array(zod.string())
+        .min(1)
+        .max(slackAppWorkspaceSetupJoinChannelsCreateBodyChannelIdsMax)
+        .describe('IDs of the public channels that PostHog joins.'),
+    post_welcome: zod
+        .boolean()
+        .default(slackAppWorkspaceSetupJoinChannelsCreateBodyPostWelcomeDefault)
+        .describe('Whether PostHog posts its welcome message in each channel it joins. When false, it joins quietly.'),
+})

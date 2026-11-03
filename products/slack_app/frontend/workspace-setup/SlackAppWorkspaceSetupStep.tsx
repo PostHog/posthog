@@ -1,5 +1,6 @@
 import type { WorkspaceSetupStepKey } from './slackAppWorkspaceSetupLogic'
 import { AIConsentStep } from './steps/AIConsentStep'
+import { ChannelsStep } from './steps/ChannelsStep'
 import { DefaultProjectStep } from './steps/DefaultProjectStep'
 
 export function SlackAppWorkspaceSetupStep({ step }: { step: WorkspaceSetupStepKey }): JSX.Element {
@@ -8,5 +9,7 @@ export function SlackAppWorkspaceSetupStep({ step }: { step: WorkspaceSetupStepK
             return <AIConsentStep />
         case 'default_project':
             return <DefaultProjectStep />
+        case 'channels':
+            return <ChannelsStep />
     }
 }
