@@ -80,7 +80,7 @@ class TestCodeManagedTemplateLock(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
         body = response.json()
         assert body["code"] == "immutable"
-        assert body["docs_url"] == "https://posthog.com/docs/workflows/transactional-email-api#immutable"
+        assert body["docs_url"] == "https://posthog.com/docs/workflows/transactional-emails/api#immutable"
         assert body["detail"] and body["why"]
         return body
 
