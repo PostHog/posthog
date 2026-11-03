@@ -328,10 +328,12 @@ describe('Self-driving activation guidance', () => {
             )
             if (enabled) {
                 expect(notice?.text).toContain(
-                    'poll `self-driving-status-get` for the same project every 10 seconds for up to two minutes'
+                    'poll `self-driving-status-get` for the same project every 10 seconds for up to five minutes'
                 )
                 expect(notice?.text).toContain('Continue helping with the current task')
-                expect(notice?.text?.includes('agent_setup=without_github')).toBe(githubOptional === true)
+                expect(notice?.text?.includes('https://example.com/project/2/inbox/activate/without-github')).toBe(
+                    githubOptional === true
+                )
                 expect(notice?.text).not.toContain('api.example.com')
                 expect(notice?.text).not.toContain('self-driving-activate')
             }
@@ -355,6 +357,7 @@ describe('Self-driving activation guidance', () => {
         ['an unavailable experiment flag', { toolFeatureFlags: {} }],
         ['unavailable reports tools', { allTools: [] }],
         ['a first-party assistant', { oauthClientId: 'N6UgOECSl98ag1xajxPphGApQXYEVvJIwzCXotKu' }],
+        ['a first-party app that declares no consumer', { oauthClientId: 'HCWoE0aRFMYxIxFNTTwkOORn5LBjOt2GVDzwSw5W' }],
     ] satisfies [string, Partial<ResolvedState>][])('does not fetch readiness for %s', async (_label, overrides) => {
         const state = activationState(overrides)
         expect(await new GuidanceEngine(makeGuidanceRedis()).evaluate(state, issueCall)).toBeUndefined()

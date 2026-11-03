@@ -269,15 +269,16 @@ describe('Inbox setup', () => {
         }
     })
 
-    it.each(['guided', 'completed', 'unavailable'] as const)(
+    it.each(['guided', 'completed', 'unavailable', 'without GitHub'] as const)(
         'preserves %s setup when opening the agent route',
         async (state) => {
             savedDraft = state === 'guided' ? { ...draft } : null
             completedAt = state === 'completed' ? '2026-01-01T00:00:00Z' : null
+            githubOptional = state === 'without GitHub'
             if (state === 'unavailable') {
                 useMocks({ get: { '/api/projects/:id/signals/onboarding/': () => [503, { detail: 'Try again.' }] } })
             }
-            router.actions.replace('/inbox/activate')
+            router.actions.replace(state === 'without GitHub' ? '/inbox/activate/without-github' : '/inbox/activate')
             const originalLocation = window.location
             const assign = jest.fn()
             Object.defineProperty(window, 'location', {
@@ -296,7 +297,9 @@ describe('Inbox setup', () => {
                     expect(router.values.searchParams).toMatchObject(
                         state === 'completed'
                             ? { agent_setup: 'complete' }
-                            : { onboarding_step: 'github', agent_setup: 'return' }
+                            : state === 'without GitHub'
+                              ? { onboarding_step: 'quick', agent_setup: 'without_github' }
+                              : { onboarding_step: 'github', agent_setup: 'return' }
                     )
                 }
                 expect(assign).not.toHaveBeenCalled()

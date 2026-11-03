@@ -310,6 +310,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/code-review': ['CodeReview', 'codeReview'],
     '/inbox': ['Inbox', 'inbox'],
     '/inbox/activate': ['InboxActivate', 'inboxActivate'],
+    '/inbox/activate/without-github': ['InboxActivate', 'inboxActivate'],
     '/inbox/scout-trials': ['ScoutTrials', 'scoutTrials'],
     '/inbox/:tab': ['Inbox', 'inbox'],
     '/inbox/scouts/scratchpad': ['Inbox', 'inbox'],
@@ -1947,6 +1948,7 @@ export const productUrls = {
     codeReview: (): string => '/code-review',
     inbox: (tab?: InboxTabKey | ':tab'): string => `/inbox${tab ? `/${tab}` : ''}`,
     inboxActivate: (): string => '/inbox/activate',
+    inboxActivateWithoutGithub: (): string => '/inbox/activate/without-github',
     inboxReport: (tab: InboxTabKey | ':tab', reportId: string | ':reportId'): string => `/inbox/${tab}/${reportId}`,
     inboxTriage: (): string => '/inbox/reports/triage',
     inboxScout: (skillName: string | ':skillName', findingId?: string | ':findingId'): string => {

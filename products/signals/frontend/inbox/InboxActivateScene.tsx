@@ -10,7 +10,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { inboxAgentActivationLogic } from './logics/inboxAgentActivationLogic'
 
 export function InboxActivateScene(): JSX.Element {
-    const { error } = useValues(inboxAgentActivationLogic)
+    const { error, withoutGithub } = useValues(inboxAgentActivationLogic)
     const { start } = useActions(inboxAgentActivationLogic)
 
     return (
@@ -27,7 +27,7 @@ export function InboxActivateScene(): JSX.Element {
                 ) : (
                     <div className="flex items-center gap-2" role="status">
                         <Spinner />
-                        <span>Connecting to GitHub…</span>
+                        <span>{withoutGithub ? 'Opening setup…' : 'Connecting to GitHub…'}</span>
                     </div>
                 )}
                 <LemonButton type="tertiary" to={urls.inbox()} className="self-start">
