@@ -266,6 +266,29 @@ class TestFusionAuthAscendingPagination:
         assert snaps[0]["json"]["search"]["start"] == 1700000000000
         assert snaps[0]["json"]["search"]["orderBy"] == "insertInstant ASC"
 
+    @pytest.mark.parametrize(
+        "endpoint, path, data_selector, order_by",
+        [
+            ("Groups", "/api/group/search", "groups", "id ASC"),
+            ("UserComments", "/api/user/comment/search", "userComments", "id ASC"),
+            ("EntityGrants", "/api/entity/grant/search", "grants", "insertInstant ASC"),
+        ],
+    )
+    @mock.patch(CLIENT_SESSION_PATCH)
+    def test_database_searches_page_in_stable_order(self, MockSession, endpoint, path, data_selector, order_by):
+        session = MockSession.return_value
+        snaps = _wire(
+            session,
+            [
+                _response({data_selector: [{"id": f"r{i}"} for i in range(100)]}),
+                _response({data_selector: [{"id": "r100"}]}),
+            ],
+        )
+        assert len(_rows(self._source(endpoint=endpoint))) == 101
+        assert [snap["url"].removeprefix("https://auth.example.com") for snap in snaps] == [path, path]
+        assert [snap["json"]["search"]["startRow"] for snap in snaps] == [0, 100]
+        assert all(snap["json"]["search"]["orderBy"] == order_by for snap in snaps)
+
     @parameterized_secret_cases
     @mock.patch(CLIENT_SESSION_PATCH)
     def test_secret_fields_are_dropped(self, MockSession, endpoint, data_selector, row, expected):
@@ -477,26 +500,76 @@ class TestFusionAuthPerUserFanout:
         )
 
     @pytest.mark.parametrize(
-        "endpoint, child_path, data_selector",
+        "endpoint, child_path, data_selector, child_rows, expected_rows",
         [
-            ("UserConsents", "/api/user/consent", "userConsents"),
-            ("UserActionLogs", "/api/user/action", "actions"),
+            (
+                "UserConsents",
+                "/api/user/consent",
+                "userConsents",
+                [{"id": "c1"}, {"id": "c2"}],
+                [{"id": "c1"}, {"id": "c2"}],
+            ),
+            (
+                "UserActionLogs",
+                "/api/user/action",
+                "actions",
+                [{"id": "c1"}, {"id": "c2"}],
+                [{"id": "c1"}, {"id": "c2"}],
+            ),
+            (
+                "RefreshTokens",
+                "/api/jwt/refresh",
+                "refreshTokens",
+                [
+                    {
+                        "id": "t1",
+                        "userId": "u1",
+                        "token": "fake-refresh-token",
+                        "metaData": {"device": {"type": "BROWSER"}},
+                    },
+                    {"id": "t2", "userId": "u1"},
+                ],
+                [
+                    {"id": "t1", "userId": "u1", "metaData": {"device": {"type": "BROWSER"}}},
+                    {"id": "t2", "userId": "u1"},
+                ],
+            ),
+            (
+                "IdentityProviderLinks",
+                "/api/identity-provider/link",
+                "identityProviderLinks",
+                [
+                    {
+                        "userId": "u1",
+                        "identityProviderId": "idp1",
+                        "identityProviderUserId": "ext-1",
+                        "token": "fake-idp-token",
+                    },
+                    {"userId": "u1", "identityProviderId": "idp1", "identityProviderUserId": "ext-2", "token": None},
+                ],
+                [
+                    {"userId": "u1", "identityProviderId": "idp1", "identityProviderUserId": "ext-1"},
+                    {"userId": "u1", "identityProviderId": "idp1", "identityProviderUserId": "ext-2"},
+                ],
+            ),
         ],
     )
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_requests_each_user_and_skips_missing_users(self, MockSession, endpoint, child_path, data_selector):
+    def test_requests_each_user_and_skips_missing_users(
+        self, MockSession, endpoint, child_path, data_selector, child_rows, expected_rows
+    ):
         session = MockSession.return_value
         snaps = _wire(
             session,
             [
                 _response({"users": [{"id": "u1"}, {"id": "u2"}, {"id": "u3"}]}),
-                _response({data_selector: [{"id": "c1"}, {"id": "c2"}]}),
+                _response({data_selector: child_rows}),
                 _response({"generalErrors": [{"message": "not found"}]}, status_code=404),
                 _response({data_selector: []}),
             ],
         )
 
-        assert [row["id"] for row in _rows(self._source(endpoint))] == ["c1", "c2"]
+        assert _rows(self._source(endpoint)) == expected_rows
         assert snaps[0]["method"] == "POST"
         assert snaps[0]["url"].endswith("/api/user/search")
         assert snaps[0]["json"]["search"]["queryString"] == "*"
@@ -534,23 +607,50 @@ class TestFusionAuthPerUserFanout:
         session.send.assert_not_called()
 
 
+NOW_MILLIS = 1_750_000_000_000
+
+
 class TestFusionAuthLookups:
     @pytest.mark.parametrize(
-        "endpoint, data_selector, responses, expected_ids, expected_params",
+        "endpoint, data_selector, responses, expected_rows, expected_params",
         [
             (
                 "UserActions",
                 "userActions",
                 [[{"id": "a1"}, {"id": "a2"}], [{"id": "a2"}, {"id": "a3", "active": False}]],
-                ["a1", "a2", "a3"],
+                [{"id": "a1"}, {"id": "a2"}, {"id": "a3", "active": False}],
                 [{}, {"inactive": "true"}],
             ),
             ("UserActions", "userActions", [[], []], [], [{}, {"inactive": "true"}]),
-            ("UserActionReasons", "userActionReasons", [[{"id": "r1"}, {"id": "r2"}]], ["r1", "r2"], [{}]),
+            (
+                "UserActionReasons",
+                "userActionReasons",
+                [[{"id": "r1"}, {"id": "r2"}]],
+                [{"id": "r1"}, {"id": "r2"}],
+                [{}],
+            ),
+            (
+                "DailyActiveUsers",
+                "dailyActiveUsers",
+                [[{"interval": 20000, "count": 12}, {"interval": 20001, "count": 15}]],
+                [{"interval": 20000, "count": 12}, {"interval": 20001, "count": 15}],
+                [{"start": 0, "end": NOW_MILLIS}],
+            ),
+            (
+                "MonthlyActiveUsers",
+                "monthlyActiveUsers",
+                [[{"interval": 660, "count": 40}, {"interval": 661, "count": 0}]],
+                [{"interval": 660, "count": 40}, {"interval": 661, "count": 0}],
+                [{"start": 0, "end": NOW_MILLIS}],
+            ),
+            ("MonthlyActiveUsers", "monthlyActiveUsers", [[]], [], [{"start": 0, "end": NOW_MILLIS}]),
         ],
     )
+    @mock.patch.object(fusionauth_module, "_now_millis", return_value=NOW_MILLIS)
     @mock.patch(CLIENT_SESSION_PATCH)
-    def test_single_page_lookups(self, MockSession, endpoint, data_selector, responses, expected_ids, expected_params):
+    def test_single_page_lookups(
+        self, MockSession, _mock_now, endpoint, data_selector, responses, expected_rows, expected_params
+    ):
         session = MockSession.return_value
         snaps = _wire(session, [_response({data_selector: rows}) for rows in responses])
         source = fusionauth_source(
@@ -562,6 +662,6 @@ class TestFusionAuthLookups:
             resumable_source_manager=_make_manager(),
         )
 
-        assert [row["id"] for row in _rows(source)] == expected_ids
+        assert _rows(source) == expected_rows
         assert [snap["params"] for snap in snaps] == expected_params
         assert all(snap["method"] == "GET" and snap["json"] == {} for snap in snaps)
