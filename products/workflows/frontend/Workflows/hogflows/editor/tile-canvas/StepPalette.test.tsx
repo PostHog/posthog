@@ -6,6 +6,7 @@ import { createRef } from 'react'
 import { initKeaTests } from '~/test/init'
 
 import { StepPalette } from './StepPalette'
+import { STEP_DRAG_DATA_TYPE } from './tileCanvasModel'
 import type { PaletteSection } from './tileCanvasModel'
 
 const SECTIONS: PaletteSection[] = [
@@ -95,8 +96,7 @@ describe('StepPalette', () => {
 
             expect(onDragStep.mock.calls).toEqual(starts ? [[SECTIONS[0].steps[0]]] : [])
             expect(onDragEnd).toHaveBeenCalledTimes(starts ? 1 : 0)
-            // A text field under the pointer accepts a drop that carries text, and types the label into the step.
-            expect(dataTransfer.setData.mock.calls.map(([type]) => type)).not.toContain('text/plain')
+            expect(dataTransfer.setData.mock.calls).toEqual([[STEP_DRAG_DATA_TYPE, 'delay']])
         } finally {
             jest.useRealTimers()
         }
