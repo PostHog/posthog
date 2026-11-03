@@ -1779,59 +1779,15 @@ class ExperimentRunningTimeCalculation(BaseModel):
     )
 
 
-class ExperimentWarehouseNativeExposureConfig(BaseModel):
+class ExperimentWarehouseNativeUnitBinding(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    connection_id: str = Field(
+    id_namespace: str = Field(..., description="Which ids represent that unit, such as `billing_customer_id`.")
+    unit_type: str = Field(
         ...,
-        description=("The direct-query source (an ExternalDataSource id) the SQL is written for."),
+        description=("What was randomized, as a stable project-scoped label such as `customer` or `account`."),
     )
-    kind: Literal["ExperimentWarehouseNativeExposureConfig"] = "ExperimentWarehouseNativeExposureConfig"
-    query: str = Field(
-        ...,
-        description=(
-            "Read-only SQL in the warehouse's dialect, returning one row per exposure"
-            " with `entity_id`, `variant` and `timestamp` columns. PostHog keeps the"
-            " first exposure per entity and applies the experiment's date range and"
-            " multiple-variant handling."
-        ),
-    )
-    response: dict[str, Any] | None = None
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-
-
-class ExperimentWarehouseNativeNode(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    connection_id: str = Field(
-        ...,
-        description=("The direct-query source (an ExternalDataSource id) the SQL is written for."),
-    )
-    custom_name: str | None = None
-    kind: Literal["ExperimentWarehouseNativeNode"] = "ExperimentWarehouseNativeNode"
-    math: ExperimentWarehouseNativeMathType | None = Field(
-        default=None,
-        description=("How to aggregate the rows per entity. Defaults to `total` (row count)."),
-    )
-    math_property: str | None = Field(
-        default=None,
-        description=(
-            "The numeric column `math` reads. Required when `math` is `sum`. One SQL"
-            " relation can serve several metrics, each reading a different column."
-        ),
-    )
-    query: str = Field(
-        ...,
-        description=(
-            "Read-only SQL in the warehouse's dialect, returning one row per outcome"
-            " with `entity_id` and `timestamp` columns plus any numeric columns a"
-            " metric can measure."
-        ),
-    )
-    response: dict[str, Any] | None = None
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class FailureMessage(BaseModel):
@@ -6088,6 +6044,63 @@ class ExperimentVariantResultFrequentist(BaseModel):
     sum: float
     sum_squares: float
     validation_failures: list[ExperimentStatsValidationFailure] | None = None
+
+
+class ExperimentWarehouseNativeExposureConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    connection_id: str = Field(
+        ...,
+        description=("The direct-query source (an ExternalDataSource id) the SQL is written for."),
+    )
+    kind: Literal["ExperimentWarehouseNativeExposureConfig"] = "ExperimentWarehouseNativeExposureConfig"
+    query: str = Field(
+        ...,
+        description=(
+            "Read-only SQL in the warehouse's dialect, returning one row per exposure"
+            " with `entity_id`, `variant` and `timestamp` columns. PostHog keeps the"
+            " first exposure per entity and applies the experiment's date range and"
+            " multiple-variant handling."
+        ),
+    )
+    response: dict[str, Any] | None = None
+    unit: ExperimentWarehouseNativeUnitBinding
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class ExperimentWarehouseNativeNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    connection_id: str = Field(
+        ...,
+        description=("The direct-query source (an ExternalDataSource id) the SQL is written for."),
+    )
+    custom_name: str | None = None
+    kind: Literal["ExperimentWarehouseNativeNode"] = "ExperimentWarehouseNativeNode"
+    math: ExperimentWarehouseNativeMathType | None = Field(
+        default=None,
+        description=("How to aggregate the rows per entity. Defaults to `total` (row count)."),
+    )
+    math_property: str | None = Field(
+        default=None,
+        description=(
+            "The numeric column `math` reads. Required when `math` is `sum`. One SQL"
+            " relation can serve several metrics, each reading a different column."
+        ),
+    )
+    query: str = Field(
+        ...,
+        description=(
+            "Read-only SQL in the warehouse's dialect, returning one row per outcome"
+            " with `entity_id` and `timestamp` columns plus any numeric columns a"
+            " metric can measure."
+        ),
+    )
+    response: dict[str, Any] | None = None
+    unit: ExperimentWarehouseNativeUnitBinding
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class ExternalQueryError(BaseModel):
