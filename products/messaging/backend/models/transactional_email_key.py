@@ -1,12 +1,17 @@
 from django.db import models
 
-from posthog.models.scoping.root_mixin import TeamScopedRootMixin
+from posthog.models.scoping.manager import TeamScopedManager
 from posthog.models.utils import UUIDModel
 
 TRANSACTIONAL_EMAIL_KEY_CONSTRAINT = "unique_transactional_email_key_per_team"
 
 
-class TransactionalEmailKey(TeamScopedRootMixin, UUIDModel):
+class TransactionalEmailKey(UUIDModel):
+    # Scoped to the exact environment, like the workflow it points to. TeamScopedRootMixin would move the row to
+    # the parent project, so sibling environments would share one key and replace each other's workflow.
+    # Read and write it through `for_team(team_id, canonical=True)`.
+    objects = TeamScopedManager()
+
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
     key = models.CharField(max_length=400)
     hog_flow_id = models.UUIDField()

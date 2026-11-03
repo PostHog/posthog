@@ -10,12 +10,20 @@ HIDDEN_TAGS = frozenset({"head", "title", "style", "script", "template"})
 LINK_SCHEMES = ("http://", "https://", "mailto:")
 BLANK_LINES = re.compile(r"\n{3,}")
 WHITESPACE = re.compile(r"\s+")
+# Ends a line block. It becomes a line break unless a line break already sits next to it.
+LINE_END = "\x00"
+LINE_ENDS = re.compile(r"\n?\x00+\n?")
 
 
 def text_from_html(html: str) -> str:
-    text = "".join(_text_parts(BeautifulSoup(html, "html.parser")))
+    soup = BeautifulSoup(html.replace(LINE_END, ""), "html.parser")
+    text = LINE_ENDS.sub(_line_break, "".join(_text_parts(soup)))
     lines = "\n".join(" ".join(line.split()) for line in text.split("\n"))
     return BLANK_LINES.sub("\n\n", lines).strip()
+
+
+def _line_break(match: re.Match[str]) -> str:
+    return match.group(0).replace(LINE_END, "") or "\n"
 
 
 @frozen
@@ -85,5 +93,5 @@ def _expand(tag: Tag, label_length: int) -> list[Tag | NavigableString | str | _
     if tag.name in PARAGRAPH_TAGS:
         return ["\n\n", *children, "\n\n"]
     if tag.name in LINE_TAGS:
-        return ["\n", *children]
+        return ["\n", *children, LINE_END]
     return children
