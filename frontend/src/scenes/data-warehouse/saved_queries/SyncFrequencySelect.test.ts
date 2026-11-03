@@ -8,6 +8,7 @@ import {
     modeDisabledReason,
     pinNote,
     SyncFrequencyValue,
+    unpinnedCadence,
     speedUpViews,
     speedUpWarning,
     unsatisfiableReason,
@@ -359,5 +360,30 @@ describe('SyncFrequencySelect', () => {
         ])('when %s', (_case, input, value, expected) => {
             expect(inheritedCadence(input, value as SyncFrequencyValue)).toEqual(expected)
         })
+    })
+})
+
+describe('unpinnedCadence', () => {
+    // Pinned at 6h over a 15m consumer: every cadence from 30m up would delay it.
+    const delaysBy = {
+        '15min': [],
+        '30min': [{ name: 'signups' }],
+        '1hour': [{ name: 'signups' }],
+        '6hour': [{ name: 'signups' }],
+    }
+
+    it.each([
+        [
+            'a pin that delays a consumer drops back to that consumer',
+            '6hour',
+            {
+                cadence: '15min',
+                note: 'Once you save, this view refreshes every 15 minutes to keep up with downstream view signups.',
+            },
+        ],
+        ['a pin that delays nobody changes nothing', '15min', null],
+        ['a paused view changes nothing', 'never', null],
+    ])('%s', (_case, value, expected) => {
+        expect(unpinnedCadence(delaysBy, value as SyncFrequencyValue)).toEqual(expected)
     })
 })

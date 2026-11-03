@@ -151,6 +151,8 @@ export function MaterializationStatusPanel({
         savingMaterialization,
         cadencePin,
         keepingUpstreamId,
+        nodeFrequency,
+        nodeFrequencyLoading,
     } = useValues(jobsLogic)
     const {
         loadDataModelingJobs,
@@ -282,7 +284,10 @@ export function MaterializationStatusPanel({
                                     </div>
                                 )}
                                 <div className="flex flex-col gap-2 items-start mt-2">
-                                    {kind !== 'endpoint' && (
+                                    {kind !== 'endpoint' && nodeFrequencyLoading && !nodeFrequency ? (
+                                        // Without the pin state the bar would first render as unpinned, then jump.
+                                        <LemonSkeleton className="h-8 w-80" />
+                                    ) : kind !== 'endpoint' ? (
                                         <SyncFrequencySelect
                                             bounds={savedQuery.sync_frequency_bounds}
                                             disabledReason={
@@ -299,13 +304,17 @@ export function MaterializationStatusPanel({
                                                 'never'
                                             }
                                             onChange={setSyncFrequencyDraft}
-                                            loading={updatingDataWarehouseSavedQuery || materializationActionLoading}
+                                            loading={
+                                                savingMaterialization ||
+                                                updatingDataWarehouseSavedQuery ||
+                                                materializationActionLoading
+                                            }
                                             pin={cadencePin}
                                             onUnpin={() => setPinDraft(false)}
                                             onKeepUpstream={keepUpstreamAtOwnSetting}
                                             keepingUpstreamId={keepingUpstreamId}
                                         />
-                                    )}
+                                    ) : null}
                                     {showRunActions && (
                                         <div className="flex flex-wrap items-center gap-2">
                                             <MaterializationRunActions viewId={viewId} kind={kind} />

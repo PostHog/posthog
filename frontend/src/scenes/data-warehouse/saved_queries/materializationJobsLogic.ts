@@ -250,16 +250,10 @@ export interface materializationJobsLogicActions {
         errorObject?: any
     }
     loadNodeFrequencySuccess: (
-        nodeFrequency: {
-            bounds: NodeFrequencyBoundsApi
-            nodeId: string
-        } | null,
+        nodeFrequency: NodeFrequency | null,
         payload?: void
     ) => {
-        nodeFrequency: {
-            bounds: NodeFrequencyBoundsApi
-            nodeId: string
-        } | null
+        nodeFrequency: NodeFrequency | null
         payload?: void
     }
     loadOlderJobsPage: (_: void) => void
@@ -366,17 +360,17 @@ export interface materializationJobsLogicMeta {
             incrementalDraft: IncrementalConfigDraft,
             incrementalDraftTouched: boolean
         ) => boolean
-        pinChanged: (pinDraft: any, nodeFrequency: any) => boolean
+        pinChanged: (pinDraft: boolean | null, nodeFrequency: NodeFrequency | null) => boolean
         hasMaterializationChanges: (
             savedQuery: DataWarehouseSavedQuery | null,
             syncFrequencyDraft: SyncFrequencyValue | null,
             refreshModeChanged: boolean,
-            pinChanged: any
+            pinChanged: boolean
         ) => boolean
         cadencePin: (
-            nodeFrequency: any,
-            pinDraft: any,
-            pinChanged: any,
+            nodeFrequency: NodeFrequency | null,
+            pinDraft: boolean | null,
+            pinChanged: boolean,
             syncFrequencyDraft: SyncFrequencyValue | null,
             savedQuery: DataWarehouseSavedQuery | null
         ) => CadencePin | null
@@ -1017,13 +1011,28 @@ export const materializationJobsLogic = kea<materializationJobsLogicType>([
                     return
                 }
                 cadenceWritten = true
-                actions.loadNodeFrequency()
                 if (!values.refreshModeChanged) {
+                    // Keep the draft on screen until both reloads land, so the picker never shows the old
+                    // pin state between the write and the fresh bounds.
+                    try {
+                        const [bounds, savedQuery] = await Promise.all([
+                            dataModelingNodesFrequencyBoundsRetrieve(
+                                String(ApiConfig.getCurrentProjectId()),
+                                values.nodeFrequency.nodeId
+                            ),
+                            api.dataWarehouseSavedQueries.get(props.viewId),
+                        ])
+                        actions.loadNodeFrequencySuccess({ nodeId: values.nodeFrequency.nodeId, bounds })
+                        actions.loadSavedQuerySuccess(savedQuery)
+                    } catch {
+                        actions.loadNodeFrequency()
+                        actions.loadSavedQuery()
+                    }
                     actions.discardMaterializationChanges()
                     actions.finishSavingMaterialization()
-                    actions.loadSavedQuery()
                     return
                 }
+                actions.loadNodeFrequency()
             }
             actions.updateDataWarehouseSavedQuery({
                 id: props.viewId,
