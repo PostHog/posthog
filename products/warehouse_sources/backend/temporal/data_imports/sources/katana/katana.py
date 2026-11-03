@@ -131,11 +131,10 @@ def katana_source(
                 "endpoint": {
                     "path": config.path,
                     "params": params,
-                    "data_selector": "data",
-                    # Every Katana list endpoint wraps results as {"data": [...]}. A 2xx body missing the
-                    # `data` list (maintenance page, changed envelope) would otherwise read as an empty
-                    # page and silently end the sync mid-run, so treat it as retryable rather than lose
-                    # data.
+                    "data_selector": config.data_selector,
+                    # A 2xx body without the expected row list (maintenance page, changed envelope) would
+                    # otherwise read as an empty page and silently end the sync mid-run, so treat it as
+                    # retryable rather than lose data.
                     "data_selector_malformed_retryable": True,
                 },
             }

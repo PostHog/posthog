@@ -8,6 +8,7 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 from unittest.mock import MagicMock
 
+from requests import PreparedRequest, Response
 from requests.exceptions import HTTPError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
@@ -212,3 +213,94 @@ def test_invalid_watermark_is_not_silently_ignored(
     with pytest.raises(ValueError, match="watermark"):
         list(cast(Iterable[Any], result.items()))
     http.assert_not_called()
+
+
+FAN_OUT_RESPONSES: dict[tuple[str, str | None], list[dict[str, Any]]] = {
+    ("/v2/list-agents", None): [
+        {"items": [{"agent_id": "agent-a"}, {"agent_id": "agent-b"}], "has_more": True, "pagination_key": "agents-2"},
+        {"items": [{"agent_id": "agent-a"}, {"agent_id": "agent-gone"}], "has_more": False},
+    ],
+    ("/list-agent-versions/agent-a", None): [
+        {"items": [{"version": 0}], "has_more": True, "pagination_key": "versions-2"},
+        {"items": [{"version": 1}], "has_more": False},
+    ],
+    ("/list-agent-versions/agent-b", None): [{"items": [{"version": 0}], "has_more": False}],
+    ("/v2/list-retell-llms", None): [
+        {"items": [{"llm_id": "llm-a", "version": 0}, {"llm_id": "llm-a", "version": 1}], "has_more": False}
+    ],
+    ("/v2/list-conversation-flows", None): [{"items": [{"conversation_flow_id": "flow-a"}], "has_more": False}],
+    ("/v2/list-test-case-definitions", "llm-a"): [
+        {"items": [{"test_case_definition_id": "test-llm"}], "has_more": False}
+    ],
+    ("/v2/list-test-case-definitions", "flow-a"): [
+        {"items": [{"test_case_definition_id": "test-flow"}], "has_more": False}
+    ],
+}
+
+
+@pytest.mark.parametrize(
+    "name,expected_rows,expected_keys",
+    [
+        (
+            "agent_versions",
+            [
+                {"version": 0, "agent_id": "agent-a"},
+                {"version": 1, "agent_id": "agent-a"},
+                {"version": 0, "agent_id": "agent-b"},
+            ],
+            ["agent_id", "version"],
+        ),
+        (
+            "test_case_definitions",
+            [{"test_case_definition_id": "test-llm"}, {"test_case_definition_id": "test-flow"}],
+            ["test_case_definition_id"],
+        ),
+    ],
+)
+def test_fan_out_walks_each_parent_once(
+    name: str,
+    expected_rows: list[dict[str, Any]],
+    expected_keys: list[str],
+    inputs: SourceInputs,
+    http: MagicMock,
+    redis_client: MagicMock,
+) -> None:
+    served: dict[tuple[str, str | None], int] = {}
+
+    def send(_session: object, request: PreparedRequest, **_kwargs: Any) -> Response:
+        url = urlsplit(request.url or "")
+        query = parse_qs(url.query)
+        engines = query.get("llm_id") or query.get("conversation_flow_id")
+        key = (url.path, engines[0] if engines else None)
+        if key not in FAN_OUT_RESPONSES:
+            return response({"status": "error"}, 404)
+        page = served.get(key, 0)
+        served[key] = page + 1
+        return response(FAN_OUT_RESPONSES[key][page])
+
+    http.side_effect = send
+    source = RetellAISource()
+    inputs = replace(inputs, schema_name=name)
+    result = source.source_for_pipeline(
+        RetellAISourceConfig(api_key="fake-key"), source.get_resumable_source_manager(inputs), inputs
+    )
+    rows = [row for page in cast(Iterable[Any], result.items()) for row in page]
+    assert rows == expected_rows
+    assert result.primary_keys == expected_keys
+    child_queries = [
+        parse_qs(urlsplit(call.args[1].url).query)
+        for call in http.call_args_list
+        if not urlsplit(call.args[1].url).path.startswith(("/v2/list-agents", "/v2/list-retell", "/v2/list-conv"))
+    ]
+    if name == "test_case_definitions":
+        assert [(query["type"], "sort_order" in query) for query in child_queries] == [
+            (["retell-llm"], False),
+            (["conversation-flow"], False),
+        ]
+    else:
+        assert [path for path, _ in served] == [
+            "/v2/list-agents",
+            "/list-agent-versions/agent-a",
+            "/list-agent-versions/agent-b",
+        ]
+        assert http.call_count == 6

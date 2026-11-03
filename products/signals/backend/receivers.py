@@ -490,7 +490,7 @@ def arm_pending_checks_when_report_monitoring(
     ):
         return
     effective_status = instance.effective_status
-    if effective_status != SignalReport.Status.MONITORING:
+    if effective_status not in {SignalReport.Status.MONITORING, SignalReport.Status.RESOLVED}:
         if prior_status in {SignalReport.Status.RESOLVED, SignalReport.Status.MONITORING}:
             from products.signals.backend.report_check_execution import park_report_checks_on_reopen
 
@@ -498,8 +498,10 @@ def arm_pending_checks_when_report_monitoring(
         return
     team_id = instance.team_id
     report_id = str(instance.id)
-    monitoring_started_at = instance.monitoring_started_at
-    if monitoring_started_at is None:
+    monitoring_started_at = (
+        instance.monitoring_started_at if effective_status == SignalReport.Status.MONITORING else None
+    )
+    if effective_status == SignalReport.Status.MONITORING and monitoring_started_at is None:
         return
     # After commit so a rollback cannot start measurement; the callback also verifies the captured period.
     transaction.on_commit(
@@ -507,7 +509,7 @@ def arm_pending_checks_when_report_monitoring(
             _arm_pending_checks_safely,
             team_id=team_id,
             report_id=report_id,
-            resolved_at=monitoring_started_at,
+            resolved_at=monitoring_started_at or timezone.now(),
             expected_monitoring_started_at=monitoring_started_at,
         )
     )

@@ -47,10 +47,7 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.health.context import ConditionSetTraffic
-from products.experiments.backend.hogql_queries.exposure_query_logic import (
-    EXPERIMENT_EXPOSURE_EVENT_CUTOFF,
-    EXPERIMENT_EXPOSURE_EVENT_FLAG,
-)
+from products.experiments.backend.hogql_queries.exposure_query_logic import EXPERIMENT_EXPOSURE_EVENT_CUTOFF
 from products.experiments.backend.metric_calculation.config import (
     build_primary_calculation_configs,
     get_metric_calculation_config,
@@ -69,6 +66,7 @@ from products.experiments.backend.models.web_experiment import WebExperiment
 from products.experiments.backend.presentation.serializers import ExperimentSerializer
 from products.experiments.backend.presentation.views import LIST_DEFERRED_FIELDS, EnterpriseExperimentsViewSet
 from products.experiments.backend.setup_context import EXPERIMENT_SETUP_CONTEXT_FLAG
+from products.experiments.backend.test.utils import patch_exposure_event_flag
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -549,7 +547,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
         # Query count must stay flat as rows grow — five experiments must not cost more than one.
         self.assertLessEqual(len(five_rows.captured_queries), len(single_row.captured_queries))
         # The list serializer stamps no calculation keys, so the saved metrics cost no extra query.
-        self.assertEqual(len(five_rows.captured_queries), 15)
+        self.assertEqual(len(five_rows.captured_queries), 14)
 
     def test_experiment_detail_with_saved_metrics_reads_each_relation_once(self) -> None:
         experiment = self._create_fully_populated_experiment(0)
@@ -566,7 +564,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
         # The saved-metric fingerprints reuse the prefetched links and add one read of the team's
         # experiment settings, whatever the number of saved metrics.
-        with self.assertNumQueries(17):
+        with self.assertNumQueries(16):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}/")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -734,10 +732,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
             start_date=EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=start_offset_days),
         )
 
-        def fake_feature_enabled(flag_key: str, *args: Any, **kwargs: Any) -> bool:
-            return flag_enabled if flag_key == EXPERIMENT_EXPOSURE_EVENT_FLAG else False
-
-        with patch("posthoganalytics.feature_enabled", side_effect=fake_feature_enabled):
+        with patch_exposure_event_flag(enabled=flag_enabled):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment.id}")
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -923,7 +918,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
         split_findings = [
-            (finding["subcode"], finding["evidence"].get("reason"))
+            (finding["subcode"], finding["reason"])
             for finding in response.json()["findings"]
             if finding["code"] == "split_changed_mid_run"
         ]
@@ -1261,7 +1256,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
         with (
             time_machine.travel(EXPERIMENT_EXPOSURE_EVENT_CUTOFF + timedelta(days=now_offset_days), tick=False),
-            patch("posthoganalytics.feature_enabled", return_value=True),
+            patch_exposure_event_flag(enabled=True),
         ):
             serialized = ExperimentSerializer(
                 experiment, context={"team_id": self.team.id, "get_team": lambda: self.team}
@@ -3902,7 +3897,7 @@ class TestExperimentCRUD(_HoistFlagConfigClientMixin, APILicensedTest):
 
         # TODO: Make sure permission bool doesn't cause n + 1
         # +1 query for survey internal flag IDs lookup, +1 for the project's replay gates
-        with self.assertNumQueries(21):
+        with self.assertNumQueries(20):
             response = self.client.get(f"/api/projects/{self.team.id}/feature_flags")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
             result = response.json()
@@ -7263,6 +7258,14 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
         self.assertEqual(response.json()["feature_flag_key"], ff_key)
         return response
 
+    def _assert_cohort_calculated(self, cohort: dict[str, Any]) -> None:
+        # Every caller runs transaction.on_commit callbacks at once, so one refetch reads the finished calculation.
+        if cohort["is_calculating"]:
+            response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort['id']}")
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+            cohort = response.json()
+        self.assertFalse(cohort["is_calculating"], f"Cohort {cohort['id']} is still calculating")
+
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     def test_create_exposure_cohort_for_experiment(self, patch_on_commit: MagicMock):
         # From mode 1 on, the cohorts API rejects new criteria on $feature_flag_called, and the exposure cohort must still save.
@@ -7340,13 +7343,74 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
 
         cohort_id = cohort["id"]
 
-        while cohort["is_calculating"]:
-            response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}")
-            cohort = response.json()
+        self._assert_cohort_calculated(cohort)
 
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/persons/?cohort={cohort_id}")
         self.assertEqual(response.status_code, 200, response.content)
         self.assertEqual(["person1", "person2"], sorted([res["name"] for res in response.json()["results"]]))
+
+    @parameterized.expand(
+        [
+            # (name, start_date)
+            ("before_cutoff", "2026-08-20T10:00"),
+            ("after_cutoff", "2026-09-10T10:00"),
+        ]
+    )
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
+    def test_create_exposure_cohort_for_flag_evaluations_only_org(
+        self, _name: str, start_date: str, patch_on_commit: MagicMock
+    ):
+        # Ingestion writes no $feature_flag_called rows to events for this org. Only the $experiment_exposure copies reach events.
+        OrganizationFeatureFlagsConfig.objects.update_or_create(
+            organization=self.organization,
+            defaults={"flag_evaluations_mode": FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY},
+        )
+        response = self._generate_experiment(start_date)
+        created_experiment = response.json()["id"]
+        start = datetime.fromisoformat(start_date)
+
+        journeys_for(
+            {
+                "exposed": [
+                    {
+                        "event": "$experiment_exposure",
+                        "timestamp": (start + timedelta(days=2)).isoformat(),
+                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "control"},
+                    },
+                ],
+                "other_flag": [
+                    {
+                        "event": "$experiment_exposure",
+                        "timestamp": (start + timedelta(days=2)).isoformat(),
+                        "properties": {"$feature_flag": "a-b-test2", "$feature_flag_response": "control"},
+                    },
+                ],
+                "before_start": [
+                    {
+                        "event": "$experiment_exposure",
+                        "timestamp": (start - timedelta(days=2)).isoformat(),
+                        "properties": {"$feature_flag": "a-b-test", "$feature_flag_response": "control"},
+                    },
+                ],
+            },
+            self.team,
+        )
+        flush_persons_and_events()
+
+        with patch_exposure_event_flag(enabled=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/experiments/{created_experiment}/create_exposure_cohort_for_experiment/",
+                {},
+            )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.content)
+        cohort = response.json()["cohort"]
+        cohort_id = cohort["id"]
+
+        self._assert_cohort_calculated(cohort)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/persons/?cohort={cohort_id}")
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(["exposed"], [res["name"] for res in response.json()["results"]])
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     def test_create_exposure_cohort_for_experiment_with_custom_event_exposure(self, patch_on_commit: MagicMock):
@@ -7525,9 +7589,7 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
 
         cohort_id = cohort["id"]
 
-        while cohort["is_calculating"]:
-            response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}")
-            cohort = response.json()
+        self._assert_cohort_calculated(cohort)
 
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/persons/?cohort={cohort_id}")
         self.assertEqual(response.status_code, 200, response.content)
@@ -7730,9 +7792,7 @@ class TestExperimentAuxiliaryEndpoints(_HoistFlagConfigClientMixin, ClickhouseTe
 
         cohort_id = cohort["id"]
 
-        while cohort["is_calculating"]:
-            response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}")
-            cohort = response.json()
+        self._assert_cohort_calculated(cohort)
 
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts/{cohort_id}/persons/?cohort={cohort_id}")
         self.assertEqual(response.status_code, 200, response.content)

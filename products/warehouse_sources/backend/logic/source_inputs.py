@@ -90,9 +90,13 @@ class SourceInputsStore:
         *,
         extra_update_fields: Sequence[str] = DEFAULT_EXTRA_UPDATE_FIELDS,
     ) -> None:
-        """Replace all inputs of the source and save them."""
+        """Replace all inputs of the source and save them.
+
+        The same write saves `credentials_integration_id`, which `WarehouseSourceCredentialsStore`
+        sets on the source. So the source points at its credentials row only together with its inputs.
+        """
         SourceInputsStore.assign(source, inputs)
-        source.save(update_fields=["job_inputs", *extra_update_fields])
+        source.save(update_fields=["job_inputs", "credentials_integration_id", *extra_update_fields])
 
     @staticmethod
     def create(*, inputs: Mapping[str, Any], **fields: Any) -> ExternalDataSource:
@@ -123,7 +127,10 @@ class SourceInputsStore:
         inputs.update(updates)
         for key in remove:
             inputs.pop(key, None)
-        SourceInputsStore.save(source, inputs, extra_update_fields=extra_update_fields)
+        SourceInputsStore.assign(source, inputs)
+        # A runtime write never changes the credentials, so it leaves the reference column alone. A sync
+        # holds its source for a long time, and its copy of the column can be older than the row.
+        source.save(update_fields=["job_inputs", *extra_update_fields])
         return inputs
 
     @staticmethod
@@ -183,7 +190,7 @@ def _check_runtime_keys(source_type: str, keys: Iterable[str]) -> None:
         return
     try:
         split = _split(source_type, dict.fromkeys(keys))
-        non_runtime = sorted({*split.connection, *split.settings})
+        non_runtime = sorted({*split.connection, *split.references, *split.selectors, *split.settings})
     except ValueError:
         non_runtime = sorted(key for key in keys if not _has_runtime_prefix(key))
     if non_runtime:

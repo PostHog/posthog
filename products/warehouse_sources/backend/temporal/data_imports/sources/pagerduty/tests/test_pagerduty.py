@@ -66,6 +66,31 @@ class TestPagination:
         assert offsets[-1] == "9900"
         assert "10000" not in offsets
 
+    @pytest.mark.parametrize(
+        "endpoint,expected_filter",
+        [
+            # Without filter=all the table could miss past or future maintenance windows.
+            ("maintenance_windows", ["all", "all"]),
+            ("business_services", [None, None]),
+        ],
+    )
+    def test_walks_pages_and_sends_static_params_on_every_page(
+        self, endpoint: str, expected_filter: list[str | None]
+    ) -> None:
+        result = _driver().run(
+            endpoint,
+            [
+                ScriptedResponse(json={endpoint: [{"id": "R1"}], "more": True}),
+                ScriptedResponse(json={endpoint: [{"id": "R2"}], "more": False}),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.paths == [f"/{endpoint}", f"/{endpoint}"]
+        assert result.params("offset") == ["0", str(PAGE_SIZE)]
+        assert result.params("filter") == expected_filter
+        assert [row["id"] for row in result.rows] == ["R1", "R2"]
+
 
 class TestResume:
     def test_resumes_from_saved_offset(self) -> None:

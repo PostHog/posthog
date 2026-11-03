@@ -34,19 +34,25 @@ STACK_UPDATES_LOOKBACK_SECONDS = 24 * 60 * 60
 # `startTime` lower bound is inclusive, so re-pull a window rather than risk dropping events that
 # share the watermark second. Merge dedupes the re-pulled rows on the synthetic `event_id`.
 AUDIT_LOGS_LOOKBACK_SECONDS = 15 * 60
+# The resources summary accepts at most one year of lookback.
+RESOURCE_SUMMARY_LOOKBACK_DAYS = 365
 
 
 class PulumiCloudRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class PulumiCloudResumeConfig:
     # Opaque pagination token to resume from: the `continuationToken` for stacks/audit logs, or the
     # resource-search `cursor`. None means "start from the first page".
     next_token: str | None = None
     # 1-based page number to resume the deployments listing from.
     page: int | None = None
+    # Row offset (`startRow`) to resume the policy issues listing from.
+    offset: int | None = None
+    # Whether the policy issues listing resumes in its closed-issues pass (active issues come first).
+    closed_issues: bool = False
     # Stable "org/project/stack" keys of the fan-out stacks already fully processed in an earlier
     # attempt of this job. We resume by processing any stack NOT in this set, so a stack created
     # between a crash and the retry is picked up rather than silently skipped (fan-out persists the
@@ -101,8 +107,12 @@ def _fetch(
     headers: dict[str, str],
     logger: FilteringBoundLogger,
     params: Optional[dict[str, Any]] = None,
+    json_body: Optional[dict[str, Any]] = None,
 ) -> Any:
-    response = session.get(url, headers=headers, params=params, timeout=60)
+    if json_body is None:
+        response = session.get(url, headers=headers, params=params, timeout=60)
+    else:
+        response = session.post(url, headers=headers, params=params, json=json_body, timeout=60)
 
     if response.status_code == 429 or response.status_code >= 500:
         raise PulumiCloudRetryableError(f"Pulumi Cloud API error (retryable): status={response.status_code}, url={url}")
@@ -113,6 +123,9 @@ def _fetch(
         # application logs where access is broader than the source data itself.
         logger.error(f"Pulumi Cloud API error: status={response.status_code}, url={url}")
         response.raise_for_status()
+
+    if response.status_code == 204:
+        return {}
 
     return response.json()
 
@@ -444,6 +457,177 @@ def _get_resource_rows(
     logger.warning(f"Pulumi Cloud: resources hit the page cap ({MAX_PAGES}) for org={organization}")
 
 
+def _policy_issues_request(start_row: int) -> dict[str, Any]:
+    # The grid request format requires every list and the filter model, even when empty.
+    return {
+        "startRow": start_row,
+        "endRow": start_row + PAGE_SIZE,
+        "rowGroupCols": [],
+        "valueCols": [],
+        "groupKeys": [],
+        "filterModel": {"type": "AND", "conditions": []},
+        "sortModel": [],
+    }
+
+
+def _get_policy_issue_rows(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    organization: str,
+    resumable_source_manager: ResumableSourceManager[PulumiCloudResumeConfig],
+    config: PulumiCloudEndpointConfig,
+) -> Iterator[list[dict[str, Any]]]:
+    """Read active issues, then closed issues. The endpoint returns only one of the two per call."""
+    url = f"{PULUMI_CLOUD_BASE_URL}{_format_path(config.path, organization)}"
+
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    resume_closed = resume.closed_issues if resume is not None else False
+    resume_offset = resume.offset if resume is not None and resume.offset else 0
+
+    for closed in (False, True):
+        if resume_closed and not closed:
+            continue
+        start_row = resume_offset if closed == resume_closed else 0
+        for _ in range(MAX_PAGES):
+            data = _fetch(
+                session,
+                url,
+                headers,
+                logger,
+                params={"closed": "true" if closed else "false"},
+                json_body=_policy_issues_request(start_row),
+            )
+            issues = data.get("policyIssues") or []
+            if not issues:
+                break
+            start_row += len(issues)
+            # Advance by the rows received and trust `rowCount` when present, so a server-side page
+            # cap below PAGE_SIZE can't end the walk early.
+            row_count = data.get("rowCount")
+            has_more = start_row < row_count if isinstance(row_count, int) else len(issues) >= PAGE_SIZE
+            if has_more:
+                resumable_source_manager.save_state(PulumiCloudResumeConfig(offset=start_row, closed_issues=closed))
+            elif not closed:
+                resumable_source_manager.save_state(PulumiCloudResumeConfig(offset=0, closed_issues=True))
+            yield issues
+            if not has_more:
+                break
+        else:
+            logger.warning(f"Pulumi Cloud: policy_issues hit the page cap ({MAX_PAGES}) for org={organization}")
+
+
+def _resource_summary_date(row: dict[str, Any]) -> str | None:
+    year, month, day = row.get("year"), row.get("month"), row.get("day")
+    if not isinstance(year, int) or not isinstance(month, int) or not isinstance(day, int):
+        return None
+    return f"{year:04d}-{month:02d}-{day:02d}"
+
+
+def _get_resource_summary_rows(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    organization: str,
+    config: PulumiCloudEndpointConfig,
+) -> Iterator[list[dict[str, Any]]]:
+    url = f"{PULUMI_CLOUD_BASE_URL}{_format_path(config.path, organization)}"
+    data = _fetch(
+        session,
+        url,
+        headers,
+        logger,
+        params={"granularity": "daily", "lookbackDays": RESOURCE_SUMMARY_LOOKBACK_DAYS},
+    )
+    rows = data.get("summary") or []
+    for row in rows:
+        row["date"] = _resource_summary_date(row)
+    if rows:
+        yield rows
+
+
+def _get_member_rows(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    organization: str,
+    resumable_source_manager: ResumableSourceManager[PulumiCloudResumeConfig],
+    config: PulumiCloudEndpointConfig,
+) -> Iterator[list[dict[str, Any]]]:
+    url = f"{PULUMI_CLOUD_BASE_URL}{_format_path(config.path, organization)}"
+
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    token = resume.next_token if resume else None
+
+    for _ in range(MAX_PAGES):
+        # Ignored for callers without admin access; for admins it also lists suspended members.
+        params: dict[str, Any] = {"includeSuspended": "true"}
+        if token:
+            params["continuationToken"] = token
+        data = _fetch(session, url, headers, logger, params=params)
+        members = data.get("members") or []
+        token = data.get("continuationToken") or None
+        for member in members:
+            user = member.get("user")
+            member["userLogin"] = user.get("githubLogin") if isinstance(user, dict) else None
+        if token:
+            resumable_source_manager.save_state(PulumiCloudResumeConfig(next_token=token))
+        if members:
+            yield members
+        else:
+            resumable_source_manager.safe_point()
+        if not token:
+            return
+    logger.warning(f"Pulumi Cloud: members hit the page cap ({MAX_PAGES}) for org={organization}")
+
+
+def _get_stack_tag_rows(
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    organization: str,
+    resumable_source_manager: ResumableSourceManager[PulumiCloudResumeConfig],
+    config: PulumiCloudEndpointConfig,
+) -> Iterator[list[dict[str, Any]]]:
+    stacks = [stack for page, _ in _iter_stack_pages(session, headers, logger, organization) for stack in page]
+
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    completed_stack_keys = list(resume.completed_stack_keys) if resume is not None else []
+    completed = set(completed_stack_keys)
+
+    for stack_summary in stacks:
+        org = stack_summary.get("orgName")
+        project = stack_summary.get("projectName")
+        stack = stack_summary.get("stackName")
+        if not org or not project or not stack:
+            continue
+        stack_key = f"{org}/{project}/{stack}"
+        if stack_key in completed:
+            continue
+
+        url = f"{PULUMI_CLOUD_BASE_URL}{_format_path(config.path, org, project, stack)}"
+        try:
+            data = _fetch(session, url, headers, logger)
+        except requests.HTTPError as e:
+            # A stack deleted after the listing 404s; treat it as tagless instead of failing the sync.
+            if e.response is None or e.response.status_code != 404:
+                raise
+            data = {}
+        tags = data.get("tags") or {}
+        rows = [
+            {"orgName": org, "projectName": project, "stackName": stack, "name": name, "value": value}
+            for name, value in tags.items()
+        ]
+
+        completed_stack_keys.append(stack_key)
+        completed.add(stack_key)
+        resumable_source_manager.save_state(PulumiCloudResumeConfig(completed_stack_keys=list(completed_stack_keys)))
+        if rows:
+            yield rows
+        else:
+            resumable_source_manager.safe_point()
+
+
 def get_rows(
     access_token: str,
     organization: str,
@@ -490,6 +674,14 @@ def get_rows(
         )
     elif endpoint == "resources":
         yield from _get_resource_rows(session, headers, logger, organization, resumable_source_manager, config)
+    elif endpoint == "policy_issues":
+        yield from _get_policy_issue_rows(session, headers, logger, organization, resumable_source_manager, config)
+    elif endpoint == "resource_summary":
+        yield from _get_resource_summary_rows(session, headers, logger, organization, config)
+    elif endpoint == "members":
+        yield from _get_member_rows(session, headers, logger, organization, resumable_source_manager, config)
+    elif endpoint == "stack_tags":
+        yield from _get_stack_tag_rows(session, headers, logger, organization, resumable_source_manager, config)
     else:
         raise ValueError(f"Unknown Pulumi Cloud endpoint: {endpoint}")
 

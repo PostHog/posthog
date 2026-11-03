@@ -6,7 +6,9 @@ from unittest.mock import ANY, MagicMock, Mock, patch
 
 from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.db import connection
 from django.test import SimpleTestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 
 import boto3
 from clickhouse_driver.errors import ServerException
@@ -14,6 +16,7 @@ from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIRequestFactory
 
+from posthog.models import Team
 from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
@@ -26,6 +29,7 @@ from products.data_warehouse.backend.presentation.views.table import (
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
     DataWarehouseTable,
+    ExternalDataSchema,
     ExternalDataSource,
 )
 
@@ -640,6 +644,144 @@ class TestTable(APIBaseTest):
         assert response.status_code == 200
         assert response.json()["count"] == 1
         assert response.json()["results"][0]["id"] == str(table.id)
+
+    def _pinned_table(self, name: str = "orders") -> tuple[DataWarehouseTable, ExternalDataSchema]:
+        table = DataWarehouseTable.objects.create(
+            name=name,
+            format="Parquet",
+            team=self.team,
+            team_id=self.team.pk,
+            url_pattern=f"https://example.com/{name}/*.parquet",
+        )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            team_id=self.team.pk,
+            source_type="AwsS3",
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+        )
+        schema = ExternalDataSchema.objects.create(
+            name=name,
+            team=self.team,
+            source=source,
+            sync_type_config={
+                "schema_metadata": {
+                    "self_managed_table": {
+                        "table_id": str(table.id),
+                        "url_pattern": table.url_pattern,
+                        "format": "Parquet",
+                    }
+                }
+            },
+        )
+        return table, schema
+
+    @parameterized.expand(
+        [
+            ("pinned_by_live_schema", lambda t, s, other: None, True),
+            (
+                "schema_deleted",
+                lambda t, s, other: ExternalDataSchema.objects.filter(pk=s.pk).update(deleted=True),
+                False,
+            ),
+            (
+                "source_deleted",
+                lambda t, s, other: ExternalDataSource.objects.filter(pk=s.source_id).update(deleted=True),
+                False,
+            ),
+            (
+                "table_already_has_source",
+                lambda t, s, other: DataWarehouseTable.objects.filter(pk=t.pk).update(external_data_source=s.source),
+                False,
+            ),
+            (
+                "pin_abandoned",
+                lambda t, s, other: ExternalDataSchema.objects.filter(pk=s.pk).update(
+                    sync_type_config={
+                        "schema_metadata": {
+                            "self_managed_table": {
+                                "table_id": str(t.id),
+                                "url_pattern": t.url_pattern,
+                                "format": "Parquet",
+                                "abandon_reason": "gone",
+                            }
+                        }
+                    }
+                ),
+                False,
+            ),
+            (
+                "pin_in_other_team",
+                lambda t, s, other: ExternalDataSchema.objects.filter(pk=s.pk).update(team_id=other.pk),
+                False,
+            ),
+            (
+                "table_url_edited_since_migration",
+                lambda t, s, other: DataWarehouseTable.objects.filter(pk=t.pk).update(
+                    url_pattern="https://example.com/elsewhere/*.parquet"
+                ),
+                False,
+            ),
+            (
+                "table_format_edited_since_migration",
+                lambda t, s, other: DataWarehouseTable.objects.filter(pk=t.pk).update(format="CSV"),
+                False,
+            ),
+            (
+                "schema_linked_to_replacement_table",
+                lambda t, s, other: ExternalDataSchema.objects.filter(pk=s.pk).update(
+                    table=DataWarehouseTable.objects.create(
+                        name="replacement",
+                        format="Parquet",
+                        team_id=t.team_id,
+                        url_pattern="https://example.com/replacement/*.parquet",
+                        external_data_source_id=s.source_id,
+                    )
+                ),
+                False,
+            ),
+        ]
+    )
+    def test_pending_source_id(self, _name, mutate, expect_pending):
+        table, schema = self._pinned_table()
+        unrelated = DataWarehouseTable.objects.create(
+            name="unrelated",
+            format="Parquet",
+            team=self.team,
+            team_id=self.team.pk,
+            url_pattern="https://example.com/unrelated/*.parquet",
+        )
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        mutate(table, schema, other_team)
+
+        results = {
+            row["id"]: row
+            for row in self.client.get(f"/api/projects/{self.team.pk}/warehouse_tables/?include_columns=false").json()[
+                "results"
+            ]
+        }
+        expected = str(schema.source_id) if expect_pending else None
+        assert results[str(table.id)]["pending_source_id"] == expected
+        assert results[str(unrelated.id)]["pending_source_id"] is None
+
+        detail = self.client.get(f"/api/projects/{self.team.pk}/warehouse_tables/{table.id}/").json()
+        assert detail["pending_source_id"] == expected
+
+        filtered = self.client.get(
+            f"/api/projects/{self.team.pk}/warehouse_tables/?include_columns=false&pending_source=true"
+        ).json()["results"]
+        assert [row["id"] for row in filtered] == ([str(table.id)] if expect_pending else [])
+
+    def test_pending_source_id_is_resolved_once_per_list(self):
+        self._pinned_table("one")
+        url = f"/api/projects/{self.team.pk}/warehouse_tables/?include_columns=false"
+        for name in ("two", "three", "four"):
+            self._pinned_table(name)
+        with CaptureQueriesContext(connection) as several:
+            response = self.client.get(url)
+
+        assert [row["pending_source_id"] is not None for row in response.json()["results"]] == [True] * 4
+        pending_lookups = [q["sql"] for q in several.captured_queries if "self_managed_table" in q["sql"]]
+        assert len(pending_lookups) == 1
 
     def test_list_tables_exposes_hogql_name_and_honors_include_columns(self):
         source = ExternalDataSource.objects.create(
@@ -1527,3 +1669,85 @@ class TestTable(APIBaseTest):
 
         assert response.status_code == 400
         assert "Invalid format" in response.json()["message"]
+
+
+OBJECT_STORAGE_FLAG = "dwh-object-storage-sources"
+PROVIDER_COLUMNS = {"id": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField", "valid": True}}
+
+
+class TestSelfManagedTableCreationWithManagedSources(APIBaseTest):
+    def _set_flag(self, enabled: bool) -> None:
+        patcher = patch(
+            "posthoganalytics.feature_enabled",
+            side_effect=lambda key, *args, **kwargs: enabled and key == OBJECT_STORAGE_FLAG,
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _create(self, url_pattern: str) -> Any:
+        return self.client.post(
+            f"/api/projects/{self.team.id}/warehouse_tables/",
+            {
+                "name": "bucket_table",
+                "url_pattern": url_pattern,
+                "credential": {"access_key": "_accesskey", "access_secret": "_accesssecret"},
+                "format": "Parquet",
+            },
+        )
+
+    @parameterized.expand(
+        [
+            ("s3", "https://your-org.s3.amazonaws.com/bucket/*.pqt", "Amazon S3"),
+            ("s3_regional", "https://s3.eu-west-1.amazonaws.com/bucket/*.pqt", "Amazon S3"),
+            ("gcs", "https://storage.googleapis.com/bucket/*.pqt", "Google Cloud Storage"),
+            ("azure", "https://account.blob.core.windows.net/container/*.pqt", "Azure Blob Storage"),
+            ("r2", "https://account.r2.cloudflarestorage.com/bucket/*.pqt", "Cloudflare R2"),
+            ("other", "https://objects.example.com/bucket/*.pqt", "Amazon S3, Google Cloud Storage"),
+        ]
+    )
+    @patch(
+        "products.warehouse_sources.backend.models.table.DataWarehouseTable.get_columns", return_value=PROVIDER_COLUMNS
+    )
+    @patch("products.warehouse_sources.backend.tasks.tasks.get_client")
+    def test_create_is_blocked_when_flag_is_on(self, _name: str, url_pattern: str, provider: str, *_mocks: Any):
+        self._set_flag(True)
+
+        response = self._create(url_pattern)
+
+        assert response.status_code == 400
+        assert provider in response.json()["detail"]
+        assert DataWarehouseTable.objects.filter(team=self.team, name="bucket_table").count() == 0
+        assert DataWarehouseCredential.objects.filter(team=self.team).count() == 0
+
+    @patch(
+        "products.warehouse_sources.backend.models.table.DataWarehouseTable.get_columns", return_value=PROVIDER_COLUMNS
+    )
+    @patch("products.warehouse_sources.backend.tasks.tasks.get_client")
+    def test_create_still_works_when_flag_is_off(self, *_mocks: Any):
+        self._set_flag(False)
+
+        response = self._create("https://your-org.s3.amazonaws.com/bucket/*.pqt")
+
+        assert response.status_code == 201
+
+    def test_update_and_delete_still_work_when_flag_is_on(self):
+        credential = DataWarehouseCredential.objects.create(access_key="key", access_secret="secret", team=self.team)
+        table = DataWarehouseTable.objects.create(
+            name="existing_table",
+            format="Parquet",
+            team=self.team,
+            credential=credential,
+            url_pattern="https://your-org.s3.amazonaws.com/bucket/*.pqt",
+            columns={},
+        )
+        self._set_flag(True)
+
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/warehouse_tables/{table.id}/", {"name": "renamed_table"}
+        )
+        assert update_response.status_code == 200, update_response.json()
+        table.refresh_from_db()
+        assert table.name == "renamed_table"
+
+        delete_response = self.client.delete(f"/api/projects/{self.team.id}/warehouse_tables/{table.id}/")
+        assert delete_response.status_code == 204

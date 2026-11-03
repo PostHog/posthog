@@ -126,4 +126,89 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "questionsStats": "Aggregated statistics for each survey question.",
         },
     },
+    "nps_score": {
+        "description": "The latest NPS score for your account, with its rating distribution and response counts. One row, refreshed on each sync.",
+        "docs_url": "https://www.retently.com/api/",
+        "columns": {
+            "ratingDistribution": "The number of responses for each rating value.",
+            "totalResponses": "The total number of responses the score is based on.",
+        },
+    },
+    "csat_score": {
+        "description": "The latest CSAT score for your account, with its rating distribution and response counts. One row, refreshed on each sync.",
+        "docs_url": "https://www.retently.com/api/",
+        "columns": {
+            "ratingDistribution": "The number of responses for each rating value.",
+            "totalResponses": "The total number of responses the score is based on.",
+        },
+    },
+    "ces_score": {
+        "description": "The latest CES score for your account, with its rating distribution and response counts. One row, refreshed on each sync.",
+        "docs_url": "https://www.retently.com/api/",
+        "columns": {
+            "ratingDistribution": "The number of responses for each rating value.",
+            "totalResponses": "The total number of responses the score is based on.",
+        },
+    },
+    "star_score": {
+        "description": "The latest star rating score for your account, with its rating distribution and response counts. One row, refreshed on each sync.",
+        "docs_url": "https://www.retently.com/api/",
+        "columns": {
+            "ratingDistribution": "The number of responses for each rating value.",
+            "totalResponses": "The total number of responses the score is based on.",
+        },
+    },
+    "trend_groups": {
+        "description": "A trend group: a named set of trends that segment survey scores for one metric.",
+        "docs_url": "https://www.retently.com/api/",
+        "columns": {
+            "_id": "The unique ID of the trend group.",
+            "groupName": "The trend group's name.",
+            "metric": "The survey metric the group's trends measure (NPS, CSAT, CES, STAR).",
+            "isDefault": "Whether this is the account's default trend group.",
+            "trendsCount": "The number of trends in the group.",
+            "createdDate": "When the trend group was created.",
+            "updatedDate": "When the trend group was last updated.",
+        },
+    },
+    "trends": {
+        "description": "A trend within a trend group: a segment of responses (by campaign and customer attributes) with its score over the vendor's default date range.",
+        "docs_url": "https://www.retently.com/api/",
+        "columns": {
+            "_id": "The unique ID of the trend.",
+            "groupId": "The ID of the trend group the trend belongs to.",
+            "trendName": "The trend's name.",
+            "metric": "The survey metric the trend measures (NPS, CSAT, CES, STAR).",
+            "score": "The current and previous score for the date range, with the absolute and percentage change.",
+            "respondents": "Respondent counts, percentages and rating distribution for the date range.",
+            "campaigns": "The IDs of the campaigns the trend includes.",
+            "attributes": "The customer attribute filters that define the trend's segment.",
+            "trend": "The trend line: the score, counts and rating distribution for each date in the range.",
+        },
+    },
+    "suppressed_emails": {
+        "description": "An email address on the account's suppression list. Suppressed emails receive no surveys.",
+        "docs_url": "https://www.retently.com/api/",
+        "columns": {
+            "id": "The unique ID of the suppression.",
+            "email": "The suppressed email address.",
+            "reason": "Why the email is suppressed (for example manual or complaint).",
+            "note": "A note explaining the suppression.",
+            "addedBy": "Who added the suppression (api, user or system).",
+            "createdAt": "When the email was suppressed.",
+        },
+    },
+    "suppressed_domains": {
+        "description": "A domain pattern on the account's suppression list. Emails that match it receive no surveys.",
+        "docs_url": "https://www.retently.com/api/",
+        "columns": {
+            "id": "The unique ID of the suppression.",
+            "pattern": "The suppressed domain pattern. Supports wildcards such as *.example.com.",
+            "category": "The pattern's category (other, corporate, disposable or invalid).",
+            "reason": "Why the domain is suppressed.",
+            "note": "A note explaining the suppression.",
+            "addedBy": "Who added the suppression (api, user or system).",
+            "createdAt": "When the domain was suppressed.",
+        },
+    },
 }

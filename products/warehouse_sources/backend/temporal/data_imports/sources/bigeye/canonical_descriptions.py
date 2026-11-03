@@ -131,4 +131,33 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "truePositiveIssuesOpened": "Number of true positive issues opened on this day.",
         },
     },
+    "Deltas": {
+        "description": "A Bigeye Delta: a comparison between a source table and one or more target tables, with the result of its last run.",
+        "docs_url": "https://docs.bigeye.com/reference/deltaservice_fetchdeltas-1",
+        "columns": {
+            "id": "Identifier of the delta, copied from `delta.id`.",
+            "name": "Display name of the delta, copied from `delta.name`.",
+            "delta": "Delta configuration, including the source table, schedule, and metric counts of the last run.",
+            "comparisonTargetInfos": "Per-target comparison results, including row counts, key matches, and failed metrics.",
+            "activeIssue": "The open issue for this delta, if one exists.",
+            "nextRunEpochSeconds": "Unix timestamp (seconds) of the next scheduled run.",
+            "isFavorite": "Whether the delta is marked as a favorite in the Bigeye UI.",
+        },
+    },
+    "LineageGraph": {
+        "description": "The lineage nodes directly upstream and downstream of each Bigeye table, one row per table and node.",
+        "docs_url": "https://docs.bigeye.com/reference/lineagev2service_getlineagegraphfornode-1",
+        "columns": {
+            "root_data_node_id": "Data node id of the table whose lineage graph contains this node.",
+            "id": "Data node id of this node.",
+            "node_name": "Name of this node, copied from `lineageNode.nodeName`.",
+            "lineageNode": "Node details, including its type, catalog path, and source.",
+            "upstreamEdges": "Edges from the nodes directly upstream of this node.",
+            "downstreamEdges": "Edges to the nodes directly downstream of this node.",
+            "isUpstream": "Whether this node is upstream of the root table.",
+            "isDownstream": "Whether this node is downstream of the root table.",
+            "issueCount": "Number of open issues on this node.",
+            "metricCount": "Number of metrics on this node.",
+        },
+    },
 }

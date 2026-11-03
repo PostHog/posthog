@@ -406,6 +406,7 @@ async def _process_parallel_batch(
                     team_id=signal.team_id,
                     report_id=result.assign_result.report_id,
                     debounce_seconds=result.assign_result.research_debounce_seconds,
+                    signal_id=result.assign_result.triggering_signal_id,
                 ),
                 result.assign_result.run_count,
             )

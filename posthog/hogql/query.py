@@ -1,6 +1,9 @@
 import dataclasses
+from datetime import datetime
 from time import sleep
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, Union, cast
+
+from django.utils import timezone
 
 from opentelemetry import trace
 
@@ -16,6 +19,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast, query_stats
+from posthog.hogql.compilation import bounded_compilation
 from posthog.hogql.constants import (
     HogQLDialect,
     HogQLGlobalSettings,
@@ -53,7 +57,15 @@ from posthog.hogql.direct_sql import (
     get_adapter_for_source,
     get_raw_adapter_for_source,
 )
-from posthog.hogql.errors import BaseHogQLError, ExposedHogQLError, InternalHogQLError, QueryError, ResolutionError
+from posthog.hogql.errors import (
+    FIELD_NOT_FOUND_MESSAGE,
+    UNRESOLVED_FIELD_MESSAGE,
+    BaseHogQLError,
+    ExposedHogQLError,
+    InternalHogQLError,
+    QueryError,
+    ResolutionError,
+)
 from posthog.hogql.feature_extractor import extract_hogql_features
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.functions.prompt_jev import PromptJevFinder
@@ -76,13 +88,20 @@ from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
 from posthog.dataclasses import frozen
 from posthog.direct_query_cancellation import build_direct_query_cancellation_token
-from posthog.errors import CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead, ExposedCHQueryError
+from posthog.errors import (
+    CHQueryErrorS3Error,
+    CHQueryErrorS3FileChangedDuringRead,
+    CHQueryErrorUnknownIdentifier,
+    ExposedCHQueryError,
+)
+from posthog.exceptions_capture import capture_exception
 from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.data_modeling.backend.facade import api as data_modeling_api
 from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLMode
 
 if TYPE_CHECKING:
@@ -144,6 +163,7 @@ class HogQLQueryExecutor:
     bypass_warehouse_access_control: bool = False
     user_access_control: Optional[UserAccessControl] = None
     resolver_factory: Optional[ResolverFactory] = None
+    refresh_stale_view_columns: bool = True
 
     __uninitialized_context: ClassVar[HogQLContext] = HogQLContext()
 
@@ -858,6 +878,7 @@ class HogQLQueryExecutor:
         self._evaluate_prompt_jev()
         return self.select_query, self._prompt_jev_tables
 
+    @bounded_compilation
     def _prepare_execution(self, *, embedded_select: bool = False) -> _PreparedExecution:
         self.context.clear_reads()
         self._parse_query()
@@ -1063,6 +1084,38 @@ class HogQLQueryExecutor:
 
     @tracer.start_as_current_span("HogQLQueryExecutor.execute")
     def execute(self) -> HogQLQueryResponse:
+        query = self.query
+        started_at = timezone.now()
+        try:
+            return self._execute()
+        except (CHQueryErrorUnknownIdentifier, QueryError) as error:
+            if not _names_a_missing_column(error) or not self._refreshed_stale_view_columns(started_at):
+                raise
+            return self._with_fresh_database(query).execute()
+
+    def _refreshed_stale_view_columns(self, started_at: datetime) -> bool:
+        view_ids = self.context.referenced_saved_query_ids
+        if not self.refresh_stale_view_columns or not view_ids:
+            return False
+        try:
+            if data_modeling_api.refresh_view_columns(self.team, view_ids, self.user):
+                return True
+            return data_modeling_api.views_updated_since(self.team, view_ids, started_at)
+        except Exception as e:
+            capture_exception(e, {"team_id": self.team.pk})
+            return False
+
+    def _with_fresh_database(
+        self, query: Union[str, ast.SelectQuery, ast.SelectSetQuery] | None
+    ) -> "HogQLQueryExecutor":
+        return dataclasses.replace(
+            self,
+            query=query,
+            context=dataclasses.replace(self.context, database=None),
+            refresh_stale_view_columns=False,
+        )
+
+    def _execute(self) -> HogQLQueryResponse:
         self._executing = True
         trace.get_current_span().set_attribute("team_id", self.team.pk)
         try:
@@ -1133,6 +1186,13 @@ class HogQLQueryExecutor:
             )
             for s in self.used_data_warehouse_sources
         ]
+
+
+_MISSING_COLUMN_MESSAGES = (UNRESOLVED_FIELD_MESSAGE, FIELD_NOT_FOUND_MESSAGE)
+
+
+def _names_a_missing_column(error: Exception) -> bool:
+    return isinstance(error, CHQueryErrorUnknownIdentifier) or str(error).startswith(_MISSING_COLUMN_MESSAGES)
 
 
 def execute_hogql_query(*args, **kwargs) -> HogQLQueryResponse:

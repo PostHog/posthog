@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.paginators import (
     BasePaginator,
     JSONResponseCursorPaginator,
+    JSONResponsePaginator,
     SinglePagePaginator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.resource import Resource
@@ -244,6 +245,8 @@ def opsgenie_source(
             "name": "Authorization",
             "location": "header",
         },
+        # Alert logs follow the response's `paging.next` URL; pin it to the regional API host.
+        "allowed_hosts": [],
     }
 
     if config.fanout is not None:
@@ -340,15 +343,17 @@ def _fanout_source(
         if parent_config.paginated
         else SinglePagePaginator()
     )
-    child_paginator: BasePaginator = (
-        JSONResponseCursorPaginator(cursor_path=config.next_cursor_path, cursor_param="offset")
-        if config.next_cursor_path
-        else SinglePagePaginator()
-    )
+    child_paginator: BasePaginator
+    if config.next_cursor_path:
+        child_paginator = JSONResponseCursorPaginator(cursor_path=config.next_cursor_path, cursor_param="offset")
+    elif config.next_url_path:
+        child_paginator = JSONResponsePaginator(next_url_path=config.next_url_path)
+    else:
+        child_paginator = SinglePagePaginator()
 
     # The shared fan-out checkpoint lists every finished parent, so its size grows with each parent.
     # Only the small, unpaginated parents (schedules, teams) are resumable; the incident timeline
-    # starts again from the first incident after an interruption.
+    # and alert logs start again from the first parent after an interruption.
     resumable = not parent_config.paginated
     resume = resumable_source_manager.load_state() if resumable and resumable_source_manager.can_resume() else None
 
@@ -385,5 +390,8 @@ def _fanout_source(
         primary_keys=config.primary_keys,
         partition_count=1,
         partition_size=1,
+        partition_mode="datetime" if config.partition_key else None,
+        partition_format="week" if config.partition_key else None,
+        partition_keys=[config.partition_key] if config.partition_key else None,
         column_hints=resource.column_hints,
     )

@@ -1,7 +1,7 @@
 import './DashboardItems.scss'
 
 import clsx from 'clsx'
-import { useActions, useAsyncActions, useValues } from 'kea'
+import { useActions, useAsyncActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
 import { RefObject, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { GridLayout, Responsive as ReactGridLayout } from 'react-grid-layout'
@@ -40,6 +40,7 @@ import { urls } from 'scenes/urls'
 import { getCurrentExporterData, isSharedView } from '~/exporter/exporterViewLogic'
 import { DashboardLayoutSize, DashboardPlacement, DashboardTile, DashboardType } from '~/types'
 
+import { biDashboardCrossFilterLogic } from 'products/business_intelligence/frontend/biDashboardCrossFilterLogic'
 import { DashboardGridBackground } from 'products/dashboards/frontend/components/DashboardGridBackground'
 import { DashboardInsightTile } from 'products/dashboards/frontend/components/DashboardInsightTile'
 import { DashboardTextItem } from 'products/dashboards/frontend/components/DashboardTextItem/DashboardTextItem'
@@ -128,7 +129,16 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         collapsedTileGroupKeys,
         tileGroupMoveOptions,
         activeTileGroupTab,
+        queryLoadQueue,
     } = useValues(dashboardLogic)
+    const canCrossFilter = placement === DashboardPlacement.Dashboard && !isSharedView() && !layoutEditMode
+    useMountedLogic(
+        biDashboardCrossFilterLogic({
+            dashboardId: dashboard?.id ?? 0,
+            tiles: canCrossFilter ? (tiles ?? []) : [],
+            loadQueue: queryLoadQueue,
+        })
+    )
     const { layoutZoom = 1 } = useValues(dashboardLogic)
     const {
         stageLayouts,
@@ -533,7 +543,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         if (dashboard?.id) {
             reportDashboardTileRepositioned(dashboard.id, 'resized', effectiveZoom)
         }
-    }, [dashboard?.id, reportDashboardTileRepositioned, effectiveZoom, flushPendingLayouts])
+    }, [dashboard?.id, effectiveZoom, flushPendingLayouts])
 
     const handleDragStart = useCallback(
         (
@@ -588,14 +598,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                 reportDashboardTileRepositioned(dashboard.id, 'moved', effectiveZoom)
             }
         },
-        [
-            dashboard?.id,
-            reportDashboardTileRepositioned,
-            effectiveZoom,
-            flushPendingLayouts,
-            finishTileDrag,
-            stopAutoScroll,
-        ]
+        [dashboard?.id, effectiveZoom, flushPendingLayouts, finishTileDrag, stopAutoScroll]
     )
 
     const renderTile = (tile: DashboardTile): JSX.Element | undefined => {
@@ -660,7 +663,8 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                     key={tile.id}
                     tile={tile}
                     insight={insight}
-                    resultMenuEnabled={placement === DashboardPlacement.Dashboard && !isSharedView() && !layoutEditMode}
+                    resultMenuEnabled={canCrossFilter}
+                    biDashboardTileId={canCrossFilter ? tile.id : undefined}
                     loadingQueued={loadingQueued}
                     loading={loading}
                     // The dashboard load queue owns this tile, so the card must not start its own query.

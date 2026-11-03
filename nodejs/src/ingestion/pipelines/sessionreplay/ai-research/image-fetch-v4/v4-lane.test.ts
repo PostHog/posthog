@@ -59,7 +59,7 @@ function recorderRecord(jobs: { ref: string; url: string }[]): Message {
                 currentUrl: url,
                 remainingHops: 10,
                 notBeforeMs: 0,
-                firstSeenAtMs: NOW_MS,
+                firstSeenAtMs: Date.now(),
                 fetchCount: 0,
                 republishCount: 0,
                 lastRepublishReason: null,
@@ -124,7 +124,12 @@ function lane(
             .toString(),
     })
     const producer = { produce: jest.fn(() => Promise.resolve()) } as unknown as KafkaProducer
-    const publisher = buildFrontierPublisher(producer, 10)
+    const publisher = buildFrontierPublisher(
+        producer,
+        10,
+        config.AI_RESEARCH_V4_IMAGE_FETCH_MAX_URL_AGE_MS,
+        config.AI_RESEARCH_V4_IMAGE_FETCH_MAX_URL_AGE_FROM_MS
+    )
     const dynamo = {
         send: jest.fn((command: GetItemCommand, options?: any) => {
             if (keyReads === 'hang') {

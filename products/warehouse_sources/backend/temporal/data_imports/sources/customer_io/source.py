@@ -173,6 +173,10 @@ class CustomerIOSource(
         return ExternalDataSourceType.CUSTOMERIO
 
     @property
+    def credential_kind(self) -> str | None:
+        return "customer-io"
+
+    @property
     def webhook_template(self) -> Optional["HogFunctionTemplateDC"]:
         from products.warehouse_sources.backend.temporal.data_imports.sources.customer_io.webhook_template import (
             template,

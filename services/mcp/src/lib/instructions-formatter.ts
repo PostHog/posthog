@@ -31,6 +31,7 @@ import EXAMPLES from '@/templates/sections/examples.md'
 import EXEC_LEARN from '@/templates/sections/exec-learn.md'
 import EXEC_TOOL_BLURB_COMPACT from '@/templates/sections/exec-tool-blurb-compact.md'
 import EXEC_TOOL_BLURB from '@/templates/sections/exec-tool-blurb.md'
+import EXPLAIN_CHART from '@/templates/sections/explain-chart.md'
 import METRIC_DISCOVERY_COMPACT from '@/templates/sections/metric-discovery-compact.md'
 import METRIC_DISCOVERY from '@/templates/sections/metric-discovery.md'
 import NOTEBOOK_PYTHON from '@/templates/sections/notebook-python.md'
@@ -42,6 +43,7 @@ import SKILLS_FIRST from '@/templates/sections/skills-first.md'
 import TOOL_SEARCH from '@/templates/sections/tool-search.md'
 import URL_PATTERNS from '@/templates/sections/url-patterns.md'
 import { type ExecLearnGuide, LEARN_COMMAND_LINE } from '@/tools/exec-learn'
+import type { BusinessKnowledgeContent } from '@/tools/types'
 
 /** Naming a command the catalog withholds sends the agent down a path it cannot take. */
 const WHATS_NEW_WITH_DOCS_SEARCH =
@@ -51,6 +53,9 @@ const WHATS_NEW_CHANGELOG_ONLY = "Check what's new in the changelog (https://pos
 const PROJECT_LOOKUP =
     'Call `project-get` without an ID to read the active project: its name, id, organization, timezone, person-on-events mode, test account filter default, and enabled products. Call it before you rely on one of these, for example the timezone for a date range.'
 const GROUP_TYPES_LOOKUP = "For the project's group types, run `execute-sql` on `system.group_type_mappings`."
+const SWITCH_TOOLS = ['switch-project', 'switch-organization', 'projects-get', 'organizations-get']
+const SWITCH_LOOKUP =
+    'To work in another project or organization, call `switch-project` or `switch-organization`. `projects-get` and `organizations-get` resolve a name to the id they take. Do not search the tool list for this.'
 
 export interface InstructionsContext {
     guidelines: string
@@ -74,25 +79,41 @@ export interface InstructionsContext {
      *  resolve. Carried as a field rather than derived from `tools`, which
      *  `buildExecCommandReference` drops on purpose. */
     docsSearchEnabled?: boolean | undefined
+    /** Whether the Replay Vision scan tools are advertised to this client. Same reason
+     *  as `docsSearchEnabled`: the line names three tools, and the reference drops `tools`. */
+    replayVisionEnabled?: boolean | undefined
+    businessKnowledgeContent?: BusinessKnowledgeContent | undefined
 }
 
-function businessKnowledgeSearchLine(execSyntax: boolean): string {
-    const search = execSyntax
-        ? 'run `call business-knowledge-documents-search <json_input>`'
-        : 'call `business-knowledge-documents-search`'
-    return `- First, ${search} with a short, broad query based on the user's topic. If \`business-knowledge-document-window-retrieve\` is also available, use it when a result needs more context.`
-}
+const REPLAY_VISION_TOOLS = ['vision-scanners-inline-scan', 'vision-requests-create', 'vision-requests-get']
+const REPLAY_VISION =
+    'To learn what happened inside session recordings (what users did, saw, or struggled with), use Replay Vision instead of SQL over the replay tables. Call `vision-scanners-inline-scan` with `session_ids` and a `prompt` for sessions you already have, or `vision-requests-create` for up to 200 sessions and read the result with `vision-requests-get`. SQL over `session_replay_events` returns recording metadata only, such as duration, URLs and event counts; use it to find candidate sessions.'
 
+const BUSINESS_KNOWLEDGE_SEARCH_TOOL = 'business-knowledge-documents-search'
 const BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL = 'business-knowledge-repositories-search'
 
-/** Document search does not read GitHub. Code questions and an empty document search use the repo tools.
- *  The exec line stays short to keep the exec description under Claude Code's 2048-char cap. */
-function businessKnowledgeRepoSearchLine(execSyntax: boolean): string {
+function businessKnowledgeSearchLine(execSyntax: boolean): string {
     if (execSyntax) {
-        return `- Code or doc misses: \`call ${BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL} <json_input>\`.`
+        return `- The user's own company, product, terms, or policies: run \`call ${BUSINESS_KNOWLEDGE_SEARCH_TOOL} <json_input>\` with a short, broad query.`
     }
-    return `- For this team's code, or when document search returns no chunks, call \`${BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL}\` with file names or topic words, not a sentence. Each repository includes its description. When a description names a handbook or docs, search that repository for those words, read the file, and cite its permalink.`
+    return `- The user's own company, product, internal terms, policies, or decisions: call \`${BUSINESS_KNOWLEDGE_SEARCH_TOOL}\` with a short, broad query. If \`business-knowledge-document-window-retrieve\` is also available, use it when a result needs more context.`
 }
+
+/** The exec line stays short to keep the exec description under Claude Code's 2048-char cap. */
+function businessKnowledgeRepoSearchLine(execSyntax: boolean, hasDocumentSearch: boolean): string {
+    if (execSyntax) {
+        const topic = hasDocumentSearch ? "The user's own code, or doc misses" : "The user's own company, code, or docs"
+        return `- ${topic}: \`call ${BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL} <json_input>\`.`
+    }
+    const topic = hasDocumentSearch
+        ? "The user's own code, or a company question that document search does not answer"
+        : "The user's own company, product, code, or docs"
+    return `- ${topic}: call \`${BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL}\` with file names or topic words, not a sentence. Each repository includes its description. When a description names a handbook or docs, search that repository for those words, read the file, and cite its permalink.`
+}
+
+/** A data request can name a company term, such as "activated user", that no event or property name explains. */
+const BUSINESS_KNOWLEDGE_DATA_REQUEST_EXCEPTION =
+    ', except to look up in business knowledge a company term that you cannot map to an event or property'
 
 /** The SQL section's bullets that name a tool. Each one is left out when the connection
  *  lacks a tool it names, so the guidance never sends the agent to a name it cannot call. */
@@ -119,10 +140,19 @@ function docsSearchAvailable(ctx: InstructionsContext): boolean {
     return ctx.docsSearchEnabled ?? ctx.tools?.some(({ name }) => name === 'docs-search') ?? false
 }
 
+function replayVisionAvailable(ctx: InstructionsContext): boolean {
+    return (
+        ctx.replayVisionEnabled ??
+        REPLAY_VISION_TOOLS.every((tool) => ctx.tools?.some(({ name }) => name === tool)) ??
+        false
+    )
+}
+
 function envContextSections(ctx: InstructionsContext): string[] {
     const available = (tool: string): boolean => ctx.tools?.some(({ name }) => name === tool) ?? false
     const lookups = [
         ...(available('project-get') ? [PROJECT_LOOKUP] : []),
+        ...(SWITCH_TOOLS.every(available) ? [SWITCH_LOOKUP] : []),
         ...(available('execute-sql') ? [GROUP_TYPES_LOOKUP] : []),
     ]
     return lookups.length > 0 ? [formatPrompt(ENV_CONTEXT, { env_lookups: lookups.join(' ') })] : []
@@ -136,16 +166,13 @@ function envContextSections(ctx: InstructionsContext): string[] {
  */
 export class InstructionsFormatter {
     private knowledgeFirstSections(ctx: InstructionsContext): string[] {
-        const businessKnowledgeSearchEnabled = ctx.tools?.some(
-            ({ name }) => name === 'business-knowledge-documents-search'
-        )
-        const businessKnowledgeRepoSearchEnabled = ctx.tools?.some(
-            ({ name }) => name === BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL
-        )
         return this.knowledgeFirstSectionsForCapabilities({
             docsSearchEnabled: docsSearchAvailable(ctx),
-            businessKnowledgeSearchEnabled,
-            businessKnowledgeRepoSearchEnabled,
+            businessKnowledgeSearchEnabled: ctx.tools?.some(({ name }) => name === BUSINESS_KNOWLEDGE_SEARCH_TOOL),
+            businessKnowledgeRepoSearchEnabled: ctx.tools?.some(
+                ({ name }) => name === BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL
+            ),
+            businessKnowledgeContent: ctx.businessKnowledgeContent,
             execSyntax: false,
         })
     }
@@ -154,28 +181,30 @@ export class InstructionsFormatter {
      *  mandate leads the tool description, ahead of the section that teaches the
      *  dispatcher grammar, so a bare name reads as a command and is rejected. */
     private knowledgeFirstSectionsForCapabilities(opts: {
-        docsSearchEnabled?: boolean
-        businessKnowledgeSearchEnabled?: boolean
-        businessKnowledgeRepoSearchEnabled?: boolean
+        docsSearchEnabled?: boolean | undefined
+        businessKnowledgeSearchEnabled?: boolean | undefined
+        businessKnowledgeRepoSearchEnabled?: boolean | undefined
+        businessKnowledgeContent?: BusinessKnowledgeContent | undefined
         execSyntax: boolean
     }): string[] {
         if (!opts.docsSearchEnabled) {
             return []
         }
-        const businessKnowledgeLines = opts.businessKnowledgeSearchEnabled
-            ? [
-                  businessKnowledgeSearchLine(opts.execSyntax),
-                  ...(opts.businessKnowledgeRepoSearchEnabled
-                      ? [businessKnowledgeRepoSearchLine(opts.execSyntax)]
-                      : []),
-              ]
-            : []
+        const documentSearch =
+            opts.businessKnowledgeSearchEnabled === true && opts.businessKnowledgeContent?.hasSources !== false
+        const repoSearch =
+            opts.businessKnowledgeRepoSearchEnabled === true && opts.businessKnowledgeContent?.hasRepositories !== false
+        const searchLines = [
+            ...(documentSearch ? [businessKnowledgeSearchLine(opts.execSyntax)] : []),
+            ...(repoSearch ? [businessKnowledgeRepoSearchLine(opts.execSyntax, documentSearch)] : []),
+            `- PostHog features, SDKs, setup, or pricing: ${
+                opts.execSyntax ? 'run `call docs-search <json_input>`' : 'call the `docs-search` tool'
+            }.`,
+        ]
         return [
             formatPrompt(BUSINESS_KNOWLEDGE_FIRST, {
-                docs_search_call: opts.execSyntax
-                    ? 'Run `call docs-search <json_input>`'
-                    : 'Call the `docs-search` tool',
-                business_knowledge_search: businessKnowledgeLines.join('\n'),
+                search_lines: searchLines.join('\n'),
+                data_request_exception: documentSearch || repoSearch ? BUSINESS_KNOWLEDGE_DATA_REQUEST_EXCEPTION : '',
             }),
         ]
     }
@@ -186,6 +215,7 @@ export class InstructionsFormatter {
     private artifactSections(ctx: InstructionsContext): string[] {
         return [
             ANALYSIS_ARTIFACTS,
+            ...(ctx.tools?.some(({ name }) => name === 'explain-chart') ? [EXPLAIN_CHART] : []),
             ...(ctx.notebookCellsEnabled ? [formatPrompt(NOTEBOOK_SQL, notebookSqlVars(ctx)), NOTEBOOK_PYTHON] : []),
             ...(ctx.notebookRunEnabled ? [NOTEBOOK_RUN] : []),
         ]
@@ -258,10 +288,11 @@ export class InstructionsFormatter {
      *  questions by cloning the public repo never make a call for the gate to catch. */
     buildExecToolDescription(
         opts: {
-            skillsEnabled?: boolean
-            docsSearchEnabled?: boolean
-            businessKnowledgeSearchEnabled?: boolean
-            businessKnowledgeRepoSearchEnabled?: boolean
+            skillsEnabled?: boolean | undefined
+            docsSearchEnabled?: boolean | undefined
+            businessKnowledgeSearchEnabled?: boolean | undefined
+            businessKnowledgeRepoSearchEnabled?: boolean | undefined
+            businessKnowledgeContent?: BusinessKnowledgeContent | undefined
         } = {}
     ): string {
         const knowledgeSections = this.knowledgeFirstSectionsForCapabilities({ ...opts, execSyntax: true })
@@ -410,7 +441,12 @@ export class InstructionsFormatter {
             AGENT_FEEDBACK,
             EXAMPLES,
         ]
-        const renderCtx: InstructionsContext = { ...ctx, tools: undefined, docsSearchEnabled: docsSearchAvailable(ctx) }
+        const renderCtx: InstructionsContext = {
+            ...ctx,
+            tools: undefined,
+            docsSearchEnabled: docsSearchAvailable(ctx),
+            replayVisionEnabled: replayVisionAvailable(ctx),
+        }
         // Tool domains are temporarily omitted from the command reference while we
         // probe claude.ai's per-tool size cap (it silently drops oversized entries);
         // agents still discover domains at runtime via the `search` command, and
@@ -442,6 +478,7 @@ export class InstructionsFormatter {
             tool_domains: ctx.tools ? renderToolDomains(ctx.tools) : '',
             query_tools: ctx.queryTools ? buildQueryToolsBlock(ctx.queryTools) : '',
             entity_schema_discovery: ENTITY_SCHEMA_DISCOVERY.trim(),
+            replay_vision: replayVisionAvailable(ctx) ? REPLAY_VISION : '',
             extra_commands: opts.extraCommands ?? '',
             whats_new_check: docsSearchAvailable(ctx) ? WHATS_NEW_WITH_DOCS_SEARCH : WHATS_NEW_CHANGELOG_ONLY,
         }
@@ -449,6 +486,7 @@ export class InstructionsFormatter {
             .map((s) => s.trim())
             .filter((s) => s.length > 0)
             .join('\n\n')
-        return formatPrompt(body, vars)
+        // An empty placeholder on its own line would otherwise leave a double blank line.
+        return formatPrompt(body, vars).replace(/\n{3,}/g, '\n\n')
     }
 }

@@ -103,6 +103,14 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
                 return
 
             task_run.status = input.status
+            if (
+                input.status == TaskRun.Status.FAILED
+                and input.error_type
+                and not (task_run.state or {}).get("failure_error_type")
+            ):
+                task_run.state = TaskRun.update_state_atomic(
+                    task_run.id, updates={"failure_error_type": input.error_type}
+                )
             if input.error_message:
                 task_run.error_message = input.error_message
             marker = TIMED_OUT_INACTIVITY_STATE_KEY if input.timed_out_inactivity else input.timeout_marker
@@ -190,9 +198,13 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
 @activity.defn
 @asyncify
 def complete_signal_spend(run_id: str) -> None:
-    run = TaskRun.objects.only("team_id", "status").get(id=run_id)
+    run = TaskRun.objects.select_related("task").get(id=run_id)
     if run.status in _TERMINAL_STATUSES:
-        complete_task_spend(team_id=run.team_id, run_id=run_id)
+        complete_task_spend(
+            team_id=run.team_id,
+            run_id=run_id,
+            report_id=str(run.task.signal_report_id) if run.task.signal_report_id else None,
+        )
 
 
 def _capture_posthog_ai_chat_analytics(

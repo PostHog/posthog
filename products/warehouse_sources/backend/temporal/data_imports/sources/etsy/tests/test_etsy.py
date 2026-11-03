@@ -456,6 +456,72 @@ class TestEtsyTransport:
             if request.path.endswith("/listings/batch/inventory")
         ] == ["10,11", "10", "11"]
 
+    @parameterized.expand(
+        [
+            # A listing deleted after the listings page was read must not fail the sync.
+            ("deleted listing is skipped", 404, None),
+            ("missing scope still fails", 403, HTTPError),
+        ]
+    )
+    def test_listing_properties_fan_out_per_listing(
+        self, _name: str, middle_status: int, expected_error: Optional[type[Exception]]
+    ) -> None:
+        result = _driver().run(
+            "listing_properties",
+            route(
+                {
+                    "/oauth/token": [_scripted_token()],
+                    "/shops/1/listings": [
+                        _scripted_page(_rows(3, start=10, key="listing_id"), 3),
+                        *[_scripted_page([], 0) for _ in range(len(LISTING_STATES) - 1)],
+                    ],
+                    "/shops/1/listings/10/properties": [
+                        _scripted_page(
+                            [
+                                {"property_id": 200, "property_name": "Primary color", "values": ["Red"]},
+                                {"property_id": 46, "property_name": "Material", "values": ["Oak"]},
+                            ],
+                            2,
+                        )
+                    ],
+                    "/shops/1/listings/11/properties": [ScriptedResponse(status=middle_status, json={"error": "x"})],
+                    "/shops/1/listings/12/properties": [_scripted_page([], 0)],
+                }
+            ),
+        )
+
+        if expected_error is not None:
+            assert isinstance(result.raised, expected_error)
+            return
+        assert result.raised is None
+        # Etsy's response omits the listing id, and property ids repeat across listings, so the
+        # rows need it to stay unique.
+        assert result.rows == [
+            {"property_id": 200, "property_name": "Primary color", "values": ["Red"], "listing_id": 10},
+            {"property_id": 46, "property_name": "Material", "values": ["Oak"], "listing_id": 10},
+        ]
+
+    def test_listing_properties_resume_the_listings_walk(self) -> None:
+        result = _driver().run(
+            "listing_properties",
+            route(
+                {
+                    "/oauth/token": [_scripted_token()],
+                    "/shops/1/listings": [
+                        _scripted_page(_rows(1, start=10, key="listing_id"), PAGE_SIZE + 1),
+                        _scripted_page([], 0),
+                    ],
+                    "/shops/1/listings/10/properties": [_scripted_page([{"property_id": 200}], 1)],
+                }
+            ),
+            resume_state=EtsyResumeConfig(offset=PAGE_SIZE, listing_state="draft"),
+        )
+
+        assert result.raised is None
+        listing_pages = [request for request in _get_requests(result) if request.path.endswith("/listings")]
+        assert (listing_pages[0].param("state"), listing_pages[0].param("offset")) == ("draft", str(PAGE_SIZE))
+        assert result.rows == [{"property_id": 200, "listing_id": 10}]
+
     def test_seller_taxonomy_flattens_the_tree_without_looking_up_a_shop(self) -> None:
         tree: list[dict[str, Any]] = [
             {

@@ -1895,6 +1895,25 @@ class TestSalesReports:
         assert api.report_dates("SUBSCRIPTION") == ["2026-03-02", "2026-03-03", "2026-03-04"]
 
     @time_machine.travel("2026-03-05 09:00:00", tick=False)
+    def test_sales_report_tolerates_an_expired_report_as_gone(self) -> None:
+        # Apple 410s a report date that has fallen out of its retention window instead of 404ing it —
+        # the oldest day in the lookback hits this on a cold start. It must not poison-pill the walk by
+        # raising on every retry of that day.
+        api = _FakeReportApi({"2026-03-04": "SKU\tUnits\nacme\t1\n"}, sales_status_code=410)
+
+        rows = _collect(
+            "sales_reports",
+            api,
+            _FakeManager(),
+            vendor_number="85234567",
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=date(2026, 3, 2),
+        )
+
+        assert [(row["report_date"], row["units"]) for row in rows] == [(date(2026, 3, 4), 1)]
+        assert api.report_dates("SALES") == ["2026-03-02", "2026-03-03", "2026-03-04"]
+
+    @time_machine.travel("2026-03-05 09:00:00", tick=False)
     def test_unknown_vendor_number_fails_instead_of_completing_empty(self) -> None:
         # Apple words a vendor number it doesn't know exactly like an empty subscription day, so a
         # typo used to be tolerated across the whole lookback and complete with zero rows. The sales

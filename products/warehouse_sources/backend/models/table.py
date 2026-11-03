@@ -104,6 +104,7 @@ ExtractErrors = {
     "Could not list objects in bucket": "Access was denied to the provided bucket. Check that the provided credentials can list this bucket (s3:ListBucket), then try again.",
     "file is empty": "The provided file contains no data",
     "The specified key does not exist": "The provided file doesn't exist in the bucket",
+    "The specified blob does not exist": "The file in your files URL doesn't exist in the container. Check the container name and file path, then try again.",
     # ClickHouse names the format in this message (CSV, CSVWithNames, Parquet, ...), so match the shared tail.
     "there are no files with provided path in S3 or all files are empty": "No files match your Files URL pattern, or all the matching files are empty. Check the folder path and wildcards, then try again.",
     "Bucket or key name are invalid in S3 URI": "The provided file or bucket doesn't exist",
@@ -187,13 +188,20 @@ type DataWarehouseTableIntrospectedColumns = dict[str, DataWarehouseTableIntrosp
 # and never user-facing.
 HIDDEN_COLUMNS: frozenset[str] = frozenset({"_dlt_id", "_dlt_load_id", "_ph_debug", PARTITION_KEY})
 
-# Capture bookkeeping that a history table carries next to `valid_from`, `valid_to` and `_ph_deleted`,
+# Capture and layout bookkeeping that a history table carries next to its validity columns and `_ph_deleted`,
 # which already tell a reader when a version held and whether it is a delete. The names mirror the
 # constants in `cdc/batcher.py`, which this module does not import because that pulls in pyarrow.
-HISTORY_HIDDEN_COLUMNS: frozenset[str] = frozenset({"_ph_cdc_op", "_ph_cdc_seq", "_ph_cdc_timestamp", "_ph_deleted_at"})
+HISTORY_HIDDEN_COLUMNS: frozenset[str] = frozenset(
+    {"_ph_cdc_op", "_ph_cdc_seq", "_ph_cdc_timestamp", "_ph_deleted_at", "_ph_history_partition"}
+)
 # Set in `options` when the sync registers a table as a schema's history table. Column names cannot
 # tell the two apart, because a source table can have its own `valid_from` and `valid_to` columns.
 HISTORY_TABLE_OPTION = "history_table"
+# Set in `options` when the sync creates a history table named `<table>_history` with the validity
+# columns `_ph_valid_from` / `_ph_valid_to`. A history table without it is older and keeps `_cdc`,
+# `valid_from` and `valid_to`.
+HISTORY_NAMING_OPTION = "history_naming"
+PH_HISTORY_NAMING = "ph_validity"
 
 
 # Characters that carry quoting meaning once a column name is written into SQL. The structure
@@ -616,8 +624,16 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     def is_history_table(self) -> bool:
         return (self.options or {}).get(HISTORY_TABLE_OPTION) is True
 
-    def mark_as_history_table(self) -> None:
-        self.options = {**(self.options or {}), HISTORY_TABLE_OPTION: True}
+    def mark_as_history_table(self, *, ph_naming: bool = False) -> None:
+        self.options = {
+            **(self.options or {}),
+            HISTORY_TABLE_OPTION: True,
+            **({HISTORY_NAMING_OPTION: PH_HISTORY_NAMING} if ph_naming else {}),
+        }
+
+    @property
+    def has_ph_history_naming(self) -> bool:
+        return (self.options or {}).get(HISTORY_NAMING_OPTION) == PH_HISTORY_NAMING
 
     def hidden_columns(self) -> frozenset[str]:
         """The plumbing columns to keep out of the catalog for this table."""

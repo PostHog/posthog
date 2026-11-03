@@ -28,17 +28,22 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.wikipedia_
     ACCESS_OPTIONS,
     AGENT_OPTIONS,
     ARTICLE_PAGEVIEWS_ENDPOINT,
+    COUNTRY_TOP_ARTICLES_ENDPOINT,
     DATA_START_DATE,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     MAX_ARTICLES,
+    MAX_COUNTRIES,
     WIKIPEDIA_PAGEVIEWS_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.wikipedia_pageviews.wikipedia_pageviews import (
     NO_ARTICLES_ERROR,
+    NO_COUNTRIES_ERROR,
     WikipediaPageviewsResumeConfig,
     _coerce_date,
+    _invalid_countries,
     _parse_articles,
+    _parse_countries,
     validate_project,
     wikipedia_pageviews_source,
 )
@@ -65,6 +70,9 @@ class WikipediaPageviewsSource(ResumableSource[WikipediaPageviewsSourceConfig, W
         return {
             NO_ARTICLES_ERROR: (
                 "Add one or more article titles in the source settings to sync the article_pageviews table."
+            ),
+            NO_COUNTRIES_ERROR: (
+                "Add one or more country codes in the source settings to sync the country_top_articles table."
             ),
             "400 Client Error": (
                 "The Wikimedia API rejected the request. Check the project domain, access method, "
@@ -93,9 +101,12 @@ class WikipediaPageviewsSource(ResumableSource[WikipediaPageviewsSourceConfig, W
             INCREMENTAL_FIELDS,
             names,
             descriptions={name: endpoint.description for name, endpoint in WIKIPEDIA_PAGEVIEWS_ENDPOINTS.items()},
-            # The per-article table needs article titles configured; don't default-enable a
-            # table whose sync would immediately fail.
-            should_sync_default={ARTICLE_PAGEVIEWS_ENDPOINT: bool(_parse_articles(config.article_names))},
+            # The per-article and per-country tables need titles or countries configured; don't
+            # default-enable a table whose sync would immediately fail.
+            should_sync_default={
+                ARTICLE_PAGEVIEWS_ENDPOINT: bool(_parse_articles(config.article_names)),
+                COUNTRY_TOP_ARTICLES_ENDPOINT: bool(_parse_countries(config.countries)),
+            },
         )
 
     def validate_credentials(
@@ -112,6 +123,14 @@ class WikipediaPageviewsSource(ResumableSource[WikipediaPageviewsSourceConfig, W
             return False, "Add one or more article titles in the source settings to sync this table."
         if len(articles) > MAX_ARTICLES:
             return False, f"Too many article titles. List at most {MAX_ARTICLES}."
+        countries = _parse_countries(config.countries)
+        if schema_name == COUNTRY_TOP_ARTICLES_ENDPOINT and not countries:
+            return False, "Add one or more country codes in the source settings to sync this table."
+        invalid_countries = _invalid_countries(countries)
+        if invalid_countries:
+            return False, f"Use two-letter country codes (e.g. US, FR). Not valid: {', '.join(invalid_countries)}."
+        if len(countries) > MAX_COUNTRIES:
+            return False, f"Too many country codes. List at most {MAX_COUNTRIES}."
         return validate_project(config.project, config.access, config.agent)
 
     def get_resumable_source_manager(
@@ -130,6 +149,7 @@ class WikipediaPageviewsSource(ResumableSource[WikipediaPageviewsSourceConfig, W
             access=config.access,
             agent=config.agent,
             article_names=config.article_names,
+            countries=config.countries,
             start_date=config.start_date,
             endpoint=inputs.schema_name,
             logger=inputs.logger,
@@ -151,7 +171,8 @@ class WikipediaPageviewsSource(ResumableSource[WikipediaPageviewsSourceConfig, W
                 "Sync pageview statistics for any Wikimedia project (Wikipedia, Wiktionary, Commons, and more) "
                 "from the public Wikimedia Analytics API. No credentials are required.\n\n"
                 "Data is available from July 2015 onward and lands with a delay of about a day. "
-                "To sync the `article_pageviews` table, list the article titles to track."
+                "To sync the `article_pageviews` table, list the article titles to track. "
+                "To sync the `country_top_articles` table, list the countries to track."
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/wikipedia-pageviews",
             iconPath="/static/services/wikipedia_pageviews.png",
@@ -196,6 +217,16 @@ class WikipediaPageviewsSource(ResumableSource[WikipediaPageviewsSourceConfig, W
                         placeholder="Albert Einstein, Marie Curie",
                         secret=False,
                         caption="Comma-separated list of article titles for the article_pageviews table.",
+                    ),
+                    SourceFieldInputConfig(
+                        name="countries",
+                        sync_setting=True,
+                        label="Countries",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="US, FR",
+                        secret=False,
+                        caption=f"Comma-separated list of two-letter country codes for the country_top_articles table. At most {MAX_COUNTRIES}.",
                     ),
                     SourceFieldInputConfig(
                         name="start_date",

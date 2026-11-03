@@ -26,11 +26,17 @@ from posthog.email import (
     EmailMessage,
     get_email_team_and_org_context,
     is_email_available,
+    is_http_email_service_available,
     single_line,
 )
 from posthog.event_usage import groups
 from posthog.geoip import get_geoip_properties
-from posthog.helpers.email_utils import sanitize_display_name, sanitize_message_body
+from posthog.helpers.email_utils import (
+    ESPSuppressionReason,
+    check_esp_suppression,
+    sanitize_display_name,
+    sanitize_message_body,
+)
 from posthog.helpers.two_factor_session import CODE_TTL_SECONDS
 from posthog.models import (
     Organization,
@@ -43,7 +49,8 @@ from posthog.models import (
 )
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.comment import Comment
-from posthog.models.comment.utils import DESKTOP_COMMENT_SCOPES, build_comment_item_url
+from posthog.models.comment.comment import OBSERVATION_COMMENT_SCOPES
+from posthog.models.comment.utils import DESKTOP_COMMENT_SCOPES, OBSERVATION_NOTE_PLACEHOLDER, build_comment_item_url
 from posthog.models.messaging import MessagingRecord, get_email_hashes
 from posthog.models.organization_notification_lock import (
     GovernedSetting,
@@ -429,6 +436,25 @@ def should_send_pipeline_error_notification(
     return failure_rate > threshold
 
 
+@shared_task(ignore_result=True)
+@skip_team_scope_audit
+def check_invite_email_suppression(invite_id: str) -> None:
+    invite = OrganizationInvite.objects.select_related("created_by").filter(id=invite_id).first()
+    if invite is None or not invite.target_email or not is_http_email_service_available():
+        return
+    # Only a confirmed suppression counts. The MFA flow treats an API failure as suppressed, but here that would flag healthy addresses.
+    if check_esp_suppression(invite.target_email).reason != ESPSuppressionReason.SUPPRESSED:
+        return
+    OrganizationInvite.objects.filter(id=invite_id).update(email_suppressed=True)
+    with ph_scoped_capture() as capture:
+        capture(
+            distinct_id=str(invite.created_by.distinct_id) if invite.created_by else f"invite_{invite_id}",
+            event="invite email suppressed",
+            properties={"invite_id": invite_id, "is_setup_delegation": invite.is_setup_delegation},
+            groups={"organization": str(invite.organization_id)},
+        )
+
+
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
 def send_invite(invite_id: str) -> None:
@@ -542,6 +568,8 @@ def send_invite(invite_id: str) -> None:
     else:
         message.send()
         OrganizationInvite.objects.filter(pk=invite_id).update(emailing_attempt_made=True)
+    # The lookup can take seconds, so it runs in its own task rather than delaying the invite email.
+    check_invite_email_suppression.delay(str(invite_id))
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
@@ -1022,8 +1050,11 @@ def send_email_sending_reputation_finding(
         if high_impact
         else f"Reputation warning for email sending in project '{team}'"
     )
+    # AWS can close and reopen a LOW finding many times a day, and every reopen dispatches this
+    # task again. Keying LOW on the ISO week lets the per-recipient dedupe send it once a week.
+    dedupe_period = found_at if high_impact else datetime.datetime.fromisoformat(found_at).strftime("%G-W%V")
     message = EmailMessage(
-        campaign_key=f"email_sending_reputation_finding_{team_id}_{impact}_{found_at}",
+        campaign_key=f"email_sending_reputation_finding_{team_id}_{impact}_{dedupe_period}",
         subject=subject,
         template_name="email_sending_reputation_finding",
         template_context={
@@ -2139,7 +2170,10 @@ def send_discussions_mentioned(comment_id: str, mentioned_user_ids: list[int], s
             template_name="discussions_mentioned",
             template_context={
                 "commenter": commenter,
-                "content": comment.content,
+                # The email is sent later than the access check on the mention, so it never carries an observation note.
+                "content": OBSERVATION_NOTE_PLACEHOLDER
+                if comment.scope in OBSERVATION_COMMENT_SCOPES
+                else comment.content,
                 "team": team,
                 "href": href,
             },

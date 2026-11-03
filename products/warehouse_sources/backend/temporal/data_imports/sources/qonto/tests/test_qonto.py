@@ -67,9 +67,21 @@ def drive(endpoint: str, script: Script, **inputs: Any) -> DriveResult:
         (True, datetime(2025, 1, 2, 3, 4, 5), "2025-01-02T03:04:05+00:00"),
     ],
 )
-@pytest.mark.parametrize("endpoint", ["transactions", "transfers"])
+@pytest.mark.parametrize(
+    ("endpoint", "filter_param", "sort"),
+    [
+        ("transactions", "updated_at_from", "desc"),
+        ("transfers", "updated_at_from", "desc"),
+        ("supplier_invoices", "filter[updated_at_from]", "asc"),
+    ],
+)
 def test_incremental_filters(
-    endpoint: str, incremental: bool, last_value: str | datetime | None, expected: str | None
+    endpoint: str,
+    filter_param: str,
+    sort: str,
+    incremental: bool,
+    last_value: str | datetime | None,
+    expected: str | None,
 ) -> None:
     responses: list[ScriptedResponse | BaseException] = [
         page(endpoint, [{"id": "row"}], 1, 2),
@@ -87,13 +99,13 @@ def test_incremental_filters(
     requests = [request for request in result.requests if request.path != "/v2/organization"]
     assert len(requests) == 2
     for request in requests:
-        assert request.param("updated_at_from") == expected
-        assert request.query["sort_by"] == ("updated_at:desc",)
+        assert request.param(filter_param) == expected
+        assert request.query["sort_by"] == (f"updated_at:{sort}",)
         if endpoint == "transactions":
             assert request.query["status[]"] == ("pending", "declined", "completed", "reversed")
             assert request.query["bank_account_id"] == ("account-1",)
     assert result.response is not None
-    assert result.response.sort_mode == "desc"
+    assert result.response.sort_mode == sort
 
 
 @pytest.mark.parametrize(
@@ -106,6 +118,7 @@ def test_incremental_filters(
             "client_invoices",
             {"per_page": ("100",), "sort_by": ("created_at:asc",), "exclude_imported": ("false",)},
         ),
+        ("credit_notes", "credit_notes", {"per_page": ("100",), "sort_by": ("created_at:asc",)}),
     ],
 )
 def test_full_refresh_endpoints_walk_every_page(

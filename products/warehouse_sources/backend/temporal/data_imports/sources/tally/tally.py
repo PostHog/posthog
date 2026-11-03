@@ -32,7 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sou
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.tally.settings import (
     SUBMISSION_FILTER_COMPLETED,
-    TALLY_API_VERSION,
+    TALLY_API_VERSION_2026_10_27,
     TALLY_BASE_URL,
     TALLY_ENDPOINTS,
     TALLY_VERSION_HEADER,
@@ -305,7 +305,7 @@ def tally_source(
     )
 
 
-def validate_credentials(api_key: str, api_version: str = TALLY_API_VERSION) -> tuple[bool, Optional[int]]:
+def validate_credentials(api_key: str, api_version: str = TALLY_API_VERSION_2026_10_27) -> tuple[bool, Optional[int]]:
     """Probe the cheapest authenticated endpoint and report `(is_valid, status_code)`.
 
     `/forms?limit=1` needs no extra grant beyond a working key, so it validates the key itself

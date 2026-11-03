@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     OutbrainSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.outbrain.outbrain import (
+    CAMPAIGN_PERIODIC_ROW_LIMIT,
     PAGE_SIZE,
     REPORT_ROW_LIMIT,
     OutbrainResumeConfig,
@@ -81,6 +82,44 @@ class TestEntityStreams:
         assert result.raised is None
         assert [(row["id"], row["_campaign_id"]) for row in result.rows] == [("pl1", "c1")]
         assert result.requests[2].path == "/amplify/v0.1/campaigns/c1/promotedLinks"
+
+    def test_segments_include_archived(self, mock_cache: mock.MagicMock) -> None:
+        mock_cache.get.return_value = "tok"
+        result = _driver().run(
+            "segments",
+            [
+                ScriptedResponse(json={"marketers": [{"id": "m1"}]}),
+                ScriptedResponse(json={"segments": [{"id": "s1"}], "count": 1}),
+            ],
+        )
+
+        assert result.raised is None
+        assert [(row["id"], row["_marketer_id"]) for row in result.rows] == [("s1", "m1")]
+        assert result.requests[1].path == "/amplify/v0.1/marketers/m1/segments"
+        assert result.requests[1].param("includeArchived") == "true"
+
+    def test_campaign_locations_tag_targeted_and_excluded_rows(self, mock_cache: mock.MagicMock) -> None:
+        mock_cache.get.return_value = "tok"
+        result = _driver().run(
+            "campaign_locations",
+            [
+                ScriptedResponse(json={"marketers": [{"id": "m1"}]}),
+                ScriptedResponse(json={"campaigns": [{"id": "c1"}]}),
+                ScriptedResponse(
+                    json={
+                        "geoLocations": [{"id": "us", "geoType": "Country"}],
+                        "excludedGeoLocations": [{"id": "al", "geoType": "Region", "parent": {"id": "us"}}],
+                    }
+                ),
+            ],
+        )
+
+        assert result.raised is None
+        assert [(row["id"], row["_campaign_id"], row["_excluded"]) for row in result.rows] == [
+            ("us", "c1", False),
+            ("al", "c1", True),
+        ]
+        assert result.requests[2].path == "/amplify/v0.1/campaigns/c1/locations"
 
     def test_resumes_from_saved_parent_index(self, mock_cache: mock.MagicMock) -> None:
         mock_cache.get.return_value = "tok"
@@ -179,12 +218,64 @@ class TestReportStreams:
         assert "_date" not in result.rows[0]
         assert result.requests[1].param("breakdown") is None
 
+    def test_campaign_periodic_report_flattens_campaigns_and_pages_until_no_campaign_is_full(
+        self, mock_cache: mock.MagicMock
+    ) -> None:
+        mock_cache.get.return_value = "tok"
+        full_campaign = [
+            {"metadata": {"fromDate": f"2024-01-{day:02d}"}, "metrics": {"clicks": day}}
+            for day in range(1, CAMPAIGN_PERIODIC_ROW_LIMIT + 1)
+        ]
+        result = _driver().run(
+            "campaign_performance_daily",
+            [
+                ScriptedResponse(json={"marketers": [{"id": "m1"}]}),
+                ScriptedResponse(
+                    json={
+                        "campaignResults": [
+                            {"campaignId": "c1", "results": full_campaign},
+                            {"campaignId": "c2", "results": [{"metadata": {"fromDate": "2024-01-05"}, "metrics": {}}]},
+                            {"results": [{"metadata": {"fromDate": "2024-01-05"}, "metrics": {}}]},
+                        ],
+                        "totalCampaigns": 3,
+                    }
+                ),
+                ScriptedResponse(
+                    json={
+                        "campaignResults": [
+                            {"campaignId": "c1", "results": [{"metadata": {"fromDate": "2024-02-01"}, "metrics": {}}]}
+                        ]
+                    }
+                ),
+            ],
+            incremental_field="_date",
+            db_incremental_field_last_value="2024-06-01",
+        )
+
+        assert result.raised is None
+        assert [len(batch) for batch in result.items] == [CAMPAIGN_PERIODIC_ROW_LIMIT + 1, 1]
+        assert result.rows[CAMPAIGN_PERIODIC_ROW_LIMIT] == {
+            "metadata": {"fromDate": "2024-01-05"},
+            "metrics": {},
+            "_marketer_id": "m1",
+            "_campaign_id": "c2",
+            "_date": "2024-01-05",
+        }
+        assert result.rows[-1]["_campaign_id"] == "c1"
+        assert result.paths[1:] == ["/amplify/v0.1/reports/marketers/m1/campaigns/periodic"] * 2
+        assert [request.param("offset") for request in result.requests[1:]] == ["0", str(CAMPAIGN_PERIODIC_ROW_LIMIT)]
+        assert all(request.param("limit") == str(CAMPAIGN_PERIODIC_ROW_LIMIT) for request in result.requests[1:])
+        assert all(request.param("breakdown") == "daily" for request in result.requests[1:])
+        assert all(request.param("includeArchivedCampaigns") == "true" for request in result.requests[1:])
+        assert result.requests[1].param("from") == "2024-05-02"
+
     @pytest.mark.parametrize(
         "endpoint, report_path",
         [
             ("promoted_link_performance", "promotedContent"),
             ("publisher_performance", "publishers"),
             ("section_performance", "sections"),
+            ("interest_performance", "interests"),
         ],
     )
     def test_breakdown_report_pages_with_offset(

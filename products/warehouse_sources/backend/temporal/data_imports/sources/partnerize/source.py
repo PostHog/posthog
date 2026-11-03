@@ -118,9 +118,9 @@ You can find your **user application key** and **user API key** under **Account 
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Conversions and clicks reports accept a server-side start_date/end_date window, so they
-        # sync incrementally; campaigns and the reference catalogs expose no timestamp filter and
-        # are full refresh only.
+        # The conversions, conversion items, and clicks reports accept a server-side
+        # start_date/end_date window, so they sync incrementally; every other endpoint exposes no
+        # timestamp filter and is full refresh only.
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(

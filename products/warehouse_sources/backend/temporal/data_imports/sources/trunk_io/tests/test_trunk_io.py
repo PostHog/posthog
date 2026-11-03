@@ -28,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.trunk_io.t
     TrunkPageQueryPaginator,
     TrunkRepo,
     validate_credentials,
+    validate_v2_credentials,
 )
 
 REPO = TrunkRepo(host="github.com", owner="my-org", name="my-repo")
@@ -48,7 +49,14 @@ def _page(next_page_token: str = "") -> dict[str, Any]:
     }
 
 
-def _run(endpoint: str, script: Script, resume_state: TrunkIoResumeConfig | None = None, **kwargs: Any) -> DriveResult:
+def _run(
+    endpoint: str,
+    script: Script,
+    resume_state: TrunkIoResumeConfig | None = None,
+    api_version: str = "v1",
+    trunk_repository_id: str | None = None,
+    **kwargs: Any,
+) -> DriveResult:
     config = TrunkIoSourceConfig(
         api_token="token",
         org_url_slug="my-org",
@@ -56,8 +64,11 @@ def _run(endpoint: str, script: Script, resume_state: TrunkIoResumeConfig | None
         repo_owner=REPO.owner,
         repo_name=REPO.name,
         merge_queue_target_branch="main",
+        trunk_repository_id=trunk_repository_id,
     )
-    return SourceDriver(TrunkIoSource(), config).run(endpoint, script, resume_state=resume_state, **kwargs)
+    return SourceDriver(TrunkIoSource(), config).run(
+        endpoint, script, resume_state=resume_state, api_version=api_version, **kwargs
+    )
 
 
 class TestTrunkPageQueryPaginator:
@@ -260,38 +271,91 @@ class TestMergeQueuePullRequests:
 class TestV2Lists:
     @parameterized.expand(
         [
-            ("test_collections", "TestCollections", "/v2/test-collections"),
-            ("tests", "Tests", "/v2/tests"),
+            ("test_collections", "TestCollections", "/v2/test-collections", {}),
+            ("tests", "Tests", "/v2/tests", {}),
+            (
+                "unhealthy_tests",
+                "UnhealthyTests",
+                "/v2/tests",
+                {"status": ("flaky,broken",), "include": ("metrics",), "period": ("7d",)},
+            ),
+            (
+                "quarantined_tests",
+                "QuarantinedTests",
+                "/v2/tests",
+                {"quarantineState": ("quarantined",), "include": ("metrics",), "period": ("7d",)},
+            ),
+            (
+                "failing_tests",
+                "FailingTests",
+                "/v2/tests",
+                {"sort": ("lastFailureAt",), "include": ("metrics",), "period": ("7d",)},
+            ),
         ]
     )
-    def test_paginates_v2_cursor_with_bearer_auth(self, _label: str, schema_name: str, expected_path: str) -> None:
+    def test_paginates_v2_cursor_with_bearer_auth(
+        self, _label: str, schema_name: str, expected_path: str, expected_filters: dict[str, tuple[str, ...]]
+    ) -> None:
         result = _run(
             schema_name,
             [
                 _ok({"data": [{"id": "a"}], "nextCursor": "cursor-1", "hasMore": True}),
                 _ok({"data": [{"id": "b"}], "nextCursor": None, "hasMore": False}),
             ],
+            api_version="v2",
         )
 
         assert [row["id"] for row in result.rows] == ["a", "b"]
         assert [(r.method.upper(), r.origin, r.path) for r in result.requests] == [
             ("GET", "https://api.trunk.io", expected_path)
         ] * 2
-        assert dict(result.requests[0].query) == {"limit": ("100",)}
-        assert dict(result.requests[1].query) == {"limit": ("100",), "cursor": ("cursor-1",)}
+        assert dict(result.requests[0].query) == {"limit": ("100",), **expected_filters}
+        assert dict(result.requests[1].query) == {"limit": ("100",), **expected_filters, "cursor": ("cursor-1",)}
         assert result.requests[0].headers["authorization"] == "Bearer token"
         assert all(request.read_timeout == 60.0 for request in result.requests)
-        assert result.saved_states == [TrunkIoResumeConfig(cursor="cursor-1")]
+        assert [state.cursor for state in result.saved_states] == ["cursor-1"]
         assert result.final_state is None
+
+    @time_machine.travel("2024-06-15T00:00:00Z", tick=False)
+    def test_failing_tests_stamp_one_synced_through_per_run(self) -> None:
+        result = _run(
+            "FailingTests",
+            [
+                _ok({"data": [{"id": "a"}], "nextCursor": "cursor-1", "hasMore": True}),
+                _ok({"data": [{"id": "b"}], "nextCursor": None, "hasMore": False}),
+            ],
+            api_version="v2",
+        )
+
+        assert {row["synced_through"] for row in result.rows} == {"2024-06-15T00:00:00Z"}
+        assert result.saved_states == [TrunkIoResumeConfig(cursor="cursor-1", synced_through="2024-06-15T00:00:00Z")]
 
     def test_resume_seeds_saved_cursor(self) -> None:
         result = _run(
             "Tests",
             [_ok({"data": [], "nextCursor": None, "hasMore": False})],
             resume_state=TrunkIoResumeConfig(cursor="cursor-resumed"),
+            api_version="v2",
         )
 
         assert result.requests[0].param("cursor") == "cursor-resumed"
+
+    def test_repository_id_keeps_only_that_repositorys_tests_across_pages(self) -> None:
+        result = _run(
+            "QuarantinedTests",
+            [
+                _ok({"data": [{"id": "other", "repositoryId": "repo-b"}], "nextCursor": "cursor-1", "hasMore": True}),
+                _ok({"data": [{"id": "other-2", "repositoryId": "repo-b"}], "nextCursor": "cursor-2", "hasMore": True}),
+                _ok({"data": [{"id": "ours", "repositoryId": "repo-a"}], "nextCursor": None, "hasMore": False}),
+            ],
+            api_version="v2",
+            trunk_repository_id=" repo-a ",
+        )
+
+        assert [row["id"] for row in result.rows] == ["ours"]
+        assert len(result.requests) == 3
+        # Pages filtered down to nothing yield no item, so only a safe point commits their cursors.
+        assert [state.cursor for state in result.committed_states] == ["cursor-1", "cursor-2"]
 
 
 class TestClientRedirectHandling:
@@ -311,10 +375,16 @@ class TestClientRedirectHandling:
 
 
 class TestValidateCredentials:
-    def test_credential_check_disables_redirects(self) -> None:
+    @parameterized.expand(
+        [
+            ("v1", lambda: validate_credentials("token", "my-org", REPO)),
+            ("v2", lambda: validate_v2_credentials("token")),
+        ]
+    )
+    def test_credential_check_disables_redirects(self, _label: str, validate: Any) -> None:
         # Redirects off keeps the token from leaking to a redirect target during validation.
         with scripted_network([_ok({})]) as network:
-            validate_credentials("token", "my-org", REPO)
+            validate()
 
         assert network.session_options
         assert all(options["allow_redirects"] is False for options in network.session_options)

@@ -48,6 +48,9 @@ class TestProductboardSource:
             ("notes", "/notes"),
             ("members", "/members"),
             ("teams", "/teams"),
+            # Fan-out tables probe their parent listing, since the child path needs a parent id.
+            ("entity_relationships", "/entities"),
+            ("note_relationships", "/notes"),
         ],
     )
     def test_probe_path(self, schema_name, expected_path):

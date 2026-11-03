@@ -18,7 +18,7 @@ import structlog
 from openai import OpenAI
 
 from posthog.exceptions_capture import capture_exception
-from posthog.llm.gateway_client import get_llm_client
+from posthog.llm.gateway_client import build_openai_client
 
 from products.growth.backend.enrichment.labels import (
     TransientToolError,
@@ -64,7 +64,7 @@ def list_gateway_models() -> list[str]:
     if _model_list_cache["models"] is not None and now < _model_list_cache["expires_at"]:
         return list(_model_list_cache["models"])
     try:
-        client = get_llm_client(product="growth")
+        client = build_openai_client(product="growth", ai_product="growth")
         models = sorted({model.id for model in client.models.list()})
         if not models:
             raise ValueError("gateway returned no models")

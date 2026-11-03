@@ -1100,6 +1100,7 @@ export interface CommentApi {
 }
 
 export interface PaginatedCommentListApi {
+    count: number
     /** @nullable */
     next?: string | null
     /** @nullable */
@@ -1366,6 +1367,10 @@ export type RolesRoleMembershipsListParams = {
 
 export type ActivityLogListParams = {
     /**
+     * The pagination cursor value.
+     */
+    cursor?: string
+    /**
      * Filter by the ID of the affected resource.
      * @minLength 1
      */
@@ -1420,6 +1425,7 @@ export type ActivityLogListParams = {
      * * `EarlyAccessFeature` - EarlyAccessFeature
      * * `SessionRecordingPlaylist` - SessionRecordingPlaylist
      * * `ReplayScanner` - ReplayScanner
+     * * `ReplayObservation` - ReplayObservation
      * * `VisionAlertConfiguration` - VisionAlertConfiguration
      * * `Comment` - Comment
      * * `Team` - Team
@@ -1471,6 +1477,7 @@ export type ActivityLogListParams = {
      * * `DashboardWidget` - DashboardWidget
      * * `ProductTour` - ProductTour
      * * `Ticket` - Ticket
+     * * `TicketMacro` - TicketMacro
      * * `KnowledgeSource` - KnowledgeSource
      * * `KnowledgeLibrary` - KnowledgeLibrary
      * * `InstanceSetting` - InstanceSetting
@@ -1536,6 +1543,7 @@ export const ActivityLogListScope = {
     EarlyAccessFeature: 'EarlyAccessFeature',
     SessionRecordingPlaylist: 'SessionRecordingPlaylist',
     ReplayScanner: 'ReplayScanner',
+    ReplayObservation: 'ReplayObservation',
     VisionAlertConfiguration: 'VisionAlertConfiguration',
     Comment: 'Comment',
     Team: 'Team',
@@ -1587,6 +1595,7 @@ export const ActivityLogListScope = {
     DashboardWidget: 'DashboardWidget',
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
+    TicketMacro: 'TicketMacro',
     KnowledgeSource: 'KnowledgeSource',
     KnowledgeLibrary: 'KnowledgeLibrary',
     InstanceSetting: 'InstanceSetting',
@@ -1639,6 +1648,7 @@ export const ActivityLogListScope = {
  * * `EarlyAccessFeature` - EarlyAccessFeature
  * * `SessionRecordingPlaylist` - SessionRecordingPlaylist
  * * `ReplayScanner` - ReplayScanner
+ * * `ReplayObservation` - ReplayObservation
  * * `VisionAlertConfiguration` - VisionAlertConfiguration
  * * `Comment` - Comment
  * * `Team` - Team
@@ -1690,6 +1700,7 @@ export const ActivityLogListScope = {
  * * `DashboardWidget` - DashboardWidget
  * * `ProductTour` - ProductTour
  * * `Ticket` - Ticket
+ * * `TicketMacro` - TicketMacro
  * * `KnowledgeSource` - KnowledgeSource
  * * `KnowledgeLibrary` - KnowledgeLibrary
  * * `InstanceSetting` - InstanceSetting
@@ -1743,6 +1754,7 @@ export const ActivityLogListScopesItem = {
     EarlyAccessFeature: 'EarlyAccessFeature',
     SessionRecordingPlaylist: 'SessionRecordingPlaylist',
     ReplayScanner: 'ReplayScanner',
+    ReplayObservation: 'ReplayObservation',
     VisionAlertConfiguration: 'VisionAlertConfiguration',
     Comment: 'Comment',
     Team: 'Team',
@@ -1794,6 +1806,7 @@ export const ActivityLogListScopesItem = {
     DashboardWidget: 'DashboardWidget',
     ProductTour: 'ProductTour',
     Ticket: 'Ticket',
+    TicketMacro: 'TicketMacro',
     KnowledgeSource: 'KnowledgeSource',
     KnowledgeLibrary: 'KnowledgeLibrary',
     InstanceSetting: 'InstanceSetting',
@@ -1826,6 +1839,10 @@ export type AdvancedActivityLogsListParams = {
      * Filter by API clients that generated the activity (the x-posthog-client header, or 'scout:<skill_name>' for a scout run).
      */
     clients?: string[]
+    /**
+     * The pagination cursor value.
+     */
+    cursor?: string
     /**
      * JSON-encoded map of `detail` field paths to {operation, value} filters. Allowed operations: exact, contains, in.
      */

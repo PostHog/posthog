@@ -145,7 +145,7 @@ class TestCollectEligible:
 
         # One query per team: .filter().values_list("item_id", author_type, created_at) rows.
         now = timezone.now()
-        rows: list[tuple[str, str, object]] = []
+        rows: list[tuple[str, str, object]] = [(ticket_id, "customer", now - timedelta(minutes=10))]
         if has_ai:
             rows.append((ticket_id, "AI", now))
         if has_team_reply:
@@ -222,7 +222,11 @@ class TestCollectEligible:
         mock_ticket_model.objects.filter.return_value.select_related.return_value = [ticket]
 
         # AI note exists → engaged → skipped.
-        mock_comment_model.objects.filter.return_value.values_list.return_value = [(ticket_id, "AI", timezone.now())]
+        now = timezone.now()
+        mock_comment_model.objects.filter.return_value.values_list.return_value = [
+            (ticket_id, "customer", now - timedelta(minutes=10)),
+            (ticket_id, "AI", now),
+        ]
 
         result = _collect_eligible()
         assert result == []
@@ -495,6 +499,40 @@ class TestCollectEligibleAwaitingClarification:
         else:
             assert result == []
 
+    @parameterized.expand(
+        [
+            ("opener_without_customer_reply", [("human", 4)], False, None),
+            ("settled_customer_reply_after_opener", [("human", 4), ("customer", 3)], True, None),
+            ("customer_reply_still_settling", [("human", 4), ("customer", 0)], False, None),
+            (
+                "team_replied_after_customer",
+                [("human", 4), ("customer", 3), ("human", 2)],
+                False,
+                "skipped_team_replied",
+            ),
+            ("ai_note_after_customer", [("human", 4), ("customer", 3), ("AI", 2)], False, None),
+            ("inbound_team_reply", [("customer", 4), ("human", 3)], False, "skipped_team_replied"),
+        ]
+    )
+    @pytest.mark.django_db
+    @patch(f"{COORD_MODULE}._is_master_flag_enabled", return_value=True)
+    def test_first_draft_eligibility_by_comment_order(
+        self,
+        _name,
+        comments,
+        expected_eligible,
+        expected_result,
+        mock_master_flag,
+    ):
+        team, ticket = self._team_and_ticket(status="open", awaiting=False)
+        for author_type, minutes_ago in comments:
+            self._comment(team, ticket, author_type=author_type, minutes_ago=minutes_ago)
+
+        result = _collect_eligible()
+        assert [t.ticket_id for t in result] == ([str(ticket.id)] if expected_eligible else [])
+        ticket.refresh_from_db()
+        assert ticket.ai_triage.get("result") == expected_result
+
     @pytest.mark.django_db
     @patch(f"{COORD_MODULE}._is_master_flag_enabled", return_value=True)
     def test_second_clarification_round_is_not_eligible(self, mock_master_flag):
@@ -514,7 +552,6 @@ class TestCollectEligibleAwaitingClarification:
 
     @parameterized.expand(
         [
-            ("team_started_ticket", {}, True, None, "human", "skipped_team_replied"),
             ("ai_note_only", {}, True, None, "AI", None),
             (
                 "channel_excluded",

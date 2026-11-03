@@ -1,5 +1,6 @@
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
+    CanonicalEndpoint,
 )
 
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
@@ -226,4 +227,103 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "metadata": "Additional context about the event, such as the affected service ID.",
         },
     },
+    "blueprints": {
+        "description": "Blueprints: infrastructure-as-code definitions (render.yaml) that create and update services from a Git repository.",
+        "docs_url": "https://api-docs.render.com/reference/list-blueprints",
+        "columns": {
+            "id": "Unique identifier for the Blueprint.",
+            "ownerId": "ID of the workspace that owns the Blueprint.",
+            "name": "Name of the Blueprint.",
+            "status": "Sync status of the Blueprint (created, paused, in_sync, syncing, or error). A Blueprint stays created until its first sync is approved.",
+            "autoSync": "Whether the Blueprint re-syncs on each git push to the configured branch.",
+            "repo": "Git repository that holds the Blueprint file.",
+            "branch": "Git branch the Blueprint syncs from.",
+            "path": "Path to the Blueprint file in the repository.",
+            "lastSync": "When the Blueprint last synced.",
+        },
+    },
+    "blueprint_syncs": {
+        "description": "Sync history of each Blueprint: every time Render applied the Blueprint file to the workspace. Syncs that are planned but not yet approved are not included.",
+        "docs_url": "https://api-docs.render.com/reference/list-blueprint-syncs",
+        "columns": {
+            "blueprintId": "ID of the Blueprint the sync belongs to.",
+            "id": "Unique identifier for the sync.",
+            "commit": "The Git commit the sync applied.",
+            "startedAt": "When the sync started.",
+            "completedAt": "When the sync finished.",
+            "state": "State of the sync (pending, running, error, or success).",
+        },
+    },
+    "disk_snapshots": {
+        "description": "Point-in-time snapshots of each persistent disk, which a disk can be restored from.",
+        "docs_url": "https://api-docs.render.com/reference/list-snapshots",
+        "columns": {
+            "diskId": "ID of the disk the snapshot was taken of.",
+            "snapshotKey": "Key that identifies the snapshot, used to restore it.",
+            "instanceId": "Instance the disk was attached to. Each instance of a scaled service has its own disk snapshots.",
+            "createdAt": "When the snapshot was taken.",
+        },
+    },
+    "postgres_top_queries": {
+        "description": "The top 50 queries by total execution time on each Postgres database, from pg_stat_statements. Statistics are cumulative since they were last reset.",
+        "docs_url": "https://api-docs.render.com/reference/list-postgres-top-queries",
+        "columns": {
+            "postgresId": "ID of the Postgres database.",
+            "queryId": "pg_stat_statements identifier of the normalized query.",
+            "query": "Normalized query text, with constants replaced by placeholders.",
+            "calls": "Number of times the query ran.",
+            "totalTimeMs": "Total time spent running the query, in milliseconds.",
+            "minTimeMs": "Fastest run of the query, in milliseconds.",
+            "maxTimeMs": "Slowest run of the query, in milliseconds.",
+            "meanTimeMs": "Mean run time of the query, in milliseconds.",
+            "stddevTimeMs": "Standard deviation of the query run time, in milliseconds.",
+            "rows": "Total number of rows the query retrieved or affected.",
+            "sharedBlocksHit": "Shared buffer cache hits.",
+            "sharedBlocksRead": "Shared blocks read from disk.",
+            "tempBlocksRead": "Temporary blocks read, a sign of sorts or hashes that spill to disk.",
+            "tempBlocksWritten": "Temporary blocks written, a sign of sorts or hashes that spill to disk.",
+        },
+    },
+    "postgres_table_scans": {
+        "description": "Number of sequential scans run against each table on each Postgres database. A high count on a large table often points to a missing index.",
+        "docs_url": "https://api-docs.render.com/reference/list-postgres-table-scans",
+        "columns": {
+            "postgresId": "ID of the Postgres database.",
+            "Database": "Database that holds the table.",
+            "Schema": "Schema that holds the table.",
+            "Table": "Name of the table.",
+            "Scans": "Number of sequential scans run against the table.",
+        },
+    },
 }
+
+
+def _metric_description(description: str, operation_id: str) -> CanonicalEndpoint:
+    return {
+        "description": f"{description} One row per service, time series and time bucket. Render keeps 7 to 30 days of metrics, depending on the workspace plan.",
+        "docs_url": f"https://api-docs.render.com/reference/{operation_id}",
+        "columns": {
+            "serviceId": "ID of the service the metric belongs to.",
+            "seriesKey": "The series labels as sorted field=value pairs. Identifies the series within the service.",
+            "labels": "Labels that describe the time series, such as the instance, status code, host, or quantile.",
+            "unit": "Unit of the metric value.",
+            "timestamp": "Start of the time bucket.",
+            "value": "Metric value for the time bucket.",
+        },
+    }
+
+
+CANONICAL_DESCRIPTIONS.update(
+    {
+        "metrics_cpu": _metric_description("CPU usage of each service.", "get-cpu"),
+        "metrics_memory": _metric_description("Memory usage of each service.", "get-memory"),
+        "metrics_http_requests": _metric_description("HTTP request count of each service.", "get-http-requests"),
+        "metrics_http_latency": _metric_description(
+            "HTTP response latency quantiles of each service.", "get-http-latency"
+        ),
+        "metrics_instance_count": _metric_description(
+            "Number of running instances of each service.", "get-instance-count"
+        ),
+        "metrics_bandwidth": _metric_description("Outbound bandwidth usage of each service.", "get-bandwidth"),
+    }
+)

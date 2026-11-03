@@ -181,8 +181,10 @@ def get_activity_overview(
 ) -> contracts.ActivityOverview:
     """Compute the activity view's aggregates and recent-call feed in one pass.
 
-    Bounded to the last 30 days; always computed fresh (the view polls to watch
-    data arrive). ``properties`` and ``filter_test_accounts`` are the tabs' shared filters.
+    Bounded to the last 30 days. Cached by the filters and the caller's property restrictions:
+    for 5 minutes without restrictions, for less than one poll interval with them.
+
+    ``properties`` and ``filter_test_accounts`` are the tabs' shared filters.
     """
     return logic.get_activity_overview(
         team, properties=properties, filter_test_accounts=filter_test_accounts, user=user

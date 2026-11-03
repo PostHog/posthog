@@ -37,6 +37,8 @@ class OpsgenieEndpointConfig:
     data_selector: str = "data"
     # JSON path of the next-page cursor, for fan-out children that page with a cursor, not an offset.
     next_cursor_path: Optional[str] = None
+    # JSON path of the full next-page URL, for fan-out children whose cursor sits on each row.
+    next_url_path: Optional[str] = None
 
 
 _CREATED_AT_INCREMENTAL: list[IncrementalField] = [
@@ -114,6 +116,25 @@ OPSGENIE_ENDPOINTS: dict[str, OpsgenieEndpointConfig] = {
             child_params={"order": "asc"},
         ),
     ),
+    "alert_logs": OpsgenieEndpointConfig(
+        name="alert_logs",
+        path="/v2/alerts/{alert_id}/logs",
+        # A log entry has no id; its `offset` cursor (epoch millis + nanos) is unique within the alert.
+        primary_keys=["alert_id", "offset"],
+        partition_key="createdAt",
+        next_url_path="paging.next",
+        fanout=DependentEndpointConfig(
+            parent_name="alerts",
+            resolve_param="alert_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "alert_id"},
+            parent_params={"sort": "createdAt", "order": "asc"},
+            child_params={"order": "asc", "direction": "next"},
+            # An alert deleted after the alert listing returns 404; skip it rather than fail the run.
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
     "schedule_on_calls": OpsgenieEndpointConfig(
         name="schedule_on_calls",
         path="/v2/schedules/{schedule_id}/on-calls",
@@ -139,6 +160,20 @@ OPSGENIE_ENDPOINTS: dict[str, OpsgenieEndpointConfig] = {
             resolve_field="id",
             include_from_parent=["id"],
             parent_field_renames={"id": "schedule_id"},
+        ),
+    ),
+    "schedule_overrides": OpsgenieEndpointConfig(
+        name="schedule_overrides",
+        path="/v2/schedules/{schedule_id}/overrides",
+        # Opsgenie allows only one override with a given alias per schedule.
+        primary_keys=["schedule_id", "alias"],
+        fanout=DependentEndpointConfig(
+            parent_name="schedules",
+            resolve_param="schedule_id",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "schedule_id"},
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
         ),
     ),
     # Opsgenie has no member listing endpoint; the members come embedded in the single-team read.

@@ -110,4 +110,23 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "stock": "Number of units in stock when the stock is limited.",
         },
     },
+    "campaigns": {
+        "description": "Automated email campaigns that send a sequence of steps to contacts.",
+        "docs_url": "https://developer.systeme.io/reference/api_mailingcampaigns_get_collection",
+        "columns": {
+            "id": "Unique campaign identifier.",
+            "name": "Campaign name.",
+            "senderEmail": "Email address the campaign sends from.",
+        },
+    },
+    "campaign_steps": {
+        "description": "Email steps of each campaign, with content metadata and position in the sequence.",
+        "docs_url": "https://developer.systeme.io/reference/api_mailingcampaigns_campaignidsteps_get_collection",
+        "columns": {
+            "id": "Unique campaign step identifier.",
+            "campaignId": "Identifier of the campaign that contains the step.",
+            "content": "Step email subject, preview text, editor type, and sender details.",
+            "state": "Whether the step is active, and its position in the campaign.",
+        },
+    },
 }

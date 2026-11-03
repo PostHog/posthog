@@ -39,6 +39,11 @@ class AwsDocumentDBSource(MongoDBSource):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.AWSDOCUMENTDB
 
+    @property
+    def credential_kind(self) -> str | None:
+        # Without this, the source inherits the kind of `MongoDBSource`.
+        return "aws-documentdb"
+
     @staticmethod
     def _adjust_field(field: FieldType) -> FieldType:
         if isinstance(field, SourceFieldInputConfig) and field.name == "connection_string":

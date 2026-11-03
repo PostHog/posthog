@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
+    route,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
@@ -60,6 +61,74 @@ def test_incremental_filter_and_full_refresh(
     assert result.params("registeredAfter") == [expected, expected]
 
 
+CAMPAIGN_20_STEPS = "/api/mailing/campaigns/20/steps"
+CAMPAIGN_10_STEPS = "/api/mailing/campaigns/10/steps"
+STEP_202 = {"id": 202, "campaignId": 20}
+STEP_201 = {"id": 201, "campaignId": 20}
+STEP_101 = {"id": 101, "campaignId": 10}
+
+
+@pytest.mark.parametrize(
+    "fanout_state,steps_20_pages,expected_rows,expected_step_cursors",
+    [
+        (None, [[STEP_202], [STEP_201]], [STEP_202, STEP_201, STEP_101], [None, "202", None]),
+        (
+            {"completed": ["mailing/campaigns/20/steps"], "current": None, "child_state": None},
+            [],
+            [STEP_101],
+            [None],
+        ),
+        (
+            {"completed": [], "current": "mailing/campaigns/20/steps", "child_state": {"cursor": 202}},
+            [[STEP_201]],
+            [STEP_201, STEP_101],
+            ["202", None],
+        ),
+    ],
+)
+def test_campaign_steps_fan_out_and_resume(
+    fanout_state: dict[str, Any] | None,
+    steps_20_pages: list[list[dict[str, Any]]],
+    expected_rows: list[dict[str, Any]],
+    expected_step_cursors: list[str | None],
+) -> None:
+    steps_20 = [
+        ScriptedResponse(json={"items": page, "hasMore": index < len(steps_20_pages) - 1})
+        for index, page in enumerate(steps_20_pages)
+    ]
+    result = driver().run(
+        "campaign_steps",
+        route(
+            {
+                "/api/mailing/campaigns": [
+                    ScriptedResponse(json={"items": [{"id": 20, "name": "Welcome"}], "hasMore": True}),
+                    ScriptedResponse(json={"items": [{"id": 10, "name": "Onboarding"}], "hasMore": False}),
+                ],
+                CAMPAIGN_20_STEPS: steps_20,
+                CAMPAIGN_10_STEPS: [ScriptedResponse(json={"items": [STEP_101], "hasMore": False})],
+            }
+        ),
+        resume_state=SystemeResumeConfig(fanout_state=fanout_state) if fanout_state else None,
+    )
+    assert result.raised is None
+    assert result.rows == expected_rows
+    campaign_queries = [dict(request.query) for request in result.requests if request.path == "/api/mailing/campaigns"]
+    assert campaign_queries == [
+        {"limit": ("100",), "order": ("desc",)},
+        {"limit": ("100",), "order": ("desc",), "startingAfter": ("20",)},
+    ]
+    step_requests = [request for request in result.requests if request.path.endswith("/steps")]
+    assert [request.param("startingAfter") for request in step_requests] == expected_step_cursors
+    assert [request.param("limit") for request in step_requests] == [None] * len(step_requests)
+    assert result.final_state == SystemeResumeConfig(
+        fanout_state={
+            "completed": ["mailing/campaigns/10/steps", "mailing/campaigns/20/steps"],
+            "current": None,
+            "child_state": None,
+        }
+    )
+
+
 @pytest.mark.parametrize(
     "body,message",
     [
@@ -92,6 +161,7 @@ def test_invalid_or_repeated_cursor_fails(body: dict[str, Any], message: str) ->
         ("newsletters", "mailing/newsletters"),
         ("digital_products", "payment/digital-products"),
         ("physical_products", "payment/physical-products"),
+        ("campaign_steps", "mailing/campaigns"),
     ],
 )
 def test_validate_credentials_status_and_probe(

@@ -46,26 +46,40 @@ class TestDinoTransport(TestCase):
             name, script, resume_state=resume_state, db_incremental_field_last_value="2026-01-01T00:00:00Z"
         )
 
-    @parameterized.expand([(False,), (True,)])
-    def test_run_pages_and_resume(self, resume: bool) -> None:
+    @parameterized.expand(
+        [
+            ("test_runs", "test-runs", False, {"limit": ("100",), "sort": ("counter_asc",)}),
+            ("test_runs", "test-runs", True, {"limit": ("100",), "sort": ("counter_asc",)}),
+            (
+                "manual_runs",
+                "manual-runs",
+                False,
+                {"limit": ("200",), "sortBy": ("createdAt",), "sortOrder": ("asc",)},
+            ),
+            (
+                "manual_runs",
+                "manual-runs",
+                True,
+                {"limit": ("200",), "sortBy": ("createdAt",), "sortOrder": ("asc",)},
+            ),
+        ]
+    )
+    def test_run_pages_and_resume(self, table: str, path: str, resume: bool, query: dict[str, tuple[str]]) -> None:
         initial_page = 3 if resume else 1
         pages = [
             response({"success": True, "data": [{"id": "run-a"}], "pagination": {"hasNext": True}}),
             response({"success": True, "data": [{"id": "run-b"}], "pagination": {"hasNext": False}}),
         ]
-        result = self.run_table("test_runs", pages, resume_state=ResumeConfig(page=3) if resume else None)
+        result = self.run_table(table, pages, resume_state=ResumeConfig(page=3) if resume else None)
 
         self.assertIsNone(result.raised)
         self.assertEqual(result.items, [[{"id": "run-a"}], [{"id": "run-b"}]])
         self.assertEqual(result.saved_states, [ResumeConfig(page=initial_page + 1)])
         self.assertEqual(len(result.requests), 2)
         for offset, request in enumerate(result.requests):
-            self.assertEqual(request.path, "/api/v1/public/project_example/test-runs")
+            self.assertEqual(request.path, f"/api/v1/public/project_example/{path}")
             self.assertEqual(request.headers["authorization"], "Bearer td_pat_fake_test_token")
-            self.assertEqual(
-                request.query,
-                {"page": (str(initial_page + offset),), "limit": ("100",), "sort": ("counter_asc",)},
-            )
+            self.assertEqual(request.query, {"page": (str(initial_page + offset),), **query})
         self.assertEqual(result.final_state, ResumeConfig(page=initial_page + 1))
         self.assertIsNone(result.completed_state)
 
@@ -91,6 +105,53 @@ class TestDinoTransport(TestCase):
         self.assertIsInstance(result.raised, RESTClientNonRetryableError)
         self.assertIn("pagination.hasNext", str(result.raised))
         self.assertEqual(result.saved_states, [])
+
+    def test_manual_run_test_cases_fan_out(self) -> None:
+        run_page = {"_id": "tcm_run_a", "name": "Smoke"}
+        script = [
+            response({"data": [run_page, {"_id": "tcm_run_deleted"}], "pagination": {"hasNext": True}}),
+            response({"data": [{"caseKey": "TC-1", "status": "passed"}], "pagination": {"hasNext": True}}),
+            response(
+                {
+                    "data": [{"caseKey": "TC-2", "status": "untested", "assignee": None}],
+                    "pagination": {"hasNext": False},
+                }
+            ),
+            response({"success": False, "error": {"code": "NOT_FOUND", "message": "Manual test run not found"}}, 404),
+            response({"data": [{"_id": "tcm_run_empty"}], "pagination": {"hasNext": False}}),
+            response({"data": [], "pagination": {"hasNext": False}}),
+        ]
+        result = self.run_table("manual_run_test_cases", script)
+
+        self.assertIsNone(result.raised)
+        self.assertEqual(
+            result.rows,
+            [
+                {"caseKey": "TC-1", "status": "passed", "manual_run_id": "tcm_run_a"},
+                {"caseKey": "TC-2", "status": "untested", "assignee": None, "manual_run_id": "tcm_run_a"},
+            ],
+        )
+        assert result.response is not None
+        self.assertEqual(result.response.primary_keys, ["manual_run_id", "caseKey"])
+        self.assertEqual(
+            [(request.path, request.query.get("page")) for request in result.requests],
+            [
+                ("/api/v1/public/project_example/manual-runs", ("1",)),
+                ("/api/v1/public/project_example/manual-runs/tcm_run_a/test-cases", ("1",)),
+                ("/api/v1/public/project_example/manual-runs/tcm_run_a/test-cases", ("2",)),
+                ("/api/v1/public/project_example/manual-runs/tcm_run_deleted/test-cases", ("1",)),
+                ("/api/v1/public/project_example/manual-runs", ("2",)),
+                ("/api/v1/public/project_example/manual-runs/tcm_run_empty/test-cases", ("1",)),
+            ],
+        )
+        child_queries = [request.query for request in result.requests if "test-cases" in request.path]
+        self.assertEqual(
+            child_queries,
+            [
+                {"page": (page,), "limit": ("200",), "sortBy": ("caseKey",), "sortOrder": ("asc",)}
+                for page in ("1", "2", "1", "1")
+            ],
+        )
 
     @parameterized.expand(
         [

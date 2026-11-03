@@ -6,7 +6,9 @@ import pytest
 from unittest.mock import MagicMock, patch
 
 import requests
+from parameterized import parameterized
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     DriveResult,
     Script,
@@ -25,6 +27,15 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.skio.skio 
     validate_credentials,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.skio.source import SkioSource
+
+# Verbatim message shape `requests`/urllib3 raise for a read timeout or a dropped connection
+# against the live host; both are the transient failures `_post_query` retries.
+READ_TIMEOUT = requests.ReadTimeout(
+    "HTTPSConnectionPool(host='graphql.skio.com', port=443): Read timed out. (read timeout=60.0)"
+)
+CONNECTION_ERROR = requests.ConnectionError(
+    "HTTPSConnectionPool(host='graphql.skio.com', port=443): Max retries exceeded with url: /v1/graphql"
+)
 
 TOKEN = "test-token"
 
@@ -144,6 +155,26 @@ class TestSkioTransport:
         result = _run([_response({}, status_code=403)])
 
         assert isinstance(result.raised, requests.HTTPError)
+
+    @parameterized.expand([("read_timeout", READ_TIMEOUT), ("connection_error", CONNECTION_ERROR)])
+    def test_transient_network_error_is_retried_then_succeeds(self, _name: str, error: BaseException) -> None:
+        # The GraphQL endpoint is queried over POST, which the tracked session's transport-level
+        # retry does not cover (it only retries idempotent methods), so a read timeout or dropped
+        # connection must be retried by the source itself or it fails the whole import attempt on
+        # the first blip.
+        result = _run([error, _response(_page(_rows(0, 1)))])
+
+        assert result.raised is None
+        assert result.rows == _rows(0, 1)
+
+    @parameterized.expand([("read_timeout", READ_TIMEOUT), ("connection_error", CONNECTION_ERROR)])
+    def test_transient_network_error_that_keeps_failing_matches_retryable_errors(
+        self, _name: str, error: BaseException
+    ) -> None:
+        result = _run(always(error))
+
+        assert isinstance(result.raised, type(error))
+        assert error_message_matches(str(result.raised), SkioSource().get_retryable_errors())
 
 
 class TestValidateCredentials:

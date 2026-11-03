@@ -122,6 +122,11 @@ class PlanetScaleMySQLSource(MySQLSource):
         return ExternalDataSourceType.PLANETSCALEMYSQL
 
     @property
+    def credential_kind(self) -> str | None:
+        # Without this, the source inherits the kind of `MySQLSource`.
+        return "planetscale-mysql"
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=ExternalDataSourceType.PLANETSCALEMYSQL,

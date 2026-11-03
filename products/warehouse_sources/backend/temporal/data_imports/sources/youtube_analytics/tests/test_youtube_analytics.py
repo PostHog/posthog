@@ -23,9 +23,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 from products.warehouse_sources.backend.temporal.data_imports.sources.youtube_analytics.settings import (
     AUDIENCE_RETENTION,
     CHANNEL_DAILY,
+    CONCURRENT_VIEWERS,
     DEMOGRAPHICS,
     GEOGRAPHY,
     MAX_RESULTS_PER_PAGE,
+    PLAYLIST_DAILY,
     TOP_VIDEOS,
     TRAFFIC_SOURCE_DETAILS,
     VIDEOS,
@@ -82,6 +84,13 @@ def _channel(uploads: str | None = "UU123") -> ScriptedResponse:
 
 def _playlist_page(video_ids: list[str], next_page_token: str | None = None) -> ScriptedResponse:
     body: dict[str, Any] = {"items": [{"contentDetails": {"videoId": video_id}} for video_id in video_ids]}
+    if next_page_token:
+        body["nextPageToken"] = next_page_token
+    return ScriptedResponse(json=body)
+
+
+def _playlists(playlist_ids: list[str], next_page_token: str | None = None) -> ScriptedResponse:
+    body: dict[str, Any] = {"items": [{"id": playlist_id} for playlist_id in playlist_ids]}
     if next_page_token:
         body["nextPageToken"] = next_page_token
     return ScriptedResponse(json=body)
@@ -341,27 +350,77 @@ class TestGetRows:
 
         assert isinstance(result.raised, requests.HTTPError)
 
-    def test_audience_retention_fetches_one_curve_per_top_video(self) -> None:
+    @parameterized.expand(
+        [
+            (AUDIENCE_RETENTION, "elapsedVideoTimeRatio", "audienceWatchRatio", None),
+            # Without the live filter the top videos would be on-demand uploads that have no live curve.
+            (CONCURRENT_VIEWERS, "livestreamPosition", "peakConcurrentViewers", "liveOrOnDemand==LIVE"),
+        ]
+    )
+    def test_per_video_report_fetches_one_report_per_top_video(
+        self, endpoint: str, dimension: str, metric: str, top_videos_filter: str | None
+    ) -> None:
         script = [
             ScriptedResponse(json=_result(["video", "views"], [["vid-a", 10], ["vid-b", 5]])),
-            ScriptedResponse(json=_result(["elapsedVideoTimeRatio", "audienceWatchRatio"], [[0.01, 1.2], [0.02, 0.9]])),
-            ScriptedResponse(json=_result(["elapsedVideoTimeRatio", "audienceWatchRatio"], [])),
+            ScriptedResponse(json=_result([dimension, metric], [[1, 120], [2, 90]])),
+            ScriptedResponse(json=_result([dimension, metric], [])),
         ]
 
         result = _driver(start_date="2026-07-01").run(
-            AUDIENCE_RETENTION, script, should_use_incremental_field=True, db_incremental_field_last_value="2026-07-20"
+            endpoint, script, should_use_incremental_field=True, db_incremental_field_last_value="2026-07-20"
         )
 
         assert result.raised is None
-        assert result.params("filters") == [None, "video==vid-a", "video==vid-b"]
-        assert result.params("dimensions") == ["video", "elapsedVideoTimeRatio", "elapsedVideoTimeRatio"]
-        # Retention covers the whole sync window, never a watermark slice of it.
+        assert result.params("filters") == [top_videos_filter, "video==vid-a", "video==vid-b"]
+        assert result.params("dimensions") == ["video", dimension, dimension]
+        # A per-video report covers the whole sync window, never a watermark slice of it.
         assert set(result.params("startDate")) == {"2026-07-01"}
         assert set(result.params("endDate")) == {"2026-07-25"}
         assert result.rows == [
-            {"elapsedVideoTimeRatio": 0.01, "audienceWatchRatio": 1.2, "video": "vid-a"},
-            {"elapsedVideoTimeRatio": 0.02, "audienceWatchRatio": 0.9, "video": "vid-a"},
+            {dimension: 1, metric: 120, "video": "vid-a"},
+            {dimension: 2, metric: 90, "video": "vid-a"},
         ]
+
+    @parameterized.expand([("pinned_channel", "UC123", "channelId", "UC123"), ("blank_channel", "", "mine", "true")])
+    def test_playlist_daily_queries_each_owned_playlist_per_window(
+        self, _name: str, channel_id: str, channel_param: str, channel_value: str
+    ) -> None:
+        script = route(
+            {
+                "/playlists": [
+                    _playlists(["PL-a", "PL-b"], next_page_token="page-2"),
+                    # A playlist created mid-walk pushes PL-b onto the next page as well.
+                    _playlists(["PL-b"]),
+                ],
+                "/reports": [
+                    ScriptedResponse(json=_result(["day", "playlistStarts"], [["2026-07-24", 3], ["2026-07-25", 4]])),
+                    ScriptedResponse(json=_result(["day", "playlistStarts"], [])),
+                ],
+            }
+        )
+
+        result = _driver(start_date="2026-07-24", channel_id=channel_id).run(PLAYLIST_DAILY, script)
+
+        assert result.raised is None
+        playlist_requests = [r for r in result.requests if r.path.endswith("/playlists")]
+        assert [(r.param(channel_param), r.param("pageToken")) for r in playlist_requests] == [
+            (channel_value, None),
+            (channel_value, "page-2"),
+        ]
+        # The report rejects a request without exactly one playlist.
+        assert result.params("filters") == [None, None, "playlist==PL-a", "playlist==PL-b"]
+        assert set(result.params("dimensions")) == {None, "day"}
+        assert result.rows == [
+            {"day": datetime(2026, 7, 24, tzinfo=UTC), "playlistStarts": 3, "playlist": "PL-a"},
+            {"day": datetime(2026, 7, 25, tzinfo=UTC), "playlistStarts": 4, "playlist": "PL-a"},
+        ]
+
+    def test_playlist_daily_sends_no_report_request_for_a_channel_without_playlists(self) -> None:
+        result = _driver(start_date="2026-01-01").run(PLAYLIST_DAILY, route({"/playlists": [_playlists([])]}))
+
+        assert result.raised is None
+        assert result.rows == []
+        assert [r.path.rsplit("/", 1)[-1] for r in result.requests] == ["playlists"]
 
     def test_resumes_from_saved_state_instead_of_the_configured_start(self) -> None:
         result = _driver(start_date="2026-01-01").run(
@@ -426,21 +485,27 @@ class TestValidateCredentials:
 class TestYouTubeAnalyticsSourceResponse:
     @parameterized.expand(
         [
-            (CHANNEL_DAILY, ["day"]),
-            (TOP_VIDEOS, ["day", "video"]),
-            (DEMOGRAPHICS, ["day", "ageGroup", "gender"]),
-            (TRAFFIC_SOURCE_DETAILS, ["day", "insightTrafficSourceType", "insightTrafficSourceDetail"]),
-            (VIDEOS, ["id"]),
-            (AUDIENCE_RETENTION, ["video", "elapsedVideoTimeRatio"]),
+            (CHANNEL_DAILY, ["day"], "asc"),
+            (TOP_VIDEOS, ["day", "video"], "asc"),
+            (DEMOGRAPHICS, ["day", "ageGroup", "gender"], "asc"),
+            (TRAFFIC_SOURCE_DETAILS, ["day", "insightTrafficSourceType", "insightTrafficSourceDetail"], "asc"),
+            # Each playlist restarts at the first day of the 90-day window, so the rows are not in day order.
+            (PLAYLIST_DAILY, ["day", "playlist"], None),
+            (VIDEOS, ["id"], None),
+            (AUDIENCE_RETENTION, ["video", "elapsedVideoTimeRatio"], None),
+            (CONCURRENT_VIEWERS, ["video", "livestreamPosition"], None),
         ]
     )
-    def test_primary_keys_are_unique_table_wide(self, endpoint: str, expected: list[str]) -> None:
+    def test_primary_keys_are_unique_table_wide(
+        self, endpoint: str, expected: list[str], sort_mode: str | None
+    ) -> None:
         with _connected_account():
             response = _driver().run(endpoint, []).response
 
         assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == expected
+        assert response.sort_mode == sort_mode
 
     @time_machine.travel(FROZEN_NOW, tick=False)
     def test_items_is_lazy_until_iterated(self) -> None:

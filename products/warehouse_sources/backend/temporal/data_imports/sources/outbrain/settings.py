@@ -11,7 +11,9 @@ REPORT_LOOKBACK_DAYS = 30
 # Default history pulled on the first sync of the periodic report stream.
 REPORT_DEFAULT_BACKFILL_DAYS = 365
 
-OutbrainEndpointKind = Literal["marketers", "per_marketer", "per_campaign", "periodic_report", "snapshot_report"]
+OutbrainEndpointKind = Literal[
+    "marketers", "per_marketer", "per_campaign", "periodic_report", "campaign_periodic_report", "snapshot_report"
+]
 
 _DATE_INCREMENTAL_FIELDS: list[IncrementalField] = [
     {
@@ -32,6 +34,11 @@ class OutbrainEndpointConfig:
     path: str
     # Key holding the row list in the response body.
     data_key: str
+    # Key holding a second list of excluded targeting rows in the same body;
+    # both lists land in one table, tagged with `_excluded`.
+    excluded_data_key: str | None = None
+    # Static query params sent on every request.
+    params: dict[str, str] = field(default_factory=dict)
     primary_keys: list[str] | None = field(default_factory=lambda: ["id"])
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     # Entity and breakdown report endpoints paginate with limit/offset.
@@ -76,6 +83,23 @@ OUTBRAIN_ENDPOINTS: dict[str, OutbrainEndpointConfig] = {
         path="/marketers/{marketer_id}/conversionEvents",
         data_key="conversionEvents",
     ),
+    # Archived segments can still be referenced by campaign targeting.
+    "segments": OutbrainEndpointConfig(
+        name="segments",
+        kind="per_marketer",
+        path="/marketers/{marketer_id}/segments",
+        data_key="segments",
+        params={"includeArchived": "true"},
+    ),
+    # Location ids are global geo ids, so the campaign is part of the key.
+    "campaign_locations": OutbrainEndpointConfig(
+        name="campaign_locations",
+        kind="per_campaign",
+        path="/campaigns/{campaign_id}/locations",
+        data_key="geoLocations",
+        excluded_data_key="excludedGeoLocations",
+        primary_keys=["_campaign_id", "id"],
+    ),
     # Daily periodic performance per marketer; rows carry the day in
     # metadata, injected as `_date` for the incremental cursor.
     "marketer_performance_daily": OutbrainEndpointConfig(
@@ -85,6 +109,18 @@ OUTBRAIN_ENDPOINTS: dict[str, OutbrainEndpointConfig] = {
         data_key="results",
         primary_keys=["_marketer_id", "_date"],
         incremental_fields=list(_DATE_INCREMENTAL_FIELDS),
+    ),
+    # Daily periodic performance per campaign; rows are nested under each
+    # campaign and carry the day in metadata, like the marketer report.
+    "campaign_performance_daily": OutbrainEndpointConfig(
+        name="campaign_performance_daily",
+        kind="campaign_periodic_report",
+        path="/reports/marketers/{marketer_id}/campaigns/periodic",
+        data_key="campaignResults",
+        primary_keys=["_marketer_id", "_campaign_id", "_date"],
+        incremental_fields=list(_DATE_INCREMENTAL_FIELDS),
+        paginated=True,
+        include_inactive_campaigns=True,
     ),
     # Per-campaign totals for a trailing window; rows carry no date, so this
     # is a snapshot (full refresh).
@@ -96,7 +132,7 @@ OUTBRAIN_ENDPOINTS: dict[str, OutbrainEndpointConfig] = {
         primary_keys=None,
     ),
     # Breakdown reports have no date dimension either, so they are trailing
-    # window snapshots too. One row per publisher/section/promoted link.
+    # window snapshots too. One row per publisher/section/promoted link/interest.
     "promoted_link_performance": OutbrainEndpointConfig(
         name="promoted_link_performance",
         kind="snapshot_report",
@@ -119,6 +155,15 @@ OUTBRAIN_ENDPOINTS: dict[str, OutbrainEndpointConfig] = {
         name="section_performance",
         kind="snapshot_report",
         path="/reports/marketers/{marketer_id}/sections",
+        data_key="results",
+        primary_keys=None,
+        paginated=True,
+        include_inactive_campaigns=True,
+    ),
+    "interest_performance": OutbrainEndpointConfig(
+        name="interest_performance",
+        kind="snapshot_report",
+        path="/reports/marketers/{marketer_id}/interests",
         data_key="results",
         primary_keys=None,
         paginated=True,

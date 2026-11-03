@@ -31,6 +31,9 @@ class AircallEndpointConfig:
     # applies to.
     reanchor_field: Optional[str] = None
     page_size: int = PAGE_SIZE
+    # False for an endpoint that answers with a single object or an unpaginated list, which
+    # takes no `per_page` param and needs no next-page handling.
+    paginated: bool = True
     # Unused by the full-refresh CI children; kept so the config satisfies FanoutEndpointLike.
     default_incremental_field: Optional[str] = None
     fanout: Optional[DependentEndpointConfig] = None
@@ -52,6 +55,18 @@ _CALL_CI_FANOUT = DependentEndpointConfig(
     parent_field_renames={"id": "call_id"},
     # Walk the parent calls list ascending so its paginator can page past Aircall's 10k cap.
     parent_params={"order": "asc"},
+    child_response_actions=_CI_404_IGNORE,
+)
+
+
+# The Campaign sub-resources are fetched per campaign, so they fan out over the campaigns list.
+# A campaign deleted between the parent listing and this fetch answers 404, which is skipped.
+_CAMPAIGN_FANOUT = DependentEndpointConfig(
+    parent_name="campaigns",
+    resolve_param="campaign_id",
+    resolve_field="id",
+    include_from_parent=["id"],
+    parent_field_renames={"id": "campaign_id"},
     child_response_actions=_CI_404_IGNORE,
 )
 
@@ -123,6 +138,7 @@ AIRCALL_ENDPOINTS: dict[str, AircallEndpointConfig] = {
         path="/calls/{call_id}/transcription",
         data_key="$",
         primary_key="call_id",
+        paginated=False,
         fanout=_CALL_CI_FANOUT,
     ),
     "call_sentiments": AircallEndpointConfig(
@@ -130,6 +146,7 @@ AIRCALL_ENDPOINTS: dict[str, AircallEndpointConfig] = {
         path="/calls/{call_id}/sentiments",
         data_key="$",
         primary_key="call_id",
+        paginated=False,
         fanout=_CALL_CI_FANOUT,
     ),
     "call_topics": AircallEndpointConfig(
@@ -137,6 +154,7 @@ AIRCALL_ENDPOINTS: dict[str, AircallEndpointConfig] = {
         path="/calls/{call_id}/topics",
         data_key="$",
         primary_key="call_id",
+        paginated=False,
         fanout=_CALL_CI_FANOUT,
     ),
     "call_evaluations": AircallEndpointConfig(
@@ -144,7 +162,44 @@ AIRCALL_ENDPOINTS: dict[str, AircallEndpointConfig] = {
         path="/calls/{call_id}/evaluations",
         data_key="$",
         primary_key="call_id",
+        paginated=False,
         fanout=_CALL_CI_FANOUT,
+    ),
+    # Outbound Campaigns. Campaign ids are UUIDs and the list pages with a forward-only cursor
+    # carried in `meta.next_page_link`. There is no `from` filter, so these are full refresh.
+    "campaigns": AircallEndpointConfig(
+        name="campaigns",
+        path="/campaigns",
+        data_key="campaigns",
+    ),
+    "campaign_outcomes": AircallEndpointConfig(
+        name="campaign_outcomes",
+        path="/campaign_outcomes",
+        data_key="campaign_outcomes",
+    ),
+    # A point-in-time progress snapshot computed on read, one row per campaign.
+    "campaign_stats": AircallEndpointConfig(
+        name="campaign_stats",
+        path="/campaigns/{campaign_id}/stats",
+        data_key="stats",
+        primary_key="campaign_id",
+        paginated=False,
+        fanout=_CAMPAIGN_FANOUT,
+    ),
+    # The latest attempt per contact, keyed by the entry's UUID.
+    "campaign_call_outcomes": AircallEndpointConfig(
+        name="campaign_call_outcomes",
+        path="/campaigns/{campaign_id}/call_outcomes",
+        data_key="call_outcomes",
+        fanout=_CAMPAIGN_FANOUT,
+    ),
+    # Conversation Intelligence keyword trackers. The list is unpaginated and needs the AI Assist
+    # add-on, like the per-call CI tables.
+    "trackers": AircallEndpointConfig(
+        name="trackers",
+        path="/trackers",
+        data_key="trackers",
+        paginated=False,
     ),
 }
 

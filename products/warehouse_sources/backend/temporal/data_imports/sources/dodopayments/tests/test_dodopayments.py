@@ -237,6 +237,21 @@ class TestFanout:
                 {"customer_id": "cus_1", "currency": "USD", "balance": 500},
                 {"customer_id": "cus_1", "currency": "USD", "balance": 500},
             ),
+            (
+                "customer_wallet_ledger_entries",
+                {"customer_id": "cus_1", "created_at": "2024-05-01T00:00:00Z"},
+                "/customers/cus_1/wallets/ledger-entries",
+                {"id": "cwt_1", "customer_id": "cus_1", "currency": "USD", "amount": 250, "is_credit": True},
+                {"id": "cwt_1", "customer_id": "cus_1", "currency": "USD", "amount": 250, "is_credit": True},
+            ),
+            # The parent field is the entitlement's own `id`, bound into a path placeholder also named `id`.
+            (
+                "entitlement_grants",
+                {"id": "ent_1", "name": "Pro license"},
+                "/entitlements/ent_1/grants",
+                {"id": "grant_1", "entitlement_id": "ent_1", "customer_id": "cus_1", "status": "Delivered"},
+                {"id": "grant_1", "entitlement_id": "ent_1", "customer_id": "cus_1", "status": "Delivered"},
+            ),
         ],
     )
     def test_child_is_read_per_parent_with_parent_fields(

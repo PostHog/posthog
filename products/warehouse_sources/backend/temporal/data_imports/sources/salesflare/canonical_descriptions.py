@@ -52,6 +52,15 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "name": "The name of the pipeline.",
         },
     },
+    "stages": {
+        "description": "A stage within a sales pipeline that opportunities move through.",
+        "docs_url": "https://api.salesflare.com/docs",
+        "columns": {
+            "id": "The unique ID of the stage.",
+            "name": "The name of the stage.",
+            "pipeline": "The pipeline the stage belongs to.",
+        },
+    },
     "tasks": {
         "description": "A to-do or reminder linked to a contact, account, or opportunity.",
         "docs_url": "https://api.salesflare.com/docs",
@@ -68,6 +77,15 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "columns": {
             "id": "The unique ID of the tag.",
             "name": "The tag name.",
+        },
+    },
+    "users": {
+        "description": "A Salesflare user (team member) who can own or be assigned to records.",
+        "docs_url": "https://api.salesflare.com/docs",
+        "columns": {
+            "id": "The unique ID of the user.",
+            "name": "The user's full name.",
+            "email": "The user's email address.",
         },
     },
     "workflows": {

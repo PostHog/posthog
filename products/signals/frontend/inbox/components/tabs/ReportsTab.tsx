@@ -3,7 +3,7 @@ import { Fragment, JSX, memo, useCallback, useEffect, useRef } from 'react'
 
 import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
-import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
+import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
 import { urls } from 'scenes/urls'
 
 import { isRankingSortField } from '../../filterOptions'
@@ -44,7 +44,7 @@ import { useSelectableReportList } from '../useSelectableReportList'
  * surfaced nothing worth acting on. The empty-state verdict is a separate question, answered over
  * the states the current user can actually see.
  */
-const COUNTED_SECTION_KEYS = ['needs-decision', 'monitoring', 'resolved', 'dismissed', 'held-back'] as const
+const COUNTED_SECTION_KEYS = ['needs-decision', 'monitoring', 'resolved', 'closed', 'dismissed', 'held-back'] as const
 
 type CountedSectionKey = (typeof COUNTED_SECTION_KEYS)[number]
 
@@ -88,7 +88,7 @@ function useSectionState(sectionKey: InboxReportSectionKey): SectionListState {
 }
 
 /**
- * Every state's count and loaded rows, keyed by state. All six logics are mounted regardless of
+ * Every state's count and loaded rows, keyed by state. All logics are mounted regardless of
  * who is looking or which states the filter selects, so the hooks never change shape when the
  * staff flag resolves or a checkbox toggles; callers decide which states matter to them.
  */
@@ -97,6 +97,7 @@ function useSectionStates(): Record<InboxReportSectionKey, SectionListState> {
         monitoring: useSectionState('monitoring'),
         'needs-decision': useSectionState('needs-decision'),
         resolved: useSectionState('resolved'),
+        closed: useSectionState('closed'),
         dismissed: useSectionState('dismissed'),
         'held-back': useSectionState('held-back'),
         'not-actionable': useSectionState('not-actionable'),
@@ -108,7 +109,7 @@ function useSectionStates(): Record<InboxReportSectionKey, SectionListState> {
  * One event per visit, carrying the whole loaded list.
  */
 function useInboxViewedEvent(sections: Record<CountedSectionKey, SectionListState>): void {
-    const { hasActiveFilters, sourceProductFilter, priorityFilter, visibleStateFilter, scope } =
+    const { hasActiveFilters, activeSourceProductFilter, priorityFilter, visibleStateFilter, scope } =
         useValues(inboxFiltersLogic)
     // The list stays mounted (hidden) while a report/scout detail is open, so gate the view event on
     // the list actually being the visible surface — otherwise a deep-link to a report fires a phantom
@@ -142,7 +143,7 @@ function useInboxViewedEvent(sections: Record<CountedSectionKey, SectionListStat
             pullsTabCount: sections.monitoring.count,
             reportsTabCount: sections['needs-decision'].count,
             hasActiveFilters,
-            sourceProductFilter,
+            sourceProductFilter: activeSourceProductFilter,
             priorityFilter,
             stateFilter: visibleStateFilter,
             scope,
@@ -152,7 +153,7 @@ function useInboxViewedEvent(sections: Record<CountedSectionKey, SectionListStat
         settled,
         sections,
         hasActiveFilters,
-        sourceProductFilter,
+        activeSourceProductFilter,
         priorityFilter,
         visibleStateFilter,
         scope,
@@ -169,11 +170,13 @@ const ReportRow = memo(function ReportRow({
     sectionKey,
     rankingSortField,
     timestampField,
+    hideOwnClaim,
 }: {
     report: SignalReport
     sectionKey: InboxReportSectionKey
     rankingSortField: InboxRankingSortField | null
     timestampField: 'created_at' | 'updated_at'
+    hideOwnClaim: boolean
 }): JSX.Element {
     return (
         <ReportContextMenu report={report} sectionKey={sectionKey}>
@@ -182,6 +185,7 @@ const ReportRow = memo(function ReportRow({
                 selectable
                 rankingSortField={rankingSortField}
                 timestampField={timestampField}
+                hideOwnClaim={hideOwnClaim}
                 onRestore={() =>
                     reportListLogic(sectionListLogicProps(sectionKey)).actions.restoreReport(report.id, 'list_row')
                 }
@@ -361,7 +365,7 @@ export function ReportsTab(): JSX.Element {
             <InboxBulkSelectionBar reports={rows.map(({ report }) => report)} />
             <InboxMcpBanner />
             {showActivation && <InboxActivationPanel hasReports={!inboxIsEmpty && rows.length > 0} />}
-            {showActivation && firstReportProgress && (
+            {showActivation && firstReportProgress && !firstLoadPending && rows.length === 0 && (
                 <div className="min-w-0" data-attr="inbox-first-report-progress">
                     <FirstReportProgress
                         result={firstReportProgress}
@@ -409,6 +413,7 @@ export function ReportsTab(): JSX.Element {
                                 sectionKey={sectionKey}
                                 rankingSortField={rankingSortField}
                                 timestampField={timestampField}
+                                hideOwnClaim={scope === INBOX_SCOPE_CLAIMED_BY_YOU}
                             />
                         </Fragment>
                     ))}

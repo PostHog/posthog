@@ -14,6 +14,7 @@ export interface StoryChartOverlayProps {
     /** The page whose stretch is lit: the one on show, or the one the pointer is over. */
     highlightedIndex: number
     activeIndex: number
+    showMarkers: boolean
     onSelect: (index: number) => void
 }
 
@@ -22,6 +23,7 @@ export function StoryChartOverlay({
     pages,
     highlightedIndex,
     activeIndex,
+    showMarkers,
     onSelect,
 }: StoryChartOverlayProps): ReactElement | null {
     const layout = useChartLayout()
@@ -32,7 +34,7 @@ export function StoryChartOverlay({
     }
 
     const band = chapterBand(layout, series, highlighted.range)
-    const markers = storyMarkers(layout, series, pages)
+    const markers = showMarkers ? storyMarkers(layout, series, pages) : []
     return (
         <div data-attr="explain-chart-overlay">
             {band && (

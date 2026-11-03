@@ -13,12 +13,6 @@ from posthog.models import Team
 
 from products.batch_exports.backend.facade.api import drop_unknown_hogql_modifiers
 
-# The bounds of the integer columns, which a model serializer reads off the model.
-# TODO: Nothing here is specific to batch exports, and other products hard-code the same numbers.
-# Move these to core, for example derived from django.db.connection.ops.integer_field_range.
-INTEGER_MIN, INTEGER_MAX = -(2**31), 2**31 - 1
-BIG_INTEGER_MIN, BIG_INTEGER_MAX = -(2**63), 2**63 - 1
-
 HOGQL_MODIFIERS_HELP_TEXT = (
     "HogQL modifiers to use when the query runs, as an object keyed by modifier name, for example "
     "{\"convertToProjectTimezone\": true}. Only supported when 'model' is 'hogql'. Each modifier set here "
@@ -77,8 +71,6 @@ def check_high_frequency_batch_exports_enabled(team: Team) -> None:
 class HogQLModifiersField(serializers.JSONField):
     """HogQL modifiers, validated against `HogQLQueryModifiers` and stored as a plain dict."""
 
-    loaded: HogQLQueryModifiers | None = None
-
     def to_internal_value(self, data: typing.Any) -> dict[str, typing.Any]:
         value = super().to_internal_value(data)
         try:
@@ -89,8 +81,6 @@ class HogQLModifiersField(serializers.JSONField):
                 location = ".".join(str(part) for part in error["loc"])
                 messages.append(f"{location}: {error['msg']}" if location else error["msg"])
             raise serializers.ValidationError(messages) from e
-        else:
-            self.loaded = modifiers
         return modifiers.model_dump(mode="json", exclude_none=True)
 
     def to_representation(self, value: typing.Any) -> typing.Any:

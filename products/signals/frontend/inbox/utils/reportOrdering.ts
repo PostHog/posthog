@@ -22,6 +22,7 @@ const STATUS_RANK: Record<SignalReportStatus, number> = {
     [SignalReportStatus.FAILED]: 6,
     [SignalReportStatus.MONITORING]: 6,
     [SignalReportStatus.RESOLVED]: 7,
+    [SignalReportStatus.CLOSED]: 7,
     [SignalReportStatus.SUPPRESSED]: 8,
     [SignalReportStatus.DELETED]: 9,
 }
@@ -68,8 +69,8 @@ export function rankingSortScore(report: SignalReport, field: InboxRankingSortFi
 }
 
 /**
- * The Recommended sort's comparator. The server orders each response by the ranker's fine-grained
- * order and gives each row only a coarse merge key, so rows with equal keys keep their input order.
+ * The Recommended sort's comparator. The server gives each row a merge key that follows the ranker's
+ * order, so rows from several responses merge in one order. Rows with equal keys keep their input order.
  * A row without a key sorts last.
  */
 export function compareInboxMergeKeys(a: SignalReport, b: SignalReport): number {

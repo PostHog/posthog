@@ -58,7 +58,7 @@ class PersistIqSource(ResumableSource[PersistIqSourceConfig, PersistiqResumeConf
             releaseStatus=ReleaseStatus.BETA,
             caption="""Enter your PersistIQ API key to pull your sales engagement data into the PostHog Data warehouse.
 
-You can find your API key under **Profile → Integrations → PersistIQ API** in [PersistIQ](https://app.persistiq.com). The key grants read access to your leads, users, and campaigns.
+You can find your API key under **Profile → Integrations → PersistIQ API** in [PersistIQ](https://app.persistiq.com). The key grants read access to your leads, users, campaigns, events, and account settings.
 """,
             iconPath="/static/services/persistiq.png",
             docsUrl="https://posthog.com/docs/cdp/sources/persistiq",
@@ -102,8 +102,6 @@ You can find your API key under **Profile → Integrations → PersistIQ API** i
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        # Every endpoint is full refresh only — PersistIQ's list endpoints expose no server-side
-        # timestamp filter, so there is no incremental cursor to advance (INCREMENTAL_FIELDS is empty).
         return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
 
     def validate_credentials(
@@ -134,5 +132,7 @@ You can find your API key under **Profile → Integrations → PersistIQ API** i
             team_id=inputs.team_id,
             job_id=inputs.job_id,
             resumable_source_manager=resumable_source_manager,
-            db_incremental_field_last_value=None,  # every PersistIQ endpoint is full refresh
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            incremental_field=inputs.incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
         )

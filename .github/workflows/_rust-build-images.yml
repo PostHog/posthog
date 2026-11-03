@@ -36,12 +36,22 @@ on:
                 description: 'Whether to push built images to the registry'
                 type: boolean
                 default: true
+            ecr-repository-suffix:
+                description: 'Suffix of the shared-services ECR repository (empty for <image>, -prs for <image>-prs)'
+                type: string
+                default: ''
+            require-ecr:
+                description: 'Fail a push when the shared-services ECR publish role is not set'
+                type: boolean
+                default: false
         secrets:
             POSTHOG_API_TOKEN:
                 required: false
             POSTHOG_DEVEX_PROJECT_API_TOKEN:
                 required: false
             POSTHOG_UPLOAD_SYMBOLS_CLI_API_KEY:
+                required: false
+            AWS_ECR_SHARED_SERVICES_PUBLISH_IAM_ROLE:
                 required: false
         outputs:
             digests:
@@ -90,6 +100,8 @@ jobs:
                 include: ${{ fromJson(needs.load-matrix.outputs.matrix) }}
         runs-on: depot-ubuntu-22.04
         timeout-minutes: ${{ inputs.timeout-minutes }}
+        env:
+            ECR_PUBLISH_ROLE: ${{ secrets.AWS_ECR_SHARED_SERVICES_PUBLISH_IAM_ROLE }}
         permissions:
             id-token: write
             contents: read
@@ -131,6 +143,28 @@ jobs:
                   username: ${{ github.actor }}
                   password: ${{ secrets.GITHUB_TOKEN }}
 
+            # The images also go to the shared-services ECR. Deploys pull them through the VPC
+            # endpoint instead of paying NAT egress to ghcr. ECR replication copies each push to
+            # eu-central-1.
+            - name: Require the shared-services ECR publish role
+              if: ${{ inputs.push && inputs.require-ecr && env.ECR_PUBLISH_ROLE == '' }}
+              run: |
+                  echo "::error::The shared-services ECR publish role is not set, so the image would reach ghcr only."
+                  exit 1
+
+            - name: Configure AWS credentials for the shared-services ECR
+              id: ecr-credentials
+              if: ${{ inputs.push && env.ECR_PUBLISH_ROLE != '' }}
+              uses: aws-actions/configure-aws-credentials@ec61189d14ec14c8efccab744f656cffd0e33f37 # v6.1.0
+              with:
+                  role-to-assume: ${{ env.ECR_PUBLISH_ROLE }}
+                  aws-region: us-east-1
+
+            - name: Login to the shared-services ECR
+              id: ecr
+              if: ${{ steps.ecr-credentials.outcome == 'success' }}
+              uses: aws-actions/amazon-ecr-login@f2e9fc6c2b355c1890b65e6f6f0e2ac3e6e22f78 # v2.1.2
+
             - name: Docker meta
               id: meta
               uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf # v6.0.0
@@ -140,7 +174,10 @@ jobs:
               env:
                   DOCKER_METADATA_ANNOTATIONS_LEVELS: index
               with:
-                  images: ghcr.io/posthog/posthog/${{ matrix.image }}
+                  # One push writes the same digest to both registries.
+                  images: |
+                      ghcr.io/posthog/posthog/${{ matrix.image }}
+                      ${{ steps.ecr.outputs.registry && format('{0}/{1}{2}', steps.ecr.outputs.registry, matrix.image, inputs.ecr-repository-suffix) || '' }}
                   tags: ${{ inputs.tag-rules }}
                   labels: |
                       org.opencontainers.image.title=posthog

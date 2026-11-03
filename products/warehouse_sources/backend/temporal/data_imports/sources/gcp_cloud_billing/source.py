@@ -74,7 +74,7 @@ class GcpCloudBillingSource(ResumableSource[GcpCloudBillingSourceConfig, GcpClou
             label="Google Cloud Platform (Cloud Billing)",
             iconPath="/static/services/gcp_cloud_billing.png",
             docsUrl="https://posthog.com/docs/cdp/sources/gcp-cloud-billing",
-            releaseStatus=ReleaseStatus.BETA,
+            releaseStatus=ReleaseStatus.GA,
             keywords=["gcp", "google cloud"],
             caption=(
                 "Import billing accounts, project links, budgets, and the public price catalog. "
