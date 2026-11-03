@@ -17,7 +17,7 @@ import tempfile
 import functools
 import contextlib
 import dataclasses
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -44,17 +44,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.evolution import evolve_delta_schema
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import VACUUM_RETENTION
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.memory_governor import (
-    estimate_rewrite_profile,
-    get_governor,
-)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.memory_governor import get_governor
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
     DELTA_TABLE_PROPERTIES,
     ensure_table_properties,
     execute_with_conflict_retry,
-)
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.row_group_sizes import (
-    RowGroupSizeReader,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import (
     DeltaWriter,
@@ -206,45 +200,40 @@ async def finalize(
     columns = [name for name in staging_dataset.schema.names if name != STAGED_BATCH_COLUMN]
     batch_tags = await asyncio.to_thread(_batch_tags, staging_dataset)
     narrow_columns = list(dict.fromkeys([*key_columns, naming.valid_from, STAGED_ROW_COLUMN]))
-    whole, call_bytes = await asyncio.to_thread(
-        _read_if_it_fits, staging_dataset, columns, narrow_columns, max_call_bytes
-    )
+    call_bytes = await asyncio.to_thread(_call_bytes, staging_dataset, columns, narrow_columns)
     # One handle for every chunk, so each call does not load the table's log and checkpoint again.
     handle = await asyncio.to_thread(_open_deltalite, await table.get_table_uri(), table.get_storage_options())
 
     totals = dict.fromkeys(_SUMMED_STATS, 0)
     calls = staged_rows = 0
     with tempfile.TemporaryDirectory(prefix="history-finalize-") as directory:
-        sources: list[pa.Table | Path] = [whole] if whole is not None else []
-        del whole
-        chunks = len(sources) or min(_MAX_CHUNKS, math.ceil(call_bytes / chunk_target_bytes))
-        if not sources:
-            sources = [
-                *await asyncio.to_thread(_spill_chunks, staging_dataset, columns, key_columns, chunks, Path(directory))
-            ]
-        while sources:
-            source = sources.pop(0)
-            staged = source if isinstance(source, pa.Table) else await asyncio.to_thread(_read_chunk, source)
-            del source
-            staged_rows += staged.num_rows
+        sources: list[tuple[Callable[[], pa.Table], int]]
+        if call_bytes <= max_call_bytes:
+            sources = [(functools.partial(_read_staged, staging_dataset, columns), call_bytes)]
+        else:
+            chunks = min(_MAX_CHUNKS, math.ceil(call_bytes / chunk_target_bytes))
+            spilled = await asyncio.to_thread(
+                _spill_chunks, staging_dataset, columns, key_columns, narrow_columns, chunks, Path(directory)
+            )
+            sources = [(functools.partial(_read_chunk, path), footprint) for path, footprint in spilled]
+        for index, (load, footprint) in enumerate(sources):
             if calls:
-                # The earlier chunk's commit made the handle stale, and the governor sizes from its files.
+                # The earlier chunk's commit made the handle stale, and the new columns must align to the table.
                 history_table = await table.get_delta_table() or history_table
-            data = align_incoming_decimals_to_delta(staged, history_table.schema())
-            del staged
-            stats = await _history_upsert(
+            stats, rows = await _history_upsert(
                 table,
                 handle,
                 history_table,
-                data,
+                load,
+                footprint,
                 key_columns=key_columns,
                 naming=naming,
                 partition_column=partition_column,
-                commit_metadata=commit_metadata if not sources else None,
-                chunk=calls,
-                chunks=chunks,
+                commit_metadata=commit_metadata if index == len(sources) - 1 else None,
+                chunk=index,
+                chunks=len(sources),
             )
-            del data
+            staged_rows += rows
             calls += 1
             for name in _SUMMED_STATS:
                 totals[name] += int(getattr(stats, name, 0) or 0)
@@ -283,27 +272,21 @@ async def _history_table(
     return await evolve_delta_schema(history_table, schema)
 
 
-def _read_if_it_fits(
-    dataset: ds.Dataset, columns: list[str], narrow_columns: list[str], max_bytes: int
-) -> tuple[pa.Table | None, int]:
-    """The staged rows as one table when one call's footprint fits `max_bytes`, else None, and that footprint.
+def _call_bytes(dataset: ds.Dataset, columns: list[str], narrow_columns: list[str]) -> int:
+    """What one call with every staged row counts against deltalite's source guard, one batch in memory at a time.
 
-    Parquet stores repeated and null values in a few bytes, so only the decoded batches give the size
-    deltalite counts against its source guard. Memory stays within `max_bytes` and one batch either way.
+    Parquet stores repeated and null values in a few bytes, so only decoded batches give that size.
     """
-    held: list[pa.RecordBatch] | None = []
-    total = 0
-    scanner = _scanner(dataset, columns)
-    for batch in scanner.to_batches():
-        narrow = sum(batch.column(name).nbytes for name in narrow_columns)
-        total += batch.nbytes + 2 * narrow + batch.num_rows * _INDEX_BYTES_PER_ROW
-        if held is not None and total <= max_bytes:
-            held.append(batch)
-        else:
-            held = None
-    if held is None:
-        return None, total
-    return pa.Table.from_batches(held, schema=scanner.projected_schema), total
+    return sum(_footprint(batch, narrow_columns) for batch in _scanner(dataset, columns).to_batches())
+
+
+def _footprint(batch: pa.RecordBatch, narrow_columns: list[str]) -> int:
+    narrow = sum(batch.column(name).nbytes for name in narrow_columns)
+    return batch.nbytes + 2 * narrow + batch.num_rows * _INDEX_BYTES_PER_ROW
+
+
+def _read_staged(dataset: ds.Dataset, columns: list[str]) -> pa.Table:
+    return _scanner(dataset, columns).to_table()
 
 
 def _open_deltalite(uri: str, storage_options: dict[str, str]) -> Any:
@@ -313,16 +296,21 @@ def _open_deltalite(uri: str, storage_options: dict[str, str]) -> Any:
 
 
 def _spill_chunks(
-    dataset: ds.Dataset, columns: list[str], key_columns: Sequence[str], chunks: int, directory: Path
-) -> list[Path]:
+    dataset: ds.Dataset,
+    columns: list[str],
+    key_columns: Sequence[str],
+    narrow_columns: list[str],
+    chunks: int,
+    directory: Path,
+) -> list[tuple[Path, int]]:
     """Write the staged rows into one local Arrow file per key bucket, one record batch at a time.
 
-    Returns the files that received rows, in bucket order.
+    Returns the files that received rows, in bucket order, each with its call footprint.
     """
     import deltalite  # noqa: PLC0415 - keeps deltalite off the import path of processes that never write with it
 
     paths = [directory / f"chunk-{index}.arrow" for index in range(chunks)]
-    rows = [0] * chunks
+    footprints = [0] * chunks
     schema = pa.schema([dataset.schema.field(name) for name in columns])
     # The chunks together hold the whole staged sync on local disk.
     options = pa.ipc.IpcWriteOptions(compression="zstd")
@@ -339,9 +327,10 @@ def _spill_chunks(
             for index, writer in enumerate(writers):
                 count = int(starts[index + 1] - starts[index])
                 if count:
-                    writer.write_batch(sorted_batch.slice(int(starts[index]), count))
-                    rows[index] += count
-    return [path for path, count in zip(paths, rows) if count]
+                    bucket = sorted_batch.slice(int(starts[index]), count)
+                    writer.write_batch(bucket)
+                    footprints[index] += _footprint(bucket, narrow_columns)
+    return [(path, footprint) for path, footprint in zip(paths, footprints) if footprint]
 
 
 def _read_chunk(path: Path) -> pa.Table:
@@ -372,7 +361,8 @@ async def _history_upsert(
     table: "DeltaTableRef",
     handle: Any,
     history_table: deltalake.DeltaTable,
-    data: pa.Table,
+    load: Callable[[], pa.Table],
+    footprint: int,
     *,
     key_columns: Sequence[str],
     naming: HistoryNaming,
@@ -380,35 +370,16 @@ async def _history_upsert(
     commit_metadata: dict[str, str] | None,
     chunk: int,
     chunks: int,
-) -> Any:
-    uri = await table.get_table_uri()
-    storage_options = table.get_storage_options()
-    governor = get_governor()
+) -> tuple[Any, int]:
+    """Read one call's rows inside its governor admission and write them. Returns the stats and the row count."""
+    max_row_group_bytes = settings.DATA_WAREHOUSE_DELTALITE_MAX_ROW_GROUP_BYTES
+    # The rows are read only once admitted, so a finalize that waits for room holds none of them. That leaves
+    # no rows to size a rewrite profile from, and the governor plans for an unknown shape, which errs smaller.
     # deltalite rewrites `current` with one worker and streams the closed versions to month files next to it,
     # whatever plan the governor picks. Those writers hold at most the closed rows, about one per source row,
     # so they count with the source.
-    reserved_bytes = 2 * data.nbytes
-    rewrite = None
-    if governor.config.mode != "off":
-        # Every source row probes and lands in the current partition.
-        probe = data.append_column(partition_column, pa.repeat(pa.scalar(CURRENT_HISTORY_PARTITION), data.num_rows))
-        row_group_reader = (
-            RowGroupSizeReader(uri, storage_options)
-            if settings.DATA_WAREHOUSE_DELTALITE_GOVERNOR_ROW_GROUP_SIZING
-            else None
-        )
-        rewrite = await asyncio.to_thread(
-            estimate_rewrite_profile,
-            history_table,
-            probe,
-            partition_column,
-            list(key_columns),
-            row_group_reader,
-            functools.partial(governor.row_groups_can_widen, source_bytes=reserved_bytes, n_partitions=1),
-        )
-        del probe
-    max_row_group_bytes = settings.DATA_WAREHOUSE_DELTALITE_MAX_ROW_GROUP_BYTES
-    async with governor.admit(source_bytes=reserved_bytes, n_partitions=1, rewrite=rewrite) as adm:
+    async with get_governor().admit(source_bytes=2 * footprint, n_partitions=1) as adm:
+        data = align_incoming_decimals_to_delta(await asyncio.to_thread(load), history_table.schema())
 
         def _upsert() -> Any:
             return handle.history_upsert(
@@ -428,6 +399,7 @@ async def _history_upsert(
         started = time.perf_counter()
         stats = await asyncio.to_thread(_upsert)
         duration_s = time.perf_counter() - started
+        rows = data.num_rows
 
     table.note_deltalite_commit(getattr(stats, "version", None))
     with contextlib.suppress(Exception):
@@ -444,7 +416,7 @@ async def _history_upsert(
             governor_peak_rss_mb=adm.rss.peak_mb if adm.rss else None,
             **_deltalite_write_stats(stats),
         )
-    return stats
+    return stats, rows
 
 
 async def _vacuum_staging(staging: "DeltaTableRef") -> None:
