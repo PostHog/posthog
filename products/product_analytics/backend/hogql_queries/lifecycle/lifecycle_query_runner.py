@@ -210,7 +210,7 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
 
         Columns are accessed by name (date, total, status) to support arbitrary
         column ordering (materialized tables return columns alphabetically).
-        Returns list of dicts with: action, data, count, labels, days, order, label, status.
+        Returns list of dicts with: data, count, labels, days, order, custom_name, label, status.
         """
         series = self.first_series
         cols = {name: i for i, name in enumerate(response.columns or [])}
@@ -254,6 +254,7 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
                     "labels": labels,
                     "days": days,
                     "order": 0,
+                    "custom_name": series.custom_name,
                     **additional_values,
                 }
             )

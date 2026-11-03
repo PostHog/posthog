@@ -663,6 +663,7 @@ export interface AccessControlPropertyRulesResponseApi {
  * * `feature_flag` - feature_flag
  * * `heatmap` - heatmap
  * * `hog_flow` - hog_flow
+ * * `inbox` - inbox
  * * `insight` - insight
  * * `llm_analytics` - llm_analytics
  * * `llm_playground` - llm_playground
@@ -721,6 +722,7 @@ export const RuleResourceEnumApi = {
     FeatureFlag: 'feature_flag',
     Heatmap: 'heatmap',
     HogFlow: 'hog_flow',
+    Inbox: 'inbox',
     Insight: 'insight',
     LlmAnalytics: 'llm_analytics',
     LlmPlayground: 'llm_playground',
@@ -784,6 +786,7 @@ export interface AccessControlRuleRequestApi {
      * * `feature_flag` - feature_flag
      * * `heatmap` - heatmap
      * * `hog_flow` - hog_flow
+     * * `inbox` - inbox
      * * `insight` - insight
      * * `llm_analytics` - llm_analytics
      * * `llm_playground` - llm_playground
@@ -1065,6 +1068,7 @@ export interface AccessControlMemberRuleRequestApi {
      * * `feature_flag` - feature_flag
      * * `heatmap` - heatmap
      * * `hog_flow` - hog_flow
+     * * `inbox` - inbox
      * * `insight` - insight
      * * `llm_analytics` - llm_analytics
      * * `llm_playground` - llm_playground
@@ -1378,6 +1382,7 @@ export interface AccessControlRoleRuleRequestApi {
      * * `feature_flag` - feature_flag
      * * `heatmap` - heatmap
      * * `hog_flow` - hog_flow
+     * * `inbox` - inbox
      * * `insight` - insight
      * * `llm_analytics` - llm_analytics
      * * `llm_playground` - llm_playground
