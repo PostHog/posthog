@@ -1,13 +1,33 @@
 import type { Meta, StoryObj } from '@storybook/react'
+import { within } from '@testing-library/dom'
+
+import { userEvent } from 'storybook/test'
 
 import { HealthChecksOverview } from './HealthChecksOverview'
 import type { HealthPanelCheck } from './healthPanelChecks'
 
+const DESCRIPTIONS: Partial<Record<HealthPanelCheck['key'], string>> = {
+    flag_state:
+        "Checks that the feature flag matches the experiment's status. A running experiment needs a flag that is on and serves every variant, or new users stop entering it. Before launch and after the end, a flag that serves variants shows them to users that the results don't count.",
+    split_changed_mid_run:
+        'Looks for changes to the variant split after users were first exposed. A change can move users who already saw one variant to another, which mixes their behavior across variants and biases the results.',
+    no_metric:
+        'Checks that a launched experiment has at least one metric. Without a metric, the experiment counts exposures but has nothing to compare the variants on.',
+    srm: 'Tests whether exposed users are divided across variants in the percentages of the variant split. A mismatch usually means that assignment or tracking loses or adds users in one variant, which biases the results.',
+    multiple_variants_share:
+        'Counts the users exposed to more than one variant, which the results leave out. A high share usually means that one person has several IDs, and the variants can then lose different users, which biases the results.',
+}
+
+const description = (key: HealthPanelCheck['key']): string =>
+    DESCRIPTIONS[key] ?? 'Looks for a problem in the setup of the experiment that can make its results wrong.'
+
 const passed = (key: HealthPanelCheck['key'], name: string): HealthPanelCheck => ({
     key,
     name,
+    description: description(key),
     status: 'passed',
     reason: null,
+    measurement: null,
 })
 
 const skipped = (
@@ -15,7 +35,7 @@ const skipped = (
     name: string,
     status: 'not_applicable' | 'not_checked',
     reason: string
-): HealthPanelCheck => ({ key, name, status, reason })
+): HealthPanelCheck => ({ key, name, description: description(key), status, reason, measurement: null })
 
 const FLAG_SETUP_CHECKS = [
     passed('flag_state', "Flag state that doesn't match the experiment"),
@@ -75,8 +95,10 @@ export const Draft: Story = {
 const found = (key: HealthPanelCheck['key'], name: string): HealthPanelCheck => ({
     key,
     name,
+    description: description(key),
     status: 'finding',
     reason: null,
+    measurement: null,
 })
 
 export const DraftWithEventsNotReceived: Story = {
@@ -212,5 +234,48 @@ export const RunningWithAnIssue: Story = {
         ],
         isDraft: false,
         exposureChecksMissing: false,
+    },
+}
+
+export const CheckDetailsWithAMeasurement: Story = {
+    args: {
+        checks: [
+            ...FLAG_SETUP_CHECKS,
+            passed('no_metric', 'Metrics not set up'),
+            {
+                ...passed('srm', 'Split of users across variants'),
+                measurement: { value: 0.71, threshold: 0.001, unit: 'p_value', warns: 'below' },
+            },
+            {
+                ...passed('multiple_variants_share', 'Users exposed to multiple variants'),
+                measurement: { value: 4.2, threshold: 5, unit: 'percentage', warns: 'above' },
+            },
+        ],
+        findings: [],
+        isDraft: false,
+        exposureChecksMissing: false,
+    },
+    play: async ({ canvasElement }) => {
+        await userEvent.click(within(canvasElement).getByRole('button', { name: /Users exposed to multiple variants/ }))
+    },
+}
+
+export const CheckDetailsOfACheckThatDoesNotApply: Story = {
+    args: {
+        checks: [
+            ...FLAG_SETUP_CHECKS,
+            skipped(
+                'split_changed_mid_run',
+                'Variant split changes since launch',
+                'not_applicable',
+                'Runs after launch'
+            ),
+        ],
+        findings: [],
+        isDraft: true,
+        exposureChecksMissing: false,
+    },
+    play: async ({ canvasElement }) => {
+        await userEvent.click(within(canvasElement).getByRole('button', { name: /Variant split changes since launch/ }))
     },
 }

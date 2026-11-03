@@ -43132,6 +43132,47 @@ export namespace Schemas {
       NotChecked: 'not_checked',
     } as const;
 
+    /**
+     * * `percentage` - Percentage of exposed units
+     * * `p_value` - P-value of a statistical test
+     */
+    export type ExperimentHealthMeasurementUnitEnum = typeof ExperimentHealthMeasurementUnitEnum[keyof typeof ExperimentHealthMeasurementUnitEnum];
+
+
+    export const ExperimentHealthMeasurementUnitEnum = {
+      Percentage: 'percentage',
+      PValue: 'p_value',
+    } as const;
+
+    /**
+     * * `above` - Finding above the threshold
+     * * `below` - Finding below the threshold
+     */
+    export type ExperimentHealthMeasurementSideEnum = typeof ExperimentHealthMeasurementSideEnum[keyof typeof ExperimentHealthMeasurementSideEnum];
+
+
+    export const ExperimentHealthMeasurementSideEnum = {
+      Above: 'above',
+      Below: 'below',
+    } as const;
+
+    export interface ExperimentHealthMeasurement {
+      /** The value that the check measured on the experiment. */
+      value: number;
+      /** The value at which the check reports a finding. */
+      threshold: number;
+      /** percentage: a share of the exposed users or groups, on the 0-100 scale. p_value: the p-value of a statistical test.
+       *
+       * * `percentage` - Percentage of exposed units
+       * * `p_value` - P-value of a statistical test */
+      unit: ExperimentHealthMeasurementUnitEnum;
+      /** The side of the threshold that reports a finding: above or below.
+       *
+       * * `above` - Finding above the threshold
+       * * `below` - Finding below the threshold */
+      warns: ExperimentHealthMeasurementSideEnum;
+    }
+
     export interface ExperimentHealthCheckResult {
       /** Stable identifier of the check. A check can report several finding codes, so the key is not a finding code.
        *
@@ -43161,6 +43202,8 @@ export namespace Schemas {
       key: ExperimentHealthCheckKeyEnum;
       /** The problem the check looks for, for example 'Metrics not set up'. */
       name: string;
+      /** What the check looks for and why it matters. The same for every experiment and every status. */
+      description: string;
       /** passed: the check found no problem. finding: the check reported a finding in `findings`. not_applicable: the check does not cover the experiment's current state, for example a check of the changes since launch on a draft. not_checked: the check covers the experiment, but it could not read an input or it failed, so a problem it looks for can be present without a finding.
        *
        * * `passed` - Passed
@@ -43173,6 +43216,8 @@ export namespace Schemas {
          * @nullable
          */
       reason: string | null;
+      /** The value that decided a passed check, against its threshold. Null for the other statuses, and for a pass that no single value against a threshold decided. A finding carries its values in `evidence`. */
+      measurement: ExperimentHealthMeasurement | null;
     }
 
     export interface ExperimentHealth {
@@ -43439,6 +43484,33 @@ export namespace Schemas {
       TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
     } as const;
 
+    export type ExperimentExposureHealthMeasurementUnit = typeof ExperimentExposureHealthMeasurementUnit[keyof typeof ExperimentExposureHealthMeasurementUnit];
+
+
+    export const ExperimentExposureHealthMeasurementUnit = {
+      Percentage: 'percentage',
+      PValue: 'p_value',
+    } as const;
+
+    export type ExperimentExposureHealthMeasurementSide = typeof ExperimentExposureHealthMeasurementSide[keyof typeof ExperimentExposureHealthMeasurementSide];
+
+
+    export const ExperimentExposureHealthMeasurementSide = {
+      Above: 'above',
+      Below: 'below',
+    } as const;
+
+    export interface ExperimentExposureHealthMeasurement {
+      /** The value at which the check reports a finding. */
+      threshold: number;
+      /** percentage: a share of the exposed users or groups, on the 0-100 scale. p_value: the p-value of a statistical test. */
+      unit: ExperimentExposureHealthMeasurementUnit;
+      /** The value that the check measured on the experiment. */
+      value: number;
+      /** The side of the threshold that reports a finding. */
+      warns: ExperimentExposureHealthMeasurementSide;
+    }
+
     export type ExperimentExposureHealthCheckStatus = typeof ExperimentExposureHealthCheckStatus[keyof typeof ExperimentExposureHealthCheckStatus];
 
 
@@ -43450,8 +43522,12 @@ export namespace Schemas {
     } as const;
 
     export interface ExperimentExposureHealthCheck {
+      /** What the check looks for and why it matters. Missing on an answer cached before the field existed. */
+      description?: string | null;
       /** Stable identifier of the check. */
       key: ExperimentExposureHealthCheckKey;
+      /** The value that decided a passed check. Null for the other statuses and for a pass that no single value decided. */
+      measurement?: ExperimentExposureHealthMeasurement | null;
       /** The problem the check looks for, as the health panel lists it. */
       name: string;
       /** Why the check did not look, for the statuses not_applicable and not_checked, for example 'Runs after launch'. Null for passed and finding. */

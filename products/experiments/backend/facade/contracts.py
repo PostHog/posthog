@@ -369,13 +369,38 @@ class ExperimentHealthCheckStatus(LabeledStrEnum):
     NOT_CHECKED = "not_checked"
 
 
+class ExperimentHealthMeasurementUnit(LabeledStrEnum):
+    # On the 0-100 scale.
+    PERCENTAGE = "percentage", "Percentage of exposed units"
+    P_VALUE = "p_value", "P-value of a statistical test"
+
+
+class ExperimentHealthMeasurementSide(LabeledStrEnum):
+    ABOVE = "above", "Finding above the threshold"
+    BELOW = "below", "Finding below the threshold"
+
+
+@frozen
+class ExperimentHealthMeasurement:
+    """The value that decided a passed check, so a reader sees how far it is from a finding."""
+
+    value: float
+    threshold: float
+    unit: ExperimentHealthMeasurementUnit
+    # The side of the threshold that reports a finding.
+    warns: ExperimentHealthMeasurementSide
+
+
 @frozen
 class ExperimentHealthCheckResult:
     key: ExperimentHealthCheckKey
     name: str
+    description: str
     status: ExperimentHealthCheckStatus
     # Why the check did not look, for the statuses not_applicable and not_checked. None otherwise.
     reason: str | None
+    # Only for the status passed, and only when one value against a threshold decided the pass.
+    measurement: ExperimentHealthMeasurement | None
 
 
 @frozen

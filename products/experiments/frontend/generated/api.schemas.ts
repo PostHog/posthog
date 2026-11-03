@@ -2534,6 +2534,47 @@ export const ExperimentHealthCheckStatusEnumApi = {
     NotChecked: 'not_checked',
 } as const
 
+/**
+ * * `percentage` - Percentage of exposed units
+ * * `p_value` - P-value of a statistical test
+ */
+export type ExperimentHealthMeasurementUnitEnumApi =
+    (typeof ExperimentHealthMeasurementUnitEnumApi)[keyof typeof ExperimentHealthMeasurementUnitEnumApi]
+
+export const ExperimentHealthMeasurementUnitEnumApi = {
+    Percentage: 'percentage',
+    PValue: 'p_value',
+} as const
+
+/**
+ * * `above` - Finding above the threshold
+ * * `below` - Finding below the threshold
+ */
+export type ExperimentHealthMeasurementSideEnumApi =
+    (typeof ExperimentHealthMeasurementSideEnumApi)[keyof typeof ExperimentHealthMeasurementSideEnumApi]
+
+export const ExperimentHealthMeasurementSideEnumApi = {
+    Above: 'above',
+    Below: 'below',
+} as const
+
+export interface ExperimentHealthMeasurementApi {
+    /** The value that the check measured on the experiment. */
+    value: number
+    /** The value at which the check reports a finding. */
+    threshold: number
+    /** percentage: a share of the exposed users or groups, on the 0-100 scale. p_value: the p-value of a statistical test.
+     *
+     * * `percentage` - Percentage of exposed units
+     * * `p_value` - P-value of a statistical test */
+    unit: ExperimentHealthMeasurementUnitEnumApi
+    /** The side of the threshold that reports a finding: above or below.
+     *
+     * * `above` - Finding above the threshold
+     * * `below` - Finding below the threshold */
+    warns: ExperimentHealthMeasurementSideEnumApi
+}
+
 export interface ExperimentHealthCheckResultApi {
     /** Stable identifier of the check. A check can report several finding codes, so the key is not a finding code.
      *
@@ -2563,6 +2604,8 @@ export interface ExperimentHealthCheckResultApi {
     key: ExperimentHealthCheckKeyEnumApi
     /** The problem the check looks for, for example 'Metrics not set up'. */
     name: string
+    /** What the check looks for and why it matters. The same for every experiment and every status. */
+    description: string
     /** passed: the check found no problem. finding: the check reported a finding in `findings`. not_applicable: the check does not cover the experiment's current state, for example a check of the changes since launch on a draft. not_checked: the check covers the experiment, but it could not read an input or it failed, so a problem it looks for can be present without a finding.
      *
      * * `passed` - Passed
@@ -2575,6 +2618,8 @@ export interface ExperimentHealthCheckResultApi {
      * @nullable
      */
     reason: string | null
+    /** The value that decided a passed check, against its threshold. Null for the other statuses, and for a pass that no single value against a threshold decided. A finding carries its values in `evidence`. */
+    measurement: ExperimentHealthMeasurementApi | null
 }
 
 export interface ExperimentHealthApi {

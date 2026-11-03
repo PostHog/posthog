@@ -53,6 +53,8 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingSeverity,
     ExperimentHealthFlagChangeKind,
     ExperimentHealthInputsTrafficStatus,
+    ExperimentHealthMeasurementSide,
+    ExperimentHealthMeasurementUnit,
     ExperimentHealthMetricCompileErrorKind,
     ExperimentValidationError,
     HealthExposureInputsStatus,
@@ -257,6 +259,22 @@ class ExperimentHealthFindingSerializer(serializers.Serializer):
     )
 
 
+class ExperimentHealthMeasurementSerializer(serializers.Serializer):
+    value = serializers.FloatField(help_text="The value that the check measured on the experiment.")
+    threshold = serializers.FloatField(help_text="The value at which the check reports a finding.")
+    unit = serializers.ChoiceField(
+        choices=ExperimentHealthMeasurementUnit.choices,
+        help_text=(
+            "percentage: a share of the exposed users or groups, on the 0-100 scale. p_value: the p-value of a "
+            "statistical test."
+        ),
+    )
+    warns = serializers.ChoiceField(
+        choices=ExperimentHealthMeasurementSide.choices,
+        help_text="The side of the threshold that reports a finding: above or below.",
+    )
+
+
 class ExperimentHealthCheckResultSerializer(serializers.Serializer):
     key = serializers.ChoiceField(
         choices=ExperimentHealthCheckKey.choices,
@@ -266,6 +284,9 @@ class ExperimentHealthCheckResultSerializer(serializers.Serializer):
         ),
     )
     name = serializers.CharField(help_text="The problem the check looks for, for example 'Metrics not set up'.")
+    description = serializers.CharField(
+        help_text=("What the check looks for and why it matters. The same for every experiment and every status.")
+    )
     status = serializers.ChoiceField(
         choices=ExperimentHealthCheckStatus.choices,
         help_text=(
@@ -280,6 +301,13 @@ class ExperimentHealthCheckResultSerializer(serializers.Serializer):
         help_text=(
             "Why the check did not look, for the statuses not_applicable and not_checked, for example "
             "'Runs after launch'. Null for passed and finding."
+        ),
+    )
+    measurement = ExperimentHealthMeasurementSerializer(
+        allow_null=True,
+        help_text=(
+            "The value that decided a passed check, against its threshold. Null for the other statuses, and for a "
+            "pass that no single value against a threshold decided. A finding carries its values in `evidence`."
         ),
     )
 
