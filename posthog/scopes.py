@@ -343,10 +343,10 @@ RISKY_SCOPE_WARNINGS: dict[str, str] = {
     "llm_provider_key:write": "Stores and changes LLM provider API keys.",
     "organization:write": "Changes organization settings, including roles and OAuth apps.",
     "organization_integration:write": "Connects and changes organization-wide integrations and their stored credentials.",
-    "organization_member:write": "Invites and removes organization members and changes their roles.",
+    "organization_member:write": "Invites and removes organization members and changes their roles, so it can give people access beyond this token's scopes.",
     "sharing_configuration:read": "Reads the access tokens of public sharing links, which keep working after this token expires.",
     "sharing_configuration:write": "Creates public sharing links that anyone with the link can open.",
-    "user:read": "Reads the account details of the user the token acts as.",
+    "user:read": "Reads the account details of the user the token acts as, including every organization and project they belong to.",
     "user:write": "Changes the account of the user the token acts as.",
 }
 
