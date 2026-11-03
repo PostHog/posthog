@@ -663,6 +663,22 @@
         },
         "feature_flag": "activity-summary"
     },
+    "activity-summary-search": {
+        "description": "Find the project members whose activity summary matches a topic, an object name or a product, to route a report to people connected to the work. It also finds people who only open the work and never edit it, such as product managers, which the activity log cannot show. Search as you search anything: start broad with the object, the topic and other wordings, then narrow with `product` or rephrase, and pass `exclude_user_uuids` to skip people you already checked. Set `include_profile` only for the few people worth reading. `hybrid` (the default) merges keyword and semantic ranking; `matched_on` says why each member matched. A result is a lead, not an owner. Check it against the report before you select the person. If you select someone because they open an object often, the `reason` must say so, such as \"opens this dashboard most days\", and must not claim ownership. Ownership rules and human reviewer corrections take priority over this search. `not_ready_count` is the number of members with no summary, whom the search cannot find. A 404 means the search is not available for this project.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Search member activity summaries",
+        "title": "Search member activity summaries",
+        "required_scopes": ["signal_scout_internal:read"],
+        "api_operations": ["GET /api/projects/{project_id}/signals/activity_summary_members/search/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "activity-summary-search"
+    },
     "activity-summary-versions-list": {
         "description": "List earlier versions of the current user's activity summary in this project, newest first, to see how their focus changed over time. Each version has a headline, the themes, the modes and `recent_shift`, which says what changed since the version before it. The list leaves out the profile and the `computed` fields to stay small. Pass `version` to get one version with its full profile and the `computed` fields that its theme refs point at. A 404 means activity summaries are not available for this project, or that the requested version does not exist.",
         "category": "Signals",
@@ -3330,7 +3346,7 @@
         }
     },
     "conversations-macros-list": {
-        "description": "List the shared reply macros in the project, most used first. A macro is a saved reply an agent inserts into a ticket. The body is markdown and may contain customer, agent, and ticket variables in double braces. Fill those in for the current ticket before sending the reply. shortcut is the slash command without the leading slash, or null when the macro has none.",
+        "description": "List the reply macros the caller can use, most used first: the macros shared with the project, plus the caller's personal macros (visibility 'personal'). A macro is a saved reply an agent inserts into a ticket. The body is markdown and may contain customer, agent, and ticket variables in double braces. Fill those in for the current ticket before sending the reply. shortcut is the slash command without the leading slash, or null when the macro has none.",
         "category": "Conversations",
         "feature": "conversations",
         "summary": "List support macros",

@@ -13,6 +13,7 @@ from parameterized import parameterized
 
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.paging import PageRequest
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.customer_analytics.backend.facade import api as facade
@@ -181,8 +182,9 @@ class TestRelationshipFacade(BaseTest):
         created = facade.create_account_relationship_definition(
             team_id=self.team.id, name="Onboarding manager", description="Runs onboarding", created_by=self.user
         )
-        listed, total = facade.list_account_relationship_definitions(self.team.id)
-        assert total == 1
+        listed_page = facade.list_account_relationship_definitions(self.team.id, page=PageRequest(limit=100))
+        listed = listed_page.results
+        assert listed_page.count == 1
         assert [d.id for d in listed] == [created.id]
         assert listed[0].description == "Runs onboarding"
         assert listed[0].is_single_holder is True
@@ -345,7 +347,7 @@ class TestRelationshipFacade(BaseTest):
             team_id=self.team.id, name="CSM", created_by=self.user
         )
         assert definition.id is not None
-        assert facade.list_account_relationship_definitions(other_team.id) == ([], 0)
+        assert facade.list_all_account_relationship_definitions(other_team.id) == []
         assert facade.list_account_relationships(team_id=other_team.id, account_id=self.account.id) == []
         assert not facade.delete_account_relationship_definition(team_id=other_team.id, definition_id=definition.id)
 

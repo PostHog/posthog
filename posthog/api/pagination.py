@@ -176,6 +176,17 @@ class BoundedLimitOffsetPagination(LimitOffsetPagination):
         return parameters
 
 
+class DefaultLimitOffsetPagination(BoundedLimitOffsetPagination):
+    """The project-wide default paginator: it caps `limit` at `max_limit` but leaves the schema as DRF writes it.
+
+    Clients generated from the schema keep accepting a larger limit. The server answers with at most
+    `max_limit` rows and a `next` link, so a client that follows `next` still reads every row.
+    """
+
+    def get_schema_operation_parameters(self, view: Any) -> list[dict[str, Any]]:
+        return LimitOffsetPagination.get_schema_operation_parameters(self, view)
+
+
 class FacadeLimitOffsetPagination(BoundedLimitOffsetPagination):
     """Builds the standard limit/offset response from a page that a facade read in SQL.
 
