@@ -4,10 +4,7 @@ import { LemonBanner, LemonButton, LemonInput, LemonLabel, LemonModal, Link } fr
 
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { pluralize } from 'lib/utils/strings'
-import {
-    PERCENTILE_METRIC_SEQUENTIAL_DISABLED_REASON,
-    experimentUsesSequentialTesting,
-} from 'scenes/experiments/ExperimentView/sequential'
+import { percentileMetricSequentialReason } from 'scenes/experiments/ExperimentView/sequential'
 import { formatMetricTypeName } from 'scenes/experiments/MetricsView/shared/utils'
 import { InlineTagEditor } from 'scenes/experiments/SharedMetrics/InlineTagEditor'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
@@ -64,19 +61,14 @@ export function SharedMetricModal({
         if (selectedMetricIds.length === 0) {
             return 'Please select at least one metric'
         }
-        const selectsPercentileMetric = compatibleSharedMetrics.some(
-            (metric) =>
-                selectedMetricIds.includes(metric.id) && metric.query.metric_type === ExperimentMetricType.QUANTILE
+        return percentileMetricSequentialReason(
+            compatibleSharedMetrics.some(
+                (metric) =>
+                    selectedMetricIds.includes(metric.id) && metric.query.metric_type === ExperimentMetricType.QUANTILE
+            ),
+            experiment.stats_config,
+            experimentsConfig?.default_sequential_testing_enabled ?? false
         )
-        if (
-            selectsPercentileMetric &&
-            experimentUsesSequentialTesting(
-                experiment.stats_config,
-                experimentsConfig?.default_sequential_testing_enabled ?? false
-            )
-        ) {
-            return PERCENTILE_METRIC_SEQUENTIAL_DISABLED_REASON
-        }
     }
 
     const closeModal = (): void => {
