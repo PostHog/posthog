@@ -1,6 +1,8 @@
+from datetime import timedelta
+
 import time_machine
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from django.utils import timezone
 
@@ -13,6 +15,7 @@ from products.signals.backend.github_readiness import (
     enabled_recovery_signals,
     github_blocked_reports,
 )
+from products.signals.backend.github_readiness_tasks import resume_github_blocked_reports
 from products.signals.backend.models import SignalReport, SignalScoutConfig
 from products.signals.backend.scout_harness.run_gates import check_research_access
 from products.signals.backend.temporal.types import SignalData
@@ -21,6 +24,60 @@ from products.tasks.backend.facade.github_readiness import get_team_github_readi
 
 @time_machine.travel("2026-01-01T12:00:00Z", tick=False)
 class TestGitHubReadiness(BaseTest):
+    @parameterized.expand([(True, True, False), (False, True, False), (True, False, False), (True, True, True)])
+    def test_reconnection_recovers_only_recent_blocked_research(
+        self, connected: bool, consent: bool, late_blocker: bool
+    ) -> None:
+        self.organization.is_ai_data_processing_approved = consent
+        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        blocked = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.CANDIDATE,
+            research_blocked_reason="not_connected",
+            research_blocked_at=timezone.now(),
+        )
+        SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.PENDING_INPUT,
+            research_blocked_reason="not_connected",
+            research_blocked_at=timezone.now(),
+        )
+        SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.CANDIDATE,
+            research_blocked_reason="not_connected",
+            research_blocked_at=timezone.now() - timedelta(days=8),
+        )
+        if connected:
+            Integration.objects.create(team=self.team, kind="github", integration_id="example-installation")
+        client = Mock(start_workflow=AsyncMock())
+        with (
+            patch("products.signals.backend.github_readiness_tasks.async_connect", new=AsyncMock(return_value=client)),
+            patch("products.signals.backend.github_optional.feature_enabled_or_false", return_value=False),
+            patch(
+                "posthog.models.integration.GitHubIntegration.sync_repository_cache",
+                return_value=[{"full_name": "example/app"}],
+            ),
+        ):
+            if late_blocker:
+                with (
+                    patch.object(
+                        resume_github_blocked_reports, "delay", side_effect=resume_github_blocked_reports.run
+                    ) as deliver,
+                    self.captureOnCommitCallbacks(execute=True),
+                ):
+                    assert not check_report_github_readiness(self.team.id, str(blocked.id), reason="not_connected")
+                deliver.assert_called_once_with(self.team.id)
+            else:
+                resume_github_blocked_reports(self.team.id)
+        self.assertEqual(client.start_workflow.await_count, int(connected and consent))
+        if connected and consent:
+            args, kwargs = client.start_workflow.call_args
+            self.assertEqual(args[0], "signal-report-summary")
+            self.assertEqual(args[1].report_id, str(blocked.id))
+            self.assertTrue(args[1].github_recovery)
+            self.assertEqual(kwargs["id"], f"signals-report:{self.team.id}:{blocked.id}")
+
     def test_recovery_respects_source_scout_and_scanner_controls(self) -> None:
         scanner_id = "00000000-0000-4000-8000-000000000001"
         SignalScoutConfig.objects.for_team(self.team.id).create(

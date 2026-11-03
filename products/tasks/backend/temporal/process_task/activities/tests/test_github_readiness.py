@@ -5,7 +5,7 @@ from typing import cast
 
 import time_machine
 from posthog.test.base import BaseTest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 
 from django.utils import timezone
 
@@ -21,6 +21,7 @@ from products.signals.backend.models import SignalReport, SignalReportTask
 from products.signals.backend.task_run_artefacts import record_implementation_task
 from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
 from products.tasks.backend.github_recovery import GitHubRecoveryCheck
+from products.tasks.backend.github_recovery_tasks import resume_github_blocked_implementations
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.process_task.activities.check_github_readiness import (
     check_self_driving_github_readiness,
@@ -49,6 +50,32 @@ class TestImplementationGitHubReadiness(BaseTest):
         SignalReportTask.objects.create(
             team=self.team, report_id=task.signal_report_id, task=task, relationship="implementation"
         )
+
+    @parameterized.expand(["blocked", "before_check", "running", "cancelled", "local", "expired", "unrelated"])
+    def test_access_event_signals_only_queued_recoverable_implementations(self, case: str) -> None:
+        self.task_run.state = {"workflow_id": "custom-implementation-workflow"}
+        if case == "blocked":
+            self.task_run.state["github_blocked_reason"] = "not_connected"
+        if case in ("running", "cancelled"):
+            self.task_run.status = TaskRun.Status.IN_PROGRESS if case == "running" else TaskRun.Status.CANCELLED
+        if case == "local":
+            self.task_run.environment = TaskRun.Environment.LOCAL
+        if case == "expired":
+            self.task_run.state["github_recovery_deadline"] = (timezone.now() - timedelta(days=1)).isoformat()
+        if case == "unrelated":
+            self.task_run.task.origin_product = Task.OriginProduct.USER_CREATED
+            self.task_run.task.save(update_fields=["origin_product"])
+        self.task_run.save()
+        handle = Mock(signal=AsyncMock())
+        client = Mock()
+        client.get_workflow_handle.return_value = handle
+        with patch("products.tasks.backend.github_recovery_tasks.async_connect", new=AsyncMock(return_value=client)):
+            resume_github_blocked_implementations(self.team.id)
+        if case in ("blocked", "before_check"):
+            client.get_workflow_handle.assert_called_once_with("custom-implementation-workflow")
+            handle.signal.assert_awaited_once_with("github_access_restored")
+        else:
+            handle.signal.assert_not_awaited()
 
     def test_queued_implementation_waits_and_clears_the_blocker_when_ready(self) -> None:
         with patch(

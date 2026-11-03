@@ -127,7 +127,6 @@ from products.signals.backend.facade.tasks import (
     refresh_signal_scout_background_bands,
     sweep_first_publications,
     sweep_first_report_notifications,
-    sweep_github_blocked_reports,
     sweep_implementation_dispatches,
     sweep_monitoring_research_requests,
     sweep_monitoring_tracker_issues,
@@ -285,9 +284,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
     )
     add_periodic_task_with_expiry(
         sender, crontab(minute="*"), reconcile_account_audits.s(), name="reconcile-account-audits"
-    )
-    add_periodic_task_with_expiry(
-        sender, crontab(minute="*/5"), sweep_github_blocked_reports.s(), name="resume github-blocked signal reports"
     )
     add_periodic_task_with_expiry(
         sender, crontab(minute="*/5"), sweep_first_publications.s(), name="deliver signal report first publications"

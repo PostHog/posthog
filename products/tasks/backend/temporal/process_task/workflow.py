@@ -1950,6 +1950,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
     async def _wait_for_github_readiness(self, run_id: str) -> bool:
         suspended_at: datetime | None = None
+        transient_attempts = 0
         while not self._task_completed:
             version = self._github_access_version
             readiness = await workflow.execute_activity(
@@ -1986,10 +1987,18 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 def connection_changed(observed_version: int = version) -> bool:
                     return self._task_completed or self._github_access_version != observed_version
 
-                await workflow.wait_condition(
-                    connection_changed,
-                    timeout=min(remaining, timedelta(minutes=5)),
+                # Replaying histories must retain any polling timer they already scheduled.
+                timeout = (
+                    remaining
+                    if workflow.patched("self-driving-github-event-recovery")
+                    else min(remaining, timedelta(minutes=5))
                 )
+                if readiness.status == "retry" and workflow.patched("self-driving-github-event-recovery"):
+                    transient_attempts += 1
+                    if transient_attempts <= 5:
+                        timeout = min(remaining, timedelta(seconds=10 * 2 ** (transient_attempts - 1)))
+                await workflow.wait_condition(connection_changed, timeout=timeout)
+                transient_attempts = 0
             except TimeoutError:
                 if workflow.now() >= readiness.retry_until:
                     await self._update_task_run_status(

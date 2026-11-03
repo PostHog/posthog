@@ -5,12 +5,11 @@ from django.conf import settings
 from asgiref.sync import async_to_sync
 from celery import shared_task
 from temporalio.common import WorkflowIDReusePolicy
-from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.celery_queues import CeleryQueue
 from posthog.models import Team
+from posthog.models.integration.github_readiness import GitHubAccessUnavailable, GitHubReadinessStatus
 from posthog.models.scoping import with_team_scope
-from posthog.scoping_audit import skip_team_scope_audit
 from posthog.temporal.common.client import async_connect
 
 from products.signals.backend.daily_limit import daily_report_limit_gate
@@ -24,20 +23,25 @@ RECOVERY_BATCH_SIZE = 25
 
 async def start_recovered_report(team_id: int, report_id: str) -> None:
     client = await async_connect()
-    try:
-        await client.start_workflow(
-            "signal-report-summary",
-            SignalReportSummaryWorkflowInputs(team_id=team_id, report_id=report_id, github_recovery=True),
-            id=f"signals-report:{team_id}:{report_id}",
-            task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-            id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-            execution_timeout=timedelta(hours=5),
-        )
-    except WorkflowAlreadyStartedError:
-        pass
+    await client.start_workflow(
+        "signal-report-summary",
+        SignalReportSummaryWorkflowInputs(team_id=team_id, report_id=report_id, github_recovery=True),
+        id=f"signals-report:{team_id}:{report_id}",
+        task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+        execution_timeout=timedelta(hours=5),
+    )
 
 
-@shared_task(queue=CeleryQueue.LONG_RUNNING.value, ignore_result=True, soft_time_limit=240, time_limit=300)
+@shared_task(
+    queue=CeleryQueue.LONG_RUNNING.value,
+    ignore_result=True,
+    soft_time_limit=240,
+    time_limit=300,
+    autoretry_for=(Exception,),
+    retry_backoff=10,
+    max_retries=5,
+)
 @with_team_scope()
 def resume_github_blocked_reports(team_id: int, after_report_id: str | None = None) -> None:
     reports = SignalReport.objects.filter(github_blocked_reports(), team_id=team_id)
@@ -56,20 +60,9 @@ def resume_github_blocked_reports(team_id: int, after_report_id: str | None = No
     for report_id in report_ids:
         if check_report_github_readiness(team_id, str(report_id), recovery=True):
             async_to_sync(start_recovered_report)(team_id, str(report_id))
+        elif SignalReport.objects.filter(
+            team_id=team_id, id=report_id, research_blocked_reason=GitHubReadinessStatus.TEMPORARILY_UNAVAILABLE
+        ).exists():
+            raise GitHubAccessUnavailable(GitHubReadinessStatus.TEMPORARILY_UNAVAILABLE)
     if len(report_ids) == RECOVERY_BATCH_SIZE:
-        resume_github_blocked_reports.apply_async(args=[team_id, str(report_ids[-1])], countdown=60)
-
-
-@shared_task(queue=CeleryQueue.DEFAULT.value, ignore_result=True, soft_time_limit=60, time_limit=90)
-@skip_team_scope_audit
-def sweep_github_blocked_reports(after_team_id: int = 0) -> None:
-    team_ids = list(
-        SignalReport.objects.filter(github_blocked_reports(), team_id__gt=after_team_id)
-        .order_by("team_id")
-        .values_list("team_id", flat=True)
-        .distinct()[:100]
-    )
-    for team_id in team_ids:
-        resume_github_blocked_reports.delay(team_id)
-    if len(team_ids) == 100:
-        sweep_github_blocked_reports.apply_async(args=[team_ids[-1]], countdown=60)
+        resume_github_blocked_reports.delay(team_id, str(report_ids[-1]))

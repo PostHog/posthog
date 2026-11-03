@@ -84,7 +84,7 @@ def enabled_recovery_signals(team_id: int, signals: list[SignalData]) -> list[Si
     ]
 
 
-def _suspend_research(team_id: int, report_id: str, reason: GitHubReadinessStatus) -> bool:
+def _suspend_research(team_id: int, report_id: str, reason: GitHubReadinessStatus, *, recovery: bool) -> bool:
     with transaction.atomic():
         report = SignalReport.objects.select_for_update().get(team_id=team_id, id=report_id)
         if report.status not in (SignalReport.Status.CANDIDATE, SignalReport.Status.IN_PROGRESS):
@@ -95,6 +95,13 @@ def _suspend_research(team_id: int, report_id: str, reason: GitHubReadinessStatu
         report.research_blocked_reason = reason
         report.research_blocked_at = report.research_blocked_at or timezone.now()
         report.save(update_fields=[*fields, "research_blocked_reason", "research_blocked_at"])
+        if not recovery:
+            from products.signals.backend.github_readiness_tasks import (  # noqa: PLC0415 - recovery tasks import the readiness check
+                resume_github_blocked_reports,
+            )
+
+            # A reconnect can commit before this blocker, so its event may already have scanned the project.
+            transaction.on_commit(lambda: resume_github_blocked_reports.delay(team_id))
     capture_research_access_event(
         team_id=team_id, report_id=report_id, origin="pipeline", reason=reason, fallback=False
     )
@@ -124,7 +131,7 @@ def check_report_github_readiness(
     )
     if readiness.status == GitHubReadinessStatus.READY:
         return True
-    return _suspend_research(team_id, report_id, readiness.status)
+    return _suspend_research(team_id, report_id, readiness.status, recovery=recovery)
 
 
 @activity.defn

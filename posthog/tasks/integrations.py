@@ -1,3 +1,5 @@
+from django.db.models import Q
+
 from celery import Task, shared_task
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
@@ -11,6 +13,7 @@ from posthog.models.integration import (
     defer_repository_cache_fields,
     refresh_backoff_active,
 )
+from posthog.models.team.team import Team
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
@@ -18,6 +21,46 @@ from posthog.tasks.utils import CeleryQueue
 from products.workflows.backend.facade.api import delete_ses_identity
 
 GITHUB_BRANCH_REFRESH_RETRY_SECONDS = 5 * 60
+
+
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.INTEGRATIONS.value,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    max_retries=5,
+)
+@skip_team_scope_audit
+def recover_github_access(installation_id: str, team_id: int | None = None, after_team_id: int = 0) -> None:
+    from products.signals.backend.facade.tasks import (  # noqa: PLC0415 - keep product tasks off the integration model import path
+        resume_github_blocked_reports,
+    )
+    from products.tasks.backend.facade.tasks import (  # noqa: PLC0415 - keep Temporal off the integration model import path
+        resume_github_blocked_implementations,
+    )
+
+    connected_projects = Integration.objects.filter(kind="github", integration_id=installation_id)
+    if team_id is not None:
+        connected_projects = connected_projects.filter(team_id=team_id)
+    connected_team_ids = connected_projects.values("team_id")
+    team_ids = list(
+        Team.objects.filter(
+            Q(id__in=connected_team_ids) | Q(parent_team_id__in=connected_team_ids), id__gt=after_team_id
+        )
+        .order_by("id")
+        .values_list("id", flat=True)[:100]
+    )
+    if team_id is None:
+        # Access-change webhooks can outlive a token minted with the installation's previous permissions.
+        for integration in connected_projects.filter(team_id__in=team_ids):
+            GitHubIntegration(
+                integration, source="github_access_recovery", priority=Priority.BATCH
+            ).refresh_access_token()
+    for affected_team_id in team_ids:
+        resume_github_blocked_reports.delay(affected_team_id)
+        resume_github_blocked_implementations.delay(affected_team_id)
+    if len(team_ids) == 100:
+        recover_github_access.delay(installation_id, team_id, team_ids[-1])
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.INTEGRATIONS.value)
