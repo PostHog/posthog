@@ -14,6 +14,16 @@ export const RENDER_UI_TOOL_NAME = 'render-ui'
 export const RENDER_UI_TOOL_TITLE = 'Render a PostHog visualization'
 export const RENDER_UI_TOOL_DESCRIPTION = RENDER_UI_PROMPT.trim()
 
+/** Shared by the `tools/list` entry and the runtime Tool. OpenAI's plugin review does not
+ *  publish a tool unless `tools/list` gives explicit values for `readOnlyHint`,
+ *  `destructiveHint`, and `openWorldHint`. */
+export const RENDER_UI_TOOL_ANNOTATIONS = {
+    destructiveHint: false,
+    idempotentHint: true,
+    openWorldHint: false,
+    readOnlyHint: true,
+} as const
+
 export function renderUiDescription(renderableNames: string[]): string {
     return renderableNames.includes('explain-chart')
         ? `${RENDER_UI_TOOL_DESCRIPTION}\n\n${RENDER_UI_EXPLAIN_CHART.trim()}`
@@ -98,12 +108,7 @@ export function createRenderUiTool(
         description: renderUiDescription(renderableNames),
         schema,
         scopes: [],
-        annotations: {
-            destructiveHint: false,
-            idempotentHint: true,
-            openWorldHint: false,
-            readOnlyHint: true,
-        },
+        annotations: { ...RENDER_UI_TOOL_ANNOTATIONS },
         // Advertise the umbrella UI resource on the tool definition itself.
         // MCP Apps hosts (e.g. Claude) discover renderable tools from `tools/list`
         // `_meta.ui.resourceUri`, pre-fetch the template, and only mount the iframe
