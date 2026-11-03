@@ -163,3 +163,13 @@ export async function deletePlaylist(
     })
     return playlist
 }
+
+export function widerDateRange(dateFrom: string | null | undefined): { dateFrom: '-7d' | '-30d'; days: 7 | 30 } | null {
+    if (dateFrom === '-3d') {
+        return { dateFrom: '-7d', days: 7 }
+    }
+    if (dateFrom === '-7d') {
+        return { dateFrom: '-30d', days: 30 }
+    }
+    return null
+}
