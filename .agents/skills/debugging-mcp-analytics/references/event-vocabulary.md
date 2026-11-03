@@ -154,13 +154,18 @@ A frequent source of wrong session math:
 
 ## Library identity
 
-Since TS 0.7.0 events stamp the standard `$lib` = `posthog-node-mcp` (plus `$lib_version`) via
-`applyMcpLibIdentity`. The short-lived 0.6.0 custom `$mcp_lib` / `$mcp_lib_version` properties
-were dropped — any document mentioning them is stale.
+From TS 0.7.0, `applyMcpLibIdentity` relabels the client as `$lib` = `posthog-node-mcp`, with
+`$lib_version` set to the `@posthog/mcp` version. The short-lived 0.6.0 custom `$mcp_lib` /
+`$mcp_lib_version` properties were dropped, so any document that mentions them is stale.
 
-Note that posthog-node sets `$lib` at the client level, so `instrument()` relabels **every**
-event sent by the client you pass it. Give an MCP server a posthog-node client dedicated to its
-analytics rather than sharing the app's.
+posthog-node sets `$lib` at the client level, so that relabel covers **every** event sent by
+the client you pass to `instrument()`, not only the MCP events.
+
+On capture v1 (posthog-node 6, posthog-python 8), capture takes `$lib` from a per-request
+header, so one client has one identity. There the MCP SDKs keep the base SDK's `$lib`
+(`posthog-node`, `posthog-python`) and its `$lib_version`. Old and new clients send events side
+by side for a long time, so find MCP traffic by its `$mcp_*` event names or by
+`$mcp_source = 'posthog_mcp_analytics'`, not by `$lib`.
 
 ## TypeScript SDK behaviour by version
 

@@ -731,9 +731,9 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "event_count_from_helicone_in_period": 1,
                     "web_events_count_in_period": 37,
                     "web_lite_events_count_in_period": 1,
-                    "node_events_count_in_period": 1,
-                    "node_mcp_events_count_in_period": 1,
-                    "python_mcp_events_count_in_period": 1,
+                    "node_events_count_in_period": 2,
+                    "node_mcp_events_count_in_period": 0,
+                    "python_mcp_events_count_in_period": 0,
                     "rust_mcp_events_count_in_period": 0,
                     "go_mcp_events_count_in_period": 0,
                     "ruby_mcp_events_count_in_period": 0,
@@ -763,7 +763,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "java_events_count_in_period": 2,
                     "react_native_events_count_in_period": 1,
                     "ruby_events_count_in_period": 2,
-                    "python_events_count_in_period": 1,
+                    "python_events_count_in_period": 2,
                     "php_events_count_in_period": 1,
                     "laravel_events_count_in_period": 0,
                     "dotnet_events_count_in_period": 2,
@@ -838,9 +838,9 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "event_count_from_helicone_in_period": 1,
                             "web_events_count_in_period": 25,
                             "web_lite_events_count_in_period": 1,
-                            "node_events_count_in_period": 1,
-                            "node_mcp_events_count_in_period": 1,
-                            "python_mcp_events_count_in_period": 1,
+                            "node_events_count_in_period": 2,
+                            "node_mcp_events_count_in_period": 0,
+                            "python_mcp_events_count_in_period": 0,
                             "rust_mcp_events_count_in_period": 0,
                             "go_mcp_events_count_in_period": 0,
                             "ruby_mcp_events_count_in_period": 0,
@@ -870,7 +870,7 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "java_events_count_in_period": 2,
                             "react_native_events_count_in_period": 1,
                             "ruby_events_count_in_period": 2,
-                            "python_events_count_in_period": 1,
+                            "python_events_count_in_period": 2,
                             "php_events_count_in_period": 1,
                             "laravel_events_count_in_period": 0,
                             "dotnet_events_count_in_period": 2,
@@ -1857,9 +1857,17 @@ class TestQueryUsageReportSQL:
         assert "'posthog-aspnetcore'" in main_query
         assert "'posthog-rs'" in main_query
         assert "lib_expr = 'posthog-laravel', 'laravel_events'" in main_query
-        assert "lib_expr = 'posthog-rs-mcp', 'rust_mcp_events'" in main_query
-        assert "lib_expr = 'posthog-go-mcp', 'go_mcp_events'" in main_query
-        assert "lib_expr = 'posthog-ruby-mcp', 'ruby_mcp_events'" in main_query
+        assert (
+            "startsWith(event, '$mcp_') AND lib_expr IN ('posthog-node', 'posthog-node-mcp'), 'node_mcp_events'"
+            in main_query
+        )
+        assert (
+            "startsWith(event, '$mcp_') AND lib_expr IN ('posthog-ruby', 'posthog-rails', 'posthog-ruby-mcp'), 'ruby_mcp_events'"
+            in main_query
+        )
+        assert main_query.index("startsWith(event, '$mcp_')") < main_query.index("lib_expr = 'web'")
+        assert "lib_expr = 'posthog-node-mcp', 'node_events'" in main_query
+        assert "lib_expr = 'posthog-rs-mcp', 'rust_events'" in main_query
         assert "lib_expr = 'posthog-godot', 'godot_events'" in main_query
         assert "lib_expr = 'posthog-unreal', 'unreal_events'" in main_query
         assert "ai_lib_expr" not in main_query
@@ -1870,7 +1878,10 @@ class TestQueryUsageReportSQL:
         ai_query = mock_execute_split_query.call_args_list[1].kwargs["query_template"]
         assert "startsWith(event, '$ai_')" in ai_query
         assert "lib_expr AS sdk_lib" in ai_query
-        assert "lib_expr IN ('posthog-node', 'posthog-python', 'posthog-dotnet', 'posthog-aspnetcore')" in ai_query
+        assert (
+            "lib_expr IN ('posthog-node', 'posthog-node-mcp', 'posthog-python-mcp', 'posthog-python', 'posthog-dotnet', 'posthog-aspnetcore')"
+            in ai_query
+        )
         assert "ai_lib_expr IN (" in ai_query
         assert "GROUP BY team_id, sdk_lib, ai_lib" in ai_query
         assert "'posthog-ai'" in ai_query
@@ -6612,6 +6623,35 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
 
     @parameterized.expand(
         [
+            ("posthog-node", "node_mcp_events", "node_events"),
+            ("posthog-node-mcp", "node_mcp_events", "node_events"),
+            ("posthog-python", "python_mcp_events", "python_events"),
+            ("posthog-python-mcp", "python_mcp_events", "python_events"),
+            ("posthog-rs", "rust_mcp_events", "rust_events"),
+            ("posthog-go", "go_mcp_events", "go_events"),
+            ("posthog-rails", "ruby_mcp_events", "ruby_events"),
+        ]
+    )
+    def test_mcp_events_count_as_sdk_mcp_usage_and_other_events_as_base_sdk_usage(
+        self, lib: str, mcp_metric: str, base_metric: str
+    ) -> None:
+        for event in ["$mcp_tool_call", "$pageview"]:
+            _create_event(
+                event=event,
+                team=self.team,
+                distinct_id="mcp_server_user",
+                timestamp=self.begin + relativedelta(hours=1),
+                properties={"$lib": lib},
+            )
+        flush_persons_and_events()
+
+        event_metrics = get_all_event_metrics_in_period(self.begin, self.end)
+
+        self.assertEqual(dict(event_metrics[mcp_metric]).get(self.team.id), 1)
+        self.assertEqual(dict(event_metrics[base_metric]).get(self.team.id), 1)
+
+    @parameterized.expand(
+        [
             ("$mcp_missing_capability", "mcp_missing_capability_events"),
             ("$mcp_initialize", "mcp_initialize_events"),
             ("$mcp_tools_list", "mcp_tools_list_events"),
@@ -6753,6 +6793,20 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
             timestamp=self.begin + relativedelta(hours=12),
             properties={"$lib": "posthog-node", "$ai_lib": "posthog-ai"},
         )
+        _create_event(
+            event="$ai_generation",
+            team=self.team,
+            distinct_id="mcp_relabeled_node_ai_user",
+            timestamp=self.begin + relativedelta(hours=12),
+            properties={"$lib": "posthog-node-mcp", "$ai_lib": "posthog-ai"},
+        )
+        _create_event(
+            event="$ai_generation",
+            team=self.team,
+            distinct_id="mcp_relabeled_python_ai_user",
+            timestamp=self.begin + relativedelta(hours=12),
+            properties={"$lib": "posthog-python-mcp", "$ai_lib": "posthog-ai"},
+        )
         flush_persons_and_events()
 
         result = get_all_event_metrics_in_period(self.begin, self.end)
@@ -6761,9 +6815,9 @@ class TestQuerySplitting(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, Test
         self.assertEqual(dict(result["openclaw_events"]).get(self.team.id), 1)
         self.assertEqual(dict(result["opencode_events"]).get(self.team.id), 1)
         self.assertEqual(dict(result["posthog_pi_events"]).get(self.team.id), 1)
-        self.assertEqual(dict(result["posthog_ai_events"]).get(self.team.id), 1)
+        self.assertEqual(dict(result["posthog_ai_events"]).get(self.team.id), 2)
         self.assertEqual(dict(result["python_events"]).get(self.team.id), 1)
-        self.assertEqual(dict(result["posthog_python_ai_events"]).get(self.team.id), 1)
+        self.assertEqual(dict(result["posthog_python_ai_events"]).get(self.team.id), 2)
         self.assertEqual(dict(result["dotnet_events"]).get(self.team.id), 1)
         self.assertEqual(dict(result["posthog_dotnet_ai_events"]).get(self.team.id), 2)
 
