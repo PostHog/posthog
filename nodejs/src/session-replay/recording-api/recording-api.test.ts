@@ -829,7 +829,7 @@ describe('RecordingApi', () => {
             secret = BLOCKS_JWT_SECRET
         ): string =>
             `Bearer ${new JWT(secret).sign(
-                { team_id: 1, session_id: 'session-123', sub: 'u7', ...claims },
+                { team_id: 1, session_id: 'session-123', sub: 'u7', tier: 'browser', ...claims },
                 PosthogJwtAudience.REPLAY_BLOCKS,
                 expiresIn ? { expiresIn } : {}
             )}`
@@ -882,7 +882,9 @@ describe('RecordingApi', () => {
             expect(res.headers['vary'] ?? '').not.toMatch(/cookie/i)
             expect(Buffer.from(res.body).toString()).toBe('block-bytes')
             expect(mockService.getBlockByRef).toHaveBeenCalledWith(1, 'session-123', 'v1.abc')
-            expect(rateLimiter.rateLimitMany).toHaveBeenCalledWith([{ id: 'u7', cost: 1 }])
+            expect(rateLimiter.rateLimitMany).toHaveBeenCalledWith([
+                { id: 'viewer:u7', cost: 1, bucketSize: 2000, refillRate: 8 },
+            ])
         })
 
         it.each([
@@ -946,6 +948,26 @@ describe('RecordingApi', () => {
 
             expect(res.status).toBe(expectedStatus)
             expect(res.headers['cache-control']).toBe(enforced ? 'no-store' : 'private, max-age=86400, immutable')
+        })
+
+        it.each([
+            ['a browser viewer, by viewer', { tier: 'browser' }, 'viewer:u7', 2000],
+            ['a paid API key, by team', { sub: 'k42', tier: 'paid' }, 'team:1', 1200],
+            ['another key of the same team, in the same bucket', { sub: 'k43', tier: 'paid' }, 'team:1', 1200],
+            ['an enterprise API key, by team', { sub: 'k42', tier: 'enterprise' }, 'team:1', 2000],
+            ['a token with no tier, strictest', { sub: 'k42', tier: undefined }, 'team:1', 240],
+            ['an unknown tier, strictest', { sub: 'k42', tier: 'platinum' }, 'team:1', 240],
+        ])('rate-limits %s', async (_, claims, expectedId, expectedBucketSize) => {
+            const app = await buildApp('public')
+            const sub = (claims as { sub?: string }).sub ?? 'u7'
+
+            await supertest(app)
+                .get(`/replay-blocks/1/session-123/${sub}/v1.abc`)
+                .set('Authorization', browserToken(claims))
+
+            expect(rateLimiter.rateLimitMany).toHaveBeenCalledWith([
+                expect.objectContaining({ id: expectedId, bucketSize: expectedBucketSize }),
+            ])
         })
 
         it.each([

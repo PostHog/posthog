@@ -32,12 +32,17 @@ import {
 } from './schemas'
 import {
     KeyStore,
+    REPLAY_BLOCK_TIERS,
     RecordingApiConfig,
     RecordingApiRole,
     RecordingBlock,
     RecordingDecryptor,
     RecordingEncryptor,
+    ReplayBlockBucket,
+    ReplayBlockTier,
+    getDefaultRecordingApiBlocksConfig,
     parseRecordingApiRole,
+    parseReplayBlockRateLimits,
 } from './types'
 
 // The browser keeps each block for a day. Django's sources listing, which hands out block URLs, reads the block
@@ -64,6 +69,7 @@ export class RecordingApi {
     private recordingService: RecordingService | null = null
     private blockRateLimiter: KeyedRateLimiterService | null = null
     private readonly role: RecordingApiRole
+    private readonly replayBlockBuckets: Record<ReplayBlockTier, ReplayBlockBucket>
 
     // Postgres and the outputs are only used by internal routes, so a public process passes neither.
     constructor(
@@ -72,6 +78,10 @@ export class RecordingApi {
         private outputs?: IngestionOutputs<ReplayEventsOutput | SessionFeaturesOutput>
     ) {
         this.role = parseRecordingApiRole(config.RECORDING_API_ROLE || 'internal')
+        this.replayBlockBuckets = parseReplayBlockRateLimits(
+            config.RECORDING_API_BLOCK_RATE_LIMITS ||
+                getDefaultRecordingApiBlocksConfig().RECORDING_API_BLOCK_RATE_LIMITS
+        )
     }
 
     private get servesInternalRoutes(): boolean {
@@ -158,12 +168,7 @@ export class RecordingApi {
 
         if (this.servesPublicRoutes) {
             this.blockRateLimiter = new KeyedRateLimiterService(
-                {
-                    name: 'recording-api-replay-blocks',
-                    bucketSize: this.config.RECORDING_API_BLOCK_RATE_LIMIT_BUCKET_SIZE,
-                    refillRate: this.config.RECORDING_API_BLOCK_RATE_LIMIT_REFILL_PER_SECOND,
-                    ttlSeconds: 60 * 60,
-                },
+                { name: 'recording-api-replay-blocks', ttlSeconds: 60 * 60 },
                 createRedisV2PoolFromConfig(redisConfig('recording-api-replay-blocks'))
             )
         }
@@ -440,6 +445,20 @@ export class RecordingApi {
         }
     }
 
+    // A browser viewer has a budget of its own. API callers share their team's budget, as Django's snapshot API limits
+    // do, so a team cannot multiply it with more keys. A missing or unknown tier gets the strictest bucket.
+    private replayBlockBucket(
+        teamId: number,
+        caller: string,
+        tier: unknown
+    ): { id: string; bucket: ReplayBlockBucket } {
+        const known = REPLAY_BLOCK_TIERS.includes(tier as ReplayBlockTier) ? (tier as ReplayBlockTier) : 'free'
+        return {
+            id: known === 'browser' ? `viewer:${caller}` : `team:${teamId}`,
+            bucket: this.replayBlockBuckets[known],
+        }
+    }
+
     private getBlockByRef = async (req: express.Request, res: express.Response): Promise<void> => {
         const paramsResult = ReplayBlockParamsSchema.safeParse(req.params)
         if (!paramsResult.success) {
@@ -454,8 +473,13 @@ export class RecordingApi {
 
         try {
             if (this.blockRateLimiter) {
+                const { id, bucket } = this.replayBlockBucket(
+                    teamId,
+                    res.locals.replayBlocksCaller,
+                    res.locals.replayBlocksTier
+                )
                 const [[, decision]] = await this.blockRateLimiter.rateLimitMany([
-                    { id: res.locals.replayBlocksCaller, cost: 1 },
+                    { id, cost: 1, bucketSize: bucket.bucketSize, refillRate: bucket.refillPerSecond },
                 ])
                 if (decision.isRateLimited) {
                     const enforced = this.config.RECORDING_API_BLOCK_RATE_LIMIT_ENFORCED

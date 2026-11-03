@@ -10,6 +10,7 @@ import {
     KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES,
 } from '~/common/config/kafka-topics'
 import { isProdEnv } from '~/common/utils/env-utils'
+import { parseJSON } from '~/common/utils/json-parse'
 import { SessionRecordingApiConfig, SessionRecordingConfig } from '~/ingestion/pipelines/sessionreplay/config'
 import {
     INGESTION_SESSIONREPLAY_PRODUCER,
@@ -65,17 +66,23 @@ export function getDefaultRecordingApiAuthConfig(): RecordingApiAuthConfig {
 export type RecordingApiRole = 'internal' | 'public' | 'all'
 
 /**
- * The browser block route's per-caller token bucket. One request fetches one block, so the bucket is
- * sized in blocks. Enforced by default; setting it false serves over-limit requests and only counts them.
+ * The browser block route's token buckets, sized in blocks since one request fetches one block. The token's `tier`
+ * picks the bucket: `browser` for the player, and `free`/`paid`/`enterprise` for API callers, which mirror Django's
+ * per-team snapshot API limits at 20 blocks per request. Enforced by default; false serves over-limit requests and
+ * only counts them.
  */
+export const REPLAY_BLOCK_TIERS = ['browser', 'free', 'paid', 'enterprise'] as const
+export type ReplayBlockTier = (typeof REPLAY_BLOCK_TIERS)[number]
+export type ReplayBlockBucket = { bucketSize: number; refillPerSecond: number }
+
 export type RecordingApiBlocksConfig = {
     RECORDING_API_ROLE: string
     // Signs only browser block tokens. Kept apart from RECORDING_API_JWT_SECRET, so the internet-facing pods, which
     // hold only this one, cannot sign a service token for an internal route.
     RECORDING_API_BLOCKS_JWT_SECRET: string
     RECORDING_API_BLOCK_RATE_LIMIT_ENFORCED: boolean
-    RECORDING_API_BLOCK_RATE_LIMIT_BUCKET_SIZE: number
-    RECORDING_API_BLOCK_RATE_LIMIT_REFILL_PER_SECOND: number
+    // JSON object of tier -> [bucket size, refill per second].
+    RECORDING_API_BLOCK_RATE_LIMITS: string
 }
 
 export function getDefaultRecordingApiBlocksConfig(): RecordingApiBlocksConfig {
@@ -84,9 +91,30 @@ export function getDefaultRecordingApiBlocksConfig(): RecordingApiBlocksConfig {
         // Dev/test default matches the Django minter so local end-to-end calls validate.
         RECORDING_API_BLOCKS_JWT_SECRET: isProdEnv() ? '' : 'dev-recording-api-blocks-jwt-secret',
         RECORDING_API_BLOCK_RATE_LIMIT_ENFORCED: true,
-        RECORDING_API_BLOCK_RATE_LIMIT_BUCKET_SIZE: 2000,
-        RECORDING_API_BLOCK_RATE_LIMIT_REFILL_PER_SECOND: 8,
+        RECORDING_API_BLOCK_RATE_LIMITS: JSON.stringify({
+            browser: [2000, 8],
+            free: [240, 1200 / 3600],
+            paid: [1200, 6000 / 3600],
+            enterprise: [2000, 8000 / 3600],
+        }),
     }
+}
+
+export function parseReplayBlockRateLimits(raw: string): Record<ReplayBlockTier, ReplayBlockBucket> {
+    const parsed = parseJSON(raw) as Record<string, unknown>
+    const buckets = {} as Record<ReplayBlockTier, ReplayBlockBucket>
+    for (const tier of REPLAY_BLOCK_TIERS) {
+        const value = parsed?.[tier]
+        if (
+            !Array.isArray(value) ||
+            value.length !== 2 ||
+            !value.every((n) => typeof n === 'number' && Number.isFinite(n) && n > 0)
+        ) {
+            throw new Error(`Invalid RECORDING_API_BLOCK_RATE_LIMITS: '${tier}' needs [bucket size, refill per second]`)
+        }
+        buckets[tier] = { bucketSize: value[0], refillPerSecond: value[1] }
+    }
+    return buckets
 }
 
 export function parseRecordingApiRole(role: string): RecordingApiRole {

@@ -190,6 +190,7 @@ export function createReplayBlocksAuthMiddleware(jwtSecret: string) {
             return
         }
         res.locals.replayBlocksCaller = claims.sub
+        res.locals.replayBlocksTier = claims.tier
         next()
     }
 }
