@@ -34448,6 +34448,19 @@ export namespace Schemas {
       response_id: string;
     }
 
+    export interface DestinationConnectCompleteRequest {
+      /**
+         * The connect token from the connect link URL.
+         * @maxLength 128
+         */
+      connect_token: string;
+      /**
+         * Id of the integration the user saved on the connect page.
+         * @minimum 1
+         */
+      integration_id: number;
+    }
+
     export interface DestinationConnectLink {
       /** The destination type the link is for. */
       destination_type: string;
@@ -34455,8 +34468,50 @@ export namespace Schemas {
       integration_kind: string;
       /** Full URL to share with the user. It opens the connection form for this integration kind in PostHog, so credentials never pass through the agent or the chat. */
       connect_url: string;
+      /** Secret token in the link. Pass it to the connect link status endpoint to learn which integration the user saved. Only the user who asked for the link can read its status. */
+      connect_token: string;
+      /** When the link stops accepting a new connection. Ask for a new link after this time. */
+      expires_at: string;
       /** Next steps for the agent to relay to the user. */
       instructions: string;
+    }
+
+    /**
+     * * `pending` - Pending
+     * * `connected` - Connected
+     * * `expired` - Expired
+     */
+    export type DestinationConnectStatusEnum = typeof DestinationConnectStatusEnum[keyof typeof DestinationConnectStatusEnum];
+
+
+    export const DestinationConnectStatusEnum = {
+      Pending: 'pending',
+      Connected: 'connected',
+      Expired: 'expired',
+    } as const;
+
+    export interface DestinationConnectStatus {
+      /** `pending`: the user has not saved a connection yet. `connected`: the user saved one, and integration_id holds it. `expired`: the link is no longer valid, or it is unknown or belongs to another user. Ask for a new link.
+       *
+       * * `pending` - Pending
+       * * `connected` - Connected
+       * * `expired` - Expired */
+      status: DestinationConnectStatusEnum;
+      /**
+         * Id of the saved integration when status is `connected`. Pass it to destination create.
+         * @nullable
+         */
+      integration_id: number | null;
+      /**
+         * The integration kind the link is for. Null when status is `expired`.
+         * @nullable
+         */
+      integration_kind: string | null;
+      /**
+         * Name of the saved connection, such as the account or host, to confirm with the user.
+         * @nullable
+         */
+      display_name: string | null;
     }
 
     /**
@@ -125247,6 +125302,15 @@ export namespace Schemas {
       AzureBlob: 'AzureBlob',
       S3: 'S3',
     } as const;
+
+    export type ExternalDataDestinationsConnectLinkStatusRetrieveParams = {
+    /**
+     * The connect_token that the connect link returned.
+     * @minLength 1
+     * @maxLength 128
+     */
+    connect_token: string;
+    };
 
     export type ExternalDataSchemasListParams = {
     /**
