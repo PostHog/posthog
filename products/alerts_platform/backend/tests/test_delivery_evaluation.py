@@ -539,13 +539,26 @@ class TestDeliverEvaluation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("still_firing", "firing", FIRING, [IncidentAction.TRIGGER]),
-            ("resolved_since", "not_firing", None, []),
-            ("firing_again_since", "firing", FIRING + timedelta(hours=1), []),
+            ("still_firing", "firing", FIRING, FIRING, [IncidentAction.TRIGGER]),
+            # ClickHouse returns the episode start without a zone.
+            (
+                "still_firing_read_without_a_zone",
+                "firing",
+                FIRING,
+                FIRING.replace(tzinfo=None),
+                [IncidentAction.TRIGGER],
+            ),
+            ("resolved_since", "not_firing", None, FIRING, []),
+            ("firing_again_since", "firing", FIRING + timedelta(hours=1), FIRING, []),
         ]
     )
     def test_a_released_hold_opens_an_incident_only_inside_the_firing_it_held(
-        self, _name: str, state: str, firing_started_at: datetime | None, incident: list[IncidentAction]
+        self,
+        _name: str,
+        state: str,
+        firing_started_at: datetime | None,
+        episode_started_at: datetime,
+        incident: list[IncidentAction],
     ) -> None:
         configuration = PlatformAlertConfiguration.objects.for_team(self.team.id).create(
             id=CONFIGURATION_ID,
@@ -570,7 +583,7 @@ class TestDeliverEvaluation(APIBaseTest):
         )
 
         self._run(
-            _announcement(_transition(AlertEventKind.FIRING)),
+            _announcement(_transition(AlertEventKind.FIRING, episode_started_at=episode_started_at)),
             {FIRING_EVENT: [_group(SLACK)], OPENED_EVENT: [_group(PAGERDUTY)]},
             incident_actions={"": IncidentAction.TRIGGER},
             owned_by_platform=True,
