@@ -600,6 +600,35 @@ export const CommentsSendToSlackCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Start a discussion from a Slack thread that already exists. The thread's first message becomes the discussion's opening comment, and its replies are imported shortly after. From then on, replies on either side sync across, as for a discussion sent with send_to_slack. A Slack thread can back only one discussion, so linking a thread that already syncs is a 400. 404 when the feature is not enabled for the team.
+ */
+export const commentsLinkSlackThreadCreateBodyScopeMax = 79
+
+export const commentsLinkSlackThreadCreateBodyItemIdMax = 72
+
+export const commentsLinkSlackThreadCreateBodyUrlMax = 2048
+
+export const CommentsLinkSlackThreadCreateBody = /* @__PURE__ */ zod.object({
+    scope: zod
+        .string()
+        .max(commentsLinkSlackThreadCreateBodyScopeMax)
+        .describe('Resource type the discussion is attached to (e.g. Ticket).'),
+    item_id: zod
+        .string()
+        .max(commentsLinkSlackThreadCreateBodyItemIdMax)
+        .describe('ID of the resource the discussion is attached to.'),
+    integration_id: zod
+        .number()
+        .describe("ID of the Slack integration (kind='slack') whose bot reads and replies in the thread."),
+    url: zod
+        .string()
+        .max(commentsLinkSlackThreadCreateBodyUrlMax)
+        .describe(
+            "Slack message link (Copy link in Slack) to the thread's first message or any reply in it. The bot must be a member of the channel."
+        ),
+})
+
+/**
  * Replace the authenticated user's custom facets for a product, within the current team. Pass `@me` as the UUID.
  */
 export const UserFacetSettingsPartialUpdateBody = /* @__PURE__ */ zod.object({

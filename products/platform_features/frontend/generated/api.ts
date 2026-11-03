@@ -26,6 +26,7 @@ import type {
     DiagnosticReportApi,
     InternalFeedbackCreateBody,
     InternalFeedbackResponseApi,
+    LinkSlackThreadApi,
     ListParams,
     MembersListParams,
     OrganizationAIAccessRequestResponseApi,
@@ -1247,6 +1248,24 @@ export const commentsThreadRetrieve = async (projectId: string, id: string, opti
     })
 }
 
+export const getCommentsUnlinkSlackThreadCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/comments/${id}/unlink_slack_thread/`
+}
+
+/**
+ * Undo link_slack_thread on a discussion's opening comment: stop syncing the Slack thread and remove the discussion it created, opening comment and replies. The thread stays in Slack and can be linked again. 400 for a discussion that wasn't linked from an existing thread. 404 when the feature is not enabled for the team.
+ */
+export const commentsUnlinkSlackThreadCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getCommentsUnlinkSlackThreadCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getCommentsCountRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/comments/count/`
 }
@@ -1255,6 +1274,26 @@ export const commentsCountRetrieve = async (projectId: string, options?: Request
     return apiMutator<void>(getCommentsCountRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getCommentsLinkSlackThreadCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/comments/link_slack_thread/`
+}
+
+/**
+ * Start a discussion from a Slack thread that already exists. The thread's first message becomes the discussion's opening comment, and its replies are imported shortly after. From then on, replies on either side sync across, as for a discussion sent with send_to_slack. A Slack thread can back only one discussion, so linking a thread that already syncs is a 400. 404 when the feature is not enabled for the team.
+ */
+export const commentsLinkSlackThreadCreate = async (
+    projectId: string,
+    linkSlackThreadApi: LinkSlackThreadApi,
+    options?: RequestInit
+): Promise<CommentApi> => {
+    return apiMutator<CommentApi>(getCommentsLinkSlackThreadCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(linkSlackThreadApi),
     })
 }
 
