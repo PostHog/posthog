@@ -138,7 +138,14 @@ export class OAuthLogin implements Credential {
             if (current.hasTimeLeft(runtime)) {
                 return current
             }
-            const renewed = await current.refresh(runtime)
+            const renewed = await current.refresh(runtime).catch((error: unknown) => {
+                // A lost answer may hide a rotation that already happened. PostHog takes the old
+                // refresh token again during its grace period, so one retry recovers the new tokens.
+                if (error instanceof HogError && error.code === 'network_error') {
+                    return current.refresh(runtime)
+                }
+                throw error
+            })
             try {
                 await storage.save(renewed)
             } catch {

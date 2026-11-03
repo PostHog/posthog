@@ -109,6 +109,13 @@ describe('resolveCredentials', () => {
             { credential: { token: 'phx_eu', host: EU }, source: 'store', store: 'keychain' },
         ],
         [
+            'a self-hosted login keeps the path PostHog sits under',
+            settings('https://example.com/posthog/', { 'https://example.com': 'keychain' }),
+            { 'https://example.com': login('phx_self') },
+            {},
+            { credential: { token: 'phx_self', host: 'https://example.com/posthog' } },
+        ],
+        [
             'posthog.json picks the stored login for its host',
             settings(US, { [EU]: 'keychain', [US]: 'keychain' }),
             { [EU]: login('phx_eu'), [US]: login('phx_us') },

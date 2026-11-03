@@ -1,4 +1,5 @@
 import { clearPending, type ApprovalFlow, type ApprovalWait } from '@/core/approval'
+import { HogError } from '@/core/errors'
 import type { Runtime } from '@/core/runtime'
 
 import type { Credential, CredentialStatus } from './credential'
@@ -45,9 +46,21 @@ export function loginFlow(runtime: Runtime, host: string): ApprovalFlow<PendingL
 // credentials with an older approval.
 export async function saveLogin(runtime: Runtime, credential: Credential): Promise<LoggedIn> {
     const [probe, previous] = await Promise.all([probeKeychain(runtime), readSettings(runtime)])
-    const store = openStore(runtime, probe.usable ? 'keychain' : 'file')
+    let store = openStore(runtime, probe.usable ? 'keychain' : 'file')
+    let keychainProblem = probe.usable ? null : probe.reason
     const { host, projectId } = credential
-    await writeLogin(runtime, store, credential, { lastLogin: true })
+    try {
+        await writeLogin(runtime, store, credential, { lastLogin: true })
+    } catch (error) {
+        // The probe writes an item of its own, so the keychain can still refuse this host's item,
+        // such as one an older hog build saved.
+        if (store.kind !== 'keychain' || !(error instanceof HogError) || !error.code.startsWith('keychain_')) {
+            throw error
+        }
+        keychainProblem = error.message
+        store = new FileStore(runtime)
+        await writeLogin(runtime, store, credential, { lastLogin: true })
+    }
     // Only an old file login is removed. Removing a keychain login after a failed probe would wait for the keychain again.
     if (loginFor(previous, host)?.store === 'file' && store.kind === 'keychain') {
         await new FileStore(runtime).remove(host)
@@ -58,7 +71,7 @@ export async function saveLogin(runtime: Runtime, credential: Credential): Promi
         projectId,
         store: store.kind,
         credentialsPath: store.path,
-        keychainProblem: probe.usable ? null : probe.reason,
+        keychainProblem,
         status: credential.status(),
     }
 }
