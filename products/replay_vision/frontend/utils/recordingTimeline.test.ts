@@ -1,5 +1,5 @@
 import type { ReplayObservationApi } from '../generated/api.schemas'
-import { momentCount, recordingTimeline, surroundingMoments, timelineMoments, timelineRows } from './recordingTimeline'
+import { momentCount, recordingTimeline, timelineRows } from './recordingTimeline'
 
 function summary(
     output: Record<string, unknown> | null,
@@ -177,31 +177,16 @@ describe('recordingTimeline', () => {
     })
 
     it.each([
-        { name: 'nothing', observations: [], count: 0, at: 5_000, current: null, next: null },
+        { name: 'nothing', observations: [], count: 0 },
         {
-            name: 'chapters and a cited moment, interleaved by time',
+            name: 'chapters and a cited moment',
             observations: [
                 summary({ chapters: [chapter(0, 10_000, 'A'), chapter(10_000, 20_000, 'B')] }),
                 monitor('m1', 5_000),
             ],
             count: 3,
-            at: 6_000,
-            current: 'm1: Yes',
-            next: 'B',
         },
-        {
-            name: 'before the first moment',
-            observations: [summary({ chapters: [chapter(1_000, 10_000, 'A')] })],
-            count: 1,
-            at: 0,
-            current: null,
-            next: 'A',
-        },
-    ])('counts and surrounds the moments of $name', ({ observations, count, at, current, next }) => {
-        const timeline = recordingTimeline(observations)
-        expect(momentCount(timeline)).toBe(count)
-        const around = surroundingMoments(timelineMoments(timeline), at)
-        expect(around.current?.label ?? null).toBe(current)
-        expect(around.next?.label ?? null).toBe(next)
+    ])('counts the moments of $name', ({ observations, count }) => {
+        expect(momentCount(recordingTimeline(observations))).toBe(count)
     })
 })

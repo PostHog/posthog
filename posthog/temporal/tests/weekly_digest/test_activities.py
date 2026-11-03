@@ -766,11 +766,14 @@ def test_send_weekly_digest_batch_emails_subscribed_members_once(
         assert post.args == (WEBHOOK_SETTINGS["WEEKLY_DIGEST_WORKFLOW_WEBHOOK_URL"],)
         assert post.kwargs["headers"] == {
             "Authorization": "Bearer test-webhook-secret",
-            "Idempotency-Key": f"{digest.key}:{subscribed.id}",
+            "Content-Type": "application/json",
+            "Idempotency-Key": f"{digest.key}:{subscribed.uuid}",
         }
-        assert post.kwargs["json"]["event"] == "weekly digest ready"
-        assert post.kwargs["json"]["distinct_id"] == (subscribed.distinct_id or subscribed.email)
-        properties = post.kwargs["json"]["properties"]
+        # The digest holds UUIDs and datetimes, so the body must be encoded before it reaches requests.
+        body = json.loads(post.kwargs["data"])
+        assert body["event"] == "weekly digest ready"
+        assert body["distinct_id"] == (subscribed.distinct_id or subscribed.email)
+        properties = body["properties"]
         assert properties["to"] == subscribed.email
     (team_payload,) = properties["teams"]
     assert team_payload["team_id"] == team.id
@@ -781,6 +784,53 @@ def test_send_weekly_digest_batch_emails_subscribed_members_once(
         "product_path": "Error tracking",
         "reason_text": DEFAULT_PRODUCT_SUGGESTION_TEXT,
     }
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "listed,workflows_only,flag_answers,expected_route",
+    [
+        (True, False, [False], "customer_io"),
+        (True, True, [True], "workflows"),
+        # A Workflows-only resend must not send a second Customer.io copy.
+        (True, True, [False], None),
+        # The flag can answer differently on a second check, so one answer must decide the route.
+        (True, True, [True, False], "workflows"),
+        (False, False, [True], None),
+    ],
+)
+def test_send_weekly_digest_batch_resend_reaches_only_listed_organizations(
+    listed, workflows_only, flag_answers, expected_route, organization, team, redis_servers, common_input, digest
+):
+    subscribed = create_user(organization, "subscribed@example.com")
+    redis_servers.digest.set(org_digest_key(digest.key, organization.id), _org_digest_json(organization, team))
+    redis_servers.digest.sadd(user_data_key(digest.key, UserDataKey.NOTIFY_TEAMS, subscribed.id), team.id)
+    record, _ = MessagingRecord.objects.get_or_create(raw_email=f"org_{organization.id}", campaign_key=digest.key)
+    record.sent_at = timezone.now()
+    record.save()
+    ph_client = MagicMock()
+    session = MagicMock()
+    session.post.return_value.status_code = 201
+    resend_input = _send_input(organization, digest, common_input, dry_run=False).model_copy(
+        update={
+            # A resend batches over the listed organizations only.
+            "batch": (0, 1),
+            "allow_already_sent": True,
+            "organization_ids": [str(organization.id) if listed else str(uuid4())],
+            "workflows_only": workflows_only,
+        }
+    )
+
+    with (
+        override_settings(**WEBHOOK_SETTINGS),
+        patch("posthog.temporal.weekly_digest.activities.get_ph_client", return_value=ph_client),
+        patch("posthog.temporal.weekly_digest.activities.posthoganalytics.feature_enabled", side_effect=flag_answers),
+        patch("posthog.temporal.weekly_digest.activities.requests.Session", return_value=session),
+    ):
+        run_sync(send_weekly_digest_batch, resend_input)
+
+    assert ph_client.capture.call_count == (expected_route == "customer_io")
+    assert session.post.call_count == (expected_route == "workflows")
 
 
 @pytest.mark.parametrize(
@@ -843,6 +893,7 @@ def test_send_weekly_digest_batch_stops_sending_once_the_activity_is_cancelled(
         ("queue_full", 1),
         ("oversized", 0),
         ("failed_webhook", 0),
+        ("unexpected_webhook_error", 0),
     ],
 )
 def test_send_weekly_digest_batch_leaves_organization_unsent_when_an_event_is_dropped(
@@ -868,6 +919,8 @@ def test_send_weekly_digest_batch_leaves_organization_unsent_when_an_event_is_dr
 
     session = MagicMock()
     session.post.return_value.status_code = 503
+    if drop == "unexpected_webhook_error":
+        session.post.side_effect = TypeError("Object of type UUID is not JSON serializable")
 
     with (
         override_settings(**WEBHOOK_SETTINGS),
@@ -876,7 +929,10 @@ def test_send_weekly_digest_batch_leaves_organization_unsent_when_an_event_is_dr
             "posthog.temporal.weekly_digest.activities.DIGEST_PAYLOAD_SIZE_LIMIT",
             100 if drop == "oversized" else DIGEST_PAYLOAD_SIZE_LIMIT,
         ),
-        patch("posthog.temporal.weekly_digest.activities._routes_to_workflows", return_value=drop == "failed_webhook"),
+        patch(
+            "posthog.temporal.weekly_digest.activities._routes_to_workflows",
+            return_value=drop in ("failed_webhook", "unexpected_webhook_error"),
+        ),
         patch("posthog.temporal.weekly_digest.activities.requests.Session", return_value=session),
         patch("posthog.temporal.weekly_digest.activities.time.sleep"),
     ):

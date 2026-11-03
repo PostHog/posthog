@@ -1,6 +1,15 @@
 {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+        "expand": {
+            "description": "Optional list of response fields to include that the response omits by default, each a dot-path. Omit to keep the response small.",
+            "items": {
+                "enum": ["tiles.*.insight.query"],
+                "type": "string"
+            },
+            "minItems": 1,
+            "type": "array"
+        },
         "filters_override": {
             "anyOf": [
                 {

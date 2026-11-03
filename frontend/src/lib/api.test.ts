@@ -4,12 +4,12 @@ import posthog from 'posthog-js'
 import api, { ApiConfig, ApiError, ApiRequest, NetworkError, ResponseBodyReadError } from 'lib/api'
 import { shouldReportApiFailure } from 'lib/api-error'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
-import * as oauthClient from 'lib/oauth/oauthClient'
+import * as oauthClient from 'lib/utils/oauthClient'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
-// Mirrors SESSION_KEY in lib/oauth/oauthClient — the localStorage key its real getStoredSession reads.
+// Mirrors SESSION_KEY in lib/utils/oauthClient — the localStorage key its real getStoredSession reads.
 const OAUTH_SESSION_KEY = 'ph_oauth_session'
 
 describe('API helper', () => {

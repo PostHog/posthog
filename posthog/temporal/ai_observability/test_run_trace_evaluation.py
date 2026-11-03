@@ -23,7 +23,7 @@ from posthog.hogql_queries.ai.trace_query_runner import TraceQueryRunner
 from posthog.models import Organization, PropertyDefinition, Team, User
 from posthog.models.ai_events.test_util import bulk_create_ai_events
 from posthog.models.event.util import bulk_create_events
-from posthog.temporal.ai_observability.judge_images import JudgeImages
+from posthog.temporal.ai_observability.judge_attachments import JudgeAttachments
 from posthog.temporal.ai_observability.run_session_evaluation import fetch_session_for_evaluation
 from posthog.temporal.ai_observability.trace_summarization.fetch_and_format import _fetch_and_format_trace
 
@@ -31,6 +31,7 @@ from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import restriction_cache_scope
+from products.ai_observability.backend.llm.attachments import AttachmentPart
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
@@ -194,7 +195,7 @@ class TestFormatTraceForJudge:
         )
 
         plain = format_trace_for_judge(trace)
-        marked = format_trace_for_judge(trace, JudgeImages(team_id=1).marker)
+        marked = format_trace_for_judge(trace, JudgeAttachments(team_id=1).marker)
 
         assert "[image 1]" not in plain
         # The message and the tool result repeat one image, and the OTel part adds a second.
@@ -918,6 +919,37 @@ class TestExecuteTraceLLMJudgeActivity:
 
         assert result["verdict"] is True
         assert result["reasoning"] == "Resolved both questions"
+
+    @pytest.mark.django_db(transaction=True)
+    def test_sends_the_trace_images_to_a_judge_with_images(
+        self, setup_data: dict[str, Any], active_key_config: None
+    ) -> None:
+        image = {"type": "image_url", "image_url": {"url": "data:image/png;base64,aGk="}}
+        trace = create_trace([], inputState=[{"role": "user", "content": [image, {"type": "text", "text": "Chart?"}]}])
+        with (
+            patch(
+                "posthog.temporal.ai_observability.run_trace_evaluation.fetch_trace_for_evaluation",
+                return_value=TraceFetchOutcome(trace=trace, skip_reason=None, event_count=1),
+            ),
+            patch("posthog.temporal.ai_observability.judge_attachments.judge_sees_attachments", return_value=True),
+            patch("posthog.temporal.ai_observability.evaluation_llm_judge.Client") as mock_client_class,
+        ):
+            mock_client = mock_client_class.return_value
+            mock_client.complete.return_value.parsed = BooleanEvalResult(verdict=True, reasoning="ok")
+            mock_client.complete.return_value.usage = MagicMock(input_tokens=1, output_tokens=1, total_tokens=2)
+
+            execute_trace_llm_judge_activity(
+                ExecuteTraceEvaluationInputs(
+                    evaluation=evaluation_dict(setup_data),
+                    team_id=setup_data["team"].id,
+                    trace_id="trace-123",
+                    window_start=FROZEN_NOW.isoformat(),
+                )
+            )
+
+        content = mock_client.complete.call_args[0][0].messages[0]["content"]
+        assert AttachmentPart(mime_type="image/png", data=b"hi") in content
+        assert "[image 1]" in content[-1]["text"]
 
     @pytest.mark.parametrize(
         "trace_state",

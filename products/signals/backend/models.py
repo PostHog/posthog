@@ -521,6 +521,8 @@ class SignalReport(UUIDModel):
         indexes = [
             models.Index(fields=["team", "status", "promoted_at"]),
             models.Index(fields=["team", "created_at"]),
+            # Back the inbox list ordered by `-updated_at`. The view appends `id` as a tie-breaker.
+            models.Index(fields=["team", "-updated_at", "id"], name="signals_report_team_updated"),
             # Partial: the daily-limit gate only ever counts stamped rows for one team and day.
             models.Index(
                 fields=["team", "first_visible_at"],
@@ -528,9 +530,18 @@ class SignalReport(UUIDModel):
                 name="signals_report_first_visible",
             ),
             # Back the inbox `search` filter. On UPPER(...) because icontains compiles to
-            # UPPER(col) LIKE UPPER(pattern) on Postgres.
-            GinIndex(OpClass(Upper("title"), name="gin_trgm_ops"), name="signals_report_title_trgm"),
-            GinIndex(OpClass(Upper("summary"), name="gin_trgm_ops"), name="signals_report_summary_trgm"),
+            # UPPER(col) LIKE UPPER(pattern) on Postgres. Direct updates avoid pending-list
+            # merges that make one insert absorb the batched GIN maintenance of earlier writes.
+            GinIndex(
+                OpClass(Upper("title"), name="gin_trgm_ops"),
+                name="signals_report_title_trgm",
+                fastupdate=False,
+            ),
+            GinIndex(
+                OpClass(Upper("summary"), name="gin_trgm_ops"),
+                name="signals_report_summary_trgm",
+                fastupdate=False,
+            ),
         ]
         constraints = [
             # The barrier itself, not a lookup aid: two emits racing on one key both reach the
@@ -1461,6 +1472,7 @@ class SignalReportArtefact(UUIDModel):
         CHECK_RESULT = "check_result"
         CHECK_OBSERVATION = "check_observation"
         CHECK_SCHEDULED = "check_scheduled"
+        CHECK_AUTHORING = "check_authoring"
         CHECK_EXPIRED = "check_expired"
         CHECK_CANCELLED = "check_cancelled"
         IMPLEMENTATION_DECISION = "implementation_decision"
@@ -1496,6 +1508,7 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.IMPLEMENTATION_DISPATCH,
             ArtefactType.RANKING_SCORE,
             ArtefactType.SOURCE_SUGGESTION,
+            ArtefactType.CHECK_AUTHORING,
         }
     )
     # Rows the scoring sweep writes on every text edit and every new serving manifest. They record
@@ -1503,7 +1516,7 @@ class SignalReportArtefact(UUIDModel):
     # them to staff only.
     SYSTEM_SCORING_ARTEFACT_TYPES: frozenset[str] = frozenset({ArtefactType.RANKING_SCORE})
     INTERNAL_ARTEFACT_TYPES: frozenset[str] = frozenset(
-        {ArtefactType.REVIEWER_CORRECTIONS, ArtefactType.PR_OWNER_ASSIGNMENT}
+        {ArtefactType.REVIEWER_CORRECTIONS, ArtefactType.PR_OWNER_ASSIGNMENT, ArtefactType.CHECK_AUTHORING}
     )
     # A `report_link` graph is written by hand or by an agent, one report at a time, so a real
     # chain is a handful of reports deep. The budgets guard the cycle walk on the write path
@@ -4011,9 +4024,15 @@ class SignalScoutBackgroundBand(TeamScopedRootMixin, UUIDModel):
     """The activity band of one project that can get a background scout, one row per team.
 
     A nightly job (`scout_harness/background_bands.py`) writes the full set and deletes every row
-    for a project that is no longer eligible. The coordinator samples a percentage of each band
-    from the `background.bands` block of the `signals-scout` flag payload.
+    for a project that is no longer eligible. Each background lane samples a percentage of each band
+    from the rows of its own `audience` (see `team_limits.parse_background_lanes`).
     """
+
+    class Audience(models.TextChoices):
+        """The background lanes that can sample the project. A project is in exactly one audience."""
+
+        NOT_SET_UP = "not_set_up", "Not set up"
+        SET_UP = "set_up", "Set up"
 
     # See SignalScoutConfig.all_teams for rationale.
     all_teams = models.Manager()  # noqa: DJ012
@@ -4027,6 +4046,14 @@ class SignalScoutBackgroundBand(TeamScopedRootMixin, UUIDModel):
         related_name="+",
     )
     band = models.PositiveSmallIntegerField()
+    # `db_default` alongside `default` keeps the AddField non-blocking and fills the existing rows,
+    # which the nightly job wrote for projects that did not set Signals up.
+    audience = models.CharField(
+        max_length=20,
+        choices=Audience.choices,
+        default=Audience.NOT_SET_UP,
+        db_default=Audience.NOT_SET_UP,
+    )
     computed_at = models.DateTimeField()
 
     class Meta:
@@ -4275,6 +4302,57 @@ class UserActivitySummaryQueueCursor(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
 
+class PersonalInboxRanking(TeamScopedRootMixin, UUIDModel):
+    """One build of one person's ranked inbox list, from `personal_ranking/logic.py`.
+
+    Every build writes one row, so later readers can reuse the latest row while its `input_hash`
+    still matches the current inputs. A build then deletes the person's rows past the newest
+    `max_rows_per_person`.
+    """
+
+    class Status(models.TextChoices):
+        # The model ranked the candidates.
+        OK = "ok"
+        # The model call failed, timed out or answered outside the schema. The list is in model order.
+        FALLBACK = "fallback"
+        # No candidates, so no model call.
+        EMPTY = "empty"
+
+    # See SignalReportRefund.all_teams for rationale.
+    all_teams = models.Manager()  # noqa: DJ012
+
+    # FKs to the hot posthog_team / posthog_user tables use db_constraint=False so creating this
+    # table takes no lock on those parents. Django still cascades a delete of either parent.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    # Covers the candidates with their status, priority, PR state, needs-you facts and score, the summary version, the prompt version and the focus.
+    input_hash = models.CharField(max_length=64)
+    # Report ids in candidate order.
+    candidate_ids = models.JSONField(default=list)
+    # Every candidate with its rank, tier and reason, and the folded reports. See `PersonalRankingResult.as_json`.
+    result = models.JSONField(default=dict)
+    personalized = models.BooleanField(default=False)
+    # Null when the person had no ready activity summary.
+    activity_summary_version = models.PositiveIntegerField(null=True, blank=True)
+    model = models.CharField(max_length=100)
+    prompt_version = models.PositiveSmallIntegerField()
+    # Null when the response had no usage, or there was no model call.
+    tokens_in = models.IntegerField(null=True, blank=True)
+    tokens_out = models.IntegerField(null=True, blank=True)
+    latency_ms = models.IntegerField(null=True, blank=True)
+    status = models.CharField(max_length=20, choices=Status)
+    # One of the fixed strings of `personal_ranking/logic.py`, never model output.
+    fallback_reason = models.CharField(max_length=100, null=True, blank=True)
+
+    class Meta:
+        default_manager_name = "all_teams"
+        indexes = [
+            models.Index(fields=["team", "user", "-created_at"], name="signals_personal_rank_latest"),
+        ]
+
+
 class AnomalyScoringState(TeamScopedRootMixin, UUIDModel):
     """The trained detector artifacts of one insight and scoring profile of the anomaly scoring tick.
 
@@ -4315,4 +4393,39 @@ class AnomalyScoringState(TeamScopedRootMixin, UUIDModel):
             models.UniqueConstraint(
                 fields=["team", "insight_id", "profile"], name="signals_anomaly_scoring_state_unique"
             ),
+        ]
+
+
+class AnomalyScoringDueInsight(TeamScopedRootMixin, UUIDModel):
+    """One active insight on the stored due list of the anomaly scoring tick.
+
+    A slow refresh job adds the active insights, removes the ones that left, and sets the usage. The tick
+    reads the due rows, and each pick moves its row's `next_due_at`. See `anomaly_scores/due_list.py`.
+    """
+
+    # See SignalReportRefund.all_teams for rationale.
+    all_teams = models.Manager()  # noqa: DJ012
+
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    # Not a foreign key: insights belong to another product.
+    insight_id = models.BigIntegerField()
+    interval = models.CharField(max_length=16)
+    # The tick picks the row at or after this time. A never-scored insight is due at once.
+    next_due_at = models.DateTimeField()
+    refreshed_at = models.DateTimeField()
+    # Series key to the newest scored bucket start of the series, as an ISO time in UTC.
+    series_scored_through = models.JSONField(default=dict, db_default={})
+    viewers = models.PositiveIntegerField(default=0)
+    has_enabled_alert = models.BooleanField(default=False)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        default_manager_name = "all_teams"
+        constraints = [
+            models.UniqueConstraint(fields=["team", "insight_id"], name="signals_anomaly_due_insight_unique"),
+        ]
+        indexes = [
+            models.Index(fields=["next_due_at"], name="signals_anomaly_due_next_idx"),
         ]

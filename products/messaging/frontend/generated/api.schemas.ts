@@ -54,29 +54,19 @@ export interface EmailStatusApi {
  */
 export type SendEmailApiMessageData = { [key: string]: unknown }
 
-export interface TransactionalEmailIdentifiersApi {
+export interface SendEmailApi {
+    /** Email address of the recipient. */
+    to: string
+    /** Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`. */
+    message_data?: SendEmailApiMessageData
+    /** ID of the email template to send. The template must be made transactional first. */
+    template_id: string
     /**
      * Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. The template can't read the person's properties, so pass everything it needs in `message_data`.
      * @maxLength 400
      * @nullable
      */
     distinct_id?: string | null
-}
-
-export interface SendEmailTemplateApi {
-    /** ID of the email template to send. The template must be made transactional first. */
-    id: string
-}
-
-export interface SendEmailApi {
-    /** Email address of the recipient. */
-    to: string
-    /** Who the email is for, used to attribute engagement events. */
-    identifiers?: TransactionalEmailIdentifiersApi
-    /** Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`. */
-    message_data?: SendEmailApiMessageData
-    /** The transactional email template to send. */
-    template: SendEmailTemplateApi
 }
 
 export interface SendTransactionalEmailResponseApi {
@@ -897,13 +887,22 @@ export interface MakeTransactionalApi {
  */
 export type SendTransactionalEmailApiMessageData = { [key: string]: unknown }
 
+export interface TransactionalEmailIdentifiersApi {
+    /**
+     * Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. The template can't read the person's properties, so pass everything it needs in `message_data`.
+     * @maxLength 400
+     * @nullable
+     */
+    distinct_id?: string | null
+}
+
 export interface SendTransactionalEmailApi {
     /** Email address of the recipient. */
     to: string
-    /** Who the email is for, used to attribute engagement events. */
-    identifiers?: TransactionalEmailIdentifiersApi
     /** Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`. */
     message_data?: SendTransactionalEmailApiMessageData
+    /** Who the email is for, used to attribute engagement events. */
+    identifiers?: TransactionalEmailIdentifiersApi
 }
 
 export type MessagingCategoriesListParams = {

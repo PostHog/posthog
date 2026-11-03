@@ -189,13 +189,6 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                     ],
                     "order": 0,
                     "status": "new",
-                    "action": {
-                        "id": "$pageview",
-                        "math": "total",
-                        "name": "$pageview",
-                        "order": 0,
-                        "type": "events",
-                    },
                 },
                 {
                     "count": 4.0,
@@ -241,13 +234,6 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                     ],
                     "order": 0,
                     "status": "returning",
-                    "action": {
-                        "id": "$pageview",
-                        "math": "total",
-                        "name": "$pageview",
-                        "order": 0,
-                        "type": "events",
-                    },
                 },
                 {
                     "count": 3.0,
@@ -293,13 +279,6 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                     ],
                     "order": 0,
                     "status": "resurrecting",
-                    "action": {
-                        "id": "$pageview",
-                        "math": "total",
-                        "name": "$pageview",
-                        "order": 0,
-                        "type": "events",
-                    },
                 },
                 {
                     "count": -3.0,
@@ -345,13 +324,6 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                     ],
                     "order": 0,
                     "status": "dormant",
-                    "action": {
-                        "id": "$pageview",
-                        "math": "total",
-                        "name": "$pageview",
-                        "order": 0,
-                        "type": "events",
-                    },
                 },
             ],
             response.results,
@@ -467,13 +439,6 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                     ],
                     "order": 0,
                     "status": "new",
-                    "action": {
-                        "id": "$pageview",
-                        "math": "total",
-                        "name": "$pageview",
-                        "order": 0,
-                        "type": "events",
-                    },
                 },
                 {
                     "count": 6.0,
@@ -519,13 +484,6 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                     ],
                     "order": 0,
                     "status": "returning",
-                    "action": {
-                        "id": "$pageview",
-                        "math": "total",
-                        "name": "$pageview",
-                        "order": 0,
-                        "type": "events",
-                    },
                 },
                 {
                     "count": 3.0,
@@ -571,13 +529,6 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                     ],
                     "order": 0,
                     "status": "resurrecting",
-                    "action": {
-                        "id": "$pageview",
-                        "math": "total",
-                        "name": "$pageview",
-                        "order": 0,
-                        "type": "events",
-                    },
                 },
                 {
                     "count": -4.0,
@@ -623,13 +574,6 @@ class TestLifecycleQueryRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTe
                     ],
                     "order": 0,
                     "status": "dormant",
-                    "action": {
-                        "id": "$pageview",
-                        "math": "total",
-                        "name": "$pageview",
-                        "order": 0,
-                        "type": "events",
-                    },
                 },
             ],
             response.results,
@@ -971,13 +915,6 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     "order": 0,
                     "status": "new",
-                    "action": {
-                        "id": "$pageview",
-                        "math": "total",
-                        "name": "$pageview",
-                        "order": 0,
-                        "type": "events",
-                    },
                 },
                 {
                     "count": 2.0,
@@ -1023,13 +960,6 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     "order": 0,
                     "status": "returning",
-                    "action": {
-                        "id": "$pageview",
-                        "math": "total",
-                        "name": "$pageview",
-                        "order": 0,
-                        "type": "events",
-                    },
                 },
                 {
                     "count": 4.0,
@@ -1075,13 +1005,6 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     "order": 0,
                     "status": "resurrecting",
-                    "action": {
-                        "id": "$pageview",
-                        "math": "total",
-                        "name": "$pageview",
-                        "order": 0,
-                        "type": "events",
-                    },
                 },
                 {
                     "count": -7.0,
@@ -1127,13 +1050,6 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     ],
                     "order": 0,
                     "status": "dormant",
-                    "action": {
-                        "id": "$pageview",
-                        "math": "total",
-                        "name": "$pageview",
-                        "order": 0,
-                        "type": "events",
-                    },
                 },
             ],
             response.results,
