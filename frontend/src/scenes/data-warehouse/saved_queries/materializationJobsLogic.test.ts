@@ -724,12 +724,12 @@ describe('materializationJobsLogic', () => {
     })
 
     describe('cadence pin', () => {
-        const fctLeads = { id: 'up-node', name: 'fct_leads' }
+        const orgUniverse = { id: 'up-node', name: 'org_universe' }
         const dailyRevenue = { id: 'down-node', name: 'daily_revenue' }
         const TIERED_BOUNDS = {
             frequency_mode: 'tiered',
             options: [
-                { cadence: '6hour', allowed: true, blocked_by: null, blocker: null, speeds_up: [fctLeads] },
+                { cadence: '6hour', allowed: true, blocked_by: null, blocker: null, speeds_up: [orgUniverse] },
                 { cadence: '24hour', allowed: false, blocked_by: 'consumer', blocker: dailyRevenue, speeds_up: [] },
             ],
             floor: null,
@@ -830,7 +830,7 @@ describe('materializationJobsLogic', () => {
                 400,
                 [
                     [
-                        "Couldn't keep upstream view fct_leads at its own setting. Pick how often this view refreshes before pinning it.",
+                        "Couldn't keep upstream view org_universe at its own setting. Pick how often this view refreshes before pinning it.",
                     ],
                 ],
             ],
@@ -841,7 +841,7 @@ describe('materializationJobsLogic', () => {
             logic.mount()
             await expectLogic(logic).toDispatchActions(['loadSavedQuerySuccess'])
 
-            logic.actions.keepUpstreamAtOwnSetting(fctLeads)
+            logic.actions.keepUpstreamAtOwnSetting(orgUniverse)
             expect(logic.values.keepingUpstreamId).toBe('up-node')
             await expectLogic(logic).toDispatchActions(['finishKeepingUpstream']).toFinishAllListeners()
 

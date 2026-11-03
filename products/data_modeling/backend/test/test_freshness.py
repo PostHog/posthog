@@ -85,11 +85,11 @@ class TestComputeEffectiveCadences(TestCase):
             # a 15min view over a fresh parent and a parent pinned hourly: only the pinned one stays hourly
             (
                 "pinned_parent_of_a_fast_join",
-                {"leads", "demos"},
-                [("s3", "demos"), ("crm", "leads"), ("leads", "demos")],
-                {"leads": H1, "demos": M15},
-                {"leads": H1, "demos": M15},
-                {"leads"},
+                {"contacts", "signups"},
+                [("s3", "signups"), ("crm", "contacts"), ("contacts", "signups")],
+                {"contacts": H1, "signups": M15},
+                {"contacts": H1, "signups": M15},
+                {"contacts"},
             ),
         ]
     )
@@ -143,24 +143,24 @@ class TestValidateFrequencyTarget(TestCase):
             # one fresh parent keeps a 15min join legal under a parent pinned hourly
             (
                 "fresh_parent_beside_a_pinned_one_ok",
-                "demos",
+                "signups",
                 M15,
-                [("s3", "demos"), ("crm", "leads"), ("leads", "demos")],
-                {"leads": H1},
+                [("s3", "signups"), ("crm", "contacts"), ("contacts", "signups")],
+                {"contacts": H1},
                 {"s3": STREAMING, "crm": STREAMING},
                 True,
-                {"leads"},
+                {"contacts"},
             ),
             # every parent pinned hourly: nothing feeds the join more often than that
             (
                 "every_parent_pinned_slower",
-                "demos",
+                "signups",
                 M15,
-                [("crm", "leads"), ("crm", "accounts"), ("leads", "demos"), ("accounts", "demos")],
-                {"leads": H1, "accounts": H6},
+                [("crm", "contacts"), ("crm", "accounts"), ("contacts", "signups"), ("accounts", "signups")],
+                {"contacts": H1, "accounts": H6},
                 {"crm": STREAMING},
                 False,
-                {"leads", "accounts"},
+                {"contacts", "accounts"},
             ),
         ]
     )
@@ -188,17 +188,17 @@ class TestValidateFrequencyTarget(TestCase):
     def test_refusal_under_pinned_parents_names_the_pinned_view(self):
         with self.assertRaises(UnsatisfiableFrequencyError) as raised:
             validate_declared_target(
-                node_id="demos",
+                node_id="signups",
                 target=M15,
-                edges=[("crm", "leads"), ("leads", "demos")],
-                declared_targets={"leads": H1},
+                edges=[("crm", "contacts"), ("contacts", "signups")],
+                declared_targets={"contacts": H1},
                 source_intervals={"crm": STREAMING},
-                names={"leads": "fct_leads"},
-                pinned={"leads"},
+                names={"contacts": "org_universe"},
+                pinned={"contacts"},
             )
         self.assertEqual(
             str(raised.exception),
-            "Can't refresh every 15 minutes: fct_leads is pinned to refresh every 1 hour. Pick 1 hour instead.",
+            "Can't refresh every 15 minutes: org_universe is pinned to refresh every 1 hour. Pick 1 hour instead.",
         )
 
     @parameterized.expand(
