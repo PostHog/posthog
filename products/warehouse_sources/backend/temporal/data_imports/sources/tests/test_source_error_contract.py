@@ -476,6 +476,10 @@ def test_allowlists_name_only_extracting_sources(allowlist: dict[str, Any]) -> N
         ("Marketo", "Marketo authentication failed: status=401, body={}"),
         ("Marketo", "Marketo authentication failed: status=401, path=/rest/v1/leads.json, body={}"),
         ("Marketo", "Marketo authentication failed: no access token in response ({})"),
+        (
+            "Persona",
+            "Persona API not enabled for this account: Workflows API is not enabled, url=https://api.withpersona.com/api/v1/workflow-runs",
+        ),
     ],
 )
 def test_narrowed_keys_still_match_permanent_errors(name: str, message: str) -> None:
