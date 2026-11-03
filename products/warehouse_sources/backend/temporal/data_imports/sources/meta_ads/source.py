@@ -1,7 +1,7 @@
 from datetime import date
 from typing import cast
 
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationNotFound
 
 from products.warehouse_sources.backend.facade.codebase_detection import detect
 from products.warehouse_sources.backend.facade.source_config import (
@@ -144,6 +144,10 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
             "Integration matching query does not exist.": (
                 "The Meta Ads integration for this source no longer exists. Please reconnect the Meta Ads integration."
             ),
+            # `_fetch_integration_row` raises `IntegrationNotFound("Integration not found: <id>")` for the same case.
+            "Integration not found": (
+                "The Meta Ads integration for this source no longer exists. Please reconnect the Meta Ads integration."
+            ),
             META_CHECKPOINT_ERROR_MESSAGE: META_CHECKPOINT_ERROR_MESSAGE,
             # Graph API code 200: "Ad account owner has NOT granted ads_management or ads_read
             # permission." The connected Meta user can't read this ad account's data. Retrying
@@ -266,6 +270,13 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
             '"error_subcode":1443048': (
                 "Meta refused to return an ad creative whose story is incomplete, such as one with no "
                 "Page. Fix or delete that creative in Ads Manager; the next sync runs on schedule."
+            ),
+            # Graph API code 100, subcode 1885649: Meta refuses to return budget fields for an ad set
+            # under Campaign Budget Optimization, whose budget lives on the campaign instead. Keyed on
+            # the subcode for the same reason as above — Meta localizes the message.
+            '"error_subcode":1885649': (
+                "Meta refused to return the budget for an ad set that uses Campaign Budget "
+                "Optimization; its budget lives on the campaign instead. The next sync runs on schedule."
             ),
         }
 
@@ -397,7 +408,7 @@ class MetaAdsSource(ResumableSource[MetaAdsSourceConfig, MetaAdsResumeConfig], O
         # A Meta user's ad accounts are few, so `search` is ignored here and the endpoint filters the list.
         try:
             integration = get_integration_by_id(integration_id, team_id)
-        except Integration.DoesNotExist as e:
+        except IntegrationNotFound as e:
             raise IntegrationAccountListingError(
                 "The linked Meta Ads integration could not be found. Please reconnect your Meta Ads integration."
             ) from e

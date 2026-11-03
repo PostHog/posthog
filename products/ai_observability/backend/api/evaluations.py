@@ -58,7 +58,7 @@ from ..facade import (
 )
 from ..facade.contracts import Contract
 from ..hog import compile_ai_observability_hog
-from ..llm import DEFAULT_MODEL_BY_PROVIDER
+from ..llm import DEFAULT_MODEL_BY_PROVIDER, supports_reasoning_level
 from ..llm.decisions import is_decision_model
 from ..llm.errors import ProviderConnectionError
 from ..llm.providers.openai import OpenAIConfig
@@ -125,6 +125,20 @@ logger = structlog.get_logger(__name__)
                         "enum": ["llm", "decision"],
                         "nullable": True,
                         "description": "Judge method. Omit to keep the saved method; null restores automatic routing.",
+                    },
+                    "include_media": {
+                        "type": "boolean",
+                        "description": "Set to false to judge text only.",
+                    },
+                    "reasoning_level": {
+                        "type": "string",
+                        "enum": ["minimal", "low", "medium", "high"],
+                        "nullable": True,
+                        "description": (
+                            "How much the judge model reasons before it answers. Only Anthropic and OpenAI "
+                            "reasoning models with the 'llm' judge method support it. Omit to keep the saved "
+                            "level; null uses the model's default."
+                        ),
                     },
                 },
                 "additionalProperties": False,
@@ -591,15 +605,14 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             config = data["evaluation_config"]
             if not isinstance(config, dict):
                 raise serializers.ValidationError({"evaluation_config": "Must be an object."})
-            if (
-                self.partial
-                and self.instance is not None
-                and evaluation_type == EvaluationType.LLM_JUDGE.value
-                and "judge_method" not in config
-                and "judge_method" in self.instance.evaluation_config
-            ):
-                # A prompt-only PATCH must not reset the saved routing choice.
-                data["evaluation_config"] = {"judge_method": self.instance.evaluation_config["judge_method"], **config}
+            if self.partial and self.instance is not None and evaluation_type == EvaluationType.LLM_JUDGE.value:
+                # A prompt-only PATCH must not reset the saved judge settings or image opt-out.
+                saved = {
+                    key: self.instance.evaluation_config[key]
+                    for key in ("judge_method", "reasoning_level", "include_media")
+                    if key not in config and key in self.instance.evaluation_config
+                }
+                data["evaluation_config"] = {**saved, **config}
         if (
             self.instance
             and output_type != self.instance.output_type
@@ -639,6 +652,7 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         ).get("judge_method")
         if data.get("model_configuration") or data.get("enabled") or method_changed:
             self._validate_chat_model(data, uses_decision_model=uses_decision_model)
+        self._validate_reasoning_level(data, uses_decision_model=uses_decision_model)
 
         should_validate_configs = (
             self.instance is None
@@ -742,6 +756,21 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 }
             )
 
+    def _validate_reasoning_level(self, data: dict, *, uses_decision_model: bool) -> None:
+        evaluation_type = data.get("evaluation_type") or getattr(self.instance, "evaluation_type", None)
+        if evaluation_type != EvaluationType.LLM_JUDGE.value:
+            return
+        evaluation_config = data.get("evaluation_config", getattr(self.instance, "evaluation_config", None))
+        if not isinstance(evaluation_config, dict) or not evaluation_config.get("reasoning_level"):
+            return
+        model_config = self._effective_model_configuration(data) or {}
+        if uses_decision_model or not supports_reasoning_level(model_config.get("provider"), model_config.get("model")):
+            raise serializers.ValidationError(
+                {
+                    "evaluation_config": "This judge model doesn't support a reasoning level. Choose an Anthropic or OpenAI reasoning model, or use the model default."
+                }
+            )
+
     def _validate_can_run(self, data: dict) -> None:
         """An eval being turned on — created enabled or re-enabled — must be able to resolve a
         model at runtime; otherwise the caller gets a 200/201 and the first Temporal run silently
@@ -792,17 +821,18 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         config's active-key fallback, is already handled by `_validate_can_run`; this covers what
         is left: a null config resolves via the team's active key, and anything else must add a
         provider key of its own."""
-        add_key_message = "Add a provider API key to enable this evaluation."
         team = self.context["get_team"]()
         config = EvaluationConfig.objects.filter(team=team).first()
 
         explicit_config = self._effective_model_configuration(data)
         if explicit_config is not None:
-            raise serializers.ValidationError({"enabled": add_key_message})
+            raise serializers.ValidationError(
+                {"enabled": self._missing_key_message(team, explicit_config.get("provider"))}
+            )
 
         active_key = config.active_provider_key if config else None
         if active_key is None:
-            raise serializers.ValidationError({"enabled": add_key_message})
+            raise serializers.ValidationError({"enabled": self._missing_key_message(team, None)})
 
         if active_key.state != LLMProviderKey.State.OK:
             raise serializers.ValidationError(
@@ -814,6 +844,22 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                     "enabled": "This evaluation's provider has no default model. Set a model on the evaluation before enabling it."
                 }
             )
+
+    def _missing_key_message(self, team: Team, provider: str | None) -> str:
+        """A team with a working key the eval isn't set to use needs to pick it, not add another one."""
+        keys = LLMProviderKey.objects.filter(team=team, state=LLMProviderKey.State.OK)
+        if provider:
+            keys = keys.filter(provider=provider)
+        if keys.exists():
+            return (
+                "This project has a working AI provider API key, but this evaluation isn't set to use it. "
+                "Choose that key for the evaluation's model, or make it the project's active key, then enable the evaluation."
+            )
+        return (
+            "LLM judges run on your own AI provider API key, and this project doesn't have a working one yet. "
+            "A project admin can add one in Settings > AI observability > Bring your own key (BYOK), "
+            "then enable this evaluation."
+        )
 
     def _effective_model_configuration(self, data: dict) -> dict[str, Any] | None:
         """The explicit model configuration the evaluation will have after this update, or None

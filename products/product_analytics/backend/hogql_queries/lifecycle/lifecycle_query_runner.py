@@ -195,15 +195,22 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
             resolved_date_range=ResolvedDateRangeResponse(
                 date_from=self.query_date_range.date_from(),
                 date_to=self.query_date_range.date_to(),
+                read_from=self.read_from,
             ),
         )
+
+    @property
+    def read_from(self) -> datetime:
+        # Keep equal to the lower bound in event_filter. Lifecycle reads the interval before the first one shown.
+        date_range = self.query_date_range
+        return date_range.align_with_interval(date_range.date_from()) - date_range.interval_relativedelta()
 
     def format_results(self, response: HogQLQueryResponse) -> list[dict[str, Any]]:
         """Format raw lifecycle HogQL response into status-grouped series.
 
         Columns are accessed by name (date, total, status) to support arbitrary
         column ordering (materialized tables return columns alphabetically).
-        Returns list of dicts with: action, data, count, labels, days, order, label, status.
+        Returns list of dicts with: data, count, labels, days, order, custom_name, label, status.
         """
         series = self.first_series
         cols = {name: i for i, name in enumerate(response.columns or [])}
@@ -229,59 +236,25 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
             status = val[cols["status"]]
             data = [float(counts_by_date.get(date, 0)) for date in all_dates]
 
-            # legacy response compatibility object
-            action_object = {}
             label = "{} - {}".format("", status)
             if isinstance(series, ActionsNode):
                 action = Action.objects.get(pk=int(series.id), team__project_id=self.team.project_id)
                 label = "{} - {}".format(action.name, status)
-                action_object = {
-                    "id": str(action.pk),
-                    "name": action.name,
-                    "type": "actions",
-                    "order": 0,
-                    "math": "total",
-                }
-                custom_name = getattr(series, "custom_name", None)
-                if custom_name is not None:
-                    action_object["custom_name"] = custom_name
             elif isinstance(series, EventsNode):
                 event = series.event
                 label = "{} - {}".format("All events" if event is None else event, status)
-                action_object = {
-                    "id": event,
-                    "name": "All events" if event is None else event,
-                    "type": "events",
-                    "order": 0,
-                    "math": "total",
-                }
-                custom_name = getattr(series, "custom_name", None)
-                if custom_name is not None:
-                    action_object["custom_name"] = custom_name
             elif isinstance(series, LifecycleDataWarehouseNode):
-                data_warehouse_node = series
-                label = "{} - {}".format(data_warehouse_node.table_name, status)
-                action_object = {
-                    "id": data_warehouse_node.id,
-                    "name": data_warehouse_node.table_name,
-                    "type": "data_warehouse",
-                    "order": 0,
-                    "math": "total",
-                    "table_name": data_warehouse_node.table_name,
-                    "timestamp_field": data_warehouse_node.timestamp_field,
-                    "aggregation_target_field": data_warehouse_node.aggregation_target_field,
-                    "created_at_field": data_warehouse_node.created_at_field,
-                }
+                label = "{} - {}".format(series.table_name, status)
 
             additional_values = {"label": label, "status": status}
             results.append(
                 {
-                    "action": action_object,
                     "data": data,
                     "count": float(sum(data)),
                     "labels": labels,
                     "days": days,
                     "order": 0,
+                    "custom_name": series.custom_name,
                     **additional_values,
                 }
             )
@@ -363,6 +336,7 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
                 )
             )
         with self.timings.measure("date_range"):
+            # read_from reports this lower bound. Keep the two equal.
             event_filters.append(
                 parse_expr(
                     "{timestamp_field} >= {date_from_start_of_interval} - {one_interval_period}",

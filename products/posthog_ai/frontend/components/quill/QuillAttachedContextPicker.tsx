@@ -19,9 +19,9 @@ import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { cn } from 'lib/utils/css-classes'
 
+import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
-import { attachedContextLogic } from '../../logics/attachedContextLogic'
 import { CONTEXT_PICKER_GROUP_TYPES, contextPickerLogic } from '../../logics/contextPickerLogic'
 import { COMPOSER_MENU_CLASS } from './composerMenuClass'
 

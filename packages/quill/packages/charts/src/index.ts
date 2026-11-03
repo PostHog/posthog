@@ -191,6 +191,7 @@ export type {
     ResolveValueFn,
     Series,
     SeriesType,
+    TimeScale,
     TooltipConfig,
     TooltipContext,
     ValueDomain,
