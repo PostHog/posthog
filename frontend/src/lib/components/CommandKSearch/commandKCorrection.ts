@@ -9,9 +9,10 @@ const QWERTY = "qwertyuiop[]asdfghjkl;'zxcvbnm,./"
 const LAYOUTS = ['йцукенгшщзхъфывапролджэячсмитьбю.', "/'קראטוןםפ][שדגכעיחלךף,זסבהנמצתץ."]
 
 const LATIN = /[a-z]/i
+const LAYOUT_LETTER = /[\u0400-\u04ff\u0590-\u05ff]/
 
 function convertKeyboardLayout(text: string): string | null {
-    if (LATIN.test(text)) {
+    if (LATIN.test(text) || !LAYOUT_LETTER.test(text)) {
         return null
     }
     let converted = ''
