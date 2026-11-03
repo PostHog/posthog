@@ -18,11 +18,11 @@ const SUPPRESSED_ISSUES: SuppressedIssueSnapshot[] = [
     { id: 'http-503', exceptionType: 'Error', exceptionMessage: 'Request failed with status code 503' },
 ]
 
-function OpenDialog(): JSX.Element {
+function OpenDialog({ snapshots = SUPPRESSED_ISSUES }: { snapshots?: SuppressedIssueSnapshot[] }): JSX.Element {
     const logic = useMountedLogic(suppressSimilarIssuesLogic)
     useLayoutEffect(() => {
-        logic.actions.openSuggestion(SUPPRESSED_ISSUES)
-    }, [logic])
+        logic.actions.openSuggestion(snapshots)
+    }, [logic, snapshots])
     return <SuppressSimilarIssuesDialog />
 }
 
@@ -51,3 +51,9 @@ export default meta
 type Story = StoryObj<{}>
 
 export const SimilarMessages: Story = { render: () => <OpenDialog /> }
+
+export const ExactMessage: Story = {
+    render: () => (
+        <OpenDialog snapshots={[{ id: 'network-error', exceptionType: 'Error', exceptionMessage: 'Network error' }]} />
+    ),
+}
