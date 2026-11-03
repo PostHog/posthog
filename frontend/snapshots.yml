@@ -16850,6 +16850,10 @@ snapshots:
         hash: v1.k794b7964.3f953504a96f3d295e23721dbd39a6282ce5f719a7b7a50ca2f083c3c061660c.S12DDcG_kP6-5Y0hlBTZFDKUKAuzTBP9kPXFlqI0umE
     scenes-other-onboarding-install-step--control-arm--light:
         hash: v1.k794b7964.03f1893573652b0c32218385c83819272c30e7a87647ea479aa6c17100efa604.Ullr23ou7-8Q_0mO44avKU97VGRSbZGcK96bg8Hlwyk
+    scenes-other-onboarding-install-step--simple-flow--dark:
+        hash: v1.k794b7964.82e295b93aca26c287b4207345daa25386169a22f859bcf6ffc826dc119fe753.gcs2PUEkwq8sVKLDiV89qsV53RH8PgsAaC1iPJ9WQ04
+    scenes-other-onboarding-install-step--simple-flow--light:
+        hash: v1.k794b7964.125b132e09d3238ca209e88a17aad57778c93ba453d6b8c1a55bad2cf9a37c81.xneZrlfKJkSgGBZkZpeo7_i45_aJE9A0mFWZ1cwiqpU
     scenes-other-onboarding-product-selection--base--dark:
         hash: v1.k794b7964.b60ec49c9c54425935da72dee08b9af582389d080594a5ab04047940ea3d2ca0.BUp2Cv79bdb2-k0twgulEJlDBQ_Ipk0dL-SoQ-3MiD4
     scenes-other-onboarding-product-selection--base--light:
@@ -17119,9 +17123,9 @@ snapshots:
     scenes-other-welcome-dialog--no-inviter--light:
         hash: v1.k794b7964.f766cbd27b7bc11b50ce42602ca2fcab11fa005e795aad0d66e6f67e627570d2.M3CFGWAqq3ebMX5h9Rlb9cCCOBUfhrdc86fQexL6-MA
     scenes-other-welcome-dialog--provisioned--dark:
-        hash: v1.k794b7964.f2c3d2da5c26ff0d4e4883583589df344c65b8d6b58ae37ef5c4792c02b5d026.G7Cluv7BykKb0ZB6ox1bq_ETjWtz13E0kNhkGxqV-ao
+        hash: v1.k794b7964.4624c39797f30be4664c956382e53f065207d2a5c3c10dc923ef5d670a6c4cbd.wgrcJwwsFI0sB4jHPZb_jmpnhkoLO3TFXN5zkw3tPHo
     scenes-other-welcome-dialog--provisioned--light:
-        hash: v1.k794b7964.7bc96d4f26a15090c0e0822f013065ffbf00a22f0edda8572b12c01a531fe6dc.x21M2rAOPxoCSK84EZ-zyIs4Mvpl_BEBXhi33H3UJzw
+        hash: v1.k794b7964.fa2f4c4df2000b0aac6b2d030e35e09b87ccff491a31f6526b0510c497694c57.0RINcqkztk_dHUnIPDZmxsYcQaJuuv3XJPCtwFi8Yq8
     scenes-other-welcome-flagshipproductscard--default--dark:
         hash: v1.k794b7964.0f57eeaac62cc6fa6fcd833c9d2bc8fd0d30d8ab5e9819b685b4b2bb7052cdca.oPfu3XSL2xF96rf2RAWtGdSkWwDPbnjxiTntYx82B6c
     scenes-other-welcome-flagshipproductscard--default--light:
