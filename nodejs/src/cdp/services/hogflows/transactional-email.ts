@@ -45,9 +45,12 @@ export const acceptedSendEmailFields = (
     ...(send?.replyTo && { replyTo: send.replyTo.join(', ') }),
 })
 
+export const RECIPIENT_ADDRESS_PATTERN =
+    /^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/
+
 // What Django sends to run a transactional email's workflow once.
 export const TransactionalEmailRequestSchema = z.object({
-    to: z.string().email(),
+    to: z.string().email({ pattern: RECIPIENT_ADDRESS_PATTERN }),
     // The person the send is tracked against. Django falls back to the recipient's address.
     distinct_id: z.string().min(1),
     // The caller's `message_data`, available to the template as `variables`.
