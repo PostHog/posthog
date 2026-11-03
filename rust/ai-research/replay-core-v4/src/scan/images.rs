@@ -8,7 +8,7 @@
 //! copied as it is. An SVG data URI stays inline, because SVG is text that the text scrub reads in place.
 
 use std::borrow::Cow;
-use std::collections::{BTreeSet, HashSet};
+use std::collections::HashSet;
 
 use base64::alphabet;
 use base64::engine::general_purpose::{GeneralPurpose, GeneralPurposeConfig};
@@ -27,12 +27,6 @@ const FORGIVING_BASE64: GeneralPurpose = GeneralPurpose::new(
         .with_decode_padding_mode(DecodePaddingMode::Indifferent)
         .with_decode_allow_trailing_bits(true),
 );
-
-/// A header character takes at most 12 bytes as a CSS escape in JSON: a doubled backslash, six hex digits and an escaped CRLF.
-const MAX_HEADER_CHAR_BYTES: usize = 12;
-
-/// The escape spells one of the five characters of `data:`, so the scheme starts at it or at a `d` up to four characters before it.
-const ESCAPED_SCHEME_LOOKBEHIND: usize = 4 * MAX_HEADER_CHAR_BYTES;
 
 /// The payload bytes read past whitespace and a byte order mark to find the `<` that starts SVG markup.
 const SNIFFED_PAYLOAD_BYTES: usize = 64;
@@ -630,64 +624,25 @@ fn css_hex_escape_before(bytes: &[u8], at: usize) -> Option<(usize, u32)> {
     Some((escape_start, code))
 }
 
-/// Each `data:` that a CSS escape spells in part, as where it starts and where its media type starts, in order, from a buffer that stays small on any input.
-struct EscapedSchemes<'b> {
-    bytes: &'b [u8],
-    next_escape: Option<usize>,
-    pending: BTreeSet<(usize, usize)>,
-}
-
-impl<'b> EscapedSchemes<'b> {
-    fn new(bytes: &'b [u8]) -> Self {
-        Self {
-            bytes,
-            next_escape: memchr::memchr(b'\\', bytes),
-            pending: BTreeSet::new(),
-        }
-    }
-
-    fn add_schemes_spelled_with(&mut self, escape: usize) {
-        let first_candidates = (escape.saturating_sub(ESCAPED_SCHEME_LOOKBEHIND)..escape)
-            .filter(|&start| matches!(self.bytes[start], b'd' | b'D'))
-            .chain([escape]);
-        for start in first_candidates {
-            if starts_inside_a_word(self.bytes, start) {
-                continue;
-            }
-            if let Some(meta_start) =
-                after_data_scheme(self.bytes, start).filter(|&meta_start| meta_start > escape)
-            {
-                self.pending.insert((start, meta_start));
-            }
-        }
-    }
-}
-
-impl Iterator for EscapedSchemes<'_> {
-    type Item = (usize, usize);
-
-    fn next(&mut self) -> Option<(usize, usize)> {
-        while let Some(escape) = self.next_escape {
-            if self
-                .pending
-                .first()
-                .is_some_and(|&(start, _)| start + ESCAPED_SCHEME_LOOKBEHIND < escape)
-            {
-                break;
-            }
-            let escaped = self.bytes.get(escape + 1);
-            let search_from = escape + if escaped == Some(&b'u') { 6 } else { 2 };
-            self.next_escape = self
-                .bytes
-                .get(search_from..)
-                .and_then(|rest| memchr::memchr(b'\\', rest))
-                .map(|offset| search_from + offset);
-            if escaped == Some(&b'\\') {
-                self.add_schemes_spelled_with(escape);
-            }
-        }
-        self.pending.pop_first()
-    }
+/// Each `data:` that an escape or a removed tab or line break spells, as where it starts and where its media type
+/// starts, in order. Before its first backslash such a scheme holds only literal letters of `data`, so it starts at
+/// most four letters before a backslash, or at a CSS escape.
+fn escaped_schemes(bytes: &[u8]) -> impl Iterator<Item = (usize, usize)> + '_ {
+    memchr::memchr_iter(b'\\', bytes).flat_map(move |backslash| {
+        let literal_starts = (1..=b"data".len())
+            .rev()
+            .filter_map(move |letters| backslash.checked_sub(letters))
+            .filter(move |&start| {
+                bytes[start..backslash].eq_ignore_ascii_case(&b"data"[..backslash - start])
+            });
+        let escape_start = (bytes.get(backslash + 1) == Some(&b'\\')).then_some(backslash);
+        literal_starts
+            .chain(escape_start)
+            .filter(move |&start| !starts_inside_a_word(bytes, start))
+            .filter_map(move |start| {
+                after_data_scheme(bytes, start).map(|meta_start| (start, meta_start))
+            })
+    })
 }
 
 fn data_schemes(bytes: &[u8]) -> impl Iterator<Item = (usize, usize)> + '_ {
@@ -699,7 +654,7 @@ fn data_schemes(bytes: &[u8]) -> impl Iterator<Item = (usize, usize)> + '_ {
             .then_some((start, colon + 1))
         })
         .peekable();
-    let mut escaped = EscapedSchemes::new(bytes).peekable();
+    let mut escaped = escaped_schemes(bytes).peekable();
     std::iter::from_fn(move || match (plain.peek(), escaped.peek()) {
         (Some(plain_scheme), Some(escaped_scheme)) if escaped_scheme < plain_scheme => {
             escaped.next()
@@ -894,6 +849,11 @@ mod tests {
             (
                 r#"{"textContent":".a{background:url(\""#,
                 format!(r"d\\9 ata:image/png;base64,{base64}"),
+                r#"\")}"}"#,
+            ),
+            (
+                r#"{"textContent":".a{background:url(\""#,
+                format!(r"d{}\\61ta:image/png;base64,{base64}", r"\t".repeat(25)),
                 r#"\")}"}"#,
             ),
             (
