@@ -28,6 +28,7 @@ import { MCPAnalyticsMissingCapabilities } from './missingCapabilities/MCPAnalyt
 import { MCPAnalyticsNotifications } from './notifications/MCPAnalyticsNotifications'
 import { mcpAnalyticsNotificationsLogic } from './notifications/mcpAnalyticsNotificationsLogic'
 import { MCPSessionsPlaylist } from './sessions/MCPSessionsPlaylist'
+import { MCPSetupMode } from './setupMode/MCPSetupMode'
 
 export const scene: SceneExport = {
     component: MCPAnalyticsScene,
@@ -126,6 +127,7 @@ export function MCPAnalyticsScene(): JSX.Element {
 
     return (
         <SceneContent>
+            <MCPSetupMode />
             <MCPAnalyticsSceneMenuBar />
             <SceneTitleSection
                 name="MCP analytics"
