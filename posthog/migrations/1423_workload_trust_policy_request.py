@@ -52,11 +52,6 @@ class Migration(migrations.Migration):
                     ),
                 ),
                 (
-                    "requested_via",
-                    models.CharField(blank=True, default="", max_length=255),
-                ),
-                ("requested_via_verified", models.BooleanField(blank=True, null=True)),
-                (
                     "expires_at",
                     models.DateTimeField(default=posthog.models.workload_trust_policy._default_request_expiry),
                 ),
@@ -70,6 +65,17 @@ class Migration(migrations.Migration):
                         on_delete=django.db.models.deletion.SET_NULL,
                         related_name="+",
                         to="posthog.workloadtrustpolicy",
+                    ),
+                ),
+                (
+                    "requested_via_application",
+                    models.ForeignKey(
+                        blank=True,
+                        db_constraint=False,
+                        null=True,
+                        on_delete=django.db.models.deletion.SET_NULL,
+                        related_name="+",
+                        to="posthog.oauthapplication",
                     ),
                 ),
                 (

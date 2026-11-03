@@ -115,7 +115,7 @@ class WorkloadTrustPolicy(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
         return f"WorkloadTrustPolicy(team={self.team_id}, name={self.name!r})"
 
 
-WORKLOAD_TRUST_POLICY_REQUEST_LIFETIME = timedelta(days=7)
+WORKLOAD_TRUST_POLICY_REQUEST_LIFETIME = timedelta(hours=24)
 
 
 def _default_request_expiry() -> datetime:
@@ -153,11 +153,16 @@ class WorkloadTrustPolicyRequest(ModelActivityMixin, TeamScopedRootMixin, UUIDMo
         db_constraint=False,
         related_name="+",
     )
-    # The client the request came through, for example the OAuth application's name, so the approval page
-    # can say "requested through hog".
-    requested_via = models.CharField(max_length=255, blank=True, default="")
-    # Null when the request did not come through an OAuth app.
-    requested_via_verified = models.BooleanField(null=True, blank=True)
+    # The OAuth app the request came through, so the approval page names it and shows whether PostHog
+    # verified it. Null when the request came through another credential.
+    requested_via_application = models.ForeignKey(
+        "posthog.OAuthApplication",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        related_name="+",
+    )
     expires_at = models.DateTimeField(default=_default_request_expiry)
     resolved_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,

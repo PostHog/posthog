@@ -34,7 +34,6 @@ APIScopeObject = Literal[
     "billing",
     "business_knowledge",
     "canvas",
-    # Asks an organization admin for a workload trust policy. A request grants nothing by itself.
     "clickhouse_test_cluster_perf",
     "cohort",
     "comment",
