@@ -1,6 +1,6 @@
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
-import { DateTime } from 'luxon'
+import { DateTime, Settings } from 'luxon'
 import { register } from 'prom-client'
 
 import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
@@ -129,7 +129,7 @@ describe('HogFunctionHandler', () => {
         )
         mockRecipientPreferencesService = {
             shouldSkipAction: jest.fn().mockResolvedValue(null),
-            isFrequencyCapped: jest.fn().mockResolvedValue(false),
+            checkFrequencyCap: jest.fn().mockResolvedValue({ capped: false }),
         } as any
         mockEmailValidationService = {
             getSkipReason: jest.fn().mockResolvedValue(null),
@@ -496,7 +496,11 @@ describe('HogFunctionHandler', () => {
     ])(
         'should skip the send and emit message_frequency_capped when the recipient reached the frequency cap for %s',
         async (_label, parentRunId) => {
-            ;(mockRecipientPreferencesService.isFrequencyCapped as jest.Mock).mockResolvedValueOnce(true)
+            ;(mockRecipientPreferencesService.checkFrequencyCap as jest.Mock).mockResolvedValueOnce({
+                capped: true,
+                nextSlotAt: Date.now() + 60 * 60 * 1000,
+                holdHours: null,
+            })
             invocation.parentRunId = parentRunId
 
             const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
@@ -523,6 +527,48 @@ describe('HogFunctionHandler', () => {
             expect(mockFetch).not.toHaveBeenCalled()
         }
     )
+
+    it('should hold a capped send until the next slot, then skip it once the hold ends', async () => {
+        const hour = 60 * 60 * 1000
+        const start = 1_800_000_000_000
+        const originalNow = Settings.now
+        jest.spyOn(Math, 'random').mockReturnValue(0)
+        const capped = { capped: true, nextSlotAt: start + 5 * hour, holdHours: 2 }
+        try {
+            Settings.now = () => start
+            ;(mockRecipientPreferencesService.checkFrequencyCap as jest.Mock).mockResolvedValueOnce(capped)
+            const held = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+                queue: 'hog',
+                queuePriority: 0,
+            })
+
+            const heldResult = await hogFunctionHandler.execute({ invocation, action, result: held })
+
+            // The next slot is after the hold ends, so the step wakes at the end of the hold.
+            expect(heldResult).toEqual({ scheduledAt: DateTime.fromMillis(start + 2 * hour) })
+            expect(held.invocation.state.currentAction?.frequencyCapHoldDeadlineAt).toBe(
+                DateTime.fromMillis(start + 2 * hour).toISO()
+            )
+            expect(held.logs[0].message).toContain('Holding send until')
+            expect(held.metrics).toMatchObject([{ metric_name: 'message_frequency_cap_held', count: 1 }])
+
+            Settings.now = () => start + 2 * hour
+            ;(mockRecipientPreferencesService.checkFrequencyCap as jest.Mock).mockResolvedValueOnce(capped)
+            const woken = createInvocationResult<CyclotronJobInvocationHogFlow>(held.invocation, {
+                queue: 'hog',
+                queuePriority: 0,
+            })
+
+            const wokenResult = await hogFunctionHandler.execute({ invocation: held.invocation, action, result: woken })
+
+            expect(wokenResult.nextAction?.id).toBe('exit')
+            expect(woken.logs[0].message).toContain('no slot opened before the hold ended')
+            expect(woken.metrics).toMatchObject([{ metric_name: 'message_frequency_capped', count: 1 }])
+            expect(mockFetch).not.toHaveBeenCalled()
+        } finally {
+            Settings.now = originalNow
+        }
+    })
 
     it.each([
         ['a workflow run', undefined],
@@ -576,7 +622,11 @@ describe('HogFunctionHandler', () => {
             )
         }
         const skipFrequencyCapped = (): void => {
-            ;(mockRecipientPreferencesService.isFrequencyCapped as jest.Mock).mockResolvedValueOnce(true)
+            ;(mockRecipientPreferencesService.checkFrequencyCap as jest.Mock).mockResolvedValueOnce({
+                capped: true,
+                nextSlotAt: Date.now() + 60 * 60 * 1000,
+                holdHours: null,
+            })
         }
 
         it.each([
