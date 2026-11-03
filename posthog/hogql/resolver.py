@@ -466,7 +466,7 @@ class Resolver(CloningVisitor):
         super().__init__()
         # Each SELECT query creates a new scope (type). Store all of them in a list as we traverse the tree.
         self.scopes: list[ast.SelectQueryType] = scopes or []
-        self.ctes: dict[str, ast.CTE] = {name: cte for scope in self.scopes for name, cte in (scope.ctes or {}).items()}
+        self.ctes: dict[str, ast.CTE] = {}
         self.current_view_depth: int = 0
         self._compilation_budget = compilation_budget.get() or CompilationBudget()
         self._resolving_saved_views: set[str] = set()
@@ -1519,9 +1519,15 @@ class Resolver(CloningVisitor):
             )
             cte_table = (
                 self.ctes.get(".".join(table_name_chain))
-                if internal_table_function is None and node.table_scope != "database"
+                if internal_table_function is None and node.table_schema is None
                 else None
             )
+            # Only bound references can carry an outer CTE into a generated lazy query.
+            if cte_table is None and node.cte_name is not None:
+                for inherited_scope in reversed(self.scopes):
+                    cte_table = (inherited_scope.ctes or {}).get(node.cte_name)
+                    if cte_table is not None:
+                        break
             if cte_table:
                 assert isinstance(cte_table.expr.type, ast.SelectQueryType | ast.SelectSetQueryType)
                 # Use CTETableType so that fields are properly qualified with the CTE name when printed
@@ -1547,6 +1553,7 @@ class Resolver(CloningVisitor):
                 node.type = node_type
                 node.table = clone_expr(cast(ast.Field, node.table))
                 node.table.type = cte_table_type
+                node.cte_name = cte_table.name
                 node.next_join = self.visit(node.next_join)
                 node.alias = table_alias
 
@@ -1562,7 +1569,7 @@ class Resolver(CloningVisitor):
                     or resolve_internal_trino_logical_table(table_name_chain, self.context)
                 )
             else:
-                database_table = None
+                database_table = node.table_schema
 
             if database_table is None:
                 try:

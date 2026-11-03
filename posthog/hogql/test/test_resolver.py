@@ -157,38 +157,23 @@ class TestSavedViewBounds(SimpleTestCase):
 
 
 class TestInheritedCtes(SimpleTestCase):
-    @parameterized.expand(
-        [
-            ("outer", ["SELECT 1 AS value"], "SELECT value FROM shared", ast.IntegerType),
-            ("nearest", ["SELECT 1 AS value", "SELECT 'inner' AS value"], "SELECT value FROM shared", ast.StringType),
-            (
-                "local",
-                ["SELECT 1 AS value"],
-                "WITH shared AS (SELECT 'local' AS value) SELECT value FROM shared",
-                ast.StringType,
-            ),
-        ]
-    )
-    def test_inherited_ctes_resolve_with_nearest_scope(
-        self,
-        _name: str,
-        definitions: list[str],
-        query: str,
-        expected_type: type[ast.IntegerType] | type[ast.StringType],
-    ) -> None:
+    @parameterized.expand([(False,), (True,)])
+    def test_only_bound_cte_references_cross_resolver_scopes(self, bound: bool) -> None:
         context = HogQLContext(database=Database(), enable_select_queries=True)
-        scopes: list[ast.SelectQueryType] = []
-        for definition in definitions:
-            parent = resolve_types(
-                parse_select("WITH shared AS (" + definition + ") SELECT value FROM shared"),
-                context,
-                "clickhouse",
-            )
-            assert isinstance(parent.type, ast.SelectQueryType)
-            scopes.append(parent.type)
-        resolved = resolve_types(parse_select(query), context, "clickhouse", scopes=scopes)
-        assert isinstance(resolved.type, ast.SelectQueryType)
-        assert isinstance(resolved.type.columns["value"].resolve_constant_type(context), expected_type)
+        parent = resolve_types(
+            parse_select("WITH shared AS (SELECT 1 AS value) SELECT value FROM shared"), context, "clickhouse"
+        )
+        assert isinstance(parent.type, ast.SelectQueryType)
+        query = clone_expr(parent, clear_types=True) if bound else parse_select("SELECT value FROM shared")
+        assert isinstance(query, ast.SelectQuery)
+        query.ctes = None
+        if bound:
+            resolved = resolve_types(query, context, "clickhouse", scopes=[parent.type])
+            assert isinstance(resolved.type, ast.SelectQueryType)
+            assert isinstance(resolved.type.columns["value"].resolve_constant_type(context), ast.IntegerType)
+        else:
+            with self.assertRaises(QueryError):
+                resolve_types(query, context, "clickhouse", scopes=[parent.type])
 
 
 class TestResolver(BaseTest):

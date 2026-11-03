@@ -65,7 +65,7 @@ def argmax_select(
 
     select_query = ast.SelectQuery(
         select=fields_to_select,
-        select_from=ast.JoinExpr(table=ast.Field(chain=[table_name]), table_scope="database"),
+        select_from=ast.JoinExpr(table=ast.Field(chain=[table_name])),
         group_by=fields_to_group,
     )
     if deleted_field:
