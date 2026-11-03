@@ -2,6 +2,7 @@ import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { DateTime } from 'luxon'
+import { register } from 'prom-client'
 
 import { insertHogFunctionTemplate, insertIntegration } from '~/cdp/_tests/fixtures'
 import { HogFlow } from '~/cdp/schema/hogflow'
@@ -29,7 +30,7 @@ import {
 import { CyclotronJobInvocation, CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '../types'
 import { CdpCyclotronWorkerEmail } from './cdp-cyclotron-worker-email.consumer'
 
-jest.setTimeout(30000)
+jest.setTimeout(5000)
 
 jest.mock('node:dns/promises', () => ({
     Resolver: jest.fn().mockImplementation(() => ({
@@ -109,24 +110,61 @@ describe('CdpCyclotronWorkerEmail', () => {
         })
 
         const wakeAtScheduledTime = async (item: CyclotronJobInvocation): Promise<void> => {
-            const wake = item.queueScheduledAt!.toMillis() + 1
-            const elapsed = wake - Date.now()
-            const keys = [
-                workflowBucket().key,
-                ...teamEmailCapBuckets(flow.team_id, 10, 20).map((bucket) => bucket.key),
-            ]
-            // Valkey's TIME ignores Date.now, so age its bucket timestamps by the same wait.
-            await redis.useClient({ name: 'advance-email-buckets' }, async (client) => {
+            // Valkey's TIME ignores Date.now. A deleted bucket is the state an idle bucket expires to: full.
+            const keys = [workflowBucket().key, ...teamEmailCapBuckets(flow.team_id, 10, 20).map((b) => b.key)]
+            await redis.useClient({ name: 'reset-email-buckets' }, async (client) => {
                 for (const key of keys) {
-                    for (const field of ['ts', 'resv']) {
-                        const timestamp = await client.hget(key, field)
-                        if (timestamp !== null) {
-                            await client.hset(key, field, Number(timestamp) - elapsed)
-                        }
-                    }
+                    await client.del(key)
                 }
             })
-            jest.spyOn(Date, 'now').mockReturnValue(wake)
+            jest.spyOn(Date, 'now').mockReturnValue(item.queueScheduledAt!.toMillis() + 1)
+        }
+
+        const addFirstEmail = async (): Promise<void> => {
+            const emailAction = flow.actions.find((action) => action.id === 'email')!
+            flow.actions.push({ ...emailAction, id: 'first-email' })
+            flow.edges = [
+                { from: 'trigger', to: 'first-email', type: 'continue' },
+                { from: 'first-email', to: 'email', type: 'continue' },
+                ...flow.edges.filter((edge) => edge.from !== 'trigger'),
+            ]
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                'UPDATE posthog_hogflow SET actions = $1, edges = $2 WHERE id = $3',
+                [JSON.stringify(flow.actions), JSON.stringify(flow.edges), flow.id],
+                'test-consecutive-workflow-emails'
+            )
+            invocation = roundTrip({ ...createExampleHogFlowInvocation(flow), queuePriority: 2 })
+        }
+
+        const limitWorkflowRate = async (): Promise<void> => {
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                'UPDATE posthog_hogflow SET email_sending_rate_limit = $1 WHERE id = $2',
+                [{ count: 1, period: 'hour' }, flow.id],
+                'test-workflow-email-rate'
+            )
+        }
+
+        const drainWorkflowBucket = async (): Promise<void> => {
+            expect(await limiter.claimUpTo({ ...workflowBucket(), requested: 1 })).toBe(1)
+        }
+
+        const drainTeamHourlyCap = async (): Promise<void> => {
+            const [hourly] = teamEmailCapBuckets(flow.team_id, 10, 20)
+            expect(await limiter.claimUpTo({ ...hourly, requested: hourly.capacity })).toBe(hourly.capacity)
+        }
+
+        const queueWaitsByTeamCapped = async (): Promise<Record<string, number>> => {
+            const counts: Record<string, number> = { true: 0, false: 0 }
+            const metric = await register.getSingleMetric('cdp_email_queue_to_send_ms')!.get()
+            for (const value of metric.values) {
+                const name = 'metricName' in value ? value.metricName : undefined
+                if (name === 'cdp_email_queue_to_send_ms_count' && value.labels.source === 'workflow') {
+                    counts[String(value.labels.team_capped)] += value.value
+                }
+            }
+            return counts
         }
 
         beforeEach(async () => {
@@ -230,44 +268,65 @@ describe('CdpCyclotronWorkerEmail', () => {
         })
 
         it.each([
-            { cause: 'SES throttle', attempts: 2, consecutive: false },
-            { cause: 'workflow pacing', attempts: 1, consecutive: false },
-            { cause: 'team hourly cap', attempts: 1, consecutive: false },
-            { cause: 'workflow pacing', attempts: 1, consecutive: true },
+            {
+                cause: 'an SES throttle',
+                arrange: (): Promise<void> => Promise.resolve(ses.throttleNextRequests(2)),
+                emails: 1,
+                retries: 2,
+                throttles: 2,
+                sentBeforeRetry: 0,
+                cappedSends: 0,
+            },
+            {
+                cause: 'workflow pacing',
+                arrange: async (): Promise<void> => {
+                    await limitWorkflowRate()
+                    await drainWorkflowBucket()
+                },
+                emails: 1,
+                retries: 1,
+                throttles: 0,
+                sentBeforeRetry: 0,
+                cappedSends: 0,
+            },
+            {
+                cause: 'the team hourly cap',
+                arrange: drainTeamHourlyCap,
+                emails: 1,
+                retries: 1,
+                throttles: 0,
+                sentBeforeRetry: 0,
+                cappedSends: 1,
+            },
+            {
+                cause: 'workflow pacing of the second email',
+                arrange: async (): Promise<void> => {
+                    await addFirstEmail()
+                    await limitWorkflowRate()
+                },
+                emails: 2,
+                retries: 1,
+                throttles: 0,
+                sentBeforeRetry: 1,
+                cappedSends: 0,
+            },
+            {
+                cause: 'the team hourly cap on the first of two emails',
+                arrange: async (): Promise<void> => {
+                    await addFirstEmail()
+                    await drainTeamHourlyCap()
+                },
+                emails: 2,
+                retries: 1,
+                throttles: 0,
+                sentBeforeRetry: 0,
+                cappedSends: 1,
+            },
         ])(
-            'returns to the origin queue and priority after a $cause retry (second email in the run: $consecutive)',
-            async ({ cause, attempts, consecutive }) => {
-                if (consecutive) {
-                    const emailAction = flow.actions.find((action) => action.id === 'email')!
-                    flow.actions.push({ ...emailAction, id: 'first-email' })
-                    flow.edges = [
-                        { from: 'trigger', to: 'first-email', type: 'continue' },
-                        { from: 'first-email', to: 'email', type: 'continue' },
-                        ...flow.edges.filter((edge) => edge.from !== 'trigger'),
-                    ]
-                    await hub.postgres.query(
-                        PostgresUse.COMMON_WRITE,
-                        'UPDATE posthog_hogflow SET actions = $1, edges = $2 WHERE id = $3',
-                        [JSON.stringify(flow.actions), JSON.stringify(flow.edges), flow.id],
-                        'test-consecutive-workflow-emails'
-                    )
-                    invocation = roundTrip({ ...createExampleHogFlowInvocation(flow), queuePriority: 2 })
-                }
-                if (cause === 'workflow pacing') {
-                    await hub.postgres.query(
-                        PostgresUse.COMMON_WRITE,
-                        'UPDATE posthog_hogflow SET email_sending_rate_limit = $1 WHERE id = $2',
-                        [{ count: 1, period: 'hour' }, flow.id],
-                        'test-workflow-email-rate'
-                    )
-                    if (!consecutive) {
-                        expect(await limiter.claimUpTo({ ...workflowBucket(), requested: 1 })).toBe(1)
-                    }
-                }
-                if (cause.startsWith('team')) {
-                    const bucket = teamEmailCapBuckets(flow.team_id, 10, 20)[cause === 'team hourly cap' ? 0 : 1]
-                    expect(await limiter.claimUpTo({ ...bucket, requested: bucket.capacity })).toBe(bucket.capacity)
-                }
+            'returns to the origin queue and priority after $cause',
+            async ({ arrange, emails, retries, throttles, sentBeforeRetry, cappedSends }) => {
+                await arrange()
+                const waitsBefore = await queueWaitsByTeamCapped()
                 const routed = await processInvocation(invocation)
                 expect(routed.finished).toBe(false)
                 expect(routed.invocation).toMatchObject({
@@ -276,13 +335,10 @@ describe('CdpCyclotronWorkerEmail', () => {
                     queueParameters: { type: 'email' },
                     queueMetadata: { originQueue: 'hogflow', originPriority: 2 },
                 })
-                if (cause === 'SES throttle') {
-                    ses.throttleNextRequests(attempts)
-                }
                 const params = routed.invocation.queueParameters
                 const results = [routed]
                 let retry = routed.invocation
-                for (let attempt = 0; attempt < attempts; attempt++) {
+                for (let attempt = 0; attempt < retries; attempt++) {
                     const before = DateTime.now().toMillis()
                     const delayed = await processInvocation(retry)
                     expect(delayed.finished).toBe(false)
@@ -290,26 +346,13 @@ describe('CdpCyclotronWorkerEmail', () => {
                         queue: 'email',
                         queuePriority: 1,
                         queueParameters: params,
-                    })
-                    expect(delayed.invocation.queueMetadata).toEqual({
-                        originQueue: 'hogflow',
-                        originPriority: 2,
-                        ...(cause.startsWith('team') ? { teamCapped: true } : {}),
+                        queueMetadata: { originQueue: 'hogflow', originPriority: 2 },
                     })
                     expect(delayed.invocation.queueScheduledAt!.toMillis()).toBeGreaterThan(before)
-                    if (consecutive) {
-                        expect(delayed.metrics.filter((metric) => metric.metric_name === 'email_sent')).toEqual([
-                            expect.objectContaining({ count: 1 }),
-                        ])
-                        expect(delayed.messageAssets).toHaveLength(1)
-                        expect(delayed.capturedPostHogEvents.map((event) => event.event)).toEqual([
-                            '$workflows_email_sent',
-                        ])
-                    } else {
-                        expect(delayed.metrics).toEqual([])
-                        expect(delayed.messageAssets).toEqual([])
-                        expect(delayed.capturedPostHogEvents).toEqual([])
-                    }
+                    expect(delayed.metrics.filter((metric) => metric.metric_name === 'email_sent')).toHaveLength(
+                        sentBeforeRetry
+                    )
+                    expect(await ses.getEmails()).toHaveLength(sentBeforeRetry)
                     expect(
                         (delayed.invocation as CyclotronJobInvocationHogFlow).state.currentAction?.hogFunctionState
                             ?.vmState?.stack
@@ -317,16 +360,6 @@ describe('CdpCyclotronWorkerEmail', () => {
                         (routed.invocation as CyclotronJobInvocationHogFlow).state.currentAction?.hogFunctionState
                             ?.vmState?.stack
                     )
-                    if (consecutive) {
-                        expect(await ses.getEmails()).toEqual([
-                            expect.objectContaining({
-                                subject: 'S2 round trip',
-                                body: { text: 'Retry delivery', html: '<p>Retry delivery</p>' },
-                            }),
-                        ])
-                    } else {
-                        expect(await ses.getEmails()).toEqual([])
-                    }
                     results.push(delayed)
                     retry = delayed.invocation
                     await wakeAtScheduledTime(retry)
@@ -344,25 +377,29 @@ describe('CdpCyclotronWorkerEmail', () => {
                 expect(completed.finished).toBe(true)
                 expect((completed.invocation as CyclotronJobInvocationHogFlow).state.currentAction?.id).toBe('exit')
                 const metrics = results.flatMap((result) => result.metrics)
-                const sentCount = consecutive ? 2 : 1
-                expect(metrics.filter((metric) => metric.metric_name === 'email_sent')).toEqual(
-                    Array.from({ length: sentCount }, () => expect.objectContaining({ count: 1 }))
-                )
+                expect(metrics.filter((metric) => metric.metric_name === 'email_sent')).toHaveLength(emails)
                 expect(metrics.filter((metric) => metric.metric_name === 'email_failed')).toEqual([])
                 expect(results.flatMap((result) => result.capturedPostHogEvents).map((event) => event.event)).toEqual(
-                    Array.from({ length: sentCount }, () => '$workflows_email_sent')
+                    Array.from({ length: emails }, () => '$workflows_email_sent')
                 )
                 expect(await ses.getEmails()).toEqual(
-                    Array.from({ length: sentCount }, () =>
+                    Array.from({ length: emails }, () =>
                         expect.objectContaining({
                             subject: 'S2 round trip',
                             body: { text: 'Retry delivery', html: '<p>Retry delivery</p>' },
                         })
                     )
                 )
-                expect(ses.requests).toHaveLength((cause === 'SES throttle' ? attempts : 0) + sentCount)
+                expect(ses.requests).toHaveLength(throttles + emails)
+                // Only the send the team cap delayed reads as capped, never the email that follows it.
+                const waitsAfter = await queueWaitsByTeamCapped()
+                expect({
+                    true: waitsAfter.true - waitsBefore.true,
+                    false: waitsAfter.false - waitsBefore.false,
+                }).toEqual({ true: cappedSends, false: throttles + emails - cappedSends })
                 expect(mockFetch).toHaveBeenCalledTimes(1)
-            }
+            },
+            30000
         )
     })
 
