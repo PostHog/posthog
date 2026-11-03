@@ -112,7 +112,6 @@ import type { InsightFilterOverrideContextApi } from 'products/product_analytics
 import type { AIPromptConfigApi, DeliveryConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
 import type { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 import type {
-    ExternalDataSourceTypeEnumApi,
     IncrementalSyncBlockedReasonEnumApi,
     RowFilterColumnApi,
 } from 'products/warehouse_sources/frontend/generated/api.schemas'
@@ -5715,13 +5714,21 @@ export enum SlackIntegrationScope {
 
 export const SLACK_INTEGRATION_SCOPES = Object.values(SlackIntegrationScope)
 
-// Nothing is pending Slack app-directory review right now, so there is no in-review list.
-// To stage a scope that Slack hasn't approved yet, reintroduce a `SlackIntegrationScopeInReview`
-// enum here holding only the pending entries, re-export it from schema-general.ts, and have
-// `POSTHOG_SLACK_SCOPE` (posthog/models/integration/oauth.py) and `useSlackRequiredScopes` append it on
-// DEV/local only — requesting an unapproved scope anywhere else fails with `invalid_scope`.
-// The enum cannot be left empty between rounds: JSON Schema rejects a zero-length `enum`, so
-// `hogli build:schema` fails on it.
+// Scopes that wait on Slack app review. Only DEV and local development request them, because the
+// US and EU apps reject them with `invalid_scope`. Move a scope to SlackIntegrationScope when Slack approves it.
+/** @schemaEnum */
+export enum SlackIntegrationScopeInReview {
+    CANVASES_READ = 'canvases:read',
+    CHANNELS_JOIN = 'channels:join',
+}
+
+export const SLACK_INTEGRATION_SCOPES_IN_REVIEW = Object.values(SlackIntegrationScopeInReview)
+
+export function slackRequestedScopes(includeInReview: boolean): string[] {
+    return includeInReview
+        ? [...SLACK_INTEGRATION_SCOPES, ...SLACK_INTEGRATION_SCOPES_IN_REVIEW]
+        : [...SLACK_INTEGRATION_SCOPES]
+}
 
 export interface IntegrationType {
     id: number
@@ -6390,13 +6397,19 @@ export const manualLinkSources = ['aws', 'google-cloud', 'cloudflare-r2', 'azure
 
 export type ManualLinkSourceType = (typeof manualLinkSources)[number]
 
+/**
+ * A warehouse source's catalog key, e.g. 'Stripe'. A source plugin can name itself with any key, so this
+ * is a plain string and not a union of the known keys. The wizard endpoint lists the keys that exist.
+ */
+export type ExternalDataSourceType = string
+
 export interface ExternalDataSourceRevenueAnalyticsConfig {
     enabled: boolean
     include_invoiceless_charges: boolean
 }
 
 export interface ExternalDataSourceCreatePayload {
-    source_type: ExternalDataSourceTypeEnumApi
+    source_type: ExternalDataSourceType
     prefix?: string
     description?: string
     access_method?: 'warehouse' | 'direct'
@@ -6428,7 +6441,7 @@ export interface ExternalDataSource {
     source_id: string
     connection_id: string
     status: ExternalDataJobStatus
-    source_type: ExternalDataSourceTypeEnumApi
+    source_type: ExternalDataSourceType
     prefix: string | null
     description: string | null
     created_by?: string | null
@@ -6680,7 +6693,7 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
 /** Lightweight parent-source summary embedded in the single-schema retrieve endpoint. */
 export interface ExternalDataSchemaSourceSummary {
     id: string
-    source_type: ExternalDataSourceTypeEnumApi
+    source_type: ExternalDataSourceType
     access_method?: ExternalDataSource['access_method']
     supports_column_selection?: boolean
     supports_row_filters?: boolean
@@ -7320,6 +7333,7 @@ export type CyclotronJobInputSchemaType = {
         | 'task_repository'
         | 'task_mcp_installations'
         | 'signals_scout'
+        | 'posthog_survey'
         | 'replay_vision_scan'
         | 'task_skills'
     key: string
