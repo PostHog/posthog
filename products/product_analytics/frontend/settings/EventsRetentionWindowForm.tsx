@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 
-import { LemonButton, LemonDialog, LemonLabel } from '@posthog/lemon-ui'
+import { LemonButton, LemonDialog, LemonLabel, Link } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { pluralize } from 'lib/utils/strings'
+import { urls } from 'scenes/urls'
 
 import { EventsRetentionCustomFields } from './EventsRetentionCustomFields'
 import { EventsPassSchedule, nextPassOn } from './nextPassOn'
@@ -17,15 +18,17 @@ export interface EventsRetentionWindowFormProps {
     retentionMonths: number | null
     /** The window that applies while no custom window is saved here. */
     defaultMonths: number
+    /** Whether the default here is the plan's default or the organization's events retention. */
+    defaultSource: 'plan' | 'organization'
     /** True when the default is the organization's custom window, which deletes at every monthly cleanup. */
-    defaultIsOrganizationWindow: boolean
+    defaultDeletesMonthly: boolean
     minMonths: number
     maxMonths: number
     planMonths: number
     /** Whose events the window deletes, as the start of a sentence, e.g. "Events in this project". */
     scope: string
-    /** How a custom window here relates to the other settings level, or null when that level sets no window. */
-    overrideNote: string | null
+    /** How a custom window here relates to the other settings level. */
+    overrideNote: string
     nextMonthlyCleanupOn: string
     /** The current project's pass dates, or null when the default here doesn't apply to the project. */
     passSchedule: EventsPassSchedule | null
@@ -51,7 +54,7 @@ function monthsProblem(months: number | null, minMonths: number, maxMonths: numb
 
 function retentionChoiceOptions({
     defaultMonths,
-    defaultIsOrganizationWindow,
+    defaultSource,
     minMonths,
     maxMonths,
     restrictionReason,
@@ -64,10 +67,20 @@ function retentionChoiceOptions({
     return [
         {
             value: 'default',
-            label: `${defaultIsOrganizationWindow ? 'Organization' : 'Default'} events retention (${defaultPeriod})`,
-            description: defaultIsOrganizationWindow
-                ? `This project uses the organization's events retention of ${defaultPeriod}. To set a ${range} period for this project, use the Custom events retention setting below.`
-                : `Our default retention period for events data is ${defaultPeriod}. To set a ${range} period, use the Custom events retention setting below.`,
+            label: `${defaultSource === 'organization' ? 'Organization' : 'Default'} events retention (${defaultPeriod})`,
+            description:
+                defaultSource === 'organization' ? (
+                    <>
+                        This project uses the organization's events retention of {defaultPeriod}, which you can change
+                        in{' '}
+                        <Link to={urls.settings('organization-details', 'organization-events-retention')}>
+                            organization settings
+                        </Link>
+                        . To set a {range} period for this project only, use the Custom events retention setting below.
+                    </>
+                ) : (
+                    `Our default retention period for events data is ${defaultPeriod}. To set a ${range} period, use the Custom events retention setting below.`
+                ),
             disabledReason,
             'data-attr': `${dataAttr}-default`,
         },
@@ -87,7 +100,7 @@ export function EventsRetentionWindowForm(props: EventsRetentionWindowFormProps)
     const {
         retentionMonths,
         defaultMonths,
-        defaultIsOrganizationWindow,
+        defaultDeletesMonthly,
         minMonths,
         maxMonths,
         planMonths,
@@ -139,12 +152,12 @@ export function EventsRetentionWindowForm(props: EventsRetentionWindowFormProps)
 
     const saveDefault = (): void => {
         const savedMonths = retentionMonths === null ? defaultMonths : Math.min(planMonths, retentionMonths)
-        const defaultDeletes = defaultIsOrganizationWindow || (passSchedule?.default_window_deletes ?? true)
+        const defaultDeletes = defaultDeletesMonthly || (passSchedule?.default_window_deletes ?? true)
         if (defaultMonths >= savedMonths || !defaultDeletes) {
             onSave(null)
             return
         }
-        const deletesOn = defaultIsOrganizationWindow ? nextMonthlyCleanupOn : passSchedule && nextPassOn(passSchedule)
+        const deletesOn = defaultDeletesMonthly ? nextMonthlyCleanupOn : passSchedule && nextPassOn(passSchedule)
         const period = pluralize(defaultMonths, 'month')
         confirmDeletion(
             defaultMonths,

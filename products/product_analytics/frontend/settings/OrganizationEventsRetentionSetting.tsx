@@ -31,7 +31,8 @@ export function OrganizationEventsRetentionSetting(): JSX.Element | null {
             <EventsRetentionWindowForm
                 retentionMonths={organizationRetention.organization_retention_months}
                 defaultMonths={organizationRetention.default_retention_months}
-                defaultIsOrganizationWindow={false}
+                defaultSource="plan"
+                defaultDeletesMonthly={false}
                 minMonths={organizationRetention.min_retention_months}
                 maxMonths={organizationRetention.max_retention_months}
                 planMonths={organizationRetention.plan_retention_months}
