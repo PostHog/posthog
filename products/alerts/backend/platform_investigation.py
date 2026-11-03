@@ -8,6 +8,8 @@ The decision is a read, so it can run inside an evaluation that a retry repeats.
 write, and runs once the evaluation is recorded.
 """
 
+from collections.abc import Callable
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any, Final
@@ -277,13 +279,16 @@ def claim_requested_investigations(team_id: int, outcomes: tuple[PlatformAlertOu
     return InvestigationClaims(starts=tuple(starts), deliveries=tuple(deliveries), metrics=tuple(metrics))
 
 
-def run_metrics_investigation(run: MetricsInvestigationRun) -> None:
+def run_metrics_investigation(
+    run: MetricsInvestigationRun, *, query_slot: Callable[[], AbstractContextManager[None]] = nullcontext
+) -> None:
     """Runs a metrics alert's investigation once, and records its summary or its failure.
 
     The move from PENDING to RUNNING is the run's lease, so a retry of a timed-out attempt finds the
     row taken and runs nothing. A run that dies holds RUNNING until the in-flight horizon passes,
     as an agent run that dies does. Its failure never fails the activity, because the firing it
-    explains has already gone out.
+    explains has already gone out. `query_slot` holds a ClickHouse slot around the queries, so they
+    share the evaluation's concurrency cap.
     """
     rows = InsightAlertInvestigation.objects.for_team(run.team_id).filter(id=run.investigation_id)
     if not rows.filter(status=InvestigationStatus.PENDING).update(status=InvestigationStatus.RUNNING):
@@ -293,11 +298,14 @@ def run_metrics_investigation(run: MetricsInvestigationRun) -> None:
     running = rows.filter(status=InvestigationStatus.RUNNING)
     try:
         # The firing's start, because a metrics alert investigates only the check that started firing.
-        summary = investigate_metrics_alert(
-            alert, fired_at=investigation.episode_started_at or investigation.created_at
-        )
+        with query_slot():
+            summary = investigate_metrics_alert(
+                alert, fired_at=investigation.episode_started_at or investigation.created_at
+            )
     except Exception as error:
         logger.exception("platform_metrics_alert_investigation_failed", alert_id=str(alert.id))
-        running.update(status=InvestigationStatus.FAILED, error={"message": str(error)[:1000]})
+        running.update(
+            status=InvestigationStatus.FAILED, error={"message": (str(error) or type(error).__name__)[:1000]}
+        )
         return
     running.update(status=InvestigationStatus.DONE, summary=summary)
