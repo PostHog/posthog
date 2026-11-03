@@ -58,7 +58,13 @@ class TestInvestigatedFiringMessages(APIBaseTest):
         self.notebook_url = absolute_uri(f"/notebooks/{self.notebook.short_id}")
 
     def _investigation(
-        self, key: str, *, status: str = InvestigationStatus.DONE, verdict: str | None = None, at: datetime = FIRED_AT
+        self,
+        key: str,
+        *,
+        status: str = InvestigationStatus.DONE,
+        verdict: str | None = None,
+        at: datetime = FIRED_AT,
+        kind: str = InsightAlertInvestigation.Kind.AGENT,
     ) -> None:
         with time_machine.travel(at, tick=False):
             InsightAlertInvestigation.objects.for_team(self.team.id).create(
@@ -67,7 +73,7 @@ class TestInvestigatedFiringMessages(APIBaseTest):
                 configuration_id=self.configuration_id,
                 evaluation_key=key,
                 episode_started_at=EPISODE,
-                kind=InsightAlertInvestigation.Kind.AGENT,
+                kind=kind,
                 status=status,
                 verdict=verdict,
                 summary=SUMMARY if verdict else None,
@@ -191,6 +197,23 @@ class TestInvestigatedFiringMessages(APIBaseTest):
         assert self._investigation_label(properties) == label
         description = describe_insight_transition(project_id=self.team.id, transition=self._transition())
         assert description.details == (MessageDetail(label="Threshold breached", value="\n".join(expected_breaches)),)
+
+    @parameterized.expand(
+        [
+            ("released_after_its_run", InvestigationStatus.DONE, HoldReleasedBy.VERDICT),
+            ("sent_by_the_safety_net_after_it_failed", InvestigationStatus.FAILED, HoldReleasedBy.SAFETY_NET),
+        ]
+    )
+    def test_a_metrics_firing_keeps_its_own_breaches(
+        self, _name: str, status: str, released_by: HoldReleasedBy
+    ) -> None:
+        self._investigation(KEY, status=status, kind=InsightAlertInvestigation.Kind.METRICS)
+        self._released_by(released_by)
+
+        properties = self._event_properties(self._transition())
+
+        assert properties["breaches"] == OWN_BREACH
+        assert properties.get("investigation_notebook_url") is None
 
     def test_a_changed_verdict_follows_up_with_the_change(self) -> None:
         self._investigation("slot:2026-10-20T08:00:00+00:00", verdict="true_positive", at=EPISODE)
