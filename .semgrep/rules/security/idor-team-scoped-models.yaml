@@ -399,7 +399,6 @@ rules:
                               |SharingConfiguration
                               |SignalEmissionRecord
                               |SignalFirstReportNotification
-                              |SignalRatedUsage
                               |SignalReport
                               |SignalReportAction
                               |SignalReportArtefact
@@ -898,7 +897,6 @@ rules:
                         |SharingConfiguration
                         |SignalEmissionRecord
                         |SignalFirstReportNotification
-                        |SignalRatedUsage
                         |SignalReport
                         |SignalReportAction
                         |SignalReportArtefact
