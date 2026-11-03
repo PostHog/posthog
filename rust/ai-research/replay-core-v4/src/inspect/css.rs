@@ -1,6 +1,5 @@
 //! Image URLs in CSS: the `url()`s of an image property, or of a custom property that reaches one through `var()`.
-//! Font URLs are the `url()`s in the `src` descriptor of an `@font-face` rule. `cssparser` tokenizes as CSS Syntax 3
-//! does, so a name, an escape, a comment or a bad URL reads here as the renderer reads it.
+//! Font URLs are the `url()`s in the `src` descriptor of an `@font-face` rule. `cssparser` tokenizes as CSS Syntax 3 does, so a name, an escape, a comment or a bad URL reads here as the renderer reads it.
 
 use std::borrow::Cow;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -261,8 +260,7 @@ enum Block {
     FontFace(usize),
 }
 
-/// The text can be a style attribute, a style sheet or one rule, so its top level reads as a rule body, which holds
-/// declarations and rules alike.
+/// The text can be a style attribute, a style sheet or one rule, so its top level reads as a rule body, which holds declarations and rules alike.
 fn declarations(css: &str) -> Vec<Declaration> {
     let mut declarations = Declarations {
         found: Vec::new(),
@@ -436,8 +434,7 @@ enum Opened<'i> {
     ImageSet,
 }
 
-/// Calls `each` at each `url()` and `image-set()` in `input`, at any depth, with the position where the function starts.
-/// A block deeper than `cssparser`'s nesting limit reads as flat tokens, to keep the stack bounded.
+/// Calls `each` at each `url()` and `image-set()` in `input`, at any depth. A block deeper than `cssparser`'s nesting limit reads as flat tokens, to keep the stack bounded.
 fn each_function<'i>(
     input: &mut Parser<'i>,
     each: &mut impl FnMut(&mut Parser<'i>, SourcePosition, Opened<'i>),
@@ -515,7 +512,6 @@ fn unquoted_url_source<'i>(url: CowRcStr<'i>, token: &str) -> UrlSource<'i> {
     }
 }
 
-/// A `url()` holds one string and nothing else but whitespace and comments.
 fn quoted_url_source<'i>(input: &mut Parser<'i>) -> Option<UrlSource<'i>> {
     input
         .parse_nested_block(|input| {
@@ -698,8 +694,7 @@ struct ImageSetCandidate<'a> {
     resolution_dppx: Option<f64>,
 }
 
-/// `None` when a candidate is empty, or when the set lists more than [`MAX_IMAGE_SET_CANDIDATES`]. Then each remote
-/// candidate is reported as unshown, as the set is read, so that a long set is never held.
+/// `None` when a candidate is empty, or when the set lists more than [`MAX_IMAGE_SET_CANDIDATES`]. Then each remote candidate is reported as unshown, as the set is read, so that a long set is never held.
 fn image_set_candidates<'i>(
     input: &mut Parser<'i>,
     found: &mut impl FnMut(CssUrl<'_>),

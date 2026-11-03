@@ -931,8 +931,7 @@ mod tests {
             "{lines}"
         );
         assert!(!stored_lines(&event, &[public]).is_empty());
-        // A declined URL that a longer URL also holds is overwritten there too, and the block is kept. A bundled font
-        // names no URL, but its declined URL is overwritten too.
+        // A declined URL that a longer URL also holds is overwritten there too, and the block is kept, also for a bundled font, which names no URL.
         let bundled_font = json!({"parentId": 1, "node": {"type": 2, "tagName": "style",
             "attributes": {"_cssText": format!("@font-face{{font-family:Roboto;src:url({signed})}}")}, "childNodes": [], "id": 5}});
         for (adds, attributes) in [
@@ -1003,7 +1002,6 @@ mod tests {
         ] {
             let events = json!([{"type": 2, "timestamp": 1, "data": {"node": {"type": 0, "id": 1, "childNodes": nodes}}}]).to_string();
             let lines = stored_lines(&events, &[]);
-            // The inspector named the first URLs, which keep their references; the fallback scrubbed the rest.
             assert!(lines.contains(named), "named URLs keep their references");
             assert!(
                 lines.contains(marker) && !lines.contains(other_marker),

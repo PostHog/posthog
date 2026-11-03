@@ -1,6 +1,4 @@
-//! The fallback for a block whose remote URLs the writer could not all name or replace. Each remote URL token left in
-//! the stored bytes becomes [`URL_UNCHECKED_MARKER`], or `fonturl:v4:declined:unchecked` in the `src` of an
-//! `@font-face` rule, so no URL the policy would refuse is stored, and the block is kept instead of dropped.
+//! The fallback for a block whose remote URLs the writer could not all name or replace. Each remote URL token left in the stored bytes becomes [`URL_UNCHECKED_MARKER`], or `fonturl:v4:declined:unchecked` in the `src` of an `@font-face` rule, so no URL the policy would refuse is stored, and the block is kept instead of dropped.
 //!
 //! The scrub reads the bytes one character at a time through their JSON escapes and CSS escapes, so it never splits an
 //! escape and the stored JSON stays valid. A URL that starts after `(`, `'` or `"` ends at `)`, `'` or `"`, because CSS

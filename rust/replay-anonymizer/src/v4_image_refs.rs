@@ -1,6 +1,4 @@
-//! The references and decline markers that stand in for an image or a web font in a v4 replay
-//! block. A captured page can hold text that looks like a reference, so [`parse`] accepts only the
-//! exact strings the v4 recorder writes.
+//! The references and decline markers that stand in for an image or a web font in a v4 replay block. A captured page can hold text that looks like a reference, so [`parse`] accepts only the exact strings the v4 recorder writes.
 
 use std::fmt;
 
@@ -10,15 +8,13 @@ use crate::url_policy::Decline;
 pub const IMAGE_PREFIX: &str = "image:v4:";
 /// Starts a reference whose hash names the image URL. The image fetcher stores the bytes.
 pub const IMAGE_URL_PREFIX: &str = "imageurl:v4:";
-/// Starts a reference whose hash names the URL of a font file in an `@font-face` `src`. The image
-/// fetcher stores the bytes.
+/// Starts a reference whose hash names the URL of a font file in an `@font-face` `src`. The image fetcher stores the bytes.
 pub const FONT_URL_PREFIX: &str = "fonturl:v4:";
 /// The length v3 truncates a reference hash to: 132 bits of the HMAC, in URL-safe base64.
 pub const HASH_CHARS: usize = 22;
 /// What a remote URL becomes when the recorder replaces it without a check by the URL policy.
 pub const URL_UNCHECKED_MARKER: &str = "imageurl:v4:declined:unchecked";
-/// What a remote URL in an `@font-face` `src` becomes when the recorder replaces it without a check
-/// by the URL policy.
+/// What a remote URL in an `@font-face` `src` becomes when the recorder replaces it without a check by the URL policy.
 pub const FONT_URL_UNCHECKED_MARKER: &str = "fonturl:v4:declined:unchecked";
 pub const IMAGE_DECLINED_PREFIX: &str = "image:v4:declined:";
 
@@ -107,11 +103,9 @@ pub enum Declined {
 pub enum Parsed<'a> {
     Ref(Ref<'a>),
     Declined(Declined),
-    /// A font family that the renderer ships, by its slug: the family name in lowercase, with `-`
-    /// for each space. No bytes stand behind it.
+    /// A font family that the renderer ships, by its slug. No bytes stand behind it.
     BundledFont(&'a str),
-    /// A font file that the same public URL serves to every team, by an unkeyed hash of that URL.
-    /// The image fetcher stores the bytes once, for all teams.
+    /// A font file that one public URL serves to every team, by an unkeyed hash of that URL. The image fetcher stores it once.
     PublicFont(&'a str),
 }
 

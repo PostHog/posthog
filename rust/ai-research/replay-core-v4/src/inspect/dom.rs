@@ -28,7 +28,6 @@ use crate::scan::tokens::{Token, Tokens};
 pub const MAX_TRACKED_NODES: usize = 200_000;
 /// Remote image URLs kept per message, as the v3 collector caps URLs per message.
 pub const MAX_IMAGE_URLS: usize = 512;
-/// A budget apart from [`MAX_IMAGE_URLS`], so that a page's fonts never displace its images.
 pub const MAX_FONT_URLS: usize = 512;
 /// Attribute changes read per mutation, as many as the nodes tracked. A mutation with more drops its block, because
 /// the inspector does not name the URLs in the rest.
@@ -197,8 +196,7 @@ struct WindowDom {
     page_base: Option<Arc<Url>>,
 }
 
-/// Why the inspector stopped naming a block's remote image or font URLs. The writer replaces only the URLs it is given,
-/// so it scrubs every other remote URL token in the block.
+/// Why the inspector stopped naming a block's remote image or font URLs. The writer replaces only the URLs it is given, so it scrubs every other remote URL token in the block.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UrlLimit {
     UrlCount,
@@ -245,9 +243,7 @@ pub struct RemoteUrl {
     pub kind: RemoteKind,
 }
 
-/// Distinct remote image URLs within [`MAX_BLOCK_REMOTE_URLS`] and [`MAX_BLOCK_REMOTE_URL_BYTES`], and font URLs within
-/// [`MAX_BLOCK_FONT_URLS`] and [`MAX_BLOCK_FONT_URL_BYTES`]. Past a budget it keeps no more of that kind, and
-/// [`RemoteUrls::url_limit`] says why.
+/// Distinct remote URLs, within a count and a byte budget per kind. Past a budget it keeps no more of that kind, and [`RemoteUrls::url_limit`] says why.
 #[derive(Debug, Default)]
 pub struct RemoteUrls {
     urls: HashMap<String, RemoteKind>,
@@ -2453,7 +2449,6 @@ mod tests {
         ] {
             assert_eq!(limit(&mut urls.into_iter()), expected);
         }
-        // A page full of fonts never stops the naming of its images, but the writer scrubs the fonts past the budget.
         let mut remote = RemoteUrls::default();
         (0..=MAX_BLOCK_FONT_URLS).for_each(|i| remote.insert(&url(i, 40), RemoteKind::Font));
         remote.insert(&url(MAX_BLOCK_FONT_URLS + 1, 40), RemoteKind::Image);

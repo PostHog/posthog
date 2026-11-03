@@ -1,5 +1,4 @@
-//! The keyed hash of the image and URL references in `posthog_replay_anonymizer::v4_image_refs`, the asset of a URL
-//! reference, and the URL fingerprints of the block index.
+//! The keyed hash of the image and URL references in `posthog_replay_anonymizer::v4_image_refs`, the asset of a URL reference, and the URL fingerprints of the block index.
 
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use base64::Engine;
@@ -26,8 +25,7 @@ pub fn reference_hash(key: &[u8; 32], bytes: &[u8]) -> String {
     encoded
 }
 
-/// Google serves each file under `/s/` at a versioned path whose bytes never change. A `/l/` file is a subset that a
-/// page's `text=` parameter picked, so its glyphs can hold page text, and it stays with its team.
+/// Google serves each file under `/s/` at a versioned path whose bytes never change. A `/l/` file is a subset that a page's `text=` parameter picked, so its glyphs can hold page text, and it stays with its team.
 const PUBLIC_FONT_HOST: &str = "fonts.gstatic.com";
 const PUBLIC_FONT_PATH_PREFIX: &str = "/s/";
 
@@ -46,7 +44,6 @@ pub fn public_font_url_ref(url: &CanonicalUrl) -> Option<String> {
     })
 }
 
-/// The asset that a URL reference names, which tells the fetcher what to check the response for and where to store it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum UrlAsset {
     Image,
