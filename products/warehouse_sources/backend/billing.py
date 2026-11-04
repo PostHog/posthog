@@ -64,7 +64,7 @@ def _usage_key(finished_at: datetime, source_created_at: datetime) -> str:
 def _completed_billable_jobs(begin: datetime, end: datetime) -> QuerySet[ExternalDataJob]:
     return ExternalDataJob.objects.filter(
         finished_at__gte=begin,
-        finished_at__lte=end,
+        finished_at__lt=end,
         billable=True,
         status=ExternalDataJobStatus.COMPLETED,
     )

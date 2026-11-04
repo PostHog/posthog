@@ -68,7 +68,13 @@ from posthog.temporal.usage_report.types import (
     RunQueryToS3Result,
     WorkflowContext,
 )
-from posthog.usage_counters import LEGACY_QUERY_NAMES, UsageCounterPlan, UsageCounterReport, UsageCounterService
+from posthog.usage_counters import (
+    LEGACY_QUERY_NAMES,
+    UsageCounterPlan,
+    UsageCounterReport,
+    UsageCounterService,
+    usage_counter_window,
+)
 from posthog.utils import DayRange, get_instance_region
 
 logger = structlog.get_logger(__name__)
@@ -91,7 +97,7 @@ SQS_QUEUE_NAME = "usage_reports_v2"
 @activity.defn(name="plan-usage-counters")
 async def plan_usage_counters(ctx: WorkflowContext) -> UsageCounterPlan:
     return await sync_to_async(UsageCounterService().resolve_plan, thread_sensitive=False)(
-        DayRange(start=ctx.period_start, end=ctx.period_end),
+        usage_counter_window(ctx.period_start),
         complete=ctx.report_completeness == "complete",
     )
 
@@ -139,9 +145,7 @@ async def fetch_usage_counter_report(ctx: WorkflowContext) -> RunQueryToS3Result
                         record_query=record_query_latency,
                         run_legacy_query=partial(run_legacy_counter_query, ctx, check_cancelled=check_cancelled),
                         check_cancelled=check_cancelled,
-                    ).fetch_report(
-                        DayRange(start=ctx.period_start, end=ctx.period_end), plan=plan, legacy_counts=legacy_counts
-                    )
+                    ).fetch_report(plan.period, plan=plan, legacy_counts=legacy_counts)
 
                 report = await fetch_report()
                 key = queries_key(ctx, "usage_counters")

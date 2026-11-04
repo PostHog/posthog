@@ -49,6 +49,7 @@ from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.models.event.util import create_event
 from posthog.models.group.util import create_group
 from posthog.models.sharing_configuration import SharingConfiguration
+from posthog.models.usage_ingestion.billing_usage_records import SHARDED_BILLING_USAGE_RECORDS_TABLE
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.tasks.usage_report import (
     MCP_ANALYTICS_EVENT_METRICS,
@@ -88,7 +89,7 @@ from posthog.tasks.usage_report import (
 from posthog.temporal.usage_report.queries import QUERY_INDEX
 from posthog.test.fixtures import create_app_metric2
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
-from posthog.usage_counters import UsageCounter, UsageCounterQuery, UsageCounterService
+from posthog.usage_counters import UsageCounter, UsageCounterQuery, UsageCounterService, usage_counter_window
 from posthog.utils import get_previous_day
 
 from products.batch_exports.backend.facade import testing as batch_exports_testing
@@ -3471,7 +3472,9 @@ class TestDWHStorageUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhou
 class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, ClickhouseTestMixin):
     def setUp(self) -> None:
         Team.objects.all().delete()
-        run_clickhouse_statement_in_parallel([TRUNCATE_APP_METRICS2_TABLE_SQL])
+        run_clickhouse_statement_in_parallel(
+            [TRUNCATE_APP_METRICS2_TABLE_SQL, f"TRUNCATE TABLE IF EXISTS {SHARDED_BILLING_USAGE_RECORDS_TABLE}"]
+        )
         return super().setUp()
 
     def _setup_teams(self) -> None:
@@ -3523,6 +3526,8 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         )
 
         period = get_previous_day(at=now() + relativedelta(days=1))
+        window = usage_counter_window(period.start)
+        last_second = window.end - timedelta(milliseconds=500)
         all_reports = _get_all_org_reports(period=period)
 
         org_1_report = _get_full_org_usage_report_as_dict(
@@ -3564,7 +3569,8 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
             {**base_record, "team_id": 4, "record_id": "invocation-b", "quantity": 3},
             {**base_record, "usage_key": "workflow_emails_sent", "quantity": 90},
             {**base_record, "timestamp": period.start - timedelta(days=1), "quantity": 100},
-            {**base_record, "record_id": "at-end", "timestamp": period.end, "quantity": 500},
+            {**base_record, "record_id": "last-second", "timestamp": last_second, "quantity": 40},
+            {**base_record, "record_id": "next-day", "timestamp": window.end, "quantity": 500},
         ]
         sync_execute(
             """
@@ -3575,11 +3581,11 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
             records,
         )
         with self.settings(USAGE_COUNTER_REALTIME_MODES="cdp-invocations:both"):
-            plan = UsageCounterService().resolve_plan(period, complete=True)
-        counter_report = UsageCounterService().fetch_report(period, plan=plan)
+            plan = UsageCounterService().resolve_plan(window, complete=True)
+        counter_report = UsageCounterService().fetch_report(window, plan=plan)
         assert counter_report.counter_comparisons is not None
         assert counter_report.counter_comparisons["cdp_billable_invocations_in_period"].realtime_by_team == {
-            3: {str(self.org_1.id): 7},
+            3: {str(self.org_1.id): 47},
             4: {str(self.org_1.id): 3},
         }
         list(
@@ -3592,7 +3598,7 @@ class TestHogFunctionUsageReports(ClickhouseDestroyTablesMixin, TestCase, Clickh
         )
         assert with_shadow["cdp_billable_invocations_in_period"] == 8
         assert with_shadow["counter_comparisons"] == {
-            "cdp_billable_invocations_in_period": {"legacy": 8, "realtime": 10}
+            "cdp_billable_invocations_in_period": {"legacy": 8, "realtime": 50}
         }
 
     @patch("posthog.tasks.usage_report.get_ph_client")
