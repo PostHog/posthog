@@ -1,5 +1,8 @@
 """
-Dashboard membership of an insight, for callers outside this product.
+Dashboards and their insight tiles, for callers outside this product.
+
+Callers read a dashboard as a `DashboardSummary` contract and check object access through its
+`access_ref`, so they never hold the dashboard model class.
 
 An insight sits on a dashboard through a tile, and a tile is a dashboards row: the queries that
 find it, the permission checks that guard it, its JSON shape and its soft-delete semantics all
@@ -19,7 +22,6 @@ from typing import TYPE_CHECKING, Any
 from django.db.models import Exists, OuterRef, Prefetch, QuerySet
 from django.utils.timezone import now
 
-from pydantic.dataclasses import dataclass
 from rest_framework import serializers
 
 from posthog.api.sharing_publish_gate import check_can_add_insight_to_dashboard
@@ -28,7 +30,23 @@ from posthog.models.user import User
 from posthog.models.user_home_settings import UserHomeSettings
 from posthog.resource_limits import LimitKey, check_count_limit
 
+from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.dashboards.backend.facade.contracts import (
+    CannotAddToDashboard,
+    CannotRemoveFromDashboard,
+    DashboardInsights,
+    DashboardInsightTile,
+    DashboardInsightTileSummary,
+    DashboardNotEditable,
+    DashboardNotFound,
+    DashboardNotViewable,
+    DashboardRef,
+    DashboardSummary,
+    MembershipChange,
+    PlacedInsightTile,
+)
+from products.dashboards.backend.facade.enums import DashboardCreationMode
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -37,57 +55,6 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 
     from products.product_analytics.backend.facade.models import Insight
-
-
-class DashboardNotFound(Exception):
-    """A requested dashboard is not one this team can place an insight on."""
-
-
-class DashboardNotEditable(Exception):
-    """The requester may not change which insights sit on this dashboard."""
-
-    def __init__(self, dashboard_id: int) -> None:
-        super().__init__(str(dashboard_id))
-        self.dashboard_id = dashboard_id
-
-
-class DashboardNotViewable(Exception):
-    """The requester may not view this dashboard."""
-
-
-class CannotAddToDashboard(DashboardNotEditable):
-    """Raised while placing an insight on a dashboard the requester can only view."""
-
-
-class CannotRemoveFromDashboard(DashboardNotEditable):
-    """Raised while taking an insight off a dashboard the requester can only view."""
-
-
-@dataclass(frozen=True)
-class DashboardRef:
-    """A dashboard as insight payloads and activity logs refer to it."""
-
-    id: int
-    name: str | None
-
-
-@dataclass(frozen=True)
-class PlacedInsightTile:
-    """The tile that places an insight on a dashboard."""
-
-    id: int
-    dashboard_id: int
-    # Whether this call put the insight there, by creating the tile or by restoring a removed one.
-    added: bool
-
-
-@dataclass(frozen=True)
-class MembershipChange:
-    """What one membership write changed, for the caller's analytics events and activity log."""
-
-    added_dashboard_ids: tuple[int, ...]
-    removed_dashboard_ids: tuple[int, ...]
-    dashboards: tuple[DashboardRef, ...]
 
 
 # The tile shape an insight payload carries for each dashboard it sits on. No docstring: it would
@@ -112,21 +79,6 @@ def _refs_in_given_order(dashboard_ids: Sequence[int]) -> tuple[DashboardRef, ..
         for dashboard_id in dashboard_ids
         if dashboard_id in names
     )
-
-
-@dataclass(frozen=True)
-class DashboardInsightTile:
-    insight_short_id: str
-    filters_overrides: dict[str, Any] | None
-
-
-@dataclass(frozen=True)
-class DashboardInsights:
-    dashboard_id: int
-    name: str | None
-    filters: dict[str, Any]
-    variables: dict[str, Any] | None
-    tiles: tuple[DashboardInsightTile, ...]
 
 
 def home_dashboard_insights(*, team: "Team", user: User, limit: int) -> DashboardInsights | None:
@@ -213,6 +165,133 @@ def create_dashboard_from_tiles(
 def dashboard_refs(dashboard_ids: Sequence[int]) -> tuple[DashboardRef, ...]:
     """Dashboard IDs and names for callers that already validated the dashboard IDs."""
     return _refs_in_given_order(dashboard_ids)
+
+
+def _to_summary(dashboard: Dashboard) -> DashboardSummary:
+    return DashboardSummary(
+        id=dashboard.id,
+        team_id=dashboard.team_id,
+        name=dashboard.name,
+        description=dashboard.description,
+        created_at=dashboard.created_at,
+        created_by_id=dashboard.created_by_id,
+        deleted=dashboard.deleted,
+        pinned=dashboard.pinned,
+        creation_mode=DashboardCreationMode(dashboard.creation_mode),
+        last_accessed_at=dashboard.last_accessed_at,
+        last_refresh=dashboard.last_refresh,
+        filters=dashboard.filters or {},
+        variables=dashboard.variables,
+    )
+
+
+def _team_dashboards(team_id: int, *, include_deleted: bool) -> QuerySet[Dashboard]:
+    # `team_id=` goes through the root-team filter, so an environment's id finds its project's dashboards.
+    manager = Dashboard.objects_including_soft_deleted if include_deleted else Dashboard.objects
+    return manager.filter(team_id=team_id)
+
+
+def get_dashboard(*, team_id: int, dashboard_id: int, include_deleted: bool = False) -> DashboardSummary | None:
+    """One dashboard of this team, or None. A soft-deleted dashboard counts only with `include_deleted`.
+
+    Does not check object-level access: pass `summary.access_ref` to the caller's access check.
+    """
+    dashboard = _team_dashboards(team_id, include_deleted=include_deleted).filter(pk=dashboard_id).first()
+    return _to_summary(dashboard) if dashboard is not None else None
+
+
+def get_dashboards(
+    *, team_id: int, dashboard_ids: Collection[int], include_deleted: bool = False
+) -> dict[int, DashboardSummary]:
+    """The dashboards of this team among these ids, keyed by id. Ids that match none are left out."""
+    dashboards = _team_dashboards(team_id, include_deleted=include_deleted).filter(id__in=dashboard_ids)
+    return {dashboard.id: _to_summary(dashboard) for dashboard in dashboards}
+
+
+def live_dashboard_ids(*, team_id: int, dashboard_ids: Collection[int]) -> set[int]:
+    """Which of these ids are a live dashboard of this team."""
+    return set(
+        _team_dashboards(team_id, include_deleted=False).filter(id__in=dashboard_ids).values_list("id", flat=True)
+    )
+
+
+def viewable_dashboard_ids(
+    *, team_id: int, dashboard_ids: Collection[int], user_access_control: UserAccessControl
+) -> set[int]:
+    """Which of these ids are a live dashboard of this team that the user may view."""
+    dashboards = _team_dashboards(team_id, include_deleted=False).filter(id__in=dashboard_ids)
+    return set(user_access_control.filter_queryset_by_access_level(dashboards).values_list("id", flat=True))
+
+
+def recently_accessed_dashboards(
+    *, team_id: int, limit: int, user_access_control: UserAccessControl | None = None
+) -> list[DashboardSummary]:
+    """This team's live dashboards that someone has opened, most recently opened first.
+
+    With `user_access_control`, only the dashboards that user may view count towards the limit.
+    """
+    dashboards = _team_dashboards(team_id, include_deleted=False).filter(last_accessed_at__isnull=False)
+    if user_access_control is not None:
+        dashboards = user_access_control.filter_queryset_by_access_level(dashboards)
+    return [_to_summary(dashboard) for dashboard in dashboards.order_by("-last_accessed_at")[:limit]]
+
+
+def dashboard_access_ref(*, team_id: int, dashboard_id: int) -> ObjectAccessRef | None:
+    """What object-level access control reads from a live dashboard of this team, or None when there is none."""
+    summary = get_dashboard(team_id=team_id, dashboard_id=dashboard_id)
+    return summary.access_ref if summary is not None else None
+
+
+def insight_tiles(*, dashboard_id: int) -> list[DashboardInsightTileSummary]:
+    """The live tiles of a dashboard that place a live insight, oldest tile first.
+
+    An empty list when the dashboard is soft-deleted.
+    """
+    # The caller resolved this id through a team-scoped dashboard lookup first.
+    # nosemgrep: idor-lookup-without-team
+    tiles = DashboardTile.objects.filter(
+        dashboard_id=dashboard_id, insight_id__isnull=False, insight__deleted=False
+    ).order_by("id")
+    return [
+        DashboardInsightTileSummary(
+            id=tile.id,
+            dashboard_id=tile.dashboard_id,
+            insight_id=tile.insight_id,
+            layouts=tile.layouts or {},
+            filters_overrides=tile.filters_overrides,
+        )
+        for tile in tiles
+        if tile.insight_id is not None
+    ]
+
+
+def insight_ids_ever_on_dashboards(dashboard_ids: Collection[int]) -> set[int]:
+    """Ids of the insights that have a tile on any of these dashboards, removed tiles and deleted insights included.
+
+    This is the `Insight.dashboards` relation: it ignores the tile's soft-delete flag, so the caller
+    filters the insights it reads by their own state.
+    """
+    # The caller resolved these ids through a team-scoped dashboard lookup first.
+    # nosemgrep: idor-lookup-without-team
+    return set(
+        DashboardTile.objects_including_soft_deleted.filter(
+            dashboard_id__in=dashboard_ids, insight_id__isnull=False
+        ).values_list("insight_id", flat=True)
+    )
+
+
+def tile_filters_overrides(*, dashboard_id: int, insight_id: int) -> dict[str, Any] | None:
+    """The filter overrides of the live tile that places this insight on this dashboard.
+
+    None when there is no such tile, or the tile carries no overrides.
+    """
+    # The caller holds both ids from one of its own team-scoped rows.
+    # nosemgrep: idor-lookup-without-team
+    return (
+        DashboardTile.objects.filter(dashboard_id=dashboard_id, insight_id=insight_id)
+        .values_list("filters_overrides", flat=True)
+        .first()
+    )
 
 
 def dashboards_by_insight(insight_ids: Collection[int], *, team_id: int) -> dict[int, tuple[DashboardRef, ...]]:
@@ -441,6 +520,17 @@ def restore_tiles_for_insights(insight_ids: Collection[int], *, user_access_cont
         DashboardTile.objects_including_soft_deleted.filter(id__in=restorable_tile_ids).update(deleted=False)
 
 
+def restore_tiles_for_insights_without_access_check(insight_ids: Collection[int]) -> None:
+    """Re-activate every soft-deleted tile of these insights that sits on a live dashboard.
+
+    For staff tooling that restores insights outside a user's access rules. Run inside the caller's
+    transaction, like `restore_tiles_for_insights`.
+    """
+    DashboardTile.objects_including_soft_deleted.filter(
+        insight_id__in=insight_ids, deleted=True, dashboard__deleted=False
+    ).update(deleted=False)
+
+
 class InsightTilePlacement:
     """Dashboards cleared to receive a tile for one insight.
 
@@ -656,10 +746,14 @@ def update_insight_dashboard_membership(
 __all__ = [
     "CannotAddToDashboard",
     "CannotRemoveFromDashboard",
+    "DashboardInsightTile",
+    "DashboardInsightTileSummary",
+    "DashboardInsights",
     "DashboardNotEditable",
     "DashboardNotFound",
     "DashboardNotViewable",
     "DashboardRef",
+    "DashboardSummary",
     "DashboardTileBasicSerializer",
     "InsightTilePlacement",
     "MembershipChange",
@@ -667,14 +761,30 @@ __all__ = [
     "active_tile_count",
     "add_insight_to_dashboard",
     "check_insight_tile_limit",
+    "create_dashboard_from_tiles",
+    "dashboard_access_ref",
     "dashboard_exists",
+    "dashboard_insight_tile",
+    "dashboard_insights",
     "dashboard_refs",
+    "dashboards_by_insight",
+    "get_dashboard",
+    "get_dashboards",
     "hide_tiles_for_insights",
+    "home_dashboard_insights",
     "insight_has_listed_tile",
+    "insight_ids_ever_on_dashboards",
     "insight_ids_on_dashboard",
+    "insight_ids_on_dashboards_accessed_since",
+    "insight_tiles",
+    "insights_with_dashboard_edit_access",
+    "live_dashboard_ids",
     "live_tile_insight_ids",
     "plan_insight_tile_placement",
+    "recently_accessed_dashboards",
     "restore_tiles_for_insights",
+    "restore_tiles_for_insights_without_access_check",
+    "tile_filters_overrides",
     "tile_for_insight_on_dashboard",
     "tile_for_render",
     "tile_ids_prefetch",
@@ -682,4 +792,6 @@ __all__ = [
     "unknown_dashboard_ids",
     "update_insight_dashboard_membership",
     "viewable_dashboard_id",
+    "viewable_dashboard_ids",
+    "viewable_dashboard_ref",
 ]
