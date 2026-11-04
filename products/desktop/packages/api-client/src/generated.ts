@@ -4912,6 +4912,7 @@ export namespace Schemas {
         settings?: (Settings | null) | undefined;
     };
     export type ChartSettings = Partial<{
+        annotationsScope: AnnotationScope | null;
         barGap: number | null;
         boxPlot: BoxPlotSettings | null;
         chartStyle: ChartStyle | null;

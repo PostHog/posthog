@@ -11231,6 +11231,8 @@ export namespace Schemas {
     export type ChartSettingsResultCustomizations = {[key: string]: ResultCustomizationByValue} | null;
 
     export interface ChartSettings {
+      /** Shows only the annotations saved at this level. Unset shows every level. */
+      annotationsScope?: AnnotationScope | null;
       barGap?: number | null;
       boxPlot?: BoxPlotSettings | null;
       /** Chart rendering style overrides (line shape). Only applies to line and area charts. */
