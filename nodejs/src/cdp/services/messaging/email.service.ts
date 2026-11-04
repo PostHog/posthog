@@ -46,7 +46,7 @@ import {
     RecipientTokensService,
     preferencesTokenSourceForInvocation,
 } from './recipient-tokens.service'
-import { SandboxEmailBlockReason, SandboxEmailSender } from './sandbox-email-sender'
+import { SandboxDailyCapGrant, SandboxEmailBlockReason, SandboxEmailSender } from './sandbox-email-sender'
 
 const sesThrottleResponsesTotal = new Counter({
     name: 'cdp_ses_throttle_responses_total',
@@ -521,7 +521,19 @@ const SANDBOX_RECIPIENT_BLOCK_COPY: Record<
         label: ' for these addresses: ',
         guidance: 'Try again, or verify your own domain to send to anyone.',
     },
+    cap_reached: {
+        explanation: "Skipping send: these addresses reached the sandbox sender's daily limit per address",
+        label: ': ',
+        guidance: 'Verify your own domain to send more.',
+    },
 }
+
+const SANDBOX_CAP_SKIP_MESSAGES = {
+    project_cap_reached:
+        "Skipping send: this email would go over the sandbox sender's daily limit for this project. Verify your own domain to send more.",
+    check_failed:
+        "Skipping send: could not check the sandbox sender's daily limit. Try again later, or verify your own domain to send more.",
+} as const
 
 export class EmailService {
     sesV2Client: SESv2Client | null
@@ -921,10 +933,15 @@ export class EmailService {
                         ...(route.ccAddresses ?? []),
                         ...(route.bccAddresses ?? []),
                     ]
+                    const capGrant = await this.claimSandboxDailyCaps(result, deliveryRecipients, isTest)
+                    if (!capGrant) {
+                        return result
+                    }
                     const deliverTo = await this.checkSandboxRecipients(result, deliveryRecipients, isTest, {
                         fresh: true,
                     })
                     if (!deliverTo) {
+                        await this.sandboxSender!.returnDailyCaps(capGrant)
                         return result
                     }
                     // The member check ignores case, so deliver to the stored member addresses, not the supplied ones.
@@ -936,7 +953,7 @@ export class EmailService {
                         ccAddresses: copyAddresses.slice(0, ccCount),
                         bccAddresses: copyAddresses.slice(ccCount),
                     }
-                    await this.sendEmailWithSES(result, deliveryParams, from, false, isTest, queueWait, memberRoute)
+                    await this.sendSandboxEmail(result, deliveryParams, from, isTest, queueWait, memberRoute, capGrant)
                     await this.sandboxSender!.captureSent(invocation.teamId, isTest, deliveryRecipients.length)
                     break
                 }
@@ -1223,15 +1240,67 @@ export class EmailService {
         if (!blockedRecipients.length) {
             return deliverTo
         }
+        await this.blockSandboxRecipients(result, blockedRecipients, reason, isTest)
+        return null
+    }
+
+    private async blockSandboxRecipients(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
+        blockedRecipients: string[],
+        reason: SandboxRecipientBlockReason,
+        isTest: boolean
+    ): Promise<void> {
         const { explanation, label, guidance } = SANDBOX_RECIPIENT_BLOCK_COPY[reason]
         this.skipSandboxSend(
             result,
             isTest,
             `${explanation}${label}${blockedRecipients.join(', ')}. ${guidance}`,
-            'recipient_unreachable'
+            reason === 'cap_reached' ? 'frequency_capped' : 'recipient_unreachable'
         )
-        await this.sandboxSender?.captureBlocked(teamId, isTest, reason, blockedRecipients.length)
+        await this.sandboxSender?.captureBlocked(result.invocation.teamId, isTest, reason, blockedRecipients.length)
+    }
+
+    private async claimSandboxDailyCaps(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
+        recipients: string[],
+        isTest: boolean
+    ): Promise<SandboxDailyCapGrant | null> {
+        const claim = await this.sandboxSender!.claimDailyCaps(result.invocation.teamId, recipients)
+        if (claim.type === 'granted') {
+            return claim
+        }
+        if (claim.type === 'recipient_cap_reached') {
+            await this.blockSandboxRecipients(result, claim.addresses, 'cap_reached', isTest)
+            return null
+        }
+        this.skipSandboxSend(
+            result,
+            isTest,
+            SANDBOX_CAP_SKIP_MESSAGES[claim.type],
+            claim.type === 'check_failed' ? 'sending_suspended' : 'frequency_capped'
+        )
+        const reason = claim.type === 'check_failed' ? 'check_failed' : 'cap_reached'
+        await this.sandboxSender!.captureBlocked(result.invocation.teamId, isTest, reason, recipients.length)
         return null
+    }
+
+    private async sendSandboxEmail(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
+        params: CyclotronInvocationQueueParametersEmailType,
+        from: { email: string; name: string },
+        isTest: boolean,
+        queueWait: EmailQueueWait | undefined,
+        route: SesRoute,
+        capGrant: SandboxDailyCapGrant
+    ): Promise<void> {
+        try {
+            await this.sendEmailWithSES(result, params, from, false, isTest, queueWait, route)
+        } catch (error) {
+            if (error instanceof SESThrottleError) {
+                await this.sandboxSender!.returnDailyCaps(capGrant)
+            }
+            throw error
+        }
     }
 
     // Per-send tracking decision, combining two independent controls:

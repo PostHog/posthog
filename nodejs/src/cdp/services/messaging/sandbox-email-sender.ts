@@ -36,7 +36,12 @@ function emptyRouteSettings(config: SandboxEmailSenderConfig): string[] {
         .map((setting) => ROUTE_SETTING_NAMES[setting])
 }
 
-export type SandboxEmailBlockReason = 'switch_off' | 'recipient_not_member' | 'recipient_unverified' | 'check_failed'
+export type SandboxEmailBlockReason =
+    | 'switch_off'
+    | 'recipient_not_member'
+    | 'recipient_unverified'
+    | 'check_failed'
+    | 'cap_reached'
 
 export type SandboxDailyCapGrant = { type: 'granted'; claim: IssuedClaim; buckets: ClaimRequest[] }
 
