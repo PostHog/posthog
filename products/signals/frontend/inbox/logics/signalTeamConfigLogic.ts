@@ -8,7 +8,12 @@ import { teamLogic } from 'scenes/teamLogic'
 import { signalsConfigCreate, signalsConfigList } from '../../generated/api'
 import { captureInboxSettingsChanged } from '../inboxAnalytics'
 import type { SignalReportPriority, SignalTeamConfig } from '../types'
-import { githubConnectionPresentation, type GitHubConnectionPresentation } from './githubConnectionPresentation'
+import {
+    type GitHubAccessBlocker,
+    githubAccessBlocker,
+    githubConnectionPresentation,
+    type GitHubConnectionPresentation,
+} from './githubConnectionPresentation'
 
 export interface BaseBranchOverride {
     repo: string
@@ -44,6 +49,8 @@ export interface signalTeamConfigLogicValues {
     draftIssueTrackerIntegrationId: number | null
     draftMaxReportsPerDay: number | null
     draftPullRequestLabel: string
+    githubAccessBlocker: GitHubAccessBlocker | null
+    githubAccessSettled: boolean
     githubConnectionPresentation: GitHubConnectionPresentation | null
     githubIssueWritebackEnabled: boolean
     implementationRepositories: string[]
@@ -179,6 +186,8 @@ export interface signalTeamConfigLogicMeta {
             teamConfig: SignalTeamConfig | null,
             teamConfigLoadFailed: boolean
         ) => GitHubConnectionPresentation | null
+        githubAccessBlocker: (teamConfig: SignalTeamConfig | null) => GitHubAccessBlocker | null
+        githubAccessSettled: (teamConfig: SignalTeamConfig | null, teamConfigLoadFailed: boolean) => boolean
         autostartEnabled: (teamConfig: SignalTeamConfig | null) => boolean
         defaultAutostartPriority: (teamConfig: SignalTeamConfig | null) => SignalReportPriority
         baseBranchOverrides: (teamConfig: SignalTeamConfig | null) => BaseBranchOverride[]
@@ -436,6 +445,16 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
             (config: SignalTeamConfig | null, failed: boolean): GitHubConnectionPresentation | null =>
                 failed ? null : githubConnectionPresentation(config),
         ],
+        // A failed refetch keeps the last config, so a blocked project stays blocked until a check says otherwise.
+        githubAccessBlocker: [
+            (s) => [s.teamConfig],
+            (config: SignalTeamConfig | null): GitHubAccessBlocker | null => githubAccessBlocker(config),
+        ],
+        // The inbox holds its other cards until this is true, so they never flash before the GitHub notice.
+        githubAccessSettled: [
+            (s) => [s.teamConfig, s.teamConfigLoadFailed],
+            (config: SignalTeamConfig | null, failed: boolean): boolean => config !== null || failed,
+        ],
         // Master switch for autonomous inbox PRs: only an explicit false disables
         // auto-start, so a team that never touched the setting stays on.
         autostartEnabled: [
@@ -671,7 +690,8 @@ export const signalTeamConfigLogic = kea<signalTeamConfigLogicType>([
                         return
                     }
                     cache.lastVisibilityRefetch = now
-                    actions.loadTeamConfig()
+                    // While GitHub blocks research, check GitHub itself: the fix usually happens in another tab.
+                    actions.loadTeamConfig(values.githubAccessBlocker !== null)
                 }
                 document.addEventListener('visibilitychange', handler)
                 return () => document.removeEventListener('visibilitychange', handler)

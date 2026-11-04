@@ -1,40 +1,54 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import type { Meta, StoryObj } from '@storybook/react'
+import { useEffect } from 'react'
+
+import { OrganizationMembershipLevel } from 'lib/constants'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useStorybookMocks } from '~/mocks/browser'
 
-import type { GitHubReadinessStatusEnumApi } from '../../../generated/api.schemas'
 import { mockTeamConfig } from '../../__mocks__/inboxMocks'
+import type { GitHubAccessBlocker } from '../../logics/githubConnectionPresentation'
 import { GitHubConnectionNotice } from './GitHubConnectionNotice'
 
 interface NoticeStoryProps {
-    readiness: GitHubReadinessStatusEnumApi
-    optional: boolean
+    blocker: GitHubAccessBlocker
+    membershipLevel: OrganizationMembershipLevel
+    hasReports: boolean | null
 }
 
-function NoticeStory({ readiness, optional }: NoticeStoryProps): JSX.Element {
+function NoticeStory({ blocker, membershipLevel, hasReports }: NoticeStoryProps): JSX.Element {
     useStorybookMocks({
         get: {
             '/api/projects/:team_id/signals/config/': {
                 ...mockTeamConfig,
-                github_readiness: readiness,
-                github_optional_available: optional,
-                research_access: { mode: optional ? 'data_only' : 'blocked', blocker: optional ? null : readiness },
+                github_readiness: blocker,
+                github_optional_available: false,
+                research_access: { mode: 'blocked', blocker },
             },
         },
     })
-    return <GitHubConnectionNotice />
+    useEffect(() => {
+        teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, effective_membership_level: membershipLevel })
+    }, [membershipLevel])
+    return (
+        <div className="max-w-4xl p-4">
+            <GitHubConnectionNotice hasReports={hasReports} />
+        </div>
+    )
 }
 
 const meta: Meta<typeof NoticeStory> = {
     title: 'Signals/Inbox/GitHubConnectionNotice',
     component: NoticeStory,
-    args: { readiness: 'not_connected', optional: false },
+    args: { blocker: 'not_connected', membershipLevel: OrganizationMembershipLevel.Admin, hasReports: true },
+    parameters: { testOptions: { snapshotBrowsers: [] } },
 }
 export default meta
 type Story = StoryObj<typeof meta>
 
 export const Connect: Story = {}
-export const Reconnect: Story = { args: { readiness: 'reconnect_required' } }
-export const GrantAccess: Story = { args: { readiness: 'no_repositories' } }
-export const TemporaryFailure: Story = { args: { readiness: 'temporarily_unavailable' } }
-export const DataOnly: Story = { args: { optional: true } }
+export const Reconnect: Story = { args: { blocker: 'reconnect_required' } }
+export const GrantAccess: Story = { args: { blocker: 'no_repositories', hasReports: false } }
+export const AskAdmin: Story = { args: { membershipLevel: OrganizationMembershipLevel.Member } }

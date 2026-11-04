@@ -1,4 +1,21 @@
-import type { SignalTeamConfigApi } from '../../generated/api.schemas'
+import type { GitHubReadinessStatusEnumApi, SignalTeamConfigApi } from '../../generated/api.schemas'
+
+export type GitHubAccessBlocker = Exclude<GitHubReadinessStatusEnumApi, 'ready' | 'temporarily_unavailable'>
+
+/**
+ * The fixable GitHub problem that blocks research, or null when research can run or nobody can act on it.
+ * The server already decides whether this project needs GitHub at all, so a project that may run without
+ * it gets `data_only` and never reaches here. A temporary outage retries by itself, so it is not a blocker.
+ */
+export function githubAccessBlocker(config: Partial<SignalTeamConfigApi> | null): GitHubAccessBlocker | null {
+    if (config?.research_access?.mode !== 'blocked') {
+        return null
+    }
+    const readiness = config.github_readiness
+    return readiness === 'not_connected' || readiness === 'reconnect_required' || readiness === 'no_repositories'
+        ? readiness
+        : null
+}
 
 export interface GitHubConnectionPresentation {
     title: string

@@ -21,7 +21,6 @@ import { FindingsPanel } from './components/findings/FindingsPanel'
 import { InboxOnboardingBanner } from './components/onboarding/InboxOnboardingBanner'
 import { InboxOnboardingEntry } from './components/onboarding/InboxOnboardingEntry'
 import { ScratchpadPanel } from './components/scratchpad/ScratchpadPanel'
-import { GitHubConnectionNotice } from './components/shell/GitHubConnectionNotice'
 import { InboxTabBar } from './components/shell/InboxTabBar'
 import { InboxTriageButton } from './components/shell/InboxTriageButton'
 import { InboxValueSummary } from './components/shell/InboxValueSummary'
@@ -34,6 +33,7 @@ import { captureInboxPanelViewed } from './inboxAnalytics'
 import { inboxSceneLogic } from './inboxSceneLogic'
 import { inboxOnboardingLogic } from './logics/inboxOnboardingLogic'
 import { scoutFleetLogic } from './logics/scoutFleetLogic'
+import { signalTeamConfigLogic } from './logics/signalTeamConfigLogic'
 import { INBOX_TAB_DESCRIPTION, InboxTabKey, SignalReport } from './types'
 
 export const scene: SceneExport = {
@@ -218,6 +218,7 @@ export function InboxScene(): JSX.Element {
     } = useValues(inboxSceneLogic)
     const { setScratchpadOpen, setFindingsOpen, setRunsOpen } = useActions(inboxSceneLogic)
     const { onboardingMode } = useValues(inboxOnboardingLogic)
+    const { githubAccessBlocker, githubAccessSettled } = useValues(signalTeamConfigLogic)
     const { searchParams } = useValues(router)
 
     // Surfaces that embed inbox cards (e.g. the customer analytics feed) set a `?back=` internal path;
@@ -294,10 +295,10 @@ export function InboxScene(): JSX.Element {
                 <div className="flex flex-col -mx-4 -mt-4 flex-1 min-h-0">
                     {/* The inbox always renders (its own list skeleton covers loading). When self-driving
                         isn't set up, the list view itself swaps in the welcome page; the banner sits
-                        above the otherwise-normal inbox when there's already work to keep. */}
-                    {onboardingMode === 'banner' && <InboxOnboardingBanner />}
-                    {onboardingMode !== 'takeover' && onboardingMode !== 'pending' && (
-                        <GitHubConnectionNotice className="mx-4 mb-3 mt-2 shrink-0" />
+                        above the otherwise-normal inbox when there's already work to keep. While GitHub
+                        blocks research, the Reports feed shows that notice alone, so the banner waits. */}
+                    {onboardingMode === 'banner' && githubAccessSettled && githubAccessBlocker === null && (
+                        <InboxOnboardingBanner />
                     )}
                     {onboardingMode !== 'takeover' && onboardingMode !== 'pending' && (
                         <InboxValueSummary visible={!showDetail} />
