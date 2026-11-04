@@ -18,6 +18,7 @@ export interface AuthOrganization {
     name: string
     /** Undefined in a session persisted before the app stored it, until the next account reload. */
     aiDataProcessingApproved?: boolean
+    posthogAiAccess?: boolean
     membershipLevel?: OrganizationApi['membership_level']
 }
 
@@ -69,6 +70,7 @@ export function buildAccount(me: MeApi, organizations: OrganizationApi[]): Accou
                 organization.is_ai_data_processing_approved === undefined
                     ? undefined
                     : organization.is_ai_data_processing_approved === true,
+            posthogAiAccess: organization.posthog_ai_access === true,
             membershipLevel: organization.membership_level,
         })),
         projects,

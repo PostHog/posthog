@@ -1,25 +1,11 @@
 import type {
-    ChatConfigurationApi,
     ConversationApi,
     ConversationMinimalApi,
     MessageApi,
     PaginatedConversationMinimalListApi,
 } from '../../../../products/posthog_ai/frontend/generated/api.schemas'
 
-import { ApiError, apiJson, apiStream, projectPath } from './client'
-
-export async function getChatRuntime(signal?: AbortSignal): Promise<'langgraph' | 'sandbox'> {
-    try {
-        const configuration = await apiJson<ChatConfigurationApi>(projectPath('ai_chat_configuration/'), { signal })
-        return configuration.sandbox === true ? 'sandbox' : 'langgraph'
-    } catch (error) {
-        // Servers predating the runtime endpoint can still serve classic conversations.
-        if (error instanceof ApiError && error.status === 404) {
-            return 'langgraph'
-        }
-        throw error
-    }
-}
+import { apiJson, apiStream, projectPath } from './client'
 
 export async function listConversations(signal?: AbortSignal): Promise<ConversationMinimalApi[]> {
     const response = await apiJson<PaginatedConversationMinimalListApi>(projectPath('conversations/'), {
