@@ -107,6 +107,21 @@ class TestBuildPlannedSchemas(SimpleTestCase):
         assert "incremental_field" not in orders
         assert orders["enabled_columns"] == ["id", "card_number"]
 
+    def test_a_table_with_every_column_excluded_stays_off(self) -> None:
+        proposal = _proposal(
+            ProposedSchema(
+                name="public.orders",
+                should_sync=True,
+                sync_type=None,
+                disabled_columns=("id", "card_number", "updated_at"),
+            )
+        )
+
+        planned = build_planned_schemas(proposal, [_table("public.orders")], {})
+
+        assert planned.schemas == [{"name": "public.orders", "should_sync": False}]
+        assert (planned.no_columns, planned.planned) == (("public.orders",), ())
+
     @parameterized.expand(
         [
             ("no_table_list_uses_posthog_defaults", _proposal(schemas=None), True),
