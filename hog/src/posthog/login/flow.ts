@@ -6,7 +6,7 @@ import { FileStore } from '@/posthog/credential-store/file'
 import { probeKeychain } from '@/posthog/credential-store/keychain'
 import { openStore } from '@/posthog/credential-store/open'
 import type { StoreChoice } from '@/posthog/credential-store/types'
-import { LOGIN_SCOPES, pollDeviceLogin, startDeviceLogin, type PendingLogin } from '@/posthog/device-auth'
+import { pollDeviceLogin, startDeviceLogin, type PendingLogin } from '@/posthog/device-auth'
 import { withLoginLock, type OAuthLogin } from '@/posthog/oauth'
 import { loginFor, readSettings } from '@/posthog/settings'
 
@@ -39,7 +39,7 @@ export function loginWait(runtime: Runtime): ApprovalWait<PendingLogin, OAuthLog
 export function loginFlow(
     runtime: Runtime,
     host: string,
-    scopes: readonly string[] = LOGIN_SCOPES
+    scopes: readonly string[]
 ): ApprovalFlow<PendingLogin, OAuthLogin> {
     return {
         ...loginWait(runtime),
