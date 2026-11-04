@@ -6,8 +6,9 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.conf import settings
-from django.contrib.auth import SESSION_KEY
+from django.contrib.auth import BACKEND_SESSION_KEY, HASH_SESSION_KEY, SESSION_KEY
 from django.core.signing import TimestampSigner
+from django.test import override_settings
 from django.utils import timezone
 
 import jwt
@@ -55,11 +56,16 @@ class TestLivestreamAuthorization(APIBaseTest):
             ("session", "staff"),
             ("session", "idle_timed_out"),
             ("session", "binding_missing"),
+            ("session", "password_changed"),
+            ("session", "fallback_password_changed"),
+            ("session", "missing_hash"),
+            ("session", "removed_backend"),
             ("oauth", "revoked"),
             ("oauth", "timed_out"),
             ("oauth", "staff"),
         ]
     )
+    @override_settings(SECRET_KEY_FALLBACKS=["test-previous-secret"])
     @time_machine.travel("2026-01-15T12:00:00Z", tick=False)
     def test_bounds_livestream_impersonation_to_its_source(self, credential: str, ending: str) -> None:
         staff = User.objects.create_user(
@@ -78,6 +84,12 @@ class TestLivestreamAuthorization(APIBaseTest):
             if credential == "session":
                 source_session = {
                     SESSION_KEY: str(self.user.id),
+                    BACKEND_SESSION_KEY: "django.contrib.auth.backends.ModelBackend",
+                    HASH_SESSION_KEY: (
+                        next(iter(self.user.get_session_auth_fallback_hash()))
+                        if ending == "fallback_password_changed"
+                        else self.user.get_session_auth_hash()
+                    ),
                     la_settings.USER_SESSION_FLAG: TimestampSigner().sign(str(staff.id)),
                     settings.SESSION_COOKIE_CREATED_AT_KEY: source_expires_at.timestamp()
                     - settings.IMPERSONATION_TIMEOUT_SECONDS,
@@ -136,6 +148,15 @@ class TestLivestreamAuthorization(APIBaseTest):
             else:
                 assert authenticator is not None
                 OAuthAccessToken.objects.filter(pk=authenticator.access_token.pk).delete()
+        elif ending in ("password_changed", "fallback_password_changed"):
+            self.user.set_password("new-test-password")
+            self.user.save(update_fields=["password"])
+        elif ending == "missing_hash":
+            del request.session[HASH_SESSION_KEY]
+            request.session.save()
+        elif ending == "removed_backend":
+            request.session[BACKEND_SESSION_KEY] = "removed.authentication.Backend"
+            request.session.save()
         elif ending == "idle_timed_out":
             request.session[settings.IMPERSONATION_COOKIE_LAST_ACTIVITY_KEY] = (
                 timezone.now().timestamp() - settings.IMPERSONATION_IDLE_TIMEOUT_SECONDS - 1

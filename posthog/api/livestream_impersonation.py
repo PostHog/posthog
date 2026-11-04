@@ -4,10 +4,11 @@ from typing import Literal
 from uuid import UUID
 
 from django.conf import settings
-from django.contrib.auth import SESSION_KEY
+from django.contrib.auth import BACKEND_SESSION_KEY, HASH_SESSION_KEY, SESSION_KEY, load_backend
 from django.core.signing import BadSignature, TimestampSigner
 from django.db import router
 from django.utils import timezone
+from django.utils.crypto import constant_time_compare
 
 from loginas import settings as loginas_settings
 
@@ -47,6 +48,21 @@ class LivestreamImpersonation:
         if session is None:
             return None
         data = session.get_decoded()
+        backend_path = data.get(BACKEND_SESSION_KEY)
+        session_hash = data.get(HASH_SESSION_KEY)
+        if (
+            backend_path not in settings.AUTHENTICATION_BACKENDS
+            or not isinstance(session_hash, str)
+            or not session_hash
+        ):
+            return None
+        get_user = getattr(load_backend(backend_path), "get_user", None)
+        user = get_user(user_id) if get_user is not None else None
+        if user is None or not (
+            constant_time_compare(session_hash, user.get_session_auth_hash())
+            or any(constant_time_compare(session_hash, fallback) for fallback in user.get_session_auth_fallback_hash())
+        ):
+            return None
         try:
             original_user_id = TimestampSigner().unsign(
                 data[loginas_settings.USER_SESSION_FLAG], max_age=settings.IMPERSONATION_TIMEOUT_SECONDS
