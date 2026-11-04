@@ -3,6 +3,7 @@
 from products.workflows.backend.facade.contracts import (
     TransactionalEmailContent,
     TransactionalEmailContentInvalid,
+    TransactionalEmailSandboxSender,
     TransactionalEmailSenderUnavailable,
     WorkflowNotFound,
 )
@@ -15,6 +16,7 @@ from products.workflows.backend.services.transactional_email_workflows import (
 __all__ = [
     "TransactionalEmailContent",
     "TransactionalEmailContentInvalid",
+    "TransactionalEmailSandboxSender",
     "TransactionalEmailSenderUnavailable",
     "WorkflowNotFound",
     "create_transactional_email_workflow",
