@@ -1510,6 +1510,16 @@ class ExperimentExposureHealthFindingSeverity(StrEnum):
     INFO = "info"
 
 
+class ExperimentExposureHealthMeasurementSide(StrEnum):
+    ABOVE = "above"
+    BELOW = "below"
+
+
+class ExperimentExposureHealthMeasurementUnit(StrEnum):
+    PERCENTAGE = "percentage"
+    P_VALUE = "p_value"
+
+
 class ExperimentMetricGoal(StrEnum):
     INCREASE = "increase"
     DECREASE = "decrease"
@@ -2285,6 +2295,7 @@ class MetaAdsDefaultSources(StrEnum):
     AUDIENCE_NETWORK = "audience_network"
     FACEBOOK_MARKETPLACE = "facebook_marketplace"
     THREADS = "threads"
+    TH = "th"
 
 
 class MetricsAggregation(StrEnum):

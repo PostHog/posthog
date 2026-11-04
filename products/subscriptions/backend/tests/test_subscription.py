@@ -59,11 +59,6 @@ from ee.api.test.base import APILicensedTest
 
 WAREHOUSE_ACCESS_CONTROL_FLAG = "posthog.hogql.database.database._evaluate_warehouse_access_control_flag"
 VALID_TEAMS_WEBHOOK_URL = "https://prod-25.westeurope.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke"
-GALLERY_ON_PROMPT_ERROR = (
-    "post_all_insights_in_main_message only applies to insight and dashboard subscriptions. This "
-    "subscription has resource_type 'ai_prompt', so remove it from delivery_config. A prompt report "
-    "already posts all its chart images in the main message."
-)
 GALLERY_FILES_WRITE_ERROR = (
     "post_all_insights_in_main_message requires the Slack files:write permission. Reconnect Slack to "
     "grant it, or remove the option from delivery_config to save the subscription now. Each delivery "
@@ -4258,19 +4253,44 @@ class TestAISubscriptionAPI(APILicensedTest):
 
     @parameterized.expand(
         [
-            ("unrelated_field", "files:write", {"enabled": False}),
-            ("delivery_config_without_the_option", "files:write", {"delivery_config": {"include_images": False}}),
-            ("slack_without_files_write", "channels:read", {"enabled": False}),
+            ("slack_without_files_write", "slack", "C1234|#general", status.HTTP_201_CREATED, None),
+            (
+                "email",
+                "email",
+                "ai@posthog.com",
+                status.HTTP_400_BAD_REQUEST,
+                "post_all_insights_in_main_message only applies to Slack subscriptions. "
+                "This subscription delivers to email, so remove it from delivery_config.",
+            ),
         ]
     )
-    def test_stored_gallery_option_does_not_block_other_prompt_edits(
-        self, mock_is_cloud, mock_flag, mock_sync, _name, extra_scope, patch_body
+    def test_gallery_option_on_prompt_create(
+        self, mock_is_cloud, mock_flag, mock_sync, _name, target_type, target_value, expected_status, expected_detail
     ):
         self._enable_ai()
         self._mock_temporal(mock_sync)
-        integration = Integration.objects.create(
-            team=self.team, kind="slack", config={"scope": f"chat:write,{extra_scope}"}
+        overrides: dict = {"target_type": target_type, "target_value": target_value}
+        if target_type == "slack":
+            overrides["integration_id"] = Integration.objects.create(
+                team=self.team, kind="slack", config={"scope": "chat:write"}
+            ).id
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions",
+            self._make_ai_payload(delivery_config={"post_all_insights_in_main_message": True}, **overrides),
         )
+
+        assert response.status_code == expected_status, response.json()
+        if expected_detail:
+            assert response.json()["detail"] == expected_detail
+        else:
+            subscription = Subscription.objects.get(id=response.json()["id"])
+            assert subscription.delivery_config["post_all_insights_in_main_message"] is True
+
+    def test_gallery_option_is_accepted_on_prompt_patch_without_files_write(self, mock_is_cloud, mock_flag, mock_sync):
+        self._enable_ai()
+        self._mock_temporal(mock_sync)
+        integration = Integration.objects.create(team=self.team, kind="slack", config={"scope": "chat:write"})
         create_response = self.client.post(
             f"/api/projects/{self.team.id}/subscriptions",
             self._make_ai_payload(
@@ -4281,65 +4301,15 @@ class TestAISubscriptionAPI(APILicensedTest):
         )
         assert create_response.status_code == status.HTTP_201_CREATED, create_response.json()
         subscription_id = create_response.json()["id"]
-        # Seeded directly because create rejects the option. Rows like this predate the rule, and
-        # validating the stored value would leave them impossible to edit or even to disable.
-        Subscription.objects.filter(id=subscription_id).update(
-            delivery_config={"post_all_insights_in_main_message": True}
-        )
-
-        patch_response = self.client.patch(f"/api/projects/{self.team.id}/subscriptions/{subscription_id}", patch_body)
-
-        assert patch_response.status_code == status.HTTP_200_OK, patch_response.json()
-
-    @parameterized.expand(
-        [
-            ("email", "email", "ai@posthog.com"),
-            ("slack", "slack", "C1234|#general"),
-        ]
-    )
-    def test_gallery_option_is_rejected_on_prompt_create(
-        self, mock_is_cloud, mock_flag, mock_sync, _name, target_type, target_value
-    ):
-        self._enable_ai()
-        self._mock_temporal(mock_sync)
-        overrides: dict = {"target_type": target_type, "target_value": target_value}
-        if target_type == "slack":
-            # files:write present, so the permission rule cannot be what rejects the request.
-            overrides["integration_id"] = Integration.objects.create(
-                team=self.team, kind="slack", config={"scope": "chat:write,files:write"}
-            ).id
-
-        response = self.client.post(
-            f"/api/projects/{self.team.id}/subscriptions",
-            self._make_ai_payload(delivery_config={"post_all_insights_in_main_message": True}, **overrides),
-        )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert response.json()["detail"] == GALLERY_ON_PROMPT_ERROR
-
-    def test_gallery_option_is_rejected_on_prompt_patch(self, mock_is_cloud, mock_flag, mock_sync):
-        self._enable_ai()
-        self._mock_temporal(mock_sync)
-        integration = Integration.objects.create(
-            team=self.team, kind="slack", config={"scope": "chat:write,files:write"}
-        )
-        create_response = self.client.post(
-            f"/api/projects/{self.team.id}/subscriptions",
-            self._make_ai_payload(
-                target_type="slack",
-                target_value="C1234|#general",
-                integration_id=integration.id,
-            ),
-        )
-        assert create_response.status_code == status.HTTP_201_CREATED, create_response.json()
 
         patch_response = self.client.patch(
-            f"/api/projects/{self.team.id}/subscriptions/{create_response.json()['id']}",
+            f"/api/projects/{self.team.id}/subscriptions/{subscription_id}",
             {"delivery_config": {"post_all_insights_in_main_message": True}},
         )
 
-        assert patch_response.status_code == status.HTTP_400_BAD_REQUEST, patch_response.json()
-        assert patch_response.json()["detail"] == GALLERY_ON_PROMPT_ERROR
+        assert patch_response.status_code == status.HTTP_200_OK, patch_response.json()
+        subscription = Subscription.objects.get(id=subscription_id)
+        assert subscription.delivery_config["post_all_insights_in_main_message"] is True
 
     def test_gallery_option_is_accepted_as_false_on_a_prompt_subscription(self, mock_is_cloud, mock_flag, mock_sync):
         self._enable_ai()

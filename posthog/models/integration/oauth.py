@@ -1504,6 +1504,10 @@ class OauthIntegration:
             config["expires_in"] = 3600
 
         config["refreshed_at"] = int(time.time())
+        if kind == "linear":
+            # A token refresh rewrites `refreshed_at` and a reconnect keeps `created_at`, so neither says
+            # when the workspace last authorized the app. See `LinearIntegration.authorized_before_webhooks`.
+            config["authorized_at"] = config["refreshed_at"]
 
         integration, created = model.Integration.objects.update_or_create(
             team_id=team_id,
