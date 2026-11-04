@@ -2,6 +2,7 @@ import uuid
 import asyncio
 import threading
 from collections.abc import AsyncIterator
+from dataclasses import replace
 
 import pytest
 from unittest.mock import patch
@@ -21,6 +22,11 @@ from products.alerts.backend.platform_chart_detail import (
     CHART_RENDER_USER_ID_KEY,
     RenderedChart,
 )
+from products.alerts.backend.platform_investigation_detail import (
+    METRICS_INVESTIGATION_REQUESTED_KEY,
+    InvestigationClaims,
+    MetricsInvestigationRun,
+)
 from products.alerts.backend.platform_source_cycle import PLATFORM_LLM_CHECKS
 from products.alerts.backend.temporal.platform_evaluate import (
     CHECK_HEARTBEAT_TIMEOUT,
@@ -28,11 +34,13 @@ from products.alerts.backend.temporal.platform_evaluate import (
     EVALUATION_BUDGET,
     REAL_TIME_CHECK_HEARTBEAT_TIMEOUT,
     AdmittedInsightCheck,
+    ClaimInsightInvestigationsInputs,
     FailedInsightCheckInputs,
     InsightAlertPlatformEvaluateWorkflow,
     InsightBatchPlanInputs,
     InsightChartInputs,
     InsightCheckInputs,
+    MetricsInvestigationsInputs,
     StopInsightQueriesInputs,
     evaluate_platform_insight_llm_check_activity,
 )
@@ -42,6 +50,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertEventKind,
     GroupOutcome,
+    HeldDelivery,
     PlatformAlertOutcome,
     SourceBatchEvaluation,
     SourceEvaluationInputs,
@@ -591,3 +600,87 @@ async def test_a_record_that_fails_while_a_check_still_runs_records_again_at_the
     assert result == 2
     assert attempts[0] == [fast]
     assert sorted(configuration_id for attempt in attempts[1:] for configuration_id in attempt) == [fast, slow]
+
+
+async def test_a_metrics_firing_is_delivered_once_its_investigation_releases_it(
+    environment: WorkflowEnvironment,
+) -> None:
+    released: list[AlertDeliveryRequest] = []
+
+    @activity.defn(name="plan_platform_insight_checks_activity")
+    async def plan(inputs: InsightBatchPlanInputs) -> list[AdmittedInsightCheck]:
+        return [] if inputs.exclude else [AdmittedInsightCheck(configuration_id=ADMITTED[0], owned_by_platform=True)]
+
+    @activity.defn(name="evaluate_platform_insight_check_activity")
+    async def evaluate(inputs: InsightCheckInputs) -> SourceBatchEvaluation | None:
+        outcome = _outcome(inputs.configuration_id, AlertEventKind.FIRING, "firing")
+        group = outcome.groups[0]
+        outcome = PlatformAlertOutcome(
+            configuration_id=outcome.configuration_id,
+            evaluation_key=outcome.evaluation_key,
+            consecutive_failures=0,
+            groups=(
+                GroupOutcome(
+                    grouping_key=group.grouping_key,
+                    kind=group.kind,
+                    new_state=group.new_state,
+                    notified=group.notified,
+                    source_detail={METRICS_INVESTIGATION_REQUESTED_KEY: "legacy-alert"},
+                ),
+            ),
+        )
+        delivery = AlertDeliveryRequest(
+            source=SourceKind.INSIGHT,
+            team_id=1,
+            configuration_id=inputs.configuration_id,
+            evaluation_key=outcome.evaluation_key,
+            destination_alert_id="legacy-alert",
+            event_ids_by_kind={"firing": "$insight_alert_firing"},
+        )
+        # Held by the check, so only the investigation's release starts it.
+        held = replace(
+            outcome,
+            held_delivery=HeldDelivery(request=delivery, reason="metrics_investigation", release_after_seconds=300),
+        )
+        released.append(delivery)
+        return SourceBatchEvaluation(outcomes=(held,), deliveries=())
+
+    @activity.defn(name=RECORD_OUTCOMES_ACTIVITY)
+    async def record(inputs: SourceOutcomeInputs) -> int:
+        return len(inputs.outcomes)
+
+    @activity.defn(name="claim_platform_insight_investigations_activity")
+    async def claim(inputs: ClaimInsightInvestigationsInputs) -> InvestigationClaims:
+        return InvestigationClaims(metrics=(MetricsInvestigationRun(team_id=1, investigation_id="inv-1"),))
+
+    @activity.defn(name="run_platform_metrics_investigations_activity")
+    async def investigate(inputs: MetricsInvestigationsInputs) -> list[AlertDeliveryRequest]:
+        return released
+
+    async with Worker(
+        environment.client,
+        task_queue=QUEUE,
+        workflows=[InsightAlertPlatformEvaluateWorkflow],
+        activities=[plan, evaluate, record, claim, investigate],
+        workflow_runner=UnsandboxedWorkflowRunner(),
+    ):
+        handle = await environment.client.start_workflow(
+            InsightAlertPlatformEvaluateWorkflow.run,
+            SourceEvaluationInputs(
+                source=SourceKind.INSIGHT,
+                cutoff="2026-09-16T10:00:00+00:00",
+                batch_key=AlertBatchKey(team_id=1, slot="2026-09-16T10:00:00+00:00"),
+            ),
+            id=f"test-{uuid.uuid4()}",
+            task_queue=QUEUE,
+        )
+        await handle.result()
+        history = await handle.fetch_history()
+
+    order = []
+    for event in history.events:
+        if event.event_type == EventType.EVENT_TYPE_ACTIVITY_TASK_SCHEDULED:
+            order.append(event.activity_task_scheduled_event_attributes.activity_type.name)
+        elif event.event_type == EventType.EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED:
+            order.append("delivery")
+    assert order.index("run_platform_metrics_investigations_activity") < order.index("delivery")

@@ -548,3 +548,14 @@ class SuggestedDashboardError(Exception):
 
 class SuggestedDashboardNotFound(SuggestedDashboardError):
     pass
+
+
+class PromQLQueryError(ValueError):
+    """A PromQL query that Snuffle rejected or could not run. The message is safe to show.
+
+    `transient` says the backend failed rather than the query, so the same query can succeed later.
+    """
+
+    def __init__(self, message: str, *, transient: bool = False) -> None:
+        super().__init__(message)
+        self.transient = transient

@@ -44,13 +44,39 @@ tools:
         annotations:
             readOnly: true
             destructive: false
-            idempotent: true
+            idempotent: false
         title: Get a secure connect link for a destination
         description: >
             First step to add a warehouse destination (Postgres, Redshift, Snowflake, BigQuery, Databricks, S3 or Azure
-            Blob). Returns a browser link where the user enters the credentials in PostHog, plus the next steps in
-            `instructions`. For S3-compatible storage (MinIO, Wasabi, R2, GCS), pass integration_kind='s3-compatible'.
-            Never ask the user to paste passwords, keys or tokens into the chat.
+            Blob). Returns a browser link where the user enters the credentials in PostHog, a connect_token, and the
+            next steps in `instructions`. For S3-compatible storage (MinIO, Wasabi, R2, GCS), pass
+            integration_kind='s3-compatible'. After you share the link, poll
+            external-data-destinations-connect-link-status with the connect_token to get the saved integration id. Never
+            ask the user to paste passwords, keys or tokens into the chat.
+        feature_flag: warehouse-multi-destination
+    external-data-destinations-connect-link-complete:
+        operation: external_data_destinations_connect_link_complete_create
+        enabled: false
+        disabled_reason:
+            The connect page in the browser calls this after the user saves the connection. Agents read the result
+            with external-data-destinations-connect-link-status.
+    external-data-destinations-connect-link-status:
+        operation: external_data_destinations_connect_link_status_retrieve
+        enabled: true
+        scopes:
+            - external_data_source:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Check a destination connect link
+        description: >
+            Read whether the user saved a connection through a link from external-data-destinations-connect-link. Pass
+            the connect_token from that call. After you give the user the link, call this every few seconds until status
+            is 'connected' or 'expired'. 'pending' means the user has not saved yet. 'connected' returns integration_id
+            and display_name: confirm display_name with the user, then pass integration_id to
+            external-data-destinations-create. 'expired' means the link is too old or was made for another user: get a
+            new link. Never returns credentials.
         feature_flag: warehouse-multi-destination
     external-data-destinations-create:
         operation: external_data_destinations_create
