@@ -4,6 +4,14 @@ import type { SignalReportCheckApi, SignalReportStatusEnumApi } from 'products/s
 
 import { monitoringPeriodLabel } from './reportCheckPresentation'
 
+function observationWindowEndLabel(state: string): string {
+    return state === 'monitoring'
+        ? 'Final verification scheduled for: '
+        : ['window_ended', 'verifying', 'assessment_required', 'verification_complete'].includes(state)
+          ? 'Window ended: '
+          : 'Window end: '
+}
+
 export function ReportCheckTiming({
     check,
     reportStatus,
@@ -29,15 +37,7 @@ export function ReportCheckTiming({
             )}
             {timing?.ends_at && (
                 <span>
-                    <span>
-                        {state === 'monitoring'
-                            ? 'Final verification scheduled for: '
-                            : ['window_ended', 'verifying', 'assessment_required', 'verification_complete'].includes(
-                                    state
-                                )
-                              ? 'Window ended: '
-                              : 'Window end: '}
-                    </span>
+                    <span>{observationWindowEndLabel(state)}</span>
                     <TZLabel time={timing.ends_at} timestampStyle="absolute" formatDate="MMM D" />
                 </span>
             )}

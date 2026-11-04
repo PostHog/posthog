@@ -181,6 +181,21 @@ const MONITORING_CHECK_ROWS: Record<
     },
 }
 
+function pendingCheckRow(check: SignalReportCheckApi, lane: string | null): Pick<ReportCheckRowData, 'tag' | 'detail'> {
+    const start = check.soak_minutes
+        ? `${check.kind === 'metric_threshold' ? 'At least' : 'Starts'} ${soakLabel(check.soak_minutes)} after this report is resolved`
+        : 'Starts when this report is resolved'
+    return { tag: { label: 'Waiting', type: 'muted' }, detail: joinDetail([start, lane && `${lane} runs it`]) }
+}
+
+function runningCheckRow(check: SignalReportCheckApi, lane: string | null): Pick<ReportCheckRowData, 'tag' | 'detail'> {
+    const startedAgo = dayjs(check.dispatched_at).fromNow()
+    return {
+        tag: { label: 'Running', type: 'primary' },
+        detail: lane ? `${lane} started ${startedAgo}` : `Started ${startedAgo}`,
+    }
+}
+
 function openCheckRow(
     check: SignalReportCheckApi,
     reportStatus: SignalReportStatusEnumApi
@@ -197,18 +212,11 @@ function openCheckRow(
     const lane = laneLabel(check)
 
     if (check.status === 'pending') {
-        const start = check.soak_minutes
-            ? `${check.kind === 'metric_threshold' ? 'At least' : 'Starts'} ${soakLabel(check.soak_minutes)} after this report is resolved`
-            : 'Starts when this report is resolved'
-        return { tag: { label: 'Waiting', type: 'muted' }, detail: joinDetail([start, lane && `${lane} runs it`]) }
+        return pendingCheckRow(check, lane)
     }
 
     if (isRunning(check)) {
-        const startedAgo = dayjs(check.dispatched_at).fromNow()
-        return {
-            tag: { label: 'Running', type: 'primary' },
-            detail: lane ? `${lane} started ${startedAgo}` : `Started ${startedAgo}`,
-        }
+        return runningCheckRow(check, lane)
     }
 
     // An `awaiting_data` verdict keeps the check open, so the row says why it looks again.
