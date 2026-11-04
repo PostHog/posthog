@@ -11,7 +11,7 @@ export default defineCommand({
 
     async run({ ctx }) {
         const api = await ctx.posthog()
-        return { projectId: (await ctx.credentials()).projectId, endpoints: await listEndpoints(api) }
+        return { projectId: (await ctx.credentials()).key.projectId, endpoints: await listEndpoints(api) }
     },
 
     human({ result, out }) {

@@ -32,6 +32,7 @@ export enum Scene {
     Canvas = 'Canvas',
     WorkloadTrustPolicyRequest = 'WorkloadTrustPolicyRequest',
     CLIAuthorize = 'CLIAuthorize',
+    OAuthDeviceAuthorize = 'OAuthDeviceAuthorize',
     CLILive = 'CLILive',
     Cohort = 'Cohort',
     CohortCalculationHistory = 'CohortCalculationHistory',

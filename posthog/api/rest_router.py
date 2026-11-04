@@ -85,7 +85,7 @@ from .emoji_search import EmojiSearchViewSet
 from .event_filter_config import EventFilterConfigViewSet
 from .file_system import file_system, file_system_shortcut
 from .llm_prompt import LLMPromptViewSet
-from .oauth import OrganizationOAuthApplicationViewSet
+from .oauth import OAuthDeviceViewSet, OrganizationOAuthApplicationViewSet
 from .organization_notification_locks import OrganizationNotificationLockViewSet
 from .session import SessionViewSet
 from .taxonomic_search_intent import SearchIntentViewSet
@@ -418,6 +418,7 @@ router.register(r"personal_api_keys", personal_api_key.PersonalAPIKeyViewSet, "p
 router.register(r"internal_feedback", internal_feedback.InternalFeedbackViewSet, "internal_feedback")
 # nosemgrep: api-path-underscore -- shipped public API path, a rename breaks clients
 router.register(r"cli-auth", cli_auth.CLIAuthViewSet, "cli_auth")
+router.register(r"oauth_device", OAuthDeviceViewSet, "oauth_device")
 router.register(r"instance_status", instance_status.InstanceStatusViewSet, "instance_status")
 router.register(r"dead_letter_queue", dead_letter_queue.DeadLetterQueueViewSet, "dead_letter_queue")
 router.register(r"async_migrations", async_migration.AsyncMigrationsViewset, "async_migrations")
