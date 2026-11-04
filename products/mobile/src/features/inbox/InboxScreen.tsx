@@ -16,6 +16,8 @@ import { tabBottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInset
 import { apiErrorKind } from '../report/reportAnalytics'
 import { TABS_HEADER_BOTTOM } from '../tabs/TabsHeader'
 import { useTabHeader } from '../tabs/tabHeaderStore'
+import { useFeatureAccess } from '../views/useViewsAccess'
+import { ViewsReauthState } from '../views/ViewsReauthState'
 import type { RowAnchor } from './contextMenuPlacement'
 import { isDefaultInboxFilters } from './filters'
 import { useInboxItems, useSetReportRead } from './hooks'
@@ -46,8 +48,9 @@ export function InboxScreen(): ReactElement {
         }, [])
     )
     const filters = useInboxFilters()
+    const access = useFeatureAccess('inbox')
     const query = useInboxItems({ refreshWhileVisible: focused, filters })
-    const prefetch = usePrefetchReports(query.data, focused)
+    const prefetch = usePrefetchReports(query.data, focused && access.state === 'ok')
     const [rowMenu, setRowMenu] = useState<RowMenuTarget | null>(null)
     const [filtersOpen, setFiltersOpen] = useState(false)
     const listRef = useRef<FlatList<InboxItem>>(null)
@@ -145,33 +148,36 @@ export function InboxScreen(): ReactElement {
         [paired, now, openReport, openRowMenu, setRead]
     )
 
-    const empty = query.isLoading ? (
-        <LoadingView label="Loading your inbox" />
-    ) : query.isError ? (
-        <StateView
-            icon={<WarningIcon size={iconSizes.empty} color={colors.tertiary} />}
-            title="Couldn't load your inbox"
-            message={query.error?.message ?? 'Check your connection and try again.'}
-            actionLabel="Try again"
-            onAction={() => refresh('retry')}
-            testID="inbox-error"
-        />
-    ) : isFilteredEmpty ? (
-        <StateView
-            icon={<FilterIcon size={iconSizes.empty} color={colors.tertiary} />}
-            title="No reports match these filters"
-            actionLabel="Clear filters"
-            onAction={clearFilters}
-            testID="inbox-filtered-empty"
-        />
-    ) : query.totalCount > 0 ? null : (
-        <StateView
-            icon={<InboxIcon size={iconSizes.empty} color={colors.tertiary} />}
-            title="Nothing needs you right now"
-            message="New reports show up here when PostHog finds something worth a look."
-            testID="inbox-empty"
-        />
-    )
+    const empty =
+        access.state !== 'ok' ? (
+            <ViewsReauthState access={access} feature="inbox" />
+        ) : query.isLoading ? (
+            <LoadingView label="Loading your inbox" />
+        ) : query.isError ? (
+            <StateView
+                icon={<WarningIcon size={iconSizes.empty} color={colors.tertiary} />}
+                title="Couldn't load your inbox"
+                message={query.error?.message ?? 'Check your connection and try again.'}
+                actionLabel="Try again"
+                onAction={() => refresh('retry')}
+                testID="inbox-error"
+            />
+        ) : isFilteredEmpty ? (
+            <StateView
+                icon={<FilterIcon size={iconSizes.empty} color={colors.tertiary} />}
+                title="No reports match these filters"
+                actionLabel="Clear filters"
+                onAction={clearFilters}
+                testID="inbox-filtered-empty"
+            />
+        ) : query.totalCount > 0 ? null : (
+            <StateView
+                icon={<InboxIcon size={iconSizes.empty} color={colors.tertiary} />}
+                title="Nothing needs you right now"
+                message="New reports show up here when PostHog finds something worth a look."
+                testID="inbox-empty"
+            />
+        )
 
     return (
         <View style={[styles.screen, { flexDirection: paneAxis, gap: paired ? paneGap : 0 }]} testID="inbox-screen">
@@ -185,7 +191,7 @@ export function InboxScreen(): ReactElement {
             >
                 <FlatList
                     ref={listRef}
-                    data={query.data ?? []}
+                    data={access.state === 'ok' ? (query.data ?? []) : []}
                     keyExtractor={keyFor}
                     renderItem={renderItem}
                     ListEmptyComponent={empty ?? undefined}
