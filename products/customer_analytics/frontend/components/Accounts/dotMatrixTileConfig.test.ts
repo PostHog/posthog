@@ -10,7 +10,12 @@ import { getDotMatrixTileConfig } from './dotMatrixTileConfig'
 describe('dot matrix tile config', () => {
     it('keeps independently configured tiles through the saved document round-trip', () => {
         const first = { mode: 'dots', weeks: 8, selectedSeries: ['replay'] }
-        const second = { mode: 'count', weeks: 26, selectedSeries: ['metric-one', 'metric-two'] }
+        const second = {
+            mode: 'count',
+            weeks: 26,
+            selectedSeries: ['metric-one', 'metric-two'],
+            source: { kind: 'hogql', query: 'SELECT 1', mapping: { row: 'person', column: 'week', value: 'total' } },
+        }
         const tiles = parseAccountViewContent(
             createAccountViewContent([
                 { nodeId: 'first-matrix', kind: 'dot_matrix', span: 12, config: first },
@@ -27,6 +32,7 @@ describe('dot matrix tile config', () => {
         { selectedSeries: [''] },
         { selectedSeries: ['x'.repeat(129)] },
         { selectedSeries: Array.from({ length: 65 }, (_, index) => String(index)) },
+        { source: { kind: 'hogql', query: 'SELECT 1', mapping: { row: 'person' } } },
     ])('uses safe defaults for malformed saved config (%s)', (config) => {
         expect(getDotMatrixTileConfig(config)).toEqual({ mode: 'dots', weeks: 8, selectedSeries: [] })
     })

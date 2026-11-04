@@ -75,7 +75,7 @@ from posthog.models.team import Team
 from posthog.paging import Page, PageRequest
 from posthog.queryset_paging import select_page
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 from products.conversations.backend.facade.api import (
     AccountEmailThreadMessage as AccountEmailThreadMessage,
     AccountEmailThreadSummary as AccountEmailThreadSummary,
@@ -406,6 +406,12 @@ def validate_account_users_access(team: Team, user: "User | None", account_id: s
 
 def validate_account_activity_access(team: Team, user: "User | None", account_id: str) -> None:
     get_visible_account(team=team, user=user, account_id=account_id)
+
+
+def validate_book_activity_access(team: Team, user: "User | None", labeled_user_id: str) -> None:
+    if user is None or str(user.id) != labeled_user_id:
+        raise UserAccessControlError("account", "viewer")
+    UserAccessControl(user=user, team=team).assert_access_level_for_resource("account", "viewer")
 
 
 def get_account(

@@ -4,15 +4,67 @@ export const DOT_MATRIX_WEEK_OPTIONS = [4, 8, 12, 26] as const
 export type DotMatrixWeeks = (typeof DOT_MATRIX_WEEK_OPTIONS)[number]
 const DEFAULT_WEEKS: DotMatrixWeeks = 8
 
+export interface DotMatrixSourceMapping {
+    row: string
+    column: string
+    series?: string
+    value?: string
+}
+
+export type DotMatrixTileSource =
+    | { kind: 'usage_metrics' }
+    | { kind: 'product_usage' }
+    | { kind: 'hogql'; query: string; mapping: DotMatrixSourceMapping }
+
 export interface DotMatrixTileConfig {
     mode: 'dots' | 'count'
     weeks: DotMatrixWeeks
     selectedSeries: string[]
+    source?: DotMatrixTileSource
+}
+
+const MAPPING_KEYS = new Set(['row', 'column', 'series', 'value'])
+
+function isColumnName(value: unknown): value is string {
+    return typeof value === 'string' && value.length > 0 && value.length <= 128
+}
+
+function getDotMatrixSourceMapping(mapping: unknown): DotMatrixSourceMapping | null {
+    if (!mapping || typeof mapping !== 'object' || Array.isArray(mapping)) {
+        return null
+    }
+    const { row, column, series, value } = mapping as Record<string, unknown>
+    if (
+        Object.keys(mapping).some((key) => !MAPPING_KEYS.has(key)) ||
+        !isColumnName(row) ||
+        !isColumnName(column) ||
+        (series !== undefined && !isColumnName(series)) ||
+        (value !== undefined && !isColumnName(value))
+    ) {
+        return null
+    }
+    return { row, column, ...(series ? { series } : {}), ...(value ? { value } : {}) }
+}
+
+export function getDotMatrixTileSource(source: unknown): DotMatrixTileSource | null {
+    if (!source || typeof source !== 'object' || Array.isArray(source)) {
+        return null
+    }
+    const { kind, query, mapping } = source as Record<string, unknown>
+    if (kind === 'usage_metrics' || kind === 'product_usage') {
+        return { kind }
+    }
+    if (kind !== 'hogql' || typeof query !== 'string' || !query.trim()) {
+        return null
+    }
+    const sourceMapping = getDotMatrixSourceMapping(mapping)
+    return sourceMapping ? { kind, query, mapping: sourceMapping } : null
 }
 
 export function getDotMatrixTileConfig(config?: AccountViewTileConfig): DotMatrixTileConfig {
     const selectedSeries = config?.selectedSeries
     const weeks = DOT_MATRIX_WEEK_OPTIONS.find((option) => option === config?.weeks) ?? DEFAULT_WEEKS
+    const source = getDotMatrixTileSource(config?.source)
     return {
         mode: config?.mode === 'count' ? 'count' : 'dots',
         weeks,
@@ -22,5 +74,6 @@ export function getDotMatrixTileConfig(config?: AccountViewTileConfig): DotMatri
             selectedSeries.every((key) => typeof key === 'string' && key.length > 0 && key.length <= 128)
                 ? [...new Set(selectedSeries)]
                 : [],
+        ...(source ? { source } : {}),
     }
 }

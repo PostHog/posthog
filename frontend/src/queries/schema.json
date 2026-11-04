@@ -2227,6 +2227,9 @@
                     "$ref": "#/definitions/AccountActivityMatrixQuery"
                 },
                 {
+                    "$ref": "#/definitions/BookActivityMatrixQuery"
+                },
+                {
                     "$ref": "#/definitions/EndpointsUsageOverviewQuery"
                 },
                 {
@@ -7426,6 +7429,301 @@
             "enum": ["bing", "microsoft", "msads", "bing_video"],
             "type": "string"
         },
+        "BookActivityInterval": {
+            "enum": ["day", "week", "month"],
+            "type": "string"
+        },
+        "BookActivityMatrixCell": {
+            "additionalProperties": false,
+            "properties": {
+                "column": {
+                    "type": "string"
+                },
+                "row": {
+                    "type": "string"
+                },
+                "series": {
+                    "type": "string"
+                },
+                "users": {
+                    "$ref": "#/definitions/integer"
+                }
+            },
+            "required": ["row", "column", "series", "users"],
+            "type": "object"
+        },
+        "BookActivityMatrixCombination": {
+            "additionalProperties": false,
+            "properties": {
+                "column": {
+                    "type": "string"
+                },
+                "mask": {
+                    "$ref": "#/definitions/integer"
+                },
+                "row": {
+                    "type": "string"
+                },
+                "users": {
+                    "$ref": "#/definitions/integer"
+                }
+            },
+            "required": ["row", "column", "mask", "users"],
+            "type": "object"
+        },
+        "BookActivityMatrixEmptyReason": {
+            "enum": ["no_group_type", "empty_book"],
+            "type": "string"
+        },
+        "BookActivityMatrixFirstUse": {
+            "additionalProperties": false,
+            "properties": {
+                "date": {
+                    "type": "string"
+                },
+                "row": {
+                    "type": "string"
+                },
+                "series": {
+                    "type": "string"
+                }
+            },
+            "required": ["row", "series", "date"],
+            "type": "object"
+        },
+        "BookActivityMatrixGroup": {
+            "additionalProperties": false,
+            "properties": {
+                "items": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                }
+            },
+            "required": ["key", "label", "items"],
+            "type": "object"
+        },
+        "BookActivityMatrixGrouping": {
+            "additionalProperties": false,
+            "properties": {
+                "groups": {
+                    "items": {
+                        "$ref": "#/definitions/BookActivityMatrixGroup"
+                    },
+                    "type": "array"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                }
+            },
+            "required": ["key", "label", "groups"],
+            "type": "object"
+        },
+        "BookActivityMatrixProduct": {
+            "additionalProperties": false,
+            "properties": {
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                }
+            },
+            "required": ["key", "label"],
+            "type": "object"
+        },
+        "BookActivityMatrixQuery": {
+            "additionalProperties": false,
+            "properties": {
+                "accountIds": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "dateRange": {
+                    "$ref": "#/definitions/DateRange"
+                },
+                "includeFirstUse": {
+                    "type": "boolean"
+                },
+                "interval": {
+                    "$ref": "#/definitions/BookActivityInterval"
+                },
+                "kind": {
+                    "const": "BookActivityMatrixQuery",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "relationshipDefinitionId": {
+                    "type": "string"
+                },
+                "response": {
+                    "$ref": "#/definitions/BookActivityMatrixQueryResponse"
+                },
+                "rowLimit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "userId": {
+                    "$ref": "#/definitions/integer"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["dateRange", "interval", "kind"],
+            "type": "object"
+        },
+        "BookActivityMatrixQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "$ref": "#/definitions/BookActivityMatrixResult"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "used_data_warehouse_sources": {
+                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSourceUsage"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/AccessControlFilterWarning"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["results"],
+            "type": "object"
+        },
+        "BookActivityMatrixResult": {
+            "additionalProperties": false,
+            "properties": {
+                "columns": {
+                    "items": {
+                        "$ref": "#/definitions/AccountActivityMatrixColumn"
+                    },
+                    "type": "array"
+                },
+                "combinations": {
+                    "items": {
+                        "$ref": "#/definitions/BookActivityMatrixCombination"
+                    },
+                    "type": "array"
+                },
+                "data": {
+                    "items": {
+                        "$ref": "#/definitions/BookActivityMatrixCell"
+                    },
+                    "type": "array"
+                },
+                "emptyReason": {
+                    "$ref": "#/definitions/BookActivityMatrixEmptyReason"
+                },
+                "firstUse": {
+                    "items": {
+                        "$ref": "#/definitions/BookActivityMatrixFirstUse"
+                    },
+                    "type": "array"
+                },
+                "groupings": {
+                    "items": {
+                        "$ref": "#/definitions/BookActivityMatrixGrouping"
+                    },
+                    "type": "array"
+                },
+                "rows": {
+                    "items": {
+                        "$ref": "#/definitions/BookActivityMatrixRow"
+                    },
+                    "type": "array"
+                },
+                "series": {
+                    "items": {
+                        "$ref": "#/definitions/BookActivityMatrixProduct"
+                    },
+                    "type": "array"
+                },
+                "truncated": {
+                    "type": "boolean"
+                }
+            },
+            "required": ["rows", "columns", "groupings", "series", "data", "combinations", "truncated"],
+            "type": "object"
+        },
+        "BookActivityMatrixRow": {
+            "additionalProperties": false,
+            "properties": {
+                "externalId": {
+                    "type": "string"
+                },
+                "key": {
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                }
+            },
+            "required": ["key", "label", "externalId"],
+            "type": "object"
+        },
         "BoxPlotDatum": {
             "additionalProperties": false,
             "properties": {
@@ -8366,6 +8664,107 @@
                 "limit",
                 "next_allowed_client_refresh",
                 "offset",
+                "results",
+                "timezone"
+            ],
+            "type": "object"
+        },
+        "CachedBookActivityMatrixQueryResponse": {
+            "additionalProperties": false,
+            "properties": {
+                "cache_key": {
+                    "type": "string"
+                },
+                "cache_target_age": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "calculation_trigger": {
+                    "description": "What triggered the calculation of the query, leave empty if user/immediate",
+                    "type": "string"
+                },
+                "error": {
+                    "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                    "type": "string"
+                },
+                "hogql": {
+                    "description": "Generated HogQL query.",
+                    "type": "string"
+                },
+                "is_cached": {
+                    "type": "boolean"
+                },
+                "last_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "next_allowed_client_refresh": {
+                    "format": "date-time",
+                    "type": "string"
+                },
+                "query_metadata": {
+                    "type": "object"
+                },
+                "query_scan": {
+                    "$ref": "#/definitions/QueryScanSummary",
+                    "description": "The rows and time of the run that produced these results, with its analysis once it is stored."
+                },
+                "query_status": {
+                    "$ref": "#/definitions/QueryStatus",
+                    "description": "Query status indicates whether next to the provided data, a query is still running."
+                },
+                "resolved_compare_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The resolved previous/comparison period date range, when comparing against another period"
+                },
+                "resolved_date_range": {
+                    "$ref": "#/definitions/ResolvedDateRangeResponse",
+                    "description": "The date range used for the query"
+                },
+                "results": {
+                    "$ref": "#/definitions/BookActivityMatrixResult"
+                },
+                "timezone": {
+                    "type": "string"
+                },
+                "timings": {
+                    "description": "Measured timings for different parts of the query generation process",
+                    "items": {
+                        "$ref": "#/definitions/QueryTiming"
+                    },
+                    "type": "array"
+                },
+                "used_data_warehouse_sources": {
+                    "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                    "items": {
+                        "$ref": "#/definitions/DataWarehouseSourceUsage"
+                    },
+                    "type": "array"
+                },
+                "warnings": {
+                    "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/DataWarehouseSyncWarning"
+                            },
+                            {
+                                "$ref": "#/definitions/AccessControlFilterWarning"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                }
+            },
+            "required": [
+                "cache_key",
+                "is_cached",
+                "last_refresh",
+                "next_allowed_client_refresh",
                 "results",
                 "timezone"
             ],
@@ -41098,6 +41497,7 @@
                 "AccountsTableQuery",
                 "AccountUsersQuery",
                 "AccountActivityMatrixQuery",
+                "BookActivityMatrixQuery",
                 "EndpointsUsageOverviewQuery",
                 "EndpointsUsageTableQuery",
                 "EndpointsUsageTrendsQuery",
@@ -50079,6 +50479,68 @@
                             "description": "The date range used for the query"
                         },
                         "results": {
+                            "$ref": "#/definitions/BookActivityMatrixResult"
+                        },
+                        "timings": {
+                            "description": "Measured timings for different parts of the query generation process",
+                            "items": {
+                                "$ref": "#/definitions/QueryTiming"
+                            },
+                            "type": "array"
+                        },
+                        "used_data_warehouse_sources": {
+                            "description": "Connector-synced data warehouse sources referenced by this query, if any.",
+                            "items": {
+                                "$ref": "#/definitions/DataWarehouseSourceUsage"
+                            },
+                            "type": "array"
+                        },
+                        "warnings": {
+                            "description": "Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. Also carries access control warnings when a system-table query filters out objects the user can't access.",
+                            "items": {
+                                "anyOf": [
+                                    {
+                                        "$ref": "#/definitions/DataWarehouseSyncWarning"
+                                    },
+                                    {
+                                        "$ref": "#/definitions/AccessControlFilterWarning"
+                                    }
+                                ]
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "required": ["results"],
+                    "type": "object"
+                },
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "error": {
+                            "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
+                            "type": "string"
+                        },
+                        "hogql": {
+                            "description": "Generated HogQL query.",
+                            "type": "string"
+                        },
+                        "modifiers": {
+                            "$ref": "#/definitions/HogQLQueryModifiers",
+                            "description": "Modifiers used when performing the query"
+                        },
+                        "query_status": {
+                            "$ref": "#/definitions/QueryStatus",
+                            "description": "Query status indicates whether next to the provided data, a query is still running."
+                        },
+                        "resolved_compare_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The resolved previous/comparison period date range, when comparing against another period"
+                        },
+                        "resolved_date_range": {
+                            "$ref": "#/definitions/ResolvedDateRangeResponse",
+                            "description": "The date range used for the query"
+                        },
+                        "results": {
                             "items": {
                                 "$ref": "#/definitions/EndpointsUsageOverviewItem"
                             },
@@ -51951,6 +52413,9 @@
                 },
                 {
                     "$ref": "#/definitions/AccountActivityMatrixQuery"
+                },
+                {
+                    "$ref": "#/definitions/BookActivityMatrixQuery"
                 },
                 {
                     "$ref": "#/definitions/EndpointsUsageOverviewQuery"

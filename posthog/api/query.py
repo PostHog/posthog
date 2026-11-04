@@ -98,10 +98,12 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.customer_analytics.backend.facade.api import (
     validate_account_activity_access,
     validate_account_users_access,
+    validate_book_activity_access,
 )
 from products.customer_analytics.backend.facade.constants import (
     ACCOUNT_ACTIVITY_MATRIX_QUERY_STATUS_LABEL_PREFIX,
     ACCOUNT_USERS_QUERY_STATUS_LABEL_PREFIX,
+    BOOK_ACTIVITY_MATRIX_QUERY_STATUS_LABEL_PREFIX,
 )
 from products.managed_warehouse.backend.facade import query_labels as managed_warehouse_query_labels
 from products.managed_warehouse.backend.facade.query_execution import validate_managed_trino_raw_access
@@ -222,6 +224,7 @@ def _process_query_request(
 # the generic endpoint.
 _QUERY_KIND_SCOPES: dict[str, list[str]] = {
     "AccountActivityMatrixQuery": ["query:read", "account:read", "person:read"],
+    "BookActivityMatrixQuery": ["query:read", "account:read"],
     "AccountUsersQuery": ["query:read", "account:read", "person:read"],
     "AccountsTableQuery": ["query:read", "account:read"],
     "ErrorTrackingFingerprintProjectionQuery": ["query:read", "error_tracking:read"],
@@ -509,6 +512,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         for label_prefix, validate_account_access in (
             (ACCOUNT_USERS_QUERY_STATUS_LABEL_PREFIX, validate_account_users_access),
             (ACCOUNT_ACTIVITY_MATRIX_QUERY_STATUS_LABEL_PREFIX, validate_account_activity_access),
+            (BOOK_ACTIVITY_MATRIX_QUERY_STATUS_LABEL_PREFIX, validate_book_activity_access),
         ):
             labeled_account_id = next(
                 (
