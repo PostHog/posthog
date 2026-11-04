@@ -1,4 +1,4 @@
-"""Register duckling backfill exports in DuckLake through Trino, for warehouses without duckgres."""
+"""Register duckling backfill exports in DuckLake through Trino instead of duckgres."""
 
 from __future__ import annotations
 

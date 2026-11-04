@@ -60,6 +60,7 @@ from dagster import (
     DagsterRunStatus,
     DefaultSensorStatus,
     DynamicPartitionsDefinition,
+    OpExecutionContext,
     RunRequest,
     RunsFilter,
     SensorEvaluationContext,
@@ -106,6 +107,7 @@ from products.managed_warehouse.backend.facade.client import (
 )
 from products.managed_warehouse.backend.facade.contracts import (
     DuckLakeDayReplacement,
+    DuckLakeTableLayoutError,
     DuckLakeTableReplacement,
     ManagedWarehouseTeamMembership,
 )
@@ -559,7 +561,7 @@ class _DuckgresSession:
 
     MAX_ATTEMPTS = 4
 
-    def __init__(self, context: AssetExecutionContext, target: DucklingTarget) -> None:
+    def __init__(self, context: AssetExecutionContext | OpExecutionContext, target: DucklingTarget) -> None:
         self._context = context
         self._target = target
         # Keep one org-scoped credential ID for the session so reconnects
@@ -817,6 +819,11 @@ PERSONS_COLUMNS = """
     now64(6) AS _inserted_at
 """
 
+# A BIGINT person_version column refuses UBIGINT files, so a table converted for Trino needs a signed export.
+PERSONS_COLUMNS_SIGNED_VERSION = PERSONS_COLUMNS.replace(
+    "p.version AS person_version", "toInt64(p.version) AS person_version"
+)
+
 # Expected columns in the duckling's persons table for schema validation
 EXPECTED_DUCKLAKE_PERSONS_COLUMNS = {
     "team_id",
@@ -1035,6 +1042,7 @@ class DucklingBackfillConfig(Config):
     cleanup_existing_partition_data: bool = True  # Delete existing DuckLake data for partition before registering
     create_tables_if_missing: bool = True
     delete_tables: bool = False  # Danger: drops and recreates tables, losing all data
+    rebuild_mismatched_table: bool = False  # A full Trino persons or groups run replaces a table with other types
     dry_run: bool = False
     # Opt-in per run. A backfill never evaluates the canary feature flag.
     use_trino_canary: bool = False
@@ -1187,6 +1195,14 @@ def table_exists(
         return True
     except (psycopg.errors.UndefinedTable, psycopg.errors.InvalidSchemaName):
         return False
+
+
+def _persons_export_columns(conn: psycopg.Connection[Any], target: DucklingTarget) -> str:
+    if not table_exists(conn, DUCKLAKE_ALIAS, "posthog", target.persons_table):
+        return PERSONS_COLUMNS
+    rows = conn.execute(f"DESCRIBE {DUCKLAKE_ALIAS}.posthog.{target.persons_table}").fetchall()
+    version_types = {str(row[1]) for row in rows if row[0] == "person_version"}
+    return PERSONS_COLUMNS_SIGNED_VERSION if version_types == {"BIGINT"} else PERSONS_COLUMNS
 
 
 def _set_table_partitioning(
@@ -2549,7 +2565,7 @@ def _merged_clickhouse_settings(context: AssetExecutionContext, config: Duckling
     reraise=True,
 )
 def list_exported_files(client: Client, target: DucklingTarget, s3_glob: str, settings: dict[str, Any]) -> list[str]:
-    """List the files an export wrote, for a warehouse without duckgres to glob them.
+    """List the files an export wrote, for the Trino path to register them.
 
     ClickHouse wrote the files, and the duckling bucket policy lets it list them. The export globs have their
     wildcard in the file name only, so every listed file name joins the directory of the glob.
@@ -2600,7 +2616,7 @@ def backfill_through_trino(
     exports: Sequence[TrinoExport],
     settings: dict[str, Any],
 ) -> TrinoBackfillResult:
-    """Export each item from ClickHouse and register its files through Trino, for a warehouse without duckgres.
+    """Export each item from ClickHouse and register its files through Trino instead of duckgres.
 
     One add_files call adds the files of an export and removes the rows they replace in the same snapshot. A retried
     call with the same import id is a no-op, so this path needs no delete-then-register replay. A run that skips
@@ -2613,17 +2629,39 @@ def backfill_through_trino(
     partitions_exported = 0
     files_registered = 0
     register = not (config.dry_run or config.skip_ducklake_registration)
+    if config.rebuild_mismatched_table and config.skip_schema_validation:
+        raise ValueError(
+            "rebuild_mismatched_table needs the schema validation, because the validation finds the mismatch"
+        )
+    # Only a run that replaces the whole table loses nothing when it rebuilds the table, so only such a run may
+    # replace a table whose types differ from the export, and only when the caller asked for it.
+    replaces_table = (
+        config.rebuild_mismatched_table
+        and config.cleanup_existing_partition_data
+        and bool(exports)
+        and all(isinstance(item.replacement, DuckLakeTableReplacement) for item in exports)
+    )
+    rebuild = False
     with (
         connect_backfill_catalog(target.organization_id, canary=config.use_trino_canary) if register else nullcontext()
     ) as catalog:
         if catalog is not None:
-            catalog.ensure_table(
-                table,
-                column_types,
-                drop_first=config.delete_tables,
-                create_if_missing=config.create_tables_if_missing,
-                validate=not config.skip_schema_validation,
-            )
+            try:
+                catalog.ensure_table(
+                    table,
+                    column_types,
+                    drop_first=config.delete_tables,
+                    create_if_missing=config.create_tables_if_missing,
+                    validate=not config.skip_schema_validation,
+                )
+            except DuckLakeTableLayoutError:
+                if not replaces_table:
+                    raise
+                rebuild = True
+                context.log.warning(
+                    f"{table} does not have the column types of the export, so this run rebuilds it before it "
+                    "registers files"
+                )
         for item in exports:
             # A new prefix for every export, because an export under an earlier prefix would overwrite files that
             # DuckLake already registered with their row counts and statistics.
@@ -2642,6 +2680,12 @@ def backfill_through_trino(
                 context.log.info(f"Exported {len(files)} file(s) for {item.label} without registering them")
                 continue
             replacement = item.replacement if config.cleanup_existing_partition_data else None
+            if rebuild:
+                # The rebuild waits until the export finished, to keep the window with an empty table short. A file
+                # count that add_files refuses fails here, before the rebuild empties the table.
+                catalog.validate_file_count(files)
+                catalog.replace_table(table, column_types)
+                rebuild = False
             if files:
                 catalog.register_files(table, files, import_id=prefix, replacement=replacement)
                 files_registered += len(files)
@@ -3180,6 +3224,12 @@ def _run_duckling_persons_backfill(context: AssetExecutionContext, config: Duckl
                 context.log.info("Validating duckling persons schema compatibility...")
                 session.run("validate persons schema", lambda c: validate_duckling_persons_schema(context, target, c))
 
+        persons_columns = (
+            session.run("read persons column types", lambda c: _persons_export_columns(c, target))
+            if session is not None
+            else PERSONS_COLUMNS
+        )
+
         merged_settings = _merged_clickhouse_settings(context, config)
 
         cluster = _get_cluster()
@@ -3207,6 +3257,7 @@ def _run_duckling_persons_backfill(context: AssetExecutionContext, config: Duckl
                         team_id=team_id,
                         run_id=run_id,
                         settings=merged_settings,
+                        columns=persons_columns,
                     )
 
             s3_glob = cluster.any_host_by_role(
@@ -3261,6 +3312,7 @@ def _run_duckling_persons_backfill(context: AssetExecutionContext, config: Duckl
                             date=date,
                             run_id=run_id,
                             settings=merged_settings,
+                            columns=persons_columns,
                         )
 
                 s3_glob = cluster.any_host_by_role(

@@ -41,6 +41,21 @@ describe('DataTable', () => {
         expect(onRowClick).toHaveBeenCalledWith(data[0])
     })
 
+    it('applies a row class name per row', () => {
+        const columns: ColumnDef<TestRow>[] = [{ accessorKey: 'name', header: 'Name' }]
+        const { container } = render(
+            <DataTable
+                columns={columns}
+                data={[{ name: 'Ada' }, { name: 'Grace' }]}
+                rowClassName={(row) => (row.name === 'Grace' ? 'highlighted-row' : undefined)}
+            />
+        )
+        const rows = container.querySelectorAll('tbody tr')
+
+        expect(rows[0].classList.contains('highlighted-row')).toBe(false)
+        expect(rows[1].classList.contains('highlighted-row')).toBe(true)
+    })
+
     it('reports page changes with one-based page numbers', () => {
         const onPageChange = jest.fn()
         const columns: ColumnDef<TestRow>[] = [{ accessorKey: 'name', header: 'Name' }]
