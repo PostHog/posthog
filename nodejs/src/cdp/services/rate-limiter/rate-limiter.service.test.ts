@@ -454,6 +454,26 @@ describe('RateLimiterService', () => {
             expect(await limiter.claimAllOrNothing([bucket])).toMatchObject({ granted: true })
         })
 
+        it('names every short bucket and spends none of the others', async () => {
+            const bucket = (name: string, capacity: number): ClaimRequest => ({
+                key: `${KEY}/several-${name}`,
+                requested: 1,
+                capacity,
+                refillPerSecond: 0,
+            })
+            const [roomy, drained, empty] = [bucket('roomy', 2), bucket('drained', 1), bucket('empty', 0)]
+            expect(await limiter.claimAllOrNothing([drained])).toMatchObject({ granted: true })
+
+            expect(await limiter.claimAllOrNothing([roomy, drained, empty])).toEqual({
+                granted: false,
+                deniedIndexes: [1, 2],
+            })
+
+            expect(await limiter.claimAllOrNothing([roomy])).toMatchObject({ granted: true })
+            expect(await limiter.claimAllOrNothing([roomy])).toMatchObject({ granted: true })
+            expect(await limiter.claimAllOrNothing([roomy])).toEqual({ granted: false, deniedIndexes: [0] })
+        })
+
         it.each([
             ['no buckets', []],
             ['the same bucket twice', [`${KEY}/twice`, `${KEY}/twice`]],
@@ -551,6 +571,24 @@ describe('RateLimiterService', () => {
 
             expect(await limiter.claimAllOrNothing([bucket])).toMatchObject({ granted: true })
             expect(await limiter.claimAllOrNothing([bucket])).toEqual({ granted: false, deniedIndexes: [0] })
+        })
+
+        it('gives each bucket of a claim back once, even when the return is replayed', async () => {
+            const first = { key: `${KEY}/return-pair-first`, requested: 1, capacity: 2, refillPerSecond: 0 }
+            const second = { key: `${KEY}/return-pair-second`, requested: 1, capacity: 3, refillPerSecond: 0 }
+            const claim = await limiter.claimAllOrNothing([first, second])
+            if (!claim.granted) {
+                throw new Error('Expected the claim to be granted.')
+            }
+
+            await limiter.returnClaim(claim)
+            await limiter.returnClaim(claim)
+
+            expect(await limiter.claimAllOrNothing([first, second])).toMatchObject({ granted: true })
+            expect(await limiter.claimAllOrNothing([first, second])).toMatchObject({ granted: true })
+            expect(await limiter.claimAllOrNothing([first, second])).toEqual({ granted: false, deniedIndexes: [0] })
+            expect(await limiter.claimAllOrNothing([second])).toMatchObject({ granted: true })
+            expect(await limiter.claimAllOrNothing([second])).toEqual({ granted: false, deniedIndexes: [0] })
         })
 
         it('ignores the return of a claim issued longer ago than its window', async () => {
