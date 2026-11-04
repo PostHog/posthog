@@ -807,12 +807,15 @@ export class RerunPaginatorService {
             // The cohort lookup counters are dropped too. A run that aborted after its last
             // lookup attempt would otherwise restart with no retries left, and the leftover
             // cohortLookupFailed flag would turn an unrelated error on that step into an abort.
+            // The preferences hold deadline is dropped for the same reason: it has already passed,
+            // so a rerun during an outage would fail at once instead of waiting.
             const {
                 hogFunctionState: _stripped,
                 awaitingResume: _awaitingResume,
                 resumeResult: _resumeResult,
                 cohortLookupAttempts: _cohortLookupAttempts,
                 cohortLookupFailed: _cohortLookupFailed,
+                preferencesHoldDeadlineAt: _preferencesHoldDeadlineAt,
                 ...restoredCurrentAction
             } = persistedState.currentAction ?? {}
 

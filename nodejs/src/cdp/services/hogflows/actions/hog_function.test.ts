@@ -646,7 +646,7 @@ describe('HogFunctionHandler', () => {
         expect(mockFetch).toHaveBeenCalled()
     })
 
-    it('should fail a test run without holding it while the preferences are unavailable', async () => {
+    it('should fail a test run without holding it or offering a rerun while the preferences are unavailable', async () => {
         ;(mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mockResolvedValueOnce(PREFERENCES_UNAVAILABLE)
         const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
             queue: 'hog',
@@ -655,14 +655,40 @@ describe('HogFunctionHandler', () => {
 
         const handlerResult = await hogFunctionHandler.execute({
             invocation,
-            action,
+            action: { ...action, on_error: 'abort' },
             result: invocationResult,
             hogExecutorOptions: { isTest: true },
         })
 
         expect(String(handlerResult.error)).toContain('Message not sent')
+        expect(String(handlerResult.error)).not.toContain('rerun')
         expect(handlerResult.scheduledAt).toBeUndefined()
     })
+
+    it.each([
+        ['abort', true],
+        ['continue', false],
+    ] as const)(
+        'should offer a rerun after giving up only where one sends: on_error %s',
+        async (onError, offersRerun) => {
+            ;(mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mockResolvedValueOnce(
+                PREFERENCES_UNAVAILABLE
+            )
+            invocation.state.currentAction!.preferencesHoldDeadlineAt = DateTime.now().minus({ minutes: 1 }).toISO()!
+            const invocationResult = createInvocationResult<CyclotronJobInvocationHogFlow>(invocation, {
+                queue: 'hog',
+                queuePriority: 0,
+            })
+
+            const handlerResult = await hogFunctionHandler.execute({
+                invocation,
+                action: { ...action, on_error: onError },
+                result: invocationResult,
+            })
+
+            expect(String(handlerResult.error).includes('rerun')).toBe(offersRerun)
+        }
+    )
 
     it('should not hold a send that resumes on the email queue while the preferences are unavailable', async () => {
         ;(mockRecipientPreferencesService.shouldSkipAction as jest.Mock).mockResolvedValueOnce(PREFERENCES_UNAVAILABLE)

@@ -522,8 +522,13 @@ export class HogFunctionHandler implements ActionHandler {
             return {
                 finished: true,
                 skipped: true,
+                // Only an aborted run stays on this step. A run that continued has moved past it, and a test run is not stored.
                 error: new Error(
-                    "Message not sent: couldn't check if this person opted out. You can rerun this run from the Invocations tab."
+                    `Message not sent: couldn't check if this person opted out.${
+                        action.on_error === 'abort' && !hogExecutorOptions?.isTest
+                            ? ' You can rerun this run from the Invocations tab.'
+                            : ''
+                    }`
                 ),
                 invocation: hogFunctionInvocation,
                 logs: [],
