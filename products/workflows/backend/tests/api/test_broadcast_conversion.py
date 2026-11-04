@@ -7,6 +7,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.file_system.file_system import FileSystem
 
 from products.workflows.backend.models import HogFlow
 
@@ -74,6 +75,7 @@ class TestBroadcastConversionAPI(APIBaseTest):
         self, _name: str, overrides: dict[str, Any], convertible: bool
     ) -> None:
         flow = self._flow(**overrides)
+        workflow_file = FileSystem.objects.filter(team=self.team, type="hog_flow", ref=str(flow.id))
 
         assert (str(flow.id) in self._candidate_ids()) is convertible
 
@@ -83,6 +85,7 @@ class TestBroadcastConversionAPI(APIBaseTest):
             assert response.status_code == status.HTTP_200_OK, response.json()
             assert response.json() == {"id": str(flow.id), "origin_product": "broadcasts"}
             assert flow.origin_product == "broadcasts"
+            assert not workflow_file.exists()
             assert ActivityLog.objects.filter(
                 team_id=self.team.id, item_id=str(flow.id), activity="converted_to_broadcast"
             ).exists()
