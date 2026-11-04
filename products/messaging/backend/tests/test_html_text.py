@@ -1,3 +1,5 @@
+import tracemalloc
+
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
@@ -61,3 +63,20 @@ class TestTextFromHtml(SimpleTestCase):
     )
     def test_deeply_nested_html_still_gives_its_text(self, _name, html, expected):
         assert text_from_html(html) == expected
+
+    @parameterized.expand(
+        [
+            ("line_breaks", "<br>" * 131072 + "Hi", "Hi"),
+            ("unclosed_nesting", "<div><p>" * 65536 + "Hi", "Hi"),
+            ("closed_nesting", "<div>" * 50000 + "Hi" + "</div>" * 50000, "Hi"),
+        ]
+    )
+    def test_half_a_mebibyte_of_markup_converts_in_bounded_memory(self, _name, html, expected):
+        tracemalloc.start()
+        try:
+            text = text_from_html(html)
+            peak = tracemalloc.get_traced_memory()[1]
+        finally:
+            tracemalloc.stop()
+        assert text == expected
+        assert peak < 24 * 1024 * 1024
