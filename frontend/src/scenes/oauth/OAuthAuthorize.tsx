@@ -2,21 +2,18 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useMemo, useState } from 'react'
 
-import { IconCheck, IconCheckCircle, IconLock, IconPlus, IconWarning } from '@posthog/icons'
+import { IconCheckCircle, IconLock, IconPlus, IconWarning } from '@posthog/icons'
 
-import { ScopeAccessGroup } from 'lib/components/ScopeAccessRow/ScopeAccessGroup'
-import { ScopeAccessRow } from 'lib/components/ScopeAccessRow/ScopeAccessRow'
+import { OAuthScopeList } from 'lib/components/ScopeAccessRow/OAuthScopeList'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
-import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
 import { organizationLogic } from 'scenes/organizationLogic'
 import ScopeAccessSelector from 'scenes/settings/user/scopes/ScopeAccessSelector'
@@ -451,62 +448,17 @@ export const OAuthAuthorize = (): JSX.Element => {
                                 )}
                             </div>
                             <div className="flex flex-col gap-3 px-4 sm:px-6 py-4">
-                                {(identityScopeDescriptions.length > 0 || requiredScopeRows.length > 0) && (
-                                    <ul className="space-y-2">
-                                        {identityScopeDescriptions.map((description, idx) => (
-                                            <li key={idx} className="flex items-center space-x-2">
-                                                <IconCheck color="var(--success)" className="shrink-0" />
-                                                <span className="font-medium">{description}</span>
-                                            </li>
-                                        ))}
-                                        {requiredScopeRows.map((row) => (
-                                            <li key={row.key} className="space-y-1">
-                                                <div className="flex items-center space-x-2">
-                                                    <IconCheck color="var(--success)" className="shrink-0" />
-                                                    <span className="font-medium">{row.description}</span>
-                                                    {row.alreadyGranted ? (
-                                                        <Tooltip title={`You granted this to ${appName} before`}>
-                                                            <LemonTag>Already granted</LemonTag>
-                                                        </Tooltip>
-                                                    ) : (
-                                                        !allScopesRequired && (
-                                                            <Tooltip title={`${appName} requires this permission`}>
-                                                                <LemonTag>Required</LemonTag>
-                                                            </Tooltip>
-                                                        )
-                                                    )}
-                                                </div>
-                                                {row.warning ? (
-                                                    <div className="flex items-start gap-2 text-xs italic pl-6">
-                                                        <IconWarning className="text-base text-secondary mt-0.5" />
-                                                        <span>{row.warning}</span>
-                                                    </div>
-                                                ) : null}
-                                            </li>
-                                        ))}
-                                    </ul>
-                                )}
-                                {scopeRowsGrouped ? (
-                                    <div className="flex flex-col">
-                                        {scopeGroups.map((group) => (
-                                            <ScopeAccessGroup
-                                                key={group.label}
-                                                group={group}
-                                                onChangeRow={setScopeAccess}
-                                                onChangeGroup={setScopeGroupAccess}
-                                                dataAttrPrefix="oauth-scope-group"
-                                            />
-                                        ))}
-                                    </div>
-                                ) : (
-                                    adjustableScopeRows.length > 0 && (
-                                        <div className="flex flex-col">
-                                            {adjustableScopeRows.map((row) => (
-                                                <ScopeAccessRow key={row.key} row={row} onChange={setScopeAccess} />
-                                            ))}
-                                        </div>
-                                    )
-                                )}
+                                <OAuthScopeList
+                                    appName={appName}
+                                    identityScopeDescriptions={identityScopeDescriptions}
+                                    requiredScopeRows={requiredScopeRows}
+                                    adjustableScopeRows={adjustableScopeRows}
+                                    scopeGroups={scopeRowsGrouped ? scopeGroups : null}
+                                    allScopesRequired={allScopesRequired}
+                                    onChangeRow={setScopeAccess}
+                                    onChangeGroup={setScopeGroupAccess}
+                                    dataAttrPrefix="oauth-scope-group"
+                                />
                                 {accessControlsApply && (
                                     <LemonBanner type="info" icon={<IconLock className="LemonBanner__icon" />}>
                                         <strong className="block">Access controls still apply.</strong>

@@ -5,7 +5,6 @@ from django.db import models, transaction
 from django.utils import timezone
 
 import structlog
-from prometheus_client import Counter
 
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.encrypted_fields import EncryptedJSONField
@@ -25,11 +24,6 @@ from products.warehouse_sources.backend.types import (
 )
 
 logger = structlog.get_logger(__name__)
-
-SOURCE_CREDENTIALS_RELEASE_FAILED_COUNTER = Counter(
-    "warehouse_source_credentials_release_failed_total",
-    "Credentials row releases that failed while soft deleting a warehouse source",
-)
 
 MANAGED_WAREHOUSE_SOURCE_PREFIX = "managed_warehouse"
 MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND = "project_reader"
@@ -362,24 +356,6 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         else:
             source.cleanup_cdc_resources_on_deletion(self)
             source.on_source_deleted(self)
-        self._release_credentials()
-
-    def _release_credentials(self) -> None:
-        # The credentials row is a separate store, so a failure here must not undo the soft delete.
-        # The store never deletes the row: a row that nothing uses stays in the integrations list.
-        from products.warehouse_sources.backend.logic.source_credentials import (  # noqa: PLC0415 — the store imports this model
-            WarehouseSourceCredentialsStore,
-        )
-
-        if self.credentials_integration_id is None:
-            return
-        # The savepoint keeps a database error here from poisoning a caller's enclosing transaction.
-        try:
-            with transaction.atomic():
-                WarehouseSourceCredentialsStore.release(self)
-        except Exception as e:
-            capture_exception(e, {"source_id": str(self.id), "team_id": self.team_id})
-            SOURCE_CREDENTIALS_RELEASE_FAILED_COUNTER.inc()
 
     def reload_schemas(self):
         # temporalio at module scope would put the Temporal client on the django.setup() path —
