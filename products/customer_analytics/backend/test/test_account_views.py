@@ -117,6 +117,15 @@ class TestAccountViewContentValidation(SimpleTestCase):
             ({"source": None},),
             ({"source": {"kind": "product_usage"}},),
             ({"source": {"kind": "hogql", "query": "SELECT 1", "mapping": {"row": "person", "column": "week"}}},),
+            (
+                {
+                    "source": {
+                        "kind": "hogql",
+                        "query": "SELECT 1",
+                        "mapping": {"row": "person", "column": "week", "user": "person_id", "rowLabel": "email"},
+                    }
+                },
+            ),
         ]
     )
     def test_accepts_dot_matrix_config(self, config: dict) -> None:

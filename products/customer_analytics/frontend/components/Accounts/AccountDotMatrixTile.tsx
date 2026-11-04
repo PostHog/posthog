@@ -83,7 +83,11 @@ export function AccountDotMatrixTile({
                                             (sourceKind === 'hogql' ? 'value' : 'activeSeries')
                                         }
                                         selectedSeries={selectedSeries}
-                                        onSelectedSeriesChange={setSelectedSeries}
+                                        onSelectedSeriesChange={
+                                            sourceKind === 'hogql' && (presentation.matrix.series?.length ?? 0) <= 1
+                                                ? undefined
+                                                : setSelectedSeries
+                                        }
                                         loading={matrixResultLoading}
                                         pageSize={20}
                                         emptyState={presentation.empty}

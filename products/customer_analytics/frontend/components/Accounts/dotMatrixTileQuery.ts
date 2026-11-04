@@ -10,12 +10,15 @@ import {
 } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
+import { getMatrixHogQLScope } from './dotMatrixHogQLScope'
 import type { DotMatrixTileSource, DotMatrixWeeks } from './dotMatrixTileConfig'
 
 export interface DotMatrixQueryContext {
     accountId: string
     externalId?: string
     groupTypeIndex?: number | null
+    includeFirstUse?: boolean
+    weekStartDay?: number
     weeks: DotMatrixWeeks
 }
 
@@ -25,7 +28,7 @@ export type DotMatrixTileResult =
     | { kind: 'hogql'; query: string; result: HogQLQueryResponse }
 
 export function createMatrixHogQLQuery(query: string, context: DotMatrixQueryContext): HogQLQuery {
-    if (query.includes('{filters}') && (context.groupTypeIndex == null || !context.externalId)) {
+    if (getMatrixHogQLScope(query).usesFilters && (context.groupTypeIndex == null || !context.externalId)) {
         // Status 400 marks this as the user's to fix, like a SQL mistake, so it isn't reported as an exception.
         throw Object.assign(
             new Error(
@@ -36,8 +39,13 @@ export function createMatrixHogQLQuery(query: string, context: DotMatrixQueryCon
     }
     return {
         kind: NodeKind.HogQLQuery,
+        tags: { productKey: 'customer_analytics', scene: 'CustomerAnalytics' },
         query,
-        values: { account_id: context.accountId, account_external_id: context.externalId ?? '' },
+        values: {
+            account_id: context.accountId,
+            account_external_id: context.externalId ?? '',
+            week_start_day: context.weekStartDay ?? 0,
+        },
         filters: {
             dateRange: { date_from: `-${context.weeks - 1}wStart`, date_to: null },
             properties:
@@ -82,7 +90,7 @@ export async function queryDotMatrixSource(
                     accountIds: [context.accountId],
                     dateRange: { date_from: `-${context.weeks - 1}wStart`, date_to: null },
                     interval: 'week',
-                    includeFirstUse: false,
+                    includeFirstUse: context.includeFirstUse ?? false,
                 },
                 { signal },
                 'blocking',

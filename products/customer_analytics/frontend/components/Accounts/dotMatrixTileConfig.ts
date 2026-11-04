@@ -19,6 +19,7 @@ export function getDotMatrixConfigBytes(config: Record<string, unknown>): number
 
 export interface DotMatrixSourceMapping {
     row: string
+    rowLabel?: string
     column: string
     series?: string
     value?: string
@@ -39,7 +40,7 @@ export interface DotMatrixTileConfig {
     source?: DotMatrixTileSource | null
 }
 
-const MAPPING_KEYS = new Set(['row', 'column', 'series', 'value', 'user'])
+const MAPPING_KEYS = new Set(['row', 'column', 'series', 'value', 'user', 'rowLabel'])
 
 function isColumnName(value: unknown): value is string {
     return typeof value === 'string' && value.length > 0 && value.length <= 128
@@ -49,18 +50,26 @@ function getDotMatrixSourceMapping(mapping: unknown): DotMatrixSourceMapping | n
     if (!mapping || typeof mapping !== 'object' || Array.isArray(mapping)) {
         return null
     }
-    const { row, column, series, value, user } = mapping as Record<string, unknown>
+    const { row, column, series, value, user, rowLabel } = mapping as Record<string, unknown>
     if (
         Object.keys(mapping).some((key) => !MAPPING_KEYS.has(key)) ||
         !isColumnName(row) ||
         !isColumnName(column) ||
         (series !== undefined && !isColumnName(series)) ||
         (value !== undefined && !isColumnName(value)) ||
-        (user !== undefined && !isColumnName(user))
+        (user !== undefined && !isColumnName(user)) ||
+        (rowLabel !== undefined && !isColumnName(rowLabel))
     ) {
         return null
     }
-    return { row, column, ...(series ? { series } : {}), ...(value ? { value } : {}), ...(user ? { user } : {}) }
+    return {
+        row,
+        column,
+        ...(series ? { series } : {}),
+        ...(value ? { value } : {}),
+        ...(user ? { user } : {}),
+        ...(rowLabel ? { rowLabel } : {}),
+    }
 }
 
 export function getDotMatrixTileSource(source: unknown): DotMatrixTileSource | null {

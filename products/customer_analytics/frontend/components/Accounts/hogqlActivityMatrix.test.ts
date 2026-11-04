@@ -12,10 +12,101 @@ import {
     DOT_MATRIX_MAX_ROWS,
     DOT_MATRIX_MAX_SERIES,
     getHogQLActivityMatrix,
+    inferHogQLMatrixMapping,
     getHogQLLimitNotice,
 } from './hogqlActivityMatrix'
 
 describe('HogQL activity matrix', () => {
+    it.each([
+        [['who', 'period'], { row: 'who', column: 'period' }],
+        [
+            ['amount', 'week', 'person', 'feature'],
+            { row: 'person', column: 'week', series: 'feature', value: 'amount' },
+        ],
+        [['a', 'b', 'c'], { row: 'a', column: 'b', value: 'c' }],
+        [['a', 'b', 'c', 'd'], { row: 'a', column: 'b', series: 'c', value: 'd' }],
+    ])('maps result columns by name, then position (%j)', (columns, expected) => {
+        expect(
+            inferHogQLMatrixMapping(columns as string[], {
+                row: 'row',
+                column: 'column',
+                series: 'series',
+                value: 'value',
+            })
+        ).toEqual(expected)
+    })
+
+    it('keeps valid manual mappings when a query runs again', () => {
+        const mapping = { row: 'b', column: 'a' }
+        expect(inferHogQLMatrixMapping(['a', 'b', 'series'], mapping)).toEqual(mapping)
+    })
+
+    it('keeps stable row keys and uses a separate readable label, with an ID fallback', () => {
+        const mapping = { row: 'person_id', column: 'week', rowLabel: 'email' }
+        const result = getHogQLActivityMatrix(
+            {
+                columns: ['person_id', 'week', 'email'],
+                results: [
+                    ['p1', 'w1', 'alex@example.com'],
+                    ['p2', 'w1', null],
+                ],
+            },
+            mapping
+        )
+        expect(result.props?.rows).toEqual([
+            { key: 'p1', label: 'alex@example.com' },
+            { key: 'p2', label: 'p2' },
+        ])
+        expect(result.props?.rowHeader?.title).toBe('Email')
+        expect(getDotMatrixTileConfig({ source: { kind: 'hogql', query: 'SELECT 1', mapping } }).source).toMatchObject({
+            mapping,
+        })
+    })
+
+    it.each([0, 1])('uses the project week start in the starter SQL (%s)', (weekStartDay) => {
+        expect(DEFAULT_MATRIX_QUERY).toContain('toStartOfWeek(timestamp, {week_start_day})')
+        expect(
+            createMatrixHogQLQuery(DEFAULT_MATRIX_QUERY, {
+                accountId: 'a',
+                externalId: 'org',
+                groupTypeIndex: 0,
+                weeks: 8,
+                weekStartDay,
+            }).values
+        ).toMatchObject({ week_start_day: weekStartDay })
+    })
+
+    it('maps a renamed value when the row and column aliases stay the same', () => {
+        expect(
+            inferHogQLMatrixMapping(['row', 'column', 'total'], {
+                row: 'row',
+                column: 'column',
+                series: 'series',
+                value: 'value',
+            })
+        ).toEqual({ row: 'row', column: 'column', value: 'total' })
+    })
+
+    it('counts only displayed series when the series limit trims people', () => {
+        const { props } = getHogQLActivityMatrix(
+            {
+                columns: ['r', 'c', 's', 'u'],
+                results: Array.from({ length: DOT_MATRIX_MAX_SERIES + 1 }, (_, i) => [
+                    'account',
+                    'week',
+                    `s${i}`,
+                    `p${i}`,
+                ]),
+            },
+            { row: 'r', column: 'c', series: 's', user: 'u' }
+        )
+        const cell = normalizeDotMatrixData(props!).getCell('account', 'week')
+        expect(getDotMatrixCellCount(cell, props!)).toBe(DOT_MATRIX_MAX_SERIES)
+        expect(getDotMatrixCellCount(cell, { ...props!, selectedSeries: props!.series!.map(({ key }) => key) })).toBe(
+            DOT_MATRIX_MAX_SERIES
+        )
+    })
+
     it('maps column names independently of their order and sums duplicate cells', () => {
         const result = getHogQLActivityMatrix(
             {
@@ -71,8 +162,9 @@ describe('HogQL activity matrix', () => {
         })
         expect(query).toEqual({
             kind: NodeKind.HogQLQuery,
+            tags: { productKey: 'customer_analytics', scene: 'CustomerAnalytics' },
             query: 'SELECT {account_external_id} FROM events WHERE {filters}',
-            values: { account_id: 'account', account_external_id: "org'quote" },
+            values: { account_id: 'account', account_external_id: "org'quote", week_start_day: 0 },
             filters: {
                 dateRange: { date_from: '-7wStart', date_to: null },
                 properties: [

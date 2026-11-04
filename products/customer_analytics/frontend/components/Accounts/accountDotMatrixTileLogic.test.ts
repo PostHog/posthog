@@ -67,14 +67,35 @@ describe('accountDotMatrixTileLogic', () => {
             includeFirstUse: false,
         })
         logic.actions.setMode('count')
+        const savesBeforeSelection = save.mock.calls.length
         logic.actions.setSelectedSeries(['pa', 'replay'])
+        expect(save).toHaveBeenCalledTimes(savesBeforeSelection)
+        expect(logic.values.selectedSeries).toEqual(['pa', 'replay'])
         expect(mockPerformQuery).toHaveBeenCalledTimes(1)
         expect(save).toHaveBeenLastCalledWith({
             mode: 'count',
             weeks: 8,
-            selectedSeries: ['pa', 'replay'],
+            selectedSeries: [],
             source: { kind: 'product_usage' },
         })
+        logic.unmount()
+    })
+
+    it('requests first use only after an explicit action and keeps the choice out of the saved view', async () => {
+        mockPerformQuery.mockResolvedValue({ results: BOOK_ACTIVITY_MATRIX_MOCK })
+        const save = jest.fn()
+        const logic = accountDotMatrixTileLogic({
+            instanceId: 'first-use',
+            accountId: 'account-1',
+            initialConfig: { source: { kind: 'product_usage' } },
+            onConfigChange: save,
+        })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadMatrixSuccess'])
+        expect(mockPerformQuery.mock.calls[0][0].includeFirstUse).toBe(false)
+        await expectLogic(logic, () => logic.actions.setIncludeFirstUse(true)).toDispatchActions(['loadMatrixSuccess'])
+        expect(mockPerformQuery.mock.calls[1][0].includeFirstUse).toBe(true)
+        expect(save).not.toHaveBeenCalled()
         logic.unmount()
     })
 
@@ -96,9 +117,7 @@ describe('accountDotMatrixTileLogic', () => {
             .toDispatchActions(['loadMatrixSuccess'])
             .toFinishAllListeners()
             .toMatchValues({ matrixResultLoading: false })
-        logic.actions.saveQuery()
-        expect(logic.values.config.source).toBeNull()
-        logic.actions.setMappingDraft({ row: 'who', column: 'period' })
+        expect(logic.values.mappingDraft).toEqual({ row: 'who', column: 'period' })
         expect(logic.values.querySaveError).toBeNull()
         await expectLogic(logic, () => logic.actions.saveQuery()).toDispatchActions(['applyQuery'])
         const saved = logic.values.config
@@ -168,7 +187,8 @@ describe('accountDotMatrixTileLogic', () => {
         second.mount()
         first.actions.setSelectedSeries(['metric-replay'])
         second.actions.setMode('count')
-        expect(saveFirst).toHaveBeenLastCalledWith({ mode: 'dots', weeks: 8, selectedSeries: ['metric-replay'] })
+        expect(saveFirst).not.toHaveBeenCalled()
+        expect(first.values.selectedSeries).toEqual(['metric-replay'])
         expect(saveSecond).toHaveBeenLastCalledWith({ mode: 'count', weeks: 8, selectedSeries: [] })
         const saved = second.values.config
         second.unmount()
