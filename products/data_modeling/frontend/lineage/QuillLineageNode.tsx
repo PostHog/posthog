@@ -176,6 +176,29 @@ function NodeHandles({ data }: { data: LineageNodeData }): JSX.Element {
     )
 }
 
+function quillNodeBorderClassName({ node, state }: LineageNodeData): string {
+    if (state.isSelected) {
+        return 'border-primary ring-4 ring-primary/30'
+    }
+    if (state.isRunning) {
+        return 'border-warning-foreground ring-2 ring-warning'
+    }
+    if (state.isHighlighted) {
+        return 'border-primary ring-2 ring-primary/20'
+    }
+    return node.lineage_issue ? 'border-warning-foreground' : 'border-border'
+}
+
+function quillNodeCardClassName(data: LineageNodeData): string {
+    return clsx(
+        'group/lineage-node relative pointer-events-auto min-w-45 rounded-lg border bg-card text-card-foreground',
+        data.draggable ? 'cursor-grab active:cursor-grabbing' : data.callbacks.onClick && 'cursor-pointer',
+        data.state.isRunning && 'animate-pulse motion-reduce:animate-none',
+        quillNodeBorderClassName(data),
+        data.state.isDimmed && 'opacity-30'
+    )
+}
+
 export function QuillLineageNode({ data }: { data: LineageNodeData }): JSX.Element {
     const { node, state, callbacks, openUrl } = data
 
@@ -185,22 +208,7 @@ export function QuillLineageNode({ data }: { data: LineageNodeData }): JSX.Eleme
 
     const card = (
         <div
-            className={clsx(
-                'group/lineage-node relative pointer-events-auto min-w-45 rounded-lg border bg-card text-card-foreground',
-                data.draggable && 'cursor-grab active:cursor-grabbing',
-                !data.draggable && callbacks.onClick && 'cursor-pointer',
-                state.isRunning && 'animate-pulse motion-reduce:animate-none',
-                state.isRunning && !state.isSelected && 'border-warning-foreground ring-2 ring-warning',
-                state.isSelected && 'border-primary ring-4 ring-primary/30',
-                !state.isRunning && !state.isSelected && state.isHighlighted && 'border-primary ring-2 ring-primary/20',
-                !state.isRunning && !state.isSelected && !state.isHighlighted && 'border-border',
-                node.lineage_issue &&
-                    !state.isRunning &&
-                    !state.isSelected &&
-                    !state.isHighlighted &&
-                    'border-warning-foreground',
-                state.isDimmed && 'opacity-30'
-            )}
+            className={quillNodeCardClassName(data)}
             onClick={callbacks.onClick}
             onMouseEnter={callbacks.onMouseEnter}
             onMouseLeave={callbacks.onMouseLeave}

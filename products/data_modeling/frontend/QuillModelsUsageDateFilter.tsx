@@ -15,7 +15,12 @@ import {
 
 import { dayjs } from 'lib/dayjs'
 
-import { MODELS_USAGE_RANGE_DAYS, modelsUsageRangeLabel, modelsUsageRelativeDateFrom } from './modelsUsageDateRanges'
+import {
+    MODELS_USAGE_RANGE_DAYS,
+    lastCompleteUsageDay,
+    modelsUsageRangeLabel,
+    modelsUsageRelativeDateFrom,
+} from './modelsUsageDateRanges'
 import { modelsUsageLogic } from './modelsUsageLogic'
 
 const DATE_FORMAT = 'YYYY-MM-DD'
@@ -28,8 +33,11 @@ const USAGE_RANGES: UsageRange[] = MODELS_USAGE_RANGE_DAYS.map((days) => ({
     id: days,
     name: modelsUsageRangeLabel(days),
     relativeDateFrom: modelsUsageRelativeDateFrom(days),
-    rangeSetter: (now) => dayjs(now).startOf('day').subtract(days, 'day').toDate(),
-    endSetter: (now) => dayjs(now).startOf('day').subtract(1, 'day').toDate(),
+    rangeSetter: () =>
+        dayjs(lastCompleteUsageDay())
+            .subtract(days - 1, 'day')
+            .toDate(),
+    endSetter: () => lastCompleteUsageDay(),
 }))
 
 function toPickerValue(dateFrom: string, dateTo: string | null): DateTimeValue {
@@ -40,7 +48,7 @@ function toPickerValue(dateFrom: string, dateTo: string | null): DateTimeValue {
     }
     return {
         start: dayjs(dateFrom).toDate(),
-        end: dateTo ? dayjs(dateTo).toDate() : dayjs(now).subtract(1, 'day').toDate(),
+        end: dateTo ? dayjs(dateTo).toDate() : lastCompleteUsageDay(),
         range: CUSTOM_RANGE,
     }
 }
@@ -88,7 +96,7 @@ export function QuillModelsUsageDateFilter(): JSX.Element {
                     onApply={apply}
                     onCancel={() => setOpen(false)}
                     ranges={USAGE_RANGES}
-                    maxDate={dayjs().startOf('day').subtract(1, 'day').toDate()}
+                    maxDate={lastCompleteUsageDay()}
                     showTime={false}
                 />
             </PopoverContent>

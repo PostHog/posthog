@@ -13,3 +13,8 @@ export function modelsUsageRelativeDateFrom(days: number): string {
 export function modelsUsageRangeDescription(days: number, today: dayjs.Dayjs): string {
     return `${today.subtract(days, 'day').format('MMM D, YYYY')} – ${today.subtract(1, 'day').format('MMM D, YYYY')}`
 }
+
+export function lastCompleteUsageDay(): Date {
+    const lastCompleteUtcDay = dayjs.utc().startOf('day').subtract(1, 'day')
+    return new Date(lastCompleteUtcDay.year(), lastCompleteUtcDay.month(), lastCompleteUtcDay.date())
+}

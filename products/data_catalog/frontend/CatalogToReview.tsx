@@ -1,15 +1,25 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils/strings'
+import { urls } from 'scenes/urls'
 
 import { QuillCertificationSuggestionsDialogs } from 'products/warehouse_suggestions/frontend/components/QuillCertificationSuggestionsDialogs'
+import type { WarehouseSuggestionApi } from 'products/warehouse_suggestions/frontend/generated/api.schemas'
 import { certificationSummaryText } from 'products/warehouse_suggestions/frontend/suggestionCopy'
 import { warehouseSuggestionsLogic } from 'products/warehouse_suggestions/frontend/warehouseSuggestionsLogic'
 
+import { TABLES_SEARCH_PARAM } from './catalogTableRows'
 import { CatalogToReviewList } from './CatalogToReviewList'
 import { certificationsLogic } from './certificationsLogic'
+
+function openAcceptedSubject(suggestion: WarehouseSuggestionApi): void {
+    router.actions.push(
+        combineUrl(urls.dataCatalog('tables'), { [TABLES_SEARCH_PARAM]: suggestion.payload.subject_name }).url
+    )
+}
 
 function CatalogToReviewWithSuggestions(): JSX.Element {
     const { stripState, surfaceSuggestions } = useValues(warehouseSuggestionsLogic)
@@ -43,7 +53,12 @@ export function CatalogToReview(): JSX.Element | null {
     return (
         <BindLogic
             logic={warehouseSuggestionsLogic}
-            props={{ surface: 'catalog', placement: 'overview', onAccepted: () => suggestionAccepted() }}
+            props={{
+                surface: 'catalog',
+                placement: 'overview',
+                onAccepted: () => suggestionAccepted(),
+                onViewAccepted: openAcceptedSubject,
+            }}
         >
             <CatalogToReviewWithSuggestions />
         </BindLogic>
