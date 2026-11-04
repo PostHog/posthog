@@ -202,6 +202,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const customerioImportEnabled = useFeatureFlag('WORKFLOWS_CUSTOMERIO_IMPORT')
     const listV2 = useFeatureFlag('WORKFLOWS_LIST_V2')
+    const projectFiles = useFeatureFlag('WORKFLOWS_PROJECT_FILES')
     const { openImportModal } = useActions(customerioImportLogic)
 
     const workflowsTab = {
@@ -210,7 +211,9 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
         content: listV2 ? <WorkflowsListV2 /> : <WorkflowsTable />,
         link: urls.workflows(),
     }
-    const showsNewWorkflowButton = currentTab === 'workflows' || currentTab === 'templates' || currentTab === 'calendar'
+    const showsNewWorkflowButton =
+        (currentTab === 'workflows' || currentTab === 'templates' || currentTab === 'calendar') &&
+        !(currentTab === 'workflows' && listV2 && projectFiles)
     const onNewWorkflow = (): void => {
         void addProductIntent({
             product_type: ProductKey.WORKFLOWS,
@@ -282,7 +285,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                                 )}
                             </AccessControlAction>
                         )}
-                        {currentTab === 'workflows' && listV2 && <WorkflowsListV2ColumnsMenu />}
+                        {currentTab === 'workflows' && listV2 && !projectFiles && <WorkflowsListV2ColumnsMenu />}
                         {currentTab !== 'workflows' && currentTab !== 'templates' && currentTab !== 'calendar' && (
                             <MessagingTabActions tab={currentTab} channelsUrl={urls.workflows('channels')} />
                         )}

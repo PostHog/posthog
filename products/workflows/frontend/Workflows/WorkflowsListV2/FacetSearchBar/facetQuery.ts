@@ -13,6 +13,7 @@ export interface FacetDefinition<TItem> {
     normalizeValue?: (value: string) => string
     /** Maps a stored value to the one `getValues` returns when it depends on the viewer or the loaded items. */
     resolveValue?: (value: string) => string
+    caseSensitive?: boolean
     /** Display form of a stored value: `active` → `Active`, a user uuid → a name. */
     formatValue?: (value: string) => string
     /** A typed value that matches no loaded value is still worth a pill, such as a person's name. */
@@ -59,7 +60,7 @@ export function normalizeFacetValue<TItem>(facet: FacetDefinition<TItem>, value:
 }
 
 export function facetFilterKey(filter: FacetFilter): string {
-    return `${filter.negated ? '-' : ''}${filter.facet}:${filter.value.toLowerCase()}`
+    return `${filter.negated ? '-' : ''}${filter.facet}:${filter.facet === 'in' ? filter.value : filter.value.toLowerCase()}`
 }
 
 /** Compares the values the pills match, so a creator name and that creator's uuid are the same pill. */
@@ -137,7 +138,7 @@ function groupFilters<TItem>(filters: FacetFilter[], facets: FacetDefinition<TIt
         }
         const group = groups.get(facet.key) ?? { facet, positive: new Set(), negative: new Set() }
         const value = facet.resolveValue?.(filter.value) ?? filter.value
-        ;(filter.negated ? group.negative : group.positive).add(value.toLowerCase())
+        ;(filter.negated ? group.negative : group.positive).add(facet.caseSensitive ? value : value.toLowerCase())
         groups.set(facet.key, group)
     }
     return [...groups.values()]
@@ -148,7 +149,7 @@ function passesGroups<TItem>(item: TItem, groups: FacetFilterGroup<TItem>[], ski
         if (facet.key === skipFacet) {
             continue
         }
-        const values = facet.getValues(item).map((value) => value.toLowerCase())
+        const values = facet.getValues(item).map((value) => (facet.caseSensitive ? value : value.toLowerCase()))
         if (positive.size && !values.some((value) => positive.has(value))) {
             return false
         }
@@ -194,7 +195,11 @@ export function createFacetCounter<TItem>(
             if (!passesGroups(item, groups, facet.key)) {
                 continue
             }
-            const itemValues = new Map(facet.getValues(item).map((itemValue) => [itemValue.toLowerCase(), itemValue]))
+            const itemValues = new Map(
+                facet
+                    .getValues(item)
+                    .map((itemValue) => [facet.caseSensitive ? itemValue : itemValue.toLowerCase(), itemValue])
+            )
             for (const [lowered, itemValue] of itemValues) {
                 const entry = counts.get(lowered)
                 if (entry) {

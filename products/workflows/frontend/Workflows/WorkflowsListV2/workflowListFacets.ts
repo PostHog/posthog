@@ -1,3 +1,6 @@
+import { parentPath, splitPath, joinPath } from '~/layout/panel-layout/ProjectTree/utils'
+import { FileSystemEntry } from '~/queries/schema/schema-general'
+
 import type { FacetDefinition } from './FacetSearchBar/facetQuery'
 import { HEALTH_TAGS, STATUS_LABELS, TRIGGER_LABELS, TYPE_LABELS } from './workflowListLabels'
 import { WorkflowListRow } from './workflowListRows'
@@ -26,7 +29,11 @@ export function matchesWorkflowListText(row: WorkflowListRow, text: string): boo
 }
 
 /** `rows` supplies the names shown for creator uuids. */
-export function buildWorkflowListFacets(rows: WorkflowListRow[]): FacetDefinition<WorkflowListRow>[] {
+export function buildWorkflowListFacets(
+    rows: WorkflowListRow[],
+    itemsByRef: Record<string, FileSystemEntry> = {},
+    includeDescendants: boolean = false
+): FacetDefinition<WorkflowListRow>[] {
     const creators = new Map(
         rows.flatMap(({ workflow }) => (workflow.created_by ? [[workflow.created_by.uuid, workflow.created_by]] : []))
     )
@@ -48,6 +55,26 @@ export function buildWorkflowListFacets(rows: WorkflowListRow[]): FacetDefinitio
     }
 
     return [
+        {
+            key: 'in',
+            aliases: ['path', 'folder'],
+            label: 'in',
+            description: 'Project folder',
+            caseSensitive: true,
+            formatValue: (value) => splitPath(value).join(' / '),
+            getValues: (row) => {
+                const entry = itemsByRef[`hog_flow::${row.id}`]
+                if (!entry || entry.shortcut) {
+                    return ['Unfiled/Workflows', 'Unfiled']
+                }
+                const parent = parentPath(entry.path)
+                const parts = splitPath(parent)
+                const folders = includeDescendants
+                    ? parts.map((_, index) => joinPath(parts.slice(0, index + 1)))
+                    : [parent]
+                return parent.startsWith('Unfiled/') ? [...folders, 'Unfiled'] : folders
+            },
+        },
         {
             key: 'status',
             label: 'Status',

@@ -1,6 +1,10 @@
+import api from 'lib/api'
 import type { AiFirstHandoffLogicProps } from 'scenes/max/aiFirstCreate/aiFirstHandoffLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
+
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
+import { calculateMovePath } from '~/layout/panel-layout/ProjectTree/utils'
 
 import { hogFlowsList } from '../generated/api'
 
@@ -34,4 +38,27 @@ export const NEW_WORKFLOW_HANDOFF: AiFirstHandoffLogicProps = {
     eventPrefix: 'workflow ai composer',
     createdEvent: 'workflow ai composer created workflow',
     createdIdProperty: 'workflow_id',
+}
+
+export function workflowHandoffInFolder(folder: string | null): AiFirstHandoffLogicProps {
+    if (!folder) {
+        return NEW_WORKFLOW_HANDOFF
+    }
+    return {
+        ...NEW_WORKFLOW_HANDOFF,
+        notOpenedMessage:
+            'Your workflow was created, but could not be moved into this folder. Find it in project files and use Move to.',
+        prepareCreated: async (id) => {
+            const { results } = await api.fileSystem.list({ type: 'hog_flow', ref: id })
+            const entry = results.find((item) => item.type === 'hog_flow' && item.ref === id && !item.shortcut)
+            if (!entry?.id) {
+                throw new Error('Workflow file not found')
+            }
+            const { newPath, isValidMove } = calculateMovePath(entry, folder)
+            if (isValidMove) {
+                await api.fileSystem.move(entry.id, newPath)
+                projectTreeDataLogic.findMounted()?.actions.movedItem(entry, entry.path, newPath)
+            }
+        },
+    }
 }

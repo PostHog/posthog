@@ -1481,7 +1481,7 @@ export const projectTreeDataLogic = kea<projectTreeDataLogicType>([
                 const keyedByRef: Record<string, FileSystemEntry> = {}
 
                 for (const item of sortedItems) {
-                    if (item.type && item.ref) {
+                    if (item.type && item.ref && (!item.shortcut || !keyedByRef[`${item.type}::${item.ref}`])) {
                         keyedByRef[`${item.type}::${item.ref}`] = item
                     }
                 }

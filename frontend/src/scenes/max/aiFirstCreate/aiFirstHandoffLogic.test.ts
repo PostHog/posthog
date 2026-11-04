@@ -72,6 +72,121 @@ describe('aiFirstHandoffLogic', () => {
         logic?.unmount()
     })
 
+    it('hands off a new stream while the previous stream is still preparing', async () => {
+        let finishFirst: () => void = () => {}
+        let startedFirst: () => void = () => {}
+        const firstStarted = new Promise<void>((resolve) => {
+            startedFirst = resolve
+        })
+        const firstPending = new Promise<void>((resolve) => {
+            finishFirst = resolve
+        })
+        logic.unmount()
+        logic = aiFirstHandoffLogic({
+            ...handoff(),
+            prepareCreated: async (id) => {
+                if (id === 'first-created') {
+                    startedFirst()
+                    await firstPending
+                }
+            },
+        })
+        logic.mount()
+        const outputEvent = (streamKey: string, id: string): ToolStreamEvent =>
+            createEvent({
+                streamKey,
+                invocation: {
+                    ...createEvent({}).invocation,
+                    output: {
+                        content: [{ type: 'text', text: 'Created' }],
+                        _meta: { 'com.posthog.mcp/app_data': { id } },
+                    },
+                },
+            })
+        runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }).actions.setActiveCreation({ streamKey: 'draft-1' })
+        toolStreamEventsLogic.actions.emitToolEvent(outputEvent('draft-1', 'first-created'))
+        await firstStarted
+        runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }).actions.setActiveCreation({ streamKey: 'draft-2' })
+        try {
+            await expectLogic(logic, () =>
+                toolStreamEventsLogic.actions.emitToolEvent(outputEvent('draft-2', CREATED_ID))
+            ).toDispatchActions(['openSidePanel'])
+            expect(router.values.location.pathname).toContain(CREATED_ID)
+        } finally {
+            finishFirst()
+            await expectLogic(logic).toFinishAllListeners()
+        }
+    })
+
+    it('hands off a second create in the same stream while the first move later fails', async () => {
+        let failFirst: (error: Error) => void = () => {}
+        let startedFirst: () => void = () => {}
+        const firstStarted = new Promise<void>((resolve) => {
+            startedFirst = resolve
+        })
+        const firstPending = new Promise<void>((_, reject) => {
+            failFirst = reject
+        })
+        const toast = jest.spyOn(lemonToast, 'error')
+        logic.unmount()
+        logic = aiFirstHandoffLogic({
+            ...handoff(),
+            prepareCreated: async (id) => {
+                if (id === 'first-created') {
+                    startedFirst()
+                    await firstPending
+                }
+            },
+        })
+        logic.mount()
+        const outputEvent = (id: string): ToolStreamEvent =>
+            createEvent({
+                toolCallId: id,
+                invocation: {
+                    ...createEvent({}).invocation,
+                    output: {
+                        content: [{ type: 'text', text: 'Created' }],
+                        _meta: { 'com.posthog.mcp/app_data': { id } },
+                    },
+                },
+            })
+        runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }).actions.setActiveCreation({ streamKey: 'draft-1' })
+        toolStreamEventsLogic.actions.emitToolEvent(outputEvent('first-created'))
+        await firstStarted
+        toolStreamEventsLogic.actions.emitToolEvent(outputEvent(CREATED_ID))
+        await new Promise((resolve) => setTimeout(resolve, 0))
+        const destinationBeforeFirstFails = router.values.location.pathname
+        failFirst(new Error('Move failed'))
+        await expectLogic(logic).toFinishAllListeners()
+        expect(destinationBeforeFirstFails).toContain(CREATED_ID)
+        expect(toast).not.toHaveBeenCalled()
+        toast.mockRestore()
+    })
+
+    it('retries the same completed create after its first move fails', async () => {
+        const prepareCreated = jest.fn().mockRejectedValueOnce(new Error('Move failed')).mockResolvedValue(undefined)
+        const toast = jest.spyOn(lemonToast, 'error')
+        logic.unmount()
+        logic = aiFirstHandoffLogic({ ...handoff(), prepareCreated })
+        logic.mount()
+        runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }).actions.setActiveCreation({ streamKey: 'draft-1' })
+        const event = createEvent({
+            invocation: {
+                ...createEvent({}).invocation,
+                output: {
+                    content: [{ type: 'text', text: 'Created' }],
+                    _meta: { 'com.posthog.mcp/app_data': { id: CREATED_ID } },
+                },
+            },
+        })
+        await expectLogic(logic, () => toolStreamEventsLogic.actions.emitToolEvent(event)).toFinishAllListeners()
+        expect(toast).toHaveBeenCalledTimes(1)
+        await expectLogic(logic, () => toolStreamEventsLogic.actions.emitToolEvent(event)).toFinishAllListeners()
+        expect(prepareCreated).toHaveBeenCalledTimes(2)
+        expect(router.values.location.pathname).toContain(CREATED_ID)
+        toast.mockRestore()
+    })
+
     // Otherwise the composer and the side panel show the same empty chat side by side.
     it('closes an open PostHog AI panel when the composer is shown', async () => {
         sidePanelStateLogic.actions.openSidePanel(SidePanelTab.Max)

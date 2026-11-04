@@ -68,6 +68,7 @@ interface ProjectTreeBaseProps {
      * the tree inside a larger surface uses this to report the click in that surface's own terms.
      */
     onItemClicked?: (item: TreeDataItem | undefined) => void
+    onFolderClicked?: (folder: TreeDataItem) => void
     /** Replaces the tree's own tooltip, so a caller can match the tooltips of the rows around the tree. */
     renderItemTooltip?: (item: TreeDataItem) => ReactNode | undefined
     /** A docs link under the item's tooltip, for callers whose rows link to a product's docs. */
@@ -270,6 +271,7 @@ export function ProjectTree(props: ProjectTreeProps): JSX.Element {
             }}
             onFolderClick={(folder, isExpanded) => {
                 if (folder) {
+                    props.onFolderClicked?.(folder)
                     posthog.capture('project tree folder toggled', {
                         root: root ?? 'project://',
                         is_expanded: isExpanded,
