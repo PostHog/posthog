@@ -45,6 +45,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.apple_sear
 from products.warehouse_sources.backend.temporal.data_imports.sources.apple_search_ads.source import (
     AppleSearchAdsSource,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.testing import (
     DriveResult,
@@ -52,6 +53,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.tes
     ScriptedResponse,
     SourceDriver,
     always,
+    http_response,
     scripted_network,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.applesearchads import (
@@ -180,6 +182,13 @@ def _driver() -> SourceDriver:
     return SourceDriver(AppleSearchAdsSource(), config)
 
 
+class _EmptyReasonResponse(ScriptedResponse):
+    """A response whose status line has no reason phrase, which Apple sometimes sends."""
+
+    def to_bytes(self) -> bytes:
+        return http_response(f"{self.status} ".encode(), b"", [])
+
+
 def _api_requests(result: DriveResult) -> list[RecordedRequest]:
     return [request for request in result.requests if request.url != APPLE_OAUTH_TOKEN_URL]
 
@@ -305,6 +314,16 @@ class TestAppleSearchAdsTransport:
         result = _driver().run("campaigns", answer, api_version=V5)
 
         assert isinstance(result.raised, HTTPError)
+
+    @parameterized.expand([("legacy_bad_request", V5, 400), ("platform_unauthorized", V1, 401)])
+    def test_an_error_without_a_reason_phrase_is_non_retryable(self, _name: str, api_version: str, status: int) -> None:
+        def answer(request: RecordedRequest) -> ScriptedResponse:
+            return _token_response() if request.url == APPLE_OAUTH_TOKEN_URL else _EmptyReasonResponse(status=status)
+
+        result = _driver().run("campaigns", answer, api_version=api_version)
+
+        assert isinstance(result.raised, HTTPError)
+        assert error_message_matches(str(result.raised), AppleSearchAdsSource().get_non_retryable_errors().keys())
 
     @parameterized.expand([(V5,), (V1,)])
     def test_entity_pagination_advances_the_offset_and_checkpoints_between_pages(self, api_version: str) -> None:

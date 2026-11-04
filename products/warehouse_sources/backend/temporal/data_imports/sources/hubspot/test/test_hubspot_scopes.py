@@ -20,7 +20,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.sc
     missing_scope_message,
     scope_gated_object_for_url,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.settings import LEADS_SCOPE
+from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.settings import (
+    CONVERSATIONS_SCOPE,
+    LEADS_SCOPE,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.source import HubspotSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.test.test_source_routing import (
     _make_inputs,
@@ -138,9 +141,17 @@ class TestScopeGatingInSource:
         else:
             assert expected_scope in (permissions["leads"] or "")
 
-    def test_sync_fails_with_an_actionable_error_when_the_scope_is_missing(self) -> None:
+    @parameterized.expand(
+        [
+            ("crm_object", "leads", LEADS_SCOPE),
+            ("non_crm_table", "conversation_threads", CONVERSATIONS_SCOPE),
+        ]
+    )
+    def test_sync_fails_with_an_actionable_error_when_the_scope_is_missing(
+        self, _name: str, schema_name: str, scope: str
+    ) -> None:
         source = HubspotSource()
-        inputs = _make_inputs(schema_name="leads")
+        inputs = _make_inputs(schema_name=schema_name)
 
         with (
             patch.object(source, "get_oauth_integration", return_value=_integration({"scopes": ["tickets"]})),
@@ -154,4 +165,4 @@ class TestScopeGatingInSource:
         hubspot_source_mock.assert_not_called()
         friendly = HubspotSource().get_non_retryable_errors()[str(exc.value)]
         assert friendly is not None
-        assert LEADS_SCOPE in friendly
+        assert scope in friendly

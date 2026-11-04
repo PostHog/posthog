@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconSparkles } from '@posthog/icons'
-import { LemonBadge, LemonCollapse, LemonSkeleton } from '@posthog/lemon-ui'
+import { Badge, Collapsible, CollapsibleContent, CollapsibleTrigger, Skeleton } from '@posthog/quill'
 
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
@@ -20,9 +20,13 @@ export function RecordingObservationsSection({ sessionId }: { sessionId: string 
     const count = momentCount(timeline)
 
     const content = !hasLoadedObservations ? (
-        <LemonSkeleton className="h-24 m-2" />
+        <Skeleton className="h-24 m-2" />
     ) : observations.length === 0 ? (
-        <RecordingObservationsEmptyState sessionId={sessionId} scanBlock={recordingScanBlock(sessionPlayerMetaData)} />
+        <RecordingObservationsEmptyState
+            sessionId={sessionId}
+            scanBlock={recordingScanBlock(sessionPlayerMetaData)}
+            surface="watch"
+        />
     ) : (
         <div className="flex flex-col max-h-[60vh]">
             <RecordingMoments key={sessionId} sessionId={sessionId} playerLogicProps={logicProps} />
@@ -30,25 +34,19 @@ export function RecordingObservationsSection({ sessionId }: { sessionId: string 
     )
 
     return (
-        <LemonCollapse
-            size="small"
-            panels={[
-                {
-                    key: 'observations',
-                    header: (
-                        <span className="flex items-center gap-1.5">
-                            <IconSparkles />
-                            <span>Observations</span>
-                            {count > 0 && <LemonBadge.Number count={count} size="small" status="muted" />}
-                        </span>
-                    ),
-                    content,
-                    className: 'p-0',
-                    dataAttr: 'watch-panel-section-observations',
-                },
-            ]}
-            activeKey={watchPanelOpenSections.includes('observations') ? 'observations' : null}
-            onChange={() => toggleWatchPanelSection('observations')}
-        />
+        <Collapsible
+            data-quill
+            open={watchPanelOpenSections.includes('observations')}
+            onOpenChange={() => toggleWatchPanelSection('observations')}
+            data-attr="watch-panel-section-observations"
+        >
+            <CollapsibleTrigger className="w-full">
+                <IconSparkles />
+                <span>Observations</span>
+                {count > 0 && <Badge>{count}</Badge>}
+                <span className="grow" />
+            </CollapsibleTrigger>
+            <CollapsibleContent className="p-0">{content}</CollapsibleContent>
+        </Collapsible>
     )
 }

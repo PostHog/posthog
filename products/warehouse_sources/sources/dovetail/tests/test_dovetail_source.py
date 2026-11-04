@@ -14,7 +14,7 @@ class TestDovetailSource:
         assert config.name.value == "Dovetail"
         assert config.label == "Dovetail"
         assert config.category == DataWarehouseSourceCategory.PRODUCTIVITY
-        assert config.releaseStatus == ReleaseStatus.BETA
+        assert config.releaseStatus == ReleaseStatus.GA
         # The source ships visible: unreleasedSource hides the connector from every user.
         assert not config.unreleasedSource
         assert config.iconPath == "/static/services/dovetail.png"

@@ -37,6 +37,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.con
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.credential_kind import (
     default_credential_kind,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.oauth_pointers import (
+    OAuthPointer,
+    PointerPath,
+    declared_oauth_pointer_paths,
+    find_in_use_oauth_slot,
+    pointer_at,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import (
@@ -585,6 +592,25 @@ class _BaseSource(ABC, Generic[ConfigType]):
         )
 
         return derive_credential_auth_type(self.get_source_config)
+
+    def in_use_oauth_slot(self, job_inputs: Mapping[str, Any]) -> PointerPath | None:
+        """Where ``job_inputs`` keep the OAuth pointer (`*_integration_id`) that the sync uses, or None.
+
+        The default walks the form: an OAuth field under a select option or a switch group is in use only when
+        that option is selected or the group is on. Override it for a pointer that no form field declares
+        (Slack's legacy ``slack_integration_id``), together with ``oauth_pointer_paths``. Raises
+        `OAuthPointerShapeError` when the inputs cannot tell which field is in use."""
+        return find_in_use_oauth_slot(self.get_source_config.fields, job_inputs)
+
+    def in_use_oauth_pointer(self, job_inputs: Mapping[str, Any]) -> OAuthPointer | None:
+        """The OAuth pointer that the sync of these inputs uses, or None. Do not override: override
+        ``in_use_oauth_slot``."""
+        return pointer_at(job_inputs, self.in_use_oauth_slot(job_inputs))
+
+    @property
+    def oauth_pointer_paths(self) -> frozenset[PointerPath]:
+        """Every place in ``job_inputs`` that can hold an OAuth pointer, also under options that are not selected."""
+        return declared_oauth_pointer_paths(self.get_source_config.fields)
 
     def is_unreachable_validation_error(self, error: str) -> bool:
         """Whether a ``validate_credentials`` message means only that the host could not be reached

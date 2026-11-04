@@ -238,6 +238,14 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "hs_lastmodifieddate": "Date any property on the payment was last modified.",
         },
     },
+    "forecasts": {
+        "description": "A forecast submission: the amount a user or team commits to closing for a pipeline and period.",
+        "docs_url": "https://developers.hubspot.com/docs/api-reference/latest/crm/objects/forecasts/guide",
+        "columns": {
+            "hs_object_id": "HubSpot's unique internal identifier for the forecast submission.",
+            "hs_lastmodifieddate": "Date any property on the forecast submission was last modified.",
+        },
+    },
     "pipelines": {
         "description": "A pipeline that deals or tickets move through. Decodes the `pipeline` and `hs_pipeline` IDs carried on those records.",
         "docs_url": "https://developers.hubspot.com/docs/api-reference/crm-pipelines-v3",
@@ -321,6 +329,27 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "createdAt": "Time the owner was created.",
             "updatedAt": "Time the owner was last updated.",
             "teams": "JSON string listing the teams the owner belongs to.",
+        },
+    },
+    "conversation_threads": {
+        "description": "A conversation thread in a HubSpot inbox, such as a chat, email, or form conversation with a contact.",
+        "docs_url": "https://developers.hubspot.com/docs/api-reference/latest/conversations/conversations/guide",
+        "columns": {
+            "id": "The unique identifier for the conversation thread.",
+            "inboxId": "The identifier of the inbox where the thread is located.",
+            "status": "The status of the thread, OPEN or CLOSED.",
+            "archived": "Whether the thread is archived.",
+            "spam": "Whether the thread is marked as spam.",
+            "assignedTo": "The identifier of the actor the thread is assigned to.",
+            "associatedContactId": "The identifier of the contact associated with the thread.",
+            "originalChannelId": "The identifier of the channel the thread started on.",
+            "originalChannelAccountId": "The identifier of the channel account the thread started on.",
+            "threadAssociations": "JSON string of the records associated with the thread, such as a ticket.",
+            "createdAt": "Time the thread was created.",
+            "closedAt": "Time the thread was closed, if it was.",
+            "latestMessageTimestamp": "Time of the latest message in the thread.",
+            "latestMessageReceivedTimestamp": "Time the latest message was received.",
+            "latestMessageSentTimestamp": "Time the latest message was sent.",
         },
     },
 }

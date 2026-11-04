@@ -3,12 +3,21 @@ import '../player-meta/PlayerMeta.scss'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { LemonSegmentedButton, LemonSelect, LemonSelectOption, Link } from '@posthog/lemon-ui'
+import {
+    Button,
+    Select,
+    SelectContent,
+    SelectItem,
+    SelectTrigger,
+    SelectValue,
+    Skeleton,
+    ToggleGroup,
+    ToggleGroupItem,
+} from '@posthog/quill'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
-import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { IconWindow } from 'scenes/session-recordings/player/icons'
 import { parseUrl } from 'scenes/session-recordings/player/player-meta/PlayerMeta'
 import {
@@ -33,6 +42,9 @@ import { debugTabKeys } from './DebugTabBar'
 
 type PlayerMode = 'watch' | 'debug'
 
+// The select has no empty value, so "follow the user" takes a string of its own.
+const FOLLOW_USER = 'follow'
+
 export function PlayerModeBar(): JSX.Element {
     const { logicProps, sessionRecordingId } = useValues(sessionRecordingPlayerLogic)
     const { windowIds, trackedWindow, currentURL, currentWindowIndex, loading } = useValues(playerMetaLogic(logicProps))
@@ -54,49 +66,62 @@ export function PlayerModeBar(): JSX.Element {
         }
     }
 
-    const windowOptions: LemonSelectOption<number | null>[] = [
-        {
-            label: <IconWindow value={currentWindowIndex} className="text-secondary" />,
-            value: null,
-            labelInMenu: <>Follow the user</>,
-        },
+    const windowOptions = [
+        { value: FOLLOW_USER, label: <IconWindow value={currentWindowIndex} className="text-muted-foreground" /> },
         ...windowIds.map((windowId) => ({
-            label: <IconWindow value={windowId} className="text-secondary" />,
-            labelInMenu: (
-                <div className="flex flex-row gap-x-1 items-center">
-                    Follow window:&nbsp;
-                    <IconWindow value={windowId} className="text-secondary" />
-                </div>
-            ),
-            value: windowId,
+            value: String(windowId),
+            label: <IconWindow value={windowId} className="text-muted-foreground" />,
         })),
     ]
+
     const { urlToUse, isWebUrl } = parseUrl(currentURL)
 
     return (
-        <div ref={ref} className="PlayerMeta relative">
+        <div ref={ref} data-quill className="PlayerMeta relative text-foreground">
             <div className="flex flex-row items-center gap-x-1 whitespace-nowrap overflow-hidden px-1 py-0.5 text-xs">
-                <LemonSegmentedButton
-                    size="xsmall"
-                    value={mode}
-                    onChange={setMode}
-                    options={[
-                        { value: 'watch', label: 'Watch', 'data-attr': 'player-mode-watch' },
-                        { value: 'debug', label: 'Debug', 'data-attr': 'player-mode-debug' },
-                    ]}
-                />
+                <ToggleGroup
+                    variant="outline"
+                    size="sm"
+                    value={[mode]}
+                    onValueChange={(value: string[]) => value[0] && setMode(value[0] as PlayerMode)}
+                >
+                    <ToggleGroupItem value="watch" data-attr="player-mode-watch">
+                        Watch
+                    </ToggleGroupItem>
+                    <ToggleGroupItem value="debug" data-attr="player-mode-debug">
+                        Debug
+                    </ToggleGroupItem>
+                </ToggleGroup>
                 {loading ? (
-                    <LemonSkeleton className="w-1/3 h-4 my-1" />
+                    <Skeleton className="w-1/3 h-4 my-1" />
                 ) : (
                     <>
                         {windowIds.length > 1 && (
-                            <LemonSelect
-                                size="xsmall"
-                                options={windowOptions}
-                                value={trackedWindow}
-                                onSelect={(value) => setTrackedWindow(value)}
-                                data-attr="player-meta-window-select"
-                            />
+                            <Select
+                                items={windowOptions}
+                                value={trackedWindow === null ? FOLLOW_USER : String(trackedWindow)}
+                                onValueChange={(value: string | null) =>
+                                    setTrackedWindow(value === null || value === FOLLOW_USER ? null : Number(value))
+                                }
+                            >
+                                <SelectTrigger
+                                    render={<Button variant="outline" size="sm" />}
+                                    data-attr="player-meta-window-select"
+                                >
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value={FOLLOW_USER}>Follow the user</SelectItem>
+                                    {windowIds.map((windowId) => (
+                                        <SelectItem key={windowId} value={String(windowId)}>
+                                            <span className="flex flex-row gap-x-1 items-center">
+                                                Follow window:&nbsp;
+                                                <IconWindow value={windowId} className="text-muted-foreground" />
+                                            </span>
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
                         )}
                         {urlToUse && (
                             <span className="flex items-center gap-x-1 truncate">
@@ -108,16 +133,16 @@ export function PlayerModeBar(): JSX.Element {
                                     data-attr="player-meta-copy-url"
                                 />
                                 {isWebUrl ? (
-                                    <Tooltip title={`Click to open url: ${urlToUse}`}>
-                                        <Link
-                                            data-attr="player-meta-open-url"
-                                            to={urlToUse}
-                                            target="_blank"
-                                            className="truncate"
-                                        >
-                                            {urlToUse}
-                                        </Link>
-                                    </Tooltip>
+                                    <Button
+                                        variant="link"
+                                        size="inline"
+                                        render={<LinkPrimitive to={urlToUse} target="_blank" />}
+                                        tooltip={`Click to open url: ${urlToUse}`}
+                                        className="truncate"
+                                        data-attr="player-meta-open-url"
+                                    >
+                                        {urlToUse}
+                                    </Button>
                                 ) : (
                                     <span className="truncate">{urlToUse}</span>
                                 )}

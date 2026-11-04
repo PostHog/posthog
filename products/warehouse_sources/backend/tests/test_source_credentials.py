@@ -19,6 +19,7 @@ from posthog.models.team import Team
 
 from products.warehouse_sources.backend.facade.contracts import SharedCredentialsError
 from products.warehouse_sources.backend.facade.credential_kinds import CREDENTIAL_KINDS
+from products.warehouse_sources.backend.integration_usages import integration_usages
 from products.warehouse_sources.backend.logic.credential_auth_types import (
     UnknownCredentialKindError,
     typed_in_auth_type,
@@ -363,7 +364,9 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
             ("shared_host_change", "source", {**PG_FIELDS, "host": "new.example.com"}, False, "new_row"),
             ("shared_user_change", "source", {**PG_FIELDS, "user": "writer"}, True, "new_row"),
             ("shared_tunnel_change", "source", {**PG_FIELDS, "ssh_tunnel": {"enabled": "False"}}, False, "new_row"),
-            ("shared_same_fields_as_strings", "source", {**PG_FIELDS, "port": 5432}, False, "conflict"),
+            # A write that changes no stored value needs no confirmation.
+            ("shared_same_fields_as_strings", "source", {**PG_FIELDS, "port": 5432}, False, "in_place"),
+            ("shared_unset_optional_field", "source", {**PG_FIELDS, "database": None}, False, "in_place"),
         ]
     )
     def test_update_of_a_shared_row_needs_confirmation_or_makes_a_new_row(
@@ -404,7 +407,7 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
             # The source points at the new row only when the caller saves it with its inputs.
             assert ExternalDataSource.objects.get(id=source.id).credentials_integration_id == str(pk)
         assert WarehouseSourceCredentialsStore.get(source) == {
-            key: str(value) if key == "port" else value for key, value in new_fields.items()
+            key: str(value) if key == "port" else value for key, value in new_fields.items() if value is not None
         }
         assert _row(new_pk).config[WAREHOUSE_SOURCE_TYPE_CONFIG_KEY] == "Postgres"
 
@@ -699,6 +702,10 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
             expected = [(editor.id, False)]
             assert WarehouseSourceCredentialsStore.update(editor, {**PG_FIELDS, "password": "new"}).legacy_id == pk
         assert [(ref.id, ref.unreadable) for ref in found] == expected
+        # Such a user blocks a delete of the row, with its own usage type.
+        assert [usage.type for usage in integration_usages(self.team.id, pk) if usage.id == str(broken.id)] == (
+            ["unreadable_warehouse_source"] if counted else []
+        )
 
     def test_conflict_response_names_the_other_users(self) -> None:
         source = self._source()

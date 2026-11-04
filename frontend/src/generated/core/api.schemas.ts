@@ -1842,6 +1842,13 @@ export interface TeamWorkflowsConfigApi {
      * @nullable
      */
     marketing_frequency_cap_window_days?: number | null
+    /**
+     * How many hours a marketing message over the frequency cap waits for a free slot before it is skipped. Null skips it right away.
+     * @minimum 1
+     * @maximum 168
+     * @nullable
+     */
+    marketing_frequency_cap_hold_hours?: number | null
 }
 
 export interface TeamFeatureFlagPolicyConfigApi {

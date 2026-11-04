@@ -262,6 +262,7 @@ export type MinimalAppMetric = {
         | 'email_bounced_undetermined'
         | 'email_bounce_prevented'
         | 'message_frequency_capped'
+        | 'message_frequency_cap_held'
         | 'email_suppressed'
         | 'email_missing_recipient'
         | 'email_suspended'
@@ -560,6 +561,9 @@ export type HogFlowInvocationContext = {
             parkedAt?: string
         }
         resumeResult?: { key: string; status: WorkflowStepResumeStatus; result?: Record<string, unknown> }
+        // Set when a message step first finds the person at the frequency cap and the team holds capped
+        // messages. The step re-checks the cap on each wake and skips the send once this ISO time passes.
+        frequencyCapHoldDeadlineAt?: string
     }
     // Set by the subscription matcher consumer when an incoming event matched the
     // workflow's event-based conversion goals. shouldExitEarly reads and clears it.

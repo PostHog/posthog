@@ -2,12 +2,14 @@ import { z } from "zod";
 import {
   defineLocalTool,
   type LocalToolCtx,
+  type LocalToolGateMeta,
   type LocalToolResult,
 } from "../registry";
 import {
   createSandboxPosthogClient,
   withReportDeadline,
 } from "../signed-commit-artefacts";
+import type { TaskRunUpdate } from "../task-tools-client";
 
 export const FINISH_TOOL_NAME = "finish";
 
@@ -28,7 +30,59 @@ export const finishSchema = {
       "Short note on why you're stopping — recorded on the run. Required-in- " +
         "spirit for 'failed': say what blocked you so a human can pick it up.",
     ),
+  report: z
+    .string()
+    .optional()
+    .describe(
+      "Your final report: the full answer your instructions asked for. " +
+        "Workflow steps after this run read it, so put the complete report " +
+        "here, not a pointer to an earlier message.",
+    ),
 };
+
+// Kept equal to FINAL_MESSAGE_MAX_CHARS in products/tasks/backend/constants.py.
+export const FINISH_REPORT_MAX_CHARS = 20_000;
+
+/** The task run PATCH that the `finish` tool sends. */
+export function buildFinishRunUpdate(
+  status: "completed" | "failed",
+  message?: string,
+  report?: string,
+): TaskRunUpdate {
+  return {
+    status,
+    ...(status === "failed" && message ? { error_message: message } : {}),
+    ...(status === "failed" ? { error_type: "agent_declined" } : {}),
+    // The relay saves the final message only when the turn ends, and `finish`
+    // ends the run before that, so the report travels with the status change.
+    ...(report
+      ? {
+          output: {
+            // Cut by code point: a split surrogate pair makes Postgres reject the JSONB write.
+            final_message: Array.from(report)
+              .slice(0, FINISH_REPORT_MAX_CHARS)
+              .join(""),
+          },
+        }
+      : {}),
+  };
+}
+
+/** A workflow run that opts into `finish` hands its report to the next step. */
+export function isFinishReportRequired(
+  meta: LocalToolGateMeta | undefined,
+): boolean {
+  return (
+    meta?.taskOriginProduct === "workflow" && meta?.endRunWhenDone === true
+  );
+}
+
+// A backend without finish-report support rejects the `output` field: 400 from
+// the run serializer, 403 for a scout trial token.
+function isReportRejected(error: unknown): boolean {
+  const status = (error as { status?: unknown } | null)?.status;
+  return status === 400 || status === 403;
+}
 
 const FINISH_TOOL_DESCRIPTION =
   "End this run and release the sandbox. This is an unattended background run: " +
@@ -38,7 +92,8 @@ const FINISH_TOOL_DESCRIPTION =
   "or checks you were waiting on have settled, and you've delivered whatever " +
   "your instructions asked for (or deliberately skipped delivery per those " +
   "instructions). Do NOT call it while you're still working or still waiting on " +
-  "something to finish. After it returns, stop — the run is over.";
+  "something to finish. Pass your final report in `report`. After it returns, " +
+  "stop — the run is over.";
 
 /**
  * Lets the model end its own background run. The handler calls back into the
@@ -64,19 +119,13 @@ function resolveRequestFinish(
   if (!client) {
     return undefined;
   }
-  return async (status, message) => {
+  return async (status, message, report) => {
     await withReportDeadline(
       (signal) =>
         client.updateTaskRun(
           taskId,
           taskRunId,
-          {
-            status,
-            ...(status === "failed" && message
-              ? { error_message: message }
-              : {}),
-            ...(status === "failed" ? { error_type: "agent_declined" } : {}),
-          },
+          buildFinishRunUpdate(status, message, report),
           signal,
         ),
       "run finish",
@@ -120,7 +169,34 @@ export const finishTool = defineLocalTool({
         isError: true,
       };
     }
-    await requestFinish(args.status, args.reason);
+    if (ctx.finishReportRequired && !args.report?.trim()) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: "The run is still open. A workflow step reads this run's report, so call `finish` again with your full final report in `report`.",
+          },
+        ],
+        isError: true,
+      };
+    }
+    try {
+      await requestFinish(args.status, args.reason, args.report);
+    } catch (error) {
+      if (!args.report || !isReportRejected(error)) {
+        throw error;
+      }
+      // Ending the run without its report beats leaving it active until the idle timeout.
+      await requestFinish(args.status, args.reason);
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Run marked ${args.status}, but the backend did not accept the report. Stop here.`,
+          },
+        ],
+      };
+    }
     return {
       content: [
         {

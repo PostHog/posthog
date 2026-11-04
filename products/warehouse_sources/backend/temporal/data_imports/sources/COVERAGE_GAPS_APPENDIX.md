@@ -6110,6 +6110,17 @@ Diffed against: <https://github.com/hubplanner/API/tree/master/Sections>
 
 Note: Diffed the Sections/\*.md files in the official hubplanner/API repo against products/warehouse_sources/.../hubplanner/settings.py. The missing items are almost all lookup tables for IDs already present on bookings, projects and resources.
 
+## HubSpot — gaps
+
+Today (25): `calls`, `commerce_payments`, `communications`, `companies`, `contacts`, `conversation_threads`, `deals`, `emails`, `feedback_submissions`, `forecasts`, `invoices`, `leads`, `line_items`, `meetings`, `notes`, `orders`, `owners`, `pipeline_stages`, `pipelines`, `products`, `properties`, `quotes`, `subscriptions`, `tasks`, `tickets`
+
+Diffed against: <https://api.hubspot.com/public/api/spec/v1/specs>
+
+- [x] `/crm/objects/2026-09/forecasts` — forecast submissions per pipeline, team, and period, the pipeline-commit numbers sales leaders report on (medium). Added as `forecasts`, behind the optional `crm.objects.forecasts.read` scope.
+- [x] `/conversations/conversations/2026-09/threads` (v3: `/conversations/v3/conversations/threads`) — inbox conversation threads with status, assignee, and contact (medium). Added as `conversation_threads`, behind the optional `conversations.read` scope.
+
+Note: The wider HubSpot sweep lives in [COVERAGE_GAPS.md](COVERAGE_GAPS.md). These two came from the fall 2026 changelog and were checked against the 2026-09 Forecasts and Conversations specs in the catalog.
+
 ## HuggingFace — **thin**
 
 Today (8): `collections`, `dataset_tags`, `datasets`, `discussions`, `likes`, `model_tags`, `models`, `spaces`
@@ -9744,10 +9755,10 @@ Today (14): `categories`, `checkin_lists`, `customers`, `events`, `gift_cards`, 
 
 Diffed against: <https://docs.pretix.eu/dev/api/resources/index.html>
 
-- [ ] `/organizers/{org}/transactions/` — pretix's financial ledger — the canonical per-line revenue record and the intended basis for revenue reporting (high)
-- [ ] `/organizers/{org}/events/{event}/orders/{code}/payments/` — payment records with provider, amount and state; not embedded in the order JSON (high)
-- [ ] `/organizers/{org}/events/{event}/orders/{code}/refunds/` — refund records, the other half of the money story and also not embedded in orders (high)
-- [ ] `/organizers/{org}/events/{event}/items/{id}/variations/` — lookup resolving the variation IDs carried on order positions and quotas (high)
+- [x] `/organizers/{org}/transactions/` — pretix's financial ledger — the canonical per-line revenue record and the intended basis for revenue reporting (high)
+- [ ] `/organizers/{org}/events/{event}/orders/{code}/payments/` — payment records with provider, amount and state; not embedded in the order JSON (high). Skipped: the order resource embeds a `payments` array with the same fields, so the `orders` table already carries them, and this per-order endpoint would cost one request per order
+- [ ] `/organizers/{org}/events/{event}/orders/{code}/refunds/` — refund records, the other half of the money story and also not embedded in orders (high). Skipped: the order resource embeds a `refunds` array with the same fields, so the `orders` table already carries them, and this per-order endpoint would cost one request per order
+- [ ] `/organizers/{org}/events/{event}/items/{id}/variations/` — lookup resolving the variation IDs carried on order positions and quotas (high). Skipped: the item resource embeds a `variations` array with the same fields, so the `items` table already carries them, and this per-item endpoint would need a second fan-out level
 - [ ] `/organizers/{org}/events/{event}/checkins/` — check-in history — the attendance event stream behind the checkin_lists already synced (high)
 - [ ] `/organizers/ (list)` — top-level lookup; every other table is keyed by organizer slug and there is no organizer table (high)
 - [ ] `/organizers/{org}/orderpositions/` — flat ticket-level line items across all events, far cheaper to query than unnesting the positions array embedded in orders (medium)

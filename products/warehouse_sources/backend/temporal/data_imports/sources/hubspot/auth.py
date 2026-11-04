@@ -122,8 +122,8 @@ def _update_source_job_inputs(source_id: str, access_token: str) -> None:
         if "hubspot_integration_id" in job_inputs:
             return
 
-        job_inputs["hubspot_secret_key"] = access_token
-        SourceInputsStore.save(source, job_inputs, extra_update_fields=())
+        # Not `save`: a token refresh never changes the row that the source uses, so it leaves the reference column alone.
+        SourceInputsStore.update_oauth_inputs(source, {"hubspot_secret_key": access_token}, extra_update_fields=())
     except Exception:
         logger.exception("Failed to update job_inputs after HubSpot token refresh", source_id=source_id)
 

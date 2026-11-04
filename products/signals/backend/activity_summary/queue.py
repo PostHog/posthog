@@ -15,7 +15,6 @@ day per day.
 
 import math
 import uuid
-import hashlib
 import datetime
 import dataclasses
 from collections.abc import Callable, Iterable, Sequence
@@ -45,6 +44,7 @@ from django.db.models.functions import Cast, Coalesce, Extract, Greatest, Ln, Ro
 from posthog.dataclasses import frozen
 from posthog.models import ActivityLog, FileSystemViewLog, Team
 
+from products.signals.backend import org_rollout
 from products.signals.backend.activity_summary.config import ActivitySummaryConfig, SourceWeights
 from products.signals.backend.activity_summary.inputs import TASK_ORIGIN_PRODUCTS
 from products.signals.backend.activity_summary.logic import EXCEPTION_ERROR_PREFIX
@@ -202,17 +202,15 @@ def daily_usage(now: datetime.datetime) -> DailyUsage:
 
 # A new salt reorders every organization, so change the version only to start a new rollout order.
 _ROLLOUT_SALT = "activity-summary-self-driving-v1"
-_ROLLOUT_BUCKETS = 10_000
 
 
 def organization_rollout_bucket(organization_id: uuid.UUID) -> int:
-    """The organization's fixed place in the percentage rollout, from 0 to `_ROLLOUT_BUCKETS` - 1."""
-    digest = hashlib.sha256(f"{_ROLLOUT_SALT}:{organization_id}".encode()).digest()
-    return int.from_bytes(digest[:8], "big") % _ROLLOUT_BUCKETS
+    """The organization's fixed place in the percentage rollout, from 0 to 9999."""
+    return org_rollout.organization_rollout_bucket(_ROLLOUT_SALT, organization_id)
 
 
 def _in_rollout(percentage: float, organization_id: uuid.UUID) -> bool:
-    return organization_rollout_bucket(organization_id) < percentage * _ROLLOUT_BUCKETS / 100
+    return org_rollout.in_rollout(_ROLLOUT_SALT, percentage, organization_id)
 
 
 @frozen
@@ -312,15 +310,17 @@ def is_team_enrolled_for_read(config: ActivitySummaryConfig, team: Team) -> bool
     return config.enroll_all_approved or team.organization_id in _parse_organization_ids(config.organization_ids)
 
 
-def _parse_organization_ids(organization_ids: tuple[str, ...]) -> set[uuid.UUID]:
-    # A UUID parse, so an id in another UUID format still matches, and an invalid id matches nothing.
-    parsed: set[uuid.UUID] = set()
-    for organization_id in organization_ids:
-        try:
-            parsed.add(uuid.UUID(organization_id))
-        except ValueError:
-            continue
-    return parsed
+def read_enrolled_teams(config: ActivitySummaryConfig, teams: QuerySet[Team]) -> QuerySet[Team]:
+    """The teams of `teams` that `is_team_enrolled_for_read` enrolls, in one query."""
+    if not config.enabled:
+        return teams.none()
+    teams = teams.filter(organization__is_ai_data_processing_approved=True).exclude(id__in=config.skip_team_ids)
+    if config.enroll_all_approved:
+        return teams
+    return teams.filter(organization_id__in=_parse_organization_ids(config.organization_ids))
+
+
+_parse_organization_ids = org_rollout.parse_organization_ids
 
 
 def _add(pending: _Pending, pair: ActivitySummaryPair, units: int, at: datetime.datetime, score: float = 0.0) -> None:
