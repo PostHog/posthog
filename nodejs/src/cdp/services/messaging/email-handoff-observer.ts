@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto'
 import { Counter } from 'prom-client'
 
 import { RedisClient, RedisV2 } from '~/common/redis/redis-v2'
@@ -33,15 +34,16 @@ export class EmailHandoffObserver {
 
     private async recordHandoff(invocation: CyclotronJobInvocationHogFunction, source: string): Promise<void> {
         const key = `@posthog/email-handoff/${emailSendKey(invocation)}`
+        // A repeat of the same job carries the same invocation id, and ioredis resends a write whose reply was lost,
+        // so only a token unique to this observation tells a second handoff from a replay of this one.
+        const token = randomUUID()
         // SET ... NX GET returns the value already stored, so one round trip tells a first handoff from a repeat.
         const previous = await this.valkey.useClient(
             { name: 'email-handoff', failOpen: true },
             (client: RedisClient) =>
-                client.set(key, invocation.id, ['EX', String(HANDOFF_TTL_SECONDS), 'NX', 'GET']) as Promise<
-                    string | null
-                >
+                client.set(key, token, ['EX', String(HANDOFF_TTL_SECONDS), 'NX', 'GET']) as Promise<string | null>
         )
-        if (previous !== null) {
+        if (previous !== null && previous !== token) {
             emailDuplicateHandoffTotal.inc({ source })
             logger.warn('SES accepted the same email send twice', { invocationId: invocation.id, key })
         }

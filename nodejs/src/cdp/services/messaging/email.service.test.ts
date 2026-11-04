@@ -900,6 +900,22 @@ describe('EmailService', () => {
                 )
             })
 
+            it('counts nothing when Valkey replays the write of one send', async () => {
+                const replayingClient = {
+                    set: (_key: string, value: string) => Promise.resolve(value),
+                } as unknown as RedisClient
+                const set = jest.spyOn(replayingClient, 'set')
+                const observed = observedService(poolWith(replayingClient))
+                const labels = { source: 'workflow' }
+                const before = await metricValue('cdp_email_duplicate_handoff_total', labels)
+
+                await observed.executeSendEmail(invocation)
+
+                await waitForExpect(() => expect(set).toHaveBeenCalledTimes(1))
+                await set.mock.results[0].value
+                expect(await metricValue('cdp_email_duplicate_handoff_total', labels)).toBe(before)
+            })
+
             it('sends and counts nothing when the store fails', async () => {
                 const errorLog = jest.spyOn(logger, 'error')
                 const failingClient = {
