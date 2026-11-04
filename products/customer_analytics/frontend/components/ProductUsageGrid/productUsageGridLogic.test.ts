@@ -189,7 +189,7 @@ describe('productUsageGridLogic', () => {
                 rows: Array.from({ length: 12 }, (_, index) => ({
                     key: String(index),
                     label: `Account ${index}`,
-                    externalId: null,
+                    externalId: `org-${index}`,
                 })),
             },
             hogql: null,
@@ -218,7 +218,7 @@ describe('productUsageGridLogic', () => {
                 rows: Array.from({ length: 6 }, (_, index) => ({
                     key: String(index),
                     label: `Account ${index}`,
-                    externalId: null,
+                    externalId: `org-${index}`,
                 })),
             },
             hogql: null,
