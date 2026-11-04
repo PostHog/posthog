@@ -1504,6 +1504,16 @@ class ExperimentExposureHealthFindingSeverity(StrEnum):
     INFO = "info"
 
 
+class ExperimentExposureHealthMeasurementSide(StrEnum):
+    ABOVE = "above"
+    BELOW = "below"
+
+
+class ExperimentExposureHealthMeasurementUnit(StrEnum):
+    PERCENTAGE = "percentage"
+    P_VALUE = "p_value"
+
+
 class ExperimentMetricGoal(StrEnum):
     INCREASE = "increase"
     DECREASE = "decrease"
