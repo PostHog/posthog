@@ -1,5 +1,5 @@
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from functools import partial
 from typing import Any, cast
 
@@ -13,6 +13,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.organization_personal_api_key_actions import (
+    BulkKeyActionInterrupted,
     KeyActionCounts,
     KeyActionOutcome,
     KeyActionResult,
@@ -204,8 +205,7 @@ class OrganizationPersonalAPIKeyViewSet(
     )
     @action(methods=["POST"], detail=False)
     def roll_all(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        counts, results = self._key_actions().roll_all()
-        return self._bulk_action_response(counts, results)
+        return self._bulk_action_response(self._key_actions().roll_all)
 
     @extend_schema(
         operation_id="organization_personal_api_keys_revoke_all",
@@ -214,8 +214,7 @@ class OrganizationPersonalAPIKeyViewSet(
     )
     @action(methods=["POST"], detail=False)
     def revoke_all(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        counts, results = self._key_actions().revoke_all()
-        return self._bulk_action_response(counts, results)
+        return self._bulk_action_response(self._key_actions().revoke_all)
 
     def _key_actions(self) -> OrganizationPersonalAPIKeyActions:
         return OrganizationPersonalAPIKeyActions(self.organization, cast(User, self.request.user))
@@ -226,7 +225,16 @@ class OrganizationPersonalAPIKeyViewSet(
         self._queue_owner_emails([result])
         return Response(OrganizationPersonalAPIKeyActionResultSerializer({"outcome": result.outcome}).data)
 
-    def _bulk_action_response(self, counts: KeyActionCounts, results: Sequence[KeyActionResult]) -> Response:
+    def _bulk_action_response(
+        self, act_on_all: Callable[[], tuple[KeyActionCounts, list[KeyActionResult]]]
+    ) -> Response:
+        try:
+            counts, results = act_on_all()
+        except BulkKeyActionInterrupted as error:
+            # No request-wide transaction wraps this view, so `on_commit` sends these emails before the error
+            # response. A retry cannot repair a missed email, because deleted and detached keys leave the list.
+            self._queue_owner_emails(error.results)
+            raise
         self._queue_owner_emails(results)
         return Response(OrganizationPersonalAPIKeyBulkActionResultSerializer(counts).data)
 

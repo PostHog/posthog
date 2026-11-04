@@ -103,6 +103,15 @@ class KeyActionCounts:
         )
 
 
+class BulkKeyActionInterrupted(Exception):
+    """A bulk action stopped at a key that raised. Each key commits in its own transaction, so the
+    keys in `results` stay changed and their owners still need an email."""
+
+    def __init__(self, results: list[KeyActionResult]) -> None:
+        super().__init__(f"Bulk key action stopped after {len(results)} changed keys")
+        self.results = results
+
+
 @frozen
 class _KeyScopes:
     scoped_teams: list[int] | None
@@ -166,7 +175,14 @@ class OrganizationPersonalAPIKeyActions:
         key_ids = list(
             get_organization_personal_api_keys(self._organization).order_by("pk").values_list("id", flat=True)
         )
-        results = [result for key_id in key_ids if (result := act(key_id)) is not None]
+        results: list[KeyActionResult] = []
+        for key_id in key_ids:
+            try:
+                result = act(key_id)
+            except Exception as exc:
+                raise BulkKeyActionInterrupted(results) from exc
+            if result is not None:
+                results.append(result)
         return KeyActionCounts.of(results), results
 
     @staticmethod

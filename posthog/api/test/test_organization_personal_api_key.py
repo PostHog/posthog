@@ -532,3 +532,38 @@ class TestOrganizationPersonalAPIKeyAPI(APIBaseTest):
             None,
             [self.org_refs["B"]],
         )
+
+    @patch.object(send_personal_api_keys_changed_by_org_admin, "delay")
+    def test_bulk_action_emails_owners_of_keys_changed_before_a_failure(self, mock_delay: MagicMock) -> None:
+        self._set_level(OrganizationMembership.Level.ADMIN)
+        keys = {}
+        for email in ("first-owner@example.com", "second-owner@example.com"):
+            key = self._create_key(User.objects.create_and_join(self.organization, email, None), label=email)
+            keys[key.id] = key
+        real_lock = OrganizationPersonalAPIKeyActions._lock
+        locked_key_ids: list[str] = []
+
+        def fail_on_second_key(key_id: str) -> PersonalAPIKey | None:
+            locked_key_ids.append(key_id)
+            if len(locked_key_ids) == 2:
+                raise RuntimeError("lock failed")
+            return real_lock(key_id)
+
+        with (
+            self.captureOnCommitCallbacks(execute=True),
+            patch.object(OrganizationPersonalAPIKeyActions, "_lock", side_effect=fail_on_second_key),
+        ):
+            response = self.client.post(self._bulk_action_url("revoke_all"))
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR, response.content
+        changed_key, failed_key = keys[locked_key_ids[0]], keys[locked_key_ids[1]]
+        mock_delay.assert_called_once_with(
+            user_id=changed_key.user_id,
+            organization_id=str(self.organization.id),
+            acting_user_email=self.user.email,
+            changes=[{"label": changed_key.label, "mask_value": changed_key.mask_value, "outcome": "deleted"}],
+        )
+        assert {name: self._key_state(key) for name, key in [("changed", changed_key), ("failed", failed_key)]} == {
+            "changed": "deleted",
+            "failed": "untouched",
+        }
