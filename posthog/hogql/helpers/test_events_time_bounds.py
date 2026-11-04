@@ -283,7 +283,10 @@ class TestReadsEventsWithoutLowerBound(BaseTest):
             team_id=self.team.pk, database=Database.create_for(team=self.team), enable_select_queries=True
         )
         resolved = resolve_types(
-            parse_select(f"with {', '.join(links)} select count() from c39"), context, dialect="hogql"
+            # nosemgrep: hogql-fstring-audit -- the test builds this query from literals and range() integers only.
+            parse_select(f"with {', '.join(links)} select count() from c39"),
+            context,
+            dialect="hogql",
         )
 
         token = compilation_budget.set(CompilationBudget())
