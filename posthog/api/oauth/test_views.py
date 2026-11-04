@@ -5796,6 +5796,7 @@ class TestOAuthAuthorizationServerMetadata(APIBaseTest):
             "issuer",
             "authorization_endpoint",
             "token_endpoint",
+            "device_authorization_endpoint",
             "revocation_endpoint",
             "introspection_endpoint",
             "userinfo_endpoint",
@@ -5816,7 +5817,12 @@ class TestOAuthAuthorizationServerMetadata(APIBaseTest):
         self.assertEqual(metadata["response_types_supported"], ["code"])
         self.assertEqual(
             metadata["grant_types_supported"],
-            ["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:jwt-bearer"],
+            [
+                "authorization_code",
+                "refresh_token",
+                "urn:ietf:params:oauth:grant-type:jwt-bearer",
+                "urn:ietf:params:oauth:grant-type:device_code",
+            ],
         )
         self.assertEqual(metadata["code_challenge_methods_supported"], ["S256"])
         self.assertIn("none", metadata["token_endpoint_auth_methods_supported"])

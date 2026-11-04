@@ -23,10 +23,10 @@ function expandedStates(container: HTMLElement): (string | null)[] {
 
 describe('MessageList', () => {
     it('opens the earlier messages that contain the search, including after the results arrive', () => {
-        const { container, rerender } = render(<MessageList messages={messages} emptyText="" defaultOpen="last" />)
+        const { container, rerender } = render(<MessageList messages={messages} emptyText="" openFrom={2} />)
         expect(expandedStates(container)).toEqual(['false', 'false', 'true'])
 
-        rerender(<MessageList messages={messages} emptyText="" defaultOpen="last" highlightQuery="INVOICE" />)
+        rerender(<MessageList messages={messages} emptyText="" openFrom={2} highlightQuery="INVOICE" />)
 
         expect(expandedStates(container)).toEqual(['true', 'false', 'true'])
     })
