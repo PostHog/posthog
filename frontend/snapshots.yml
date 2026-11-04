@@ -12254,6 +12254,10 @@ snapshots:
         hash: v1.k794b7964.da604dcafaf4ba22c7c00febc5956b4143660cb2455cdf613748ecb81688116e.tHlZgbxkc6M5nBT0v7CBw_TXlQHZNuNaQJI31HCHnQg
     scenes-app-inbox-cards--skeleton--light:
         hash: v1.k794b7964.d74decf0d1eec3cb7e66535e5071bbe8026b34fe398c355dedf63124eb91cd9e.zZmTI-hkVOKyADi7R2mvJyeYSzxT0HpvXctUwJQuFXg
+    scenes-app-inbox-detail--activity-notes--dark:
+        hash: v1.k794b7964.e77a7499ce8ab88390d2c275ed4c9da9543bae27079c9d3abb588dc7945f5d1d.Fgn0ELJR1E7YmAJgNFOjf0cwNuet1pR9FsN95qWo_pw
+    scenes-app-inbox-detail--activity-notes--light:
+        hash: v1.k794b7964.b78f0a2293ac9ae1b1b06e29064f9d763bfd96206310519053ae9f1b81df7a59.5Uj_J_RVayr6snSkOAAiZkyFS2zmFWeQlCIZCMfpAzw
     scenes-app-inbox-detail--pull-request--dark:
         hash: v1.k794b7964.51280499a41683257d9e73732602c06a3d24ddb3ce5ed1593682a2d0fc985ede.kOXk8NNGyuQAQ0ERaBjcygzunDspJ19jLRIr4ugnEtA
     scenes-app-inbox-detail--pull-request--light:
