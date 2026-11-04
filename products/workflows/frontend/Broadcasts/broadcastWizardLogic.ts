@@ -7,6 +7,7 @@ import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { isSandboxEmailSender } from 'lib/integrations/sandboxEmailSender'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { objectsEqual } from 'lib/utils/objects'
@@ -1627,6 +1628,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     } else if (integrations && getMissingSenderIds(email.from, integrations).length > 0) {
                         // Shown on the content step, where the sender is picked, rather than first at launch.
                         errors.content.push(DELETED_SENDER_ERROR)
+                    } else if (integrations && getSandboxSenderIds(email.from, integrations).length > 0) {
+                        errors.content.push(SANDBOX_SENDER_BROADCAST_ERROR)
                     }
                     if (!email.subject) {
                         errors.content.push('Add a subject line')
@@ -2860,6 +2863,8 @@ async function patchWithoutClobbering(
 
 export const SENDERS_LOAD_FAILED_ERROR = "Couldn't load your email senders. Reload them to launch."
 export const DELETED_SENDER_ERROR = 'The chosen sender was deleted. Choose another sender.'
+export const SANDBOX_SENDER_BROADCAST_ERROR =
+    "The sandbox sender can't send broadcasts. Choose a sender on your own domain."
 export const DELETED_PUSH_CHANNEL_ERROR = 'A chosen push channel was deleted. Choose another channel.'
 
 /** The email channel counts each address once and is held to the email sending limit. Push is not. */
@@ -2891,12 +2896,24 @@ export function getSenderLaunchError(
     if (getMissingSenderIds(from, integrations).length > 0) {
         return DELETED_SENDER_ERROR
     }
+    if (getSandboxSenderIds(from, integrations).length > 0) {
+        return SANDBOX_SENDER_BROADCAST_ERROR
+    }
     const allVerified = senderIds.every(
         (id) =>
             integrations.find((integration) => integration.kind === 'email' && integration.id === id)?.config
                 ?.verified === true
     )
     return allVerified ? null : UNVERIFIED_SENDER_MESSAGE
+}
+
+export function getSandboxSenderIds(
+    from: BroadcastEmailValue['from'] | undefined,
+    integrations: IntegrationType[]
+): number[] {
+    return getSenderIds(from).filter((id) =>
+        integrations.some((integration) => integration.id === id && isSandboxEmailSender(integration))
+    )
 }
 
 export function getSenderIds(from: BroadcastEmailValue['from'] | undefined): number[] {
