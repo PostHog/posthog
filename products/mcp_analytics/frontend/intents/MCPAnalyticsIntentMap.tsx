@@ -71,11 +71,13 @@ export function MCPAnalyticsIntentMap(): JSX.Element {
                     </LemonButton>
                 ) : null}
             </div>
-            <div className="grid min-h-[28rem] grid-cols-1 gap-4 px-4 pb-4 lg:grid-cols-[2fr_1fr]" data-quill>
-                <div className="rounded border bg-bg-light p-2">
+            {/* Both cards get the same fixed height: the panel scrolls inside it, so a long topic list
+                cannot stretch the chart beyond the viewport. */}
+            <div className="grid grid-cols-1 gap-4 px-4 pb-4 lg:grid-cols-[2fr_1fr]" data-quill>
+                <div className="h-[36rem] rounded border bg-bg-light p-2">
                     <IntentScatterPlot />
                 </div>
-                <div className="rounded border bg-bg-light p-3">
+                <div className="h-[36rem] min-h-0 overflow-hidden rounded border bg-bg-light p-3">
                     <TopicPanel />
                 </div>
             </div>
