@@ -17,7 +17,6 @@ import {
 import type { RequestProperties } from '@/lib/request-properties'
 import { resolveScopePreset } from '@/lib/scope-preset'
 import { isPrivateScoutTrialTool } from '@/lib/tool-privacy'
-import { parseExecCallInnerToolName } from '@/tools/exec'
 import type { SkillInvocation } from '@/tools/exec-learn'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { MAX_CAPTURED_DESCRIPTION_LENGTH, getToolCategory, getToolDescription } from '@/tools/toolDefinitions'
@@ -347,12 +346,10 @@ function sendsEmailContent(toolName: string, input: unknown): boolean {
     if (toolName.startsWith(EMAIL_SEND_TOOL_PREFIX)) {
         return true
     }
+    // Match the whole exec command, not its parsed inner tool: a send forwarded through
+    // posthog-connection-call, or a command exec rejects, still carries the email body.
     const command = (input as { command?: unknown } | null | undefined)?.command
-    return (
-        toolName === 'exec' &&
-        typeof command === 'string' &&
-        (parseExecCallInnerToolName(command)?.startsWith(EMAIL_SEND_TOOL_PREFIX) ?? false)
-    )
+    return toolName === 'exec' && typeof command === 'string' && command.includes(EMAIL_SEND_TOOL_PREFIX)
 }
 
 function shouldCaptureToolSpan(toolName: string, input: unknown): boolean {
