@@ -12,9 +12,11 @@ import { useMocks } from '~/mocks/jest'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
-import { workflowFoldersLogic } from './workflowFoldersLogic'
+import { folderNameError, workflowFoldersLogic } from './workflowFoldersLogic'
 import { FIXTURE_WORKFLOWS, paginated } from './workflowsListV2Fixtures'
 import { workflowsListV2Logic } from './workflowsListV2Logic'
+
+const EXISTS = 'A folder with this name already exists'
 
 describe('workflowFoldersLogic', () => {
     let logic: ReturnType<typeof workflowFoldersLogic.build>
@@ -345,7 +347,7 @@ describe('workflowFoldersLogic', () => {
         expect(requests).toBeGreaterThan(0)
     })
 
-    it('moves a workflow file to the path a full reload returns', async () => {
+    it('moves workflow files and drops folders to match a full reload', async () => {
         await expectLogic(logic).toFinishAllListeners()
         useMocks({
             get: {
@@ -374,6 +376,15 @@ describe('workflowFoldersLogic', () => {
         expect(logic.values.folderRows.map((row) => row.id)).not.toContain(FIXTURE_WORKFLOWS[0].id)
         logic.actions.openFolder('Archive')
         expect(logic.values.folderRows.map((row) => row.id)).toEqual([FIXTURE_WORKFLOWS[0].id])
+        expect(logic.values.folderPaths).not.toContain('Empty')
+    })
+
+    it.each([
+        ['a case-only rename of the same folder', 'billing', 'Billing', ['Billing'], null],
+        ['a case-only rename onto a separate folder', 'billing', 'Billing', ['Billing', 'billing'], EXISTS],
+        ['a new folder that differs only in case', 'billing', undefined, ['Billing'], EXISTS],
+    ])('validates %s', (_, name, renaming, paths, error) => {
+        expect(folderNameError(name, '', paths, renaming)).toEqual(error)
     })
 
     it('reports a failed folder index and recovers on retry', async () => {

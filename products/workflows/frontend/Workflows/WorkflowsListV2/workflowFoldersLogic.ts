@@ -323,6 +323,26 @@ function relevantFolderPaths(items: FileSystemEntry[], hasUnfiledWorkflows: bool
     return [...paths].sort((a, b) => a.localeCompare(b))
 }
 
+/** Validates a folder name under `parent`. A rename passes its own path so a case-only change is not a collision. */
+export function folderNameError(
+    rawName: string,
+    parent: string,
+    folderPaths: string[],
+    renaming?: string
+): string | null {
+    const name = rawName.trim()
+    if (!name) {
+        return 'Give the folder a name'
+    }
+    if (name.includes('/')) {
+        return 'Folder names cannot contain /'
+    }
+    const path = joinPath([...splitPath(parent), name]).toLowerCase()
+    return folderPaths.some((existing) => existing !== renaming && existing.toLowerCase() === path)
+        ? 'A folder with this name already exists'
+        : null
+}
+
 export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
     path(['products', 'workflows', 'frontend', 'workflowFoldersLogic']),
     connect({
@@ -447,11 +467,11 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
                             }
                         }
                     }
-                    // A full load is the truth for workflow files, so drop cached copies that moved or went away elsewhere.
+                    // A full load is the truth for folders and workflow files, so drop cached copies that moved or went away elsewhere.
                     const freshPaths = new Map(entries.map((entry) => [entry.id, entry.path]))
                     for (const cached of Object.values(projectTreeDataLogic.values.folders).flat()) {
                         if (
-                            WORKFLOW_FILE_TYPES.includes(cached.type ?? '') &&
+                            (cached.type === 'folder' || WORKFLOW_FILE_TYPES.includes(cached.type ?? '')) &&
                             !cached.shortcut &&
                             freshPaths.get(cached.id) !== cached.path
                         ) {
@@ -475,19 +495,8 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
     selectors({
         folderDraftError: [
             (s) => [s.folderDraft, s.folderPaths],
-            (draft: WorkflowFolderDraft | null, paths: string[]): string | null => {
-                const name = draft?.name.trim() ?? ''
-                if (!name) {
-                    return 'Give the folder a name'
-                }
-                if (name.includes('/')) {
-                    return 'Folder names cannot contain /'
-                }
-                const path = joinPath([...splitPath(draft?.parent ?? ''), name]).toLowerCase()
-                return paths.some((existing) => existing.toLowerCase() === path)
-                    ? 'A folder with this name already exists'
-                    : null
-            },
+            (draft: WorkflowFolderDraft | null, paths: string[]): string | null =>
+                folderNameError(draft?.name ?? '', draft?.parent ?? '', paths),
         ],
         folderJumpPaths: [
             (s) => [s.folderPaths, s.folderJumpSearch],
