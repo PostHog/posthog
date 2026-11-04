@@ -186,6 +186,9 @@ export class AgentAuthAdapter {
           },
           { name: "x-posthog-mcp-version", value: "2" },
           { name: "x-posthog-mcp-consumer", value: "posthog-code" },
+          // Every local session loads the bundled PostHog plugin, so the MCP server can point
+          // `info execute-sql` at its querying-posthog-data skill instead of inlining the reference.
+          { name: "x-posthog-mcp-bundled-skills", value: "true" },
         ],
       };
       servers.push(posthogServer);
