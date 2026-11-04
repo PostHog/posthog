@@ -710,14 +710,15 @@ class TestLogsAlertAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("capped", False, False, status.HTTP_400_BAD_REQUEST, 0),
-            ("uncapped", True, False, status.HTTP_201_CREATED, 1),
-            ("capped_by_alerts_only_on_the_platform", False, True, status.HTTP_400_BAD_REQUEST, 0),
+            ("capped", False, "logs_rows", status.HTTP_400_BAD_REQUEST, 0),
+            ("uncapped", True, "logs_rows", status.HTTP_201_CREATED, 1),
+            ("capped_by_alerts_only_on_the_platform", False, "platform_only", status.HTTP_400_BAD_REQUEST, 0),
+            ("not_capped_by_copies_of_deleted_alerts", False, "copies_of_deleted_rows", status.HTTP_201_CREATED, 1),
         ]
     )
-    def test_per_team_limit(self, _name, uncapped, only_on_the_platform, expected_status, created):
+    def test_per_team_limit(self, _name, uncapped, existing, expected_status, created):
         for i in range(MAX_ALERTS_PER_TEAM):
-            if only_on_the_platform:
+            if existing != "logs_rows":
                 with team_scope(self.team.id):
                     platform_testing.create_configuration(
                         team_id=self.team.id,
@@ -725,7 +726,8 @@ class TestLogsAlertAPI(APIBaseTest):
                         source_kind="logs",
                         source_config={},
                         check_interval_minutes=5,
-                        owner="platform",
+                        owner="platform" if existing == "platform_only" else "source",
+                        legacy_configuration_id=uuid4() if existing == "copies_of_deleted_rows" else None,
                     )
             else:
                 LogsAlertConfiguration.objects.create(

@@ -68,7 +68,7 @@ def admit_platform_write(
     check_interval_minutes: int | None,
 ) -> None:
     """The per-team cap on a logs alert created through the platform, native ones included. The
-    platform holds the admission lock the logs API's creates also take."""
+    platform holds the cap lock the logs API's creates also take."""
     if current is not None:
         return
     try:
