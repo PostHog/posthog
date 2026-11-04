@@ -20,6 +20,7 @@ from posthog.rate_limit import WidgetTeamPollThrottle
 from posthog.test.authentication_checks import covers_authentication
 
 from products.conversations.backend.api.serializers import WidgetMessageSerializer, WidgetTicketsQuerySerializer
+from products.conversations.backend.api.widget import WidgetTicketsTeamThrottle
 from products.conversations.backend.models import SigningSecret, Ticket
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Status
 from products.conversations.backend.services.identity import (
@@ -106,6 +107,12 @@ class TestWidgetAPI(BaseTest):
 
     def test_exhausted_poll_throttle_does_not_block_send(self):
         cache.clear()
+        Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=self.widget_session_id,
+            distinct_id=self.distinct_id,
+            channel_source="widget",
+        )
         tickets_url = f"/api/conversations/v1/widget/tickets?widget_session_id={self.widget_session_id}"
         try:
             with patch.object(WidgetTeamPollThrottle, "rate", "1/minute"):
@@ -123,6 +130,30 @@ class TestWidgetAPI(BaseTest):
                     **self._get_headers(),
                 )
             self.assertEqual(send.status_code, status.HTTP_200_OK)
+        finally:
+            cache.clear()
+
+    def test_sessions_without_tickets_do_not_use_the_poll_bucket(self):
+        cache.clear()
+        Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=self.widget_session_id,
+            distinct_id=self.distinct_id,
+            channel_source="widget",
+        )
+        tickets_url = "/api/conversations/v1/widget/tickets?widget_session_id={}"
+        try:
+            with (
+                patch.object(WidgetTeamPollThrottle, "rate", "1/minute"),
+                patch.object(WidgetTicketsTeamThrottle, "new_session_rate", "1/minute"),
+            ):
+                for _ in range(2):
+                    response = self.client.get(tickets_url.format(self.widget_session_id), **self._get_headers())
+                new_session = self.client.get(tickets_url.format(uuid.uuid4()), **self._get_headers())
+                other_new_session = self.client.get(tickets_url.format(uuid.uuid4()), **self._get_headers())
+            self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+            self.assertEqual(new_session.status_code, status.HTTP_200_OK)
+            self.assertEqual(other_new_session.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
         finally:
             cache.clear()
 

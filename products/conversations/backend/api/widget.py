@@ -34,7 +34,12 @@ from posthog.event_usage import report_team_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.models.comment import Comment
-from posthog.rate_limit import WIDGET_POLL_THROTTLES, WIDGET_WRITE_THROTTLES
+from posthog.rate_limit import (
+    WIDGET_POLL_THROTTLES,
+    WIDGET_WRITE_THROTTLES,
+    WidgetTeamPollThrottle,
+    WidgetUserBurstThrottle,
+)
 
 from products.conversations.backend.api.serializers import (
     WIDGET_TICKETS_DEFAULT_LIMIT,
@@ -289,6 +294,34 @@ def _identity_tickets_cache_key(cache_namespace: str, verified_distinct_id: str,
         return base_key
     email_digest = hashlib.sha256(verified_email.encode()).hexdigest()
     return f"{base_key}:email:{email_digest}"
+
+
+def _is_anonymous_session_without_tickets(request: Request) -> bool:
+    team = request.auth
+    widget_session_id = request.query_params.get("widget_session_id")
+    if not isinstance(team, Team) or not widget_session_id or request.query_params.get("identity_distinct_id"):
+        return False
+    return not Ticket.objects.filter(team=team, widget_session_id=widget_session_id).exists()
+
+
+class WidgetTicketsTeamThrottle(WidgetTeamPollThrottle):
+    """Moves ticket list requests from anonymous sessions that have no tickets to their own bucket.
+
+    The widget asks for the ticket list on each page load. On a busy site, first page views,
+    crawlers included, would use up the poll bucket, and visitors with an open conversation
+    would get 429s. The separate bucket still caps how many lookups one widget token can cause.
+    """
+
+    new_session_scope = "widget_team_new_session"
+    new_session_rate = "36000/hour"
+
+    def allow_request(self, request: Request, view: APIView) -> bool:
+        if _is_anonymous_session_without_tickets(request):
+            # DRF makes new throttle instances for each request, so this does not leak to other requests.
+            self.scope = self.new_session_scope
+            self.rate = self.new_session_rate
+            self.num_requests, self.duration = self.parse_rate(self.rate)
+        return super().allow_request(request, view)
 
 
 class WidgetMessageView(APIView):
@@ -645,7 +678,7 @@ class WidgetTicketsView(APIView):
 
     authentication_classes = [WidgetAuthentication]
     permission_classes = [AllowAny]
-    throttle_classes = WIDGET_POLL_THROTTLES
+    throttle_classes = (WidgetUserBurstThrottle, WidgetTicketsTeamThrottle)
 
     def get(self, request: Request) -> Response:
         """List tickets for a widget_session_id."""
