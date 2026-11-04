@@ -201,7 +201,7 @@ catalog:
     jest: ^29.7.0
     jest-junit: ^16.0.0
     '@types/jest': ^29.5.12
-    '@types/node': ^22.13.14
+    '@types/node': ^26.6.5
     '@playwright/test': 1.60.0
     # Storybook
     '@storybook/react': ^10.4.3
