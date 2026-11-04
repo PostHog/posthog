@@ -2,7 +2,7 @@
 
 from posthog.integrations import IntegrationManager
 from posthog.models import Team
-from posthog.models.integration import SANDBOX_EMAIL_PROVIDER
+from posthog.models.integration import is_sandbox_email_sender
 
 from products.messaging.backend.facade.api import list_email_templates
 from products.messaging.backend.facade.categories import list_categories
@@ -35,8 +35,7 @@ def email_sending_paused(team: Team) -> bool:
 def get_setup_steps(team: Team) -> tuple[SetupStep, ...]:
     done = {
         SetupStepKey.CHANNEL: any(
-            (sender.config or {}).get("provider") != SANDBOX_EMAIL_PROVIDER
-            for sender in IntegrationManager.email.credentials.list(team.id)
+            not is_sandbox_email_sender(sender.config) for sender in IntegrationManager.email.credentials.list(team.id)
         ),
         SetupStepKey.DOMAIN: has_verified_email_sender(team),
         SetupStepKey.OPT_OUTS: len(list_categories(team.id)) > 0,
