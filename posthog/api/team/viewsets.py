@@ -292,9 +292,9 @@ class TeamViewSet(
         _enforce_caller_holds_scopes(request, MIRRORED_LEGACY_TOKEN_SCOPES)
         team.rotate_secret_token_and_save(user=request.user, is_impersonated_session=is_impersonated(request))
         data = team_serializer.TeamSerializer(team, context=self.get_serializer_context()).data
-        # Show-once: this response is the only read of the minted token; every other response nulls it.
+        # Show-once: this response is the only read of the token this request minted; every other
+        # response nulls it. The demoted backup stays hidden because rotation often answers a leak.
         data["secret_api_token"] = team.secret_api_token
-        data["secret_api_token_backup"] = team.secret_api_token_backup
         return response.Response(data)
 
     @action(

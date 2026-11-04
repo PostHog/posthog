@@ -742,8 +742,9 @@ def team_api_test_factory():
             self.assertNotEqual(response_data["secret_api_token"], self.team.secret_api_token_backup)
             self.assertEqual(response_data["secret_api_token"], self.team.secret_api_token)
             self.assertTrue(response_data["secret_api_token"].startswith("phs_"))
-            # Backup token should now be the old secret API token
-            self.assertEqual(response_data["secret_api_token_backup"], secret_api_token)
+            # The demoted backup is the old secret API token, and only the DB holds it.
+            self.assertIsNone(response_data["secret_api_token_backup"])
+            self.assertEqual(self.team.secret_api_token_backup, secret_api_token)
             self._assert_activity_log(
                 [
                     {
@@ -803,8 +804,9 @@ def team_api_test_factory():
             self.assertNotEqual(response_data["secret_api_token"], secret_api_token)
             self.assertEqual(response_data["secret_api_token"], self.team.secret_api_token)
             self.assertTrue(response_data["secret_api_token"].startswith("phs_"))
-            # Backup token should now be the old secret API token
-            self.assertEqual(response_data["secret_api_token_backup"], secret_api_token)
+            # The demoted backup is the old secret API token, and only the DB holds it.
+            self.assertIsNone(response_data["secret_api_token_backup"])
+            self.assertEqual(self.team.secret_api_token_backup, secret_api_token)
             self._assert_activity_log(
                 [
                     {
@@ -4410,7 +4412,10 @@ class TestSecretApiTokenVisibility(APIBaseTest):
         body = rotate.json()
         assert body["secret_api_token"] is not None and body["secret_api_token"].startswith("phs_")
         assert body["secret_api_token"] != old_primary
-        assert body["secret_api_token_backup"] == old_primary
+        # The demoted backup stays hidden even in the show-once response.
+        assert body["secret_api_token_backup"] is None
+        self.team.refresh_from_db()
+        assert self.team.secret_api_token_backup == old_primary
 
         read = self.client.get(f"/api/projects/{self.project.id}/")
         assert (read.json()["secret_api_token"], read.json()["secret_api_token_backup"]) == (None, None)
