@@ -152,6 +152,30 @@ class TestFeatureFlagRolloutPlanAPI(APIBaseTest):
         assert response.status_code == expected, response.json()
         create_and_run_task.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("another_config_format", {"version": 2, "return_type": "boolean", "default_value": False, "rules": []}),
+            ("already_at_everyone", {"groups": [{"properties": [], "rollout_percentage": None}]}),
+        ]
+    )
+    def test_refuses_a_flag_it_cannot_roll_out(
+        self,
+        create_and_run_task: MagicMock,
+        _run: MagicMock,
+        _cancel: MagicMock,
+        _notify: MagicMock,
+        _usage: MagicMock,
+        _enabled: MagicMock,
+        _name: str,
+        filters: dict[str, Any],
+    ) -> None:
+        FeatureFlag.objects.filter(pk=self.flag.pk).update(filters=filters)
+
+        response = self.client.post(self.url, self._body(), format="json")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        create_and_run_task.assert_not_called()
+
     def test_refuses_a_second_active_plan(self, create_and_run_task: MagicMock, *_: MagicMock) -> None:
         self._plan()
 

@@ -201,6 +201,8 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.feature_flags.backend.api.staff_team_config.FeatureFlagsStaffTeamConfigViewSet",
     "products.feature_flags.backend.api.staff_teams.FeatureFlagsStaffTeamSearchViewSet",
     "products.feature_flags.backend.presentation.request_usage.FeatureFlagRequestUsageViewSet",
+    # Returns one flag's 20 most recent rollout plans, not a page of rows.
+    "products.feature_flags.backend.presentation.rollout_plans.FeatureFlagRolloutPlanViewSet",
     "products.field_notes.backend.api.FieldNoteViewSet",
     "products.groups.backend.presentation.views.GroupsTypesViewSet",
     "products.groups.backend.presentation.views.GroupsViewSet",

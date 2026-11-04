@@ -18,8 +18,8 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.approvals.backend.exceptions import ApprovalRequired
 from products.feature_flags.backend.api.feature_flag import FlagVersionCheckedWriteRequest
 from products.feature_flags.backend.facade.api import update_flag, user_can_edit_flag
-from products.feature_flags.backend.facade.config import ConfigFormatError, detect_config_format
-from products.feature_flags.backend.facade.filters import set_release_condition_rollout
+from products.feature_flags.backend.facade.config import ConfigFormatError
+from products.feature_flags.backend.facade.filters import condition_rollout_percentage, set_release_condition_rollout
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.feature_flag_rollout_plan import FeatureFlagRolloutPlan
 from products.notifications.backend.facade.api import (
@@ -192,17 +192,15 @@ def stop_rollout_plan_for_person(plan_id: UUID, *, team: Team, user: User, reaso
 def _check_flag_can_roll_out(flag: FeatureFlag, condition_index: int, percentages: list[int]) -> None:
     if not flag.active:
         raise exceptions.ValidationError("Turn this feature flag on before you start a rollout.")
-    filters = flag.get_filters()
-    if detect_config_format(filters).kind != "v1":
+    try:
+        conditions = flag.conditions
+    except ConfigFormatError:
         raise exceptions.ValidationError("This flag uses a configuration format that a rollout plan cannot change yet.")
-    groups = filters.get("groups") or []
-    if condition_index >= len(groups):
+    if condition_index >= len(conditions):
         raise exceptions.ValidationError(f"This feature flag has no release condition at index {condition_index}.")
-    current = groups[condition_index].get("rollout_percentage")
-    if current is None or current >= percentages[0]:
-        raise exceptions.ValidationError(
-            f"The first percentage must be higher than the current rollout of {100 if current is None else current}%."
-        )
+    current = condition_rollout_percentage(conditions[condition_index])
+    if current >= percentages[0]:
+        raise exceptions.ValidationError(f"The first percentage must be higher than the current rollout of {current}%.")
 
 
 def _apply_step(plan: FeatureFlagRolloutPlan, *, team: Team, percentage: int) -> str | None:
