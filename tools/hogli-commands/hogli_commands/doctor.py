@@ -38,6 +38,9 @@ MAX_SAMPLE_PATHS = 8
 FLOX_LOG_MAX_AGE_DAYS = 7
 FLOX_LOG_MAX_TOTAL_BYTES = 512 * 1024 * 1024  # 512 MiB of recent logs is plenty for debugging
 
+STALE_RUST_TARGET_DAYS = 7
+WORKTREE_RUST_TARGET = Path("rust") / "target"
+
 PYTHON_CACHE_PATTERNS = ("__pycache__", ".mypy_cache", ".pytest_cache", ".ruff_cache")
 NODE_ARTIFACT_PATTERNS = (
     ".parcel-cache",
@@ -143,6 +146,7 @@ class CleanupResult:
             "dagster",
             "node-artifacts",
             "rust",
+            "rust-worktrees",
             "sccache",
             "uv-cache",
             "pnpm-store",
@@ -170,6 +174,7 @@ def doctor_disk(
     - Dagster background job storage
     - pnpm/Vite/Tailwind/Storybook/Playwright build artifacts
     - Rust workspaces built with Cargo, plus the sccache compilation cache
+    - Rust targets of other worktrees of this repository that no build used recently
     - The uv and pnpm package caches shared across every worktree
 
     Several of these caches live outside the repository because the Flox env
@@ -289,6 +294,19 @@ def doctor_disk(
             include_in_total=False,
             skip_if_empty=False,
             dry_run_message="Would run: cargo clean in all Rust workspaces",
+        ),
+        CleanupCategory(
+            id="rust_worktrees",
+            title="🦀 Rust targets of other worktrees",
+            description=[
+                f"Deletes the rust/target of each other worktree that no build used in {STALE_RUST_TARGET_DAYS} days.",
+                "Also deletes an unused ~/.cargo/target, where Cargo built when the Flox env set CARGO_TARGET_DIR.",
+                "The current worktree and worktrees where cargo is running are left alone.",
+            ],
+            estimate=_estimate_stale_rust_targets,
+            cleanup=_cleanup_items,
+            confirmation_prompt="Delete these Rust target directories?",
+            default_confirm=False,
         ),
         CleanupCategory(
             id="sccache",
@@ -1409,6 +1427,127 @@ def _collect_rust_target_dirs(repo_root: Path) -> list[CleanupItem]:
         items.append(CleanupItem(target_dir, size, is_dir=True))
 
     return items
+
+
+def _git_worktree_paths(repo_root: Path) -> list[Path]:
+    try:
+        result = subprocess.run(
+            ["git", "worktree", "list", "--porcelain", "-z"],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if result.returncode != 0:
+        return []
+    return [
+        Path(record.removeprefix("worktree ")) for record in result.stdout.split("\0") if record.startswith("worktree ")
+    ]
+
+
+def _inode_key(path: Path) -> tuple[int, int] | None:
+    """Identify a directory independent of symlinks and of path case on a case-insensitive file system."""
+
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    return stat.st_dev, stat.st_ino
+
+
+def _worktrees_running_cargo(worktrees: Sequence[Path]) -> set[Path]:
+    try:
+        result = subprocess.run(["pgrep", "-x", "cargo|rustc"], capture_output=True, text=True, timeout=5, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return set()
+    pids = [int(pid) for pid in result.stdout.split() if pid.isdigit()]
+    if not pids:
+        return set()
+
+    worktree_by_key = {key: worktree for worktree in worktrees if (key := _inode_key(worktree)) is not None}
+    busy: set[Path] = set()
+    for cwd in _get_process_cwds(pids).values():
+        for directory in (Path(cwd), *Path(cwd).parents):
+            key = _inode_key(directory)
+            if key in worktree_by_key:
+                busy.add(worktree_by_key[key])
+                break
+    return busy
+
+
+def _last_cargo_build_epoch(target: Path) -> float:
+    """Newest mtime under each profile's .fingerprint, which Cargo rewrites for every unit it builds."""
+
+    newest = 0.0
+    for fingerprint_dir in target.glob("*/.fingerprint"):
+        try:
+            with os.scandir(fingerprint_dir) as units:
+                unit_dirs = [Path(unit.path) for unit in units if unit.is_dir(follow_symlinks=False)]
+            newest = max(newest, fingerprint_dir.stat().st_mtime)
+        except OSError:
+            continue
+        for unit_dir in unit_dirs:
+            try:
+                with os.scandir(unit_dir) as entries:
+                    for entry in entries:
+                        newest = max(newest, entry.stat(follow_symlinks=False).st_mtime)
+            except OSError:
+                continue
+
+    if newest == 0.0:
+        try:
+            newest = target.stat().st_mtime
+        except OSError:
+            pass
+    return newest
+
+
+def _estimate_stale_rust_targets(repo_root: Path) -> CleanupEstimate:
+    now = time.time()
+    cutoff = now - STALE_RUST_TARGET_DAYS * 24 * 60 * 60
+
+    current_key = _inode_key(repo_root)
+    other_worktrees = [
+        worktree
+        for worktree in _git_worktree_paths(repo_root)
+        if _inode_key(worktree) != current_key
+        and (worktree / WORKTREE_RUST_TARGET).is_dir()
+        and not (worktree / WORKTREE_RUST_TARGET).is_symlink()
+    ]
+    busy = _worktrees_running_cargo(other_worktrees)
+    candidates = [worktree / WORKTREE_RUST_TARGET for worktree in other_worktrees if worktree not in busy]
+
+    legacy_shared_target = Path.home() / ".cargo" / "target"
+    if _cargo_target_dir() is None and legacy_shared_target.is_dir() and not legacy_shared_target.is_symlink():
+        candidates.append(legacy_shared_target)
+
+    last_builds = [(target, _last_cargo_build_epoch(target)) for target in candidates]
+    stale = sorted(((target, built) for target, built in last_builds if built < cutoff), key=lambda entry: entry[1])
+
+    details: list[str] = []
+    if busy:
+        details.append(f"   Skipped {len(busy)} worktree(s) where cargo is running.")
+    recent_count = len(last_builds) - len(stale)
+    if recent_count:
+        details.append(f"   Kept {recent_count} target(s) built in the last {STALE_RUST_TARGET_DAYS} days.")
+
+    if not stale:
+        details.append(f"   No Rust target of another worktree is older than {STALE_RUST_TARGET_DAYS} days.")
+        return CleanupEstimate(total_size=0.0, items=[], details=details)
+
+    items: list[CleanupItem] = []
+    details.append(f"   Not built in the last {STALE_RUST_TARGET_DAYS} days:")
+    for target, built in stale:
+        size, _ = _get_dir_size(target)
+        items.append(CleanupItem(target, size, is_dir=True))
+        last_build_date = datetime.fromtimestamp(built).strftime("%Y-%m-%d")
+        days_ago = int((now - built) // (24 * 60 * 60))
+        details.append(f"     - {target} ({_format_size(size)}, last built {last_build_date}, {days_ago} days ago)")
+
+    return CleanupEstimate(total_size=sum(item.size for item in items), items=items, details=details)
 
 
 def _find_cargo_workspaces(repo_root: Path) -> list[Path]:
