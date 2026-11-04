@@ -1936,16 +1936,23 @@ export interface AssistantDataVisualizationAxis {
     settings?: AssistantDataVisualizationAxisSettings
 }
 
+export interface AssistantDataVisualizationColumnDisplaySettings {
+    /** Table column description shown in the header tooltip. */
+    description?: string
+}
+
 export interface AssistantDataVisualizationColumnSettings {
+    /** Display settings for this column. */
+    display?: AssistantDataVisualizationColumnDisplaySettings
     /** Number-formatting settings for the values in this column. */
     formatting?: AssistantDataVisualizationAxisFormatting
 }
 
-/** A column with number formatting only. Series display settings apply only to Y-axis series. */
+/** A column with a description and number formatting. Series display settings apply only to Y-axis series. */
 export interface AssistantDataVisualizationColumn {
     /** Name of a column returned by the SQL query. */
     column: string
-    /** Optional number formatting for this column. */
+    /** Optional display and number-formatting settings for this column. */
     settings?: AssistantDataVisualizationColumnSettings
 }
 

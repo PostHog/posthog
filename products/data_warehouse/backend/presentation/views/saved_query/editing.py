@@ -13,12 +13,15 @@ import structlog
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import exceptions, serializers
 
+from posthog.schema import ExecutionTarget, HogQLQuery
+
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import (
     MODELS_NAMESPACE_QUERY_ERROR,
     is_reserved_models_name,
     models_namespace_chain,
 )
+from posthog.hogql.direct_sql.trino_adapter import ensure_read_only_raw_trino_statement
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import FindPlaceholders
@@ -41,10 +44,12 @@ from products.data_modeling.backend.facade.modeling import ResolutionCycleError,
 from products.data_modeling.backend.facade.models import (
     DataWarehouseSavedQuery,
     DataWarehouseSavedQueryColumnAnnotation,
+    is_raw_managed_trino_query,
     validate_saved_query_name,
 )
 from products.data_tools.backend.facade.models import DataWarehouseSavedQueryFolder
 from products.data_warehouse.backend.presentation.views.column_annotation_base import upsert_annotation
+from products.managed_warehouse.backend.facade.query_execution import validate_managed_trino_query
 from products.warehouse_sources.backend.facade.hogql import (
     get_view_or_table_by_name,
     hogql_type_name_for_clickhouse_type,
@@ -66,6 +71,17 @@ GENERIC_LINEAGE_SYNC_ERROR = (
 def _lineage_sync_error_detail(error: Exception) -> str:
     # The marker is served verbatim by the node API, so only a message written for the user may reach it.
     return str(error) if isinstance(error, ExposedHogQLError) else GENERIC_LINEAGE_SYNC_ERROR
+
+
+def _columns_from_client_types(client_types: list[list[str]]) -> dict[str, dict[str, Any]]:
+    return {
+        str(item[0]): {
+            "hogql": hogql_type_name_for_clickhouse_type(str(item[1])),
+            "clickhouse": item[1],
+            "valid": True,
+        }
+        for item in client_types
+    }
 
 
 def _capture_unless_user_error(error: Exception) -> None:
@@ -347,6 +363,22 @@ class DataWarehouseSavedQuerySerializer(
             capture_exception(e)
             logger.exception("Failed to report view action", analytics_event=event)
 
+    def _raw_trino_columns(self, sync_frequency: str | None) -> dict[str, dict[str, Any]]:
+        if sync_frequency not in (None, "never"):
+            raise serializers.ValidationError("Views that run raw Trino SQL cannot be materialized yet.")
+        client_types = self.context["request"].data.get("types", [])
+        if not isinstance(client_types, list) or any(
+            not isinstance(item, list | tuple)
+            or len(item) != 2
+            or not isinstance(item[0], str)
+            or not isinstance(item[1], str)
+            for item in client_types
+        ):
+            raise serializers.ValidationError('"types" must be a list of [column name, column type] string pairs.')
+        if len(client_types) == 0:
+            raise serializers.ValidationError("Run the query in the SQL editor before saving it as a view.")
+        return _columns_from_client_types(client_types)
+
     def _validate_view_dependencies(self, team: Team, name: str, query: str) -> None:
         try:
             get_parents_from_model_query(team, name, query, database=self.context["database"])
@@ -367,24 +399,20 @@ class DataWarehouseSavedQuerySerializer(
         validated_data.pop("edited_history_id", None)
         view = DataWarehouseSavedQuery(**validated_data)
 
-        self._validate_view_dependencies(self.context["get_team"](), view.name, validated_data["query"]["query"])
+        if view.is_raw_managed_trino:
+            # ClickHouse cannot run Trino SQL, so the view gets no lineage, no inferred types and no DAG node.
+            view.set_columns(self._raw_trino_columns(sync_frequency))
+        else:
+            self._validate_view_dependencies(self.context["get_team"](), view.name, validated_data["query"]["query"])
 
-        if not soft_update:
+        if not soft_update and not view.is_raw_managed_trino:
             try:
                 # The columns will be inferred from the query
                 client_types = self.context["request"].data.get("types", [])
                 if len(client_types) == 0:
                     view.set_columns(view.get_columns(user=self.context["request"].user))
                 else:
-                    columns = {
-                        str(item[0]): {
-                            "hogql": hogql_type_name_for_clickhouse_type(str(item[1])),
-                            "clickhouse": item[1],
-                            "valid": True,
-                        }
-                        for item in client_types
-                    }
-                    view.set_columns(columns)
+                    view.set_columns(_columns_from_client_types(client_types))
 
                 view.external_tables = view.get_s3_tables(database=self.context["database"])
             except Exception as e:
@@ -419,14 +447,15 @@ class DataWarehouseSavedQuerySerializer(
                     ],
                 ),
             )
-            try:
-                with transaction.atomic():
-                    modeling_api.sync_saved_query_to_dag(view)
-            except Exception as e:
-                capture_exception(e)
-                logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
-                modeling_api.adopt_saved_query_without_edges(view.team_id, view.id, _lineage_sync_error_detail(e))
-            if sync_frequency is not None:
+            if not view.is_raw_managed_trino:
+                try:
+                    with transaction.atomic():
+                        modeling_api.sync_saved_query_to_dag(view)
+                except Exception as e:
+                    capture_exception(e)
+                    logger.exception("Failed to sync saved query to DAG", saved_query_name=view.name)
+                    modeling_api.adopt_saved_query_without_edges(view.team_id, view.id, _lineage_sync_error_detail(e))
+            if sync_frequency is not None and not view.is_raw_managed_trino:
                 if sync_frequency != "never":
                     assert_user_can_read_query(
                         view.query,
@@ -453,6 +482,10 @@ class DataWarehouseSavedQuerySerializer(
 
         frequency_given = "sync_frequency" in validated_data
         sync_frequency = validated_data.pop("sync_frequency", None)
+        raw_trino = is_raw_managed_trino_query(validated_data.get("query", instance.query))
+
+        if raw_trino and sync_frequency not in (None, "never"):
+            raise serializers.ValidationError("Views that run raw Trino SQL cannot be materialized yet.")
 
         if sync_frequency and sync_frequency != "never":
             # Scheduling a view is the same grant as materializing it directly.
@@ -463,8 +496,8 @@ class DataWarehouseSavedQuerySerializer(
                 database=self.context.get("database"),
             )
 
-        # The frequency writes through to the DAG node's freshness target.
-        frequency_changed = frequency_given
+        # The frequency writes through to the DAG node's freshness target. Raw Trino views have no node.
+        frequency_changed = frequency_given and not raw_trino
 
         soft_update = validated_data.pop("soft_update", False)
         edited_history_id = self.context["request"].data.get("edited_history_id", None)
@@ -482,13 +515,21 @@ class DataWarehouseSavedQuerySerializer(
 
         inferred_columns: dict[str, dict[str, Any]] | None = None
         inferred_external_tables: list[str] | None = None
-        if "query" in validated_data or "name" in validated_data:
+        if raw_trino != instance.is_raw_managed_trino:
+            raise serializers.ValidationError(
+                "A view cannot switch between Trino and ClickHouse. Save it as a new view."
+            )
+        if raw_trino:
+            if "query" in validated_data and not soft_update:
+                inferred_columns = self._raw_trino_columns(None)
+                inferred_external_tables = []
+        elif "query" in validated_data or "name" in validated_data:
             self._validate_view_dependencies(
                 instance.team,
                 validated_data.get("name", instance.name),
                 validated_data.get("query", instance.query)["query"],
             )
-        if "query" in validated_data and not soft_update:
+        if "query" in validated_data and not soft_update and not raw_trino:
             # Inference runs the query on ClickHouse, so it happens before the row lock, on a probe
             # carrying the pending query and name rather than the stored ones, as create() does.
             probe = DataWarehouseSavedQuery(
@@ -501,14 +542,7 @@ class DataWarehouseSavedQuerySerializer(
                 if len(client_types) == 0:
                     inferred_columns = probe.get_columns(user=self.context["request"].user)
                 else:
-                    inferred_columns = {
-                        str(item[0]): {
-                            "hogql": hogql_type_name_for_clickhouse_type(str(item[1])),
-                            "clickhouse": item[1],
-                            "valid": True,
-                        }
-                        for item in client_types
-                    }
+                    inferred_columns = _columns_from_client_types(client_types)
                 inferred_external_tables = probe.get_s3_tables(database=self.context["database"])
             except (RecursionError, ResolutionCycleError):
                 raise serializers.ValidationError("Model contains a cycle")
@@ -568,10 +602,15 @@ class DataWarehouseSavedQuerySerializer(
                 self._write_view_description(view, description)
 
             if inferred_columns is not None:
+                columns_changed = not before_update.stores_columns(inferred_columns)
                 view.set_columns(inferred_columns)
                 view.external_tables = inferred_external_tables
                 view.status = DataWarehouseSavedQuery.Status.MODIFIED
                 view.save()
+                if columns_changed:
+                    modeling_api.schedule_downstream_view_column_refresh(
+                        view.team_id, view.id, self.context["request"].user.id
+                    )
 
             team = Team.objects.get(id=view.team_id)
 
@@ -589,15 +628,7 @@ class DataWarehouseSavedQuerySerializer(
             if frequency_changed and previous_target != target:
                 # The cadence lives on the DAG node, so changes_between() sees nothing and
                 # log_activity would discard the whole updated entry as a no-op.
-                changes.append(
-                    Change(
-                        type="DataWarehouseSavedQuery",
-                        action="changed",
-                        field="sync_frequency_interval",
-                        before=str(previous_target) if previous_target is not None else None,
-                        after=str(target) if target is not None else None,
-                    )
-                )
+                changes.extend(modeling_api.cadence_changes((previous_target, target)))
             log_activity(
                 organization_id=team.organization_id,
                 team_id=team.id,
@@ -611,7 +642,7 @@ class DataWarehouseSavedQuerySerializer(
 
             # Best effort sync to the data modeling DAG representation. The savepoint keeps a
             # failed sync best effort without poisoning the update's own transaction.
-            if "query" in validated_data or name_changed:
+            if ("query" in validated_data or name_changed) and not view.is_raw_managed_trino:
                 try:
                     with transaction.atomic():
                         modeling_api.sync_saved_query_to_dag(view)
@@ -650,6 +681,18 @@ class DataWarehouseSavedQuerySerializer(
 
         team_id = self.context["team_id"]
         user = self.context["request"].user
+
+        if is_raw_managed_trino_query(query):
+            try:
+                validate_managed_trino_query(
+                    HogQLQuery(query=query["query"], executionTarget=ExecutionTarget.MANAGED_TRINO, sendRawQuery=True),
+                    self.context["get_team"](),
+                    user,
+                )
+                ensure_read_only_raw_trino_statement(query["query"])
+            except ExposedHogQLError as err:
+                raise exceptions.ValidationError(detail=f"Invalid query: {err}")
+            return query
 
         context = HogQLContext(team_id=team_id, user=user, enable_select_queries=True)
         try:

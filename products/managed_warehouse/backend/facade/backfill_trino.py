@@ -14,5 +14,7 @@ def backfills_through_trino(organization_id: str) -> bool:
     return backfill_trino.backfills_through_trino(organization_id)
 
 
-def connect_backfill_catalog(organization_id: str) -> AbstractContextManager[DuckLakeBackfillCatalog]:
-    return backfill_trino.TrinoBackfillCatalog.connect(organization_id)
+def connect_backfill_catalog(
+    organization_id: str, *, canary: bool = False
+) -> AbstractContextManager[DuckLakeBackfillCatalog]:
+    return backfill_trino.TrinoBackfillCatalog.connect(organization_id, canary=canary)

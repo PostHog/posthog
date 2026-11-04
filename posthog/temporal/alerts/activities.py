@@ -24,15 +24,12 @@ from temporalio.exceptions import ApplicationError
 
 from posthog.schema import AlertState
 
-from posthog.hogql.errors import TableAccessDeniedError
-
 from posthog.clickhouse.cancel import cancel_query_on_cluster
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.email import is_email_available
 from posthog.errors import CH_TRANSIENT_ERRORS, CHQueryErrorQueryWasCancelled
 from posthog.exceptions_capture import capture_exception
-from posthog.query_creator_access import creator_access_revoked, report_creator_access_revoked
 from posthog.schema_migrations.upgrade_manager import upgrade_insight
 from posthog.sync import database_sync_to_async
 from posthog.tasks.alerts.investigation_notifications import run_investigation_notification_safety_net
@@ -93,10 +90,12 @@ from products.alerts.backend.evaluation import check_alert_for_insight
 from products.alerts.backend.evaluation.contract import AlertDataUnavailableError, AlertExtractionError
 from products.alerts.backend.evaluation.validation import validate_alert_config, validate_alert_insight_query
 from products.alerts.backend.facade.api import (
+    LLM_DETECTOR_PAUSED_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_MESSAGE,
     LLM_EVALUATE_EXECUTOR,
     LLMDetectorMisconfiguredError,
+    LLMDetectorPausedError,
     LLMDetectorUnavailableError,
     is_llm_detector_config,
 )
@@ -689,9 +688,13 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             # retry-exhausted path records an errored check, the same outcome as any other
             # evaluation that never produced a value.
             raise
+        except LLMDetectorPausedError as err:
+            # Retrying cannot help, and the alert stays enabled so it resumes once access or credits return.
+            record_ai_detector_check_outcome("paused")
+            error = {"code": LLM_DETECTOR_PAUSED_ERROR_CODE, "message": str(err)}
         except LLMDetectorMisconfiguredError as err:
-            # Same fail-loud outcome as a bad query shape below, counted apart because a
-            # withdrawn consent or rollout is the owner's to fix and never a provider failure.
+            # Same fail-loud outcome as a bad query shape below, counted apart because a missing
+            # creator is the owner's to fix and never a provider failure.
             record_ai_detector_check_outcome("misconfigured")
             invalid_configuration = str(err)
         except AlertExtractionError as err:
@@ -700,29 +703,6 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
             # existing path instead of capturing it as an exception, which would pollute error
             # tracking with a config problem that recurs on every check until fixed.
             invalid_configuration = str(err)
-        except TableAccessDeniedError as err:
-            logger.exception("Alert failed to evaluate", alert_id=alert.id, exc_info=err)
-            # A revoked creator's access-denied error is a known limitation - report it as an event
-            # rather than capturing it, which would recur on every check until the alert is fixed.
-            if creator_access_revoked(alert.created_by, alert.team):
-                report_creator_access_revoked(
-                    user=alert.created_by,
-                    team=alert.team,
-                    source="alert",
-                    error=err,
-                    properties={"alert_id": str(alert.id), "insight_id": alert.insight_id},
-                )
-                error = {"message": str(err)}
-            else:
-                capture_exception(
-                    err,
-                    additional_properties={
-                        "alert_configuration_id": str(alert.id),
-                        "insight_id": alert.insight_id,
-                        "team_id": alert.team_id,
-                    },
-                )
-                error = {"message": str(err), "traceback": traceback.format_exc()}
         except Exception as err:
             logger.exception("Alert failed to evaluate", alert_id=alert.id, exc_info=err)
             capture_exception(
@@ -1078,7 +1058,9 @@ def dispatch_alert_error_in_app_notifications(alert: AlertConfiguration, alert_c
             else "PostHog will try again at the next scheduled check."
         )
         title = f"{alert_name[:75]} could not be evaluated"
-        if error_code == LLM_DETECTOR_UNAVAILABLE_ERROR_CODE:
+        if error_code == LLM_DETECTOR_PAUSED_ERROR_CODE:
+            body = f"PostHog could not evaluate this alert: {error_message}."
+        elif error_code == LLM_DETECTOR_UNAVAILABLE_ERROR_CODE:
             # A check the AI detector could not complete is not something the owner can fix,
             # so this case drops the advice to review the alert settings.
             body = (

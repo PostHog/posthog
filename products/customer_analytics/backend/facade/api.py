@@ -28,7 +28,7 @@ from django.conf import settings
 from django.contrib.postgres.aggregates import ArrayAgg
 from django.contrib.postgres.fields import ArrayField
 from django.core.cache import cache
-from django.core.exceptions import ValidationError
+from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import (
     Aggregate,
@@ -132,7 +132,6 @@ from products.customer_analytics.backend.logic.account_filters import (
     parse_email_search,
 )
 from products.customer_analytics.backend.logic.account_logo import resolve_logo_domain
-from products.customer_analytics.backend.logic.account_member_search import get_account_users_organization_id
 from products.customer_analytics.backend.logic.custom_property_definitions import (
     apply_option_side_effects,
     coerce_is_big_number,
@@ -399,8 +398,7 @@ def _resolve_accessible_account(
 
 
 def validate_account_users_access(team: Team, user: "User | None", account_id: str) -> None:
-    """Raise `UserAccessControlError` unless `user` may read the users of this account."""
-    get_account_users_organization_id(team=team, user=user, account_id=account_id)
+    raise PermissionDenied("Run the account-user query synchronously.")
 
 
 def get_account(
@@ -5952,3 +5950,7 @@ def list_announcement_channels(team_id: int) -> list[contracts.AnnouncementChann
 def get_key_metrics(*, team: Team, user: "User") -> list[contracts.KeyMetric] | None:
     """The key metrics, or None while a background calculation is still running."""
     return _key_metrics_logic.key_metrics(team, user)
+
+
+def get_key_metric_names(*, team: Team) -> dict[str, str]:
+    return _key_metrics_logic.key_metric_names(team)

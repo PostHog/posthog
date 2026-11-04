@@ -57,7 +57,7 @@ export const manifest: ProductManifest = {
             iconType: 'dashboard',
             iconColor: ['var(--color-product-dashboards-light)'],
             href: urls.dashboards(),
-            searchKeywords: ['boards', 'charts'],
+            searchKeywords: ['boards'],
             searchTabs: [
                 { name: 'My dashboards', href: urls.dashboards('yours') },
                 {

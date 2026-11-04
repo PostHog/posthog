@@ -2853,6 +2853,7 @@ dependencies = [
  "chrono-tz",
  "cohort-core",
  "common-alloc",
+ "common-cohort-team-access",
  "common-database",
  "common-kafka",
  "common-liveness",
@@ -3548,6 +3549,28 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ce6e4c961d6cd6c9a86db418387425e8bdeaf05b3c8bc1411e6dca4c252f1453"
 dependencies = [
  "hybrid-array",
+]
+
+[[package]]
+name = "cssparser"
+version = "0.38.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "11119743ad110e8c1bdccd930d7f5c30c99e5fc76a7b63ec9807e84eef0c5f59"
+dependencies = [
+ "cssparser-macros",
+ "dtoa-short",
+ "itoa",
+ "smallvec",
+]
+
+[[package]]
+name = "cssparser-macros"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d045de693cb712d0b22c6a64be5b953f67b3ce00ab5ad3dd5d8b441886ab8e1a"
+dependencies = [
+ "quote",
+ "syn 3.0.3",
 ]
 
 [[package]]
@@ -4316,6 +4339,21 @@ name = "downcast"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1435fa1053d8b2fbbe9be7e97eca7f33d37b28409959813daefc1446a14247f1"
+
+[[package]]
+name = "dtoa"
+version = "1.0.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c3cf4824e2d5f025c7b531afcb2325364084a16806f6d47fbc1f5fbd9960590"
+
+[[package]]
+name = "dtoa-short"
+version = "0.3.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cd1511a7b6a56299bd043a9c167a6d2bfb37bf84a6dfceaba651168adfb43c87"
+dependencies = [
+ "dtoa",
+]
 
 [[package]]
 name = "dtor"
@@ -9795,7 +9833,7 @@ dependencies = [
 
 [[package]]
 name = "posthog-replay-anonymizer"
-version = "0.13.0"
+version = "0.15.0"
 dependencies = [
  "ahash 0.8.12",
  "anyhow",
@@ -11056,6 +11094,7 @@ dependencies = [
  "aws-sdk-kms",
  "base64 0.22.1",
  "chrono",
+ "cssparser",
  "flate2",
  "futures",
  "governor",
@@ -11067,7 +11106,6 @@ dependencies = [
  "memchr",
  "moka",
  "percent-encoding",
- "posthog-replay-anonymizer",
  "public-suffix",
  "rand 0.8.5",
  "serde",
@@ -11115,7 +11153,6 @@ dependencies = [
  "lifecycle",
  "metrics",
  "moka",
- "posthog-replay-anonymizer",
  "rand 0.8.5",
  "rdkafka",
  "replay-core-v4",
@@ -11126,7 +11163,6 @@ dependencies = [
  "tokio",
  "tracing",
  "tracing-subscriber",
- "url",
 ]
 
 [[package]]

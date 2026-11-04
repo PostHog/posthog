@@ -115,6 +115,7 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `marketing_analytics` - marketing_analytics
  * * `mcp_analytics` - mcp_analytics
  * * `mcp_registry` - mcp_registry
+ * * `messaging_preference` - messaging_preference
  * * `metrics` - metrics
  * * `notebook` - notebook
  * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
@@ -148,6 +149,7 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `today` - today
  * * `toolbar` - toolbar
  * * `tracing` - tracing
+ * * `transactional_email` - transactional_email
  * * `field_note` - field_note
  * * `uploaded_media` - uploaded_media
  * * `usage_metric` - usage_metric
@@ -237,6 +239,7 @@ export const ScopeObjectEnumApi = {
     MarketingAnalytics: 'marketing_analytics',
     McpAnalytics: 'mcp_analytics',
     McpRegistry: 'mcp_registry',
+    MessagingPreference: 'messaging_preference',
     Metrics: 'metrics',
     Notebook: 'notebook',
     OfflineEvaluationIngestion: 'offline_evaluation_ingestion',
@@ -270,6 +273,7 @@ export const ScopeObjectEnumApi = {
     Today: 'today',
     Toolbar: 'toolbar',
     Tracing: 'tracing',
+    TransactionalEmail: 'transactional_email',
     FieldNote: 'field_note',
     UploadedMedia: 'uploaded_media',
     UsageMetric: 'usage_metric',
@@ -382,6 +386,7 @@ export interface ProjectAccessSourceApi {
      * * `marketing_analytics` - marketing_analytics
      * * `mcp_analytics` - mcp_analytics
      * * `mcp_registry` - mcp_registry
+     * * `messaging_preference` - messaging_preference
      * * `metrics` - metrics
      * * `notebook` - notebook
      * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
@@ -415,6 +420,7 @@ export interface ProjectAccessSourceApi {
      * * `today` - today
      * * `toolbar` - toolbar
      * * `tracing` - tracing
+     * * `transactional_email` - transactional_email
      * * `field_note` - field_note
      * * `uploaded_media` - uploaded_media
      * * `usage_metric` - usage_metric
@@ -547,6 +553,7 @@ export interface AccessControlObjectRuleApi {
      * * `marketing_analytics` - marketing_analytics
      * * `mcp_analytics` - mcp_analytics
      * * `mcp_registry` - mcp_registry
+     * * `messaging_preference` - messaging_preference
      * * `metrics` - metrics
      * * `notebook` - notebook
      * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
@@ -580,6 +587,7 @@ export interface AccessControlObjectRuleApi {
      * * `today` - today
      * * `toolbar` - toolbar
      * * `tracing` - tracing
+     * * `transactional_email` - transactional_email
      * * `field_note` - field_note
      * * `uploaded_media` - uploaded_media
      * * `usage_metric` - usage_metric
@@ -659,6 +667,7 @@ export interface AccessControlPropertyRulesResponseApi {
  * * `feature_flag` - feature_flag
  * * `heatmap` - heatmap
  * * `hog_flow` - hog_flow
+ * * `inbox` - inbox
  * * `insight` - insight
  * * `llm_analytics` - llm_analytics
  * * `llm_playground` - llm_playground
@@ -717,6 +726,7 @@ export const RuleResourceEnumApi = {
     FeatureFlag: 'feature_flag',
     Heatmap: 'heatmap',
     HogFlow: 'hog_flow',
+    Inbox: 'inbox',
     Insight: 'insight',
     LlmAnalytics: 'llm_analytics',
     LlmPlayground: 'llm_playground',
@@ -780,6 +790,7 @@ export interface AccessControlRuleRequestApi {
      * * `feature_flag` - feature_flag
      * * `heatmap` - heatmap
      * * `hog_flow` - hog_flow
+     * * `inbox` - inbox
      * * `insight` - insight
      * * `llm_analytics` - llm_analytics
      * * `llm_playground` - llm_playground
@@ -937,6 +948,7 @@ export interface AccessControlObjectRuleResourceApi {
      * * `marketing_analytics` - marketing_analytics
      * * `mcp_analytics` - mcp_analytics
      * * `mcp_registry` - mcp_registry
+     * * `messaging_preference` - messaging_preference
      * * `metrics` - metrics
      * * `notebook` - notebook
      * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
@@ -970,6 +982,7 @@ export interface AccessControlObjectRuleResourceApi {
      * * `today` - today
      * * `toolbar` - toolbar
      * * `tracing` - tracing
+     * * `transactional_email` - transactional_email
      * * `field_note` - field_note
      * * `uploaded_media` - uploaded_media
      * * `usage_metric` - usage_metric
@@ -1060,6 +1073,7 @@ export interface AccessControlMemberRuleRequestApi {
      * * `feature_flag` - feature_flag
      * * `heatmap` - heatmap
      * * `hog_flow` - hog_flow
+     * * `inbox` - inbox
      * * `insight` - insight
      * * `llm_analytics` - llm_analytics
      * * `llm_playground` - llm_playground
@@ -1224,6 +1238,7 @@ export interface ResolvedAccessApi {
      * * `marketing_analytics` - marketing_analytics
      * * `mcp_analytics` - mcp_analytics
      * * `mcp_registry` - mcp_registry
+     * * `messaging_preference` - messaging_preference
      * * `metrics` - metrics
      * * `notebook` - notebook
      * * `offline_evaluation_ingestion` - offline_evaluation_ingestion
@@ -1257,6 +1272,7 @@ export interface ResolvedAccessApi {
      * * `today` - today
      * * `toolbar` - toolbar
      * * `tracing` - tracing
+     * * `transactional_email` - transactional_email
      * * `field_note` - field_note
      * * `uploaded_media` - uploaded_media
      * * `usage_metric` - usage_metric
@@ -1372,6 +1388,7 @@ export interface AccessControlRoleRuleRequestApi {
      * * `feature_flag` - feature_flag
      * * `heatmap` - heatmap
      * * `hog_flow` - hog_flow
+     * * `inbox` - inbox
      * * `insight` - insight
      * * `llm_analytics` - llm_analytics
      * * `llm_playground` - llm_playground
