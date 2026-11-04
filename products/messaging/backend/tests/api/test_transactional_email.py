@@ -1375,7 +1375,7 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
         assert not TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).exists()
         mock_post.assert_not_called()
 
-    def test_a_member_denied_the_workflow_cannot_delete_it_through_project_files(self, mock_post, _flag):
+    def test_a_member_denied_the_workflow_cannot_delete_or_restore_it_through_project_files(self, mock_post, _flag):
         entry = FileSystem.objects.get(team=self.team, type="message_template", ref=str(self.template.id))
 
         response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{entry.id}/")
@@ -1383,6 +1383,17 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
         self.template.refresh_from_db()
         assert not self.template.deleted
+
+        MessageTemplate.objects.filter(pk=self.template.pk).update(deleted=True)
+        restored = self.client.post(
+            f"/api/projects/{self.team.id}/file_system/undo_delete/",
+            {"items": [{"type": "message_template", "ref": str(self.template.id)}]},
+            format="json",
+        )
+
+        assert restored.status_code == status.HTTP_403_FORBIDDEN, restored.content
+        self.template.refresh_from_db()
+        assert self.template.deleted
 
     @parameterized.expand([("unlinked", None), ("linked_to_a_deleted_workflow", uuid4())])
     def test_editor_access_to_one_workflow_cannot_create_another(self, mock_post, _flag, _name, linked_hog_flow_id):

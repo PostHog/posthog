@@ -7,7 +7,7 @@ from django.apps import AppConfig
 from rest_framework.exceptions import PermissionDenied
 
 if TYPE_CHECKING:
-    from posthog.api.file_system.deletion import DeletionContext
+    from posthog.api.file_system.deletion import DeletionContext, RestoreContext
 
     from products.messaging.backend.models.message_template import MessageTemplate
 
@@ -21,12 +21,15 @@ class MessagingConfig(AppConfig):
         from posthog.api.file_system.deletion import (  # noqa: PLC0415
             register_file_system_type,
             register_pre_delete_hook,
+            register_pre_restore_hook,
         )
         from posthog.models.file_system.unfiled_file_saver import register_mixin_model  # noqa: PLC0415
 
         from products.messaging.backend.models.message_template import MessageTemplate  # noqa: PLC0415
 
-        def require_linked_workflow_editor(context: "DeletionContext", template: "MessageTemplate") -> None:
+        def require_linked_workflow_editor(
+            context: "DeletionContext | RestoreContext", template: "MessageTemplate"
+        ) -> None:
             if template.transactional_hog_flow_id is None:
                 return
             if context.user is None:
@@ -47,3 +50,4 @@ class MessagingConfig(AppConfig):
         register_mixin_model("message_template", MessageTemplate)
         register_file_system_type("message_template", "messaging", "MessageTemplate")
         register_pre_delete_hook("message_template", require_linked_workflow_editor)
+        register_pre_restore_hook("message_template", require_linked_workflow_editor)

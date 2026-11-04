@@ -85,7 +85,7 @@ from products.messaging.backend.presentation.views.serializers import DesignOper
 from products.notifications.backend.facade.api import publish_resource_edited
 from products.workflows.backend.facade.api import WorkflowAccessDenied, WorkflowNotFound
 from products.workflows.backend.facade.transactional_emails import EMAIL_FROM_CODE_FLAG
-from products.workflows.backend.facade.workflows import get_workflow
+from products.workflows.backend.facade.workflows import get_workflow_ref
 
 if TYPE_CHECKING:
     from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -735,7 +735,7 @@ SEND_RESPONSES: dict[int, ResponseDeclaration] = {
 def require_workflow_editor(team_id: int, hog_flow_id: Any, user_access_control: "UserAccessControl") -> None:
     # The template's own access rules don't cover the workflow it sends through, which can carry its own.
     try:
-        get_workflow(
+        get_workflow_ref(
             team_id=team_id,
             workflow_id=str(hog_flow_id),
             user_access_control=user_access_control,
