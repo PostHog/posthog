@@ -107,12 +107,12 @@ export async function apiConnection(
             throw new HogError('invalid_input', `${flag} is empty.`, `Pass an ID, or leave out ${flag}.`, EXIT_USAGE)
         }
     }
-    const credentials = await ctx.credentials()
+    const { key } = await ctx.credentials()
     // The saved project can belong to another organization, so an organization override drops it.
-    const projectId = scope.projectId ?? (scope.organizationId ? undefined : credentials.projectId)
+    const projectId = scope.projectId ?? (scope.organizationId ? undefined : key.projectId)
     return {
-        apiKey: credentials.apiKey,
-        host: credentials.host,
+        apiKey: key.token,
+        host: key.host,
         ...(projectId ? { projectId } : {}),
         ...(scope.organizationId ? { organizationId: scope.organizationId } : {}),
         clientName: 'hog',

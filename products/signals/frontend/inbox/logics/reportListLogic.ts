@@ -72,6 +72,8 @@ export interface ReportListRequestContext {
 export type ReportListResponse = CountedPaginatedResponse<SignalReport> & {
     /** The ranker the server used for `sort=recommended`. Null for every other sort. */
     ranker?: string | null
+    /** Whether the client shows a ranking score pill on each card, for `sort=recommended`. Null for every other sort. */
+    ranking_pill?: boolean | null
     requestParams?: Record<string, unknown>
     requestContext?: ReportListRequestContext
 }
@@ -206,6 +208,7 @@ export interface reportListLogicValues {
     loadedContext: ReportListRequestContext | null
     loadedQueryKey: string | null
     loadedRanker: string | null
+    loadedRankingPill: boolean
     pageLoadFailed: boolean
     reportSourceMeta: Record<string, ReportSourceMeta>
     reports: SignalReport[]
@@ -454,6 +457,7 @@ export interface reportListLogicMeta {
         loadedQueryKey: (reportsResponse: ReportListResponse | null) => string | null
         loadedContext: (reportsResponse: ReportListResponse | null) => ReportListRequestContext | null
         loadedRanker: (reportsResponse: ReportListResponse | null) => string | null
+        loadedRankingPill: (reportsResponse: ReportListResponse | null) => boolean
     }
 }
 
@@ -867,6 +871,11 @@ export const reportListLogic = kea<reportListLogicType>([
             (s) => [s.reportsResponse],
             (reportsResponse: ReportListResponse | null): string | null => reportsResponse?.ranker ?? null,
         ],
+        // Whether the server put this user in a Recommended arm that shows score pills on the cards.
+        loadedRankingPill: [
+            (s) => [s.reportsResponse],
+            (reportsResponse: ReportListResponse | null): boolean => reportsResponse?.ranking_pill === true,
+        ],
     }),
 
     listeners(({ actions, values, props, cache }) => ({
@@ -879,7 +888,7 @@ export const reportListLogic = kea<reportListLogicType>([
         // loaders report: the first page and each appended page bring rows that need painting. An
         // empty announcement matters too, because it retires the rows a narrowed filter dropped.
         loadReportsSuccess: () => {
-            setInboxServedRanker(values.loadedRanker)
+            setInboxServedRanker(values.loadedRanker, values.loadedRankingPill)
             actions.trackReports(props.sectionKey, values.livePrReportIds)
             actions.refreshReportMetrics(values.staleMetricReportIds)
             // A first page or a refresh asks again for every row, because a report gains sources as

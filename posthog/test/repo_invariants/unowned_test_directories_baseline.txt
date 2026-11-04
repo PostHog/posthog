@@ -11,6 +11,7 @@ frontend/src/layout/ai
 frontend/src/layout/navigation
 frontend/src/layout/navigation-3000/sidepanel
 frontend/src/layout/navigation-3000/sidepanel/panels/access_control
+frontend/src/layout/navigation-3000/sidepanel/panels/support
 frontend/src/layout/panel-layout/navbar/tabs
 frontend/src/layout/scenes
 frontend/src/layout/scenes/components
@@ -19,6 +20,7 @@ frontend/src/lib
 frontend/src/lib/components
 frontend/src/lib/components/ActivityLog
 frontend/src/lib/components/ChartFilter
+frontend/src/lib/components/ChartOptions
 frontend/src/lib/components/Command
 frontend/src/lib/components/CommandKSearch
 frontend/src/lib/components/CyclotronJob
@@ -63,6 +65,8 @@ nodejs/src/common/services
 nodejs/src/common/utils
 nodejs/src/common/utils/db
 nodejs/src/logs
+nodejs/src/logs/framework
+nodejs/src/schema-check
 nodejs/src/servers
 playwright/e2e
 playwright/e2e/product-analytics
@@ -87,7 +91,6 @@ posthog/logging/test
 posthog/management/commands
 posthog/management/commands/test
 posthog/models/async_deletion
-posthog/models/filters/mixins/test
 posthog/models/group
 posthog/models/property/test
 posthog/models/team
@@ -111,6 +114,7 @@ posthog/temporal/tests/session_replay/copy_recording
 posthog/temporal/tests/sync_events_retention
 posthog/test
 posthog/test/repo_invariants
+posthog/workload_identity/test
 products/field_notes/backend/test
 products/games/frontend/ShipIt
 products/product_tours/backend/api/test

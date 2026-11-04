@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const { mockToolCallsInc, mockToolDurationObserve, mockToolDurationStartTimer, mockToolErrorsInc } = vi.hoisted(() => {
     const mockStop = vi.fn()
@@ -97,7 +97,12 @@ describe('ToolExecutor metrics', () => {
     let catalog: ToolCatalog
     let executor: ToolExecutor
 
-    beforeEach(async () => {
+    beforeAll(async () => {
+        catalog = new ToolCatalog()
+        await catalog.warmup()
+    })
+
+    beforeEach(() => {
         mockToolCallsInc.mockClear()
         mockToolDurationObserve.mockClear()
         mockToolDurationStartTimer.mockClear()
@@ -106,8 +111,6 @@ describe('ToolExecutor metrics', () => {
         vi.mocked(trackExecuteSqlGeneration).mockClear()
         vi.mocked(trackToolSpan).mockClear()
 
-        catalog = new ToolCatalog()
-        await catalog.warmup()
         executor = new ToolExecutor(catalog, new InstructionsBuilder(''))
     })
 
@@ -612,7 +615,7 @@ describe('ToolExecutor metrics', () => {
             })
         })
 
-        it('stamps the discovery hint kind and emptiness the response builder recorded', async () => {
+        it('stamps the emptiness the response builder recorded', async () => {
             vi.spyOn(catalog, 'getToolByName').mockReturnValue(
                 makeFakeTool('query-error-tracking-issues-list', async () => ({ results: [] })) as any
             )
@@ -623,7 +626,6 @@ describe('ToolExecutor metrics', () => {
             )
 
             expect(trackToolCallExtras('query-error-tracking-issues-list')).toMatchObject({
-                mcp_discovery_hint: 'empty_state',
                 mcp_result_empty: true,
             })
         })
@@ -771,7 +773,6 @@ describe('ToolExecutor metrics', () => {
 
             const extras = mockTrackToolCall.mock.calls.at(-1)?.[4]
             expect(extras?.mcp_result_empty).toBe(empty ? true : undefined)
-            expect(extras).not.toHaveProperty('mcp_discovery_hint')
         })
 
         // In exec mode the inner arguments are JSON inside `command`, so the direct

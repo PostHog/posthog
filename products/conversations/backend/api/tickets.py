@@ -24,7 +24,6 @@ from drf_spectacular.utils import (
     extend_schema_view,
 )
 from rest_framework import (
-    pagination,
     serializers,
     status as drf_status,
     viewsets,
@@ -35,6 +34,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.pagination import BoundedLimitOffsetPagination
 from posthog.api.person import get_person_name
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.tagged_item import (
@@ -359,12 +359,12 @@ class BulkUpdateStatusResponseSerializer(serializers.Serializer):
     )
 
 
-class TicketPagination(pagination.LimitOffsetPagination):
+class TicketPagination(BoundedLimitOffsetPagination):
     default_limit = 100
     max_limit = 1000
 
 
-class TicketMessagePagination(pagination.LimitOffsetPagination):
+class TicketMessagePagination(BoundedLimitOffsetPagination):
     default_limit = 50
     max_limit = 200
 

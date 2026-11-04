@@ -35,6 +35,18 @@ function runWithState(state: Record<string, unknown>): TaskRun {
 
 describe("run launch", () => {
   describe("readRunLaunch", () => {
+    it.each([true, false])(
+      "preserves caller-managed completion: %s",
+      (callerEndsRun) => {
+        expect(
+          readRunLaunch(
+            sources({
+              taskRun: runWithState({ caller_ends_run: callerEndsRun }),
+            }),
+          ).callerEndsRun,
+        ).toBe(callerEndsRun);
+      },
+    );
     it.each<[string, TaskRun | null, string | null]>([
       ["the recorded kind", runWithState({ snapshot_kind: "warm" }), "warm"],
       ["absent when the run has none", runWithState({}), "absent"],
