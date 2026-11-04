@@ -38,6 +38,7 @@ from pathlib import Path
 from typing import IO
 
 import click
+from hogli import telemetry
 from hogli.manifest import REPO_ROOT
 
 from .devbox import hogland, mutagen
@@ -444,6 +445,7 @@ def worktrees_clean(
 
     _stop_worktree_mirrors(registered_boxes)
     reclaimed, removed, failed = _execute(stale, mode, repo_root)
+    _add_reclaimed_properties(reclaimed, removed)
     if reclaimed >= 0:
         summary = f"\n✓ Done. Reclaimed ~{_format_size(reclaimed)} of disk across {removed}/{len(stale)} worktree(s)."
     else:
@@ -928,6 +930,17 @@ def _resolve(path: Path) -> Path:
         return path.resolve()
     except (OSError, RuntimeError):
         return path
+
+
+def _add_reclaimed_properties(reclaimed_bytes: float, removed: int) -> None:
+    """Sum across the tiers of one --unattended run, which share one command_completed event."""
+
+    ctx = click.get_current_context(silent=True)
+    so_far = (ctx.meta.get(telemetry.COMMAND_PROPERTIES_META_KEY) if ctx else None) or {}
+    telemetry.add_command_properties(
+        reclaimed_gb=round(so_far.get("reclaimed_gb", 0.0) + max(reclaimed_bytes, 0.0) / 1e9, 2),
+        worktrees_removed=so_far.get("worktrees_removed", 0) + removed,
+    )
 
 
 def _process_cwds() -> set[Path] | None:

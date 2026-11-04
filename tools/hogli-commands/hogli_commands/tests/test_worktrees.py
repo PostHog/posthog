@@ -12,6 +12,7 @@ import pytest
 from unittest.mock import Mock, patch
 
 import click
+from hogli import telemetry
 from hogli_commands import worktrees
 from hogli_commands.devbox import config as devbox_config
 from hogli_commands.worktrees import (
@@ -91,6 +92,14 @@ def test_in_use_matches_the_worktree_and_its_subdirectories(cwd: Path, expected:
 def test_process_cwds_is_none_when_lsof_gives_nothing(lsof: Mock) -> None:
     with patch.object(worktrees.subprocess, "run", lsof):
         assert worktrees._process_cwds() is None
+
+
+def test_reclaimed_properties_sum_across_unattended_tiers() -> None:
+    with click.Context(click.Command("worktrees:clean")) as ctx:
+        worktrees._add_reclaimed_properties(1.5e9, 2)
+        worktrees._add_reclaimed_properties(-1.0, 1)
+
+        assert ctx.meta[telemetry.COMMAND_PROPERTIES_META_KEY] == {"reclaimed_gb": 1.5, "worktrees_removed": 3}
 
 
 class TestUnattendedLock:
