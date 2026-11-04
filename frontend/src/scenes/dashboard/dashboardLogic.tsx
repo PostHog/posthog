@@ -638,22 +638,27 @@ function enqueueEditSave<T>(owner: TileSaveQueueOwner, save: () => Promise<T>): 
     return enqueueTileSave(owner, start, applied)
 }
 
-/** Writes the group straight to the API, so it lands even if the dashboard closes while the add runs. */
+/**
+ * Writes the group straight to the API, so it lands even if the dashboard closes while the add runs.
+ * Returns false when the write failed.
+ */
 export async function placeTilesInGroup(
     teamId: number | null,
     dashboardId: number,
     tileIds: number[],
     groupKey: string | null
-): Promise<void> {
+): Promise<boolean> {
     if (!groupKey || tileIds.length === 0) {
-        return
+        return true
     }
     try {
         await dashboardsPartialUpdate(String(teamId), dashboardId, {
             tiles: tileIds.map((id) => ({ id, group_key: groupKey })),
         })
+        return true
     } catch {
         lemonToast.error("Couldn't add the new tile to its group. Move it there with its Move to option.")
+        return false
     }
 }
 
@@ -2140,10 +2145,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
             method: TileGroupMoveMethod
         ) => ({ tileId, sectionKey, cell, method }),
         tilePlacementsSaved: (placements: Record<number, TilePlacement>) => ({ placements }),
-        /** Moves tiles just added to the dashboard into the add's target group, then reloads. */
         /** Creates tiles in the add's target group, in the same request. */
         createTiles: (tiles: NewDashboardTile[]) => ({ tiles }),
-        /** For tiles another endpoint created: moves them into the target group, then reloads. */
         /** Debounced run_widgets refresh for a single tile (tile filters). */
         scheduleRefreshDashboardWidgets: (tileId: number) => ({ tileId }),
         applyWidgetIssueMetadataChange: (payload: {
@@ -6086,7 +6089,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     groupKey ? { ...tile, group_key: groupKey } : tile
                 )
                 // The tiles already show in their group, and a reload would drop an unsaved layout edit.
-                void placeTilesInGroup(
+                const groupSaved = placeTilesInGroup(
                     values.currentTeamId,
                     dashboardId,
                     createdTiles.map((tile) => tile.id),
@@ -6114,6 +6117,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 const count = createdTiles.length
                 if (count > 1) {
                     lemonToast.success(`Added ${count} widgets`)
+                }
+
+                if (!(await groupSaved) && values.dashboard?.id === dashboardId) {
+                    for (const tile of createdTiles) {
+                        actions.setTileProperty(tile.id, { group_key: null })
+                        const layouts = values.savedTilePlacements[tile.id]?.layouts ?? tile.layouts
+                        actions.tilePlacementsSaved({ [tile.id]: { layouts, group_key: null } })
+                    }
                 }
             } catch (e) {
                 lemonToast.error(e instanceof ApiError ? (e.detail ?? e.message) : 'Could not add widgets')

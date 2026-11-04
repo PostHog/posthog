@@ -6731,15 +6731,30 @@ describe('dashboardLogic', () => {
         })
 
         it.each([
-            { name: 'with no target group', addTarget: null, expectedGroupWrites: [] },
+            {
+                name: 'with no target group',
+                addTarget: null,
+                groupWriteFails: false,
+                expectedGroupWrites: [],
+                expectedGroup: undefined,
+            },
             {
                 name: 'when it goes into a group',
                 addTarget: 'target',
+                groupWriteFails: false,
                 expectedGroupWrites: [[5, { tiles: [{ id: 99, group_key: 'target' }] }]],
+                expectedGroup: 'target',
+            },
+            {
+                name: 'and shows the widget outside the group when the group write fails',
+                addTarget: 'target',
+                groupWriteFails: true,
+                expectedGroupWrites: [[5, { tiles: [{ id: 99, group_key: 'target' }] }]],
+                expectedGroup: null,
             },
         ])(
             'addWidgetTiles keeps an existing tile movement unsaved $name',
-            async ({ addTarget, expectedGroupWrites }) => {
+            async ({ addTarget, groupWriteFails, expectedGroupWrites, expectedGroup }) => {
                 const addedTile = {
                     id: 99,
                     widget: { id: '3', widget_type: 'error_tracking_list', config: { limit: 5 } },
@@ -6747,9 +6762,13 @@ describe('dashboardLogic', () => {
                     color: null,
                 } as unknown as DashboardTile
                 jest.spyOn(api, 'create').mockResolvedValueOnce({ tiles: [addedTile] })
-                const groupWrite = jest
-                    .spyOn(dashboardGeneratedApi, 'dashboardsPartialUpdate')
-                    .mockResolvedValue({} as any)
+                const groupWrite = jest.spyOn(dashboardGeneratedApi, 'dashboardsPartialUpdate')
+                if (groupWriteFails) {
+                    groupWrite.mockRejectedValue(new Error('network'))
+                    jest.spyOn(lemonToast, 'error').mockImplementation(() => '')
+                } else {
+                    groupWrite.mockResolvedValue({} as any)
+                }
 
                 logic = dashboardLogic({ id: 5 })
                 logic.mount()
@@ -6780,6 +6799,9 @@ describe('dashboardLogic', () => {
                 expect(logic.values.dashboard!.tiles[0].layouts).toEqual(draftLayouts)
                 expect(logic.values.savedTilePlacements[firstTile.id]?.layouts).toEqual(savedLayouts)
                 expect(logic.values.savedTilePlacements[addedTile.id]?.layouts).toEqual(addedTile.layouts)
+                const added = logic.values.dashboard!.tiles.find((tile) => tile.id === addedTile.id)
+                expect(added?.group_key ?? null).toEqual(expectedGroup ?? null)
+                expect(logic.values.savedTilePlacements[addedTile.id]?.group_key ?? null).toEqual(expectedGroup ?? null)
                 expect(logic.values.hasUnsavedLayoutChanges).toBe(true)
             }
         )
