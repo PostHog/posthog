@@ -2805,7 +2805,7 @@ class TestGuardedCatchupMigrations:
     )
     GUARDED_INDEX_SQL = 'CREATE INDEX CONCURRENTLY IF NOT EXISTS "my_idx" ON "my_table" ("col"); -- trailing-marker'
     VALIDATE_SQL = 'ALTER TABLE "my_table" VALIDATE CONSTRAINT "my_fk";'
-    STORAGE_PARAMETERS_SQL = "ALTER TABLE my_table SET (autovacuum_vacuum_scale_factor = 0.02);"
+    STORAGE_PARAMETERS_SQL = "SET lock_timeout = '5s';\nALTER TABLE my_table SET (autovacuum_vacuum_scale_factor = 0.02);\nRESET lock_timeout;"
 
     def setup_method(self):
         self.analyzer = RiskAnalyzer()

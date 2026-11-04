@@ -90,7 +90,7 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.RunSQL(
-            sql="ALTER TABLE signals_signalscoutconfig SET (autovacuum_vacuum_scale_factor = 0.02, autovacuum_analyze_scale_factor = 0.02);",
+            sql="SET lock_timeout = '5s';\nALTER TABLE signals_signalscoutconfig SET (autovacuum_vacuum_scale_factor = 0.02, autovacuum_analyze_scale_factor = 0.02);\nRESET lock_timeout;",
             reverse_sql="",
         ),
         posthog.migration_helpers.not_valid_constraint.ValidateConstraint(

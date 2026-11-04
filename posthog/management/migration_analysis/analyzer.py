@@ -74,6 +74,11 @@ _STORAGE_PARAMETERS_RE = re.compile(
     r"ALTER\s+TABLE\s+(?:ONLY\s+)?[^;\s]+\s+(?:SET|RESET)\s*\([^;)]*\)\s*;?",
     re.IGNORECASE,
 )
+# The squash tool keeps an original lock_timeout as a session setting around forwarded DDL.
+_SESSION_LOCK_TIMEOUT_RE = re.compile(
+    r"(?:SET\s+lock_timeout\s*(?:=|TO)\s*[^;]+|RESET\s+lock_timeout)\s*;?",
+    re.IGNORECASE,
+)
 
 
 class RiskAnalyzer:
@@ -281,6 +286,7 @@ class RiskAnalyzer:
         remainder = _GUARDED_CREATE_INDEX_RE.sub("", remainder)
         remainder = _VALIDATE_CONSTRAINT_RE.sub("", remainder)
         remainder = _STORAGE_PARAMETERS_RE.sub("", remainder)
+        remainder = _SESSION_LOCK_TIMEOUT_RE.sub("", remainder)
         return not remainder.strip(" \t\n;")
 
     def _is_safe_on_new_table(self, op, risk: OperationRisk) -> bool:
