@@ -36,21 +36,33 @@ function StatusTags({
     )
 }
 
-function RunStateButton({ running }: { running: boolean }): JSX.Element {
+function RunStateButton({
+    running,
+    accessLevel,
+}: {
+    running: boolean
+    accessLevel: AccessControlLevel | undefined
+}): JSX.Element {
     const { enabledSaving, enableSavedReason } = useValues(llmEvaluationLogic)
     const { saveEnabled } = useActions(llmEvaluationLogic)
     return (
-        <LemonButton
-            type="secondary"
-            size="small"
-            icon={running ? <IconPause /> : <IconPlay />}
-            onClick={() => saveEnabled(!running)}
-            loading={enabledSaving}
-            disabledReason={running ? undefined : (enableSavedReason ?? undefined)}
-            data-attr="llma-evaluation-header-enabled"
+        <AccessControlAction
+            resourceType={AccessControlResourceType.Evaluation}
+            minAccessLevel={AccessControlLevel.Editor}
+            userAccessLevel={accessLevel}
         >
-            {running ? 'Pause' : 'Turn on'}
-        </LemonButton>
+            <LemonButton
+                type="secondary"
+                size="small"
+                icon={running ? <IconPause /> : <IconPlay />}
+                onClick={() => saveEnabled(!running)}
+                loading={enabledSaving}
+                disabledReason={running ? undefined : (enableSavedReason ?? undefined)}
+                data-attr="llma-evaluation-header-enabled"
+            >
+                {running ? 'Pause' : 'Turn on'}
+            </LemonButton>
+        </AccessControlAction>
     )
 }
 
@@ -103,13 +115,7 @@ export function EvaluationSceneHeader({
                                 Open in Playground
                             </LemonButton>
                         )}
-                        <AccessControlAction
-                            resourceType={AccessControlResourceType.Evaluation}
-                            minAccessLevel={AccessControlLevel.Editor}
-                            userAccessLevel={accessLevel}
-                        >
-                            <RunStateButton running={running} />
-                        </AccessControlAction>
+                        <RunStateButton running={running} accessLevel={accessLevel} />
                         {unsaved && (
                             <LemonButton type="secondary" size="small" onClick={onCancel}>
                                 Cancel

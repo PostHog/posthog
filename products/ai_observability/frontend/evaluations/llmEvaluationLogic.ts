@@ -216,6 +216,8 @@ function toSentimentEvaluation(evaluation: EvaluationConfig): SentimentEvaluatio
     }
 }
 
+const BACKFILL_START_TIMEOUT_MS = 10_000
+
 /** Starts the past-traffic backfill a new evaluation asked for, or offers it. Returns the URL params to open the evaluation with. */
 async function coverPastTraffic(
     teamId: number,
@@ -240,11 +242,18 @@ async function coverPastTraffic(
         })
         return {}
     }
+    // The create button stays locked during this request, so a stalled start must not hold it forever.
+    const signal = AbortSignal.timeout(BACKFILL_START_TIMEOUT_MS)
     try {
-        await evaluationsBackfillsCreate(teamId.toString(), evaluation.id, {
-            window_start: dayjs().subtract(VOLUME_LOOKBACK_DAYS, 'day').toISOString(),
-            window_end: dayjs().toISOString(),
-        })
+        await evaluationsBackfillsCreate(
+            teamId.toString(),
+            evaluation.id,
+            {
+                window_start: dayjs().subtract(VOLUME_LOOKBACK_DAYS, 'day').toISOString(),
+                window_end: dayjs().toISOString(),
+            },
+            { signal }
+        )
         lemonToast.success(
             `Checking the last ${VOLUME_LOOKBACK_DAYS} days of traffic. Follow it in the Backfills tab.`,
             {
@@ -252,9 +261,14 @@ async function coverPastTraffic(
             }
         )
     } catch {
-        lemonToast.error(
-            'The evaluation was created, but checking past traffic didn’t start. Try again from the Backfills tab.'
-        )
+        // A timed-out request can still start the backfill on the server, so it does not claim a failure.
+        if (signal.aborted) {
+            lemonToast.info('Checking past traffic is taking longer than usual. See its status in the Backfills tab.')
+        } else {
+            lemonToast.error(
+                'The evaluation was created, but checking past traffic didn’t start. Try again from the Backfills tab.'
+            )
+        }
     }
     return { evaluation_tab: 'backfills' }
 }
