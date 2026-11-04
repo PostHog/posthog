@@ -62,8 +62,7 @@ def is_endpoint_materialization_ready(team_id: int, endpoint_name: str, version:
 def _cache_timeout(state: MaterializedServingState, *, pending: bool = False) -> int:
     # The cache only refills on a miss. A snapshot that outlives its freshness window would
     # keep the endpoint on the inline rate after the next run refreshed the table, so the
-    # entry expires with the window. A plan or flag change can remove a plan floor with no edit to
-    # clear the entry, so a window that comes from the floor is rechecked soon.
+    # entry expires with the window.
     if state.window_from_plan_floor:
         return STALE_STATE_RECHECK_TTL
     if not state.ready or state.materialized_at is None or not state.freshness_seconds:
