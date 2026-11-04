@@ -85,7 +85,7 @@ It replaced the Products slot, which opened the web app's product library. `mobi
 
 The screen is one `SectionList`: a search field, Pinned, Recent and Browse.
 The screen publishes its header state to the shared tabs header (`useTabHeader('views', …)`, see DESIGN.md, "Tabs header"): the refresh hint from `useViewsList().refresh` and the "Edit pins" row of the More menu.
-Loading, the pin list error and the sign-in state are separate screens. The pin list error sends `mobile_views_error_shown` (`screen: list`, `kind: failed`). The sign-in state (`views-reauth`) shows when `useViewsAccess()` is not `ok`. When the last sign-in asked for a Views scope and the server still left it out, it shows "Views isn't available yet" (`views-unavailable`) without a sign-in button, because a new sign-in gets the same grant ([AUTH.md](AUTH.md), "Server-side ceiling").
+Loading, the pin list error and the sign-in state are separate screens. The pin list error sends `mobile_views_error_shown` (`screen: list`, `kind: failed`). The sign-in state (`views-reauth`) shows when `useViewsAccess()` is not `ok`. When the last sign-in asked for a Views scope and the server still left it out, it shows "Views isn't available yet" (`views-unavailable`) without a sign-in button, because a new sign-in gets the same grant.
 
 ### Pins
 
