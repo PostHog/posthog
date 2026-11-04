@@ -1,3 +1,5 @@
+import { EventEmitter } from 'events'
+
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { UUIDT } from '~/common/utils/utils'
@@ -104,28 +106,36 @@ describe('OrganizationMembersService', () => {
         ])
     })
 
-    it('fails at its deadline when the lookup waits for a connection, and runs no query once it gets one', async () => {
+    type FakeClient = EventEmitter & { query: jest.Mock; release: jest.Mock }
+
+    it.each([
+        ['the pool hands over its connection after the deadline', { connectsLate: true, beginStalls: false }],
+        ['BEGIN stalls on a connection taken in time', { connectsLate: false, beginStalls: true }],
+    ])('fails at its deadline when %s, and frees the connection', async (_case, { connectsLate, beginStalls }) => {
         jest.useFakeTimers()
         try {
-            let connect: (() => void) | undefined
-            const query = jest.fn()
-            const stalledPostgres = {
-                transaction: (_usage: unknown, _tag: string, run: (tx: unknown) => Promise<unknown>) =>
-                    new Promise((resolve, reject) => {
-                        connect = () => void run({}).then(resolve, reject)
-                    }),
-                query,
-            } as unknown as PostgresRouter
-            const stalledService = new OrganizationMembersService(stalledPostgres)
+            const client = Object.assign(new EventEmitter(), {
+                query: jest.fn(() => (beginStalls ? new Promise(() => undefined) : Promise.resolve({ rows: [] }))),
+                release: jest.fn(),
+            }) as FakeClient
+            let handOver: () => void = () => undefined
+            const connected = connectsLate ? new Promise<void>((resolve) => (handOver = resolve)) : Promise.resolve()
+            const router = new PostgresRouter({ DATABASE_URL: 'postgres://fake', POSTGRES_CONNECTION_POOL_SIZE: 1 })
+            ;(router as any).pools = new Map([
+                [PostgresUse.COMMON_WRITE, { connect: () => connected.then(() => client) }],
+            ])
+            const stalledService = new OrganizationMembersService(router)
 
             const check = stalledService.getBlockedRecipients(team.id, [memberEmail])
             const outcome = expect(check).rejects.toThrow('The organization member lookup timed out')
             await jest.advanceTimersByTimeAsync(3_000)
-
             await outcome
-            connect?.()
+            handOver()
             await jest.advanceTimersByTimeAsync(0)
-            expect(query).not.toHaveBeenCalled()
+
+            expect(client.query.mock.calls.map(([sql]) => sql)).toEqual(connectsLate ? [] : ['BEGIN'])
+            expect(client.release).toHaveBeenCalledTimes(1)
+            expect(client.release.mock.calls[0][0] instanceof Error).toBe(!connectsLate)
         } finally {
             jest.useRealTimers()
         }
