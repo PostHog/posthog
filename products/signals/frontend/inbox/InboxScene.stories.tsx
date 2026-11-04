@@ -1,14 +1,14 @@
 import type { Decorator, Meta, StoryObj } from '@storybook/react'
-import { useMountedLogic } from 'kea'
+import { waitFor, within } from '@testing-library/dom'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { wizardActiveSessionDetectorLogic } from 'scenes/onboarding/shared/wizard-sync/wizardActiveSessionDetectorLogic'
-import { SELF_DRIVING_WORKFLOW_ID } from 'scenes/onboarding/shared/wizard-sync/workflows'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+
+import { expect, userEvent } from 'storybook/test'
 
 import {
     allReports,
@@ -128,6 +128,22 @@ const valueSummaryMocks = mswDecorator({
     },
 })
 
+export const ReportsNarrow: Story = {
+    parameters: {
+        featureFlags: {
+            ...meta.parameters?.featureFlags,
+            [FEATURE_FLAGS.INBOX_TIME_WINDOW]: true,
+            [FEATURE_FLAGS.INBOX_SOURCE_FILTER]: true,
+        },
+        testOptions: { viewport: { width: 390, height: 844 }, waitForLoadersToDisappear: false },
+    },
+    play: async ({ canvas }) => {
+        await userEvent.click(await canvas.findByLabelText('Filters'))
+        // The panel renders in a popover outside the story root, and fades in after the click.
+        await waitFor(() => expect(within(document.body).getByText('Reset to default')).toBeVisible())
+    },
+}
+
 export const WithValueSummary: Story = {
     parameters: {
         featureFlags: {
@@ -179,6 +195,11 @@ export const Settings: Story = {
     decorators: [routeTo(urls.inbox('settings'))],
 }
 
+export const Sources: Story = {
+    decorators: [routeTo(urls.inbox('sources'))],
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+}
+
 // Set up (sources enabled) but no reports yet – exercises the empty list states.
 export const Empty: Story = {
     decorators: [
@@ -204,56 +225,25 @@ export const EmptyWithManyScouts: Story = {
     ],
 }
 
-export const InstallingSelfDriving: Story = {
-    decorators: [
-        (Story) => {
-            useMountedLogic(wizardActiveSessionDetectorLogic)
-            useEffect(() => {
-                wizardActiveSessionDetectorLogic.actions.markActive(SELF_DRIVING_WORKFLOW_ID)
-                return () => wizardActiveSessionDetectorLogic.actions.markInactive()
-            }, [])
-            return <Story />
-        },
-        mswDecorator({
-            get: {
-                '/api/projects/:id/signals/reports': () => [200, { results: [], count: 0, next: null, previous: null }],
-                '/api/projects/:id/signals/source_configs': () => [200, { results: [], count: 0 }],
-                '/api/projects/:id/signals/scout/configs': () => [200, []],
-            },
-        }),
-    ],
-}
-
 // Fresh project: nothing watching and nothing in the inbox → the full-pane welcome page (no tab row).
 export const SelfDrivingOnboarding: Story = {
+    name: 'Welcome page with GitHub and manual setup',
     decorators: [
         mswDecorator({
             get: {
                 '/api/projects/:id/signals/reports': () => [200, { results: [], count: 0, next: null, previous: null }],
                 '/api/projects/:id/signals/source_configs': () => [200, { results: [], count: 0 }],
                 '/api/projects/:id/signals/scout/configs': () => [200, []],
-            },
-        }),
-    ],
-}
-
-export const FocusedOnboarding: Story = {
-    parameters: { featureFlags: { [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'test-ui' } },
-    decorators: [
-        ...(Array.isArray(SelfDrivingOnboarding.decorators) ? SelfDrivingOnboarding.decorators : []),
-        mswDecorator({
-            get: {
-                '/api/projects/:id/signals/onboarding/': { draft: null, completed_at: null, variant: 'test-ui' },
+                '/api/projects/:id/signals/onboarding/': { draft: null, completed_at: null },
             },
             post: {
-                '/api/projects/:id/signals/onboarding/expose/': { draft: null, completed_at: null, variant: 'test-ui' },
+                '/api/projects/:id/signals/onboarding/expose/': { draft: null, completed_at: null },
             },
         }),
     ],
 }
 
-export const FocusedOnboardingComplete: Story = {
-    parameters: { featureFlags: { [FEATURE_FLAGS.INBOX_UI_ONBOARDING]: 'test-ui' } },
+export const GuidedOnboardingComplete: Story = {
     decorators: [
         ...(Array.isArray(Empty.decorators) ? Empty.decorators : []),
         mswDecorator({
@@ -269,7 +259,6 @@ export const FocusedOnboardingComplete: Story = {
                         implementation_priority: 'P1',
                     },
                     completed_at: '2026-06-11T10:00:00Z',
-                    variant: 'test-ui',
                 },
             },
         }),
@@ -296,10 +285,14 @@ export const SelfDrivingVerdictPending: Story = {
     ],
 }
 
-// Had self-driving before (reports exist) but nothing is watching now → the sleek re-enable banner
-// over the normal inbox, so existing work stays accessible. Reports are mocked explicitly (not
-// inherited) so "existing work" is unambiguous and the banner – not the takeover – is shown.
+// Had self-driving before (reports exist) but nothing is watching now and the in-app setup never
+// completed → the sleek re-enable banner over the normal inbox, so existing work stays accessible.
+// Reports are mocked explicitly (not inherited) so "existing work" is unambiguous and the banner –
+// not the takeover – is shown.
 export const SelfDrivingPaused: Story = {
+    play: async ({ canvas }) => {
+        await expect(canvas.findByText('Self-driving is paused')).resolves.toBeVisible()
+    },
     decorators: [
         mswDecorator({
             get: {
@@ -309,6 +302,7 @@ export const SelfDrivingPaused: Story = {
                 ],
                 '/api/projects/:id/signals/source_configs': () => [200, { results: [], count: 0 }],
                 '/api/projects/:id/signals/scout/configs': () => [200, []],
+                '/api/projects/:id/signals/onboarding/': { draft: null, completed_at: null },
             },
         }),
     ],

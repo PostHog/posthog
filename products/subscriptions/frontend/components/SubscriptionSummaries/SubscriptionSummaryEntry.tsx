@@ -1,6 +1,7 @@
 import { Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { urls } from 'scenes/urls'
 
 import type { SubscriptionApi, SubscriptionSummaryApi } from 'products/subscriptions/frontend/generated/api.schemas'
@@ -35,7 +36,11 @@ export function SubscriptionSummaryEntry({ summary }: { summary: SubscriptionSum
                     </span>
                 )}
             </div>
-            <div className="whitespace-pre-wrap text-sm">{summary.change_summary}</div>
+            {summary.change_summary ? (
+                <LemonMarkdown className="text-sm" disableImages="all">
+                    {summary.change_summary}
+                </LemonMarkdown>
+            ) : null}
         </div>
     )
 }

@@ -7,8 +7,9 @@ contract check watches this file to decide whether they must retest.
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Callable, Collection, Mapping, Sequence
-from dataclasses import field
+from dataclasses import asdict, field
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Final, NotRequired, Protocol, TypedDict
@@ -29,6 +30,10 @@ if TYPE_CHECKING:
 class SourceKind(StrEnum):
     LOGS = "logs"
     INSIGHT = "insight"
+    BILLING = "billing"
+    WAREHOUSE_SOURCE = "warehouse_source"
+    WAREHOUSE_DESTINATION = "warehouse_destination"
+    METRICS = "metrics"
 
 
 @frozen
@@ -269,6 +274,12 @@ class PlatformAlertCheckInput:
     recurrence_unit: str | None = None
     anchor_time: str | None = None
 
+    @property
+    def destination_alert_id(self) -> UUID:
+        """The id the alert's destinations are matched on: the source row's for a copy, and the
+        configuration's own for an alert whose source keeps no row."""
+        return self.legacy_configuration_id or self.id
+
     def admit(self, grouping_keys: Sequence[str], *, now: datetime) -> GroupAdmission:
         """The groups a check may report, from keys in the source's priority order.
 
@@ -457,6 +468,8 @@ class PlatformCheckEntry:
     value: float | None
     # None when the check succeeded.
     error_message: str | None
+    # What the source recorded beside the verdict. The platform reads only which keys it holds.
+    source_detail: dict[str, Any] = field(default_factory=dict)
 
 
 @frozen
@@ -465,6 +478,8 @@ class PlatformCheckPage:
 
     total: int
     checks: tuple[PlatformCheckEntry, ...]
+    # The platform configuration the checks belong to, so a source can join its own rows on it.
+    configuration_id: UUID
 
 
 @frozen
@@ -532,6 +547,48 @@ class AlertEventKind(StrEnum):
     RESOLVED = "resolved"
     ERRORED = "errored"
     BROKEN = "broken"
+    # A follow-up about a firing that already went out. History readers leave it out of the checks.
+    VERDICT_CHANGED = "verdict_changed"
+
+    @property
+    def delivered_as(self) -> AlertEventKind:
+        """The kind a destination hears this as. No destination can list a follow-up, so a follow-up
+        reaches the destinations of the firing it follows, the way that firing did."""
+        return AlertEventKind.FIRING if self is AlertEventKind.VERDICT_CHANGED else self
+
+
+@frozen
+class VerdictChange:
+    """A source's request to send one follow-up about a firing that already went out.
+
+    `firing_event_id` is the event the firing's destinations listen on, so a destination that heard
+    the firing hears the follow-up. `source_detail` is what the source's describer words the
+    follow-up from. The platform stores it unread, as on a check.
+    """
+
+    team_id: int
+    configuration_id: UUID
+    firing_evaluation_key: str
+    episode_started_at: datetime | None
+    firing_event_id: str
+    source_alert_url: str | None = None
+    grouping_key: str = ""
+    source_detail: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def evaluation_key(self) -> str:
+        # A key of its own gives the follow-up its own delivery, and gets it past the thread store,
+        # which skips a key a thread already carried. Per group, because two groups' follow-ups
+        # under one key share a delivery, which would miss a row written after it read the history.
+        # The group goes in as a digest, because a grouping key alone can fill a thread's key column.
+        key = f"{self.firing_evaluation_key}#verdict"
+        if not self.grouping_key:
+            return key
+        return f"{key}:{hashlib.sha256(self.grouping_key.encode()).hexdigest()[:16]}"
+
+
+class VerdictChangeNotRecorded(Exception):
+    """ClickHouse refused a follow-up's history row, so no delivery could read it back. Retryable."""
 
 
 @frozen
@@ -631,6 +688,9 @@ class PlatformAlertOutcome:
     # groups of a stale check are keyed for a grouping the configuration no longer has, so they are
     # dropped. None when the outcome carries no groups to drop.
     grouping: Grouping | None = None
+    # The delivery this check decided on, held back until its source or the safety net releases it.
+    # The source leaves it out of the deliveries it starts.
+    held_delivery: HeldDelivery | None = None
 
     @classmethod
     def ungrouped(
@@ -704,6 +764,12 @@ class PlatformAlertOutcome:
             raise ValueError("an outcome names each group once")
         if set(self.evicted) & set(keys):
             raise ValueError("an outcome cannot evict a group it reports")
+        held = self.held_delivery
+        if held is not None and (
+            held.request.configuration_id != str(self.configuration_id)
+            or held.request.evaluation_key != self.evaluation_key
+        ):
+            raise ValueError("an outcome can only hold its own delivery")
 
 
 @frozen
@@ -752,6 +818,8 @@ class AnnouncedTransition:
     # The evaluation this transition came from, so a source can read back what it put in the key.
     evaluation_key: str = ""
     source_detail: dict[str, Any] = field(default_factory=dict)
+    # With `evaluation_key`, names the evaluation, so a source can find what it recorded about it later.
+    configuration_id: str = ""
 
 
 @frozen
@@ -821,6 +889,50 @@ class AlertDeliveryRequest:
     # and which of them one activity sends. The workflow sets `part`.
     parts: int = 1
     part: int = 0
+
+    def to_stored(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_stored(cls, stored: Mapping[str, Any]) -> AlertDeliveryRequest:
+        # The converter Temporal decodes this type with, so the stored form loads the way the wire form does.
+        import temporalio.converter  # noqa: PLC0415 — keeps temporalio off django.setup(), which loads this via the models
+
+        return temporalio.converter.value_to_type(cls, dict(stored))
+
+
+MAX_HOLD_REASON_LENGTH: Final = 64
+
+
+@frozen
+class HeldDelivery:
+    """A delivery a check decided on and held back until something releases it.
+
+    The source releases it with a verdict, or with the request's send when it cannot run what it
+    held for. The platform's safety net sends it once `release_after_seconds` have passed since the
+    check was recorded, so a release that never comes still delivers.
+    """
+
+    request: AlertDeliveryRequest
+    # Why it is held, which the platform stores and does not read.
+    reason: str
+    release_after_seconds: int
+
+    def __post_init__(self) -> None:
+        # Rejected here rather than by the hold's column, where it would roll back the whole batch's record.
+        if len(self.reason) > MAX_HOLD_REASON_LENGTH:
+            raise ValueError(f"a hold reason is at most {MAX_HOLD_REASON_LENGTH} characters")
+        if self.release_after_seconds < 0:
+            raise ValueError("a hold cannot release before it is recorded")
+
+
+@frozen
+class HeldDeliveryAddress:
+    """The one hold an evaluation of a configuration can have."""
+
+    team_id: int
+    configuration_id: str
+    evaluation_key: str
 
 
 @frozen
@@ -899,6 +1011,14 @@ class PlatformAlertConfigurationView:
     created_at: datetime
     updated_at: datetime
     alerts: tuple[PlatformAlertSnapshot, ...]
+    labels: dict[str, str] = field(default_factory=dict)
+    annotations: dict[str, str] = field(default_factory=dict)
+
+    @property
+    def destination_alert_id(self) -> UUID:
+        """The id the alert's destinations are matched on: the source row's for a copy, and the
+        configuration's own for an alert whose source keeps no row."""
+        return self.legacy_configuration_id or self.id
 
 
 @frozen
@@ -917,6 +1037,8 @@ class PlatformAlertConfigurationEdit:
     evaluation_periods: int
     datapoints_to_alarm: int
     cooldown_minutes: int
+    labels: dict[str, str] = field(default_factory=dict)
+    annotations: dict[str, str] = field(default_factory=dict)
 
 
 class InvalidPlatformAlertEdit(ValueError):
@@ -979,17 +1101,57 @@ class SourceDelete(Protocol):
     def __call__(self, *, team_id: int, legacy_configuration_id: UUID) -> None: ...
 
 
+class SourceConfigTeamCheck(Protocol):
+    """Checks a `source_config` against the project it is written in, which `validate` cannot see.
+
+    For example, that its ids name rows of that project. It raises `InvalidPlatformAlertEdit`.
+    """
+
+    def __call__(self, *, team_id: int, edit: PlatformAlertConfigurationEdit) -> None: ...
+
+
+class NativeAlertRemoveDestinations(Protocol):
+    """Removes the destinations of an alert that is about to be deleted.
+
+    The alert's open incidents are closed before this runs, while the destinations their resolves go
+    to still exist. It runs in the delete's transaction, so a delete that fails keeps them.
+    """
+
+    def __call__(self, *, team_id: int, configuration_id: UUID) -> None: ...
+
+
+@frozen
+class NativeAlertLifecycle:
+    """How the platform creates and deletes alerts of a kind whose source keeps no row for them.
+
+    The configuration is the alert's only record, and its own id is the id the alert's destinations
+    are matched on.
+    """
+
+    check_interval_minutes: int
+    # Removes the source's HogFunction destinations of a deleted alert. None for a kind whose
+    # destinations are `AlertDestination` rows from the start, which go with the configuration.
+    remove_destinations: NativeAlertRemoveDestinations | None = None
+
+    @property
+    def platform_destinations(self) -> bool:
+        return self.remove_destinations is None
+
+
 @frozen
 class SourceConfigSpec:
     """A source kind's schema for `source_config` and its rules for a whole edit.
 
     `model` validates `source_config`. `validate` raises `InvalidPlatformAlertEdit` for a rule that
-    spans fields, such as one that reads `enabled`. `mirror` runs in the edit's transaction. Without
-    `create` or `delete`, the API cannot create or delete alerts of the kind.
+    spans fields, such as one that reads `enabled`. `check_in_team` runs when a create or an edit
+    sets `source_config`. `mirror` runs in the edit's transaction. Without
+    `create` or `delete`, the API cannot create or delete alerts of the kind, unless the kind is
+    `native`: then the platform creates and deletes them itself, and the source keeps no row.
     """
 
     model: type[BaseModel]
     validate: Callable[[PlatformAlertConfigurationEdit], None]
+    check_in_team: SourceConfigTeamCheck | None = None
     mirror: SourceEditMirror | None = None
     create: SourceCreate | None = None
     delete: SourceDelete | None = None
@@ -997,6 +1159,20 @@ class SourceConfigSpec:
     # source's product. A control-plane close needs both to address its resolve.
     incident_event_ids: Mapping[str, str] | None = None
     alert_url: Callable[[int, UUID], str] | None = None
+    native: NativeAlertLifecycle | None = None
+    # A PostHog feature flag a project needs, beside `platform-alerts`, to create alerts of this kind.
+    # A new kind names its own flag, so it opens on its own schedule while the others stay generally
+    # available.
+    rollout_flag: str | None = None
+
+    def __post_init__(self) -> None:
+        # The source-row hooks write a row a native kind does not have.
+        if self.native is not None and (self.mirror or self.create or self.delete):
+            raise ValueError("A native kind keeps no source row, so it cannot register mirror, create or delete.")
+
+    @property
+    def creatable(self) -> bool:
+        return self.native is not None or self.create is not None
 
 
 SourceConfigLoader = Callable[[], SourceConfigSpec]
@@ -1278,10 +1454,52 @@ class SourceDescriber(Protocol):
     """How a source describes its transitions. A source registers one for native delivery.
 
     It runs once per destination on the send path, inside a delivery that a held thread or a
-    failure repeats. So it builds its answer from the transition alone and does no I/O.
+    failure repeats. So it builds its answer from the transition, plus at most a point read of
+    what the source recorded about this evaluation since, such as an investigation's verdict.
     """
 
     def __call__(self, *, project_id: int, transition: AnnouncedTransition) -> SourceDescription: ...
+
+
+class SourceRecipients(Protocol):
+    """Who a source's own settings say to email about an alert, beside the destinations a person added.
+
+    It runs once per delivery of an alert whose destinations the platform owns.
+    """
+
+    def __call__(self, *, team_id: int, configuration_id: UUID) -> list[str]: ...
+
+
+@frozen
+class SlackMessageContent:
+    text: str
+    blocks: list[dict[str, Any]]
+    attachments: list[dict[str, Any]] = field(default_factory=list)
+
+
+class SourceSlackRenderer(Protocol):
+    """A source's own Slack layout for a transition, or None to use the platform's.
+
+    Runs on the send path, so it reads only the transition it is given. The platform catches a
+    renderer that raises and sends its own layout instead, so a broken renderer costs the card
+    rather than the notification.
+
+    `text` is what a push notification and a screen reader read, so it is never empty, whether or
+    not the card itself lives in `attachments`. The platform adds the group-limit warning to the
+    content wherever it finds room, and adds the state line to it on a later edit; neither assumes
+    a particular block order.
+    """
+
+    def __call__(
+        self,
+        *,
+        team_id: int,
+        transition: AnnouncedTransition,
+        alert_name: str,
+        alert_url: str,
+        project: MessageLink | None,
+        image: MessageImage | None,
+    ) -> SlackMessageContent | None: ...
 
 
 class SourceImageResolver(Protocol):

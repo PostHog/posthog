@@ -121,12 +121,22 @@ describe('hog-charts canvas-renderer', () => {
                 expectedMoveTo: 0,
                 expectedLineTo: 0,
             },
-        ])('$name', ({ labels, data, gapValues, expectedBeginPath, expectedMoveTo, expectedLineTo }) => {
+            {
+                name: 'bridges the gap with connectNulls',
+                labels: ['a', 'b', 'c'],
+                data: [10, 50, 90],
+                gapValues: new Set([50]),
+                connectNulls: true,
+                expectedBeginPath: 1,
+                expectedMoveTo: 1,
+                expectedLineTo: 1,
+            },
+        ])('$name', ({ labels, data, gapValues, connectNulls, expectedBeginPath, expectedMoveTo, expectedLineTo }) => {
             const ctx = mockCanvasContext()
             const series = makeSeries({ key: 's1', data })
             const drawCtx =
                 gapValues.size > 0 ? makeDrawContextWithGaps(ctx, labels, gapValues) : makeDrawContext(ctx, labels)
-            drawLine(drawCtx, series)
+            drawLine({ ...drawCtx, connectNulls }, series)
             expect(ctx.beginPath).toHaveBeenCalledTimes(expectedBeginPath)
             expect(ctx.moveTo).toHaveBeenCalledTimes(expectedMoveTo)
             expect(ctx.lineTo).toHaveBeenCalledTimes(expectedLineTo)
@@ -167,10 +177,18 @@ describe('hog-charts canvas-renderer', () => {
                 arcs: [5, 5],
             },
             { name: 'draws no dot when the radius is explicitly zero', labels: ['a'], data: [10], radius: 0, arcs: [] },
-        ])('$name', ({ labels, data, radius, arcs }) => {
+            {
+                name: 'draws no dots for points bridged by connectNulls',
+                labels: ['a', 'b', 'c'],
+                data: [10, 50, 90],
+                radius: undefined,
+                connectNulls: true,
+                arcs: [],
+            },
+        ])('$name', ({ labels, data, radius, connectNulls, arcs }) => {
             const ctx = mockCanvasContext()
             const series = makeSeries({ key: 's1', data, points: radius === undefined ? undefined : { radius } })
-            drawPoints(makeDrawContextWithGaps(ctx, labels, new Set([50])), series)
+            drawPoints({ ...makeDrawContextWithGaps(ctx, labels, new Set([50])), connectNulls }, series)
             expect(ctx.arc.mock.calls.map((call) => call[2])).toEqual(arcs)
         })
     })
@@ -406,6 +424,19 @@ describe('hog-charts canvas-renderer', () => {
             // Solid [0..2]: moveTo + 2 lineTos. Dashed [2..4]: moveTo + 2 lineTos.
             expect(ctx.moveTo).toHaveBeenCalledTimes(2)
             expect(ctx.lineTo).toHaveBeenCalledTimes(4)
+        })
+
+        it.each([
+            { smooth: false, segment: 'lineTo' as const, partial: { fromIndex: 2 } },
+            { smooth: true, segment: 'bezierCurveTo' as const, partial: { fromIndex: 2 } },
+            { smooth: false, segment: 'lineTo' as const, partial: { toIndex: 1 } },
+        ])('dashes a bridged gap on the dash boundary ($partial, smooth: $smooth)', ({ smooth, segment, partial }) => {
+            const ctx = mockCanvasContext()
+            const series = makeSeries({ key: 's1', data: [10, 50, 30], stroke: { partial } })
+            const drawCtx = makeDrawContextWithGaps(ctx, ['a', 'b', 'c'], new Set([50]))
+            drawLine({ ...drawCtx, smooth, connectNulls: true }, series)
+            expect(ctx[segment]).toHaveBeenCalledTimes(1)
+            expect(dashCalls(ctx)).toEqual([[10, 10], []])
         })
 
         it('applies partial dashing against the yValues override length, not series.data', () => {
@@ -732,12 +763,20 @@ describe('hog-charts canvas-renderer', () => {
                 gapValues: new Set([999, 998]),
                 expectedFillCount: 0,
             },
-        ])('$name', ({ labels, data, gapValues, expectedFillCount }) => {
+            {
+                name: 'fills one segment across a gap with connectNulls',
+                labels: ['a', 'b', 'c', 'd', 'e'],
+                data: [10, 20, 999, 80, 90],
+                gapValues: new Set([999]),
+                connectNulls: true,
+                expectedFillCount: 1,
+            },
+        ])('$name', ({ labels, data, gapValues, connectNulls, expectedFillCount }) => {
             const ctx = mockCanvasContext()
             const series = makeSeries({ key: 's1', data })
             const drawCtx =
                 gapValues.size > 0 ? makeDrawContextWithGaps(ctx, labels, gapValues) : makeDrawContext(ctx, labels)
-            drawArea(drawCtx, series)
+            drawArea({ ...drawCtx, connectNulls }, series)
             expect(ctx.fill).toHaveBeenCalledTimes(expectedFillCount)
         })
     })

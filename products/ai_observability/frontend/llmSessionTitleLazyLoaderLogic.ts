@@ -2,9 +2,9 @@ import { MakeLogicType, actions, events, kea, listeners, path, reducers, selecto
 
 import api from 'lib/api'
 import { chunk } from 'lib/utils/arrays'
+import { escapeHogQLString } from 'lib/utils/hogql'
 
 import { HogQLQuery, NodeKind } from '~/queries/schema/schema-general'
-import { escapeHogQLString } from '~/queries/utils'
 
 import { resolveTitleFromInputs } from './sessionTitle'
 import type { DateRangeFilter } from './types'

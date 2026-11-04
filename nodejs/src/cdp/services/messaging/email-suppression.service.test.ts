@@ -1,6 +1,7 @@
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { createTeam, createTestTeamFixture } from '~/tests/helpers/sql'
+import { INVALID_TEAM_ID_KEYS } from '~/tests/helpers/team'
 import { Hub, Team } from '~/types'
 
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
@@ -299,6 +300,64 @@ describe('EmailSuppressionService', () => {
         )
     })
 
+    describe('transactional email to a suppressed address', () => {
+        it.each([
+            ['a complaint alone lets it through', ['complaint'], false],
+            ['soft bounces up to the threshold let it through', ['soft', 'soft', 'soft'], false],
+            ['soft bounces after a complaint let it through', ['complaint', 'soft', 'soft', 'soft'], false],
+            ['a hard bounce blocks it', ['hard'], true],
+            ['a hard bounce after the complaint blocks it', ['complaint', 'hard'], true],
+            ['a hard bounce before the complaint blocks it', ['hard', 'complaint'], true],
+            ['a hard bounce after soft bounces blocks it', ['soft', 'soft', 'soft', 'hard'], true],
+            ['a hard bounce on a manual entry blocks it', ['manual', 'hard'], true],
+            ['a complaint after a legacy hard bounce still blocks it', ['legacy-hard', 'complaint'], true],
+            ['soft bounces after a legacy hard bounce still block it', ['legacy-hard', 'soft', 'soft', 'soft'], true],
+        ] as const)('%s', async (_label, steps, blocked) => {
+            process.env.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD = '3'
+            const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
+            const email = 'suppressed@example.com'
+
+            for (const step of steps) {
+                if (step === 'manual') {
+                    await hub.postgres.query(
+                        PostgresUse.COMMON_WRITE,
+                        `INSERT INTO posthog_messagesuppression
+                            (id, team_id, identifier, source, reason, transient_bounce_count,
+                             suppressed, suppressed_at, deleted, created_at, updated_at)
+                         VALUES (gen_random_uuid(), $1, $2, 'MANUAL', 'test row', 0,
+                             true, NOW(), false, NOW(), NOW())`,
+                        [team.id, email],
+                        'test-insert-manual-suppression'
+                    )
+                } else if (step === 'legacy-hard') {
+                    // A row written before `hard_bounced_at` existed: the mark is only in the reason.
+                    await hub.postgres.query(
+                        PostgresUse.COMMON_WRITE,
+                        `INSERT INTO posthog_messagesuppression
+                            (id, team_id, identifier, source, reason, transient_bounce_count,
+                             suppressed, suppressed_at, deleted, created_at, updated_at)
+                         VALUES (gen_random_uuid(), $1, $2, 'BOUNCE', 'Auto-suppressed after a hard bounce', 0,
+                             true, NOW(), false, NOW(), NOW())`,
+                        [team.id, email],
+                        'test-insert-legacy-hard-suppression'
+                    )
+                } else if (step === 'complaint') {
+                    await svc.recordComplaints(team.id, [email], 'abuse')
+                } else if (step === 'hard') {
+                    await svc.recordHardBounces(team.id, [email], 'smtp; 550 5.1.1 user unknown')
+                } else if (step === 'soft') {
+                    await svc.recordTransientBounces(team.id, [email], 'smtp; 421 try again later')
+                } else {
+                    // Bounces stamp last_bounce_at with NOW(), so a delivery has to be newer than that.
+                    await svc.recordDeliveries(team.id, [email], new Date(Date.now() + 60_000).toISOString())
+                }
+            }
+
+            expect(await svc.isSuppressed(team.id, email, { transactional: true })).toBe(blocked)
+            expect(await svc.isSuppressed(team.id, email)).toBe(true)
+        })
+    })
+
     describe('cache invalidation', () => {
         it("a write for one team does not evict another team's cached entries", async () => {
             // Guards against a regression from markForRefresh(touchedKeys) back to clear() — clear()
@@ -340,12 +399,52 @@ describe('EmailSuppressionService', () => {
 
     describe('isSuppressed', () => {
         it.each([
-            ['returns true for a suppressed row', true],
-            ['returns false for an identifier that is not on the list', false],
-        ])('%s', async (_label, expected) => {
+            ['a bounce blocks marketing email', 'BOUNCE', 'test row', false, true],
+            ['a soft-bounce suppression lets transactional email through', 'BOUNCE', 'test row', true, false],
+            [
+                'a hard bounce from before hard_bounced_at blocks transactional email',
+                'BOUNCE',
+                'Auto-suppressed after a hard bounce',
+                true,
+                true,
+            ],
+            ['a manual entry blocks marketing email', 'MANUAL', 'test row', false, true],
+            ['a manual entry lets transactional email through', 'MANUAL', 'test row', true, false],
+            [
+                'an imported Customer.io invalid address blocks transactional email',
+                'BOUNCE',
+                'Imported from Customer.io (invalid address)',
+                true,
+                true,
+            ],
+            ['a complaint blocks marketing email', 'COMPLAINT', 'test row', false, true],
+            ['a complaint lets transactional email through', 'COMPLAINT', 'test row', true, false],
+            ['an address that is not on the list is not blocked', null, null, false, false],
+        ] as const)('%s', async (_label, source, reason, transactional, expected) => {
             const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
-            const email = expected ? 'listed@example.com' : 'not-listed@example.com'
-            if (expected) {
+            const email = 'listed@example.com'
+            if (source) {
+                await hub.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `INSERT INTO posthog_messagesuppression
+                        (id, team_id, identifier, source, reason, transient_bounce_count,
+                         suppressed, suppressed_at, deleted, created_at, updated_at)
+                     VALUES (gen_random_uuid(), $1, $2, $3, $4, 0,
+                         true, NOW(), false, NOW(), NOW())`,
+                    [team.id, email, source, reason],
+                    'test-insert-suppression'
+                )
+            }
+
+            expect(await svc.isSuppressed(team.id, email, { transactional })).toBe(expected)
+        })
+
+        // isSuppressed fails open. A load that throws would therefore let a suppressed address receive mail.
+        it.each(INVALID_TEAM_ID_KEYS)(
+            'keeps an address suppressed when invalid team id %p shares its load',
+            async (key) => {
+                const svc = new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv())
+                const email = 'listed@example.com'
                 await hub.postgres.query(
                     PostgresUse.COMMON_WRITE,
                     `INSERT INTO posthog_messagesuppression
@@ -356,9 +455,14 @@ describe('EmailSuppressionService', () => {
                     [team.id, email],
                     'test-insert-suppression'
                 )
-            }
 
-            expect(await svc.isSuppressed(team.id, email)).toBe(expected)
-        })
+                const results = await Promise.all([
+                    svc.isSuppressed(team.id, email),
+                    svc.isSuppressed(key as unknown as number, email),
+                ])
+
+                expect(results).toEqual([true, false])
+            }
+        )
     })
 })

@@ -8,7 +8,7 @@ so import-linter's strict-mode contract holds.
 import math
 import datetime as dt
 from collections.abc import Callable, Sequence
-from contextlib import nullcontext
+from contextlib import AbstractContextManager, nullcontext
 from dataclasses import replace
 from functools import partial
 from typing import Any
@@ -30,7 +30,7 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.utils.parallel import run_in_parallel_threads
 from posthog.models import Team, User
 
-from products.error_tracking.backend.facade.api import list_spike_events
+from products.error_tracking.backend.facade.api import list_latest_spike_events
 from products.metrics.backend.anomaly import characterize_anomaly as _characterize_anomaly
 from products.metrics.backend.date_range import metrics_query_date_range
 from products.metrics.backend.facade.contracts import (
@@ -69,9 +69,15 @@ from products.metrics.backend.metric_attributes_query_runner import (
 )
 from products.metrics.backend.metric_event_samples_query_runner import MetricEventSamplesQueryRunner
 from products.metrics.backend.metric_names_query_runner import MetricNamesQueryRunner, cached_metric_names
-from products.metrics.backend.metric_query_runner import MAX_RAW_SERIES, MetricQueryRunner
+from products.metrics.backend.metric_query_runner import (
+    MAX_QUERY_SPAN,
+    MAX_RAW_SERIES,
+    MetricQueryRunner,
+    _pick_interval,
+)
 from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
 from products.metrics.backend.metrics_overview_query_runner import MetricsOverviewQueryRunner
+from products.metrics.backend.promql import run_promql_range
 from products.metrics.backend.query_concurrency import query_concurrency_slots
 from products.metrics.backend.variable_options import check_options_window, compile_regex, list_variable_options
 from products.metrics.backend.variables import from_dashboard, with_values
@@ -174,6 +180,7 @@ def _assemble_series(
     clause: MetricQueryClause,
     grid: list[str],
     units_by_fingerprint: dict[int, str],
+    zero_fill: bool = True,
 ) -> list[MetricSeries]:
     """Split bucketed rows into one series per label-set, zero-filled onto
     the shared grid so every series (and later, every clause of a formula)
@@ -183,10 +190,13 @@ def _assemble_series(
     their labels match: two physical series can share a label-set."""
     by_labels: dict[tuple[tuple[tuple[str, str], ...], int | None], dict[str, float | None]] = {}
     fingerprints_by_labels: dict[tuple[tuple[tuple[str, str], ...], int | None], set[int]] = {}
+    bounds_by_labels: dict[tuple[tuple[tuple[str, str], ...], int | None], set[float]] = {}
     for row in rows:
         key = (tuple(sorted(row["labels"].items())), row.get("series_key"))
         by_labels.setdefault(key, {})[row["time"]] = row["value"]
         fingerprints_by_labels.setdefault(key, set()).update(row["series_fingerprints"])
+        if "histogram_bounds" in row:
+            bounds_by_labels.setdefault(key, set()).update(row["histogram_bounds"])
 
     # Rank and truncate on the sparse values BEFORE zero-filling, so a
     # high-cardinality group-by never materializes label_sets x grid points
@@ -198,10 +208,11 @@ def _assemble_series(
     return [
         MetricSeries(
             labels=dict(key[0]),
-            points=tuple(MetricPoint(time=time, value=values.get(time, 0.0)) for time in grid),
+            points=tuple(MetricPoint(time=time, value=values.get(time, 0.0 if zero_fill else None)) for time in grid),
             metric_name=clause.metric_name,
             clause=clause.name,
             unit=_output_unit(_unit_for_fingerprints(fingerprints_by_labels[key], units_by_fingerprint), clause),
+            histogram_bounds=tuple(sorted(bounds_by_labels[key])) if key in bounds_by_labels else None,
         )
         for key, values in ranked[:MAX_SERIES_PER_CLAUSE]
     ]
@@ -415,6 +426,7 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
             clause=clause,
             grid=grid,
             units_by_fingerprint=units_by_fingerprint,
+            zero_fill=request.zero_fill,
         )
         for clause in request.clauses
     }
@@ -431,6 +443,34 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
             else series_by_clause[clause.name]
         )
     ]
+
+
+def run_promql_query(
+    *, team: Team, expr: str, date_from: dt.datetime, date_to: dt.datetime, interval: str | None
+) -> list[MetricSeries]:
+    """Run a PromQL range query on Snuffle. The caller checks the Snuffle feature flag. `date_to` is exclusive."""
+    if date_to <= date_from:
+        raise ValueError("date_to must be after date_from")
+    if date_to - date_from > MAX_QUERY_SPAN:
+        raise ValueError(f"date range too wide; the maximum span is {MAX_QUERY_SPAN.days} days")
+    with query_concurrency_slots(team):
+        series = run_promql_range(team, expr, date_from, date_to, interval)
+    return [
+        replace(s, points=tuple(p for p in s.points if dt.datetime.fromisoformat(p.time) < date_to)) for s in series
+    ]
+
+
+def metric_query_concurrency_slots(team: Team) -> AbstractContextManager[None]:
+    """Hold the concurrency slots of a metrics query runner around `run_metric_query`.
+
+    Use it when you call `run_metric_query` outside a query runner, so the query counts against the same limits.
+    """
+    return query_concurrency_slots(team)
+
+
+def pick_metric_query_interval(*, date_from: dt.datetime, date_to: dt.datetime, max_buckets: int) -> str:
+    """The finest `MetricQueryRequest.interval` that keeps the bucket count at or below `max_buckets`."""
+    return _pick_interval(date_from, date_to, target_bucket_count=max_buckets)
 
 
 def list_metric_names(
@@ -643,12 +683,11 @@ def list_metric_error_spikes(*, team: Team, date_from: dt.datetime, date_to: dt.
     Team-wide: Error Tracking issues carry no service attribution today, so
     this cannot be scoped to the metric's own service yet.
     """
-    events, _total = list_spike_events(
+    events = list_latest_spike_events(
         team_id=team.id,
         date_from=date_from.isoformat(),
         date_to=date_to.isoformat(),
         limit=_ERROR_SPIKES_LIMIT,
-        include_total_count=False,
     )
     return [
         MetricErrorSpike(

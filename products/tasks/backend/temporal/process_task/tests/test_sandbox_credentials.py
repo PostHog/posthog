@@ -121,7 +121,7 @@ class TestGitHubSandboxCredential:
             "products.tasks.backend.temporal.process_task.sandbox_credentials.get_sandbox_github_token",
             return_value="ghs_resolved",
         ) as resolve:
-            outcome = GitHubSandboxCredential().refresh(sandbox, ctx, MagicMock())
+            outcome = GitHubSandboxCredential().refresh(sandbox, ctx, MagicMock(stored_profile=None))
 
         resolve.assert_called_once()
         assert outcome.refreshed is True
@@ -140,7 +140,7 @@ class TestGitHubSandboxCredential:
             "products.tasks.backend.temporal.process_task.sandbox_credentials.get_sandbox_github_token",
             return_value="ghu_resolved",
         ):
-            outcome = GitHubSandboxCredential().refresh(sandbox, _context(), MagicMock())
+            outcome = GitHubSandboxCredential().refresh(sandbox, _context(), MagicMock(stored_profile=None))
 
         assert outcome.next_refresh_seconds == 2 * 60 * 60
 
@@ -193,7 +193,7 @@ class TestGitHubSandboxCredential:
     def test_deleted_integration_raises_credential_unavailable(self):
         from products.tasks.backend.exceptions import CredentialUnavailableError
 
-        task = MagicMock()
+        task = MagicMock(stored_profile=None)
         task.github_integration_id = None
         task.github_user_integration_id = None
 
@@ -210,7 +210,7 @@ class TestGitHubSandboxCredential:
         sandbox = MagicMock()
         sandbox.execute.return_value = _ok("")
         sandbox.write_file.return_value = _ok()
-        task = MagicMock()
+        task = MagicMock(stored_profile=None)
         task.github_integration_id = 456
         task.github_user_integration_id = None
 

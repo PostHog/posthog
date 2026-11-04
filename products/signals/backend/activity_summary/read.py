@@ -12,24 +12,29 @@ from django.db import models
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
+from products.signals.backend.activity_summary.computed import READABLE_COMPUTED_SCHEMA_VERSIONS
 from products.signals.backend.activity_summary.config import ActivitySummaryConfig, read_config
 from products.signals.backend.activity_summary.logic import is_stale
-from products.signals.backend.activity_summary.queue import is_team_enrolled
+from products.signals.backend.activity_summary.queue import is_team_enrolled_for_read
 from products.signals.backend.models import UserActivitySummary, UserActivitySummaryVersion
 
 DEFAULT_VERSIONS_LIMIT = 5
+_SKIPPED_REBUILD_STATUSES = frozenset({UserActivitySummary.Status.SKIPPED, UserActivitySummary.Status.EMPTY_PROFILE})
 
 
 class ActivitySummaryStatus(models.TextChoices):
     READY = "ready"
-    # No row, or no update succeeded yet.
+    # No row, no update succeeded yet, or the rebuild of a stale summary skipped.
     NOT_READY = "not_ready"
 
 
 @frozen
-class ActivitySummaryFocusArea:
-    topic: str
+class ActivitySummaryTheme:
+    label: str
+    # Null on themes from before prompt version 6.
+    mode: str | None
     strength: str | None
+    refs: tuple[str, ...]
     last_seen: str | None
 
 
@@ -38,9 +43,10 @@ class ActivitySummaryView:
     status: ActivitySummaryStatus
     headline: str | None = None
     profile: str | None = None
-    focus_areas: tuple[ActivitySummaryFocusArea, ...] = ()
-    products: tuple[str, ...] = ()
+    themes: tuple[ActivitySummaryTheme, ...] = ()
+    modes: tuple[str, ...] = ()
     recent_shift: str | None = None
+    computed: dict[str, Any] | None = None
     generated_at: datetime.datetime | None = None
     version: int = 0
     prompt_version: int | None = None
@@ -54,9 +60,11 @@ class ActivitySummaryVersionView:
     prompt_version: int
     headline: str | None
     recent_shift: str | None
-    focus_areas: tuple[ActivitySummaryFocusArea, ...]
-    # Only a read of one version carries the profile, so a list stays small.
+    themes: tuple[ActivitySummaryTheme, ...]
+    modes: tuple[str, ...]
+    # Only a read of one version carries the profile and the computed fields, so a list stays small.
     profile: str | None = None
+    computed: dict[str, Any] | None = None
 
 
 def _text(value: Any) -> str | None:
@@ -68,42 +76,71 @@ def _headline(summary: dict[str, Any]) -> str | None:
     return _text(summary.get("headline")) or _text(summary.get("summary"))
 
 
-def _focus_areas(value: Any) -> tuple[ActivitySummaryFocusArea, ...]:
-    if not isinstance(value, list):
-        return ()
-    return tuple(
-        ActivitySummaryFocusArea(
-            topic=topic, strength=_text(item.get("strength")), last_seen=_text(item.get("last_seen"))
-        )
-        for item in value
-        if isinstance(item, dict) and (topic := _text(item.get("topic"))) is not None
-    )
-
-
-def _products(value: Any) -> tuple[str, ...]:
+def _strings(value: Any) -> tuple[str, ...]:
     return tuple(item for item in value if _text(item) is not None) if isinstance(value, list) else ()
 
 
-def _readable_config(team: Team) -> ActivitySummaryConfig | None:
+def _themes(summary: dict[str, Any]) -> tuple[ActivitySummaryTheme, ...]:
+    # A summary stored before prompt version 6 has `focus_areas` with a `topic`, and no mode or refs.
+    themes = summary.get("themes")
+    items: Any = themes if isinstance(themes, list) else summary.get("focus_areas")
+    label_key = "label" if isinstance(themes, list) else "topic"
+    if not isinstance(items, list):
+        return ()
+    return tuple(
+        ActivitySummaryTheme(
+            label=label,
+            mode=_text(item.get("mode")),
+            strength=_text(item.get("strength")),
+            refs=_strings(item.get("refs")),
+            last_seen=_text(item.get("last_seen")),
+        )
+        for item in items
+        if isinstance(item, dict) and (label := _text(item.get(label_key))) is not None
+    )
+
+
+def _computed(value: Any) -> dict[str, Any] | None:
+    # A row from before the field existed has none. A row from an unknown schema version has another shape.
+    # A version 1 row has no task or MCP refs, so it gets empty lists.
+    if not isinstance(value, dict) or value.get("schema_version") not in READABLE_COMPUTED_SCHEMA_VERSIONS:
+        return None
+    return {"tasks": [], "mcp_sessions": [], **value}
+
+
+def readable_config(team: Team) -> ActivitySummaryConfig | None:
     config = read_config()
-    return config if is_team_enrolled(config, team) else None
+    return config if is_team_enrolled_for_read(config, team) else None
 
 
 def get_summary(team: Team, user_id: int) -> ActivitySummaryView | None:
-    """The user's current summary. A failed later update keeps the last good summary, so it is still ready."""
-    config = _readable_config(team)
+    """The user's current summary. A failed later update keeps the last good summary, so it is still ready.
+
+    A stale summary whose rebuild skipped is not ready, because the current inputs gave no summary.
+    """
+    config = readable_config(team)
     if config is None:
         return None
     row = UserActivitySummary.objects.for_team(team.id).filter(user_id=user_id).first()
-    if row is None or not isinstance(row.summary, dict) or row.generated_at is None:
+    if row is None or (view := ready_view(row, config)) is None:
         return ActivitySummaryView(status=ActivitySummaryStatus.NOT_READY)
+    if view.stale and row.status in _SKIPPED_REBUILD_STATUSES:
+        return ActivitySummaryView(status=ActivitySummaryStatus.NOT_READY)
+    return view
+
+
+def ready_view(row: UserActivitySummary, config: ActivitySummaryConfig) -> ActivitySummaryView | None:
+    """The view of a stored summary, or `None` when no update succeeded yet."""
+    if not isinstance(row.summary, dict) or row.generated_at is None:
+        return None
     return ActivitySummaryView(
         status=ActivitySummaryStatus.READY,
         headline=_headline(row.summary),
         profile=_text(row.summary.get("profile")),
-        focus_areas=_focus_areas(row.summary.get("focus_areas")),
-        products=_products(row.summary.get("products")),
+        themes=_themes(row.summary),
+        modes=_strings(row.summary.get("modes")),
         recent_shift=_text(row.summary.get("recent_shift")),
+        computed=_computed(row.computed),
         generated_at=row.generated_at,
         version=row.version,
         prompt_version=row.prompt_version,
@@ -119,8 +156,10 @@ def _version_view(row: UserActivitySummaryVersion, *, with_profile: bool) -> Act
         prompt_version=row.prompt_version,
         headline=_headline(summary),
         recent_shift=_text(summary.get("recent_shift")),
-        focus_areas=_focus_areas(summary.get("focus_areas")),
+        themes=_themes(summary),
+        modes=_strings(summary.get("modes")),
         profile=_text(summary.get("profile")) if with_profile else None,
+        computed=_computed(row.computed) if with_profile else None,
     )
 
 
@@ -131,7 +170,7 @@ def list_versions(
 
     With `version`, the list holds only that version, with its profile, or nothing when it does not exist.
     """
-    config = _readable_config(team)
+    config = readable_config(team)
     if config is None:
         return None
     rows = UserActivitySummaryVersion.objects.for_team(team.id).filter(summary_row__user_id=user_id)

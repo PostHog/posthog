@@ -27,7 +27,7 @@ const baselinePath = path.join(__dirname, 'toolbar-graph-baseline.json')
 // size is owned by check-toolbar-size.mjs, measured from the esbuild OUTPUT (post-tree-shake)
 // and surfaced in the shared CI comment — the right place to look at toolbar size. Input-graph
 // source bytes count code that tree-shakes away, so this check deliberately reports no byte size.
-const ENTRY = 'src/toolbar/index.tsx'
+const ENTRY = 'src/toolbar/floating/index.tsx'
 
 const APP_ZONE = [/^src\/products/, /^src\/scenes\//, /^src\/layout\//, /^src\/models\//, /^\.\.\/products\//]
 

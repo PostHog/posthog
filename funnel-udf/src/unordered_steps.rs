@@ -197,6 +197,7 @@ impl AggregateFunnelRowUnordered {
                     timings,
                     uuids,
                     steps: 0,
+                    step_uuids: vec![],
                 },
             );
         }

@@ -101,7 +101,7 @@ export {
     ThreadItemRepliesMeta,
 } from './chat/thread-item'
 export { ButtonGroup, ButtonGroupSeparator, ButtonGroupText, buttonGroupVariants } from './button-group'
-export { Card, CardHeader, CardFooter, CardTitle, CardDescription, CardContent } from './card'
+export { Card, CardHeader, CardFooter, CardTitle, CardAction, CardDescription, CardContent } from './card'
 export { CardGroup } from './card-group'
 export { Checkbox, CheckboxIndicator } from './checkbox'
 export { Chip, ChipClose, ChipGroup } from './chip'
@@ -125,6 +125,7 @@ export {
     ComboboxTrigger,
     ComboboxValue,
     useComboboxAnchor,
+    useComboboxFilteredItems,
 } from './combobox'
 export {
     ContextMenu,
@@ -346,6 +347,7 @@ export {
     TableEmpty,
     TableCaption,
 } from './table'
+export { MIN_TABLE_COLUMN_WIDTH, TableColumnResizer } from './table-column-resizer'
 export { Tabs, TabsContent, TabsList, TabsTrigger } from './tabs'
 export { Text, textVariants } from './text'
 export { Textarea } from './textarea'

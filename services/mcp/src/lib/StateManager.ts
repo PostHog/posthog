@@ -1,11 +1,13 @@
 import type { ApiClient, GroupType } from '@/api/client'
 import type { Schemas } from '@/api/generated'
 import { hasScope } from '@/lib/api'
+import { classifyAuthFailure } from '@/lib/auth-errors'
 import { classifyAuthMethod } from '@/lib/auth-method'
 import type { ScopedCache } from '@/lib/cache/ScopedCache'
 import { StateLookupCache } from '@/lib/cache/StateLookupCache'
 import {
     ErrorCode,
+    hasTimeoutCause,
     MissingOrganizationContextError,
     MissingProjectContextError,
     PostHogApiError,
@@ -15,6 +17,7 @@ import { getPostHogClient } from '@/lib/posthog'
 import { sanitizeHeaderValue } from '@/lib/utils'
 import type { ApiUser } from '@/schema/api'
 import type {
+    BusinessKnowledgeContent,
     CachedOrg,
     CachedProject,
     CachedUser,
@@ -28,16 +31,12 @@ const CACHE_TTL_MS = 10 * 60 * 1000 // 10 minutes
 // its scopes are read again after this delay. Reconnecting the client does not help: same token.
 export const API_KEY_CACHE_TTL_MS = 2 * 60 * 1000 // 2 minutes
 const GATEWAY_TOOLS_CACHE_TTL_MS = 2 * 60 * 1000 // 2 minutes
-// A project without events, or without warehouse data, is re-read sooner so that its first data
-// shows up within a minute. `ingested_event` never returns to false and warehouse sources are
-// rarely removed, so a positive answer keeps the default TTL.
-export const NO_DATA_CACHE_TTL_MS = 60 * 1000 // 1 minute
-// Cached for the short TTL like an empty answer, so an unreadable list is not requested on every call.
-const UNKNOWN_WAREHOUSE_COUNT = -1
-
-function warehouseCountToAnswer(count: number): boolean | undefined {
-    return count === UNKNOWN_WAREHOUSE_COUNT ? undefined : count > 0
-}
+// An empty answer is re-read sooner so that newly added data shows up within a minute.
+const NO_DATA_CACHE_TTL_MS = 60 * 1000 // 1 minute
+// The integration list only adds a line to the environment prompt, so a slow response must not
+// hold `switch-project` for the full default request deadline. The caller serves the cached list.
+const INTEGRATION_KINDS_TIMEOUT_MS = 10 * 1000
+const BUSINESS_KNOWLEDGE_CONTENT_TIMEOUT_MS = 3 * 1000
 
 // Entitlement-related fields shared by both org shapes we read from — the
 // standalone org endpoint and the org embedded in `/api/users/@me/`.
@@ -173,6 +172,7 @@ export class StateManager {
             ...(introspectionResult.data.mcp_allowed_tools
                 ? { mcp_allowed_tools: introspectionResult.data.mcp_allowed_tools }
                 : {}),
+            ...(introspectionResult.data.supports_step_up === true ? { supports_step_up: true } : {}),
         }
     }
 
@@ -203,7 +203,11 @@ export class StateManager {
             }
             // A failed refresh must not end a live session. Every API call is authorized again
             // server-side, so the last known scopes cannot grant access the key does not hold.
-            this._reportException(error, 'api_key_refresh_failed')
+            // A rejected credential is an expected outcome, not a fault, so only report other failures.
+            const { reason } = classifyAuthFailure(error)
+            if (reason !== 'invalid_api_key' && reason !== 'inactive_oauth_token') {
+                this._reportException(error, 'api_key_refresh_failed')
+            }
             await this._cache.set('apiKeyFetchedAt', Date.now()).catch(() => {})
             return cached
         }
@@ -506,6 +510,8 @@ export class StateManager {
         fetchedAtKey: F
         fetcher: () => Promise<NonNullable<State[D]>>
         ttlMs?: number | ((cached: State[D]) => number)
+        /** Skip the error report when the fetch hits its deadline. Use it for optional data with a short timeout. */
+        expectTimeouts?: boolean
     }): Promise<State[D]> {
         const [cached, fetchedAt] = (await Promise.all([
             this._cache.get(opts.cacheKey),
@@ -529,7 +535,9 @@ export class StateManager {
             ])
             return data as State[D]
         } catch (error) {
-            this._reportException(error, `get_or_fetch_${opts.name}`)
+            if (!(opts.expectTimeouts && hasTimeoutCause(error))) {
+                this._reportException(error, `get_or_fetch_${opts.name}`)
+            }
             await this._cache.set(opts.fetchedAtKey, Date.now() as State[F]).catch(() => {})
             return cached
         }
@@ -593,51 +601,7 @@ export class StateManager {
                 }
                 return result.data
             },
-            ttlMs: (cached) => (cached?.ingested_event === false ? NO_DATA_CACHE_TTL_MS : CACHE_TTL_MS),
         })
-    }
-
-    /**
-     * `undefined` means unknown. Reads two lists because each misses a kind of table:
-     * `warehouse_tables` omits direct-access sources, and `external_data_sources` omits
-     * self-managed tables linked from a bucket. Zero is an answer only when both lists were
-     * read, so a missing scope or a failed read gives unknown, never a stale zero.
-     */
-    async getOrFetchHasWarehouseData(projectId: string): Promise<boolean | undefined> {
-        const cacheKey = `warehouseObjectCount:${projectId}` as const
-        const fetchedAtKey = `warehouseObjectCountFetchedAt:${projectId}` as const
-        const [cached, fetchedAt] = await Promise.all([this._cache.get(cacheKey), this._cache.get(fetchedAtKey)])
-        const ttlMs = cached !== undefined && cached > 0 ? CACHE_TTL_MS : NO_DATA_CACHE_TTL_MS
-        if (cached !== undefined && !this.isCacheStale(fetchedAt, ttlMs)) {
-            return warehouseCountToAnswer(cached)
-        }
-
-        const { scopes } = await this.getApiKey()
-        const lists = [
-            { scope: 'warehouse_table:read', path: 'warehouse_tables' },
-            { scope: 'external_data_source:read', path: 'external_data_sources' },
-        ]
-        const results = await Promise.allSettled(
-            lists.map(({ scope, path }) =>
-                hasScope(scopes, scope)
-                    ? this._api.request<{ count?: number; results?: unknown[] }>({
-                          method: 'GET',
-                          path: `/api/projects/${encodeURIComponent(projectId)}/${path}/`,
-                          query: { limit: 1, include_columns: 'false' },
-                      })
-                    : Promise.reject(new Error(`missing ${scope}`))
-            )
-        )
-        let total = 0
-        for (const result of results) {
-            if (result.status === 'fulfilled') {
-                total += result.value.count ?? result.value.results?.length ?? 0
-            }
-        }
-        const complete = results.every((result) => result.status === 'fulfilled')
-        const count = total > 0 || complete ? total : UNKNOWN_WAREHOUSE_COUNT
-        await Promise.all([this._cache.set(cacheKey, count), this._cache.set(fetchedAtKey, Date.now())]).catch(() => {})
-        return warehouseCountToAnswer(count)
     }
 
     async getOrFetchGroupTypes(projectId: string): Promise<GroupType[] | undefined> {
@@ -668,9 +632,36 @@ export class StateManager {
                     method: 'GET',
                     path: `/api/projects/${encodeURIComponent(projectId)}/integrations/`,
                     query: { limit: 100 },
+                    timeoutMs: INTEGRATION_KINDS_TIMEOUT_MS,
                 })
                 return [...new Set((result.results ?? []).map((integration) => String(integration.kind)))].sort()
             },
+            expectTimeouts: true,
+        })
+    }
+
+    /** An empty project is re-read on the short TTL, so a source the user just added gets its search guidance within a minute. */
+    async getOrFetchBusinessKnowledgeContent(projectId: string): Promise<BusinessKnowledgeContent | undefined> {
+        return this.getOrFetchCached({
+            name: 'business_knowledge_content',
+            cacheKey: `businessKnowledgeContent:${projectId}` as const,
+            fetchedAtKey: `businessKnowledgeContentFetchedAt:${projectId}` as const,
+            fetcher: async () => {
+                const availability = await this._api.request<{ has_sources?: unknown; has_repositories?: unknown }>({
+                    method: 'GET',
+                    path: `/api/projects/${encodeURIComponent(projectId)}/business_knowledge/sources/availability/`,
+                    timeoutMs: BUSINESS_KNOWLEDGE_CONTENT_TIMEOUT_MS,
+                    signal: AbortSignal.timeout(BUSINESS_KNOWLEDGE_CONTENT_TIMEOUT_MS),
+                })
+                return {
+                    hasSources: typeof availability.has_sources === 'boolean' ? availability.has_sources : undefined,
+                    hasRepositories:
+                        typeof availability.has_repositories === 'boolean' ? availability.has_repositories : undefined,
+                }
+            },
+            ttlMs: (cached) =>
+                cached?.hasSources === false && cached.hasRepositories === false ? NO_DATA_CACHE_TTL_MS : CACHE_TTL_MS,
+            expectTimeouts: true,
         })
     }
 
@@ -701,7 +692,6 @@ export class StateManager {
         projectId?: string
         projectUuid?: string
         projectName?: string
-        projectHasData?: boolean
     }> {
         const [orgId, project] = await Promise.all([
             this._pinned ? this._pinned.orgId : this._cache.get('orgId'),
@@ -717,7 +707,6 @@ export class StateManager {
             ...(project?.id !== undefined ? { projectId: String(project.id) } : {}),
             ...(project?.uuid ? { projectUuid: project.uuid } : {}),
             ...(project?.name ? { projectName: project.name } : {}),
-            ...(typeof project?.ingested_event === 'boolean' ? { projectHasData: project.ingested_event } : {}),
         }
     }
 

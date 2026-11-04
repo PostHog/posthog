@@ -302,7 +302,7 @@ def _validate_pure_inputs(
     if persons_mode is not None and persons_mode != PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
         raise TrinoLoweringError(
             "TRINO_PERSONS_ON_EVENTS_MODE_UNSUPPORTED",
-            f"personsOnEventsMode={persons_mode.value}",
+            f"personsOnEventsMode={persons_mode}",
             detail="Trino compilation supports only personsOnEventsMode=person_id_override_properties_on_events.",
         )
 

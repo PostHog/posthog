@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 import { BindLogic } from 'kea'
 import posthog from 'posthog-js'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconInsightFunnels, IconInsightRetention, IconInsightTrends } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -9,12 +10,17 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { addSavedInsightsModalLogic } from 'scenes/saved-insights/addSavedInsightsModalLogic'
-import { AddSavedInsightsToDashboard } from 'scenes/saved-insights/AddSavedInsightsToDashboard'
-import { isInsightTypeCreatable } from 'scenes/saved-insights/insightTypesMetadata'
-import { INSIGHT_TYPES_METADATA } from 'scenes/saved-insights/insightTypesMetadata'
+import {
+    INSIGHT_TYPES_METADATA,
+    QUERY_TYPES_METADATA,
+    isInsightTypeCreatable,
+} from 'scenes/saved-insights/insightTypesMetadata'
 import { urls } from 'scenes/urls'
 
+import { NodeKind } from '~/queries/schema/schema-general'
 import { InsightType } from '~/types'
+
+import { AddSavedInsightsToDashboard } from 'products/product_analytics/frontend/insights/savedInsights/AddSavedInsightsToDashboard'
 
 import { addInsightToDashboardLogic } from '../addInsightToDashboardModalLogic'
 import { dashboardLogic } from '../dashboardLogic'
@@ -50,6 +56,10 @@ export function AddInsightToDashboardModal(): JSX.Element {
             type !== InsightType.HOG &&
             !QUICK_CREATE_TYPES.some((qt) => qt.type === type)
     )
+
+    const metricsEnabled =
+        !!featureFlags[FEATURE_FLAGS.METRICS] && !!featureFlags[FEATURE_FLAGS.METRICS_INSIGHT_BUILDER]
+    const MetricsIcon = QUERY_TYPES_METADATA[NodeKind.MetricsQuery].icon
 
     return (
         <BindLogic logic={addSavedInsightsModalLogic} props={{}}>
@@ -114,6 +124,21 @@ export function AddInsightToDashboardModal(): JSX.Element {
                                                     </LemonButton>
                                                 )
                                             })}
+                                            {metricsEnabled && (
+                                                <LemonButton
+                                                    type="tertiary"
+                                                    fullWidth
+                                                    icon={<MetricsIcon />}
+                                                    to={urls.insightNew({
+                                                        type: InsightType.METRICS,
+                                                        dashboardId: dashboard?.id,
+                                                    })}
+                                                    data-attr="create-metrics"
+                                                    onClick={() => handleNewInsightClicked(InsightType.METRICS)}
+                                                >
+                                                    {QUERY_TYPES_METADATA[NodeKind.MetricsQuery].name}
+                                                </LemonButton>
+                                            )}
                                         </div>
                                     }
                                 >

@@ -638,6 +638,20 @@ class TestDemandDiscovery(APIBaseTest):
             demand.discover_demand(self.tick.isoformat(), limits_by_source={SourceKind.LOGS: 0})
 
 
+async def test_a_failed_inventory_count_does_not_raise() -> None:
+    with (
+        patch.object(
+            alert_workflows,
+            "count_inventory",
+            side_effect=OperationalError("canceling statement due to statement timeout"),
+        ),
+        patch.object(alert_workflows, "push_inventory") as push,
+    ):
+        await alert_workflows.alerts_platform_record_inventory_activity()
+
+    push.assert_not_called()
+
+
 @pytest.mark.parametrize("scheduled", [False, True])
 async def test_discovery_uses_scheduled_cutoff_or_manual_start(scheduled: bool) -> None:
     tick_time = dt.datetime(2026, 9, 16, 10, tzinfo=dt.UTC)
@@ -649,6 +663,7 @@ async def test_discovery_uses_scheduled_cutoff_or_manual_start(scheduled: bool) 
     )
     info = MagicMock(
         workflow_start_time=actual_start,
+        start_time=actual_start,
         typed_search_attributes=attributes,
         workflow_id="tick",
         run_id="run",
@@ -661,6 +676,7 @@ async def test_discovery_uses_scheduled_cutoff_or_manual_start(scheduled: bool) 
             workflow, "execute_activity", AsyncMock(return_value=AlertDemand(batch_keys_by_source={}))
         ) as discover,
         patch.object(workflow, "start_child_workflow", AsyncMock()) as dispatch,
+        patch.object(workflow, "logger"),
     ):
         result = await AlertsPlatformOrchestrateWorkflow().run(OrchestrateInputs())
     assert discover.await_args is not None

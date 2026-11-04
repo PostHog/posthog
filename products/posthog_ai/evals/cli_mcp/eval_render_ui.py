@@ -43,7 +43,7 @@ To run a single eval:
 
 from __future__ import annotations
 
-from products.posthog_ai.eval_harness.base import SandboxedPublicEval
+from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.evals.cli_mcp.scorers import (
@@ -95,7 +95,7 @@ async def eval_renders_entity_ui(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPublicEval(
+    await SandboxedEval(
         experiment_name="sandboxed-cli-mcp-renders-entity-ui-cli",
         offline_suite=offline_suite(
             "cli_mcp/eval_render_ui::eval_renders_entity_ui",
@@ -130,7 +130,7 @@ async def eval_no_render_for_query_results(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPublicEval(
+    await SandboxedEval(
         experiment_name="sandboxed-cli-mcp-no-render-for-query-cli",
         offline_suite=offline_suite(
             "cli_mcp/eval_render_ui::eval_no_render_for_query_results",

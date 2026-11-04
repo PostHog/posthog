@@ -20,6 +20,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { metalyticsLogic } from 'lib/components/Metalytics/metalyticsLogic'
 import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileItems'
+import { SceneMenuBarPinItem } from 'lib/components/Scenes/SceneMenuBarPinItem'
 import { SceneTagsCombobox } from 'lib/components/Scenes/SceneTagsCombobox'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -332,6 +333,7 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
                             Save as dashboard template
                         </SceneMenuBarItem>
                     )}
+                    <SceneMenuBarPinItem dataAttrKey={RESOURCE_TYPE} />
                     {/* Toggle group — separated from regular Edit actions */}
                     <SceneMenuBarSeparator />
                     <SceneMenuBarCheckboxItem

@@ -4,6 +4,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { GuidedWizardStepper } from 'lib/components/GuidedWizard/GuidedWizardStepper'
 
+import { OnboardingStepKey } from '~/types'
+
 import { OnboardingFlowHost } from '../OnboardingFlowHost'
 import { stepKeyToTitle } from '../onboardingFlowUtils'
 import { onboardingLogic } from '../onboardingLogic'
@@ -11,7 +13,7 @@ import { OnboardingStepFooterStartContext } from '../OnboardingStepFooterStartCo
 import { ProjectTokenSnippet } from '../shared/ProjectTokenSnippet'
 
 export function SimpleOnboarding(): JSX.Element {
-    const { flow, currentFlowStep, isSkippingOnboarding } = useValues(onboardingLogic)
+    const { flow, currentFlowStep, hasNextStep, isSkippingOnboarding, isCompleting } = useValues(onboardingLogic)
     const { skipSimpleOnboarding } = useActions(onboardingLogic)
 
     return (
@@ -38,10 +40,12 @@ export function SimpleOnboarding(): JSX.Element {
                         type="tertiary"
                         size="small"
                         onClick={skipSimpleOnboarding}
-                        loading={isSkippingOnboarding}
+                        loading={isSkippingOnboarding || isCompleting}
                         data-attr="simple-onboarding-skip"
                     >
-                        Skip setup
+                        {currentFlowStep?.stepKey === OnboardingStepKey.INVITE_TEAMMATES && !hasNextStep
+                            ? 'Skip invites and finish'
+                            : 'Skip setup'}
                     </LemonButton>
                 }
             >

@@ -55,6 +55,7 @@ import { PersonPropertyFilters } from '~/queries/nodes/PersonsNode/PersonPropert
 import { PersonsSearch } from '~/queries/nodes/PersonsNode/PersonsSearch'
 import { SessionPropertyFilters } from '~/queries/nodes/SessionsNode/SessionPropertyFilters'
 import { TracesSearch } from '~/queries/nodes/TracesQuery/TracesSearch'
+import { isActorsQuery, isHogQLQuery } from '~/queries/schema/node-guards'
 import {
     ActorsQuery,
     AnyResponseType,
@@ -73,11 +74,9 @@ import {
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import {
-    isActorsQuery,
     isEventsQuery,
     isGroupsQuery,
     isHogQLAggregation,
-    isHogQLQuery,
     isInsightActorsQuery,
     isMarketingAnalyticsTableQuery,
     isSessionsQuery,
@@ -210,6 +209,8 @@ export function DataTable({
     // Lazy precompute can be on without the v2 pre-agg flag, so it surfaces a
     // badge regardless of `canUseWebAnalyticsPreAggregatedTables`.
     const usedWebAnalyticsLazyPrecompute = preComputeStrategy === WebAnalyticsPreComputeStrategy.LazyPrecompute
+    const preComputedAt = response && 'preComputedAt' in response ? response.preComputedAt : undefined
+    const preComputeStale = response && 'preComputeStale' in response ? response.preComputeStale : undefined
 
     const dataTableLogicProps: DataTableLogicProps = {
         query,
@@ -987,6 +988,7 @@ export function DataTable({
                 fileNameForExport={context?.fileNameForExport}
                 excludedColumns={context?.dataTableExportExcludedColumns}
                 downloadQuery={context?.dataTableExportQuery}
+                iconOnly={context?.dataTableExportIconOnly}
             />
         ) : null,
         showExport && showOpenEditorButton ? (
@@ -1027,7 +1029,12 @@ export function DataTable({
                     {context?.compactDataTableToolbar ? (
                         <>
                             {compactToolbarLeft.length > 0 || compactToolbarRight.length > 0 ? (
-                                <div className="flex gap-2 items-center flex-wrap">
+                                <div
+                                    className={clsx(
+                                        'flex gap-2 items-center flex-wrap',
+                                        context?.dataTableToolbarClassName
+                                    )}
+                                >
                                     {compactToolbarLeft}
                                     {compactToolbarLeft.length > 0 && compactToolbarRight.length > 0 ? (
                                         <div className="flex-1" />
@@ -1084,6 +1091,8 @@ export function DataTable({
                                 <PreAggregatedBadge
                                     variant="precomputed"
                                     onDisable={context?.onDisableWebAnalyticsPrecompute}
+                                    computedAt={preComputedAt}
+                                    stale={preComputeStale}
                                 />
                             ) : usedWebAnalyticsPreAggregatedTables ? (
                                 <PreAggregatedBadge variant="preagg" />
@@ -1163,7 +1172,11 @@ export function DataTable({
                                     (dataTableRows ?? []).length > 0 &&
                                     (context?.showLoadNextButton ||
                                         !sourceFeatures.has(QueryFeature.hideLoadNextButton)) ? (
-                                        <LoadNext query={query.source} nouns={context?.dataTableNouns} />
+                                        <LoadNext
+                                            query={query.source}
+                                            nouns={context?.dataTableNouns}
+                                            expectedTotalRows={context?.dataTableExpectedTotalRows}
+                                        />
                                     ) : null
                                 }
                                 nouns={context?.dataTableNouns}

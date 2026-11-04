@@ -5,7 +5,7 @@ import asyncio
 import datetime
 import threading
 import contextvars
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 
 from structlog import get_logger
 from temporalio import activity
@@ -64,9 +64,23 @@ class ShutdownMonitor:
 
     All Temporal activities should consider `WorkerShuttingDownError` as a
     retryable exception, at least if they wish to have new workers pick it up.
+
+    With `grace_seconds`, the monitor reports the shutdown only that long after the
+    worker got the signal. Every check, wait and shutdown callback sees the shutdown
+    then, so an activity that ends inside the grace never stops early. The worker
+    takes no new activities from the signal on, so only activities that already run
+    use the grace. Keep the grace well below the worker's graceful shutdown timeout.
     """
 
-    def __init__(self):
+    def __init__(
+        self,
+        grace_seconds: float = 0.0,
+        sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
+    ):
+        if grace_seconds < 0:
+            raise ValueError(f"grace_seconds must not be negative, got {grace_seconds}")
+        self._grace_seconds = grace_seconds
+        self._sleep = sleep
         self._monitor_shutdown_task: asyncio.Task[None] | None = None
         self._monitor_shutdown_thread: threading.Thread | None = None
         self._on_shutdown_callbacks: list[tuple[contextvars.Context, Callable[[], None]]] = []
@@ -115,6 +129,13 @@ class ShutdownMonitor:
                 # Not running in an activity context.
                 return
 
+            if self._grace_seconds > 0:
+                self.logger.info(
+                    "Shutdown signal received, the activity keeps running for the grace period.",
+                    grace_seconds=self._grace_seconds,
+                )
+                await self._sleep(self._grace_seconds)
+
             self._record_shutdown_time()
             self.logger.info("Shutdown detected.")
             # Run the callbacks before the event is set: a caller that sees the event can raise and
@@ -129,7 +150,7 @@ class ShutdownMonitor:
         self._monitor_shutdown_task = asyncio.create_task(monitor())
 
     def run_on_shutdown(self, callback: Callable[[], None]) -> None:
-        """Call `callback` once when the worker starts to shut down.
+        """Call `callback` once when the monitor reports the shutdown, which is after the grace.
 
         `callback` runs with a copy of the caller's contextvars, taken now, so it sees the structlog
         context the caller has bound (for example the job context an activity binds after it enters
@@ -143,6 +164,9 @@ class ShutdownMonitor:
         Notice we must copy the context to preserve the activity context for the
         monitoring thread.
         """
+        if self._grace_seconds > 0:
+            raise ValueError("A shutdown grace needs the async monitor: use `async with ShutdownMonitor(...)`")
+
         context = contextvars.copy_context()
 
         def monitor() -> None:
@@ -218,7 +242,7 @@ class ShutdownMonitor:
             self._shutdown_at = time.monotonic()
 
     def seconds_since_shutdown(self) -> float | None:
-        """How long ago the worker started to shut down, or None while it still runs.
+        """How long ago the monitor started to report the shutdown (at the end of the grace), or None before.
 
         A caller created after the shutdown cannot learn the moment from a callback, because the
         callbacks have already run by then. It reads the elapsed time here instead.

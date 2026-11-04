@@ -56,6 +56,8 @@ function firstSightInWindow(key: string, now: number): boolean {
     return true
 }
 
+const MAX_DNS_NAME_LENGTH = 253
+
 // A host of letters, digits, dots, hyphens and underscores needs no IDNA pass, because
 // domainToASCII would only lowercase it.
 const PLAIN_HOST_RE = /^[A-Za-z0-9._-]+$/
@@ -87,6 +89,10 @@ function canonicalizeHost(host: string): string | null {
  */
 export function matchedOobDomain(host: string | null | undefined): string | null {
     if (!host || host.includes('@') || host.includes('/')) {
+        return null
+    }
+    if ((host.endsWith('.') ? host.length - 1 : host.length) > MAX_DNS_NAME_LENGTH) {
+        // A longer name never resolves, and a match keeps the host in the dedupe map and the log line.
         return null
     }
     const canonical = canonicalizeHost(host)

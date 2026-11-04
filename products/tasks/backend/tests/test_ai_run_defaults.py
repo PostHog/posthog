@@ -309,9 +309,15 @@ class TestCreateRunAppliesDefaults(APIBaseTest):
         assert run.state["model"] == "gpt-5"
         assert "ai_defaults_source" not in run.state
 
-    def test_internal_task_never_inherits_defaults(self):
+    @parameterized.expand(
+        [
+            ("internal_task", {"internal": True}),
+            ("profile_without_user_defaults", {"profile": "business_knowledge"}),
+        ]
+    )
+    def test_task_that_opts_out_never_inherits_defaults(self, _name: str, overrides: dict[str, Any]):
         update_team_ai_run_preferences(self.team.id, **TEAM_TRIPLE)
-        run = self._task(internal=True).create_run()
+        run = self._task(**overrides).create_run()
         assert "model" not in run.state
 
     def test_acp_task_never_inherits_a_pi_default(self):

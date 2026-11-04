@@ -43,6 +43,9 @@ from posthog.schema import (
     ActorsPropertyTaxonomyQuery,
     ActorsQuery,
     BreakdownType,
+    CachedLifecycleQueryResponse,
+    CachedStickinessQueryResponse,
+    CachedTrendsQueryResponse,
     CacheMissResponse,
     CalendarHeatmapQuery,
     ChartDisplayType,
@@ -66,7 +69,9 @@ from posthog.schema import (
     InsightActorsQuery,
     InsightActorsQueryOptions,
     LifecycleQuery,
+    LifecycleQueryResponse,
     MarketingAnalyticsAggregatedQuery,
+    MarketingAnalyticsRecommendationsQuery,
     MarketingAnalyticsSearchQuery,
     MarketingAnalyticsTableQuery,
     MCPHarnessBreakdownQuery,
@@ -105,12 +110,14 @@ from posthog.schema import (
     SessionsQuery,
     SessionsTimelineQuery,
     StickinessQuery,
+    StickinessQueryResponse,
     SuggestedQuestionsQuery,
     TeamTaxonomyQuery,
     TraceNeighborsQuery,
     TraceQuery,
     TracesQuery,
     TrendsQuery,
+    TrendsQueryResponse,
     UsageMetricsQuery,
     VectorSearchQuery,
     WebAgentAnalyticsQuery,
@@ -125,7 +132,6 @@ from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.modifiers import create_default_modifiers_for_user
 from posthog.hogql.printer import prepare_and_print_ast, to_printed_hogql
 from posthog.hogql.query import create_default_modifiers_for_team
@@ -157,7 +163,9 @@ from posthog.clickhouse.client.limit import (
     get_materialized_endpoints_rate_limiter,
 )
 from posthog.clickhouse.query_tagging import (
+    add_fallback_query_tags,
     get_query_tag_value,
+    get_query_tags,
     is_api_key_access_method,
     is_known_product_tag,
     tag_queries,
@@ -184,6 +192,7 @@ from posthog.hogql_queries.utils.breakdowns import has_multi_breakdown, has_sing
 from posthog.hogql_queries.utils.entities import every_warehouse_series_reads_flag_calls, has_data_warehouse_node
 from posthog.hogql_queries.utils.event_usage import log_event_usage_from_query_metadata
 from posthog.hogql_queries.utils.properties import has_any_property_filters
+from posthog.hogql_queries.utils.result_series import get_response_action_names
 from posthog.hogql_queries.validation.validation import (
     QueryValidationContext,
     QueryValidationRule,
@@ -193,8 +202,6 @@ from posthog.models import Team, User
 from posthog.models.event.new_events_schema import (
     events_route_cache_modifiers,
     events_route_scope,
-    get_new_events_cluster_host,
-    new_events_cluster_host_scope,
     strip_events_route_modifiers,
     use_new_events_schema,
     with_pinned_events_route,
@@ -217,6 +224,7 @@ from posthog.query_cache.single_flight import (
     QUERY_SINGLE_FLIGHT_FLAG,
     FlightWait,
     QuerySingleFlight,
+    query_single_flight_skipped,
 )
 from posthog.query_scan.flag import QueryScanFlag, QueryScanMode, get_query_scan_flag
 from posthog.query_scan.serve import hydrate_response_scan
@@ -524,6 +532,12 @@ def shared_insights_execution_mode(execution_mode: ExecutionMode) -> SharedExecu
     )
 
 
+def _organization_plan(team: Team) -> str:
+    if team.organization.has_active_subscription is None:
+        return "unknown"
+    return "paid" if team.organization.has_active_subscription else "free"
+
+
 def _api_queries_budget_enforcement_enabled(team: Team) -> bool:
     org_id = str(team.organization_id)
     try:
@@ -532,6 +546,7 @@ def _api_queries_budget_enforcement_enabled(team: Team) -> bool:
                 API_QUERIES_BUDGET_ENFORCEMENT_FLAG,
                 org_id,
                 groups={"organization": org_id},
+                person_properties={"organization_plan": _organization_plan(team)},
                 group_properties={"organization": {"id": org_id}},
                 only_evaluate_locally=False,
                 send_feature_flag_events=False,
@@ -539,6 +554,15 @@ def _api_queries_budget_enforcement_enabled(team: Team) -> bool:
         )
     except Exception:
         return False
+
+
+def _budget_event_product(query: object | None = None) -> str | None:
+    """Resolve product fallbacks before execution without changing the live query tags."""
+    tags = get_query_tags().model_copy(deep=True)
+    if query is not None:
+        tags.query = query
+    add_fallback_query_tags(tags)
+    return str(tags.product) if tags.product else None
 
 
 def api_queries_budget_enforcement_enabled(team: Team) -> bool:
@@ -574,7 +598,7 @@ def get_api_queries_budget_status(team: Team) -> Optional[BudgetStatus]:
         return None
 
 
-def enforce_api_queries_budget(team: Team) -> None:
+def enforce_api_queries_budget(team: Team, query: object | None = None) -> None:
     """Hourly read budget for api key queries. Observe-only until the org is flagged in;
     then an exhausted budget is a 429. The query that crosses the line still runs in full,
     since the budget is debited after the query and the next request is the one refused."""
@@ -599,18 +623,19 @@ def enforce_api_queries_budget(team: Team) -> None:
     if claim_limited_event(str(team.pk)):
         try:
             access_method = get_query_tag_value("access_method")
-            product = get_query_tag_value("product")
+            product = _budget_event_product(query)
             report_team_action(
                 team,
                 "api queries budget limited",
                 {
                     "outcome": outcome,
                     "team_id": team.pk,
+                    "organization_plan": _organization_plan(team),
                     "bytes_per_hour": status.spec.bytes_per_hour,
                     "remaining_bytes": status.remaining_bytes,
                     "retry_after_seconds": status.retry_after_seconds,
                     "access_method": str(access_method) if access_method else None,
-                    "product": str(product) if product else None,
+                    "product": product,
                 },
             )
         except Exception as e:
@@ -643,6 +668,7 @@ RunnableQueryNode = Union[
     WebNotableChangesQuery,
     SessionAttributionExplorerQuery,
     MarketingAnalyticsTableQuery,
+    MarketingAnalyticsRecommendationsQuery,
     MarketingAnalyticsSearchQuery,
     MarketingAnalyticsAggregatedQuery,
     ActorsPropertyTaxonomyQuery,
@@ -1077,6 +1103,18 @@ def get_query_runner(
             user=user,
         )
 
+    if kind == "WebPageDirectoryQuery":
+        from products.web_analytics.backend.hogql_queries.web_page_directory import WebPageDirectoryQueryRunner
+
+        return WebPageDirectoryQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
     if kind == "WebVitalsPathBreakdownQuery":
         from products.web_analytics.backend.hogql_queries.web_vitals_path_breakdown import (
             WebVitalsPathBreakdownQueryRunner,
@@ -1184,6 +1222,18 @@ def get_query_runner(
             user=user,
         )
 
+    if kind == "ErrorTrackingIssueEventsQuery":
+        from products.error_tracking.backend.facade.queries import ErrorTrackingIssueEventsQueryRunner
+
+        return ErrorTrackingIssueEventsQueryRunner(
+            query=query,
+            team=team,
+            timings=timings,
+            modifiers=modifiers,
+            limit_context=limit_context,
+            user=user,
+        )
+
     if kind == "ErrorTrackingSimilarIssuesQuery":
         from products.error_tracking.backend.facade.queries import ErrorTrackingSimilarIssuesQueryRunner
 
@@ -1233,7 +1283,7 @@ def get_query_runner(
         )
 
     if kind == "ExperimentQuery":
-        from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
+        from products.experiments.backend.facade.queries import ExperimentQueryRunner
 
         return ExperimentQueryRunner(
             query=query,
@@ -1245,9 +1295,7 @@ def get_query_runner(
         )
 
     if kind == "ExperimentExposureQuery":
-        from products.experiments.backend.hogql_queries.experiment_exposures_query_runner import (
-            ExperimentExposuresQueryRunner,
-        )
+        from products.experiments.backend.facade.queries import ExperimentExposuresQueryRunner
 
         return ExperimentExposuresQueryRunner(
             query=cast(ExperimentExposureQuery | dict[str, Any], query),
@@ -1612,6 +1660,15 @@ def get_query_runner(
             user=user,
         )
 
+    if kind == NodeKind.MARKETING_ANALYTICS_RECOMMENDATIONS_QUERY:
+        from products.marketing_analytics.backend.hogql_queries.marketing_recommendations_query_runner import (
+            MarketingAnalyticsRecommendationsQueryRunner,
+        )
+
+        return MarketingAnalyticsRecommendationsQueryRunner(
+            query=query, team=team, timings=timings, modifiers=modifiers, limit_context=limit_context, user=user
+        )
+
     if kind == NodeKind.MARKETING_ANALYTICS_SEARCH_QUERY:
         from products.marketing_analytics.backend.hogql_queries.marketing_search_query_runner import (
             MarketingAnalyticsSearchQueryRunner,
@@ -1836,19 +1893,6 @@ R = TypeVar("R", bound=BaseModel)
 CR = TypeVar("CR", bound=GenericCachedQueryResponse)
 SourceT = TypeVar("SourceT", bound=BaseModel)
 _RunMethod = TypeVar("_RunMethod", bound=Callable[..., Any])
-
-
-def resolve_series_custom_name(series: Any, raw_label: str | None) -> str | None:
-    # A series' display override for legends and tooltips. `custom_name` is set by the in-app
-    # "Rename graph series" modal; a `name` that differs from the raw event/action label is a rename
-    # applied via the query editor or API. Either should win over the raw event name.
-    custom_name = getattr(series, "custom_name", None)
-    if custom_name:
-        return custom_name
-    name = getattr(series, "name", None)
-    if name and name != raw_label:
-        return name
-    return None
 
 
 def query_node_modifiers(query: BaseModel) -> Optional[HogQLQueryModifiers]:
@@ -2086,11 +2130,27 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             isinstance(data, dict) and "is_cached" in data
         )
 
-    def _query_has_series_custom_names(self) -> bool:
-        series = getattr(self.query, "series", None)
-        if not series:
+    def _series_custom_names(self) -> list[str | None] | None:
+        """Each series' `custom_name`, indexed like the `order` on the query's result rows.
+
+        Returns None when apply_series_custom_names has nothing to patch: another query kind, or a trends formula.
+        A formula row takes its `order` and its name from the formula nodes, and the cache key includes those.
+        """
+        query = self.query
+        if isinstance(query, TrendsQuery) and query.trendsFilter is not None:
+            if query.trendsFilter.formulaNodes or query.trendsFilter.formula:
+                return None
+        if not isinstance(query, TrendsQuery | FunnelsQuery | StickinessQuery | LifecycleQuery):
+            return None
+        return [series.custom_name for series in query.series]
+
+    def _cached_results_need_custom_name_patch(self, results_have_custom_names: bool) -> bool:
+        # A named trends formula row sets results_have_custom_names, but _series_custom_names skips formulas,
+        # so that flag alone must not force the results off the raw-bytes path.
+        custom_names = self._series_custom_names()
+        if custom_names is None:
             return False
-        return any(getattr(s, "custom_name", None) is not None for s in series)
+        return results_have_custom_names or any(name is not None for name in custom_names)
 
     @property
     def _limit_context_aliased_for_cache(self) -> LimitContext:
@@ -2101,7 +2161,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
     def calculate(self) -> R:
         self.validate()
-        return self._calculate()
+        response = self._calculate()
+        self._fill_action_names(response)
+        return response
 
     def validate(self) -> None:
         run_validation_rules(self.validators(), self.validation_context)
@@ -2208,19 +2270,16 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             # payload. Only safe when the caller opted in AND validation of the parsed results
             # wouldn't add protection (the response class types them as plain data — for
             # model-typed results, e.g. retention, validating a `[]` placeholder would bypass
-            # the schema-drift check that triggers recomputation) AND neither the query nor
-            # the cached results carry custom series names — otherwise
-            # apply_series_custom_names below must be able to patch the parsed results.
+            # the schema-drift check that triggers recomputation) AND apply_series_custom_names
+            # below has no series name to patch into the parsed results.
             split_candidate = entry
             if split_candidate is None:
                 cached_response_candidate = None
             else:
                 cached_response_candidate = split_candidate.header
                 if split_candidate.results_bytes is not None:
-                    if (
-                        response_results_contain_models(CachedResponse)
-                        or split_candidate.results_have_custom_names
-                        or self._query_has_series_custom_names()
+                    if response_results_contain_models(CachedResponse) or self._cached_results_need_custom_name_patch(
+                        split_candidate.results_have_custom_names
                     ):
                         cached_response_candidate["results"] = orjson.loads(split_candidate.results_bytes)
                     else:
@@ -2253,6 +2312,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             )
 
         if isinstance(cached_response, CachedResponse):
+            self._fill_action_names(cached_response)
             # Apply current query's custom_name values to cached response
             # (custom_name is excluded from cache key, so cached values may be stale)
             cached_response, custom_names_modified = self.apply_series_custom_names(cached_response)
@@ -2388,8 +2448,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         if self.is_query_service:
             tag_queries(chargeable=1)
-        # Only the /query view and the inline endpoint run set api_queries_budgeted; the product
-        # tag is caller-supplied via query.tags.productKey, so it cannot opt a query in or out.
+        # Trusted entry points set api_queries_budgeted. The product tag is caller-supplied
+        # via query.tags.productKey, so it cannot opt a query in or out.
         if get_query_tag_value("api_queries_budgeted"):
             self._enforce_api_queries_budget()
 
@@ -2428,7 +2488,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             query_duration_ms = round((perf_counter() - query_start_time) * 1000, 2)
             return query_result, query_duration_ms
 
-    @new_events_cluster_host_scope()
     @_pin_events_route
     def run(
         self,
@@ -2440,12 +2499,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         cache_age_seconds: Optional[int] = None,
         analytics_props: Optional[AnalyticsProps] = None,
     ) -> CR | CacheMissResponse | QueryStatusResponse:
-        if self.modifiers.useNewEventsCluster:
-            if not isinstance(self.query, HogQLQuery):
-                raise ExposedHogQLError("Native cluster comparisons currently support HogQLQuery only.")
-            if execution_mode != ExecutionMode.CALCULATE_BLOCKING_ALWAYS:
-                raise ExposedHogQLError("Native cluster comparisons require refresh=force_blocking and async=false.")
-
         # Set user for access control during query execution. Some subclasses
         # (e.g. QueryRunnerWithHogQLContext) construct user-dependent state in
         # __init__; let them refresh it now that we know the real user. Only on an
@@ -2699,7 +2752,8 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # rules out serving a leader's entry too. An export never stores its result, so its leader
         # would have nothing to hand a follower.
         return (
-            self._query_single_flight_enabled
+            not query_single_flight_skipped()
+            and self._query_single_flight_enabled
             and not self.requires_fresh_calculation()
             and self.limit_context != LimitContext.EXPORT
         )
@@ -3140,7 +3194,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         return feature.get("limit") if feature else None
 
     def _enforce_api_queries_budget(self) -> None:
-        enforce_api_queries_budget(self.team)
+        enforce_api_queries_budget(self.team, self.query)
 
     @abstractmethod
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
@@ -3184,8 +3238,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             "week_start_day": self.team.week_start_day or WeekStartDay.SUNDAY,
             "version": 2,
         }
-        if self.modifiers.useNewEventsCluster:
-            payload["native_events_host"] = get_new_events_cluster_host()
 
         # Include property-level access control restrictions in the cache key so that
         # users with different property restrictions get separate cache entries.
@@ -3194,7 +3246,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             payload["restricted_properties"] = restricted
             # A cache hit skips masking. Bump this when masking expands to new tables or mirror columns
             # so restricted results cached before that change are invalidated.
-            payload["property_access_control_version"] = 1
+            payload["property_access_control_version"] = 2
 
         # Vary the cache key by the events-retention floor: a cache hit returns before the printer applies the floor,
         # so without this a result cached pre-enforcement (or at a longer period) would keep surfacing events past
@@ -3280,96 +3332,54 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             Tuple of (patched_response, was_modified) - was_modified is True if any
             custom_name values were actually changed.
         """
-        if isinstance(self.query, TrendsQuery | StickinessQuery | LifecycleQuery):
-            return self._apply_trends_custom_names(cached_response)
-        elif isinstance(self.query, FunnelsQuery):
-            return self._apply_funnels_custom_names(cached_response)
-        return cached_response, False
-
-    def _apply_trends_custom_names(self, cached_response: CR) -> tuple[CR, bool]:
-        """Apply custom_name values to TrendsQuery results (nested under action)."""
-        series = getattr(self.query, "series", None)
-        if not series:
+        custom_names = self._series_custom_names()
+        if custom_names is None:
             return cached_response, False
+        return self._apply_custom_names_by_order(cached_response, custom_names)
 
+    def _fill_action_names(self, response: object) -> None:
+        """Set `action_names` on a trends, stickiness or lifecycle response that lacks it.
+
+        This runs on a fresh calculation and on a cache hit. A response cached before the runners returned
+        `action_names` carries the names only on each row's `action`, which readers no longer use.
+        """
+        if not isinstance(
+            response,
+            TrendsQueryResponse
+            | StickinessQueryResponse
+            | LifecycleQueryResponse
+            | CachedTrendsQueryResponse
+            | CachedStickinessQueryResponse
+            | CachedLifecycleQueryResponse,
+        ):
+            return
+        if response.action_names is None:
+            response.action_names = get_response_action_names(self.team, self.query.model_dump(mode="json"))
+
+    def _apply_custom_names_by_order(self, cached_response: CR, custom_names: list[str | None]) -> tuple[CR, bool]:
+        """
+        Set the top-level `custom_name` of each result row to the name of the series at the row's `order`.
+
+        Results have two structures:
+        - Flat list of rows: trends series, stickiness series, lifecycle statuses, funnel steps without breakdown
+        - Funnel steps with breakdown: list of lists [[step1, step2], [step1, step2], ...]
+        """
         results = getattr(cached_response, "results", None)
         if not results or not isinstance(results, list):
             return cached_response, False
 
-        series_by_order = dict(enumerate(series))
-        # Only TrendsQuery surfaces a `name`-based rename into custom_name on the fresh path (see
-        # TrendsQueryRunner's use of resolve_series_custom_name). Stickiness/lifecycle use custom_name
-        # only, so honoring `name` here would desync their cached responses from a fresh computation.
-        honor_name = isinstance(self.query, TrendsQuery)
+        rows = [row for group in results for row in group] if isinstance(results[0], list) else results
 
         was_modified = False
-        for result in results:
-            if not isinstance(result, dict):
+        for row in rows:
+            if not isinstance(row, dict):
                 continue
-            action = result.get("action")
-            if not isinstance(action, dict):
+            order = row.get("order")
+            if not isinstance(order, int) or not 0 <= order < len(custom_names):
                 continue
-            order = action.get("order")
-            if order is None or order not in series_by_order:
-                continue
-            s = series_by_order[order]
-            if honor_name:
-                # The cached action's `name` holds the raw event/action label (`series_label or "All events"`).
-                new_name = resolve_series_custom_name(s, action.get("name"))
-            else:
-                new_name = getattr(s, "custom_name", None)
-            if action.get("custom_name") != new_name:
-                action["custom_name"] = new_name
+            if row.get("custom_name") != custom_names[order]:
+                row["custom_name"] = custom_names[order]
                 was_modified = True
-
-        return cached_response, was_modified
-
-    def _apply_funnels_custom_names(self, cached_response: CR) -> tuple[CR, bool]:
-        """
-        Apply custom_name values to FunnelsQuery results (top-level of step dict).
-
-        Funnel results have two structures:
-        - Without breakdown: flat list of steps [step1, step2, ...]
-        - With breakdown: list of lists [[step1, step2], [step1, step2], ...]
-        """
-        series = getattr(self.query, "series", None)
-        if not series:
-            return cached_response, False
-
-        results = getattr(cached_response, "results", None)
-        if not results or not isinstance(results, list):
-            return cached_response, False
-
-        custom_names_by_order: dict[int, str | None] = {}
-        for i, s in enumerate(series):
-            custom_name = getattr(s, "custom_name", None)
-            custom_names_by_order[i] = custom_name
-
-        was_modified = False
-
-        if results and len(results) > 0 and isinstance(results[0], list):
-            # Breakdown case: iterate through each breakdown group
-            for breakdown_group in results:
-                for step in breakdown_group:
-                    if not isinstance(step, dict):
-                        continue
-                    order = step.get("order")
-                    if order is not None and order in custom_names_by_order:
-                        new_name = custom_names_by_order[order]
-                        if step.get("custom_name") != new_name:
-                            step["custom_name"] = new_name
-                            was_modified = True
-        else:
-            # Non-breakdown case: flat list of steps
-            for step in results:
-                if not isinstance(step, dict):
-                    continue
-                order = step.get("order")
-                if order is not None and order in custom_names_by_order:
-                    new_name = custom_names_by_order[order]
-                    if step.get("custom_name") != new_name:
-                        step["custom_name"] = new_name
-                        was_modified = True
 
         return cached_response, was_modified
 
@@ -3728,12 +3738,11 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
 
         # Non-real principals (service tokens, shared-link viewers) are scope-gated on system tables;
         # partition on the readable scopes so a narrower token can't be served a broader principal's
-        # cached result. Bypassed scopes are readable for them, and listing them as restricted would
-        # collide with users who are genuinely denied those resources.
+        # cached result. `queried_resources` already leaves out the scopes they bypass.
         if not isinstance(user, User):
             if queried_resources is None:
                 return ["*"]
-            restricted = queried_resources - user.readable_system_table_access_scopes() - self._bypassed_access_scopes
+            restricted = queried_resources - user.readable_system_table_access_scopes()
             return sorted(restricted) or None
 
         user_access_control = self.user_access_control

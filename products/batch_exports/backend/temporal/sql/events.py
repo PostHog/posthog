@@ -4,25 +4,6 @@ from string import Template
 
 from posthog.hogql.printer.events_json_document import event_document_sql, person_document_sql
 
-# Projected columns a HogQL query can select.
-# NOTE: this is just for the 'old' version of our HogQL support, where a user can define a custom
-# SELECT FROM clause, useful for defining a custom schema. It's not related to the new HogQL model,
-# in which a user can use any arbitrary SELECT query.
-EXPORTABLE_EVENTS_MODEL_FIELDS = frozenset(
-    {
-        "team_id",
-        "timestamp",
-        "event",
-        "distinct_id",
-        "uuid",
-        "created_at",
-        "elements_chain",
-        "person_id",
-        "properties",
-        "person_properties",
-    }
-)
-
 SELECT_FROM_EVENTS_VIEW = Template(
     """
 SELECT
@@ -504,20 +485,29 @@ SETTINGS
 
 # `toJSONString` prints a stored dotted key as `a%2Eb` unless the query sets `json_type_escape_dots_in_keys`,
 # which is why the native query's SETTINGS carry it.
-_PROPERTIES_DOCUMENT = event_document_sql("properties", "temporary_properties", "properties.`$feature_flags`")
-_PERSON_PROPERTIES_DOCUMENT = person_document_sql("person_properties")
+_PROPERTIES_DOCUMENT = event_document_sql(
+    "properties",
+    "properties_null_keys",
+    "temporary_properties",
+    "temporary_properties_null_keys",
+    "properties.`$feature_flags`",
+)
+_PERSON_PROPERTIES_DOCUMENT = person_document_sql("person_properties", "person_properties_null_keys")
 SERIALIZED_EVENTS_JSON_SOURCE = """(
-    SELECT * REPLACE (
-        toString(uuid) AS uuid,
-        toString(person_id) AS person_id,
-        __PROPERTIES_DOCUMENT__ AS properties,
-        __PERSON_PROPERTIES_DOCUMENT__ AS person_properties
-    ),
-        nullIf(toJSONString(temporary_properties.^`$set`), '{}') AS set,
-        nullIf(toJSONString(temporary_properties.^`$set_once`), '{}') AS set_once,
-        nullIf(toJSONString(temporary_properties.^`$unset`), '[]') AS unset,
-        nullIf(toJSONString(temporary_properties.^`$group_set`), '{}') AS group_set
-    FROM events_json
+    SELECT *,
+        nullIf(JSONExtractRaw(properties, '$set'), '') AS set,
+        nullIf(JSONExtractRaw(properties, '$set_once'), '') AS set_once,
+        nullIf(JSONExtractRaw(properties, '$unset'), '') AS unset,
+        nullIf(JSONExtractRaw(properties, '$group_set'), '') AS group_set
+    FROM (
+        SELECT * REPLACE (
+            toString(uuid) AS uuid,
+            toString(person_id) AS person_id,
+            __PROPERTIES_DOCUMENT__ AS properties,
+            __PERSON_PROPERTIES_DOCUMENT__ AS person_properties
+        )
+        FROM events_json
+    )
 )""".replace("__PROPERTIES_DOCUMENT__", _PROPERTIES_DOCUMENT).replace(
     "__PERSON_PROPERTIES_DOCUMENT__", _PERSON_PROPERTIES_DOCUMENT
 )

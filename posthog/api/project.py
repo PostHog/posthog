@@ -19,6 +19,7 @@ from rest_framework.permissions import BasePermission, IsAuthenticated
 
 from posthog.schema import ProductKey
 
+from posthog import cloud_utils
 from posthog.api import project_tags
 from posthog.api.project_secret_api_key import _enforce_caller_holds_scopes
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -51,6 +52,7 @@ from posthog.api.team.marketing_config import TeamMarketingAnalyticsConfigSerial
 from posthog.api.team.settings_validation import (
     _format_serializer_errors,
     heatmaps_screenshot_secret_for_reader,
+    hide_secret_api_tokens_from_unscoped_caller,
     validate_team_attrs,
     validate_team_workflows_config,
 )
@@ -641,6 +643,13 @@ class ProjectBackwardCompatSerializer(
     # These are @property attrs on Team, not Django model fields — declare explicitly so drf-spectacular can resolve them
     default_modifiers = serializers.DictField(read_only=True)  # Compat with TeamSerializer
     person_on_events_querying_enabled = serializers.BooleanField(read_only=True)  # Compat with TeamSerializer
+    api_host = serializers.SerializerMethodField(  # Compat with TeamSerializer
+        help_text=(
+            "Host the PostHog SDKs send events to, set as their `api_host` option. It is "
+            "`https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, "
+            "and the instance URL when self-hosted."
+        )
+    )
     heatmaps_screenshot_secret = serializers.SerializerMethodField(
         help_text=(
             "Value this project's heatmap screenshots send as a cookie scoped to your domain, "
@@ -803,6 +812,7 @@ class ProjectBackwardCompatSerializer(
             "user_access_level",  # Compat with TeamSerializer
             "managed_viewsets",  # Compat with TeamSerializer
             "flag_evaluations_mode",  # Compat with TeamSerializer
+            "api_host",  # Compat with TeamSerializer
             "revenue_analytics_config",  # Compat with TeamSerializer
             "marketing_analytics_config",  # Compat with TeamSerializer
             "customer_analytics_config",  # Compat with TeamSerializer
@@ -845,6 +855,7 @@ class ProjectBackwardCompatSerializer(
             "user_access_level",
             "managed_viewsets",
             "flag_evaluations_mode",
+            "api_host",
         )
 
         team_passthrough_fields = {
@@ -1007,6 +1018,7 @@ class ProjectBackwardCompatSerializer(
         # Mirror TeamSerializer: fall back to the global default data theme when the color feature isn't available
         if not instance.organization.is_feature_available(AvailableFeature.DATA_COLOR_THEMES):
             representation["default_data_theme"] = _default_data_color_theme_id()
+        hide_secret_api_tokens_from_unscoped_caller(representation, self.context.get("request"))
         return representation
 
     def get_user_access_level(self, obj: Model | ObjectAccessRef) -> Optional[str]:
@@ -1060,6 +1072,9 @@ class ProjectBackwardCompatSerializer(
 
     def get_live_events_token(self, project: Project) -> Optional[str]:
         return live_events_token_for_request(project.passthrough_team, self.context.get("request"))
+
+    def get_api_host(self, project: Project) -> str:
+        return cloud_utils.get_api_host()
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_heatmaps_screenshot_secret(self, project: Project) -> Optional[str]:
@@ -1193,6 +1208,10 @@ class ProjectBackwardCompatSerializer(
                         continue
                     resource, required_level = field_mappings[field_name]
                     if resource == "project":
+                        # Without the entitlement a project rule is never consulted; validate_team_attrs
+                        # gates the admin-only fields on the membership level instead.
+                        if not user_access_control.access_controls_supported:
+                            continue
                         has_access = user_access_control.check_access_level_for_object(team, required_level)
                     else:
                         has_access = user_access_control.check_access_level_for_resource(resource, required_level)
@@ -1732,7 +1751,8 @@ class ProjectViewSet(
         license = get_cached_instance_license()
         try:
             has_active_subscription = (
-                settings.EE_AVAILABLE
+                is_last_project
+                and settings.EE_AVAILABLE
                 and is_cloud()
                 and license
                 and BillingManager(license).get_billing(project.organization).get("has_active_subscription")
@@ -2065,6 +2085,7 @@ class ProjectViewSet(
             item_ids=[str(project.pk)],
             limit=page_params.limit,
             page=page_params.page,
+            user=request.user,
         )
         return activity_page_response(activity_page, page_params.limit, page_params.page, request)
 

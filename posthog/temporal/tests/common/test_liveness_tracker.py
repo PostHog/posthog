@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.conf import settings
 
-from temporalio.worker import ExecuteActivityInput, ExecuteWorkflowInput
+from temporalio.worker import ExecuteActivityInput, ExecuteWorkflowInput, StartActivityInput, WorkflowInboundInterceptor
 
 from posthog.temporal.common.interceptor import is_task_queue_supported
 from posthog.temporal.common.liveness_tracker import (
@@ -16,6 +16,7 @@ from posthog.temporal.common.liveness_tracker import (
     RunningActivity,
     _LivenessActivityInboundInterceptor,
     _LivenessWorkflowInterceptor,
+    _LivenessWorkflowOutboundInterceptor,
     get_liveness_tracker,
 )
 
@@ -346,4 +347,22 @@ class TestLivenessWorkflowInterceptor:
             await interceptor.execute_workflow(mock_input)
 
         # Should still have recorded execution
+        assert tracker.get_idle_time() < 1.0
+
+    async def test_records_progress_when_a_running_workflow_schedules_an_activity(self):
+        tracker = LivenessTracker()
+        tracker._last_activity_time = time.time() - 10.0
+        tracker._last_workflow_time = time.time() - 10.0
+        handle = MagicMock()
+        next_outbound = MagicMock()
+        next_outbound.start_activity.return_value = handle
+
+        interceptor = _LivenessWorkflowInterceptor(AsyncMock())
+        interceptor._tracker = tracker
+        with patch.object(WorkflowInboundInterceptor, "init") as inbound_init:
+            interceptor.init(next_outbound)
+        outbound = inbound_init.call_args.args[0]
+
+        assert isinstance(outbound, _LivenessWorkflowOutboundInterceptor)
+        assert outbound.start_activity(MagicMock(spec=StartActivityInput)) is handle
         assert tracker.get_idle_time() < 1.0

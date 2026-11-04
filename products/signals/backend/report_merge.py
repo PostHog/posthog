@@ -34,7 +34,8 @@ from products.signals.backend.artefact_schemas import (
     NoteArtefact,
     ReportLink,
 )
-from products.signals.backend.enums import ReportLinkKind
+from products.signals.backend.enums import ReportLinkKind, ReportLinkWritePath
+from products.signals.backend.implementation_pr_cache import schedule_implementation_pr_cache_refresh
 from products.signals.backend.models import (
     SignalReport,
     SignalReportArtefact,
@@ -271,6 +272,9 @@ def _merge_source_into(
         # what the work log renders, is preserved.
         .update(report_id=survivor.id, claim=None)
     )
+    # The queryset update fires no artefact receivers, and moved PR and task-run links change both
+    # reports' cached implementation PR flags.
+    schedule_implementation_pr_cache_refresh(team_id=source.team_id, report_ids=[source.id, survivor.id])
 
     _move_side_rows(source, survivor)
 
@@ -290,6 +294,7 @@ def _merge_source_into(
         report_id=str(source.id),
         content=ReportLink(kind=ReportLinkKind.DUPLICATE_OF, report_id=str(survivor.id), reason=reason),
         attribution=attribution,
+        write_path=ReportLinkWritePath.MERGE,
     )
 
     _dismiss_as_merged(source, survivor=survivor, attribution=attribution, reason=reason)

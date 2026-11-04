@@ -1,11 +1,12 @@
 """Per-job workflows for evaluation clustering (Stage A sampler + Stage B clustering stub)."""
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import structlog
 import temporalio.exceptions
 from temporalio import workflow
 
+from posthog.dataclasses import frozen
 from posthog.temporal.ai_observability.evaluation_clustering.constants import (
     CLUSTERING_WORKFLOW_NAME,
     SAMPLER_ACTIVITY_HEARTBEAT,
@@ -33,6 +34,18 @@ from posthog.temporal.common.base import PostHogWorkflow
 logger = structlog.get_logger(__name__)
 
 
+@frozen
+class SamplerWindow:
+    start: str
+    end: str
+
+
+def sampler_window(now: datetime) -> SamplerWindow:
+    end = now - timedelta(minutes=SAMPLER_WINDOW_OFFSET_MINUTES)
+    start = end - timedelta(minutes=SAMPLER_WINDOW_MINUTES)
+    return SamplerWindow(start=start.strftime("%Y-%m-%dT%H:%M:%SZ"), end=end.strftime("%Y-%m-%dT%H:%M:%SZ"))
+
+
 @workflow.defn(name=SAMPLER_WORKFLOW_NAME)
 class AIObservabilityEvaluationSamplerWorkflow(PostHogWorkflow):
     """Hourly per-(team, eval ClusteringJob) sampler.
@@ -55,15 +68,12 @@ class AIObservabilityEvaluationSamplerWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: SamplerWorkflowInputs) -> SamplerWorkflowResult:
-        now = workflow.now()
         if inputs.window_start and inputs.window_end:
             window_start = inputs.window_start
             window_end = inputs.window_end
         else:
-            window_end_dt = now - timedelta(minutes=SAMPLER_WINDOW_OFFSET_MINUTES)
-            window_start_dt = window_end_dt - timedelta(minutes=SAMPLER_WINDOW_MINUTES)
-            window_start = window_start_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
-            window_end = window_end_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+            window = sampler_window(workflow.now())
+            window_start, window_end = window.start, window.end
 
         max_samples = inputs.max_samples or SAMPLER_MAX_SAMPLES_PER_JOB
 

@@ -28,7 +28,7 @@ const HOUR_MS = 3_600_000
 
 const formatSpan = (ms: number): string => humanFriendlyDuration(ms / 1000, { maxUnits: 1 })
 
-function SummaryNotice({
+export function SummaryNotice({
     timeline,
     onSummarize,
     summarizing,
@@ -156,6 +156,7 @@ export function RecordingTimeline(props: RecordingTimelineProps): JSX.Element {
                                                 observation={timeline.summary as ReplayObservationApi}
                                                 chapter={row.chapter.position}
                                                 className="w-20 shrink-0"
+                                                size="small"
                                             />
                                         </span>
                                     </Tooltip>

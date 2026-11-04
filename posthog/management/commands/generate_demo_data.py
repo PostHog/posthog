@@ -15,6 +15,7 @@ from django.db.utils import OperationalError
 
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
 from posthog.health import get_pending_postgres_migrations
+from posthog.helpers.dev_oauth_connectors import seed_dev_oauth_connectors
 from posthog.management.commands.sync_feature_flags_from_api import sync_feature_flags_from_api
 from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.team import Team
@@ -237,6 +238,17 @@ class Command(BaseCommand):
                 print(f"Created dashboard templates: {', '.join(created_templates)}")
             else:
                 print("Dashboard template seeds already present.")
+
+            # Same local-only scope as the demo project token, because the dev login tools are what uses them
+            if settings.DEBUG and not settings.TEST:
+                print("Registering OAuth connector apps from their CIMD documents (dev)...")
+                connector_seed = seed_dev_oauth_connectors()
+                if connector_seed.created:
+                    print(f"Registered OAuth connector apps: {', '.join(connector_seed.created)}")
+                if connector_seed.failed:
+                    print(f"Could not register (network or OIDC key missing): {', '.join(connector_seed.failed)}")
+                if not connector_seed.created and not connector_seed.failed:
+                    print("OAuth connector apps already present.")
 
             print(
                 "\nMaster project reset!\n"

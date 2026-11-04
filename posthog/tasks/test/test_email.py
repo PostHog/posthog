@@ -17,6 +17,7 @@ from parameterized import parameterized
 
 from posthog.api.authentication import password_reset_token_generator
 from posthog.constants import AvailableFeature
+from posthog.helpers.email_utils import ESPSuppressionReason, ESPSuppressionResult
 from posthog.models import Comment, Organization, Team, User
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.models.instance_setting import set_instance_setting
@@ -33,6 +34,7 @@ from posthog.tasks.email import (
     send_canary_email,
     send_discussions_mentioned,
     send_email_change_emails,
+    send_email_sending_reputation_finding,
     send_email_verification_code,
     send_external_data_failure_digest,
     send_fatal_plugin_error,
@@ -157,6 +159,29 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         # Routed to the delegation template
         assert MockEmailMessage.call_args.kwargs["template_name"] == "delegation_invite"
 
+    @parameterized.expand([("member_invite", False), ("delegation_invite", True)])
+    @patch("posthog.tasks.email.check_esp_suppression")
+    def test_send_invite_flags_suppressed_target_email(
+        self, _name: str, is_setup_delegation: bool, mock_check: MagicMock, MockEmailMessage: MagicMock
+    ) -> None:
+        mock_email_messages(MockEmailMessage)
+        mock_check.return_value = ESPSuppressionResult(
+            is_suppressed=True, from_cache=False, reason=ESPSuppressionReason.SUPPRESSED
+        )
+        org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
+        invite = OrganizationInvite.objects.create(
+            organization=org,
+            created_by=user,
+            target_email="bounced@example.com",
+            is_setup_delegation=is_setup_delegation,
+        )
+
+        with self.settings(CUSTOMER_IO_API_KEY="test-key"):
+            send_invite(invite.id)
+
+        invite.refresh_from_db()
+        assert invite.email_suppressed is True
+
     def test_send_member_join(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
 
@@ -205,6 +230,26 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             assert "\n" not in subject
             assert "\r" not in subject
             assert "Welcome series" in subject
+
+    @parameterized.expand(
+        [
+            ("low_again_later_that_week", "LOW", "2026-01-11T22:00:00+00:00", True),
+            ("low_again_the_next_week", "LOW", "2026-01-12T09:00:00+00:00", False),
+            ("high_again_within_the_hour", "HIGH", "2026-01-05T09:40:00+00:00", False),
+        ]
+    )
+    def test_reputation_finding_warning_dedupes_repeat_low_findings_within_a_week(
+        self, MockEmailMessage: MagicMock, _name: str, impact: str, second_at: str, deduped: bool
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        send_email_sending_reputation_finding(self.team.id, impact, "2026-01-05T09:00:00+00:00")
+        send_email_sending_reputation_finding(self.team.id, impact, second_at)
+
+        assert len(mocked_email_messages) == 2
+        assert (mocked_email_messages[0].campaign_key == mocked_email_messages[1].campaign_key) is deduped
 
     def test_send_delegation_invite_falls_back_when_organization_name_is_a_url(
         self, MockEmailMessage: MagicMock

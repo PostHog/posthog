@@ -26,7 +26,8 @@ import structlog
 
 from posthog.cache_utils import cache_for
 from posthog.credentials_service.callers import CredentialsCaller
-from posthog.credentials_service.settings_fallback import get_many_or_settings
+from posthog.credentials_service.errors import CredentialsServiceFailure
+from posthog.credentials_service.settings_fallback import get_many_or_settings, get_or_settings
 from posthog.dataclasses import frozen
 from posthog.egress.github.limiter import remember_observed_core_limit
 from posthog.egress.github.transport import GitHubRateLimitError, github_request, raise_if_github_rate_limited
@@ -42,6 +43,14 @@ _SOURCE = "stamphog"
 # Hidden marker that identifies Stamphog's single sticky status comment on a PR, so a re-review updates
 # the same comment in place instead of stacking a new one every run. Invisible in the rendered comment.
 STICKY_COMMENT_MARKER = "<!-- stamphog:review-status -->"
+
+
+def _app_private_key_configured() -> bool:
+    """Whether App credentials exist, only to decide on a warning. A service failure counts as configured."""
+    try:
+        return bool(get_or_settings("STAMPHOG_GITHUB_APP_PRIVATE_KEY", CredentialsCaller.STAMPHOG))
+    except CredentialsServiceFailure:
+        return True
 
 
 def expected_app_bot_login() -> str | None:
@@ -91,6 +100,8 @@ _MAX_PAGES = 20
 _PER_PAGE = 100
 # GitHub lists at most 250 commits for a pull request, which is three pages of _PER_PAGE.
 _MAX_PR_COMMIT_PAGES = 3
+# GitHub's limit on the files that one compare response lists.
+_MAX_COMPARE_FILES = 300
 
 # Ceiling on a single compare diff. The value sits well above any diff that stamphog could have
 # approved, because stamphog's size gate refuses much smaller diffs. It also sits well below the
@@ -839,6 +850,30 @@ class StamphogGitHubClient:
             merge_base_sha=str((merge_base or {}).get("sha") or "") if isinstance(merge_base, dict) else "",
         )
 
+    def compare_files(self, repo: str, base_sha: str, head_sha: str) -> list[dict] | None:
+        """The changed files between two commits, or None when GitHub may have cut the list short.
+
+        Both ends are commit shas, so the list belongs to those two commits. ``get_pr_files`` answers
+        for whichever head is live when the request runs. The list is in the ``get_pr_files`` shape,
+        renames included. GitHub returns at most ``_MAX_COMPARE_FILES`` files and does not page them,
+        so a list of that length can be incomplete.
+        """
+        path = f"/repos/{repo}/compare/{base_sha}...{head_sha}"
+        # The files come with the first page of commits whatever its size.
+        response = self._request(
+            "GET", path, endpoint="/repos/{owner}/{repo}/compare/{basehead}", params={"per_page": 1}
+        )
+        if response.status_code != 200:
+            raise StamphogGitHubError(
+                f"Failed to compare {base_sha}...{head_sha} in {repo}: {response.text[:300]}",
+                status_code=response.status_code,
+            )
+        data = self._json(response, path)
+        files = data.get("files") if isinstance(data, dict) else None
+        if not isinstance(files, list) or len(files) >= _MAX_COMPARE_FILES:
+            return None
+        return [file for file in files if isinstance(file, dict)]
+
     def get_pr_reviews(self, repo: str, number: int) -> list[dict]:
         """Fetch the PR's top-level reviews, paginating through GitHub's list endpoint.
 
@@ -891,7 +926,7 @@ class StamphogGitHubClient:
             # while every GitHub-side sweep and adopt silently no-ops — quietly disabling the
             # orphan-catching half of the stale-approval invariant. The misconfiguration would
             # otherwise be invisible until an orphan approval stands over unreviewed commits.
-            if settings.STAMPHOG_GITHUB_APP_PRIVATE_KEY:
+            if _app_private_key_configured():
                 logger.warning(
                     "stamphog github: STAMPHOG_GITHUB_APP_SLUG unset with App credentials configured — "
                     "own-approval sweeps and adopt-before-post are disabled",
@@ -1380,35 +1415,6 @@ class StamphogGitHubClient:
         if response.status_code != 200:
             raise StamphogGitHubError(
                 f"Failed to remove label from {repo}#{number}: {response.text[:200]}",
-                status_code=response.status_code,
-            )
-
-    def add_pr_label(self, repo: str, number: int, label: str) -> None:
-        """Add a label to a PR (``POST .../issues/{number}/labels``).
-
-        A 404 (repo not found) or 422 (label does not exist on the repo) is swallowed, so a vendored
-        stamphog in another repo never raises over a label — e.g. ``posthog-review`` — that isn't set up
-        there. Any other non-success raises ``StamphogGitHubError``; see ``post_verdict`` for how the
-        ReviewHog handoff caller treats that as best-effort.
-        """
-        path = f"/repos/{repo}/issues/{number}/labels"
-        response = self._request(
-            "POST",
-            path,
-            endpoint="/repos/{owner}/{repo}/issues/{issue_number}/labels",
-            json_body={"labels": [label]},
-        )
-        if response.status_code in (404, 422):
-            logger.info(
-                "stamphog github: reviewhog label unavailable on repo, skipping handoff",
-                repo=repo,
-                pr_number=number,
-                status_code=response.status_code,
-            )
-            return
-        if response.status_code not in (200, 201):
-            raise StamphogGitHubError(
-                f"Failed to add label to {repo}#{number}: {response.text[:200]}",
                 status_code=response.status_code,
             )
 

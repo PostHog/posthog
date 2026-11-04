@@ -1,7 +1,10 @@
+from copy import deepcopy
+from types import SimpleNamespace
 from typing import Any
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.test import SimpleTestCase
 
@@ -14,6 +17,7 @@ from products.alerts.backend.destination_backfill import (
     backfill_insight_alert_chart_blocks,
     blocks_with_chart,
 )
+from products.alerts.backend.logic.destination_eligibility import STOCK_INPUT_VALUES
 from products.cdp.backend.facade.models import HogFunction
 
 HEADER_BLOCK = {"type": "header", "text": {"type": "plain_text", "text": "Alert firing"}}
@@ -208,3 +212,42 @@ class TestBackfillInsightAlertChartBlocks(BaseTest):
         assert (result.scanned, result.repaired) == (1, 1)
         assert self._stored_blocks(mine)["value"][2] == INSIGHT_CHART_BLOCK
         assert self._stored_blocks(theirs)["value"] == PRE_CHART_BLOCKS
+
+
+class TestReadableMessageBackfill(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("stock", {}, True),
+            ("custom_text", {"text": {"value": "A custom message"}}, False),
+            ("custom_attachments", {"attachments": {"value": [{"text": "Custom content"}]}}, False),
+            ("liquid_text", {"text": {"value": "", "templating": "liquid"}}, False),
+        ]
+    )
+    def test_upgrade_preserves_custom_message_inputs(
+        self, _name: str, overrides: dict[str, Any], repaired: bool
+    ) -> None:
+        template = SimpleNamespace(code="return null;", inputs_schema=[{"key": "attachments", "type": "json"}])
+        inputs = {
+            "blocks": {"value": STOCK_INPUT_VALUES["template-slack"]["blocks"][0]},
+            "text": {"value": ""},
+            **overrides,
+        }
+        original = deepcopy(inputs)
+        destination = SimpleNamespace(
+            inputs=inputs, hog=template.code, type="internal_destination", team_id=1, id=uuid4(), inputs_schema=[]
+        )
+        with (
+            patch(
+                "products.alerts.backend.destination_backfill.insight_alert_slack_destinations",
+                return_value=[destination],
+            ),
+            patch(
+                "products.alerts.backend.destination_backfill.HogFunctionTemplate.get_template", return_value=template
+            ),
+            patch("products.alerts.backend.destination_backfill.HogFunctionTemplate.objects.filter") as versions,
+        ):
+            versions.return_value.values_list.return_value = [template.code]
+            result = backfill_insight_alert_chart_blocks(format_messages=True)
+        assert result.repaired == int(repaired)
+        if not repaired:
+            assert destination.inputs == original

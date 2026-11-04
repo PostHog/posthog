@@ -1,6 +1,7 @@
 from django.contrib import admin
 from django.urls import reverse
 from django.utils.html import format_html
+from django.utils.safestring import mark_safe
 
 from posthog.models import IdentityProviderConfig
 
@@ -37,8 +38,8 @@ class IdentityProviderConfigAdmin(admin.ModelAdmin):
     @admin.display(description="SAML Status")
     def saml_status(self, obj):
         if obj.has_saml:
-            return format_html('<span style="color: green;">✓ Configured</span>')
-        return format_html('<span style="color: gray;">Not Configured</span>')
+            return mark_safe('<span style="color: green;">✓ Configured</span>')
+        return mark_safe('<span style="color: gray;">Not Configured</span>')
 
     @admin.display(description="Linked domains")
     def linked_domains(self, obj):

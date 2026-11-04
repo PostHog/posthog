@@ -43,8 +43,24 @@ export { DEFAULT_SUGGESTIONS_DATA } from '../components/suggestions/suggestionsD
 // atoms); `ThreadView` is the prepackaged virtualized presenter (also `Thread.Root`).
 export { Thread } from '../components/Thread'
 export { ThreadView } from '../components/ThreadView'
-export type { ThreadSkin } from '../components/quill/quillThreadContext'
-export { useThreadSkin } from '../hooks/useThreadSkin'
+export { useQuillThread } from '../components/quill/quillThreadContext'
+
+// The quill thread skin for a thread `ThreadView` does not render (the legacy chat behind `today-rail-nav`):
+// the skin provider, the message bubbles, and the footer affordances the bubbles share.
+export { QuillThreadSkin } from '../components/quill/QuillThreadSkin'
+export type { QuillThreadSkinProps } from '../components/quill/QuillThreadSkin'
+export {
+    QuillHumanBubble,
+    QuillAssistantBubble,
+    QuillAssistantMarkdown,
+    QUILL_ASSISTANT_PROSE_CLASS,
+} from '../components/quill/QuillMessages'
+export type { QuillHumanBubbleProps, QuillAssistantBubbleProps } from '../components/quill/QuillMessages'
+export { QuillFooterButton, QuillCopyButton } from '../components/quill/QuillFooterButton'
+export { QuillFooterTimestamp } from '../components/quill/QuillFooterTimestamp'
+export { quillCardBorderClass } from '../components/quill/quillCardBorder'
+export { MessageReveal } from '../components/MessageReveal'
+export { NotQuill } from '../components/quill/NotQuill'
 export type { TurnTrailer } from '../utils/turnTrailers'
 export { TurnTrailerActions } from '../components/TurnTrailerActions'
 export { MessageTemplate } from '../messages/MessageTemplate'

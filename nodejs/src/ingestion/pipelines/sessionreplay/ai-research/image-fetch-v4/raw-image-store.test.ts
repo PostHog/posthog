@@ -1,0 +1,183 @@
+import { CopyObjectCommand, PutObjectCommand, S3ServiceException } from '@aws-sdk/client-s3'
+import { createDecipheriv } from 'node:crypto'
+
+import { parseJSON } from '~/common/utils/json-parse'
+import type { TeamMonthKey } from '~/ingestion/pipelines/sessionreplay/ai-research/v4-keys/team-month-keys'
+
+import type { FetchCandidate } from './collected-urls-record'
+import type { ImageFetchResult } from './image-fetcher'
+import { RawImageStore } from './raw-image-store'
+
+const PNG = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from('png body')])
+const WOFF2 = Buffer.from('wOF2 body')
+const REF = 'imageurl:v4:7:2026-10:abcdefghijklmnopqrstuv'
+const FONT_REF = 'fonturl:v4:7:2026-10:abcdefghijklmnopqrstuv'
+const PUBLIC_FONT_URL = 'https://fonts.gstatic.com/s/roboto/v30/KFOmCnqEu92Fr1Mu4mxK.woff2'
+const PUBLIC_FONT_REF = 'fonturl:v4:public:I6bjVBXgjPcaYLPITibNM4'
+const KEY = Buffer.alloc(32, 9)
+const STORED: TeamMonthKey = { status: 'ok', key: KEY }
+
+function open(frame: Buffer): { aad: any; body: Buffer } {
+    const length = frame.readUInt16BE(6)
+    const aad = frame.subarray(8, 8 + length)
+    const nonce = frame.subarray(8 + length, 20 + length)
+    const sealed = frame.subarray(20 + length)
+    const decipher = createDecipheriv('aes-256-gcm', KEY, nonce, { authTagLength: 16 })
+    decipher.setAAD(aad)
+    decipher.setAuthTag(sealed.subarray(sealed.length - 16))
+    const body = Buffer.concat([decipher.update(sealed.subarray(0, sealed.length - 16)), decipher.final()])
+    return { aad: parseJSON(aad.toString()), body }
+}
+
+const NOT_FOUND = new S3ServiceException({ name: 'NoSuchKey', $fault: 'client', $metadata: { httpStatusCode: 404 } })
+
+function store(key: TeamMonthKey, s3Error?: Error) {
+    const puts: (PutObjectCommand | CopyObjectCommand)[] = []
+    const s3 = {
+        send: jest.fn((command: PutObjectCommand | CopyObjectCommand) => {
+            puts.push(command)
+            return s3Error ? Promise.reject(s3Error) : Promise.resolve({})
+        }),
+    }
+    return { sink: new RawImageStore({ get: () => Promise.resolve(key) }, s3 as any, 'images-v4', 10), puts }
+}
+
+const IMAGE_URL = 'https://images.example.com/logo.png'
+
+const candidate = (ref = REF): FetchCandidate => ({
+    originalRef: ref,
+    currentUrl: IMAGE_URL,
+    host: 'images.example.com',
+    origin: 'https://images.example.com',
+    registrableDomain: 'example.com',
+    remainingHops: 10,
+    notBeforeMs: 0,
+    firstSeenAtMs: 0,
+    fetchCount: 0,
+    republishCount: 0,
+    lastRepublishReason: null,
+})
+const fetched = (bytes = PNG, contentType = 'image/png'): ImageFetchResult => ({
+    outcome: 'ok',
+    redirects: 0,
+    currentUrl: IMAGE_URL,
+    status: 200,
+    bytes,
+    contentType,
+})
+
+describe('RawImageStore', () => {
+    it.each([
+        ['image', REF, fetched(), PNG, 'images/url', 'image-url'],
+        ['font', FONT_REF, fetched(WOFF2, 'font/woff2'), WOFF2, 'fonts/url', 'font-url'],
+    ])(
+        'stores the %s sealed under its team month key, over any earlier object of its reference',
+        async (_asset, ref, result, bytes, prefix, kind) => {
+            const { sink, puts } = store(STORED)
+            await sink.publishImage(candidate(ref), result)
+
+            expect(puts).toHaveLength(1)
+            expect(puts[0]).toBeInstanceOf(PutObjectCommand)
+            const { Bucket, Key, IfNoneMatch, Body, ContentType } = (puts[0] as PutObjectCommand).input
+            expect([Bucket, Key, IfNoneMatch]).toEqual([
+                'images-v4',
+                `${prefix}/month=2026-10/7/abcdefghijklmnopqrstuv`,
+                undefined,
+            ])
+            const { aad, body } = open(Body as Buffer)
+            expect(body).toEqual(bytes)
+            expect(aad).toEqual({
+                v: 4,
+                context: { teamId: 7, keyMonth: '2026-10', kind, codec: 'none', ref },
+            })
+
+            // The refresh copies the object onto itself, which resets the creation time the lifecycle counts from.
+            await expect(sink.refreshImage(candidate(ref))).resolves.toBe(true)
+            expect(puts[1]).toBeInstanceOf(CopyObjectCommand)
+            expect((puts[1] as CopyObjectCommand).input).toEqual({
+                Bucket,
+                Key,
+                CopySource: `images-v4/${prefix}/month%3D2026-10/7/abcdefghijklmnopqrstuv`,
+                MetadataDirective: 'REPLACE',
+                ContentType,
+            })
+        }
+    )
+
+    it('stores a public font once and unsealed, with no team key, and refreshes that one object', async () => {
+        const keyReads = jest.fn(() => Promise.resolve(STORED))
+        const puts: (PutObjectCommand | CopyObjectCommand)[] = []
+        const s3 = { send: jest.fn((command: PutObjectCommand | CopyObjectCommand) => puts.push(command)) }
+        const sink = new RawImageStore({ get: keyReads }, s3 as any, 'images-v4', 10)
+        const job = { ...candidate(PUBLIC_FONT_REF), currentUrl: PUBLIC_FONT_URL }
+
+        await sink.publishImage(job, fetched(WOFF2, 'font/woff2'))
+        await expect(sink.refreshImage(job)).resolves.toBe(true)
+
+        expect(keyReads).not.toHaveBeenCalled()
+        expect(puts.map((command) => [command.constructor.name, command.input.Key])).toEqual([
+            ['PutObjectCommand', 'fonts/url/public/I6bjVBXgjPcaYLPITibNM4'],
+            ['CopyObjectCommand', 'fonts/url/public/I6bjVBXgjPcaYLPITibNM4'],
+        ])
+        expect((puts[0] as PutObjectCommand).input.Body).toEqual(WOFF2)
+    })
+
+    it('resolves to false when it refreshes a reference that has no object', async () => {
+        const { sink, puts } = store(STORED, NOT_FOUND)
+        await expect(sink.refreshImage(candidate())).resolves.toBe(false)
+        expect(puts).toHaveLength(1)
+    })
+
+    it.each([
+        ['a tombstoned team month', { status: 'deleted' }, candidate(), fetched()],
+        ['a team month without a key row', { status: 'missing' }, candidate(), fetched()],
+        ['a body that is not the image it claims to be', STORED, candidate(), fetched(Buffer.from('<html>'))],
+        [
+            'a reference from another dataset',
+            STORED,
+            candidate('imageurl:v3:7:2026-10:abcdefghijklmnopqrstuv'),
+            fetched(),
+        ],
+        [
+            'a public font reference whose job ended on another URL, such as a redirect target',
+            STORED,
+            candidate(PUBLIC_FONT_REF),
+            fetched(WOFF2, 'font/woff2'),
+        ],
+    ] as const)('resolves without a new object for %s', async (_name, key, job, result) => {
+        const { sink, puts } = store(key)
+        await expect(sink.publishImage(job, result)).resolves.toBeUndefined()
+        expect(puts).toHaveLength(0)
+    })
+
+    it('holds a further image back while the write limit is full, so a slow S3 does not pile up images in memory', async () => {
+        const finishWrites: (() => void)[] = []
+        let writeStarted!: () => void
+        let started = new Promise<void>((resolve) => (writeStarted = resolve))
+        const s3 = {
+            send: jest.fn(
+                () =>
+                    new Promise((resolve) => {
+                        finishWrites.push(() => resolve({}))
+                        writeStarted()
+                    })
+            ),
+        }
+        const keyReads = jest.fn(() => Promise.resolve(STORED))
+        const sink = new RawImageStore({ get: keyReads }, s3 as any, 'images-v4', 1)
+
+        const first = sink.publishImage(candidate(), fetched())
+        const second = sink.publishImage(candidate(), fetched())
+        await started
+        await new Promise((resolve) => setImmediate(resolve))
+        expect([s3.send.mock.calls.length, keyReads.mock.calls.length]).toEqual([1, 1])
+
+        started = new Promise<void>((resolve) => (writeStarted = resolve))
+        finishWrites[0]()
+        await first
+        await started
+        finishWrites[1]()
+        await second
+        expect(s3.send).toHaveBeenCalledTimes(2)
+    })
+})

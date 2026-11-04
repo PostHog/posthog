@@ -5,17 +5,23 @@ import posthog from 'posthog-js'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
-import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import type { TraceTimelineRowApi } from '../../generated/api.schemas'
-import { decodeIdSegment, makeEvaluationResult, makeNodeDetail, makeTraceResource } from './adapter/testFixtures'
+import {
+    decodeIdSegment,
+    makeEvaluationResult,
+    makeEvaluationResults,
+    makeNodeDetail,
+    makeTraceResource,
+} from './adapter/testFixtures'
 import { traceViewLogic } from './traceViewLogic'
 
 const TRACE_URL = '/api/projects/:team_id/ai_observability/traces/:id/'
 const NODE_URL = '/api/projects/:team_id/ai_observability/traces/:id/nodes/:node_id/'
 const EVALUATIONS_URL = '/api/projects/:team_id/ai_observability/traces/:id/evaluations/'
+const answered = makeEvaluationResults({ results: [makeEvaluationResult()] })
 const EXPIRED_ROW: TraceTimelineRowApi = {
     id: 'expired-1',
     kind: 'span',
@@ -73,7 +79,7 @@ describe('traceViewLogic', () => {
                     requestedPath = url.pathname
                     return [200, makeTraceResource({ name: null })]
                 },
-                [EVALUATIONS_URL]: () => [200, { results: [] }],
+                [EVALUATIONS_URL]: () => [200, makeEvaluationResults()],
             },
         })
         initKeaTests()
@@ -90,19 +96,6 @@ describe('traceViewLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         return logic
     }
-
-    // Regression: an override left behind on unmount keeps the nav collapsed on every other page.
-    it.each([
-        ['expanded', false],
-        ['collapsed', true],
-    ])('collapses the nav while open and restores it %s on close', async (_name, collapsedBefore) => {
-        panelLayoutLogic.mount()
-        panelLayoutLogic.actions.setLayoutNavCollapsedDesktop(collapsedBefore)
-        const logic = await mountedLogic()
-        expect(panelLayoutLogic.values.isLayoutNavCollapsed).toBe(true)
-        logic.unmount()
-        expect(panelLayoutLogic.values.isLayoutNavCollapsed).toBe(collapsedBefore)
-    })
 
     it('loads the trace by its encoded id with the link timestamp as the hint and derives the summary', async () => {
         const logic = traceViewLogic({ traceId: 'a/b', timestampHint: '2026-09-01T10:15:00Z' })
@@ -134,7 +127,7 @@ describe('traceViewLogic', () => {
     })
 
     it.each([
-        ['answers', 200, { evaluationResults: [makeEvaluationResult()], evaluationResultsFailed: false }, false],
+        ['answers', 200, { evaluationResults: answered, evaluationResultsFailed: false }, false],
         ['fails', 500, { evaluationResults: null, evaluationResultsFailed: true }, true],
     ] as const)(
         'reads the evaluation results alongside the trace and keeps the trace ready, without a toast, when that read %s',
@@ -153,9 +146,7 @@ describe('traceViewLogic', () => {
                     },
                     [EVALUATIONS_URL]: () => {
                         evaluationsReadBeforeTrace = !traceAnswered
-                        return statusCode === 200
-                            ? [200, { results: [makeEvaluationResult()] }]
-                            : [statusCode, { detail: 'nope' }]
+                        return statusCode === 200 ? [200, answered] : [statusCode, { detail: 'nope' }]
                     },
                 },
             })

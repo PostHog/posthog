@@ -11,14 +11,12 @@ from products.posthog_ai.backend.turn_suggestions.judgment import build_judge_st
 from products.posthog_ai.eval_harness.config import BaseEvalCase
 from products.posthog_ai.eval_harness.engines.types import ScorerResult
 from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
-from products.posthog_ai.eval_harness.one_shot import OneShotPrivateEval
+from products.posthog_ai.eval_harness.one_shot import OneShotEval
 from products.posthog_ai.eval_harness.scorers.contract import Score, Scorer
 from products.posthog_ai.evals.offline_config import offline_suite
 
 if TYPE_CHECKING:
     from products.posthog_ai.eval_harness.harness.context import EvalContext
-
-NO_SEND_LOGS = True
 
 SUITE_KIND = SuiteKind.ONE_SHOT
 BENCHMARK_CASES = {case.name: case for case in load_cases()}
@@ -73,8 +71,7 @@ async def eval_turn_suggestions(ctx: EvalContext) -> None:
             "error": result.error,
         }
 
-    await OneShotPrivateEval(
-        no_send_logs=NO_SEND_LOGS,
+    await OneShotEval(
         experiment_name="turn-suggestions",
         cases=[
             case.model_copy(update={"metadata": {**case.metadata, "threshold": threshold, "judge_model": model}})

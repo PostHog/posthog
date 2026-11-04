@@ -40,6 +40,21 @@ describe('getListSelection', () => {
         expect(getListSelection(events, linkedEvent, true, false)).toBe(linkedEvent)
     })
 
+    it.each([
+        { hasRecording: true, expected: 'kept' },
+        { hasRecording: undefined, expected: 'replaced' },
+    ])(
+        'with the recording filter on, a selection missing from the loaded page is $expected when its recording flag is $hasRecording',
+        ({ hasRecording, expected }) => {
+            const linkedEvent = {
+                uuid: 'missing',
+                properties: { $has_recording: hasRecording } as ErrorEventType['properties'],
+            } as ErrorEventType
+            const selection = getListSelection(events, linkedEvent, true, false, true)
+            expect(selection).toBe(expected === 'kept' ? linkedEvent : events[0])
+        }
+    )
+
     it('closes the selection for an empty list', () => {
         expect(getListSelection([], events[0], false, false)).toBeNull()
     })

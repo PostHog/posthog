@@ -1,25 +1,32 @@
 """Classifier runner for versioned AI enrichment labels.
 
 Pure functions only: no persistence, no client construction. Callers build the OpenAI
-client via `get_llm_client(product="growth")` and pass it in — this module just turns
-an archived Harmonic payload plus a prompt config into a stamped verdict.
+client via `build_openai_client(product="growth", ai_product="growth", properties=...)` and pass it in —
+this module just turns an archived Harmonic payload plus a prompt config into a stamped verdict.
 """
 
 import re
 import json
 import math
+import weakref
+import threading
 from collections.abc import Callable
 from datetime import timedelta
 from typing import Any, Literal, TypeIs, cast
 from urllib.parse import urlsplit, urlunsplit
 
+from django.conf import settings
 from django.db.models import QuerySet
 from django.utils import timezone
 
+import httpx
+import anthropic
+from anthropic.types import Message
 from openai import APIConnectionError, InternalServerError, OpenAI, RateLimitError
 from openai.types.chat import ChatCompletion, ChatCompletionMessageParam
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential, wait_random
 
+from posthog.llm.gateway_client import anthropic_gateway_base_url
 from posthog.llm.semantic_enrichment import extract_json_object
 from posthog.models.organization import Organization, OrganizationMembership
 
@@ -54,6 +61,8 @@ MAX_INPUT_DEPTH = 6
 # reasoning tokens, which are invisible in the reply and can consume it entirely. It's a cap and
 # not a reservation, so the headroom is free.
 MAX_OUTPUT_TOKENS = 4000
+
+AI_ENRICHMENT_FEATURE = "ai_enrichment"
 
 # Bounds on the prompt config's own authored content (prompt_text, output_fields) - not the
 # archived payload data above. Defined here, not in ai_enrichment_serializers.py, so any other
@@ -459,6 +468,28 @@ def _run_tool_call(
     return run_tool(call.function.name, arguments, pacer=pacer)
 
 
+_RETRYABLE_ERRORS = (
+    APIConnectionError,
+    RateLimitError,
+    InternalServerError,
+    anthropic.APIConnectionError,
+    anthropic.RateLimitError,
+    anthropic.InternalServerError,
+)
+
+_ANTHROPIC_TOOLS = [
+    {
+        "name": tool["function"]["name"],
+        "description": tool["function"]["description"],
+        "input_schema": tool["function"]["parameters"],
+    }
+    for tool in TOOLS
+]
+
+_anthropic_clients: "weakref.WeakKeyDictionary[OpenAI, anthropic.Anthropic]" = weakref.WeakKeyDictionary()
+_anthropic_clients_lock = threading.Lock()
+
+
 @retry(
     # Allowlist, not a blacklist: only failures that can plausibly succeed on a retry earn one.
     # APIConnectionError covers its APITimeoutError subclass too. Everything else — most
@@ -467,14 +498,128 @@ def _run_tool_call(
     # three attempts from stacking with the SDK's own retries on a hard failure like a bad
     # gateway credential; see max_retries=0 at every client construction site for the other half
     # of that fix.
-    retry=retry_if_exception_type((APIConnectionError, RateLimitError, InternalServerError)),
+    retry=retry_if_exception_type(_RETRYABLE_ERRORS),
     stop=stop_after_attempt(3),
     # Jitter so a worker pool that all hit a 429 together doesn't retry in lockstep.
     wait=wait_exponential(multiplier=1, min=2, max=30) + wait_random(0, 2),
     reraise=True,
 )
 def _complete(client: OpenAI, request: dict[str, Any]) -> ChatCompletion:
+    if _routes_through_anthropic_messages(client, request["model"]):
+        return _complete_with_anthropic_messages(client, request)
     return client.chat.completions.create(**request)
+
+
+def _routes_through_anthropic_messages(client: OpenAI, model: str) -> bool:
+    if not model.startswith("claude-"):
+        return False
+    if not settings.AI_GATEWAY_URL:
+        return False
+    return str(client.base_url).rstrip("/") == settings.AI_GATEWAY_URL.rstrip("/")
+
+
+def _anthropic_client_for(client: OpenAI) -> anthropic.Anthropic:
+    with _anthropic_clients_lock:
+        anthropic_client = _anthropic_clients.get(client)
+        if anthropic_client is None:
+            anthropic_client = anthropic.Anthropic(
+                api_key=client.api_key,
+                base_url=anthropic_gateway_base_url(str(client.base_url)),
+                default_headers={
+                    name: value
+                    for name, value in client.default_headers.items()
+                    if name.lower().startswith("x-posthog-") and isinstance(value, str)
+                },
+                max_retries=client.max_retries,
+                http_client=httpx.Client(trust_env=False),
+            )
+            _anthropic_clients[client] = anthropic_client
+        return anthropic_client
+
+
+def _complete_with_anthropic_messages(client: OpenAI, request: dict[str, Any]) -> ChatCompletion:
+    message = _anthropic_client_for(client).messages.create(**_anthropic_request(request))
+    return _chat_completion_from_message(message)
+
+
+def _anthropic_request(request: dict[str, Any]) -> dict[str, Any]:
+    system, *history = request["messages"]
+    assert system["role"] == "system"
+    assert history
+    messages: list[dict[str, Any]] = []
+    for m in history:
+        if m["role"] == "tool":
+            result = {"type": "tool_result", "tool_use_id": m["tool_call_id"], "content": m["content"]}
+            if messages[-1]["role"] == "user":
+                messages[-1]["content"].append(result)
+            else:
+                messages.append({"role": "user", "content": [result]})
+            continue
+        if m["role"] == "assistant" and m.get("tool_calls"):
+            blocks: list[dict[str, Any]] = [{"type": "text", "text": m["content"]}] if m.get("content") else []
+            blocks.extend(
+                {
+                    "type": "tool_use",
+                    "id": call["id"],
+                    "name": call["function"]["name"],
+                    "input": json.loads(call["function"]["arguments"]),
+                }
+                for call in m["tool_calls"]
+            )
+            messages.append({"role": "assistant", "content": blocks})
+            continue
+        messages.append({"role": m["role"], "content": m["content"]})
+    anthropic_request: dict[str, Any] = {
+        "model": request["model"],
+        "system": system["content"],
+        "messages": messages,
+        "max_tokens": request["max_completion_tokens"],
+        "timeout": request["timeout"],
+    }
+    if "tools" in request:
+        assert request["tools"] is TOOLS
+        anthropic_request["tools"] = _ANTHROPIC_TOOLS
+    elif any(m["role"] == "tool" for m in history):
+        anthropic_request["tools"] = _ANTHROPIC_TOOLS
+        anthropic_request["tool_choice"] = {"type": "none"}
+    return anthropic_request
+
+
+_ANTHROPIC_FINISH_REASONS = {
+    "end_turn": "stop",
+    "stop_sequence": "stop",
+    "max_tokens": "length",
+    "tool_use": "tool_calls",
+}
+
+
+def _chat_completion_from_message(message: Message) -> ChatCompletion:
+    text = "".join(block.text for block in message.content if block.type == "text")
+    tool_calls = [
+        {"id": block.id, "type": "function", "function": {"name": block.name, "arguments": json.dumps(block.input)}}
+        for block in message.content
+        if block.type == "tool_use"
+    ]
+    return ChatCompletion.model_validate(
+        {
+            "id": message.id,
+            "object": "chat.completion",
+            "created": int(timezone.now().timestamp()),
+            "model": message.model,
+            "choices": [
+                {
+                    "index": 0,
+                    "finish_reason": _ANTHROPIC_FINISH_REASONS.get(message.stop_reason or "", "stop"),
+                    "message": {"role": "assistant", "content": text or None, "tool_calls": tool_calls or None},
+                }
+            ],
+            "usage": {
+                "prompt_tokens": message.usage.input_tokens,
+                "completion_tokens": message.usage.output_tokens,
+                "total_tokens": message.usage.input_tokens + message.usage.output_tokens,
+            },
+        }
+    )
 
 
 def _call_and_parse(

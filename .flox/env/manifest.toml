@@ -61,6 +61,8 @@ trunk-io = { pkg-path = "trunk-io", version = "^1.3.4" } # Launcher for the Trun
 # depot-cli has its own group because the toplevel group's version pins cannot resolve with it.
 # Keep its version floor current: flox puts its bin first on PATH, so an old lock shadows a newer host `depot`.
 depot-cli = { pkg-path = "depot-cli", pkg-group = "depot", version = "^2.102" }
+# hog (hog/) needs Bun 1.3.3+ to turn off .env and bunfig.toml autoloading. 1.4.2 is the newest in the catalog.
+bun = { pkg-path = "bun", pkg-group = "bun", version = "^1.4.2" }
 
 # Set environment variables in the `[vars]` section. These variables may not
 # reference one another, and are added to the environment without first

@@ -34,6 +34,8 @@ import { broadcastAudienceCohortsLogic } from './audience/broadcastAudienceCohor
 import { BroadcastEmailPreview } from './BroadcastEmailPreview'
 import { archiveDisabledReason, manageDisabledReason } from './broadcastLifecycle'
 import { BroadcastPerformance } from './BroadcastPerformance'
+import { BroadcastPushPerformance } from './BroadcastPushPerformance'
+import { BroadcastPushPreview } from './BroadcastPushPreview'
 import { BroadcastSceneHeader } from './BroadcastSceneHeader'
 import { broadcastSentLogic } from './broadcastSentLogic'
 import { BroadcastStatusTag } from './BroadcastStatusTag'
@@ -279,6 +281,8 @@ export function BroadcastSummary(): JSX.Element {
         summaryTab,
         goalEnabled,
         conversion,
+        channel,
+        push,
     } = useValues(broadcastWizardLogic)
     const { moveToDraft, duplicateBroadcast, setSummaryTab, archiveBroadcast, restoreBroadcast, deleteBroadcast } =
         useActions(broadcastWizardLogic)
@@ -479,16 +483,29 @@ export function BroadcastSummary(): JSX.Element {
                                                 <span>{scheduleSummary}</span>
                                             )}
                                         </SummaryRow>
-                                        <SummaryRow label="Subject">
-                                            {email.subject || <span className="text-muted">No subject</span>}
-                                        </SummaryRow>
+                                        {channel === 'push' ? (
+                                            <SummaryRow label="Notification title">
+                                                {push.title || <span className="text-muted">No title</span>}
+                                            </SummaryRow>
+                                        ) : (
+                                            <SummaryRow label="Subject">
+                                                {email.subject || <span className="text-muted">No subject</span>}
+                                            </SummaryRow>
+                                        )}
                                         {goalEnabled && <SummaryRow label="Goal">{goalSummary(conversion)}</SummaryRow>}
                                     </div>
                                     <div className="flex flex-col gap-2">
                                         <h2 className="m-0 text-base font-semibold">
                                             {latestBatchJobId ? 'Performance (latest send)' : 'Performance'}
                                         </h2>
-                                        {latestBatchJob ? (
+                                        {latestBatchJob && channel === 'push' ? (
+                                            <BroadcastPushPerformance
+                                                runId={latestBatchJob.id}
+                                                runStartedAt={latestBatchJob.created_at}
+                                                hasGoal={goalEnabled}
+                                                channel={channel}
+                                            />
+                                        ) : latestBatchJob ? (
                                             <BroadcastPerformance
                                                 runId={latestBatchJob.id}
                                                 runStartedAt={latestBatchJob.created_at}
@@ -507,9 +524,12 @@ export function BroadcastSummary(): JSX.Element {
                             key: 'content',
                             'data-attr': 'broadcast-summary-tab-content',
                             label: 'Content',
-                            content: (
-                                <BroadcastEmailPreview intro="Preview the email for anyone in the audience, or send yourself a test." />
-                            ),
+                            content:
+                                channel === 'push' ? (
+                                    <BroadcastPushPreview />
+                                ) : (
+                                    <BroadcastEmailPreview intro="Preview the email for anyone in the audience, or send yourself a test." />
+                                ),
                         },
                         {
                             key: 'runs',

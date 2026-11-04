@@ -236,4 +236,4 @@ class TestEarlierFlags(BaseTest):
         check(alert, None)
         check(other_alert, ["2026-01-05"])
 
-        assert _earlier_flags(alert.id) == (EarlierFlag(date="2026-01-02", rationale="Flagged ['2026-01-02']."),)
+        assert _earlier_flags(alert) == (EarlierFlag(date="2026-01-02", rationale="Flagged ['2026-01-02']."),)

@@ -8,6 +8,8 @@ on:
         paths:
             - .github/scripts/**
             - .github/auto-assign-labels.json
+            - bin/find-affected-stories
+            - bin/find-affected-stories.test.mjs
             - .github/workflows/ci-scripts.yml
             - .github/workflows/cd-sandbox-base-image.yml
             - .github/workflows/update-sandbox-agent-version.yml
@@ -21,7 +23,6 @@ on:
             - .oxfmtrc*
             # turbo-discover.test.js pins the Django segment table to these, and checks
             # that every path in the events_json list exists.
-            - .github/workflows/ci-backend.yml
             - .depot/workflows/ci-backend.yml
             - .github/new-events-schema-targets.txt
             # The backend test selector and its verdict script gate ci-backend.
@@ -59,6 +60,8 @@ jobs:
                   fetch-depth: 1
                   sparse-checkout: |
                       /.github/
+                      /bin/find-affected-stories
+                      /bin/find-affected-stories.test.mjs
                       /bin/render-jest-timings-example
                       /bin/report-jest-timings
                       /.depot/
@@ -75,7 +78,8 @@ jobs:
                       /.nvmrc
                       /.oxlintrc.json
                       /.oxfmtrc.json
-                      /owners.yaml
+                      **/owners.yaml
+                      **/product.yaml
                       /pnpm-workspace.yaml
                       /uv.lock
                       /tach.toml
@@ -118,3 +122,10 @@ jobs:
             # preinstalled python3.
             - name: Node script tests
               run: node --test .github/scripts/*.test.js .github/scripts/*.test.mjs
+
+            # find-affected-stories decides how much of the Storybook matrix a PR
+            # runs, and its test has run nowhere since it was added. The job has no
+            # checkout of the pnpm workspace, so the script's own imports must stay
+            # standard library only.
+            - name: Story selection tests
+              run: node --test bin/find-affected-stories.test.mjs

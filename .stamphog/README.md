@@ -15,7 +15,7 @@ What each file contains and how per-folder overrides resolve: [the engine's "Pol
 - `devex_guardrails` is an extra category. It matches the semgrep rules, ratchet baselines, invariant tests and lint code that guard the house patterns, so an edit to a guard always gets a human review.
 - `agent_steering` is an extra, owner-only category. It matches the root `AGENTS.md`, the PR template, the `writing-pr-descriptions` skill, `.claude/settings.json`, `.claude/hooks/` and `.mcp.json`, and its `exempt_author_teams` lets stamphog approve there only for authors on `team-devex`.
 - `workflows_delivery` is an extra, owner-only category. It matches the CDP, Workflows and Messaging API, models and plugin-server worker code, and its `exempt_author_teams` lets stamphog approve there only for authors on `team-workflows`.
-- `deny_exceptions` lifts `auth` and `billing` for `products/warehouse_sources/backend/temporal/data_imports/sources/`, because connector code does OAuth and talks to the Stripe API without touching PostHog's auth system or its billing. It lifts `workflows_delivery` for the CDP and Messaging API test directories.
+- `deny_exceptions` lifts `auth` and `billing` for `products/warehouse_sources/backend/temporal/data_imports/sources/` and `products/warehouse_sources/sources/`, because connector code does OAuth and talks to the Stripe API without touching PostHog's auth system or its billing. It lifts `workflows_delivery` for the CDP and Messaging API test directories.
 - `allow` extends its path patterns with `.github/CODEOWNERS`.
 
 The repository uses the shipped default `review-guidance.md`.
@@ -25,7 +25,7 @@ A path rule cannot see these, because the marker sits in product code or in a bu
 
 `ownership` comes from the shipped default, which declares one `hogli-resolver` source at the repo root, so stamphog reads the same merged view the reviewer auto-assigner builds.
 
-`overrides` comes from the shipped default and grants folders a ceiling of 50 files and 1000 lines.
+`overrides` comes from the shipped default and grants folders a ceiling of 75 files and 1500 lines.
 Two folders currently take it up: [`products/desktop/`](../products/desktop/AGENT_APPROVALS.md) and [`products/visual_review/`](../products/visual_review/AGENT_APPROVALS.md).
 
 ## Proposing a change

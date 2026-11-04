@@ -1,9 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto'
 
-import { fetchAndExtractEntries } from '@/resources/internals'
+import { type ContextMillArchiveContents, fetchAndExtractEntries } from '@/resources/internals'
 import type { ContextMillResource } from '@/resources/manifest-types'
 
 import { contextMillBodyReadsTotal, contextMillCacheEventsTotal } from '../metrics'
+import type { OmnibusSkillsCache } from './OmnibusSkillsCache'
 import type { RedisLike } from './RedisCache'
 import { SharedBlobCache, type SharedBlobCacheOptions } from './SharedBlobCache'
 
@@ -31,6 +32,7 @@ export interface ResourceBody {
 export interface ContextMillResourceCacheOptions extends SharedBlobCacheOptions {
     bodyTtlSeconds?: number
     localUrl?: string
+    omnibusSkills?: OmnibusSkillsCache
 }
 
 export type ContextMillCacheResult = 'fresh_hit' | 'stale_hit' | 'cold_refresh' | 'waited' | 'fallback'
@@ -65,10 +67,12 @@ export interface ContextMillLoadResult {
 export class ContextMillResourceCache extends SharedBlobCache {
     private readonly bodyTtlSeconds: number
     private readonly localUrl: string | undefined
+    private readonly omnibusSkills: OmnibusSkillsCache | undefined
 
     constructor(redis: RedisLike, opts: ContextMillResourceCacheOptions = {}) {
         super(redis, `${NAMESPACE}:manifest`, opts)
         this.localUrl = opts.localUrl
+        this.omnibusSkills = opts.omnibusSkills
         this.bodyTtlSeconds = opts.bodyTtlSeconds ?? DEFAULT_BODY_TTL_SECONDS
     }
 
@@ -131,8 +135,9 @@ export class ContextMillResourceCache extends SharedBlobCache {
     }
 
     private async loadBlob(): Promise<Uint8Array> {
-        const entries = await this.loadEntries()
+        const { entries, omnibusSkillsArchive } = await this.loadArchiveContents()
         await this.writeBodies(entries)
+        await this.publishOmnibusSkills(omnibusSkillsArchive)
         const slim: SlimManifest = {
             entries: entries.map((e) => ({
                 uri: e.uri,
@@ -144,8 +149,22 @@ export class ContextMillResourceCache extends SharedBlobCache {
         return new TextEncoder().encode(JSON.stringify(slim))
     }
 
-    protected async loadEntries(): Promise<ContextMillResource[]> {
-        return fetchAndExtractEntries(this.localUrl)
+    protected async loadArchiveContents(): Promise<ContextMillArchiveContents> {
+        return fetchAndExtractEntries(this.localUrl, this.omnibusSkills !== undefined)
+    }
+
+    /** A bad omnibus archive must not block the resource manifest, so it logs and keeps the last shared copy. */
+    private async publishOmnibusSkills(archive: Uint8Array | null): Promise<void> {
+        if (!this.omnibusSkills || !archive) {
+            return
+        }
+        try {
+            await this.omnibusSkills.publish(archive)
+            contextMillCacheEventsTotal.inc({ event: 'omnibus_published' })
+        } catch (err) {
+            contextMillCacheEventsTotal.inc({ event: 'omnibus_error' })
+            console.error('[ContextMillResourceCache] failed to publish the omnibus skills:', err)
+        }
     }
 
     private async refreshInBackground(): Promise<void> {

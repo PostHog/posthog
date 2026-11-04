@@ -73,8 +73,7 @@ _DEFAULT_SANDBOX_LABELS = '["depot-ubuntu-24.04"]'
 # pull request association as the run's own.
 _REPOSITORY_ID = 1
 
-# The hand-off between the engines, as .github/workflows/ci-backend.yml and .depot/workflows/ci-backend.yml
-# name its two ends.
+# Historical job names identify relay and hand-off rows that the union must deduplicate.
 _GITHUB_HANDOFF_JOB = "Hand off backend tests to Depot CI"
 _GITHUB_RELAY_JOB = "Django Tests Pass"
 _DEPOT_WAIT_JOB_KEY_SUFFIX = ":wait-for-handoff"
@@ -111,6 +110,30 @@ def _conclusion(status: str) -> str:
     # Depot's terminal statuses in GitHub's conclusion vocabulary. `cancelled` and `skipped` are
     # already the same word in both.
     return f"multiIf({status} = 'finished', 'success', {status} = 'failed', 'failure', {status})"
+
+
+def _of_repository(depot: DepotJobAttempts) -> str:
+    return f"lower(ifNull(a.repo, '')) = '{depot.repository.lower()}'"
+
+
+def build_billed_seconds_query(depot: DepotJobAttempts) -> str:
+    """Run time of the finished attempts that started in ``[{window_from}, {window_to})``.
+
+    Reads the raw rows, so the hand-off shells the union drops still count, as Depot bills them.
+    """
+    return f"""
+        SELECT sum(dateDiff('millisecond', started_at, finished_at)) / 1000
+        FROM (
+            SELECT
+                parseDateTimeBestEffort(a.attempt_started_at) AS started_at,
+                parseDateTimeBestEffort(a.attempt_finished_at) AS finished_at
+            FROM {depot.table} AS a
+            WHERE {_of_repository(depot)}
+                AND ifNull(a.attempt_started_at, '') != ''
+                AND ifNull(a.attempt_finished_at, '') != ''
+        )
+        WHERE started_at >= {{window_from}} AND started_at < {{window_to}} AND finished_at >= started_at
+    """
 
 
 def _attempts(depot: DepotJobAttempts, pull_requests_table: str | None) -> str:
@@ -162,7 +185,7 @@ def _attempts(depot: DepotJobAttempts, pull_requests_table: str | None) -> str:
             a.sandbox_id AS sandbox_id
         FROM {depot.table} AS a
         {branch_join}
-        WHERE lower(ifNull(a.repo, '')) = '{depot.repository.lower()}'
+        WHERE {_of_repository(depot)}
             AND {_is_id("a.run_id")} AND {_is_id("a.workflow_id")} AND {_is_id("a.attempt_id")}
     )"""
 

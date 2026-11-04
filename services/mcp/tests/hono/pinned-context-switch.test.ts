@@ -256,25 +256,32 @@ describe('pinned project with switch-project (Hono)', () => {
         apiPaths.length = 0
     })
 
-    it('runs query and billing tools against the switched project, and keeps other sessions on the pin', async () => {
-        const token = 'phx_switch'
-        const switched = await callTool(
-            'switch-project',
-            { projectId: Number(OTHER_PROJECT) },
-            { token, sessionId: 'session-a' }
-        )
-        expect(switched.isError).toBeFalsy()
-        expect(switched.text).toContain(`Switched to project ${OTHER_PROJECT}`)
+    it.each(['projectId', 'project_id', 'new_project_id'])(
+        'switches via %s, runs tools against the switched project, and keeps other sessions on the pin',
+        async (key) => {
+            const token = `phx_switch_${key}`
+            const switched = await callTool(
+                'switch-project',
+                { [key]: Number(OTHER_PROJECT) },
+                { token, sessionId: 'session-a' }
+            )
+            expect(switched.isError).toBeFalsy()
+            expect(switched.text).toContain(`Switched to project ${OTHER_PROJECT}`)
 
-        // Each call resends the same pin, which must not revert the switch.
-        expect(await runQueryAndBilling({ token, sessionId: 'session-a' })).toEqual(pathsFor(OTHER_PROJECT, OTHER_ORG))
+            // Each call resends the same pin, which must not revert the switch.
+            expect(await runQueryAndBilling({ token, sessionId: 'session-a' })).toEqual(
+                pathsFor(OTHER_PROJECT, OTHER_ORG)
+            )
 
-        // A second session on the same credential keeps its own pin.
-        expect(await runQueryAndBilling({ token, sessionId: 'session-b' })).toEqual(
-            pathsFor(PINNED_PROJECT, PINNED_ORG)
-        )
-        expect(await runQueryAndBilling({ token, sessionId: 'session-a' })).toEqual(pathsFor(OTHER_PROJECT, OTHER_ORG))
-    })
+            // A second session on the same credential keeps its own pin.
+            expect(await runQueryAndBilling({ token, sessionId: 'session-b' })).toEqual(
+                pathsFor(PINNED_PROJECT, PINNED_ORG)
+            )
+            expect(await runQueryAndBilling({ token, sessionId: 'session-a' })).toEqual(
+                pathsFor(OTHER_PROJECT, OTHER_ORG)
+            )
+        }
+    )
 
     it.each([
         ['project', `?project_id=${PINNED_PROJECT}`],

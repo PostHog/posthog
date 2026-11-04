@@ -4,6 +4,7 @@ import { ChartLegend } from '../../components/Legend/ChartLegend'
 import { useChartLegend } from '../../components/Legend/useChartLegend'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import type { RadialSlicePayload } from '../../core/hooks/useRadialInteraction'
+import { useResolvedChartTheme } from '../../core/theme'
 import type {
     BarChartConfig,
     ChartLegendConfig,
@@ -12,6 +13,7 @@ import type {
     Series,
     TooltipContext,
 } from '../../core/types'
+import { useTooltipCapture } from '../../overlays/Tooltip'
 import { BarChart } from '../BarChart/BarChart'
 import { PieTooltip } from '../PieChart/PieTooltip'
 import { partValue, proportionLegendItems } from './proportion-bar-data'
@@ -36,7 +38,8 @@ export interface ProportionBarConfig {
 export interface ProportionBarProps<Meta = unknown> {
     /** One series per part, valued like a `PieChart` slice: the sum of `data`, floored at 0. */
     series: Series<Meta>[]
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
+    theme?: ChartTheme
     config?: ProportionBarConfig
     /** Formats a part's raw value in the legend and the default tooltip. */
     valueFormatter?: (value: number) => string
@@ -68,7 +71,7 @@ function defaultValueFormatter(value: number): string {
 
 function ProportionBarInner<Meta = unknown>({
     series,
-    theme,
+    theme: themeProp,
     config,
     valueFormatter = defaultValueFormatter,
     tooltip,
@@ -77,6 +80,7 @@ function ProportionBarInner<Meta = unknown>({
     dataAttr,
     onError,
 }: ProportionBarProps<Meta>): React.ReactElement {
+    const theme = useResolvedChartTheme(themeProp)
     const {
         barHeight = DEFAULT_BAR_HEIGHT,
         barCornerRadius = DEFAULT_CORNER_RADIUS,
@@ -147,6 +151,7 @@ function ProportionBarInner<Meta = unknown>({
     // A percent layout hands the tooltip every segment as a 0..1 fraction. Narrow it to the hovered
     // part with its raw value, which is the context a PieChart tooltip receives. Reads the value
     // already computed for `barSeries` instead of rescanning the part's data on every hover.
+    const captureTooltip = useTooltipCapture<Meta>()
     const renderTooltip = useCallback(
         (ctx: TooltipContext<Meta>): React.ReactNode => {
             const entry = ctx.seriesData.find((d) => d.series.key === ctx.hoveredSeriesKey)
@@ -162,9 +167,10 @@ function ProportionBarInner<Meta = unknown>({
                 dataIndex: series.indexOf(original),
                 seriesData: [{ ...entry, series: part, value, fraction: fractionOf(value) }],
             }
+            captureTooltip(partCtx)
             return tooltip ? tooltip(partCtx) : <PieTooltip ctx={partCtx} valueFormatter={valueFormatter} />
         },
-        [tooltip, series, seriesByKey, colorByKey, valueByKey, fractionOf, valueFormatter]
+        [tooltip, series, seriesByKey, colorByKey, valueByKey, fractionOf, valueFormatter, captureTooltip]
     )
 
     const handlePointClick = useCallback(

@@ -24,8 +24,9 @@ import {
   useReportActionResultTracker,
   useReportActionTracker,
 } from "@posthog/ui/features/inbox/hooks/useReportActionTracker";
+import { useDebounce } from "@posthog/ui/primitives/hooks/useDebounce";
 import { LoadingState } from "@posthog/ui/primitives/LoadingState";
-import { useDeferredValue, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 
 function reviewerMatchesAvailable(
   reviewer: SuggestedReviewer,
@@ -61,7 +62,7 @@ export function ReviewerSearchList({
   const artefact = selectSuggestedReviewersArtefact(data?.results ?? []);
   const reviewers = useMemo(() => artefact?.content ?? [], [artefact]);
   const [query, setQuery] = useState("");
-  const deferredQuery = useDeferredValue(query);
+  const debouncedQuery = useDebounce(query, 300);
   const { mutate: updateReviewers, isPending } = useUpdateSuggestedReviewers(
     report.id,
   );
@@ -72,14 +73,14 @@ export function ReviewerSearchList({
     refetch: refetchAvailableReviewers,
   } = useInboxAvailableSuggestedReviewers({
     enabled: !!client && enabled,
-    query: deferredQuery,
+    query: debouncedQuery,
   });
   const options = useMemo(() => {
     const built = buildSuggestedReviewerFilterOptions(
       availableReviewers?.results ?? [],
       currentUser,
     );
-    const normalizedQuery = deferredQuery.trim().toLowerCase();
+    const normalizedQuery = debouncedQuery.trim().toLowerCase();
     if (!normalizedQuery) return built;
     return built.filter(
       (option) =>
@@ -87,7 +88,7 @@ export function ReviewerSearchList({
         option.email.toLowerCase().includes(normalizedQuery) ||
         option.github_login.toLowerCase().includes(normalizedQuery),
     );
-  }, [availableReviewers?.results, currentUser, deferredQuery]);
+  }, [availableReviewers?.results, currentUser, debouncedQuery]);
 
   const toggleReviewer = (option: AvailableSuggestedReviewer): void => {
     const existing = reviewers.find((reviewer) =>
@@ -103,6 +104,8 @@ export function ReviewerSearchList({
       updateReviewers(
         {
           content: toSuggestedReviewerWriteContent(next),
+          action: "remove",
+          targets: toSuggestedReviewerWriteContent([existing]),
           optimisticReviewers: next,
         },
         {
@@ -146,6 +149,8 @@ export function ReviewerSearchList({
           ...toSuggestedReviewerWriteContent(reviewers),
           { user_uuid: option.uuid },
         ],
+        action: "add",
+        targets: [{ user_uuid: option.uuid }],
         optimisticReviewers: [...reviewers, optimisticEntry],
       },
       {

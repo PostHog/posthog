@@ -1,6 +1,8 @@
-from collections.abc import Callable
+from collections.abc import Callable, Collection, Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from functools import cached_property
-from typing import TYPE_CHECKING, Any, NoReturn, Optional, TypedDict, cast
+from typing import TYPE_CHECKING, Any, NoReturn, Optional, Self, TypedDict, cast
 
 from django.contrib.auth.models import AbstractUser, BaseUserManager
 from django.core.management.base import CommandError
@@ -52,6 +54,10 @@ class Notifications(TypedDict, total=False):
     ]  # Maps team_id (str) to enabled status (True = included). None/missing = not configured (auto-select on first digest).
     discussions_mentioned: bool
     task_comments_slack_dm: bool  # Slack DM for task comment mentions, replies, and owned items
+    mobile_push_enabled: bool
+    mobile_push_tasks_enabled: bool
+    mobile_push_reports_enabled: bool
+    mobile_push_report_updates_enabled: bool
     project_weekly_digest_disabled: dict[str, Any]  # Maps project ID to disabled status, str is the team_id as a string
     all_weekly_digest_disabled: bool
     data_pipeline_error_threshold: (
@@ -85,6 +91,10 @@ NOTIFICATION_DEFAULTS: Notifications = {
     "error_tracking_weekly_digest": True,  # Error tracking weekly digest enabled by default
     "discussions_mentioned": True,  # Mentions in comments enabled by default
     "task_comments_slack_dm": True,
+    "mobile_push_enabled": True,
+    "mobile_push_tasks_enabled": True,
+    "mobile_push_reports_enabled": True,
+    "mobile_push_report_updates_enabled": True,
     "project_weekly_digest_disabled": {},  # Empty dict by default - no projects disabled
     "all_weekly_digest_disabled": False,  # Weekly digests enabled by default
     "data_pipeline_error_threshold": 0.01,  # Default: notify when failure rate exceeds 1%
@@ -119,11 +129,26 @@ ROLE_CHOICES = (
 )
 
 
+_join_current_organization: ContextVar[bool] = ContextVar("user_join_current_organization", default=False)
+
+
 class UserManager(BaseUserManager):
     """Define a model manager for User model with no username field."""
 
     def get_queryset(self):
-        return super().get_queryset().defer(*DEFERED_ATTRS)
+        queryset = super().get_queryset().defer(*DEFERED_ATTRS)
+        if _join_current_organization.get():
+            queryset = queryset.select_related("current_organization")
+        return queryset
+
+    @contextmanager
+    def joining_current_organization(self) -> Iterator[None]:
+        # Authentication backends load the user through this manager, and we cannot pass them a queryset.
+        token = _join_current_organization.set(True)
+        try:
+            yield
+        finally:
+            _join_current_organization.reset(token)
 
     use_in_migrations = True
 
@@ -368,8 +393,8 @@ class User(AbstractUser, UUIDTClassicModel, ModelActivityMixin):  # type: ignore
     _original_is_active: bool
 
     @classmethod
-    def from_db(cls, db, field_names, values):
-        instance = super().from_db(db, field_names, values)
+    def from_db(cls, db: str | None, field_names: Collection[str], values: Collection[Any], **kwargs: Any) -> Self:
+        instance = super().from_db(db, field_names, values, **kwargs)
         instance._original_is_active = instance.is_active
         return instance
 

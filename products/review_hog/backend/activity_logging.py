@@ -10,8 +10,8 @@ from uuid import UUID
 
 from django.db import models
 
+from posthog.integrations import IntegrationManager
 from posthog.models.activity_logging.activity_log import AuditableScope, Change, Detail, changes_between, log_activity
-from posthog.models.integration import Integration
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -32,11 +32,9 @@ def _organization_id_for_team(team_id: int) -> UUID | None:
 
 def installation_account_name(installation_id: str) -> str:
     """The GitHub account of an installation, as the core GitHub integration stores it."""
-    name = (
-        Integration.objects.filter(kind="github", integration_id=installation_id)
-        .values_list("config__account__name", flat=True)
-        .first()
-    )
+    rows = IntegrationManager.github.oauth.list_by_external_id(installation_id)
+    # nosemgrep: github-installation-first-team -- only the account name is read, and every project of one installation stores the same name
+    name = ((rows[0].config or {}).get("account") or {}).get("name") if rows else None
     return name if isinstance(name, str) and name else installation_id
 
 

@@ -183,17 +183,21 @@ describe('supportLogic', () => {
             expect(logic.values.lastSubmittedTicketId).toBe('t1')
         })
 
-        it('appends exception context to the message so it survives on the ticket', async () => {
+        it.each([
+            ['exception', { exception_event: { uuid: 'exc-1', event: '$exception' } }, 'Exception:'],
+            [
+                'ticket',
+                { ticket_context: 'Email sending tier increase request' },
+                'Email sending tier increase request',
+            ],
+        ])('appends %s context to the message so it survives on the ticket', async (_name, extra, expected) => {
             const sendMessage = jest.fn().mockResolvedValue({ ticket_id: 't1' })
             conversationsMock(sendMessage)
 
-            await logic.asyncActions.submitSupportTicket({
-                ...FORM_FIELDS,
-                exception_event: { uuid: 'exc-1', event: '$exception' },
-            })
+            await logic.asyncActions.submitSupportTicket({ ...FORM_FIELDS, ...extra })
 
             expect(sendMessage.mock.calls[0][0]).toContain('Help!')
-            expect(sendMessage.mock.calls[0][0]).toContain('Exception:')
+            expect(sendMessage.mock.calls[0][0]).toContain(expected)
         })
 
         it('accepts a submission with no topic or severity, since the form no longer collects them', async () => {

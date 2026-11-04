@@ -1,3 +1,4 @@
+import re
 import datetime as dt
 import threading
 from typing import Any
@@ -315,6 +316,30 @@ class TestMetricQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual([row["value"] for row in runner.run()], [3.0])
+
+    def test_reads_points_ingested_without_observed_timestamps(self):
+        # Both points sit in one storage hour, so ingest writes a single samples row.
+        anchor = timezone.now().replace(minute=0, second=0, microsecond=0)
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="m1",
+            points=[(anchor - dt.timedelta(minutes=50), 2.0), (anchor - dt.timedelta(minutes=49), 3.0)],
+        )
+
+        stored = sync_execute(
+            "SELECT length(timestamp_arr), length(observed_timestamp_arr) FROM metrics4_samples WHERE team_id = %(team_id)s",
+            {"team_id": self.team.id},
+        )
+        runner = self.runner_class(
+            team=self.team,
+            metric_name="m1",
+            aggregation="sum",
+            date_from=anchor - dt.timedelta(hours=1),
+            date_to=anchor,
+        )
+
+        self.assertEqual(stored, [(2, 0)])
+        self.assertEqual(sum(row["value"] for row in runner.run()), 5.0)
 
     def test_respects_team_isolation(self):
         anchor = timezone.now().replace(microsecond=0)
@@ -1351,17 +1376,50 @@ class TestRateIncrease(ClickhouseTestMixin, APIBaseTest):
         # The reset contributes its post-reset value.
         self.assertEqual([row["value"] for row in rows], [25.0])
 
-    def test_delta_temporality_sums_samples_directly(self):
-        self._seed_counter(
-            [
-                (self.anchor + dt.timedelta(seconds=0), 3.0),
-                (self.anchor + dt.timedelta(seconds=15), 4.0),
-                (self.anchor + dt.timedelta(seconds=30), 5.0),
-            ],
-            aggregation_temporality="delta",
-        )
-        rows = self._run("increase")
-        self.assertEqual([row["value"] for row in rows], [12.0])
+    @parameterized.expand(
+        [
+            ("delivered_once", [[(0, 3.0), (15, 4.0), (30, 5.0)]], False, 12.0),
+            ("delivered_once_with_dedupe", [[(0, 3.0), (15, 4.0), (30, 5.0)]], True, 12.0),
+            # An at-least-once replay sends the first points again in a new block, so
+            # ClickHouse insert deduplication does not drop them.
+            ("replayed_with_dedupe", [[(0, 3.0), (15, 4.0)], [(0, 3.0), (15, 4.0), (30, 5.0)]], True, 12.0),
+            # Dedupe drops only exact copies, not a different point at the same time.
+            ("same_time_different_value_with_dedupe", [[(0, 3.0)], [(0, 4.0)]], True, 7.0),
+        ]
+    )
+    def test_delta_temporality_sums_samples_directly(
+        self, _name: str, batches: list[list[tuple[int, float]]], dedupe: bool, expected: float
+    ):
+        for batch in batches:
+            self._seed_counter(
+                [(self.anchor + dt.timedelta(seconds=offset), value) for offset, value in batch],
+                aggregation_temporality="delta",
+            )
+        with patch(
+            "products.metrics.backend.metric_query_runner.posthog_feature_flag_enabled", return_value=dedupe
+        ) as flag:
+            rows = self._run("increase")
+        self.assertEqual([row["value"] for row in rows], [expected])
+        self.assertEqual(flag.call_args.args[0], "metrics-query-dedupe-points")
+
+    @parameterized.expand(
+        [
+            # A copy cannot change argMax, so a last-value query skips the dedupe cost.
+            ("last_value", "sum", {}, False),
+            ("increase", "sum", {"range_function": "increase"}, True),
+        ]
+    )
+    def test_dedupe_flag_applies_only_where_copies_change_the_result(
+        self, _name: str, aggregation: str, overrides: dict[str, Any], expect_dedupe: bool
+    ):
+        with (
+            patch("products.metrics.backend.metric_query_runner.posthog_feature_flag_enabled", return_value=True),
+            patch(
+                "products.metrics.backend.metric_query_runner.execute_hogql_query", wraps=execute_hogql_query
+            ) as execute,
+        ):
+            self._run(aggregation, **overrides)
+        self.assertEqual(bool(re.search(r"LIMIT 1\s+BY", execute.call_args.kwargs["query"].to_hogql())), expect_dedupe)
 
     def test_deltas_are_computed_per_underlying_series(self):
         # Diff each pod separately.
@@ -1564,16 +1622,53 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
         earliest = dt.datetime.fromisoformat(rows[0]["time"]).astimezone(dt.UTC)
         self.assertEqual(earliest, self.anchor)
 
-    def test_mismatched_bounds_raise(self):
-        self._seed_histogram([(self.anchor + dt.timedelta(seconds=0), [1, 1, 1, 0])], temporality="delta")
+    def test_mismatched_bounds_merge_onto_one_layout(self):
+        # Two endpoints with their own buckets chart together instead of failing.
+        self._seed_histogram([(self.anchor + dt.timedelta(seconds=0), [10, 0, 0, 0])], temporality="delta")
         self._seed_histogram(
-            [(self.anchor + dt.timedelta(seconds=10), [1, 1, 1, 0])],
+            [(self.anchor + dt.timedelta(seconds=10), [0, 10, 0, 0])],
             temporality="delta",
             bounds=[0.2, 0.6, 2.0],
             resource_labels={"k8s.pod.name": "other"},
         )
-        with self.assertRaises(ValueError):
-            self._run(0.5)
+        rows = self._run(0.75)
+        self.assertEqual(len(rows), 1)
+        # Union edges [0.1, 0.2, 0.5, 0.6, 1.0, 2.0] get counts [10, 0, 7.5, 2.5, 0, 0, 0], so p75 is 2/3 into (0.2, 0.5].
+        self.assertAlmostEqual(rows[0]["value"], 0.4)
+        # The (0.2, 0.6] bucket holds observations, so the 0.5 edge adds no precision.
+        self.assertEqual(rows[0]["histogram_bounds"], [0.1, 0.2, 0.6, 1.0, 2.0])
+
+    def test_cumulative_bucket_count_change_does_not_fail(self):
+        # metrics4 keeps one bounds array per series-hour, so samples can carry more counts than bounds.
+        self._seed_histogram(
+            [
+                (self.anchor + dt.timedelta(seconds=0), [1, 1, 1, 0]),
+                (self.anchor + dt.timedelta(seconds=30), [2, 2, 2, 0, 0]),
+            ],
+            temporality="cumulative",
+        )
+        self.assertEqual(self._run(0.5), [])
+
+    def test_exponential_histogram_reads_upper_edges(self):
+        # Ingest stores lower edges [0.1, 0.2, 0.4]: every value is in (0.2, 0.4].
+        seed_metric(
+            team_id=self.team.id,
+            metric_name="latency",
+            metric_type="exponential_histogram",
+            aggregation_temporality="delta",
+            histogram_bounds=[0.1, 0.2, 0.4],
+            histogram_counts=[0, 10, 0],
+            points=[(self.anchor, 0.0)],
+        )
+        rows = self._run(0.5)
+        self.assertEqual(len(rows), 1)
+        self.assertAlmostEqual(rows[0]["value"], 0.3)
+        self.assertEqual(rows[0]["histogram_bounds"], [0.1, 0.2, 0.4, 0.8])
+
+    def test_rows_carry_the_bucket_edges(self):
+        self._seed_histogram([(self.anchor, [10, 10, 10, 0])], temporality="delta")
+        rows = self._run(0.5)
+        self.assertEqual(rows[0]["histogram_bounds"], self.BOUNDS)
 
     def test_histogram_quantile_via_api(self):
         self._seed_histogram(
@@ -1598,6 +1693,8 @@ class TestHistogramQuantileRunner(ClickhouseTestMixin, APIBaseTest):
         points = response.json()["results"][0]["points"]
         self.assertEqual(len(points), 1)
         self.assertAlmostEqual(points[0]["value"], 0.3)
+        # The chart reads the edges to tell how coarse the estimate is.
+        self.assertEqual(response.json()["results"][0]["histogram_bounds"], self.BOUNDS)
 
     def test_histogram_quantile_via_api_requires_quantile(self):
         response = self.client.post(

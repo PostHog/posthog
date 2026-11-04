@@ -257,7 +257,6 @@ if [[ "$prepare" -eq 0 ]]; then
     # Read runtime credentials at invocation time, never from the toolchain cache.
     for name in \
         ANTHROPIC_API_KEY \
-        BRAINTRUST_API_KEY \
         GH_TOKEN \
         LLM_GATEWAY_ANTHROPIC_API_KEY \
         LLM_GATEWAY_OPENAI_API_KEY \
