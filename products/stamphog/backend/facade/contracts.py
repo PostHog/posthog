@@ -39,6 +39,7 @@ class RepoConfigDTO:
     digest_enabled: bool = False
     review_mode: str = ""
     trigger_label: str = ""
+    routing_mode: str = ""
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

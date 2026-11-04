@@ -1014,6 +1014,7 @@ export const InboxOnboardingSetupModeEnumApi = {
  * * `pganalyze` - pganalyze
  * * `signals_scout` - Signals scout
  * * `signals_check` - Report check
+ * * `user_authored` - Team member
  * * `logs` - Logs
  * * `health_checks` - Health checks
  * * `endpoints` - Endpoints
@@ -1130,6 +1131,7 @@ export const SignalSourceProductEnumApi = {
     Pganalyze: 'pganalyze',
     SignalsScout: 'signals_scout',
     SignalsCheck: 'signals_check',
+    UserAuthored: 'user_authored',
     Logs: 'logs',
     HealthChecks: 'health_checks',
     Endpoints: 'endpoints',
@@ -1297,6 +1299,7 @@ export interface InboxOnboardingSourceApi {
      * * `pganalyze` - pganalyze
      * * `signals_scout` - Signals scout
      * * `signals_check` - Report check
+     * * `user_authored` - Team member
      * * `logs` - Logs
      * * `health_checks` - Health checks
      * * `endpoints` - Endpoints
@@ -2545,6 +2548,292 @@ export interface PaginatedSignalReportListListApi {
 }
 
 /**
+ * One observation backing an authored report — becomes a bound signal row on the report.
+ */
+export interface ReportEvidenceApi {
+    /**
+     * Prose for this observation. Embedded and rendered to the safety/research surfaces.
+     * @maxLength 4000
+     */
+    description: string
+    /** Stable id for this observation within the report (lets a later edit address it). */
+    source_id: string
+}
+
+/**
+ * * `immediately_actionable` - immediately_actionable
+ * * `requires_human_input` - requires_human_input
+ * * `not_actionable` - not_actionable
+ */
+export type ActionabilityEnumApi = (typeof ActionabilityEnumApi)[keyof typeof ActionabilityEnumApi]
+
+export const ActionabilityEnumApi = {
+    ImmediatelyActionable: 'immediately_actionable',
+    RequiresHumanInput: 'requires_human_input',
+    NotActionable: 'not_actionable',
+} as const
+
+/**
+ * One suggested reviewer — identified by `github_login`, `user_uuid`, or both.
+ *
+ * A reviewer is a PostHog user, so a `user_uuid` only has to name an org member of this team: a
+ * member with no linked GitHub account routes the report like anyone else. A `user_uuid` that
+ * isn't an org member of this team is rejected — so a reviewer is never silently dropped.
+ */
+export interface SuggestedReviewerApi {
+    /**
+     * GitHub login (case-insensitive, stored lowercased) — e.g. `octocat`, no `@`, no display name. Resolve one via `scout-members-list` (each member row carries a resolved `github_login`) or git history when you only have a name.
+     * @maxLength 200
+     */
+    github_login?: string
+    /** PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Use this when you know the PostHog user, whether or not they have a GitHub handle — every member is routable this way. Must be a concrete UUID; the `@me` alias is not valid here. */
+    user_uuid?: string
+    /**
+     * One sentence of evidence for WHY this person: what ties them to the affected surface (e.g. 'authored 4 of the last 10 commits touching products/tracing/mcp/', 'human correction routed the prior tracing report to them'). Persisted on the report so the routing is auditable — always set it when you can name the evidence; 'precedent' alone is weak, prefer code-derived ownership.
+     * @maxLength 500
+     * @nullable
+     */
+    reason?: string | null
+}
+
+export interface ReportMetricComparisonApi {
+    /** Baseline or previous value, formatted like the current value. */
+    value: number
+    /**
+     * Short context for the comparison, such as `Previous period`.
+     * @maxLength 40
+     */
+    label: string
+}
+
+/**
+ * Authoring shape: unlike a read response, the live query cannot be absent or redacted.
+ */
+export interface ReportMetricWriteApi {
+    /**
+     * Stable slug for this metric within the report: lowercase letters, numbers, underscores, and hyphens, starting with a letter or number.
+     * @maxLength 100
+     */
+    metric_id: string
+    /**
+     * Short human-readable label for the measurement.
+     * @maxLength 200
+     */
+    title: string
+    /** What the value measures, independent of how it is formatted or drawn.
+     *
+     * * `affected_users` - affected_users
+     * * `affected_sessions` - affected_sessions
+     * * `occurrences` - occurrences
+     * * `conversion_rate` - conversion_rate
+     * * `error_rate` - error_rate
+     * * `duration` - duration
+     * * `revenue` - revenue
+     * * `custom` - custom */
+    kind: ReportMetricKindEnumApi
+    /** `primary` for the report's key observation, otherwise `supporting`.
+     *
+     * * `primary` - primary
+     * * `supporting` - supporting */
+    role?: RoleEnumApi
+    /**
+     * Latest saved snapshot, initially observed during authoring and replaced when a person opens the inbox or the report. Null means no snapshot is available to this viewer; it never means zero. The required live query remains the source of truth.
+     * @nullable
+     */
+    value?: number | null
+    /**
+     * When the visible snapshot value was measured; null when value is null.
+     * @nullable
+     */
+    value_at?: string | null
+    /**
+     * Trailing per-bucket values of the live query, oldest first, saved with the value snapshot so a list row can draw the trend without running the query; at most 14 points. Null when no snapshot series is available to this viewer.
+     * @maxItems 14
+     * @nullable
+     */
+    series?: number[] | null
+    /** How to format the numeric value; semantic meaning remains in kind. `percentage` uses percentage points, so 34 renders as 34%; `percentage_scaled` uses a 0–1 ratio, so 0.34 renders as 34%. Sessions and occurrences use count; duration uses duration with an ms/s unit; revenue uses currency with an ISO currency unit.
+     *
+     * * `number` - number
+     * * `count` - count
+     * * `percentage` - percentage
+     * * `percentage_scaled` - percentage_scaled
+     * * `duration` - duration
+     * * `currency` - currency */
+    value_format?: ValueFormatEnumApi
+    /**
+     * Optional short suffix or currency code, such as `users`, `ms`, or `USD`.
+     * @maxLength 40
+     * @nullable
+     */
+    unit?: string | null
+    /** Required when authoring: a live InsightVizNode wrapping one bounded TrendsQuery. Consumers derive a BoldNumber execution for the whole-window aggregate and an ActionsBar execution for longitudinal buckets. The query must produce exactly one output series and no more than 1000 estimated longitudinal points; one formula may combine up to ten event or action source series. An affected_users metric uses exactly one source with `math: dau`; never sum its per-bucket unique-user values. A response omits this on list or redacts it to null on detail when the viewer lacks access to the definition. */
+    query: unknown
+    /**
+     * Optional context the tile cannot show, such as a filter that narrows the count or a caveat on the data. Omit it rather than restate the title, unit, or window.
+     * @maxLength 500
+     * @nullable
+     */
+    caption?: string | null
+    /** Legacy optional comparison. New report metrics must omit it. */
+    comparison?: ReportMetricComparisonApi | null
+}
+
+/**
+ * * `depends_on` - Depends on
+ * * `part_of` - Part of
+ * * `follow_up_of` - Follow-up of
+ * * `duplicate_of` - Duplicate of
+ * * `recurrence_of` - Recurrence of
+ */
+export type ReportLinkKindEnumApi = (typeof ReportLinkKindEnumApi)[keyof typeof ReportLinkKindEnumApi]
+
+export const ReportLinkKindEnumApi = {
+    DependsOn: 'depends_on',
+    PartOf: 'part_of',
+    FollowUpOf: 'follow_up_of',
+    DuplicateOf: 'duplicate_of',
+    RecurrenceOf: 'recurrence_of',
+} as const
+
+/**
+ * One typed, directed link to write on the report being emitted or edited.
+ */
+export interface ReportLinkWriteApi {
+    /** How this report relates to `report_id`. `depends_on` for work that cannot land until the other report's fix does, `part_of` for one piece of a larger report, `follow_up_of` for work the other report left behind, `duplicate_of` for the same problem filed twice, and `recurrence_of` for a problem a resolved report already covered.
+     *
+     * * `depends_on` - Depends on
+     * * `part_of` - Part of
+     * * `follow_up_of` - Follow-up of
+     * * `duplicate_of` - Duplicate of
+     * * `recurrence_of` - Recurrence of */
+    kind: ReportLinkKindEnumApi
+    /** Id of the report to link to. Must be another report in this project. */
+    report_id: string
+    /**
+     * Optional one-line note on why the reports are linked this way.
+     * @maxLength 500
+     */
+    reason?: string
+}
+
+/**
+ * Request body for the scout `emit-report` action and the inbox report `create` action. A scout run is
+ * taken from the URL path; a person is the authenticated caller.
+ */
+export interface EmitReportRequestApi {
+    /**
+     * One-line report title the inbox shows. Conventional-commit style (`type(scope): description`, e.g. `fix(insights): missing series color`) renders with type/scope styling.
+     * @maxLength 300
+     */
+    title: string
+    /** The report body the inbox shows. Markdown is supported (headings, lists, code, links; images are not rendered). Lead with one plain declarative sentence — the inbox card uses your first line verbatim as the headline (~140 chars, emphasis stripped), then renders the full markdown in the detail view. A heading, or a bold label on a line of its own with a blank line above it, marks a section that a threaded Slack delivery splits into its own reply. */
+    summary: string
+    /**
+     * The observations backing the report — each becomes a bound signal. At least one.
+     * @minItems 1
+     */
+    evidence: ReportEvidenceApi[]
+    /** 2-3 sentence evidence-grounded justification for the actionability call below. */
+    actionability_explanation: string
+    /** The scout's actionability call: `immediately_actionable` -> the report surfaces READY; `requires_human_input` -> PENDING_INPUT; `not_actionable` -> suppressed. A safety-judge failure suppresses the report regardless. A root cause you have not found is not human input: a report that names the evidence, the code surface, or a reproducible failure path is `immediately_actionable`, because investigating it is the action. Reserve `requires_human_input` for a report blocked on a decision only a person can make.
+     *
+     * * `immediately_actionable` - immediately_actionable
+     * * `requires_human_input` - requires_human_input
+     * * `not_actionable` - not_actionable */
+    actionability: ActionabilityEnumApi
+    /** Whether the issue is already being handled — fixed in recent changes, or with a fix in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task). Gates autostart of a scout report, so a wrong `false` opens a duplicate PR. Tracked separately. */
+    already_addressed?: boolean
+    /**
+     * Optional repo for opening a draft PR, by autostart of a scout report or by a person from the inbox. Pass `owner/repo` whenever you can say where a fix would land. Omit the field when you can't, which triggers free-form selection across the team's repos (the slow path on a many-repo team). Keep the `NO_REPO` sentinel for the rare report where nothing under version control could change, since a skill body, a config file, or a doc still lives in a repo.
+     * @nullable
+     */
+    repository?: string | null
+    /** Optional priority (`P0`-`P4`). Required for autostart; pair with `priority_explanation`.
+     *
+     * * `P0` - P0
+     * * `P1` - P1
+     * * `P2` - P2
+     * * `P3` - P3
+     * * `P4` - P4 */
+    priority?: AutonomyPriorityEnumApi | null
+    /**
+     * 2-3 sentence justification for `priority`. Required when `priority` is set.
+     * @nullable
+     */
+    priority_explanation?: string | null
+    /**
+     * Optional reviewers to route the report to (each a `github_login` and/or `user_uuid`). This is the primary way a report reaches a human — the inbox floats a reviewer's own reports to the top of their inbox even when no PR is involved — so set it whenever you can name a plausible owner. On a scout report it also gates autostart: a PR opens only if at least one reviewer clears their autonomy threshold. A report a person files never autostarts.
+     * @maxItems 10
+     */
+    suggested_reviewers?: SuggestedReviewerApi[]
+    /**
+     * Optional charts to attach to the report — the inbox renders them inline, so a metric move is something the reader sees rather than a number they take on trust. Attach one whenever the finding rests on a trend, a spike, or a comparison you already queried.
+     * @maxItems 20
+     */
+    charts?: ReportChartApi[]
+    /**
+     * Optional typed impact measurements. Use one primary metric for the key observation and supporting metrics for users, sessions, occurrences, conversion, latency, or revenue. Every metric requires a bounded live InsightVizNode/TrendsQuery built only from EventsNode or ActionsNode sources and capped at 1,000 estimated longitudinal points. Consumers derive BoldNumber and ActionsBar shapes. A value/value_at snapshot is an optional cached fallback. Affected users must use one series with `math: dau`. Snapshot-only/queryless payloads are invalid; legacy rows of that shape are always redacted.
+     * @maxItems 6
+     */
+    metrics?: ReportMetricWriteApi[]
+    /**
+     * Optional follow-up prompts to offer above the report's `Ask AI` box: questions to ask, or next-step actions to request (e.g. carrying out the report's recommendation). The reader clicks one to fill the box with it, then sends or edits it. Write the prompts your own research left open, phrased as the reader would send them.
+     * @maxItems 3
+     * @items.maxLength 200
+     */
+    suggested_prompts?: string[]
+    /**
+     * Typed, directed links from the new report to reports that already exist. Send them here, not in a later `edit-report` call, because autostart reads them when the report is created: a `duplicate_of` link to a report that already has a pull request, or a `depends_on` link to a report with no pull request yet, stops a second draft PR. Only the new report gets a row, so link from the side the sentence starts at. Links of the same kind must stay acyclic and every report must be in this project.
+     * @maxItems 10
+     */
+    links?: ReportLinkWriteApi[]
+    /**
+     * Optional slug tags that group the report with related ones, at most 10. Write lowercase kebab-case slugs that name the category of the report (`cost-spike`, `tracking-gap`), not the specific entity. Reuse a slug the project already uses before you coin a new one. Near-miss formats are normalized to slugs, and a tag that is empty or longer than 50 characters after normalization is rejected.
+     * @maxItems 10
+     */
+    tags?: string[]
+    /**
+     * Optional name for this emission, unique within a scout's run or within a person's own reports. Reuse it verbatim to retry a call whose outcome you don't know (a timeout, a dropped connection): the retry returns the report the first call authored, with `idempotent_replay` true, instead of a second report. Omit it and the report's own content is the key, which covers a retry of the identical call — pass one when a retry might reword the report.
+     * @maxLength 200
+     * @nullable
+     */
+    idempotency_key?: string | null
+}
+
+export interface EmitReportResponseApi {
+    /**
+     * The authored report's id (null only when a preflight gate skipped the call). Returned even when suppressed, so you can edit/dedup against it.
+     * @nullable
+     */
+    report_id: string | null
+    /**
+     * Birth status: `ready` | `pending_input` | `suppressed`, or null when gate-skipped.
+     * @nullable
+     */
+    report_status: string | null
+    /** True when the report actually surfaced in the inbox (READY or PENDING_INPUT). */
+    emitted: boolean
+    /**
+     * `scout_config_missing` | `scout_emit_disabled` | `ai_processing_not_approved` | `source_disabled` | null when not gate-skipped.
+     * @nullable
+     */
+    skipped_reason: string | null
+    /**
+     * When the safety judge suppressed the report, why; null when safe.
+     * @nullable
+     */
+    safety_explanation: string | null
+    /**
+     * One-line, actionable next step when `skipped_reason` is set and the block is fixable (e.g. an org admin must approve AI data processing). Null when the report was authored or the skip isn't something the scout can act on.
+     * @nullable
+     */
+    remediation: string | null
+    /** True when this call authored nothing because the emission had already landed — the fields above describe that first report. Expected on a retry; treat the report as filed and don't send it again. */
+    idempotent_replay: boolean
+}
+
+/**
  * One impact measurement shown on a report.
  */
 export interface ReportMetricApi {
@@ -3596,6 +3885,7 @@ export interface SignalReportLeaveReviewersApi {
  * * `pganalyze` - pganalyze
  * * `signals_scout` - signals_scout
  * * `signals_check` - signals_check
+ * * `user_authored` - user_authored
  * * `logs` - logs
  * * `health_checks` - health_checks
  * * `replay_vision` - replay_vision
@@ -3712,6 +4002,7 @@ export const SignalSourceProductApi = {
     Pganalyze: 'pganalyze',
     SignalsScout: 'signals_scout',
     SignalsCheck: 'signals_check',
+    UserAuthored: 'user_authored',
     Logs: 'logs',
     HealthChecks: 'health_checks',
     ReplayVision: 'replay_vision',
@@ -3831,6 +4122,7 @@ export const SignalSourceProductApi = {
  * * `health_issue` - health_issue
  * * `scanner_finding` - scanner_finding
  * * `anomaly_investigation` - anomaly_investigation
+ * * `alert_firing` - alert_firing
  * * `feedback` - feedback
  * * `review` - review
  * * `ci_flaky_check` - ci_flaky_check
@@ -3860,6 +4152,7 @@ export const SignalSourceTypeApi = {
     HealthIssue: 'health_issue',
     ScannerFinding: 'scanner_finding',
     AnomalyInvestigation: 'anomaly_investigation',
+    AlertFiring: 'alert_firing',
     Feedback: 'feedback',
     Review: 'review',
     CiFlakyCheck: 'ci_flaky_check',
@@ -4159,6 +4452,20 @@ export interface AnalyticsAnomalyInvestigationSignalExtraApi {
     alert_check_id?: string | null
     investigation_id?: string | null
     evaluation_key?: string | null
+}
+
+export interface AnalyticsAlertFiringSignalExtraApi {
+    alert_id: string
+    alert_name: string
+    insight_id: string
+    alert_check_id: string
+    detector_type: string
+    breaches: string[]
+    episode_started_at: string
+    url: string
+    insight_name?: string | null
+    insight_short_id?: string | null
+    triggered_dates?: string[] | null
 }
 
 export type HealthCheckSignalExtraSeverityEnumApi =
@@ -4974,6 +5281,7 @@ export type SignalExtraApi =
     | LogsAlertStateChangeSignalExtraApi
     | ReplayVisionScannerFindingSignalExtraApi
     | AnalyticsAnomalyInvestigationSignalExtraApi
+    | AnalyticsAlertFiringSignalExtraApi
     | HealthCheckSignalExtraApi
     | EngineeringAnalyticsCIFlakyCheckSignalExtraApi
     | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtraApi
@@ -5129,6 +5437,7 @@ export interface SignalNodeApi {
      * * `pganalyze` - pganalyze
      * * `signals_scout` - signals_scout
      * * `signals_check` - signals_check
+     * * `user_authored` - user_authored
      * * `logs` - logs
      * * `health_checks` - health_checks
      * * `replay_vision` - replay_vision
@@ -5248,6 +5557,7 @@ export interface SignalNodeApi {
      * * `health_issue` - health_issue
      * * `scanner_finding` - scanner_finding
      * * `anomaly_investigation` - anomaly_investigation
+     * * `alert_firing` - alert_firing
      * * `feedback` - feedback
      * * `review` - review
      * * `ci_flaky_check` - ci_flaky_check
@@ -9621,176 +9931,6 @@ export interface RecordCheckResultResponseApi {
 }
 
 /**
- * One observation backing an authored report — becomes a bound signal row on the report.
- */
-export interface ReportEvidenceApi {
-    /**
-     * Prose for this observation. Embedded and rendered to the safety/research surfaces.
-     * @maxLength 4000
-     */
-    description: string
-    /** Stable id for this observation within the report (lets a later edit address it). */
-    source_id: string
-}
-
-/**
- * One suggested reviewer — identified by `github_login`, `user_uuid`, or both.
- *
- * A reviewer is a PostHog user, so a `user_uuid` only has to name an org member of this team: a
- * member with no linked GitHub account routes the report like anyone else. A `user_uuid` that
- * isn't an org member of this team is rejected — so a reviewer is never silently dropped.
- */
-export interface SuggestedReviewerApi {
-    /**
-     * GitHub login (case-insensitive, stored lowercased) — e.g. `octocat`, no `@`, no display name. Resolve one via `scout-members-list` (each member row carries a resolved `github_login`) or git history when you only have a name.
-     * @maxLength 200
-     */
-    github_login?: string
-    /** PostHog user UUID (e.g. from `scout-members-list`, or an entity's `created_by`). Use this when you know the PostHog user, whether or not they have a GitHub handle — every member is routable this way. Must be a concrete UUID; the `@me` alias is not valid here. */
-    user_uuid?: string
-    /**
-     * One sentence of evidence for WHY this person: what ties them to the affected surface (e.g. 'authored 4 of the last 10 commits touching products/tracing/mcp/', 'human correction routed the prior tracing report to them'). Persisted on the report so the routing is auditable — always set it when you can name the evidence; 'precedent' alone is weak, prefer code-derived ownership.
-     * @maxLength 500
-     * @nullable
-     */
-    reason?: string | null
-}
-
-export interface ReportMetricComparisonApi {
-    /** Baseline or previous value, formatted like the current value. */
-    value: number
-    /**
-     * Short context for the comparison, such as `Previous period`.
-     * @maxLength 40
-     */
-    label: string
-}
-
-/**
- * Authoring shape: unlike a read response, the live query cannot be absent or redacted.
- */
-export interface ReportMetricWriteApi {
-    /**
-     * Stable slug for this metric within the report: lowercase letters, numbers, underscores, and hyphens, starting with a letter or number.
-     * @maxLength 100
-     */
-    metric_id: string
-    /**
-     * Short human-readable label for the measurement.
-     * @maxLength 200
-     */
-    title: string
-    /** What the value measures, independent of how it is formatted or drawn.
-     *
-     * * `affected_users` - affected_users
-     * * `affected_sessions` - affected_sessions
-     * * `occurrences` - occurrences
-     * * `conversion_rate` - conversion_rate
-     * * `error_rate` - error_rate
-     * * `duration` - duration
-     * * `revenue` - revenue
-     * * `custom` - custom */
-    kind: ReportMetricKindEnumApi
-    /** `primary` for the report's key observation, otherwise `supporting`.
-     *
-     * * `primary` - primary
-     * * `supporting` - supporting */
-    role?: RoleEnumApi
-    /**
-     * Latest saved snapshot, initially observed during authoring and replaced when a person opens the inbox or the report. Null means no snapshot is available to this viewer; it never means zero. The required live query remains the source of truth.
-     * @nullable
-     */
-    value?: number | null
-    /**
-     * When the visible snapshot value was measured; null when value is null.
-     * @nullable
-     */
-    value_at?: string | null
-    /**
-     * Trailing per-bucket values of the live query, oldest first, saved with the value snapshot so a list row can draw the trend without running the query; at most 14 points. Null when no snapshot series is available to this viewer.
-     * @maxItems 14
-     * @nullable
-     */
-    series?: number[] | null
-    /** How to format the numeric value; semantic meaning remains in kind. `percentage` uses percentage points, so 34 renders as 34%; `percentage_scaled` uses a 0–1 ratio, so 0.34 renders as 34%. Sessions and occurrences use count; duration uses duration with an ms/s unit; revenue uses currency with an ISO currency unit.
-     *
-     * * `number` - number
-     * * `count` - count
-     * * `percentage` - percentage
-     * * `percentage_scaled` - percentage_scaled
-     * * `duration` - duration
-     * * `currency` - currency */
-    value_format?: ValueFormatEnumApi
-    /**
-     * Optional short suffix or currency code, such as `users`, `ms`, or `USD`.
-     * @maxLength 40
-     * @nullable
-     */
-    unit?: string | null
-    /** Required when authoring: a live InsightVizNode wrapping one bounded TrendsQuery. Consumers derive a BoldNumber execution for the whole-window aggregate and an ActionsBar execution for longitudinal buckets. The query must produce exactly one output series and no more than 1000 estimated longitudinal points; one formula may combine up to ten event or action source series. An affected_users metric uses exactly one source with `math: dau`; never sum its per-bucket unique-user values. A response omits this on list or redacts it to null on detail when the viewer lacks access to the definition. */
-    query: unknown
-    /**
-     * Optional context the tile cannot show, such as a filter that narrows the count or a caveat on the data. Omit it rather than restate the title, unit, or window.
-     * @maxLength 500
-     * @nullable
-     */
-    caption?: string | null
-    /** Legacy optional comparison. New report metrics must omit it. */
-    comparison?: ReportMetricComparisonApi | null
-}
-
-/**
- * * `depends_on` - Depends on
- * * `part_of` - Part of
- * * `follow_up_of` - Follow-up of
- * * `duplicate_of` - Duplicate of
- * * `recurrence_of` - Recurrence of
- */
-export type ReportLinkKindEnumApi = (typeof ReportLinkKindEnumApi)[keyof typeof ReportLinkKindEnumApi]
-
-export const ReportLinkKindEnumApi = {
-    DependsOn: 'depends_on',
-    PartOf: 'part_of',
-    FollowUpOf: 'follow_up_of',
-    DuplicateOf: 'duplicate_of',
-    RecurrenceOf: 'recurrence_of',
-} as const
-
-/**
- * One typed, directed link to write on the report being emitted or edited.
- */
-export interface ReportLinkWriteApi {
-    /** How this report relates to `report_id`. `depends_on` for work that cannot land until the other report's fix does, `part_of` for one piece of a larger report, `follow_up_of` for work the other report left behind, `duplicate_of` for the same problem filed twice, and `recurrence_of` for a problem a resolved report already covered.
-     *
-     * * `depends_on` - Depends on
-     * * `part_of` - Part of
-     * * `follow_up_of` - Follow-up of
-     * * `duplicate_of` - Duplicate of
-     * * `recurrence_of` - Recurrence of */
-    kind: ReportLinkKindEnumApi
-    /** Id of the report to link to. Must be another report in this project. */
-    report_id: string
-    /**
-     * Optional one-line note on why the reports are linked this way.
-     * @maxLength 500
-     */
-    reason?: string
-}
-
-/**
- * * `immediately_actionable` - immediately_actionable
- * * `requires_human_input` - requires_human_input
- * * `not_actionable` - not_actionable
- */
-export type ActionabilityEnumApi = (typeof ActionabilityEnumApi)[keyof typeof ActionabilityEnumApi]
-
-export const ActionabilityEnumApi = {
-    ImmediatelyActionable: 'immediately_actionable',
-    RequiresHumanInput: 'requires_human_input',
-    NotActionable: 'not_actionable',
-} as const
-
-/**
  * Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones.
  */
 export interface EditReportRequestApi {
@@ -10029,121 +10169,6 @@ export interface ScoutEmissionReportLinkApi {
     source_id: string
     /** The inbox report this finding linked to, or null if none could be resolved. */
     report: LinkedSignalReportApi | null
-}
-
-/**
- * Request body for `emit-report`. Run attribution is taken from the URL path.
- */
-export interface EmitReportRequestApi {
-    /**
-     * One-line report title the inbox shows. Conventional-commit style (`type(scope): description`, e.g. `fix(insights): missing series color`) renders with type/scope styling.
-     * @maxLength 300
-     */
-    title: string
-    /** The report body the inbox shows. Markdown is supported (headings, lists, code, links; images are not rendered). Lead with one plain declarative sentence — the inbox card uses your first line verbatim as the headline (~140 chars, emphasis stripped), then renders the full markdown in the detail view. A heading, or a bold label on a line of its own with a blank line above it, marks a section that a threaded Slack delivery splits into its own reply. */
-    summary: string
-    /**
-     * The observations backing the report — each becomes a bound signal. At least one.
-     * @minItems 1
-     */
-    evidence: ReportEvidenceApi[]
-    /** 2-3 sentence evidence-grounded justification for the actionability call below. */
-    actionability_explanation: string
-    /** The scout's actionability call: `immediately_actionable` -> the report surfaces READY; `requires_human_input` -> PENDING_INPUT; `not_actionable` -> suppressed. A safety-judge failure suppresses the report regardless. A root cause you have not found is not human input: a report that names the evidence, the code surface, or a reproducible failure path is `immediately_actionable`, because investigating it is the action. Reserve `requires_human_input` for a report blocked on a decision only a person can make.
-     *
-     * * `immediately_actionable` - immediately_actionable
-     * * `requires_human_input` - requires_human_input
-     * * `not_actionable` - not_actionable */
-    actionability: ActionabilityEnumApi
-    /** Whether the issue is already being handled — fixed in recent changes, or with a fix in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task). Gates autostart, so a wrong `false` opens a duplicate PR. Tracked separately. */
-    already_addressed?: boolean
-    /**
-     * Optional repo for opening a draft PR, by autostart or by a person from the inbox. Pass `owner/repo` whenever you can say where a fix would land. Omit the field when you can't, which triggers free-form selection across the team's repos (the slow path on a many-repo team). Keep the `NO_REPO` sentinel for the rare report where nothing under version control could change, since a skill body, a config file, or a doc still lives in a repo.
-     * @nullable
-     */
-    repository?: string | null
-    /** Optional priority (`P0`-`P4`). Required for autostart; pair with `priority_explanation`.
-     *
-     * * `P0` - P0
-     * * `P1` - P1
-     * * `P2` - P2
-     * * `P3` - P3
-     * * `P4` - P4 */
-    priority?: AutonomyPriorityEnumApi | null
-    /**
-     * 2-3 sentence justification for `priority`. Required when `priority` is set.
-     * @nullable
-     */
-    priority_explanation?: string | null
-    /**
-     * Optional reviewers to route the report to (each a `github_login` and/or `user_uuid`). This is the primary way a report reaches a human — the inbox floats a reviewer's own reports to the top of their inbox even when no PR is involved — so set it whenever you can name a plausible owner. It also gates autostart: a PR opens only if at least one reviewer clears their autonomy threshold.
-     * @maxItems 10
-     */
-    suggested_reviewers?: SuggestedReviewerApi[]
-    /**
-     * Optional charts to attach to the report — the inbox renders them inline, so a metric move is something the reader sees rather than a number they take on trust. Attach one whenever the finding rests on a trend, a spike, or a comparison you already queried.
-     * @maxItems 20
-     */
-    charts?: ReportChartApi[]
-    /**
-     * Optional typed impact measurements. Use one primary metric for the key observation and supporting metrics for users, sessions, occurrences, conversion, latency, or revenue. Every metric requires a bounded live InsightVizNode/TrendsQuery built only from EventsNode or ActionsNode sources and capped at 1,000 estimated longitudinal points. Consumers derive BoldNumber and ActionsBar shapes. A value/value_at snapshot is an optional cached fallback. Affected users must use one series with `math: dau`. Snapshot-only/queryless payloads are invalid; legacy rows of that shape are always redacted.
-     * @maxItems 6
-     */
-    metrics?: ReportMetricWriteApi[]
-    /**
-     * Optional follow-up prompts to offer above the report's `Ask AI` box: questions to ask, or next-step actions to request (e.g. carrying out the report's recommendation). The reader clicks one to fill the box with it, then sends or edits it. Write the prompts your own research left open, phrased as the reader would send them.
-     * @maxItems 3
-     * @items.maxLength 200
-     */
-    suggested_prompts?: string[]
-    /**
-     * Typed, directed links from the new report to reports that already exist. Send them here, not in a later `edit-report` call, because autostart reads them when the report is created: a `duplicate_of` link to a report that already has a pull request, or a `depends_on` link to a report with no pull request yet, stops a second draft PR. Only the new report gets a row, so link from the side the sentence starts at. Links of the same kind must stay acyclic and every report must be in this project.
-     * @maxItems 10
-     */
-    links?: ReportLinkWriteApi[]
-    /**
-     * Optional slug tags that group the report with related ones, at most 10. Write lowercase kebab-case slugs that name the category of the report (`cost-spike`, `tracking-gap`), not the specific entity. Reuse a slug the project already uses before you coin a new one. Near-miss formats are normalized to slugs, and a tag that is empty or longer than 50 characters after normalization is rejected.
-     * @maxItems 10
-     */
-    tags?: string[]
-    /**
-     * Optional name for this emission, unique within the run. Reuse it verbatim to retry a call whose outcome you don't know (a timeout, a dropped connection): the retry returns the report the first call authored, with `idempotent_replay` true, instead of a second report. Omit it and the report's own content is the key, which covers a retry of the identical call — pass one when a retry might reword the report.
-     * @maxLength 200
-     * @nullable
-     */
-    idempotency_key?: string | null
-}
-
-export interface EmitReportResponseApi {
-    /**
-     * The authored report's id (null only when a preflight gate skipped the call). Returned even when suppressed, so you can edit/dedup against it.
-     * @nullable
-     */
-    report_id: string | null
-    /**
-     * Birth status: `ready` | `pending_input` | `suppressed`, or null when gate-skipped.
-     * @nullable
-     */
-    report_status: string | null
-    /** True when the report actually surfaced in the inbox (READY or PENDING_INPUT). */
-    emitted: boolean
-    /**
-     * `scout_config_missing` | `scout_emit_disabled` | `ai_processing_not_approved` | `source_disabled` | null when not gate-skipped.
-     * @nullable
-     */
-    skipped_reason: string | null
-    /**
-     * When the safety judge suppressed the report, why; null when safe.
-     * @nullable
-     */
-    safety_explanation: string | null
-    /**
-     * One-line, actionable next step when `skipped_reason` is set and the block is fixable (e.g. an org admin must approve AI data processing). Null when the report was authored or the skip isn't something the scout can act on.
-     * @nullable
-     */
-    remediation: string | null
-    /** True when this call authored nothing because the emission had already landed — the fields above describe that first report. Expected on a retry; treat the report as filed and don't send it again. */
-    idempotent_replay: boolean
 }
 
 /**
@@ -11746,7 +11771,7 @@ export type SignalsScoutScratchpadSearchParams = {
      */
     skill_name?: string
     /**
-     * ILIKE substring match against `content`. Omit to return the most recent entries.
+     * ILIKE substring match against `content` and `key`. Must contain 3 letters or digits in a row, or 2 next to a symbol such as `ai_` or `pr:`. Omit to return the most recent entries.
      */
     text?: string
 }
