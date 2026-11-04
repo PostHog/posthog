@@ -55,11 +55,11 @@ def on_updated(alert: AlertConfiguration, *, snooze_changed: bool, rescheduled: 
     """Writes an edit the insight API saved onto the platform's copy. `rescheduled` says the edit
     moved the alert's own due time, which the copy then follows.
 
-    Raises `PlatformCannotOwn` for an edit the platform cannot evaluate, such as one the investigation agent reads, and
+    Raises `PlatformCannotOwn` for an edit the platform cannot evaluate, such as a frequency it does not run, and
     `InvalidPlatformAlertEdit` for one the platform's schema rejects.
     """
     if not can_move(alert):
-        raise PlatformCannotOwn("The alerts platform runs this alert, and it cannot run the investigation agent yet.")
+        raise PlatformCannotOwn("The alerts platform runs this alert, and it can't run checks at this frequency.")
     upsert = platform_upsert_of(alert)
     assert upsert is not None
     update_owned_copy(

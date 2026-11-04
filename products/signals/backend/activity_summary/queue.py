@@ -236,6 +236,15 @@ class Enrollment:
     team_organization_ids: dict[int, uuid.UUID] = dataclasses.field(default_factory=dict)
 
 
+def _unblocked_teams(config: ActivitySummaryConfig, teams: QuerySet[Team]) -> QuerySet[Team]:
+    """The teams of `teams` that AI data processing approval, `skip_team_ids` and the denylist keep."""
+    return (
+        teams.filter(organization__is_ai_data_processing_approved=True)
+        .exclude(id__in=config.skip_team_ids)
+        .exclude(organization_id__in=_parse_organization_ids(config.deny_organization_ids))
+    )
+
+
 def enrollment(config: ActivitySummaryConfig) -> Enrollment:
     """The teams that `is_team_enrolled_for_generation` enrolls, in a fixed number of queries."""
     if not config.enabled:
@@ -245,11 +254,7 @@ def enrollment(config: ActivitySummaryConfig) -> Enrollment:
     )
 
     listed = _parse_organization_ids(config.organization_ids)
-    teams = (
-        Team.objects.filter(organization__is_ai_data_processing_approved=True)
-        .exclude(id__in=config.skip_team_ids)
-        .exclude(organization_id__in=_parse_organization_ids(config.deny_organization_ids))
-    )
+    teams = _unblocked_teams(config, Team.objects.all())
     # The teams with an enabled source come first, because they are far fewer than the approved teams.
     with_source: dict[int, uuid.UUID] = dict(
         teams.filter(id__in=team_ids_with_enabled_source()).values_list("id", "organization_id")
@@ -312,25 +317,20 @@ def is_team_enrolled_for_generation(config: ActivitySummaryConfig, team: Team) -
 
 
 def is_team_enrolled_for_read(config: ActivitySummaryConfig, team: Team) -> bool:
-    """The API and MCP tools read summaries only for these teams. The percentage rollout and the denylist do not apply.
+    """The API, the MCP tools and personal ranking read summaries only for these teams.
 
-    A disabled config enrolls no team.
+    Read enrollment is generation enrollment, so every generated summary is readable.
     """
-    if not config.enabled or team.id in config.skip_team_ids:
-        return False
-    if team.organization.is_ai_data_processing_approved is not True:
-        return False
-    return config.enroll_all_approved or team.organization_id in _parse_organization_ids(config.organization_ids)
+    return is_team_enrolled_for_generation(config, team)
 
 
 def read_enrolled_teams(config: ActivitySummaryConfig, teams: QuerySet[Team]) -> QuerySet[Team]:
-    """The teams of `teams` that `is_team_enrolled_for_read` enrolls, in one query."""
+    """The teams of `teams` that `is_team_enrolled_for_read` enrolls, in a fixed number of queries."""
     if not config.enabled:
         return teams.none()
-    teams = teams.filter(organization__is_ai_data_processing_approved=True).exclude(id__in=config.skip_team_ids)
     if config.enroll_all_approved:
-        return teams
-    return teams.filter(organization_id__in=_parse_organization_ids(config.organization_ids))
+        return _unblocked_teams(config, teams)
+    return teams.filter(id__in=enrollment(config).team_ids)
 
 
 _parse_organization_ids = org_rollout.parse_organization_ids

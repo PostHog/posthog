@@ -6,7 +6,7 @@ import { Spinner } from '@posthog/lemon-ui'
 import { OnboardingStepKey } from '~/types'
 
 import { OnboardingStep } from '../OnboardingStep'
-import { WizardCommandBlock } from '../shared/wizard-sync/WizardCommandBlock'
+import { WizardCommandBlock } from '../shared/wizard-command/WizardCommandBlock'
 import { PurpleWizardHog } from '../shared/wizardHog'
 import { onboardingMcpStepLogic } from './onboardingMcpStepLogic'
 
