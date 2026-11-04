@@ -30,9 +30,9 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import (
     ClickHouseClient,
     ClickHouseError,
-    ClickHouseQueryPlanningError,
     ClickHouseQueryTimeoutError,
     ClickHouseTooManySimultaneousQueriesError,
+    ClickHouseUserQueryError,
 )
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.data_modeling.activities import (
@@ -2141,6 +2141,7 @@ class _EmptyArrowClient:
         self.describe_query: str | None = None
         self.describe_calls: list[tuple[str, dict[str, str] | None]] = []
         self.describe_error: Exception | None = None
+        self.arrow_error: Exception | None = None
         self.arrow_query: str | None = None
 
     async def astream_query_as_arrow(
@@ -2154,6 +2155,8 @@ class _EmptyArrowClient:
     ) -> AsyncIterator[pa.RecordBatch]:
         self.arrow_query_calls += 1
         self.arrow_query = query
+        if self.arrow_error is not None:
+            raise self.arrow_error
         if on_schema is not None:
             on_schema(self.schema)
         return
@@ -2545,7 +2548,7 @@ class TestHogqlTableDescribeSettings:
         "describe_error,should_fallback",
         [
             (
-                ClickHouseQueryPlanningError("Code: 8. DB::Exception: Cannot find column in source stream"),
+                ClickHouseError("Code: 8. DB::Exception: Cannot find column in source stream"),
                 True,
             ),
             (
@@ -2583,6 +2586,23 @@ class TestHogqlTableDescribeSettings:
             expected_settings.append(None)
             assert "globalIn(" in client.describe_calls[1][0]
         assert [settings for _, settings in client.describe_calls] == expected_settings
+
+    async def test_query_column_error_is_a_permanent_user_error(self, ateam: Team) -> None:
+        client = _EmptyArrowClient(pa.schema([pa.field("distinct_id", pa.string())]))
+        client.describe_body = b"distinct_id\tString\n"
+        client.arrow_error = ClickHouseError("Code: 8. DB::Exception: Cannot find column in source stream")
+
+        @contextlib.asynccontextmanager
+        async def fake_get_client(*args, **kwargs):
+            yield client
+
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.materialize_view.get_clickhouse_client", fake_get_client
+        ):
+            with pytest.raises(ClickHouseUserQueryError):
+                _ = [batch async for batch in hogql_table("SELECT distinct_id FROM events", ateam, LOGGER.bind())]
+
+        assert client.arrow_query_calls == 1
 
 
 class TestHogqlTableDuplicateOutputColumns:

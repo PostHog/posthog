@@ -55,7 +55,12 @@ from posthog.clickhouse.query_tagging import (
     tag_queries,
     tags_context,
 )
-from posthog.errors import ExposedCHQueryError
+from posthog.errors import (
+    CHQueryErrorUnknownIdentifier,
+    CHQueryErrorUnknownTable,
+    CHQueryErrorUnsupportedMethod,
+    ExposedCHQueryError,
+)
 from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.exceptions import (
     APIQueriesBudgetExceeded,
@@ -126,16 +131,22 @@ _QUERY_PERFORMANCE_ERRORS: dict[type[Exception], tuple[str, str]] = {
     ),
 }
 
+_ENDPOINT_USER_QUERY_ERRORS = tuple(
+    error for error in USER_QUERY_ERRORS if error not in (CHQueryErrorUnknownIdentifier, CHQueryErrorUnsupportedMethod)
+)
+
 _NON_REPORTABLE_QUERY_ERRORS: tuple[type[Exception], ...] = (
     *_QUERY_PERFORMANCE_ERRORS,
-    *USER_QUERY_ERRORS,
+    *_ENDPOINT_USER_QUERY_ERRORS,
     ClickHouseAtCapacity,
     APIQueriesBudgetExceeded,
     ConcurrencyLimitExceeded,
 )
 
 
-def _is_non_reportable_query_error(error: Exception) -> bool:
+def _is_non_reportable_query_error(error: Exception, *, materialized: bool) -> bool:
+    if materialized and isinstance(error, CHQueryErrorUnknownTable):
+        return False
     return isinstance(error, _NON_REPORTABLE_QUERY_ERRORS)
 
 
@@ -917,7 +928,7 @@ class EndpointExecutionService(PydanticModelMixin):
 
             return result
         except Exception as e:
-            if _is_non_reportable_query_error(e):
+            if _is_non_reportable_query_error(e, materialized=True):
                 raise
             logger.exception(
                 "Materialized endpoint execution failed",
@@ -1026,7 +1037,7 @@ class EndpointExecutionService(PydanticModelMixin):
 
         except Exception as e:
             self.handle_column_ch_error(e)
-            if _is_non_reportable_query_error(e):
+            if _is_non_reportable_query_error(e, materialized=False):
                 raise
             logger.exception(
                 "Inline endpoint execution failed",
