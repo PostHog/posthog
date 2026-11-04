@@ -110,7 +110,7 @@ describe('FeedbackSheet', () => {
         expect(screen.getByTestId('feedback-description')).toHaveTextContent(/email/)
         expect(screen.getByTestId('feedback-description')).toHaveTextContent(/person@example\.com/)
         if (height - keyboardHeight < 480) {
-            expect(screen.getByTestId('feedback-description')).toHaveTextContent(/Your message and email go/)
+            expect(screen.getByTestId('feedback-description')).toHaveTextContent(/Send a message to the PostHog team/)
         }
     })
 })

@@ -15,7 +15,7 @@ import { FEEDBACK_MAX_LENGTH, feedbackDismissed, feedbackShown, sendFeedback } f
 interface FeedbackSheetProps {
     visible: boolean
     /** Where the team replies. The sheet shows it next to the promise to follow up. */
-    email: string
+    email?: string
     onClose: () => void
     onSent: () => void
 }
@@ -94,9 +94,16 @@ export function FeedbackSheet({ visible, email, onClose, onSent }: FeedbackSheet
                     </Text>
                     <Text style={styles.description} testID="feedback-description">
                         {compact
-                            ? 'Your message and email go to the PostHog team: '
-                            : "Share ideas, bugs, or anything else on your mind. Your message goes straight to the PostHog team, and we'll follow up by email at "}
-                        <Text style={styles.email}>{email}</Text>.
+                            ? 'Send a message to the PostHog team.'
+                            : 'Share ideas, bugs, or anything else on your mind. Your message goes straight to the PostHog team.'}
+                        {email ? (
+                            <>
+                                {' Your email goes with the message so we can reply: '}
+                                <Text style={styles.email}>{email}</Text>.
+                            </>
+                        ) : (
+                            " Your email won't be included."
+                        )}
                     </Text>
                     {error ? (
                         <Text style={styles.error} accessibilityRole="alert" testID="feedback-error">

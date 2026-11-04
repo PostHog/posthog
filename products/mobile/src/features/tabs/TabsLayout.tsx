@@ -102,7 +102,7 @@ function TabsChrome(): ReactElement {
     const viewer = useViewer()
     const { tab, slot } = useFocusedTabHeader()
     const signedIn = useAuthStore((state) => state.signedIn)
-    const email = useAuthStore((state) => state.user?.email)
+    const email = useAuthStore((state) => (state.user?.anonymizeData === false ? state.user.email : undefined))
     const demo = useDemoMode((state) => state.enabled)
     const exitDemo = useExitDemo()
     const signOut = useSignOutAction()
@@ -177,7 +177,7 @@ function TabsChrome(): ReactElement {
                     router.push('/settings')
                 }}
                 onSendFeedback={
-                    signedIn && !demo && email && analyticsEnabled()
+                    signedIn && !demo && analyticsEnabled()
                         ? () => {
                               setMenuOpen(false)
                               setFeedbackOpen(true)
@@ -194,7 +194,7 @@ function TabsChrome(): ReactElement {
                 }}
                 onConfirmSignOut={() => void signOut.run()}
             />
-            {email ? (
+            {signedIn ? (
                 <FeedbackSheet
                     visible={feedbackOpen}
                     email={email}

@@ -19,13 +19,13 @@ export function feedbackDismissed(): void {
 }
 
 /** The email lets the team reply. The sheet shows it, so the person knows it goes with the message. */
-export function sendFeedback(message: string, email: string, submissionId = randomUUID()): Promise<void> {
+export function sendFeedback(message: string, email: string | undefined, submissionId = randomUUID()): Promise<void> {
     return captureSurveyEvent('survey sent', {
         $survey_id: SURVEY_ID,
         $survey_response: message,
         [`$survey_response_${QUESTION_ID}`]: message,
         $survey_completed: true,
         $survey_submission_id: submissionId,
-        email,
+        ...(email ? { email } : {}),
     })
 }
