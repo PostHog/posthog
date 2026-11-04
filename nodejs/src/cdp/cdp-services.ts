@@ -399,6 +399,15 @@ export function createCdpValkeyShadowPools(
     return { writer, reader }
 }
 
+// Only the bounded sandbox cap pool backs the sandbox daily caps. Without it the caps fail closed.
+export function createSandboxDailyCapLimiter(
+    deps: Pick<CdpCoreServicesDeps, 'sandboxEmailCapValkey'>
+): RateLimiterService | null {
+    return deps.sandboxEmailCapValkey
+        ? new RateLimiterService(deps.sandboxEmailCapValkey, { name: 'sandbox-email' })
+        : null
+}
+
 export function createCdpCoreServices(
     config: CdpCoreServicesConfig,
     deps: CdpCoreServicesDeps,
@@ -488,9 +497,7 @@ export function createCdpCoreServices(
     const teamEmailRateLimiter = deps.emailValidationValkey
         ? new RateLimiterService(deps.emailValidationValkey, { name: 'team-email' })
         : null
-    const sandboxEmailRateLimiter = deps.sandboxEmailCapValkey
-        ? new RateLimiterService(deps.sandboxEmailCapValkey, { name: 'sandbox-email' })
-        : null
+    const sandboxEmailRateLimiter = createSandboxDailyCapLimiter(deps)
     const emailService = new EmailService(
         {
             sesAccessKeyId: config.SES_ACCESS_KEY_ID,
