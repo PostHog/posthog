@@ -106,6 +106,7 @@ export { CardGroup } from './card-group'
 export { Checkbox, CheckboxIndicator } from './checkbox'
 export { Chip, ChipClose, ChipGroup } from './chip'
 export { Collapsible, CollapsibleHeader, CollapsibleTrigger, CollapsibleContent } from './collapsible'
+export { MenuEmpty } from './menu-empty'
 export { MenuLabel } from './menu-label'
 export {
     Combobox,
@@ -125,7 +126,6 @@ export {
     ComboboxTrigger,
     ComboboxValue,
     useComboboxAnchor,
-    useComboboxFilteredItems,
 } from './combobox'
 export {
     ContextMenu,
@@ -177,7 +177,10 @@ export {
     DropdownMenuPortal,
     DropdownMenuTrigger,
     DropdownMenuContent,
+    DropdownMenuFilterProvider,
     DropdownMenuGroup,
+    DropdownMenuInput,
+    DropdownMenuList,
     DropdownMenuLabel,
     DropdownMenuItem,
     DropdownMenuCheckboxItem,
@@ -189,6 +192,7 @@ export {
     DropdownMenuSub,
     DropdownMenuSubTrigger,
     DropdownMenuSubContent,
+    useDropdownMenuFilter,
     useDropdownMenuSelectAll,
 } from './dropdown-menu'
 export type { SelectAllState, UseSelectAllResult } from './dropdown-menu'

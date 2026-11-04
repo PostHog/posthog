@@ -6,6 +6,7 @@ import * as React from 'react'
 
 import { Button } from './button'
 import { Checkbox } from './checkbox'
+import { InputGroup, InputGroupInput } from './input-group'
 import { Kbd } from './kbd'
 import { cn } from './lib/utils'
 import { MenuItemBody } from './menu-item-body'
@@ -205,6 +206,35 @@ const DropdownMenuSubContent = React.forwardRef<
             alignOffset={alignOffset}
             side={side}
             sideOffset={sideOffset}
+            {...props}
+        />
+    )
+})
+
+const DropdownMenuFilterProvider = MenuPrimitive.FilterProvider
+const useDropdownMenuFilter = MenuPrimitive.useFilter
+
+const DropdownMenuInput = React.forwardRef<HTMLInputElement, MenuPrimitive.Input.Props>(
+    function DropdownMenuInput(props, ref) {
+        return (
+            <div className="quill-menu__input" data-slot="dropdown-menu-input">
+                <InputGroup>
+                    <MenuPrimitive.Input ref={ref} render={<InputGroupInput />} {...props} />
+                </InputGroup>
+            </div>
+        )
+    }
+)
+
+const DropdownMenuList = React.forwardRef<HTMLDivElement, MenuPrimitive.List.Props>(function DropdownMenuList(
+    { className, ...props },
+    ref
+) {
+    return (
+        <MenuPrimitive.List
+            ref={ref}
+            data-slot="dropdown-menu-list"
+            className={cn('quill-menu__list', className)}
             {...props}
         />
     )
@@ -451,7 +481,10 @@ export {
     DropdownMenuPortal,
     DropdownMenuTrigger,
     DropdownMenuContent,
+    DropdownMenuFilterProvider,
     DropdownMenuGroup,
+    DropdownMenuInput,
+    DropdownMenuList,
     DropdownMenuLabel,
     DropdownMenuItem,
     DropdownMenuCheckboxItem,
@@ -463,6 +496,7 @@ export {
     DropdownMenuSub,
     DropdownMenuSubTrigger,
     DropdownMenuSubContent,
+    useDropdownMenuFilter,
     useDropdownMenuSelectAll,
 }
 export type { SelectAllState, UseSelectAllResult }

@@ -27,8 +27,6 @@ function Combobox<Value, Multiple extends boolean | undefined = false>({
     )
 }
 
-const useComboboxFilteredItems = ComboboxPrimitive.useFilteredItems
-
 function ComboboxValue({ ...props }: ComboboxPrimitive.Value.Props): React.ReactElement {
     return <ComboboxPrimitive.Value data-slot="combobox-value" {...props} />
 }
@@ -356,7 +354,6 @@ function useComboboxAnchor(): React.RefObject<HTMLDivElement> {
 }
 
 export {
-    useComboboxFilteredItems,
     Combobox,
     ComboboxInput,
     ComboboxContent,

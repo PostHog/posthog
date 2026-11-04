@@ -97,7 +97,7 @@ describe('FilterSearchSubMenu', () => {
         })
         const input = await screen.findByLabelText('Search tags')
 
-        expect(screen.getAllByRole('option')).toHaveLength(200)
+        expect(screen.getAllByRole('menuitemcheckbox')).toHaveLength(201)
         expect(screen.getByText('Keep typing to see more')).toBeTruthy()
         expect(screen.queryByText('tag-299')).toBeNull()
 
@@ -107,5 +107,75 @@ describe('FilterSearchSubMenu', () => {
 
         expect(screen.getByText('tag-299')).toBeTruthy()
         expect(screen.queryByText('Keep typing to see more')).toBeNull()
+    })
+
+    it('adds a picked row to the selection, keeps the menu open and resets the search', async () => {
+        const onChange = jest.fn()
+        render(
+            <DropdownMenu defaultOpen>
+                <DropdownMenuTrigger>Filters</DropdownMenuTrigger>
+                <DropdownMenuContent>
+                    <FilterSearchSubMenu
+                        label="Tags"
+                        allLabel="Any tag"
+                        pluralNoun="tags"
+                        options={[
+                            { value: 'growth', label: 'growth' },
+                            { value: 'revenue', label: 'revenue' },
+                        ]}
+                        selected={['growth']}
+                        onChange={onChange}
+                        searchPlaceholder="Search tags"
+                        emptyText="No tag matches"
+                    />
+                </DropdownMenuContent>
+            </DropdownMenu>
+        )
+        await act(async () => {
+            fireEvent.click(await screen.findByText('Tags'))
+        })
+        const input = await screen.findByLabelText<HTMLInputElement>('Search tags')
+        await act(async () => {
+            fireEvent.change(input, { target: { value: 'rev' } })
+        })
+        expect(screen.queryByRole('menuitemcheckbox', { name: 'growth' })).toBeNull()
+
+        await act(async () => {
+            fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'revenue' }))
+        })
+
+        expect(onChange).toHaveBeenCalledWith(['growth', 'revenue'])
+        expect(input.value).toBe('')
+        expect(screen.getByLabelText('Search tags')).toBeTruthy()
+    })
+
+    it('says so when nothing matches the search', async () => {
+        render(
+            <DropdownMenu defaultOpen>
+                <DropdownMenuTrigger>Filters</DropdownMenuTrigger>
+                <DropdownMenuContent>
+                    <FilterSearchSubMenu
+                        label="Tags"
+                        allLabel="Any tag"
+                        pluralNoun="tags"
+                        options={[{ value: 'growth', label: 'growth' }]}
+                        selected={[]}
+                        onChange={jest.fn()}
+                        searchPlaceholder="Search tags"
+                        emptyText="No tag matches"
+                    />
+                </DropdownMenuContent>
+            </DropdownMenu>
+        )
+        await act(async () => {
+            fireEvent.click(await screen.findByText('Tags'))
+        })
+        expect(screen.queryByText('No tag matches')).toBeNull()
+
+        await act(async () => {
+            fireEvent.change(await screen.findByLabelText('Search tags'), { target: { value: 'zzz' } })
+        })
+
+        expect(screen.getByText('No tag matches')).toBeTruthy()
     })
 })
