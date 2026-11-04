@@ -405,17 +405,10 @@ Decide the start position before the migration runs, and state it in the PR desc
 For a high-volume topic, start at the latest offset and fill the gap with a backfill.
 This needs writes that are safe to overlap, such as `min` and `max` aggregates.
 
-The ClickHouse team does this by hand before the migration merges, in dev first and then in each production environment:
-
-1. Create the Kafka table and the materialized view. A Kafka table with no view does not join the group, so the group appears only after this step.
-2. Wait for the group's first commit in the WarpStream console.
-3. Drop the view, then the Kafka table.
-4. Wait for the group to show `Empty`.
-5. In the group's `Topics` tab, use `Change committed offsets` and select `To current latest offset`. The [restoring event offsets runbook](https://runbooks.posthog.com/services/clickhouse/operations/restore-event-offsets) has the console steps. Read it for the console only, because its warning against the latest offset is about restores.
-6. Create the Kafka table and the view again on every node of the role.
-7. Confirm that the group's time lag stays at seconds.
-8. Merge the migration. `IF NOT EXISTS` makes it a no-op, so its SQL must match what you created.
-9. Run the backfill.
+The consumer starts as soon as the migration runs, so agree the merge time with the ClickHouse team and start in dev.
+Be ready to detach the view on every node of the role, as described below.
+When the group shows `Empty` in the WarpStream console, set its committed offsets to the latest offset, attach the view and run the backfill.
+The [restoring event offsets runbook](https://runbooks.posthog.com/services/clickhouse/operations/restore-event-offsets) has the console steps. Read it for the console only, because its warning against the latest offset is about restores.
 
 Dropping the objects does not remove the group's committed offsets, and a later consumer with that name resumes from them.
 After a test, delete the group from its own page in the console. Do not use `Delete Empty Groups`, because that action is not limited to one group.
@@ -434,8 +427,11 @@ loss, provided the recreated table keeps the same `kafka_group_name` and the com
 old shape, so a change to how a column is derived needs a backfill or a sentinel marking pre-change
 rows, the way 0307 coalesces to `''` and 0.
 
-To stop a consumer that is causing trouble, run `DETACH TABLE <mv> PERMANENTLY`. A plain `DETACH` reverses when the server restarts.
-`ATTACH TABLE <mv>` resumes from the committed offsets.
+To stop a consumer that is causing trouble, detach its view on every node of the role.
+A view is not replicated, so nodes that keep it take over the partitions and carry more load.
+From a node in that cluster, run `DETACH TABLE <mv> ON CLUSTER '<cluster>' PERMANENTLY`. A plain `DETACH` reverses when the server restarts.
+The `ON CLUSTER` ban applies to migrations, not to this manual step.
+`ATTACH TABLE <mv> ON CLUSTER '<cluster>'` resumes from the committed offsets.
 While the view is detached, watch the group's lag in the console.
 
 ### The repo is not the source of truth for these settings
