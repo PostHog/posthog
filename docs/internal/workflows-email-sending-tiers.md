@@ -4,6 +4,7 @@ Every project has a trust tier that caps how much workflow email it can send: an
 Projects start at the lowest tier and earn higher ones by sending cleanly; dirty rates, AWS tenant reputation findings, suspensions, and long dormancy move them down.
 The tiers exist because all workflow email shares one SES account whose reputation pools every project's complaints.
 Only workflows that send email are subject to the tiers; SMS, push, and webhook activity is never capped by them.
+Transactional email is never delayed by the send-time caps, but it is still charged against them (see Transactional email below).
 
 ## Where the pieces live
 
@@ -66,6 +67,30 @@ Pinned teams never move automatically.
 While the tier is enforced, the sweep notifies teams it moved: a rate demotion sends an in-app notification plus an email to project admins, and an earned promotion sends an in-app notification only.
 Decay, suspension drops, admin recomputes, and the backfill stay silent.
 
+## Transactional email
+
+An email step categorized as transactional is never delayed by the send-time buckets, in any mode.
+A password reset or a receipt that arrives two hours late has already failed the person waiting for it, so pacing it achieves nothing that dropping it would not.
+This matches the billing quota, which transactional email already bypasses.
+
+The send still drains both buckets by what it costs, so transactional volume displaces the project's marketing while tokens remain.
+A project that spends its whole allowance on transactional email has nothing left for marketing, which is the intended trade.
+
+The charge does not bound the exemption.
+The buckets record no debt, so once a project empties them its further transactional sends cost nothing and this cap stops pacing it.
+A project that labels all of its email transactional is therefore not paced per team at all.
+No other control bounds that volume per project either.
+The SES account rate limiter, which every send still passes, paces the whole account rather than one project.
+What is left is suspension, and the daily sweep demoting the project on its complaint and bounce rates after the fact.
+Making the cap itself bound the case needs overdraw in the shared token bucket, which is a change to `RateLimiterService` and is not done here.
+
+The category is self-declared in the email step, same as everywhere else it is read.
+That is not a new trust boundary: the same field already exempts a send from recipient opt-outs and from the billing quota, both larger levers than pacing.
+
+`cdp_team_email_cap_delayed_total{mode="transactional"}` counts transactional sends that a cap would have delayed.
+They are kept out of `mode="shadow"` so the shadow counts stay a true forecast of what enforce would delay.
+A project appearing there often is spending more on transactional than its tier allows, which is the signal to check the categorization or raise the tier.
+
 ## Rollout order
 
 1. Merge and deploy with both modes `off`. The daily sweep starts computing and storing tiers immediately.
@@ -80,6 +105,7 @@ Decay, suspension drops, admin recomputes, and the backfill stay silent.
 - The batch audience cap is decided when the batch is dispatched. Adding an email step to the workflow while a batch is queued does not re-cap it; the send-time buckets still cap every email at execution. This is why enforcement requires the worker caps to be deployed (see the rollout order).
 - Test-panel sends bypass the team buckets on purpose, matching the per-workflow rate limit.
 - Rescheduled emails keep their email queue priority while waiting. After a team-cap, workflow-pacing, or SES-throttle retry, the workflow restores its origin queue and priority when it next leaves the email queue. A push notification retried while the workflow is on the email queue behaves the same way and waits at the priority of its own message category.
+- Transactional sends are charged but never delayed, so a team whose transactional volume alone exceeds its tier can hold its own marketing at zero (see Transactional email below).
 - The buckets are token buckets: a full idle bucket plus refill allows up to roughly twice the stated cap in the very first period. The bucket TTLs exceed the refill periods so this does not recur from idling.
 - A denied send parks until every short bucket has refilled enough to cover it, instead of retrying on a fixed few-minute cadence.
   The computed wait is capped at one hour and then jittered 1x to 2x, so a parked send can wait just under two hours between attempts.
