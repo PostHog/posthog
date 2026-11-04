@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     class _OrganizationScopedView(Protocol):
         kwargs: dict[str, Any]
         basename: str | None
+        action: str
 
         @property
         def _is_team_view(self) -> bool: ...
@@ -42,6 +43,7 @@ __all__ = [
     "MAX_IP_RESTRICTIONS",
     "enforce_ip_restrictions",
     "get_ip_restriction_denial",
+    "get_ip_blocked_organization_ids",
     "get_restriction_client_ip",
     "is_ip_allowed",
     "is_ip_restriction_exempt",
@@ -370,6 +372,9 @@ def _request_organization_id(
         basename = getattr(match.func, "initkwargs", {}).get("basename") if match else None
     if _is_account_recovery_request(request, user, basename, kwargs):
         return None
+    # The flat project list spans organizations and filters their policies in its queryset.
+    if view is not None and basename == "projects" and view.action == "list":
+        return None
     if view is not None and basename not in ("projects", "organization_projects"):
         return _view_organization_id(view)
     return _route_organization_id(request, user, kwargs, basename)
@@ -446,6 +451,17 @@ def enforce_ip_restrictions(
     if denial is not None:
         raise PermissionDenied(detail=denial, code="ip_not_allowed")
     django_request._ip_restrictions_checked_principal = user
+
+
+def get_ip_blocked_organization_ids(request: "Request") -> list[str]:
+    user = request.user
+    blocked = []
+    for organization_id, _ in _request_policies(request._request, user):
+        try:
+            enforce_ip_restrictions(request, user, request.successful_authenticator, organization_id=organization_id)
+        except PermissionDenied:
+            blocked.append(organization_id)
+    return blocked
 
 
 class IPRestrictionsPermission(BasePermission):
