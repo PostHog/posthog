@@ -205,7 +205,7 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                     {dedent`
                         Next.js enables you to both server-side render pages and add server-side functionality. To capture server-side exceptions, use [\`@posthog/next\`](https://posthog.com/docs/libraries/next-js/posthog-next) for the errors Next.js reports and the [Node SDK](https://posthog.com/docs/libraries/node) for everything else.
 
-                        First, install \`@posthog/next\` (0.11.0 or later) and \`posthog-node\` (5.61.1 or later):
+                        First, install \`@posthog/next\` (0.11.0 or later) and \`posthog-node\` (5.61.1 or later). \`@posthog/next\` needs \`posthog-js\` 1.445.1 or later, so upgrade an older \`posthog-js\` in the same install:
                     `}
                 </Markdown>
                 <CodeBlock
@@ -218,7 +218,7 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                 />
                 <Markdown>
                     {dedent`
-                        Then create a \`lib/posthog-server.js\` file. In it, initialize PostHog from \`posthog-node\` with your project token and host from [your project settings](https://app.posthog.com/settings/project). With \`enableExceptionAutocapture\`, it captures uncaught exceptions and unhandled promise rejections on the Node.js server. Next.js bundles \`instrumentation.js\` and each route separately, so this can create more than one client, but \`posthog-node\` shares one set of process listeners between them and captures each error once.
+                        Then create a \`lib/posthog-server.js\` file. In it, initialize PostHog from \`posthog-node\` with your project token and host from [your project settings](https://app.posthog.com/settings/project). With \`enableExceptionAutocapture\`, it captures uncaught exceptions and unhandled promise rejections on the Node.js server. Create the client inside the function, never at the top level of the module: Next.js also bundles \`instrumentation.js\` for the edge runtime, where a client with \`enableExceptionAutocapture\` fails to load and takes the edge \`onRequestError\` down with it. Next.js bundles \`instrumentation.js\` and each route separately, so this can create more than one client, but \`posthog-node\` shares one set of process listeners between them and captures each error once.
 
                         This looks like this:
                     `}
@@ -388,7 +388,26 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                 />
                 <Markdown>
                     {dedent`
-                        On **Next.js 14 and earlier** there is no \`onRequestError\`, and \`instrumentation.ts\` runs only with \`experimental: { instrumentationHook: true }\` in \`next.config.js\`. Upgrade to Next.js 15, or capture in your route handlers and server actions with \`getPostHogServer().captureException(error)\`. \`withPostHogProxy\` works for middleware on these versions too.
+                        **Next.js 14 and earlier** have no \`onRequestError\`, and run \`instrumentation.ts\` only with the \`instrumentationHook\` flag. Turn it on so \`register()\` starts the \`posthog-node\` client and captures uncaught exceptions and unhandled promise rejections:
+                    `}
+                </Markdown>
+                <CodeBlock
+                    blocks={[
+                        {
+                            language: 'javascript',
+                            file: 'next.config.js',
+                            code: dedent`
+                                module.exports = {
+                                  // Only on Next.js 14 and earlier: later versions run instrumentation.js without it
+                                  experimental: { instrumentationHook: true },
+                                }
+                            `,
+                        },
+                    ]}
+                />
+                <Markdown>
+                    {dedent`
+                        Leave \`onRequestError\` out of \`instrumentation.js\` on these versions, since Next.js never calls it. Wrap your middleware with \`withPostHogProxy\`, which works on Next.js 13.5 and 14 too, with \`export const middleware\`. Nothing reports errors from Server Components, Route Handlers, and Server Actions to PostHog on these versions: upgrade to Next.js 15 to capture them, or capture the ones your code catches with \`getPostHogServer().captureException(error)\`.
                     `}
                 </Markdown>
                 <Markdown>
