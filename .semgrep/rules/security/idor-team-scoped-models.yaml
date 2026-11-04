@@ -448,6 +448,8 @@ rules:
                               |PlatformAlertDeliveryHold
                               |PlatformAlertDeliveryPath
                               |PlatformAlertThread
+                              |PlatformOccurrence
+                              |PlatformOccurrenceCursor
                               |AlertDestination
                               |SupabaseAuthEmailConfig
                               |Survey
@@ -949,6 +951,8 @@ rules:
                         |PlatformAlertDeliveryHold
                         |PlatformAlertDeliveryPath
                         |PlatformAlertThread
+                        |PlatformOccurrence
+                        |PlatformOccurrenceCursor
                         |AlertDestination
                         |SupabaseAuthEmailConfig
                         |Survey
