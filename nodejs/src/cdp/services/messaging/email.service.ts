@@ -501,7 +501,8 @@ function sandboxRecipientsOf(params: CyclotronInvocationQueueParametersEmailType
     return [params.to.email.trim(), ...sandboxAddressList(params.cc), ...sandboxAddressList(params.bcc)]
 }
 
-type SandboxRecipientBlockReason = Exclude<SandboxEmailBlockReason, 'switch_off'>
+type SandboxCapSkipReason = Extract<SandboxEmailBlockReason, 'project_cap_reached' | 'cap_check_failed'>
+type SandboxRecipientBlockReason = Exclude<SandboxEmailBlockReason, 'switch_off' | SandboxCapSkipReason>
 
 type SesRoute = {
     tenantName: string
@@ -511,40 +512,52 @@ type SesRoute = {
     bccAddresses?: string[]
 }
 
-const SANDBOX_RECIPIENT_BLOCK_COPY: Record<
+// A check that could not run maps to the same email status as a blocked recipient, not to
+// `sending_suspended`, which means staff or billing turned sending off for the project.
+const SANDBOX_RECIPIENT_BLOCKS: Record<
     SandboxRecipientBlockReason,
-    { explanation: string; label: string; guidance: string }
+    { explanation: string; label: string; guidance: string; statusReason: EmailSkipReason }
 > = {
     recipient_not_member: {
         explanation:
             'Skipping send: the sandbox sender only sends to active organization members with verified email addresses',
         label: '. Blocked addresses: ',
         guidance: 'Verify your own domain to send to anyone.',
+        statusReason: 'recipient_unreachable',
     },
     recipient_unverified: {
         explanation:
             'Skipping send: the sandbox sender only sends to organization members with verified email addresses',
         label: '. Unverified addresses: ',
         guidance: 'Verify your email address in PostHog, or ask these members to verify theirs.',
+        statusReason: 'recipient_unreachable',
     },
     check_failed: {
         explanation: 'Skipping send: could not check organization members',
         label: ' for these addresses: ',
         guidance: 'Try again, or verify your own domain to send to anyone.',
+        statusReason: 'recipient_unreachable',
     },
-    cap_reached: {
+    recipient_cap_reached: {
         explanation: "Skipping send: these addresses reached the sandbox sender's daily limit per address",
         label: ': ',
         guidance: 'Verify your own domain to send more.',
+        statusReason: 'frequency_capped',
     },
 }
 
-const SANDBOX_CAP_SKIP_MESSAGES = {
-    project_cap_reached:
-        "Skipping send: this email would go over the sandbox sender's daily limit for this project. Verify your own domain to send more.",
-    check_failed:
-        "Skipping send: could not check the sandbox sender's daily limit. Try again later, or verify your own domain to send more.",
-} as const
+const SANDBOX_CAP_SKIPS: Record<SandboxCapSkipReason, { message: string; statusReason: EmailSkipReason }> = {
+    project_cap_reached: {
+        message:
+            "Skipping send: this email would go over the sandbox sender's daily limit for this project. Verify your own domain to send more.",
+        statusReason: 'frequency_capped',
+    },
+    cap_check_failed: {
+        message:
+            "Skipping send: could not check the sandbox sender's daily limit. Try again later, or verify your own domain to send more.",
+        statusReason: 'recipient_unreachable',
+    },
+}
 
 export class EmailService {
     sesV2Client: SESv2Client | null
@@ -1283,12 +1296,12 @@ export class EmailService {
         reason: SandboxRecipientBlockReason,
         isTest: boolean
     ): Promise<void> {
-        const { explanation, label, guidance } = SANDBOX_RECIPIENT_BLOCK_COPY[reason]
+        const { explanation, label, guidance, statusReason } = SANDBOX_RECIPIENT_BLOCKS[reason]
         this.skipSandboxSend(
             result,
             isTest,
             `${explanation}${label}${blockedRecipients.join(', ')}. ${guidance}`,
-            reason === 'cap_reached' ? 'frequency_capped' : 'recipient_unreachable'
+            statusReason
         )
         await this.sandboxSender?.captureBlocked(result.invocation.teamId, isTest, reason, blockedRecipients.length)
     }
@@ -1303,16 +1316,12 @@ export class EmailService {
             return claim
         }
         if (claim.type === 'recipient_cap_reached') {
-            await this.blockSandboxRecipients(result, claim.addresses, 'cap_reached', isTest)
+            await this.blockSandboxRecipients(result, claim.addresses, 'recipient_cap_reached', isTest)
             return null
         }
-        this.skipSandboxSend(
-            result,
-            isTest,
-            SANDBOX_CAP_SKIP_MESSAGES[claim.type],
-            claim.type === 'check_failed' ? 'sending_suspended' : 'frequency_capped'
-        )
-        const reason = claim.type === 'check_failed' ? 'check_failed' : 'cap_reached'
+        const reason = claim.type === 'check_failed' ? 'cap_check_failed' : claim.type
+        const { message, statusReason } = SANDBOX_CAP_SKIPS[reason]
+        this.skipSandboxSend(result, isTest, message, statusReason)
         await this.sandboxSender!.captureBlocked(result.invocation.teamId, isTest, reason, recipients.length)
         return null
     }

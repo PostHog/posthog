@@ -445,8 +445,11 @@ describe('RateLimiterService', () => {
             limiter
         )
 
+        const claimAllOrNothing = jest.spyOn(limiter, 'claimAllOrNothing')
         try {
             expect(await sender.claimDailyCaps(1, ['member@example.com'])).toMatchObject({ type: 'granted' })
+            const spentOverADay = expect.objectContaining({ capacity: 1, refillPerSecond: 1 / 86_400 })
+            expect(claimAllOrNothing).toHaveBeenCalledWith([spentOverADay, spentOverADay])
             expect(await sender.claimDailyCaps(2, ['member@example.com'])).toEqual({
                 type: 'recipient_cap_reached',
                 addresses: ['member@example.com'],

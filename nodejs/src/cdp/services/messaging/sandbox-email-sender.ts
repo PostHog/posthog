@@ -49,7 +49,9 @@ export type SandboxEmailBlockReason =
     | 'recipient_not_member'
     | 'recipient_unverified'
     | 'check_failed'
-    | 'cap_reached'
+    | 'recipient_cap_reached'
+    | 'project_cap_reached'
+    | 'cap_check_failed'
 
 export type SandboxDailyCapGrant = { type: 'granted'; claim: IssuedClaim }
 

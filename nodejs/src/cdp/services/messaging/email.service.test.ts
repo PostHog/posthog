@@ -982,7 +982,7 @@ describe('EmailService', () => {
                     result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
                     isTest: boolean,
                     message: string,
-                    reason: 'cap_reached' | 'check_failed'
+                    reason: 'project_cap_reached' | 'recipient_cap_reached' | 'cap_check_failed'
                 ): void => {
                     expect(result).toMatchObject({ finished: true, skipped: true, metrics: [], messageAssets: [] })
                     expect(result.error).toBeUndefined()
@@ -1009,11 +1009,11 @@ describe('EmailService', () => {
                             await send(isTest, { cc: memberEmail('cc'), bcc: memberEmail('bcc') }),
                             isTest,
                             TEAM_CAP_REACHED,
-                            'cap_reached'
+                            'project_cap_reached'
                         )
                         expectSent(await send(isTest, { to: { email: memberEmail('cc') } }))
                         expectSent(await send(isTest, { to: { email: memberEmail('bcc') } }))
-                        expectCapSkip(await send(isTest), isTest, TEAM_CAP_REACHED, 'cap_reached')
+                        expectCapSkip(await send(isTest), isTest, TEAM_CAP_REACHED, 'project_cap_reached')
                         expect(sendEmailSpy).toHaveBeenCalledTimes(4)
                     }
                 )
@@ -1030,7 +1030,7 @@ describe('EmailService', () => {
                             await send(isTest, { cc: memberEmail('cc').toUpperCase(), bcc: memberEmail('bcc') }),
                             isTest,
                             recipientCapReached(`${memberEmail('cc').toUpperCase()}, ${memberEmail('bcc')}`),
-                            'cap_reached'
+                            'recipient_cap_reached'
                         )
                         expectSent(await send(isTest))
                         expect(sendEmailSpy).toHaveBeenCalledTimes(2)
@@ -1048,33 +1048,8 @@ describe('EmailService', () => {
                         await send(false, { to: { email: memberEmail('bcc') } }),
                         false,
                         TEAM_CAP_REACHED,
-                        'cap_reached'
+                        'project_cap_reached'
                     )
-                    expect(sendEmailSpy).toHaveBeenCalledTimes(2)
-                })
-
-                it('refills a spent allowance over a day rather than seconds', async () => {
-                    service = createSandboxService(true, {
-                        senderSettings: { dailyTeamCap: '1', dailyRecipientCap: '1' },
-                    })
-                    expectSent(await send(true))
-                    const ageBuckets = async (ageMs: number): Promise<void> => {
-                        await sandboxRedis.useClient({ name: 'test:age-sandbox-daily-caps' }, async (client) => {
-                            const [seconds, microseconds] = await client.time()
-                            const redisNow = Number(seconds) * 1000 + Math.floor(Number(microseconds) / 1000)
-                            const keys = await client.keys(
-                                `@posthog/workflows-sandbox-daily/{${team.organization_id}}/*`
-                            )
-                            for (const key of keys.filter((key) => !key.includes('/claimed/'))) {
-                                await client.hset(key, 'ts', redisNow - ageMs)
-                            }
-                        })
-                    }
-
-                    await ageBuckets(12 * 60 * 60 * 1000)
-                    expectCapSkip(await send(true), true, TEAM_CAP_REACHED, 'cap_reached')
-                    await ageBuckets(24 * 60 * 60 * 1000 + 1000)
-                    expectSent(await send(true))
                     expect(sendEmailSpy).toHaveBeenCalledTimes(2)
                 })
 
@@ -1093,7 +1068,7 @@ describe('EmailService', () => {
                             await send(isTest, { to: { email: memberEmail('bcc') } }),
                             isTest,
                             TEAM_CAP_REACHED,
-                            'cap_reached'
+                            'project_cap_reached'
                         )
                         expect(sendEmailSpy).toHaveBeenCalledTimes(2)
                     }
@@ -1167,7 +1142,7 @@ describe('EmailService', () => {
                         await send(isTest, { cc: memberEmail('cc') }),
                         isTest,
                         CAP_CHECK_FAILED,
-                        'check_failed'
+                        'cap_check_failed'
                     )
                     expect(sendEmailSpy).not.toHaveBeenCalled()
                 })
