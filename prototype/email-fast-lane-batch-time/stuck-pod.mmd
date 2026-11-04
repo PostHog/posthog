@@ -1,0 +1,14 @@
+sequenceDiagram
+    autonumber
+    participant DB as cyclotron_jobs
+    participant P1 as Pod 1 (stuck event loop)
+    participant P2 as Pod 2..n (healthy)
+    participant Jan as Janitor
+    participant K8s as Liveness probe
+    P1->>DB: dequeued rows, now running, heartbeat stops
+    Note over P1: both loops share the event loop, both stop
+    P2->>DB: keep dequeuing priority 0 first, from both loops
+    Note over P2: new fast rows go to healthy pods, unaffected
+    Jan->>DB: rows of P1 past the heartbeat timeout back to available
+    P2->>DB: dequeue the recovered rows (a send P1 already handed to SES can repeat)
+    K8s->>P1: isHealthy fails per loop (lastPollTime per lane), restart

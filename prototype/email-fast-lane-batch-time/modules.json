@@ -1,0 +1,291 @@
+{
+    "rows": [
+        {
+            "modules": [
+                {
+                    "id": "api",
+                    "name": "Transactional send API",
+                    "note": "priority 0",
+                    "external": true,
+                    "seam": []
+                },
+                {
+                    "id": "hogflow",
+                    "name": "Hogflow worker",
+                    "note": "priority 0 or 1",
+                    "external": true,
+                    "seam": []
+                }
+            ]
+        },
+        {
+            "gap": 44,
+            "modules": [
+                {
+                    "id": "jobs",
+                    "name": "cyclotron_jobs",
+                    "note": "email queue, Postgres",
+                    "external": true,
+                    "seam": []
+                }
+            ]
+        },
+        {
+            "modules": [
+                {
+                    "id": "fleet",
+                    "name": "Email worker fleet",
+                    "note": "HPA on event loop use",
+                    "seam": ["minPods", "scaleUp"],
+                    "chips": [
+                        {
+                            "id": "fleet-hpa",
+                            "text": "earlier scale-up, more minPods",
+                            "change": "changed",
+                            "q": "Q3"
+                        }
+                    ]
+                },
+                {
+                    "id": "fastfleet",
+                    "name": "Fast email fleet",
+                    "note": "priority 0 only",
+                    "change": "added",
+                    "fork": true,
+                    "q": "Q1 B",
+                    "seam": ["maxPriority=0"],
+                    "chips": [
+                        {
+                            "text": "own pods, own event loop"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "modules": [
+                {
+                    "id": "queue",
+                    "name": "Email job queue",
+                    "note": "postgres-v2 queues",
+                    "used": 1,
+                    "seam": ["startAsConsumer"],
+                    "chips": [
+                        {
+                            "id": "q-pending",
+                            "text": "pendingJobs"
+                        },
+                        {
+                            "id": "q-claim",
+                            "text": "claimBatchLimit",
+                            "change": "changed",
+                            "q": "Q2"
+                        }
+                    ]
+                },
+                {
+                    "id": "worker",
+                    "name": "Cyclotron worker",
+                    "note": "worker, rate-limited worker",
+                    "used": 8,
+                    "flex": 1.7,
+                    "seam": ["connect", "isHealthy"],
+                    "chips": [
+                        {
+                            "id": "w-bulk",
+                            "text": "loop: claim, dequeue, await batch"
+                        },
+                        {
+                            "id": "w-rl",
+                            "text": "rate-limited subclass"
+                        },
+                        {
+                            "id": "w-fast",
+                            "text": "fast lane: priority 0 poll while a batch runs",
+                            "change": "added",
+                            "fork": true,
+                            "q": "Q1 A",
+                            "wide": true
+                        },
+                        {
+                            "id": "w-slots",
+                            "text": "one slot loop, lanes as config",
+                            "change": "added",
+                            "followUp": true,
+                            "q": "Q4",
+                            "wide": true
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "modules": [
+                {
+                    "id": "limiter",
+                    "name": "Rate limiter",
+                    "note": "SES bucket",
+                    "used": 4,
+                    "seam": ["claimUpTo"],
+                    "chips": [
+                        {
+                            "text": "token bucket"
+                        }
+                    ]
+                },
+                {
+                    "id": "consumer",
+                    "name": "Email consumer",
+                    "note": "hogflow, email",
+                    "flex": 1.3,
+                    "seam": ["processBatch"],
+                    "chips": [
+                        {
+                            "id": "c-send",
+                            "text": "executeSendEmail"
+                        },
+                        {
+                            "id": "c-load",
+                            "text": "loadHogFlows"
+                        }
+                    ]
+                },
+                {
+                    "id": "ses",
+                    "name": "SES",
+                    "external": true,
+                    "flex": 0.6,
+                    "seam": []
+                }
+            ]
+        }
+    ],
+    "wires": [
+        {
+            "from": "api",
+            "to": "jobs",
+            "toAt": 0.3,
+            "label": "insert",
+            "labelAt": 0.5
+        },
+        {
+            "from": "hogflow",
+            "to": "jobs",
+            "toAt": 0.7,
+            "label": "reschedule",
+            "labelAt": 0.5
+        },
+        {
+            "from": "jobs",
+            "to": "fleet-seam",
+            "fromAt": 0.3,
+            "label": "dequeue",
+            "labelAt": 0.45
+        },
+        {
+            "from": "jobs",
+            "to": "fastfleet-seam",
+            "fromAt": 0.7,
+            "change": "added",
+            "fork": true,
+            "q": "Q1 B",
+            "label": "dequeue",
+            "labelAt": 0.45
+        },
+        {
+            "from": "fleet-hpa",
+            "to": "worker-seam",
+            "toAt": 0.15,
+            "label": "runs",
+            "labelAt": 0.5
+        },
+        {
+            "from": "w-rl",
+            "to": "w-bulk",
+            "kind": "leak",
+            "fromSide": "left",
+            "toSide": "right",
+            "label": "11 members",
+            "bend": 10,
+            "labelAt": 0.5,
+            "labelOffset": [0, -14]
+        },
+        {
+            "from": "w-bulk",
+            "to": "q-claim",
+            "fromSide": "left",
+            "toSide": "right",
+            "label": "claim",
+            "bend": 30,
+            "labelAt": 0.5,
+            "labelOffset": [0, -12]
+        },
+        {
+            "from": "w-fast",
+            "to": "q-claim",
+            "fromSide": "left",
+            "toSide": "right",
+            "toAt": 0.8,
+            "change": "added",
+            "fork": true,
+            "q": "Q1 A",
+            "label": "claim",
+            "bend": 30,
+            "labelAt": 0.4,
+            "labelOffset": [0, 12]
+        },
+        {
+            "from": "q-claim",
+            "to": "limiter-seam",
+            "toAt": 0.5,
+            "label": "claimUpTo",
+            "labelAt": 0.5
+        },
+        {
+            "from": "worker",
+            "to": "consumer-seam",
+            "fromAt": 0.3,
+            "toAt": 0.6,
+            "label": "processBatch",
+            "labelAt": 0.5
+        },
+        {
+            "from": "c-send",
+            "to": "limiter",
+            "fromSide": "left",
+            "toSide": "right",
+            "toAt": 0.75,
+            "label": "caps",
+            "bend": 20,
+            "labelAt": 0.5,
+            "labelOffset": [0, 12]
+        },
+        {
+            "from": "c-send",
+            "to": "ses",
+            "fromSide": "bottom",
+            "toSide": "bottom",
+            "label": "send",
+            "bend": 40,
+            "labelAt": 0.6,
+            "labelOffset": [0, 12]
+        }
+    ],
+    "untouched": [
+        {
+            "name": "Cyclotron manager",
+            "seam": ["bulkCreateJobs"],
+            "note": "assigns dequeue_seq"
+        },
+        {
+            "name": "Janitor",
+            "seam": ["run"],
+            "note": "recovers rows of a stuck pod"
+        },
+        {
+            "name": "Email service",
+            "seam": ["executeSendEmail"],
+            "note": "a token design moves its claims"
+        }
+    ]
+}

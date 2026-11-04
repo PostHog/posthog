@@ -1,0 +1,20 @@
+sequenceDiagram
+    autonumber
+    participant API as Send API / hogflow
+    participant DB as cyclotron_jobs
+    participant Bulk as Bulk loop (pod)
+    participant Fast as Fast lane (same pod) Q1 A
+    participant Bucket as SES bucket
+    participant Send as executeSendEmail
+    Bulk->>DB: count, claim, dequeue up to batchMaxSize (priority first)
+    Bulk->>Send: processBatch(bulk rows), awaits the slowest row
+    Note over Bulk: batch in flight, the bulk loop does not poll
+    API->>DB: insert priority 0 row
+    loop every fast poll delay while a batch is in flight
+        Fast->>DB: countWork(priority = 0, small limit)
+    end
+    Fast->>Bucket: claimBatchLimit(visible) Q2
+    Fast->>DB: fairDequeue(priority = 0, small limit), SKIP LOCKED
+    Fast->>Send: processBatch(fast rows), same event loop
+    Send-->>API: SES handoff without waiting for the bulk batch
+    Bulk->>DB: next poll, also takes priority 0 rows first
