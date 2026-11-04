@@ -5,6 +5,7 @@ import type { ChatSheetEntry } from '@/features/chat/chatSheetEvents'
 import { AnimatedLogomark } from '@/ui/icons/AnimatedLogomark'
 import { useOverlayDismiss } from '@/ui/overlayDismiss'
 import { useColors } from '@/ui/theme'
+import { type } from '@/ui/tokens'
 
 import type { TabHeaderSlot, TabKey } from './tabHeaderStore'
 
@@ -35,11 +36,16 @@ export function NativeTabChrome({
                     headerShown: true,
                     gestureEnabled: !dismiss,
                     headerTransparent: true,
+                    headerStyle: { backgroundColor: colors.background },
+                    headerLargeStyle: { backgroundColor: colors.background },
                     headerTitle: dismiss
                         ? ''
                         : (slot?.editing?.title ??
                           (slot?.hint || slot?.status ? `${TITLES[tab]} · ${slot.hint ?? slot.status}` : TITLES[tab])),
                     headerTintColor: colors.ink,
+                    headerTitleStyle: type.screenTitle,
+                    headerShadowVisible: false,
+                    scrollEdgeEffects: { top: 'hidden' },
                     headerBackVisible: false,
                 }}
             />
@@ -51,7 +57,7 @@ export function NativeTabChrome({
                         accessibilityLabel="PostHog"
                         accessibilityState={{ busy: slot?.refreshing ?? false }}
                         testID="tabs-logomark"
-                        style={{ width: 28, height: 36, justifyContent: 'center' }}
+                        style={{ width: (18 * 52) / 28, height: 44, justifyContent: 'center' }}
                     >
                         <AnimatedLogomark height={18} animate={slot?.refreshing ?? false} />
                     </View>

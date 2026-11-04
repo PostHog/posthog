@@ -114,6 +114,8 @@ The native build supports rotation; iOS builds use Xcode 27.1 for the full Duo d
   The report's inbox pane only prefetches while it is visible and its screen is focused.
 - iOS uses Expo SDK 58 native tabs and stack toolbars. The system places these controls in Duo's reserved rail;
   the app does not add a second rail. Safe-area padding belongs to each scene, so navigation backgrounds reach the edges.
+  Native navigation uses the app's appearance and background palette, with no header divider.
+  Tab titles retain the 28pt screen-title token, and the 18pt logomark has room for its full aspect ratio.
   Android retains the custom navigation, with a rail in sufficiently tall, wide windows and horizontal navigation in short windows.
 - Active division regions determine the inbox and report boundary, including a horizontal fold. Each pane must have enough
   reading space; a narrow window keeps one report instance. A flat display uses the normal width-based split.

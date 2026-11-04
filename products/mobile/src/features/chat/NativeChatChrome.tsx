@@ -28,12 +28,16 @@ export function NativeChatChrome({
         () => ({
             headerShown: true,
             headerTransparent: true,
+            headerStyle: { backgroundColor: colors.background },
+            headerLargeStyle: { backgroundColor: colors.background },
+            headerShadowVisible: false,
+            scrollEdgeEffects: { top: 'hidden' as const },
             headerTitle: '',
             headerTintColor: colors.ink,
             headerBackVisible: false,
             gestureEnabled: !dismiss,
         }),
-        [colors.ink, dismiss]
+        [colors.ink, colors.background, dismiss]
     )
     const leading = useMemo(
         () => (

@@ -1,8 +1,8 @@
 import { QueryClientProvider } from '@tanstack/react-query'
-import { Stack, useSegments } from 'expo-router'
+import { DarkTheme, DefaultTheme, Stack, ThemeProvider, useSegments } from 'expo-router'
 import * as SplashScreen from 'expo-splash-screen'
 import { StatusBar } from 'expo-status-bar'
-import { type ReactElement, useEffect, useState } from 'react'
+import { type ReactElement, useEffect, useMemo, useState } from 'react'
 import { StyleSheet, View } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
 import { KeyboardProvider } from 'react-native-keyboard-controller'
@@ -58,6 +58,21 @@ export default function RootLayout(): ReactElement {
     const firstScreenReady = useBootGate((state) => state.firstScreenReady)
     const segments = useSegments()
     const { colors, scheme } = useTheme()
+    const navigationTheme = useMemo(() => {
+        const base = scheme === 'dark' ? DarkTheme : DefaultTheme
+        return {
+            ...base,
+            colors: {
+                ...base.colors,
+                primary: colors.ink,
+                background: colors.background,
+                card: colors.background,
+                text: colors.ink,
+                border: colors.hairline,
+                notification: colors.orange,
+            },
+        }
+    }, [colors, scheme])
     const styles = useStyles()
     const [timedOut, setTimedOut] = useState(false)
     const [splashHidden, setSplashHidden] = useState(false)
@@ -105,21 +120,23 @@ export default function RootLayout(): ReactElement {
                                 <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
                                 {/* Screens mount only after the session loads, so no query runs without a token. */}
                                 {ready ? (
-                                    <Stack
-                                        screenLayout={renderMobileScene}
-                                        screenOptions={{
-                                            headerShown: false,
-                                            contentStyle: { backgroundColor: colors.background },
-                                        }}
-                                    >
-                                        <Stack.Screen
-                                            name="chat"
-                                            dangerouslySingular={(): string => 'chat'}
-                                            options={{
-                                                presentation: 'card',
+                                    <ThemeProvider value={navigationTheme}>
+                                        <Stack
+                                            screenLayout={renderMobileScene}
+                                            screenOptions={{
+                                                headerShown: false,
+                                                contentStyle: { backgroundColor: colors.background },
                                             }}
-                                        />
-                                    </Stack>
+                                        >
+                                            <Stack.Screen
+                                                name="chat"
+                                                dangerouslySingular={(): string => 'chat'}
+                                                options={{
+                                                    presentation: 'card',
+                                                }}
+                                            />
+                                        </Stack>
+                                    </ThemeProvider>
                                 ) : null}
                                 {!splashHidden && (
                                     <View style={StyleSheet.absoluteFill} onLayout={hideNativeSplash}>
