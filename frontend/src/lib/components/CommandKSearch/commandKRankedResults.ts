@@ -68,12 +68,15 @@ function rankItems(items: SearchItem[], query: string, groupKey: string): Ranked
     return items.flatMap((item) => {
         const name = String(item.displayName || item.name)
         const aliases =
-            groupKey === 'settings' && item.parentName
+            groupKey === 'settings'
                 ? [
                       ...(item.searchKeywords ?? []),
-                      [name, ...(item.searchKeywords ?? []), item.parentName, ...(item.contextKeywords ?? [])].join(
-                          ' '
-                      ),
+                      [
+                          name,
+                          ...(item.searchKeywords ?? []),
+                          item.parentName ?? '',
+                          ...(item.contextKeywords ?? []),
+                      ].join(' '),
                   ]
                 : item.searchKeywords
         const ranked = rankLocalItem(query, name, aliases, !!item.parentName, groupKey === 'settings')

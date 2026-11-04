@@ -557,6 +557,20 @@ describe('buildSections', () => {
 
     const SETTING_ROWS: SearchItem[] = [
         {
+            id: 'settings-level-user',
+            name: 'User settings',
+            category: 'settings',
+            searchKeywords: ['account settings', 'personal settings', 'my settings'],
+            href: '/settings/user',
+        },
+        {
+            id: 'settings-user-api-keys',
+            name: 'Personal API keys',
+            category: 'settings',
+            parentName: 'User settings',
+            href: '/settings/user-api-keys',
+        },
+        {
             id: 'settings-project-max',
             name: 'PostHog AI',
             category: 'settings',
@@ -609,6 +623,7 @@ describe('buildSections', () => {
             ['rename project', 'settings-project-customization-display-name'],
             ['project timezone', 'settings-project-customization-date-and-time'],
             ['ai', 'settings-project-customization-custom-bots'],
+            ['personal user settings', 'settings-level-user'],
         ].flatMap(([query, id]) => [
             [query, id, false],
             [query, id, true],

@@ -4,7 +4,14 @@ import { SETTINGS_THEME_ITEM_ID, filterSearchItems } from 'lib/components/Search
 import type { SearchCorrection } from './commandKCorrection'
 import { CursorContext, FilterDefinition, FilterOptions, ValueOption, matchValueOptions } from './commandKQuery'
 import { buildRankedResults } from './commandKRankedResults'
-import { FILTER_TOKEN, freeWords, searchWords, strictLocalMatches, tokenTypos } from './commandKRanking'
+import {
+    FILTER_TOKEN,
+    MAX_LOCAL_QUERY_LENGTH,
+    freeWords,
+    searchWords,
+    strictLocalMatches,
+    tokenTypos,
+} from './commandKRanking'
 import { REMOTE_SOURCES, RESULTS_LIMIT, RemoteSource, SECONDARY_LIMIT } from './commandKSources'
 
 export const RECENTS_LIMIT = 5
@@ -267,7 +274,8 @@ const exactSettingsMatches = (settings: SearchItem[], localQuery: string): Searc
 
 const matchesWord = (words: string[]) => (token: string) => words.some((word) => tokenTypos(token, word) === 0)
 
-function settingsMatches(items: SearchItem[], query: string): SearchItem[] {
+function settingsMatches(items: SearchItem[], fullQuery: string): SearchItem[] {
+    const query = fullQuery.trim().replace(/\s+/g, ' ').slice(0, MAX_LOCAL_QUERY_LENGTH)
     const tokens = searchWords(query)
     if (!tokens.length) {
         return []

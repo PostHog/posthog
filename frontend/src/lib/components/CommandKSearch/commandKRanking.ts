@@ -3,7 +3,7 @@ const WORD = /[\p{L}\p{N}_]+/gu
 export type RankKey = number[]
 
 const MIN_ALIAS_QUERY_LENGTH = 3
-const MAX_LOCAL_QUERY_LENGTH = 200
+export const MAX_LOCAL_QUERY_LENGTH = 200
 const STARTS_WITH = 1
 
 export const searchWords = (text: string): string[] => text.toLowerCase().match(WORD) ?? []

@@ -1,3 +1,5 @@
+import { router } from 'kea-router'
+
 import { searchListsLogic } from 'lib/components/Search/searchListsLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -150,5 +152,32 @@ describe('commandKSearchLogic', () => {
         const revealed = logic.values.selectableRows[index]
         expect(revealed).toMatchObject({ kind: 'item', item: { category: 'settings' } })
         expect(logic.values.highlightedKey).toBe(revealed.key)
+    })
+
+    it('scrolls back to a setting when its result is opened on the page that already shows it', () => {
+        router.actions.push('/settings/project-customization#base-currency')
+        const heading = document.createElement('h2')
+        heading.id = 'base-currency'
+        heading.scrollIntoView = jest.fn()
+        document.body.appendChild(heading)
+
+        logic.actions.activateRow(
+            {
+                kind: 'item',
+                key: 'group-settings/settings-project-customization-base-currency',
+                section: 'settings',
+                item: {
+                    id: 'settings-project-customization-base-currency',
+                    name: 'Base currency',
+                    category: 'settings',
+                    href: '/settings/project-customization#base-currency',
+                },
+            },
+            false,
+            'enter'
+        )
+
+        expect(heading.scrollIntoView).toHaveBeenCalled()
+        heading.remove()
     })
 })
