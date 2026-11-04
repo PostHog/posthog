@@ -1732,9 +1732,25 @@ class TestSystemTablesNotebookMarkdown(NonAtomicBaseTest):
 class TestSystemEndpointCurrentVersion(NonAtomicBaseTest):
     CLASS_DATA_LEVEL_SETUP = False
 
-    @parameterized.expand([(1,), (2,), (99,)])
-    def test_current_version_fields(self, current_version):
+    @parameterized.expand([(1,), (2,), (99,), (1, True, True), (1, True, False)])
+    def test_current_version_fields(self, current_version, access_denied=False, reader_is_creator=True):
         endpoint = _create_endpoint(self.team, "current")
+        if access_denied:
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            self.organization.save()
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+            endpoint.created_by = self.user if reader_is_creator else User.objects.create(email="creator@example.com")
+            endpoint.save(update_fields=["created_by"])
+            AccessControl.objects.create(
+                team=self.team,
+                resource="endpoint",
+                resource_id=str(endpoint.id),
+                access_level="none",
+                organization_member=self.organization_membership,
+            )
         endpoint.current_version = current_version
         endpoint.save(update_fields=["current_version"])
         for version in (1, 2):
@@ -1761,6 +1777,9 @@ class TestSystemEndpointCurrentVersion(NonAtomicBaseTest):
             user=self.user,
         )
 
+        if access_denied and not reader_is_creator:
+            assert response.results == []
+            return
         assert len(response.results) == 1
         row = response.results[0]
         assert row[:2] == ("ep_current", current_version)

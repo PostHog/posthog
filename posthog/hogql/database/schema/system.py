@@ -939,7 +939,22 @@ source_sync_jobs: PostgresTable = PostgresTable(
     },
 )
 
-endpoint_versions: PostgresTable = PostgresTable(
+
+class _EndpointVersionsTable(PostgresTable):
+    def creator_owned_object_ids(
+        self, user_access_control: "UserAccessControl", team_id: Optional[int], candidate_ids: Optional[frozenset[str]]
+    ) -> frozenset[str]:
+        from products.endpoints.backend.facade.models import Endpoint  # noqa: PLC0415
+
+        if team_id is None:
+            raise ValueError("system.data_modeling_endpoint_versions needs a team to resolve endpoint access")
+        endpoints = Endpoint.objects.filter(team_id=team_id, created_by_id=user_access_control.user.pk)
+        if candidate_ids is not None:
+            endpoints = endpoints.filter(id__in=candidate_ids)
+        return frozenset(str(endpoint_id) for endpoint_id in endpoints.values_list("id", flat=True))
+
+
+endpoint_versions: _EndpointVersionsTable = _EndpointVersionsTable(
     name="data_modeling_endpoint_versions",
     postgres_table_name="endpoints_endpointversion",
     access_scope="endpoint",
