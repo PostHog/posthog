@@ -6327,7 +6327,7 @@ class SignalReportCheckViewSet(
         return report
 
     def safely_get_queryset(self, queryset):
-        return queryset.filter(report_id=self._validated_report().id, team=self.team).select_related("report")
+        return queryset.filter(report_id=self._validated_report().id, team=self.team).select_related("report__team")
 
     def destroy(self, request: Request, *args, **kwargs) -> Response:
         check = cast(SignalReportCheck, self.get_object())
