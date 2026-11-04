@@ -8,8 +8,9 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { EMPTY_ACCOUNT_ACTIVITY_MATRIX } from './accountActivityMatrix'
-import { accountDotMatrixTileLogic } from './accountDotMatrixTileLogic'
+import { accountDotMatrixTileLogic, type AccountDotMatrixTileLogicProps } from './accountDotMatrixTileLogic'
 import { BOOK_ACTIVITY_MATRIX_MOCK } from './bookActivityMatrixMock'
+import { DOT_MATRIX_CONFIG_MAX_BYTES, getDotMatrixConfigBytes } from './dotMatrixTileConfig'
 
 jest.mock('~/queries/query', () => ({ performQuery: jest.fn() }))
 jest.mock('~/queries/nodes/DataNode/dataNodeLogic', () => ({
@@ -573,6 +574,128 @@ describe('accountDotMatrixTileLogic', () => {
 
             expect(lastQuery()).toMatchObject({ dateRange: { date_from: '-11wStart' } })
             expect(logic.values.displayResult?.kind).toBe('product_usage')
+            logic.unmount()
+        })
+    })
+
+    describe('saving a query', () => {
+        const SAVED = { kind: 'hogql', query: 'SELECT a AS r, 1 AS c', mapping: { row: 'r', column: 'c' } } as const
+        const DRAFT = 'SELECT b AS r, 2 AS c'
+        const RESPONSE = { columns: ['r', 'c'], results: [['draft', 2]] }
+        const props = (
+            initialConfig: Record<string, unknown>,
+            onConfigChange: jest.Mock
+        ): AccountDotMatrixTileLogicProps => ({
+            instanceId: 'save-tile',
+            accountId: 'account-1',
+            initialConfig,
+            onConfigChange,
+        })
+
+        async function mountWithRunDraft(
+            initialConfig: Record<string, unknown>,
+            save: jest.Mock,
+            draft = DRAFT
+        ): Promise<ReturnType<typeof accountDotMatrixTileLogic>> {
+            mockPerformQuery.mockResolvedValue(RESPONSE)
+            const logic = accountDotMatrixTileLogic(props(initialConfig, save))
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.chooseSource('hogql')
+            logic.actions.setQueryDraft(draft)
+            logic.actions.setMappingDraft({ row: 'r', column: 'c' })
+            await expectLogic(logic, () => logic.actions.runQuery()).toFinishAllListeners()
+            return logic
+        }
+
+        function draftWithSize(bytes: number): string {
+            const config = (query: string): Record<string, unknown> => ({
+                mode: 'dots',
+                weeks: 8,
+                selectedSeries: [],
+                source: { kind: 'hogql', query, mapping: { row: 'r', column: 'c' } },
+            })
+            return `SELECT 1 ${'x'.repeat(bytes - getDotMatrixConfigBytes(config('SELECT 1 ')))}`
+        }
+
+        it('blocks a save the backend would reject for size, and accepts one at the limit', async () => {
+            const save = jest.fn()
+            const tooLarge = await mountWithRunDraft(
+                { source: null },
+                save,
+                draftWithSize(DOT_MATRIX_CONFIG_MAX_BYTES + 1)
+            )
+            expect(tooLarge.values.querySaveError).toMatch(/too long to save/)
+            tooLarge.actions.saveQuery()
+            expect(tooLarge.values.queryEditorOpen).toBe(true)
+            expect(save).not.toHaveBeenCalled()
+            tooLarge.unmount()
+
+            const atLimit = await mountWithRunDraft({ source: null }, save, draftWithSize(DOT_MATRIX_CONFIG_MAX_BYTES))
+            expect(atLimit.values.querySaveError).toBeNull()
+            atLimit.unmount()
+        })
+
+        it('reopens the draft with its results when the view rolls a failed save back', async () => {
+            const save = jest.fn()
+            const logic = await mountWithRunDraft({ source: SAVED }, save)
+            const result = logic.values.matrixResult
+            const queries = mockPerformQuery.mock.calls.length
+
+            logic.actions.saveQuery()
+            expect(logic.values.queryEditorOpen).toBe(false)
+            const applied = save.mock.calls[save.mock.calls.length - 1][0]
+            accountDotMatrixTileLogic(props(applied, save))
+            expect(logic.values.queryEditorOpen).toBe(false)
+
+            accountDotMatrixTileLogic(props({ source: SAVED }, save))
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.queryEditorOpen).toBe(true)
+            expect(logic.values.queryDraft).toBe(DRAFT)
+            expect(logic.values.mappingDraft).toEqual({ row: 'r', column: 'c' })
+            expect(logic.values.matrixResult).toEqual(result)
+            expect(logic.values.config.source).toEqual(SAVED)
+            expect(logic.values.querySaveError).toBeNull()
+            expect(mockPerformQuery).toHaveBeenCalledTimes(queries)
+
+            logic.actions.saveQuery()
+            expect(logic.values.queryEditorOpen).toBe(false)
+            expect(save).toHaveBeenLastCalledWith(applied)
+            logic.unmount()
+        })
+
+        it('stays closed when a later save of something else is rolled back', async () => {
+            const save = jest.fn()
+            const logic = await mountWithRunDraft({ source: SAVED }, save)
+            logic.actions.saveQuery()
+            const applied = save.mock.calls[save.mock.calls.length - 1][0]
+            accountDotMatrixTileLogic(props(applied, save))
+
+            logic.actions.setMode('count')
+            accountDotMatrixTileLogic(props({ ...applied, mode: 'count' }, save))
+            accountDotMatrixTileLogic(props(applied, save))
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.queryEditorOpen).toBe(false)
+            expect(logic.values.config.mode).toBe('dots')
+            logic.unmount()
+        })
+
+        it('keeps editing when a weeks save is rolled back while the editor is open', async () => {
+            const save = jest.fn()
+            const logic = await mountWithRunDraft({ source: SAVED }, save)
+
+            logic.actions.setWeeks(12)
+            await expectLogic(logic).toFinishAllListeners()
+            accountDotMatrixTileLogic(props(save.mock.calls[save.mock.calls.length - 1][0], save))
+            accountDotMatrixTileLogic(props({ source: SAVED }, save))
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.queryEditorOpen).toBe(true)
+            expect(logic.values.queryDraft).toBe(DRAFT)
+            expect(logic.values.config.weeks).toBe(8)
+            expect(logic.values.matrixResult).toMatchObject({ query: DRAFT })
             logic.unmount()
         })
     })

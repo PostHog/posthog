@@ -6,7 +6,7 @@ import {
     parseAccountViewContent,
 } from '../../scenes/CustomerAnalyticsAccountScene/accountViewDocument'
 import { listAvailableAccountViewComponents } from './accountViewComponents'
-import { getDotMatrixTileConfig } from './dotMatrixTileConfig'
+import { DOT_MATRIX_CONFIG_MAX_BYTES, getDotMatrixConfigBytes, getDotMatrixTileConfig } from './dotMatrixTileConfig'
 
 describe('dot matrix tile config', () => {
     it('keeps independently configured tiles through the saved document round-trip', () => {
@@ -71,5 +71,11 @@ describe('dot matrix tile config', () => {
             tagName: 'DotMatrix',
             label: 'Dot matrix',
         })
+    })
+
+    it('measures config size the way the backend does, with non-ASCII characters escaped', () => {
+        // len(json.dumps(config, separators=(",", ":")).encode()) in Python gives 57 for this object.
+        expect(getDotMatrixConfigBytes({ a: 'é', b: '😀', c: '\x7f', d: '"\n' })).toBe(57)
+        expect(DOT_MATRIX_CONFIG_MAX_BYTES).toBe(16_384)
     })
 })

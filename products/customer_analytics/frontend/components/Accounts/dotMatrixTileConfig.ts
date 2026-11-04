@@ -4,6 +4,19 @@ export const DOT_MATRIX_WEEK_OPTIONS = [4, 8, 12, 26] as const
 export type DotMatrixWeeks = (typeof DOT_MATRIX_WEEK_OPTIONS)[number]
 const DEFAULT_WEEKS: DotMatrixWeeks = 8
 
+// Matches ACCOUNT_VIEW_CONFIG_MAX_BYTES in the backend's account view validation.
+export const DOT_MATRIX_CONFIG_MAX_BYTES = 16_384
+
+// The backend measures json.dumps output, which writes every UTF-16 unit outside printable ASCII as a 6-byte \\uXXXX.
+export function getDotMatrixConfigBytes(config: Record<string, unknown>): number {
+    const json = JSON.stringify(config)
+    let bytes = 0
+    for (let index = 0; index < json.length; index++) {
+        bytes += json.charCodeAt(index) > 0x7e ? 6 : 1
+    }
+    return bytes
+}
+
 export interface DotMatrixSourceMapping {
     row: string
     column: string
