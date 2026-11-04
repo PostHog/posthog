@@ -53,6 +53,7 @@ export interface snapshotDataLogicValues {
     getWindowId: (uuid: string | undefined) => number | undefined // windowIdRegistryLogic
     uuidToIndex: Record<string, number> // windowIdRegistryLogic
     allSourcesLoaded: boolean
+    blockToken: string | null
     isLoadingSnapshots: boolean
     isPolling: boolean
     isRecordingDeleted: boolean
@@ -62,11 +63,13 @@ export interface snapshotDataLogicValues {
     pollingInterval: number
     recordingDeletedAt: number | null
     recordingDeletedBy: string | null
+    recordingDeletedError: RecordingDeletedError | null
     replayProxyToken: string | null
     seekTarget: SeekTarget | null
     snapshotLoadError: Error | null
     snapshotLoadErrorKind: SnapshotLoadErrorKind | null
     snapshotSources: SessionRecordingSnapshotSource[] | null
+    snapshotSourcesLoadError: Error | null
     snapshotSourcesLoading: boolean
     snapshotStore: SnapshotStore
     snapshotsForSource: SessionRecordingSnapshotSourceResponse | null
@@ -159,6 +162,9 @@ export interface snapshotDataLogicActions {
     retrySnapshotLoading: () => {
         value: true
     }
+    setBlockToken: (token: string | null) => {
+        token: string | null
+    }
     setPlayerActive: (active: boolean) => {
         active: boolean
     }
@@ -227,9 +233,13 @@ export interface snapshotDataLogicMeta {
         ) => number
         snapshotStore: (storeVersion: number) => SnapshotStore
         sourceLoadingStates: (storeVersion: number) => SourceLoadingState[]
-        isRecordingDeleted: (snapshotLoadError: Error | null) => boolean
-        recordingDeletedAt: (snapshotLoadError: Error | null) => number | null
-        recordingDeletedBy: (snapshotLoadError: Error | null) => string | null
+        recordingDeletedError: (
+            snapshotSourcesLoadError: Error | null,
+            snapshotLoadError: Error | null
+        ) => RecordingDeletedError | null
+        isRecordingDeleted: (recordingDeletedError: RecordingDeletedError | null) => boolean
+        recordingDeletedAt: (recordingDeletedError: RecordingDeletedError | null) => number | null
+        recordingDeletedBy: (recordingDeletedError: RecordingDeletedError | null) => string | null
         isSnapshotUnauthorized: (snapshotLoadError: Error | null) => boolean
         snapshotLoadErrorKind: (snapshotLoadError: Error | null) => SnapshotLoadErrorKind | null
     }
@@ -241,6 +251,47 @@ export type snapshotDataLogicType = MakeLogicType<
     SnapshotLogicProps,
     snapshotDataLogicMeta
 >
+
+// Reads a batch straight from recording-api when the listing gave every block a url, so the browser caches each
+// block. Returns null to use the snapshots endpoint instead, which serves every recording.
+async function loadBlocksDirectly(
+    sources: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>[],
+    listedSources: SessionRecordingSnapshotSource[] | null,
+    token: string | null,
+    direct: { unauthorizedCount: number },
+    onTokenExpired: () => void
+): Promise<Uint8Array | null> {
+    const urlsByKey = new Map((listedSources ?? []).map((s) => [s.blob_key, s.url]))
+    const urls = sources.map((s) => urlsByKey.get(s.blob_key))
+    // A second 401 after a fresh token means the token can never work here, so stop paying for a failed batch.
+    if (!token || direct.unauthorizedCount > 1 || urls.some((url) => !url)) {
+        return null
+    }
+    try {
+        // nosemgrep: prefer-codegen-api-namespaced-replay -- fetches recording-api block urls, not a Django endpoint
+        const blocks = await api.recordings.getBlocksDirectly(urls as string[], token)
+        direct.unauthorizedCount = 0
+        return blocks
+    } catch (e) {
+        // The snapshots endpoint reads the same blocks, so falling back would get round the rate limit.
+        if (e instanceof RecordingDeletedError || (e instanceof ApiError && e.status === 429)) {
+            throw e
+        }
+        const status = e instanceof ApiError ? e.status : undefined
+        if (status === 401) {
+            direct.unauthorizedCount += 1
+            // Listing the sources again gets a new token for the next batch.
+            onTokenExpired()
+        }
+        // Without this, a broken rollout looks healthy while every batch pays for a failed download.
+        posthog.capture('replay direct block fetch fell back', {
+            status: status ?? null,
+            reason: e instanceof Error ? e.name : 'unknown',
+            block_count: urls.length,
+        })
+        return null
+    }
+}
 
 // Reactivity note (#53893): `cache.store` (SnapshotStore) lives outside Kea, so any listener that mutates it (markFetched, setSources) MUST dispatch `storeUpdated()` afterwards, and any selector reading it MUST depend on `storeVersion`.
 export const snapshotDataLogic = kea<snapshotDataLogicType>([
@@ -281,12 +332,19 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         // dispatch after any mutation to cache.store — it lives outside Kea's reactivity and needs explicit invalidation
         storeUpdated: true,
         setReplayProxyToken: (token: string | null) => ({ token }),
+        setBlockToken: (token: string | null) => ({ token }),
     }),
     reducers(() => ({
         replayProxyToken: [
             null as string | null,
             {
                 setReplayProxyToken: (_, { token }) => token,
+            },
+        ],
+        blockToken: [
+            null as string | null,
+            {
+                setBlockToken: (_, { token }) => token,
             },
         ],
         storeUpdateCount: [
@@ -338,6 +396,14 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 loadSnapshotsForSourceFailure: (_, { errorObject }) => errorObject ?? null,
             },
         ],
+        // Kept apart from snapshotLoadError, so a later block load cannot clear a deletion the listing reported.
+        snapshotSourcesLoadError: [
+            null as Error | null,
+            {
+                loadSnapshotSourcesSuccess: () => null,
+                loadSnapshotSourcesFailure: (_, { errorObject }) => errorObject ?? null,
+            },
+        ],
     })),
     loaders(({ values, props, cache, actions }) => ({
         snapshotSources: [
@@ -362,6 +428,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                     }
                     // Each listing mints a new token, so polling the sources keeps the proxy token fresh.
                     actions.setReplayProxyToken(response.replay_proxy_token ?? null)
+                    actions.setBlockToken(response.block_token ?? null)
                     const anyBlobV2 = response.sources.some((s) => s.source === SnapshotSourceType.blob_v2)
 
                     if (anyBlobV2) {
@@ -404,11 +471,20 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                         headers.Authorization = `Bearer ${props.accessToken}`
                     }
 
-                    const response = await api.recordings.getSnapshots(
-                        props.sessionRecordingId,
-                        { decompress: false, ...params },
-                        headers
-                    )
+                    const response =
+                        (await loadBlocksDirectly(
+                            sources,
+                            values.snapshotSources,
+                            values.blockToken,
+                            (cache.directBlocks ??= { unauthorizedCount: 0 }),
+                            () => actions.loadSnapshotSources()
+                        )) ??
+                        // nosemgrep: prefer-codegen-api-namespaced-replay -- binary length-prefixed body the generated client does not decode
+                        (await api.recordings.getSnapshots(
+                            props.sessionRecordingId,
+                            { decompress: false, ...params },
+                            headers
+                        ))
 
                     breakpoint()
 
@@ -641,7 +717,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         },
 
         loadNextSnapshotSource: async (_, breakpoint) => {
-            if (!cache.playerActive) {
+            if (!cache.playerActive || values.isRecordingDeleted) {
                 return
             }
             if (values.snapshotsForSourceLoading) {
@@ -735,31 +811,31 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             },
         ],
 
-        isRecordingDeleted: [
-            (s) => [s.snapshotLoadError],
-            (snapshotLoadError: Error | null): boolean => {
-                return snapshotLoadError instanceof RecordingDeletedError
+        recordingDeletedError: [
+            (s) => [s.snapshotSourcesLoadError, s.snapshotLoadError],
+            (sourcesError: Error | null, blocksError: Error | null): RecordingDeletedError | null => {
+                if (sourcesError instanceof RecordingDeletedError) {
+                    return sourcesError
+                }
+                return blocksError instanceof RecordingDeletedError ? blocksError : null
             },
+        ],
+
+        isRecordingDeleted: [
+            (s) => [s.recordingDeletedError],
+            (recordingDeletedError: RecordingDeletedError | null): boolean => recordingDeletedError !== null,
         ],
 
         recordingDeletedAt: [
-            (s) => [s.snapshotLoadError],
-            (snapshotLoadError: Error | null): number | null => {
-                if (snapshotLoadError instanceof RecordingDeletedError) {
-                    return snapshotLoadError.deletedAt
-                }
-                return null
-            },
+            (s) => [s.recordingDeletedError],
+            (recordingDeletedError: RecordingDeletedError | null): number | null =>
+                recordingDeletedError?.deletedAt ?? null,
         ],
 
         recordingDeletedBy: [
-            (s) => [s.snapshotLoadError],
-            (snapshotLoadError: Error | null): string | null => {
-                if (snapshotLoadError instanceof RecordingDeletedError) {
-                    return snapshotLoadError.deletedBy
-                }
-                return null
-            },
+            (s) => [s.recordingDeletedError],
+            (recordingDeletedError: RecordingDeletedError | null): string | null =>
+                recordingDeletedError?.deletedBy ?? null,
         ],
 
         // A missing session doesn't resolve by retrying, so a source failing this way should

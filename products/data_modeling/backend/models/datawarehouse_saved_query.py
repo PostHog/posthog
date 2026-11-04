@@ -121,6 +121,16 @@ class SchedulingUnavailableError(Exception):
     The caller decides what to keep, because the saved query itself is not at fault."""
 
 
+def is_raw_managed_trino_query(query: object) -> bool:
+    """A raw Trino view stores Trino SQL that only hosted Trino can run, so ClickHouse and lineage skip it."""
+    return (
+        isinstance(query, dict)
+        and query.get("executionTarget") == "managed_trino"
+        # The list endpoint matches JSON `true` in SQL, so a truthy string must not count here either.
+        and query.get("sendRawQuery") is True
+    )
+
+
 class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, DeletedMetaFields):
     class Status(models.TextChoices):
         """Possible states of this SavedQuery."""
@@ -299,6 +309,10 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
     @property
     def name_chain(self) -> list[str]:
         return self.name.split(".")
+
+    @property
+    def is_raw_managed_trino(self) -> bool:
+        return is_raw_managed_trino_query(self.query)
 
     def schedule_materialization(
         self, reconcile: bool = True, trigger_immediate_run: bool = False, triggered_by_id: int | None = None
@@ -526,7 +540,9 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
             raise Exception("Saved query is missing a query definition")
         return bind_window_start_sql(query["query"])
 
-    def get_columns(self, user: Optional["User"] = None) -> dict[str, dict[str, Any]]:
+    def get_columns(
+        self, user: Optional["User"] = None, *, bypass_warehouse_access_control: bool = False
+    ) -> dict[str, dict[str, Any]]:
         from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415 — keeps the heavy dep off the import path
 
         # ClickHouse can still evaluate scalar subqueries before it plans the outer LIMIT 0.
@@ -546,6 +562,7 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, 
                     user=user,
                     query_type="HogQLQuery",
                     refresh_stale_view_columns=False,
+                    bypass_warehouse_access_control=bypass_warehouse_access_control,
                 )
         result = response.types
 

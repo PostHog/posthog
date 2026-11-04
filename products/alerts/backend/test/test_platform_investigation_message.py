@@ -38,6 +38,7 @@ KEY = "slot:2026-10-20T09:00:00+00:00"
 OWN_BREACH = "Signups (50) is less than lower threshold (100)"
 ANOMALY_HEAD = "Anomaly detected on 2026-10-20."
 SUMMARY = "Signups fell after the **release**."
+METRICS_SUMMARY = "queue.depth moved up to 420.00 (baseline 100.00, 4.2x)."
 TEASER = "Signups fell after the release."
 
 
@@ -58,7 +59,14 @@ class TestInvestigatedFiringMessages(APIBaseTest):
         self.notebook_url = absolute_uri(f"/notebooks/{self.notebook.short_id}")
 
     def _investigation(
-        self, key: str, *, status: str = InvestigationStatus.DONE, verdict: str | None = None, at: datetime = FIRED_AT
+        self,
+        key: str,
+        *,
+        status: str = InvestigationStatus.DONE,
+        verdict: str | None = None,
+        at: datetime = FIRED_AT,
+        kind: str = InsightAlertInvestigation.Kind.AGENT,
+        summary: str | None = None,
     ) -> None:
         with time_machine.travel(at, tick=False):
             InsightAlertInvestigation.objects.for_team(self.team.id).create(
@@ -67,10 +75,10 @@ class TestInvestigatedFiringMessages(APIBaseTest):
                 configuration_id=self.configuration_id,
                 evaluation_key=key,
                 episode_started_at=EPISODE,
-                kind=InsightAlertInvestigation.Kind.AGENT,
+                kind=kind,
                 status=status,
                 verdict=verdict,
-                summary=SUMMARY if verdict else None,
+                summary=summary or (SUMMARY if verdict else None),
                 notebook_id=self.notebook.id if verdict else None,
                 evaluated={"value": 50.0, "triggered_dates": ["2026-10-20"]},
             )
@@ -191,6 +199,36 @@ class TestInvestigatedFiringMessages(APIBaseTest):
         assert self._investigation_label(properties) == label
         description = describe_insight_transition(project_id=self.team.id, transition=self._transition())
         assert description.details == (MessageDetail(label="Threshold breached", value="\n".join(expected_breaches)),)
+
+    @parameterized.expand(
+        [
+            ("released_after_its_run", InvestigationStatus.DONE, HoldReleasedBy.VERDICT, [OWN_BREACH, METRICS_SUMMARY]),
+            (
+                "sent_by_the_safety_net_after_it_failed",
+                InvestigationStatus.FAILED,
+                HoldReleasedBy.SAFETY_NET,
+                [OWN_BREACH],
+            ),
+        ]
+    )
+    def test_a_metrics_firing_keeps_its_own_breaches_and_adds_its_explanation(
+        self, _name: str, status: str, released_by: HoldReleasedBy, breaches: list[str]
+    ) -> None:
+        self._investigation(
+            KEY,
+            status=status,
+            kind=InsightAlertInvestigation.Kind.METRICS,
+            summary=METRICS_SUMMARY if status == InvestigationStatus.DONE else None,
+        )
+        self._released_by(released_by)
+
+        properties = self._event_properties(self._transition())
+
+        assert properties["breaches"] == "\n".join(breaches)
+        assert properties.get("investigation_notebook_url") is None
+        # Email, PagerDuty and webhooks read the same breaches, so they carry the explanation too.
+        description = describe_insight_transition(project_id=self.team.id, transition=self._transition())
+        assert description.details == (MessageDetail(label="Threshold breached", value="\n".join(breaches)),)
 
     def test_a_changed_verdict_follows_up_with_the_change(self) -> None:
         self._investigation("slot:2026-10-20T08:00:00+00:00", verdict="true_positive", at=EPISODE)

@@ -347,9 +347,9 @@ export interface TolerationPileupsApi {
  * * `review` - review
  * * `observe` - observe
  */
-export type PurposeEnumApi = (typeof PurposeEnumApi)[keyof typeof PurposeEnumApi]
+export type RunPurposeEnumApi = (typeof RunPurposeEnumApi)[keyof typeof RunPurposeEnumApi]
 
-export const PurposeEnumApi = {
+export const RunPurposeEnumApi = {
     Review: 'review',
     Observe: 'observe',
 } as const
@@ -379,7 +379,7 @@ export interface RunApi {
      *
      * * `review` - review
      * * `observe` - observe */
-    readonly purpose: PurposeEnumApi
+    readonly purpose: RunPurposeEnumApi
     /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of branch/run type, a commit SHA prefix, or an exact PR number) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`.
      *
      * * `exact` - exact

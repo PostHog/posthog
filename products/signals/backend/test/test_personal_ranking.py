@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.core.management import call_command
+from django.db.models import F
 from django.test import SimpleTestCase
 from django.utils import timezone
 
@@ -811,6 +812,12 @@ class TestForMeEndpoint(APIBaseTest):
         assert (self._state(self._get()), self._rows()) == ((True, False, False), 3)
 
         second = self._claimed_report("Second")
+        body = self._get()
+        assert (self._state(body), self.queued) == ((True, False, False), [])
+        assert [entry["report"]["id"] for entry in body["results"]] == [str(first.id)]
+        PersonalInboxRanking.objects.for_team(self.team.id).update(
+            created_at=F("created_at") - datetime.timedelta(days=2)
+        )
         assert self._state(self._get()) == (True, True, True)
         self._run_builds()
         body = self._get()
@@ -872,6 +879,8 @@ class TestForMeEndpoint(APIBaseTest):
 
         assert (self._state(self._get(refresh="true")), self.queued) == ((True, False, False), [])
         self._claimed_report("Second")
+        first.title = "First, edited"
+        first.save()
         body = self._get()
         assert (self._state(body), self._rows()) == ((True, True, False), 1)
         assert [entry["report"]["id"] for entry in body["results"]] == [str(first.id)]

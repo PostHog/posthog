@@ -136,6 +136,7 @@ const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     createProviderKey: 'products.ai_observability.settings.llmProviderKeysLogic',
     updateProviderKey: 'products.ai_observability.settings.llmProviderKeysLogic',
     deleteProviderKey: 'products.ai_observability.settings.llmProviderKeysLogic',
+    loadTrace: 'products.ai_observability.frontend.redesign.trace.traceViewLogic', // The trace view shows the error in its panel
     loadEvaluationResults: 'products.ai_observability.frontend.redesign.trace.traceViewLogic', // The trace view's Evals tab shows the error
     loadClusters: 'products.ai_observability.frontend.redesign.trace.traceClustersLogic', // The trace view hides the clusters chip
     loadTraceFeedback: 'products.ai_observability.frontend.redesign.trace.traceFeedbackLogic', // The trace view's Feedback mode shows the error
@@ -180,6 +181,8 @@ const NOT_FOUND_SELF_HANDLED = new Set([
     'loadOfflineItemResults',
     'loadOfflineSelectedResult',
     'loadOfflineResultPayload',
+    'loadDatasetItemDetails', // The dataset item modal renders a deleted, stale, or foreign item as an inline error
+    'loadDatasetItemVersions',
 ])
 
 /*
@@ -207,6 +210,7 @@ Every other failure on these actions still toasts and reports.
 const VALIDATION_ERROR_SELF_HANDLED_BY_LOGIC_PATH: Record<string, string> = {
     createTable: 'products.dataWarehouse.selfManagedSourceLogic',
     updateTable: 'products.dataWarehouse.selfManagedSourceLogic',
+    setEnabled: 'scenes.subscriptions.subscriptionSceneLogic', // Toasts the refusal, or offers to take ownership
 }
 
 /*

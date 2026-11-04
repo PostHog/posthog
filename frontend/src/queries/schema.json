@@ -2822,7 +2822,7 @@
         },
         "AssistantDataVisualizationColumn": {
             "additionalProperties": false,
-            "description": "A column with number formatting only. Series display settings apply only to Y-axis series.",
+            "description": "A column with a description and number formatting. Series display settings apply only to Y-axis series.",
             "properties": {
                 "column": {
                     "description": "Name of a column returned by the SQL query.",
@@ -2830,15 +2830,29 @@
                 },
                 "settings": {
                     "$ref": "#/definitions/AssistantDataVisualizationColumnSettings",
-                    "description": "Optional number formatting for this column."
+                    "description": "Optional display and number-formatting settings for this column."
                 }
             },
             "required": ["column"],
             "type": "object"
         },
+        "AssistantDataVisualizationColumnDisplaySettings": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "description": "Table column description shown in the header tooltip.",
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
         "AssistantDataVisualizationColumnSettings": {
             "additionalProperties": false,
             "properties": {
+                "display": {
+                    "$ref": "#/definitions/AssistantDataVisualizationColumnDisplaySettings",
+                    "description": "Display settings for this column."
+                },
                 "formatting": {
                     "$ref": "#/definitions/AssistantDataVisualizationAxisFormatting",
                     "description": "Number-formatting settings for the values in this column."
@@ -18129,6 +18143,10 @@
         "ChartSettings": {
             "additionalProperties": false,
             "properties": {
+                "annotationsScope": {
+                    "$ref": "#/definitions/AnnotationScope",
+                    "description": "Shows only the annotations saved at this level. Unset shows every level."
+                },
                 "barGap": {
                     "type": "number"
                 },
@@ -18251,6 +18269,9 @@
             "additionalProperties": false,
             "properties": {
                 "color": {
+                    "type": "string"
+                },
+                "description": {
                     "type": "string"
                 },
                 "displayType": {
@@ -27871,7 +27892,7 @@
         },
         "ExperimentWarehouseNativeExposureConfig": {
             "additionalProperties": false,
-            "description": "Exposures that live in the customer's warehouse, read through a direct connection. An experiment with this exposure runs entirely in the warehouse, so every metric source must be an `ExperimentWarehouseNativeNode` on the same connection.",
+            "description": "Exposures that live in the customer's warehouse, read through a direct connection. An experiment with this exposure runs entirely in the warehouse, so every metric source must be an `ExperimentWarehouseNativeNode` on the same connection with the same unit binding.",
             "properties": {
                 "connection_id": {
                     "description": "The direct-query source (an ExternalDataSource id) the SQL is written for.",
@@ -27888,12 +27909,15 @@
                 "response": {
                     "type": "object"
                 },
+                "unit": {
+                    "$ref": "#/definitions/ExperimentWarehouseNativeUnitBinding"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
             },
-            "required": ["connection_id", "kind", "query"],
+            "required": ["connection_id", "kind", "query", "unit"],
             "type": "object"
         },
         "ExperimentWarehouseNativeMathType": {
@@ -27931,12 +27955,31 @@
                 "response": {
                     "type": "object"
                 },
+                "unit": {
+                    "$ref": "#/definitions/ExperimentWarehouseNativeUnitBinding"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
                 }
             },
-            "required": ["connection_id", "kind", "query"],
+            "required": ["connection_id", "kind", "query", "unit"],
+            "type": "object"
+        },
+        "ExperimentWarehouseNativeUnitBinding": {
+            "additionalProperties": false,
+            "description": "What the `entity_id` column of a warehouse-native query identifies. Exposures and outcomes join on `entity_id` inside the warehouse, and the same connection does not make two queries compatible: one can return account ids and another customer ids. Every warehouse-native source stores its binding so a saved metric keeps it when it is attached to another experiment, and so attachment can compare bindings instead of guessing from SQL. Equal labels are required for compatibility but cannot prove the SQL returns the same identities; the author confirms that.",
+            "properties": {
+                "id_namespace": {
+                    "description": "Which ids represent that unit, such as `billing_customer_id`.",
+                    "type": "string"
+                },
+                "unit_type": {
+                    "description": "What was randomized, as a stable project-scoped label such as `customer` or `account`.",
+                    "type": "string"
+                }
+            },
+            "required": ["unit_type", "id_namespace"],
             "type": "object"
         },
         "ExternalQueryError": {
@@ -32915,6 +32958,10 @@
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
                 },
+                "filterTestAccounts": {
+                    "description": "Exclude reports from the project's internal and test users.",
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "MCPMissingCapabilitiesQuery",
                     "type": "string"
@@ -36361,7 +36408,7 @@
             "additionalProperties": false,
             "properties": {
                 "copyValue": {
-                    "description": "Text to paste into Google Ads at this step, such as a campaign name or a keyword in match type syntax.",
+                    "description": "Text to paste into Google Ads at this step, such as a campaign name or keywords in match type syntax, one per line.",
                     "type": ["string", "null"]
                 },
                 "linkText": {
@@ -36504,6 +36551,10 @@
                 },
                 "performanceMaxSearchTermTable": {
                     "description": "Google Ads search term table for Performance Max campaigns.",
+                    "type": "string"
+                },
+                "queryPageTable": {
+                    "description": "Google Search Console table with one row per query and page, used to find the page that ranks for a search.",
                     "type": "string"
                 },
                 "queryTable": {
@@ -54182,6 +54233,10 @@
                 "users:read",
                 "users:read.email"
             ],
+            "type": "string"
+        },
+        "SlackIntegrationScopeInReview": {
+            "enum": ["canvases:read", "channels:join"],
             "type": "string"
         },
         "SlashCommandName": {

@@ -105,7 +105,10 @@ class TestPostGraphql:
 
 class TestValidateCredentials:
     def test_returns_true_on_valid_credentials(self):
-        with mock.patch("products.warehouse_sources.sources.pganalyze.pganalyze.make_tracked_session") as mock_sess:
+        with (
+            mock.patch("products.warehouse_sources.sources.pganalyze.pganalyze.make_tracked_session") as mock_sess,
+            mock_anti_ssrf_dns_lookup(),
+        ):
             sess = mock.MagicMock()
             sess.post.return_value = _mock_response(json_data={"data": {"getServers": []}})
             mock_sess.return_value = sess

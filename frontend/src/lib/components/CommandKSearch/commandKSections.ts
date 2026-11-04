@@ -1,6 +1,7 @@
 import { SearchItem, filterNewItems } from 'lib/components/Search/searchItems'
 import { SETTINGS_THEME_ITEM_ID, filterSearchItems } from 'lib/components/Search/utils'
 
+import type { SearchCorrection } from './commandKCorrection'
 import { CursorContext, FilterDefinition, FilterOptions, ValueOption, matchValueOptions } from './commandKQuery'
 import { buildRankedResults } from './commandKRankedResults'
 import { FILTER_TOKEN, freeWords, strictLocalMatches } from './commandKRanking'
@@ -18,7 +19,7 @@ const LOCAL_SOURCES = [
     'data-management',
     'people',
     'health',
-    'misc',
+    'actions',
     'shortcuts',
     'settings',
     'create',
@@ -58,7 +59,7 @@ export type CommandKRow =
       }
     | { kind: 'ask-ai'; key: string; question: string }
     | { kind: 'scope'; key: string; type: string; label: string }
-    | { kind: 'notice'; key: string; reason: 'partial' | 'typos'; missing: string[]; shown: string[] }
+    | { kind: 'notice'; key: string; reason: 'partial' | 'typos' | 'corrected'; missing: string[]; shown: string[] }
     | { kind: 'loading-more'; key: string }
 
 export interface CommandKSection {
@@ -97,7 +98,7 @@ const SECTION_LABELS: Record<Exclude<CommandKSectionKey, `group-${string}`>, str
     'data-management': 'Data management',
     people: 'People',
     health: 'Health',
-    misc: 'Misc',
+    actions: 'Actions',
     shortcuts: 'Shortcuts',
     settings: 'Settings',
     create: 'Create new',
@@ -234,7 +235,8 @@ export interface SectionsInput extends SectionsQuery {
     remote: RemoteSlots
     stale: boolean
     personsFirst: boolean
-    settingsInResults: boolean
+    unifiedRanking: boolean
+    searchCorrection: SearchCorrection | null
 }
 
 const isRanked = (query: SectionsQuery): boolean =>
@@ -303,6 +305,10 @@ const plainName = (item: SearchItem): string =>
         .replace(/\s*\([^)]*\)\s*$/, '')
         .trim()
 
+// The unified scorer splits words on underscores, so the settings it ranks are matched the same way.
+export const settingsQuery = (localQuery: string, unifiedRanking: boolean): string =>
+    unifiedRanking ? localQuery.replace(/_/g, ' ') : localQuery
+
 export function rankableSettings(local: LocalLists, localQuery: string): SearchItem[] {
     const productNames = new Set(local.products.map(plainName))
     return exactSettingsMatches(local.settings, localQuery).filter((item) => !productNames.has(plainName(item)))
@@ -316,19 +322,22 @@ function rankedResultsSections(
     state: CommandKSection['state'],
     persons: SearchItem[],
     accounts: SearchItem[],
-    settingsInResults: boolean
+    unifiedRanking: boolean
 ): CommandKSection[] {
     const words = freeWords(query)
+    // The unified scorer reads punctuation, so a domain or an email address keeps it.
+    const freeText = query.replace(FILTER_TOKEN, ' ').replace(/\s+/g, ' ').trim()
     return buildRankedResults({
         persons,
         accounts,
-        settings: settingsInResults ? rankableSettings(local, localQuery) : [],
-        query: words.join(' '),
+        settings: rankableSettings(local, settingsQuery(localQuery, unifiedRanking)),
+        query: unifiedRanking ? freeText : words.join(' '),
         highlightWords: words,
         results,
         products: localQuery ? local.products : [],
         state,
         scoped: (query.match(FILTER_TOKEN) ?? []).some((token) => token.trim().startsWith('type:')),
+        unifiedRanking,
     })
 }
 
@@ -395,7 +404,31 @@ function lowerSections(
         : all
 }
 
+function withCorrectionNotice(sections: CommandKSection[], correction: SearchCorrection | null): CommandKSection[] {
+    if (!correction || !sections.some((section) => section.rows.some((row) => row.kind === 'item'))) {
+        return sections
+    }
+    const row: CommandKRow = {
+        kind: 'notice',
+        key: 'notice/corrected',
+        reason: 'corrected',
+        missing: [correction.from],
+        shown: [correction.to],
+    }
+    const notice = sections.find((section) => section.key === 'notice')
+    if (notice) {
+        return sections.map((section) => (section === notice ? { ...section, rows: [row, ...section.rows] } : section))
+    }
+    const index = sections.findIndex((section) => section.key !== 'filters' && section.key !== 'suggestions')
+    const at = index < 0 ? sections.length : index
+    return [...sections.slice(0, at), readySection('notice', [row]), ...sections.slice(at)]
+}
+
 export function buildSections(input: SectionsInput): CommandKSection[] {
+    return withCorrectionNotice(buildSectionsForQuery(input), input.searchCorrection)
+}
+
+function buildSectionsForQuery(input: SectionsInput): CommandKSection[] {
     const { mode, context, local, remote, remoteQueries, localQuery } = input
     if (mode === 'empty') {
         return [
@@ -455,7 +488,7 @@ export function buildSections(input: SectionsInput): CommandKSection[] {
             state,
             leadingPersons,
             accountsQuery ? remote.accounts.cache[accountsQuery] : [],
-            input.settingsInResults
+            input.unifiedRanking
         )
         sections.push(
             ...(rankedSections.some((section) => section.key === 'results')
