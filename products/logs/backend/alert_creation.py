@@ -4,10 +4,10 @@ import os
 from datetime import UTC, datetime
 from typing import Any
 
-from django.db import connection
-
 from posthog.models.team.team import Team
 
+from products.alerts_platform.backend.facade.api import copied_legacy_ids, count_configurations, hold_admission_lock
+from products.alerts_platform.backend.facade.contracts import SourceKind
 from products.logs.backend.alert_utils import next_allowed_check_at
 from products.logs.backend.models import LogsAlertConfiguration
 
@@ -28,14 +28,26 @@ class AlertLimitReached(Exception):
 
 
 def claim_alert_slot(team_id: int) -> None:
-    """Serializes the team's creates until the caller's transaction ends, and raises
-    `AlertLimitReached` when the team is at its cap."""
-    with connection.cursor() as cursor:
-        cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", [f"logs_alerts:{team_id}"])
+    """Serializes the team's logs alert creates on every route, the platform's included, until the
+    caller's transaction ends, and raises `AlertLimitReached` when the team is at its cap."""
+    hold_admission_lock(team_id=team_id, source_kind=SourceKind.LOGS)
+    check_alert_slot(team_id)
+
+
+def check_alert_slot(team_id: int) -> None:
+    """Raises `AlertLimitReached` when the team is at its cap. The caller holds the admission lock."""
     if team_id in UNCAPPED_ALERT_TEAM_IDS:
         return
-    if LogsAlertConfiguration.objects.filter(team_id=team_id).count() >= MAX_ALERTS_PER_TEAM:
+    if _alerts_of(team_id) >= MAX_ALERTS_PER_TEAM:
         raise AlertLimitReached()
+
+
+def _alerts_of(team_id: int) -> int:
+    """Every logs alert of the team: each platform configuration, copies included, and each logs row
+    with no copy. The count stays right once logs rows stop being written, and once they are deleted."""
+    copied = copied_legacy_ids(team_id=team_id, source_kind=SourceKind.LOGS)
+    uncopied = LogsAlertConfiguration.objects.filter(team_id=team_id).exclude(id__in=copied).count()
+    return count_configurations(team_id=team_id, source_kind=SourceKind.LOGS) + uncopied
 
 
 def first_check_at(team_id: int, schedule_restriction: dict[str, Any]) -> datetime:
