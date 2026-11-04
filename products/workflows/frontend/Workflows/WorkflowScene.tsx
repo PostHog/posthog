@@ -25,6 +25,7 @@ import { DRAFT_SOURCE_PARAM } from '../MessageAudience/aiEmailDraft'
 import { EMAIL_PREFILL_PARAM } from '../MessageAudience/messageDrafts'
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
 import { WorkflowImportNotesBanner } from './import/WorkflowImportNotesBanner'
+import { LazyWorkflowSandboxSwitchBanner } from './LazyWorkflowSandboxSwitchBanner'
 import { NewWorkflowAgent } from './NewWorkflowAgent'
 import { newWorkflowLogic } from './newWorkflowLogic'
 import { WorkflowBatchOverview } from './overview/WorkflowBatchOverview'
@@ -257,6 +258,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
                 {isSavedWorkflow && <WorkflowImportNotesBanner id={props.id!} />}
                 {isSavedWorkflow && <WorkflowBroadcastMoveBanner id={props.id!} />}
                 {!isSavedWorkflow && <WorkflowAiEmailDraftStatus {...workflowProps} />}
+                <LazyWorkflowSandboxSwitchBanner {...workflowProps} />
                 {suggestionsAvailable && isSavedWorkflow && <WorkflowSuggestionsNotice id={props.id!} />}
                 {/* Only show Logs and Metrics tabs if the workflow has already been created */}
                 {!props.id || props.id === 'new' ? (
