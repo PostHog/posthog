@@ -106,7 +106,9 @@ describe('metricsLogic', () => {
     })
 
     it('replaces the row with the response when approve succeeds and records where it was approved', async () => {
-        ;(dataCatalogMetricsApproveCreate as jest.Mock).mockResolvedValue(buildMetric({ status: 'approved' }))
+        ;(dataCatalogMetricsApproveCreate as jest.Mock).mockResolvedValue(
+            buildMetric({ status: 'approved', display_name: 'Weekly active users' })
+        )
         const capture = jest.spyOn(posthog, 'capture')
 
         try {
@@ -115,6 +117,7 @@ describe('metricsLogic', () => {
 
             expect(logic.values.allMetrics[0].status).toEqual('approved')
             expect(capture).toHaveBeenCalledWith('data catalog metric approved', { source: 'inline' })
+            expect(lemonToast.success).toHaveBeenCalledWith('Approved Weekly active users')
         } finally {
             capture.mockRestore()
         }

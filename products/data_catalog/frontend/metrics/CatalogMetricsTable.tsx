@@ -34,7 +34,7 @@ import { urls } from 'scenes/urls'
 import { CATALOG_PAGE_SIZE } from '../catalogPagination'
 import { sortDirectionFor } from '../catalogSort'
 import { checkGroupCounts } from '../catalogTableRows'
-import { humanizeDefinitionKind } from '../common'
+import { humanizeDefinitionKind, metricDisplayName } from '../common'
 import { CheckGroupSummary } from '../components/CheckGroupSummary'
 import { ChecksToggleButton } from '../components/ChecksToggleButton'
 import { isPlainRowClick } from '../components/isPlainRowClick'
@@ -50,7 +50,6 @@ import {
     DEFAULT_METRIC_CHECKS_FILTER,
     MetricsSortColumn,
     catalogMetricsLogic,
-    metricDisplayName,
     metricOwnerName,
     metricUpdatedAt,
 } from './catalogMetricsLogic'

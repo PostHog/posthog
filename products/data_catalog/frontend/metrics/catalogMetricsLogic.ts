@@ -19,6 +19,7 @@ import {
 import { itemsOnPage, pageCountFor } from '../catalogPagination'
 import { ColumnSort, SortValueGetters, nextColumnSort, sortByColumn } from '../catalogSort'
 import { ChecksFilter, checkGroupCounts, matchesChecksFilter, passingShare } from '../catalogTableRows'
+import { metricDisplayName } from '../common'
 import type { DataCatalogMetricApi } from '../generated/api.schemas'
 import { metricsLogic } from '../metricsLogic'
 
@@ -29,10 +30,6 @@ export const DEFAULT_METRICS_SORT: MetricsSort = { column: 'status', direction: 
 export const DEFAULT_METRIC_CHECKS_FILTER: ChecksFilter = 'any'
 
 const STATUS_RANK: Record<string, number> = { proposed: 0, approved: 1 }
-
-export function metricDisplayName(metric: DataCatalogMetricApi): string {
-    return metric.display_name || metric.name
-}
 
 export function metricUpdatedAt(metric: DataCatalogMetricApi): string {
     return metric.updated_at ?? metric.created_at

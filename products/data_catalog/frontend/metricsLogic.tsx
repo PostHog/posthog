@@ -13,7 +13,7 @@ import { userLogic } from 'scenes/userLogic'
 import { UserType } from '~/types'
 
 import { PROPOSED_TABLES_FILTER, ReviewSource, TABLES_FILTER_PARAM } from './catalogTableRows'
-import { existingMetricFromNameConflict, metricCount } from './common'
+import { existingMetricFromNameConflict, metricCount, metricDisplayName } from './common'
 import { createMetricAsUser, MetricSaveAction, toastCreatedMetric } from './createMetricAsUser'
 import {
     dataCatalogMetricsApproveCreate,
@@ -399,6 +399,7 @@ export const metricsLogic = kea<metricsLogicType>([
                 actions.loadMetricsSuccess(
                     values.allMetrics.map((metric) => (metric.name === name ? approved : metric))
                 )
+                lemonToast.success(`Approved ${metricDisplayName(approved)}`)
                 posthog.capture(METRIC_APPROVED_EVENT, { source })
             } catch (error) {
                 if (error instanceof ApiError && error.status === 409) {
