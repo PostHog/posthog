@@ -9,6 +9,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import posthog from 'lib/posthog-typed'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
+import { appLogic } from 'scenes/appLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -283,6 +284,18 @@ describe('mcpRecurringReportsLogic', () => {
             await becomeReadyToCreate()
 
             expect(logic.values.weeklyReportOffer).toEqual({ state: 'ready', email: 'me@example.com' })
+        })
+
+        it('hides instead of loading forever when the app stops waiting for flags', async () => {
+            await expectLogic(preflightLogic).toFinishAllListeners()
+            preflightLogic.actions.loadPreflightSuccess({ cloud: true, is_debug: false } as any)
+            userLogic.actions.loadUserSuccess({ uuid: 'user-me', email: 'me@example.com' } as UserType)
+            await expectLogic(logic, () => logic.actions.loadReports()).toFinishAllListeners()
+            expect(logic.values.weeklyReportOffer).toEqual({ state: 'loading' })
+
+            appLogic.actions.ignoreFeatureFlags()
+
+            expect(logic.values.weeklyReportOffer).toEqual({ state: 'hidden', reason: 'not-enabled' })
         })
 
         it('creates one report when clicked twice while the first request is in flight', async () => {
