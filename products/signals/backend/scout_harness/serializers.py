@@ -23,11 +23,11 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
 from pydantic import ValidationError as PydanticValidationError
 from rest_framework import serializers
-from rest_framework.exceptions import PermissionDenied
 from rest_framework.fields import empty
 
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import groups
+from posthog.exceptions import InsufficientScope
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.permissions import get_authenticator_scopes, scopes_missing_after_legacy_fallback
@@ -3030,12 +3030,12 @@ def _validate_output_destinations(value: dict, context: dict) -> dict:
     key_scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
     if key_scopes is not None and "*" not in key_scopes:
         if not any(scope in key_scopes for scope in ("integration:read", "integration:write")):
-            raise PermissionDenied("API key missing required scope 'integration:read'")
+            raise InsufficientScope(["integration:read"])
         # Delivery pushes report titles/summaries to the channel — content the report API gates
         # behind `inbox` scope — so a scoped key without it must not be able to route that content
         # out via a destination.
         if scopes_missing_after_legacy_fallback(request, context.get("view"), key_scopes, ["inbox:read"]):
-            raise PermissionDenied("API key missing required scope 'inbox:read'")
+            raise InsufficientScope(["inbox:read"])
 
     return {"slack": slack, **({"webhook": webhook} if webhook else {}), **inbox}
 
