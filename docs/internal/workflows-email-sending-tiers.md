@@ -75,3 +75,21 @@ Decay, suspension drops, admin recomputes, and the backfill stay silent.
   A send denied because the limiter itself failed keeps the shorter token bucket cadence, at most 5 to 10 minutes.
 - Gmail provides no per-message feedback loop, so complaint rates (ours and AWS's) cannot see Gmail complaints at all.
 - The `HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS` allowlist elevates a team to the top tier in Django only: the UI, the admin, and the batch audience cap show top-tier numbers, but the worker's send-time buckets read the stored tier. An allowlisted team below the top tier is therefore throttled at its stored tier while being told otherwise, and its shadow-mode delay counts overstate real impact. Before enforcing, pin each allowlisted team at the top tier from the Django admin and empty the allowlist, rather than plumbing the list into the worker.
+
+### Sandbox delivery
+
+The worker sends through a `sandbox` email integration only when `WORKFLOWS_SANDBOX_SENDER_ENABLED` is on and `SES_SANDBOX_TENANT_NAME`, `SES_SANDBOX_CONFIGURATION_SET`, and `SES_SANDBOX_FROM_ADDRESS` are set.
+Otherwise every send through it skips with a reason in the run log and a `workflows sandbox email blocked` event with reason `switch_off`.
+Every To, CC, and BCC address must belong to an active member of the team's active organization with a verified email address.
+The worker reads membership fresh before it prepares the send, and again right before delivery.
+A membership check that fails or takes longer than 3 seconds skips the send and lists the blocked addresses in the run log.
+The blocked event fires at most once an hour per team, reason, and send kind (workflow or test).
+A send that passes every check goes out through the fixed SES tenant, configuration set, and From address, whatever the step's custom sender and Reply-To say.
+Sandbox sends skip the team's tier budget, click and open tracking, and unsubscribe headers, because they reach only members of the sending organization.
+The worker parses and normalizes the HTML, then appends a footer that names the sender and the organization ID.
+It overrides root clipping and visibility styles, drops any root style declaration it cannot parse cleanly, and keeps the template's typography, so malformed markup may render differently from an own-domain send.
+A template whose HTML cannot keep the footer fails the send.
+The visible footer is best effort across email clients and template CSS; the signed tracking header still attributes the message.
+Each delivered send emits a `workflows sandbox email sent` event.
+Live workflow sends record `email_sent`, so workflow reports count them; test sends do not.
+The worker has no daily sandbox caps yet, so only switch it on where Django provisions sandbox senders for a small set of projects.

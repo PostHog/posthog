@@ -10,6 +10,7 @@ const footer =
 const teamManager = {
     getTeam: jest.fn().mockResolvedValue({ organization_id: '00000000-0000-0000-0000-000000000001' }),
 } as unknown as TeamManager
+const blockedEventRedis = { useClient: jest.fn() }
 const sender = new SandboxEmailSender(
     {
         enabled: true,
@@ -17,7 +18,8 @@ const sender = new SandboxEmailSender(
         configurationSetName: 'sandbox-email',
         fromAddress: 'fixed-sandbox@example.com',
     },
-    teamManager
+    teamManager,
+    blockedEventRedis
 )
 const params = (html: string, text?: string, preheader?: string): CyclotronInvocationQueueParametersEmailType => ({
     type: 'email',
@@ -65,7 +67,8 @@ describe('sandbox email content', () => {
                 configurationSetName: ' sandbox-email ',
                 fromAddress: ' fixed-sandbox@example.com ',
             },
-            teamManager
+            teamManager,
+            blockedEventRedis
         )
         const result = await paddedSender.withIdentificationFooter(
             params('<p>Hello</p>'),

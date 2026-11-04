@@ -1,9 +1,13 @@
 import { type DefaultTreeAdapterMap, defaultTreeAdapter, parse, parseFragment, serialize } from 'parse5'
 
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
+import { RedisV2 } from '~/common/redis/redis-v2'
+import { RedisConnectionConfig, RedisPoolConfig } from '~/common/utils/db/redis'
 import { logger } from '~/common/utils/logger'
+import { captureTeamEvent } from '~/common/utils/posthog'
 import { TeamManager } from '~/common/utils/team-manager'
 
+import { DeadlineSlots } from '../../utils/deadline-slots'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
 
 export interface SandboxEmailSenderConfig {
@@ -24,6 +28,17 @@ function emptyRouteSettings(config: SandboxEmailSenderConfig): string[] {
         .filter((setting) => !config[setting].trim())
         .map((setting) => ROUTE_SETTING_NAMES[setting])
 }
+
+export type SandboxEmailBlockReason = 'switch_off' | 'recipient_not_member' | 'recipient_unverified' | 'check_failed'
+
+const BLOCKED_EVENT_WINDOW_SECONDS = 3600
+// The send is already decided when this runs, and the worker's batch waits for it, so a stalled
+// store must not hold the invocation open.
+const EVENT_CAPTURE_TIMEOUT_MS = 1000
+// The deadline cannot cancel a store call, so a stalled call keeps its connection until the store answers.
+// At most this many run at once, on a pool of their own this size; a capture waiting for a slot holds
+// nothing and gives up at its deadline, so a burst against a healthy store keeps every event.
+export const MAX_OPEN_STORE_CALLS = 10
 
 function htmlBody(document: DefaultTreeAdapterMap['document']): DefaultTreeAdapterMap['element'] | undefined {
     const root = document.childNodes.find(defaultTreeAdapter.isElementNode)
@@ -156,12 +171,23 @@ function appendHtmlFooter(html: string, footer: string, preheader?: string): str
     return serialized
 }
 
+export function sandboxBlockedEventRedisConfig(connection: RedisConnectionConfig): RedisPoolConfig {
+    return {
+        // Blocked events are optional telemetry, so a store that refuses these connections must not stop the worker.
+        connection: { ...connection, exitOnRepeatedErrors: false },
+        poolMinSize: 0,
+        poolMaxSize: MAX_OPEN_STORE_CALLS,
+    }
+}
+
 export class SandboxEmailSender {
     public readonly canSend: boolean
+    private storeSlots = new DeadlineSlots(MAX_OPEN_STORE_CALLS)
 
     constructor(
         public readonly config: SandboxEmailSenderConfig,
-        private teamManager: TeamManager
+        private teamManager: TeamManager,
+        private blockedEventRedis: Pick<RedisV2, 'useClient'>
     ) {
         this.config = {
             ...config,
@@ -201,5 +227,93 @@ export class SandboxEmailSender {
             ...(params.text ? { text: `${params.text}\n\n${footer}` } : {}),
             ...(params.html ? { html: appendHtmlFooter(params.html, footer, params.preheader) } : {}),
         }
+    }
+
+    public async captureSent(teamId: number, isTest: boolean, recipientCount: number): Promise<void> {
+        await this.captureEvent(teamId, 'workflows sandbox email sent', {
+            recipient_count: recipientCount,
+            source: isTest ? 'test' : 'workflow',
+            is_test: isTest,
+        })
+    }
+
+    public async captureBlocked(
+        teamId: number,
+        isTest: boolean,
+        reason: SandboxEmailBlockReason,
+        blockedRecipientCount: number
+    ): Promise<void> {
+        await this.captureEvent(
+            teamId,
+            'workflows sandbox email blocked',
+            { reason, blocked_recipient_count: blockedRecipientCount, is_test: isTest },
+            () => this.isFirstBlockInWindow(teamId, isTest, reason)
+        )
+    }
+
+    private async captureEvent(
+        teamId: number,
+        event: string,
+        properties: Record<string, string | number | boolean>,
+        storeCheck?: () => Promise<boolean>
+    ): Promise<void> {
+        let timer: NodeJS.Timeout | undefined
+        const deadline = new Promise<void>((resolve) => {
+            timer = setTimeout(resolve, EVENT_CAPTURE_TIMEOUT_MS)
+        })
+        const captureNow = (): Promise<void> => this.captureEventNow(teamId, event, properties, storeCheck)
+        const capture = storeCheck ? this.withStoreSlot(deadline, captureNow) : captureNow()
+        try {
+            if ((await Promise.race([capture.then(() => true), deadline.then(() => false)])) === false) {
+                logger.warn('Gave up capturing a sandbox email event: the event store did not answer', {
+                    teamId,
+                    event,
+                })
+            }
+        } finally {
+            clearTimeout(timer)
+        }
+    }
+
+    private async withStoreSlot(deadline: Promise<void>, work: () => Promise<void>): Promise<void> {
+        await this.storeSlots.run(deadline, work)
+    }
+
+    private async captureEventNow(
+        teamId: number,
+        event: string,
+        properties: Record<string, string | number | boolean>,
+        storeCheck?: () => Promise<boolean>
+    ): Promise<void> {
+        try {
+            if (storeCheck && !(await storeCheck())) {
+                return
+            }
+            const team = await this.teamManager.getTeam(teamId)
+            if (team) {
+                captureTeamEvent(team, event, properties)
+            }
+        } catch (error) {
+            logger.warn('Could not capture sandbox email event', { teamId, event, error })
+        }
+    }
+
+    private async isFirstBlockInWindow(
+        teamId: number,
+        isTest: boolean,
+        reason: SandboxEmailBlockReason
+    ): Promise<boolean> {
+        const firstBlock = await this.blockedEventRedis.useClient(
+            { name: 'sandbox-blocked-event', timeout: 1000 },
+            (client) =>
+                client.set(
+                    `@posthog/workflows-sandbox-blocked/${teamId}/${reason}/${isTest ? 'test' : 'live'}`,
+                    '1',
+                    'EX',
+                    BLOCKED_EVENT_WINDOW_SECONDS,
+                    'NX'
+                )
+        )
+        return firstBlock === 'OK'
     }
 }
