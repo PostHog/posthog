@@ -6,10 +6,7 @@ import { StepDefinition } from '../steps'
 export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, Markdown, CalloutBox, dedent } = ctx
 
-    const installSteps = getIOSStepsPA(ctx, {
-        minVersionPod: '3.56',
-        minVersionSPM: '3.56.0',
-    })
+    const installSteps = getIOSStepsPA(ctx)
 
     const exceptionAutocaptureStep: StepDefinition = {
         title: 'Set up exception autocapture',

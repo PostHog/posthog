@@ -6,10 +6,7 @@ import { StepDefinition } from '../steps'
 export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, Markdown, dedent } = ctx
 
-    const installSteps = getIOSStepsPA(ctx, {
-        minVersionPod: '3.58',
-        minVersionSPM: '3.58.0',
-    })
+    const installSteps = getIOSStepsPA(ctx)
 
     const sendLogStep: StepDefinition = {
         title: 'Send a log',

@@ -7,14 +7,12 @@ export const getIOSInstallSteps = (
     options?: {
         includeExperimentalSpi?: boolean
         experimentalDescription?: string
-        minVersionPod?: string
         minVersionSPM?: string
     }
 ): StepDefinition[] => {
     const { CodeBlock, Markdown, CalloutBox, dedent } = ctx
 
-    const podVersion = options?.minVersionPod || '3.56'
-    const spmVersion = options?.minVersionSPM || '3.56.0'
+    const spmVersion = options?.minVersionSPM || '4.0.0'
 
     return [
         {
@@ -37,18 +35,6 @@ export const getIOSInstallSteps = (
                                     dependencies: [
                                       .package(url: "https://github.com/PostHog/posthog-ios.git", from: "${spmVersion}")
                                     ]
-                                `,
-                            },
-                        ]}
-                    />
-                    <Markdown>Or add PostHog to your Podfile:</Markdown>
-                    <CodeBlock
-                        blocks={[
-                            {
-                                language: 'ruby',
-                                file: 'Podfile',
-                                code: dedent`
-                                    pod "PostHog", "~> ${podVersion}"
                                 `,
                             },
                         ]}
@@ -126,7 +112,6 @@ export const getIOSSteps = (
     options?: {
         includeExperimentalSpi?: boolean
         experimentalDescription?: string
-        minVersionPod?: string
         minVersionSPM?: string
     }
 ): StepDefinition[] => [...getIOSInstallSteps(ctx, options), getIOSEventStep(ctx)]

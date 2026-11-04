@@ -12,19 +12,7 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
             badge: 'required',
             content: (
                 <>
-                    <Markdown>Add PostHog to your Podfile:</Markdown>
-                    <CodeBlock
-                        blocks={[
-                            {
-                                language: 'ruby',
-                                file: 'Podfile',
-                                code: dedent`
-                                    pod "PostHog", "~> 3.56"
-                                `,
-                            },
-                        ]}
-                    />
-                    <Markdown>Or install via Swift Package Manager:</Markdown>
+                    <Markdown>Install via Swift Package Manager:</Markdown>
                     <CodeBlock
                         blocks={[
                             {
@@ -32,7 +20,7 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                 file: 'Package.swift',
                                 code: dedent`
                                     dependencies: [
-                                      .package(url: "https://github.com/PostHog/posthog-ios.git", from: "3.56.0")
+                                      .package(url: "https://github.com/PostHog/posthog-ios.git", from: "4.0.0")
                                     ]
                                 `,
                             },

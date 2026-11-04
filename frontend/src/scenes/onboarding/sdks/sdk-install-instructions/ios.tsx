@@ -10,15 +10,11 @@ export interface iOSSetupProps {
     includeExperimentalSpi?: boolean
 }
 
-function IOSInstallCocoaPodsSnippet(): JSX.Element {
-    return <CodeSnippet language={Language.Ruby}>{'pod "PostHog", "~> 3.56"'}</CodeSnippet>
-}
-
 function IOSInstallSPMSnippet(): JSX.Element {
     return (
         <CodeSnippet language={Language.Swift}>
             {`dependencies: [
-  .package(url: "https://github.com/PostHog/posthog-ios.git", from: "3.56.0")
+  .package(url: "https://github.com/PostHog/posthog-ios.git", from: "4.0.0")
 ]`}
         </CodeSnippet>
     )
@@ -35,10 +31,7 @@ function IOSSetupSnippet(props: iOSSetupProps): JSX.Element {
         config.sessionReplay = true
         // choose whether to mask images or text
         config.sessionReplayConfig.maskAllImages = false
-        config.sessionReplayConfig.maskAllTextInputs = true
-        // screenshot is disabled by default
-        // The screenshot may contain sensitive information, use with caution
-        config.sessionReplayConfig.screenshotMode = true`,
+        config.sessionReplayConfig.maskAllTextInputs = true`,
         props.includeSurveys && `config.surveys = true`,
     ]
         .filter(Boolean)
@@ -71,9 +64,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 export function SDKInstallIOSInstructions(props: iOSSetupProps): JSX.Element {
     return (
         <>
-            <h3>Install via CocoaPods</h3>
-            <IOSInstallCocoaPodsSnippet />
-            <h3>Or Install via SPM</h3>
+            <h3>Install via Swift Package Manager</h3>
             <IOSInstallSPMSnippet />
             <h3>Configure</h3>
             <IOSSetupSnippet {...props} />
