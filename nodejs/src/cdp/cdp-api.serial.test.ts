@@ -2314,6 +2314,7 @@ describe('CDP API', () => {
                     .send({ ...payload, idempotency_key: keyed.idempotency_key })
             const changedContent = { ...codeSend, content: { ...codeSend.content, subject: 'Your new code' } }
             const otherSenderId = codeSend.from.integrationId + 3
+            const addresslessSend = { ...codeSend, from: { integrationId: codeSend.from.integrationId } }
 
             beforeEach(() => {
                 keyed = { ...body, idempotency_key: `key-${new UUIDT().toString()}` }
@@ -2327,6 +2328,12 @@ describe('CDP API', () => {
                     'transactional_email/send',
                     { ...body, send: codeSend },
                     { ...body, send: { ...codeSend, from: { ...codeSend.from, integrationId: otherSenderId } } },
+                ],
+                [
+                    'a code send from a sender without an address',
+                    'transactional_email/send',
+                    { ...body, send: addresslessSend },
+                    { ...body, send: addresslessSend },
                 ],
             ] as const)(
                 'returns the first send for a retry of %s and queues nothing new',
@@ -2371,6 +2378,14 @@ describe('CDP API', () => {
                     [
                         'transactional_email/send',
                         { ...body, send: { ...codeSend, from: { ...codeSend.from, email: 'alerts@example.com' } } },
+                    ],
+                ],
+                [
+                    'another sender without an address',
+                    ['transactional_email/send', { ...body, send: addresslessSend }],
+                    [
+                        'transactional_email/send',
+                        { ...body, send: { ...addresslessSend, from: { integrationId: otherSenderId } } },
                     ],
                 ],
             ] as const)(
