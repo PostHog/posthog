@@ -1066,7 +1066,6 @@ export class EmailService {
                 })
             }
 
-            // Recorded beside `email_sent` so the sending tier can leave sandbox sends out of its volume.
             if (success && isSandbox) {
                 result.metrics.push({
                     team_id: invocation.teamId,
