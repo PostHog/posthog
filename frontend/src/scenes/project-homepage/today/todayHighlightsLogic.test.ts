@@ -284,6 +284,38 @@ describe('todayHighlightsLogic', () => {
         logic.actions.pulseViewUnmounted()
     })
 
+    it('waits for pins before it records an empty load', async () => {
+        let releasePins: () => void = () => undefined
+        useMocks({
+            get: {
+                '/api/projects/:team_id/today/pulse_pins/': () =>
+                    new Promise((resolve) => {
+                        releasePins = () =>
+                            resolve([200, { pins: [{ key: 'insight:p', name: 'P', dashboard_id: null }] }])
+                    }),
+            },
+        })
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
+        highlightResponses = [[200, makeHighlights({ pulse: [makePulseMetric({ key: 'insight:p' })] })]]
+        const logic = todayHighlightsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadHighlightsSuccess'])
+        logic.actions.pulseViewMounted(false)
+        logic.actions.pulseViewUpdated()
+        const finishedBeforePins = capture.mock.calls.some(([event]) => event === 'today pulse load finished')
+
+        releasePins()
+        await expectLogic(logic).toDispatchActions(['loadPulsePinsSuccess'])
+        logic.actions.pulseViewUpdated()
+
+        expect(finishedBeforePins).toBe(false)
+        expect(capture).toHaveBeenCalledWith(
+            'today pulse load finished',
+            expect.objectContaining({ outcome: 'ready', number_count: 1 })
+        )
+        logic.actions.pulseViewUnmounted()
+    })
+
     it('records an already available number without waiting for another request', async () => {
         const capture = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined)
         highlightResponses = [[200, makeHighlights({ pulse: [makePulseMetric()] })]]

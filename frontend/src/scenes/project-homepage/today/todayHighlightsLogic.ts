@@ -776,7 +776,7 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
                 cache.highlightsUnavailable === true,
                 numberCount
             )
-            if (outcome) {
+            if (outcome && (outcome !== 'empty' || values.pulsePinsSettled)) {
                 load.finished = true
                 cache.disposables.dispose('pulseLoadSlow')
                 cache.disposables.dispose('pulseLoadVisibility')
