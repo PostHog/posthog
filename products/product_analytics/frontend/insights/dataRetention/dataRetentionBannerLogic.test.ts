@@ -19,6 +19,7 @@ const RETENTION = {
     plan_retention_months: 84,
     min_retention_months: 1,
     max_retention_months: 84,
+    retention_months_choices: [1, 3, 12, 24, 60, 84],
 }
 
 describe('dataRetentionBannerLogic', () => {

@@ -10,9 +10,14 @@ import { EventsRetentionPlanNote } from './EventsRetentionPlanNote'
 import { eventsRetentionSettingsLogic } from './eventsRetentionSettingsLogic'
 
 export function OrganizationEventsRetentionSetting(): JSX.Element | null {
-    const { projectRetention, organizationRetention, organizationRetentionLoading } =
-        useValues(eventsRetentionSettingsLogic)
-    const { updateOrganizationRetention } = useActions(eventsRetentionSettingsLogic)
+    const {
+        projectRetention,
+        organizationRetention,
+        organizationRetentionLoading,
+        organizationImpact,
+        organizationImpactLoading,
+    } = useValues(eventsRetentionSettingsLogic)
+    const { updateOrganizationRetention, loadOrganizationImpact } = useActions(eventsRetentionSettingsLogic)
     const restrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
 
     if (!projectRetention || !organizationRetention) {
@@ -22,7 +27,7 @@ export function OrganizationEventsRetentionSetting(): JSX.Element | null {
     return (
         <div>
             <p className="max-w-160 text-sm text-secondary mb-2">
-                Choose how long projects in this organization keep events. A project can set its own window instead.{' '}
+                Choose how long projects in this organization keep events. A project can set its own period instead.{' '}
                 <Link to={projectRetention.docs_url} target="_blank">
                     Learn more
                 </Link>
@@ -33,8 +38,8 @@ export function OrganizationEventsRetentionSetting(): JSX.Element | null {
                 defaultMonths={organizationRetention.default_retention_months}
                 defaultSource="plan"
                 monthlyDefaultMonths={null}
-                minMonths={organizationRetention.min_retention_months}
                 maxMonths={organizationRetention.max_retention_months}
+                choiceMonths={organizationRetention.retention_months_choices}
                 planMonths={organizationRetention.plan_retention_months}
                 scope="Events in projects without their own custom events retention"
                 overrideNote="Projects with their own custom events retention policy will override this organization level policy."
@@ -43,6 +48,9 @@ export function OrganizationEventsRetentionSetting(): JSX.Element | null {
                 saving={organizationRetentionLoading}
                 restrictionReason={restrictionReason}
                 onSave={updateOrganizationRetention}
+                impact={organizationImpact}
+                impactLoading={organizationImpactLoading}
+                onCountImpact={loadOrganizationImpact}
                 dataAttr="organization-events-retention"
             />
         </div>

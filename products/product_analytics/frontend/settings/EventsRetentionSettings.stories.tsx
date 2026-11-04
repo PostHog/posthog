@@ -6,6 +6,7 @@ import { BillingPlan } from '~/types'
 
 import type {
     EventsRetentionApi,
+    EventsRetentionImpactApi,
     OrganizationEventsRetentionApi,
 } from 'products/product_analytics/frontend/generated/api.schemas'
 
@@ -29,6 +30,11 @@ interface RetentionMockOptions {
     billingPlan?: BillingPlan
 }
 
+const impactMock = ({ request }: { request: Request }): EventsRetentionImpactApi => {
+    const months = Number(new URL(request.url).searchParams.get('retention_months'))
+    return { retention_months: months, events_deleted: Math.round(1_200_000 / months) }
+}
+
 const retentionMocks = ({
     organizationMonths = null,
     projectMonths = null,
@@ -44,6 +50,7 @@ const retentionMocks = ({
         plan_retention_months: planMonths,
         min_retention_months: 1,
         max_retention_months: planMonths,
+        retention_months_choices: [1, 3, 12, 24, 60, 84].filter((months) => months <= planMonths),
         next_monthly_cleanup_on: '2026-11-03',
     }
     const project: EventsRetentionApi = {
@@ -63,6 +70,8 @@ const retentionMocks = ({
             '/api/projects/:team_id/events_retention/': project,
             '/api/organizations/:organization_id/events_retention_setting/': organization,
             '/api/billing/': { ...billingJson, billing_plan: billingPlan },
+            '/api/projects/:team_id/events_retention/impact/': impactMock,
+            '/api/organizations/:organization_id/events_retention_setting/impact/': impactMock,
         },
     })
 }

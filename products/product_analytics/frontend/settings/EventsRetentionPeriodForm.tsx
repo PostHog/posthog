@@ -4,11 +4,13 @@ import { LemonButton, LemonDialog, LemonLabel, Link } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
-import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
+
+import type { EventsRetentionImpactApi } from 'products/product_analytics/frontend/generated/api.schemas'
 
 import { defaultDeletesMore } from './defaultDeletesMore'
 import { EventsRetentionCustomFields } from './EventsRetentionCustomFields'
+import { EventsRetentionImpactNote } from './EventsRetentionImpactNote'
 import { EventsPassSchedule, nextPassOn } from './nextPassOn'
 import { retentionPeriodLabel } from './retentionPeriodLabel'
 
@@ -19,8 +21,8 @@ export interface EventsRetentionPeriodFormProps {
     defaultMonths: number
     defaultSource: 'plan' | 'organization'
     monthlyDefaultMonths: number | null
-    minMonths: number
     maxMonths: number
+    choiceMonths: readonly number[]
     planMonths: number
     scope: string
     overrideNote: string
@@ -29,6 +31,9 @@ export interface EventsRetentionPeriodFormProps {
     saving: boolean
     restrictionReason: string | null
     onSave: (retentionMonths: number | null) => void
+    impact: EventsRetentionImpactApi | null
+    impactLoading: boolean
+    onCountImpact: (retentionMonths: number) => void
     dataAttr: string
 }
 
@@ -36,27 +41,16 @@ function formatDate(date: string): string {
     return dayjs(date).format('MMMM D, YYYY')
 }
 
-function monthsProblem(months: number | null, minMonths: number, maxMonths: number): string | null {
-    if (months === null || !Number.isInteger(months)) {
-        return 'Enter a whole number of months.'
-    }
-    if (months < minMonths || months > maxMonths) {
-        return `Enter a number between ${minMonths} and ${maxMonths}.`
-    }
-    return null
-}
-
 function retentionChoiceOptions({
     defaultMonths,
     defaultSource,
-    minMonths,
     maxMonths,
     restrictionReason,
     dataAttr,
 }: EventsRetentionPeriodFormProps): LemonRadioOption<RetentionChoice>[] {
     const canLengthen = maxMonths > defaultMonths
     const range = canLengthen ? 'shorter or longer' : 'shorter'
-    const defaultPeriod = pluralize(defaultMonths, 'month')
+    const defaultPeriod = retentionPeriodLabel(defaultMonths)
     const disabledReason = restrictionReason ?? undefined
     return [
         {
@@ -80,10 +74,10 @@ function retentionChoiceOptions({
         },
         {
             value: 'custom',
-            label: `Custom events retention (${minMonths} to ${maxMonths} months)`,
+            label: 'Custom events retention',
             description: canLengthen
-                ? `Set a shorter or longer period, up to ${retentionPeriodLabel(maxMonths)}, with a guaranteed deletion date.`
-                : 'Set a shorter period with a guaranteed deletion date.',
+                ? `Set a shorter or longer period, up to ${retentionPeriodLabel(maxMonths)}.`
+                : 'Set a shorter period.',
             disabledReason,
             'data-attr': `${dataAttr}-custom`,
         },
@@ -95,8 +89,7 @@ export function EventsRetentionPeriodForm(props: EventsRetentionPeriodFormProps)
         retentionMonths,
         defaultMonths,
         monthlyDefaultMonths,
-        minMonths,
-        maxMonths,
+        choiceMonths,
         planMonths,
         scope,
         overrideNote,
@@ -105,6 +98,9 @@ export function EventsRetentionPeriodForm(props: EventsRetentionPeriodFormProps)
         saving,
         restrictionReason,
         onSave,
+        impact,
+        impactLoading,
+        onCountImpact,
         dataAttr,
     } = props
     const savedChoice: RetentionChoice = retentionMonths === null ? 'default' : 'custom'
@@ -117,17 +113,21 @@ export function EventsRetentionPeriodForm(props: EventsRetentionPeriodFormProps)
     }, [savedChoice, retentionMonths, defaultMonths])
 
     const draftValue = choice === 'custom' ? draftMonths : null
-    const draftProblem = choice === 'custom' ? monthsProblem(draftMonths, minMonths, maxMonths) : null
+    const draftProblem = choice === 'custom' && draftMonths === null ? 'Choose a period' : null
     const saveDisabledReason =
         restrictionReason ?? draftProblem ?? (draftValue === retentionMonths ? 'No changes to save' : null)
+    const countedMonths = draftValue ?? defaultMonths
+
+    useEffect(() => {
+        onCountImpact(countedMonths)
+    }, [countedMonths, onCountImpact])
 
     const confirmDeletion = (months: number, description: string, onConfirm: () => void): void => {
         LemonDialog.open({
-            title: `Are you sure you want to delete events that are older than ${pluralize(months, 'month')}?`,
+            title: `Keep events for ${retentionPeriodLabel(months)}?`,
             description,
             primaryButton: {
-                children: "Yes, I'm sure",
-                status: 'danger',
+                children: 'Save',
                 onClick: onConfirm,
                 'data-attr': `${dataAttr}-confirm`,
             },
@@ -136,10 +136,9 @@ export function EventsRetentionPeriodForm(props: EventsRetentionPeriodFormProps)
     }
 
     const saveCustom = (months: number): void => {
-        const period = pluralize(months, 'month')
         confirmDeletion(
             months,
-            `${scope} will be deleted after ${period}. If you have any events that are older than ${period}, they will be deleted at the next monthly cleanup on ${formatDate(nextMonthlyCleanupOn)} and can't be restored.`,
+            `${scope} will be kept for ${retentionPeriodLabel(months)}. Deletion of older events is not instant. It happens once a month, next on ${formatDate(nextMonthlyCleanupOn)}.`,
             () => onSave(months)
         )
     }
@@ -151,12 +150,12 @@ export function EventsRetentionPeriodForm(props: EventsRetentionPeriodFormProps)
         }
         const deletesOn =
             monthlyDefaultMonths !== null ? nextMonthlyCleanupOn : passSchedule && nextPassOn(passSchedule)
-        const period = pluralize(defaultMonths, 'month')
+        const period = retentionPeriodLabel(defaultMonths)
         confirmDeletion(
             defaultMonths,
             deletesOn
-                ? `${scope} will be kept for the default of ${period}. Older events will be deleted at the cleanup on ${formatDate(deletesOn)} and can't be restored.`
-                : `${scope} will be kept for the default of ${period}. Older events will be deleted at least 3 months from now and can't be restored.`,
+                ? `${scope} will be kept for the default of ${period}. Deletion of older events is not instant. The next deletion is on ${formatDate(deletesOn)}.`
+                : `${scope} will be kept for the default of ${period}. Deletion of older events is not instant. It happens at least 3 months from now.`,
             () => onSave(null)
         )
     }
@@ -189,17 +188,15 @@ export function EventsRetentionPeriodForm(props: EventsRetentionPeriodFormProps)
             {choice === 'custom' && (
                 <EventsRetentionCustomFields
                     months={draftMonths}
-                    problem={draftProblem}
-                    minMonths={minMonths}
-                    maxMonths={maxMonths}
+                    choiceMonths={choiceMonths}
                     planMonths={planMonths}
                     overrideNote={overrideNote}
-                    disabled={!!restrictionReason || saving}
+                    disabledReason={restrictionReason ?? (saving ? 'Saving...' : null)}
                     onChange={setDraftMonths}
-                    onPressEnter={save}
                     dataAttr={dataAttr}
                 />
             )}
+            <EventsRetentionImpactNote months={countedMonths} impact={impact} loading={impactLoading} />
             <div>
                 <LemonButton
                     type="primary"

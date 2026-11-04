@@ -21,6 +21,8 @@ import type {
     ElementsStatsRetrieveParams,
     ElementsValuesListParams,
     EventsRetentionApi,
+    EventsRetentionImpactApi,
+    EventsRetentionImpactParams,
     EventsRetentionUpdateApi,
     InsightApi,
     InsightBulkDeleteRequestApi,
@@ -51,6 +53,7 @@ import type {
     InsightsUpdateParams,
     InsightsViewedCreateParams,
     OrganizationEventsRetentionApi,
+    OrganizationEventsRetentionImpactParams,
     PaginatedColumnConfigurationListApi,
     PaginatedElementListApi,
     PaginatedInsightListApi,
@@ -102,7 +105,7 @@ export const getOrganizationEventsRetentionUpdateUrl = (organizationId: string) 
 }
 
 /**
- * Sets how long every project without its own period keeps events. Older events are deleted at the next monthly cleanup and can't be restored. Organization admins only.
+ * Sets how long every project without its own period keeps events. The period has to be one of retention_months_choices unless you are PostHog staff. Older events are not deleted at once. Deletion runs once a month. Organization admins only.
  * @summary Set the organization's events retention window
  */
 export const organizationEventsRetentionUpdate = async (
@@ -115,6 +118,40 @@ export const organizationEventsRetentionUpdate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(eventsRetentionUpdateApi),
+    })
+}
+
+export const getOrganizationEventsRetentionImpactUrl = (
+    organizationId: string,
+    params: OrganizationEventsRetentionImpactParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/organizations/${organizationId}/events_retention_setting/impact/?${stringifiedParams}`
+        : `/api/organizations/${organizationId}/events_retention_setting/impact/`
+}
+
+/**
+ * Returns how many events the monthly cleanup would delete if it ran now with the given period, across the projects that use the organization's period. The count is cached for up to a day.
+ * @summary Count the events an organization retention period would delete
+ */
+export const organizationEventsRetentionImpact = async (
+    organizationId: string,
+    params: OrganizationEventsRetentionImpactParams,
+    options?: RequestInit
+): Promise<EventsRetentionImpactApi> => {
+    return apiMutator<EventsRetentionImpactApi>(getOrganizationEventsRetentionImpactUrl(organizationId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 
@@ -412,7 +449,7 @@ export const getEventsRetentionUpdateUrl = (projectId: string) => {
 }
 
 /**
- * Sets how long this project keeps events, overriding the organization's period. Older events are deleted at the next monthly cleanup and can't be restored. Organization admins only.
+ * Sets how long this project keeps events, overriding the organization's period. The period has to be one of retention_months_choices unless you are PostHog staff. Older events are not deleted at once. Deletion runs once a month. Organization admins only.
  * @summary Set the events retention window for a project
  */
 export const eventsRetentionUpdate = async (
@@ -425,6 +462,37 @@ export const eventsRetentionUpdate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(eventsRetentionUpdateApi),
+    })
+}
+
+export const getEventsRetentionImpactUrl = (projectId: string, params: EventsRetentionImpactParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/events_retention/impact/?${stringifiedParams}`
+        : `/api/projects/${projectId}/events_retention/impact/`
+}
+
+/**
+ * Returns how many of this project's events the monthly cleanup would delete if it ran now with the given period. The count is cached for up to a day.
+ * @summary Count the project events a retention period would delete
+ */
+export const eventsRetentionImpact = async (
+    projectId: string,
+    params: EventsRetentionImpactParams,
+    options?: RequestInit
+): Promise<EventsRetentionImpactApi> => {
+    return apiMutator<EventsRetentionImpactApi>(getEventsRetentionImpactUrl(projectId, params), {
+        ...options,
+        method: 'GET',
     })
 }
 

@@ -41735,6 +41735,8 @@ export namespace Schemas {
       readonly min_retention_months: number;
       /** The longest window an admin can set, in months. Never longer than the plan's window. */
       readonly max_retention_months: number;
+      /** The periods, in months, an admin can set: 1, 3, 12, 24, 60 or 84, limited to the range an admin can set. Only PostHog staff can set other values. */
+      readonly retention_months_choices: readonly number[];
       /** The date of the next monthly cleanup, in the timezone it runs in. */
       readonly next_monthly_cleanup_on: string;
       /**
@@ -41775,9 +41777,16 @@ export namespace Schemas {
       readonly default_period_deletes: boolean;
     }
 
+    export interface EventsRetentionImpact {
+      /** The period in months that the count is for. */
+      readonly retention_months: number;
+      /** How many events the monthly cleanup would delete if it ran now with this period. Cached for up to a day. */
+      readonly events_deleted: number;
+    }
+
     export interface EventsRetentionUpdate {
       /**
-         * The period in months. Older events are deleted at the next monthly cleanup and can't be restored. Null removes the period.
+         * The period in months. Has to be one of retention_months_choices unless you are PostHog staff. Older events are not deleted at once. Deletion runs once a month. Null removes the period.
          * @minimum 1
          * @nullable
          */
@@ -68873,6 +68882,8 @@ export namespace Schemas {
       readonly min_retention_months: number;
       /** The longest window an admin can set, in months. Never longer than the plan's window. */
       readonly max_retention_months: number;
+      /** The periods, in months, an admin can set: 1, 3, 12, 24, 60 or 84, limited to the range an admin can set. Only PostHog staff can set other values. */
+      readonly retention_months_choices: readonly number[];
       /** The date of the next monthly cleanup, in the timezone it runs in. */
       readonly next_monthly_cleanup_on: string;
     }
@@ -118543,6 +118554,14 @@ export namespace Schemas {
     status_min?: number;
     };
 
+    export type OrganizationEventsRetentionImpactParams = {
+    /**
+     * The period in months to count events for.
+     * @minimum 1
+     */
+    retention_months: number;
+    };
+
     export type OrgFeatureFlagsKeysParams = {
     /**
      * Page size (max 100)
@@ -125026,6 +125045,14 @@ export namespace Schemas {
       Csv: 'csv',
       Json: 'json',
     } as const;
+
+    export type EventsRetentionImpactParams = {
+    /**
+     * The period in months to count events for.
+     * @minimum 1
+     */
+    retention_months: number;
+    };
 
     export type ExperimentHoldoutsListParams = {
     /**

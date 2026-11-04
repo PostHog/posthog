@@ -1,9 +1,10 @@
 from datetime import date
 
 import time_machine
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.test import override_settings
 
 from parameterized import parameterized
@@ -88,6 +89,7 @@ class TestEventsRetentionAPI(APIBaseTest):
             "plan_retention_months": 12,
             "min_retention_months": 1,
             "max_retention_months": 12,
+            "retention_months_choices": [1, 3, 12],
             "next_monthly_cleanup_on": "2026-10-03",
         }
 
@@ -194,11 +196,11 @@ class TestEventsRetentionAPI(APIBaseTest):
             organization=self.organization, default_events_retention_months=12
         )
 
-        response = self.client.post(self.url(), {"retention_months": 6}, format="json")
+        response = self.client.post(self.url(), {"retention_months": 3}, format="json")
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["retention_months"] == 6
-        assert response.json()["project_retention_months"] == 6
+        assert response.json()["retention_months"] == 3
+        assert response.json()["project_retention_months"] == 3
         assert response.json()["next_deletion_on"] == "2026-10-03"
         assert ActivityLog.objects.filter(team_id=self.team.id, scope="Team", activity="updated").exists()
 
@@ -225,9 +227,9 @@ class TestEventsRetentionAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("longer_than_the_plan", "organization_admin", 36, status.HTTP_400_BAD_REQUEST),
+            ("longer_than_the_plan", "organization_admin", 60, status.HTTP_400_BAD_REQUEST),
             ("shorter_than_the_staff_minimum", "organization_admin", 3, status.HTTP_400_BAD_REQUEST),
-            ("only_a_project_admin", "project_admin", 6, status.HTTP_403_FORBIDDEN),
+            ("only_a_project_admin", "project_admin", 3, status.HTTP_403_FORBIDDEN),
         ]
     )
     def test_rejects_a_project_window(self, _name: str, level: str, months: int, expected_status: int) -> None:
@@ -253,6 +255,7 @@ class TestEventsRetentionAPI(APIBaseTest):
             "plan_retention_months": 24,
             "min_retention_months": 1,
             "max_retention_months": 24,
+            "retention_months_choices": [1, 3, 12, 24],
             "next_monthly_cleanup_on": "2026-10-03",
         }
         project = self.client.get(self.url()).json()
@@ -269,8 +272,8 @@ class TestEventsRetentionAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("longer_than_the_staff_maximum", "organization_admin", 18, status.HTTP_400_BAD_REQUEST),
-            ("only_a_project_admin", "project_admin", 6, status.HTTP_403_FORBIDDEN),
+            ("longer_than_the_staff_maximum", "organization_admin", 24, status.HTTP_400_BAD_REQUEST),
+            ("only_a_project_admin", "project_admin", 3, status.HTTP_403_FORBIDDEN),
         ]
     )
     def test_rejects_an_organization_window(self, _name: str, level: str, months: int, expected_status: int) -> None:
@@ -286,6 +289,33 @@ class TestEventsRetentionAPI(APIBaseTest):
             ).default_events_retention_months
             is None
         )
+
+    @parameterized.expand(
+        [
+            ("project_not_a_choice", "project", False, 6, status.HTTP_400_BAD_REQUEST),
+            ("organization_not_a_choice", "organization", False, 6, status.HTTP_400_BAD_REQUEST),
+            ("project_staff", "project", True, 6, status.HTTP_200_OK),
+            ("organization_staff", "organization", True, 6, status.HTTP_200_OK),
+            ("staff_longer_than_the_plan", "project", True, 36, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_only_staff_set_a_window_outside_the_choices(
+        self, _name: str, scope: str, is_staff: bool, months: int, expected_status: int
+    ) -> None:
+        self._set_membership("organization_admin")
+        self.user.is_staff = is_staff
+        self.user.save()
+        url = self.url() if scope == "project" else self.organization_url()
+
+        response = self.client.post(url, {"retention_months": months}, format="json")
+
+        assert response.status_code == expected_status
+        if expected_status == status.HTTP_200_OK:
+            assert response.json()[f"{scope}_retention_months"] == months
+        elif not is_staff:
+            assert response.json()["detail"] == (
+                "Events retention has to be 1, 3, 12 or 24 months. Only PostHog staff can set other values."
+            )
 
     @override_settings(EVENTS_DATA_RETENTION_ENFORCED=False)
     def test_accepts_windows_before_retention_is_enforced(self) -> None:
@@ -312,3 +342,59 @@ class TestEventsRetentionAPI(APIBaseTest):
             response = getattr(self.client, method)(url, {"retention_months": 1})
 
             assert response.status_code == status.HTTP_405_METHOD_NOT_ALLOWED
+
+
+@override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
+@time_machine.travel("2026-11-04T12:00:00Z", tick=False)
+class TestEventsRetentionImpactAPI(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+        # The current window is shorter than every window counted below, so a count that the query floor cuts short
+        # reads as zero.
+        TeamEventsRetentionConfig.objects.create(team=self.team, events_retention_months=1)
+        self.other_team = self.create_team_with_organization(organization=self.organization)
+        for timestamp in ("2024-06-15", "2025-09-15", "2025-10-31", "2026-07-15", "2026-10-15"):
+            _create_event(team=self.team, event="$pageview", distinct_id="user", timestamp=timestamp)
+        _create_event(team=self.other_team, event="$pageview", distinct_id="user", timestamp="2024-06-15")
+        flush_persons_and_events()
+
+    @parameterized.expand(
+        [
+            ("one_month", 1, 4),
+            ("three_months", 3, 4),
+            ("one_year", 12, 3),
+            ("two_years", 24, 1),
+            ("seven_years", 84, 0),
+        ]
+    )
+    def test_counts_the_project_events_that_deletion_would_remove(
+        self, _name: str, months: int, expected_count: int
+    ) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/events_retention/impact/?retention_months={months}")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"retention_months": months, "events_deleted": expected_count}
+
+    def test_counts_the_organization_events_only_for_projects_using_its_window(self) -> None:
+        response = self.client.get(
+            f"/api/organizations/{self.organization.id}/events_retention_setting/impact/?retention_months=24"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {"retention_months": 24, "events_deleted": 1}
+
+    def test_reuses_a_cached_count(self) -> None:
+        url = f"/api/projects/{self.team.id}/events_retention/impact/?retention_months=12"
+        self.client.get(url)
+        _create_event(team=self.team, event="$pageview", distinct_id="user", timestamp="2025-01-15")
+        flush_persons_and_events()
+
+        response = self.client.get(url)
+
+        assert response.json()["events_deleted"] == 3
+
+    def test_rejects_a_missing_window(self) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/events_retention/impact/")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST

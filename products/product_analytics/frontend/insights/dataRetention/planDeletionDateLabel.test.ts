@@ -18,6 +18,7 @@ const RETENTION: EventsRetentionApi = {
     plan_retention_months: 12,
     min_retention_months: 1,
     max_retention_months: 12,
+    retention_months_choices: [1, 3, 12],
     next_monthly_cleanup_on: '2026-11-03',
 }
 

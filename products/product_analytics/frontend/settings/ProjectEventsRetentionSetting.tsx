@@ -10,8 +10,9 @@ import { EventsRetentionPlanNote } from './EventsRetentionPlanNote'
 import { eventsRetentionSettingsLogic } from './eventsRetentionSettingsLogic'
 
 export function ProjectEventsRetentionSetting(): JSX.Element | null {
-    const { projectRetention, projectRetentionLoading } = useValues(eventsRetentionSettingsLogic)
-    const { updateProjectRetention } = useActions(eventsRetentionSettingsLogic)
+    const { projectRetention, projectRetentionLoading, projectImpact, projectImpactLoading } =
+        useValues(eventsRetentionSettingsLogic)
+    const { updateProjectRetention, loadProjectImpact } = useActions(eventsRetentionSettingsLogic)
     const restrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
 
     if (!projectRetention) {
@@ -37,8 +38,8 @@ export function ProjectEventsRetentionSetting(): JSX.Element | null {
                 defaultMonths={organizationMonths ?? projectRetention.default_retention_months}
                 defaultSource="organization"
                 monthlyDefaultMonths={projectRetention.organization_retention_months}
-                minMonths={projectRetention.min_retention_months}
                 maxMonths={projectRetention.max_retention_months}
+                choiceMonths={projectRetention.retention_months_choices}
                 planMonths={projectRetention.plan_retention_months}
                 scope="Events in this project"
                 overrideNote="This project's custom events retention replaces the organization's events retention."
@@ -47,6 +48,9 @@ export function ProjectEventsRetentionSetting(): JSX.Element | null {
                 saving={projectRetentionLoading}
                 restrictionReason={restrictionReason}
                 onSave={updateProjectRetention}
+                impact={projectImpact}
+                impactLoading={projectImpactLoading}
+                onCountImpact={loadProjectImpact}
                 dataAttr="project-events-retention"
             />
         </div>

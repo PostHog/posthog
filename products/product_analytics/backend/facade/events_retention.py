@@ -23,6 +23,16 @@ def project_events_retention(team: Team) -> ProjectEventsRetention:
     return events_retention.project_events_retention(team)
 
 
+def project_events_deleted_by_retention(team: Team, months: int) -> int:
+    """How many of the project's events the monthly cleanup would delete now with this period. Cached."""
+    return events_retention.project_events_deleted_by_retention(team, months)
+
+
+def organization_events_deleted_by_retention(organization: Organization, months: int) -> int:
+    """How many events the monthly cleanup would delete now from the projects that use the organization's period."""
+    return events_retention.organization_events_deleted_by_retention(organization, months)
+
+
 def set_organization_events_retention(
     organization: Organization, months: int | None, *, user: User, was_impersonated: bool
 ) -> None:

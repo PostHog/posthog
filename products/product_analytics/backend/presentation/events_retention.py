@@ -4,6 +4,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_serializer
 from rest_framework import exceptions, serializers, viewsets
+from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -16,7 +17,9 @@ from posthog.permissions import OrganizationAdminWritePermissions
 
 from products.product_analytics.backend.facade.contracts import OrganizationEventsRetention
 from products.product_analytics.backend.facade.events_retention import (
+    organization_events_deleted_by_retention,
     organization_events_retention,
+    project_events_deleted_by_retention,
     project_events_retention,
     set_organization_events_retention,
     set_project_events_retention,
@@ -51,6 +54,11 @@ class OrganizationEventsRetentionSerializer(serializers.Serializer):
     max_retention_months = serializers.IntegerField(
         read_only=True,
         help_text="The longest window an admin can set, in months. Never longer than the plan's window.",
+    )
+    retention_months_choices = serializers.ListField(
+        child=serializers.IntegerField(),
+        read_only=True,
+        help_text="The periods, in months, an admin can set: 1, 3, 12, 24, 60 or 84, limited to the range an admin can set. Only PostHog staff can set other values.",
     )
     next_monthly_cleanup_on = serializers.DateField(
         read_only=True,
@@ -108,7 +116,7 @@ class EventsRetentionUpdateSerializer(serializers.Serializer):
     retention_months = serializers.IntegerField(
         allow_null=True,
         min_value=1,
-        help_text="The period in months. Older events are deleted at the next monthly cleanup and can't be restored. Null removes the period.",
+        help_text="The period in months. Has to be one of retention_months_choices unless you are PostHog staff. Older events are not deleted at once. Deletion runs once a month. Null removes the period.",
     )
 
 
@@ -120,8 +128,33 @@ def _organization_fields(organization: OrganizationEventsRetention) -> dict[str,
         "plan_retention_months": organization.plan_months,
         "min_retention_months": organization.min_months,
         "max_retention_months": organization.max_months,
+        "retention_months_choices": organization.choice_months,
         "next_monthly_cleanup_on": organization.next_cleanup_on,
     }
+
+
+class EventsRetentionImpactQuerySerializer(serializers.Serializer):
+    retention_months = serializers.IntegerField(
+        min_value=1,
+        help_text="The period in months to count events for.",
+    )
+
+
+class EventsRetentionImpactSerializer(serializers.Serializer):
+    retention_months = serializers.IntegerField(
+        read_only=True,
+        help_text="The period in months that the count is for.",
+    )
+    events_deleted = serializers.IntegerField(
+        read_only=True,
+        help_text="How many events the monthly cleanup would delete if it ran now with this period. Cached for up to a day.",
+    )
+
+
+def _impact_response(months: int, events_deleted: int) -> Response:
+    return Response(
+        EventsRetentionImpactSerializer({"retention_months": months, "events_deleted": events_deleted}).data
+    )
 
 
 @extend_schema(tags=["events_retention"])
@@ -167,16 +200,32 @@ class EventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return self._retention_response()
 
     @validated_request(
+        query_serializer=EventsRetentionImpactQuerySerializer,
+        operation_id="events_retention_impact",
+        summary="Count the project events a retention period would delete",
+        description=(
+            "Returns how many of this project's events the monthly cleanup would delete if it ran now with the "
+            "given period. The count is cached for up to a day."
+        ),
+        responses={200: OpenApiResponse(response=EventsRetentionImpactSerializer)},
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def impact(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        months = request.validated_query_data["retention_months"]
+        return _impact_response(months, project_events_deleted_by_retention(self.team, months))
+
+    @validated_request(
         EventsRetentionUpdateSerializer,
         operation_id="events_retention_update",
         summary="Set the events retention window for a project",
         description=(
-            "Sets how long this project keeps events, overriding the organization's period. Older events are deleted "
-            "at the next monthly cleanup and can't be restored. Organization admins only."
+            "Sets how long this project keeps events, overriding the organization's period. The period has to be one "
+            "of retention_months_choices unless you are PostHog staff. Older events are not deleted at once. Deletion "
+            "runs once a month. Organization admins only."
         ),
         responses={
             200: OpenApiResponse(response=EventsRetentionSerializer, description="The project's new window."),
-            400: OpenApiResponse(description="The window is outside the range an admin can set."),
+            400: OpenApiResponse(description="The period is not one of the choices an admin can set."),
             403: OpenApiResponse(description="The user isn't an organization admin."),
         },
     )
@@ -219,18 +268,34 @@ class OrganizationEventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSe
         return self._retention_response()
 
     @validated_request(
+        query_serializer=EventsRetentionImpactQuerySerializer,
+        operation_id="organization_events_retention_impact",
+        summary="Count the events an organization retention period would delete",
+        description=(
+            "Returns how many events the monthly cleanup would delete if it ran now with the given period, across "
+            "the projects that use the organization's period. The count is cached for up to a day."
+        ),
+        responses={200: OpenApiResponse(response=EventsRetentionImpactSerializer)},
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def impact(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
+        months = request.validated_query_data["retention_months"]
+        return _impact_response(months, organization_events_deleted_by_retention(self.organization, months))
+
+    @validated_request(
         EventsRetentionUpdateSerializer,
         operation_id="organization_events_retention_update",
         summary="Set the organization's events retention window",
         description=(
-            "Sets how long every project without its own period keeps events. Older events are deleted at the next "
-            "monthly cleanup and can't be restored. Organization admins only."
+            "Sets how long every project without its own period keeps events. The period has to be one of "
+            "retention_months_choices unless you are PostHog staff. Older events are not deleted at once. Deletion "
+            "runs once a month. Organization admins only."
         ),
         responses={
             200: OpenApiResponse(
                 response=OrganizationEventsRetentionSerializer, description="The organization's new window."
             ),
-            400: OpenApiResponse(description="The window is outside the range an admin can set."),
+            400: OpenApiResponse(description="The period is not one of the choices an admin can set."),
             403: OpenApiResponse(description="The user isn't an organization admin."),
         },
     )

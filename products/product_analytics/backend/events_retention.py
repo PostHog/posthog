@@ -1,9 +1,15 @@
 from collections.abc import Iterable, Sequence
-from datetime import date, datetime, time
+from datetime import UTC, date, datetime, time
 
+from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import transaction
 
+from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.clickhouse.workload import Workload
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.events_plan_deletion import (
     TeamEventsPlanDeletion,
@@ -43,6 +49,11 @@ from products.product_analytics.backend.facade.contracts import (
     ScheduledEventsDeletion,
 )
 
+# Only staff can set a period outside these, e.g. for a contract.
+RETENTION_CHOICE_MONTHS = (1, 3, 12, 24, 60, 84)
+
+IMPACT_CACHE_SECONDS = 60 * 60 * 24
+
 
 def organization_events_retention(organization: Organization) -> OrganizationEventsRetention:
     config = OrganizationEventsRetentionConfig.objects.filter(organization_id=organization.id).first()
@@ -50,13 +61,16 @@ def organization_events_retention(organization: Organization) -> OrganizationEve
     staff_min = config.min_events_retention_months if config else None
     staff_max = config.max_events_retention_months if config else None
     standard = has_standard_retention(organization)
+    min_months = staff_min or 1
+    max_months = min(plan_months, staff_max) if staff_max else plan_months
     return OrganizationEventsRetention(
         organization_months=config.default_events_retention_months if config else None,
         default_months=default_period(plan_months, standard, staff_min),
         default_is_grandfathered=not standard and plan_months > STANDARD_DEFAULT_PERIOD_MONTHS,
         plan_months=plan_months,
-        min_months=staff_min or 1,
-        max_months=min(plan_months, staff_max) if staff_max else plan_months,
+        min_months=min_months,
+        max_months=max_months,
+        choice_months=[months for months in RETENTION_CHOICE_MONTHS if min_months <= months <= max_months],
         next_cleanup_on=next_cleanup_on(),
     )
 
@@ -96,11 +110,52 @@ def project_events_retention(team: Team) -> ProjectEventsRetention:
     )
 
 
-def _check_allowed(retention: OrganizationEventsRetention, months: int | None) -> None:
-    if months is not None and not retention.min_months <= months <= retention.max_months:
+def _describe_choices(choice_months: list[int]) -> str:
+    if not choice_months:
+        return "Contact PostHog support to change events retention."
+    choices = [str(months) for months in choice_months]
+    listed = f"{', '.join(choices[:-1])} or {choices[-1]}" if len(choices) > 1 else choices[0]
+    return f"Events retention has to be {listed} months. Only PostHog staff can set other values."
+
+
+def _check_allowed(retention: OrganizationEventsRetention, months: int | None, user: User) -> None:
+    if months is None:
+        return
+    if not user.is_staff and months not in retention.choice_months:
+        raise ValidationError(_describe_choices(retention.choice_months))
+    if not retention.min_months <= months <= retention.max_months:
         raise ValidationError(
             f"Events retention has to be {describe_months_range(retention.min_months, retention.max_months)}."
         )
+
+
+def project_events_deleted_by_retention(team: Team, months: int) -> int:
+    """How many of the project's events the monthly cleanup would delete now, with this period."""
+    cutoff = whole_month_cutoff(datetime.now(UTC).replace(tzinfo=None), months).replace(tzinfo=UTC)
+    cache_key = f"events_retention_impact:{team.id}:{cutoff:%Y-%m}"
+    cached = cache.get(cache_key)
+    if cached is not None:
+        return cached
+    response = execute_hogql_query(
+        "SELECT count() FROM events WHERE timestamp < {cutoff}",
+        team=team,
+        placeholders={"cutoff": ast.Constant(value=cutoff)},
+        query_type="events_retention_impact",
+        workload=Workload.ONLINE,
+        # Events past the current period stay stored until the cleanup runs, so the count must include them.
+        context=HogQLContext(team_id=team.pk, apply_events_retention_floor=False),
+    )
+    count = response.results[0][0]
+    cache.set(cache_key, count, timeout=IMPACT_CACHE_SECONDS)
+    return count
+
+
+def organization_events_deleted_by_retention(organization: Organization, months: int) -> int:
+    """How many events the monthly cleanup would delete now from the projects that use the organization's period."""
+    teams = Team.objects.filter(organization_id=organization.id).exclude(
+        id__in=TeamEventsRetentionConfig.objects.filter(team__organization_id=organization.id).values("team_id")
+    )
+    return sum(project_events_deleted_by_retention(team, months) for team in teams)
 
 
 def _deleting_plans(teams: Iterable[Team]) -> list[TeamPlan]:
@@ -121,7 +176,7 @@ def set_organization_events_retention(
         before = config.default_events_retention_months if config else None
         if months == before:
             return
-        _check_allowed(organization_events_retention(organization), months)
+        _check_allowed(organization_events_retention(organization), months, user)
         plans = _deleting_plans(Team.objects.filter(organization_id=organization.id))
         _schedule_passes(plans)
         config = config or OrganizationEventsRetentionConfig(organization_id=organization.id)
@@ -157,7 +212,7 @@ def set_project_events_retention(team: Team, months: int | None, *, user: User, 
         before = config.events_retention_months if config else None
         if months == before:
             return
-        _check_allowed(organization_events_retention(team.organization), months)
+        _check_allowed(organization_events_retention(team.organization), months, user)
         plans = _deleting_plans([team])
         _schedule_passes(plans)
         if months is None:

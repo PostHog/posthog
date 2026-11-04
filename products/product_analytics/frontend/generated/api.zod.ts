@@ -10,7 +10,7 @@
 import * as zod from 'zod'
 
 /**
- * Sets how long every project without its own period keeps events. Older events are deleted at the next monthly cleanup and can't be restored. Organization admins only.
+ * Sets how long every project without its own period keeps events. The period has to be one of retention_months_choices unless you are PostHog staff. Older events are not deleted at once. Deletion runs once a month. Organization admins only.
  * @summary Set the organization's events retention window
  */
 
@@ -20,7 +20,7 @@ export const OrganizationEventsRetentionUpdateBody = /* @__PURE__ */ zod.object(
         .min(1)
         .nullable()
         .describe(
-            "The period in months. Older events are deleted at the next monthly cleanup and can't be restored. Null removes the period."
+            'The period in months. Has to be one of retention_months_choices unless you are PostHog staff. Older events are not deleted at once. Deletion runs once a month. Null removes the period.'
         ),
 })
 
@@ -207,7 +207,7 @@ export const ElementsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Sets how long this project keeps events, overriding the organization's period. Older events are deleted at the next monthly cleanup and can't be restored. Organization admins only.
+ * Sets how long this project keeps events, overriding the organization's period. The period has to be one of retention_months_choices unless you are PostHog staff. Older events are not deleted at once. Deletion runs once a month. Organization admins only.
  * @summary Set the events retention window for a project
  */
 
@@ -217,7 +217,7 @@ export const EventsRetentionUpdateBody = /* @__PURE__ */ zod.object({
         .min(1)
         .nullable()
         .describe(
-            "The period in months. Older events are deleted at the next monthly cleanup and can't be restored. Null removes the period."
+            'The period in months. Has to be one of retention_months_choices unless you are PostHog staff. Older events are not deleted at once. Deletion runs once a month. Null removes the period.'
         ),
 })
 
