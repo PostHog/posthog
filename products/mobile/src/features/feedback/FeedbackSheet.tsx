@@ -2,7 +2,7 @@ import { randomUUID } from 'expo-crypto'
 import { type ReactElement, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, Text, TextInput } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
-import { useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller'
+import { useKeyboardState, useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller'
 import Animated from 'react-native-reanimated'
 import { BottomSheet } from '@/ui/BottomSheet'
 import { Pressable44 } from '@/ui/Pressable44'
@@ -24,7 +24,8 @@ export function FeedbackSheet({ visible, email, onClose, onSent }: FeedbackSheet
     const styles = useStyles()
     const { colors, scheme } = useTheme()
     const { height } = useSceneDimensions()
-    const compact = height < 480
+    const keyboardHeight = useKeyboardState((state) => state.height)
+    const compact = height - keyboardHeight < 480
     const keyboard = useReanimatedKeyboardAnimation()
     const scrollGesture = useMemo(() => Gesture.Native(), [])
     const [message, setMessage] = useState('')

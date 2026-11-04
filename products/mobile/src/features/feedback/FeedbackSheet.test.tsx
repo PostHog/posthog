@@ -1,4 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native'
+import { useKeyboardState } from 'react-native-keyboard-controller'
 
 import { setAnalyticsClient } from '@/lib/analytics'
 import { OverlayHost } from '@/ui/OverlayPortal'
@@ -17,6 +18,7 @@ jest.mock(
 jest.mock('react-native-keyboard-controller', () => jest.requireActual('react-native-keyboard-controller/jest'))
 
 describe('FeedbackSheet', () => {
+    beforeEach(() => jest.mocked(useKeyboardState).mockReturnValue(0))
     afterEach(() => setAnalyticsClient(null))
 
     test('waits for delivery and sends once with the email and question response', async () => {
@@ -92,7 +94,12 @@ describe('FeedbackSheet', () => {
         }
     )
 
-    test.each([320, 667])('discloses email sharing at a scene height of %s', (height) => {
+    test.each([
+        [320, 0],
+        [667, 300],
+        [667, 0],
+    ])('discloses email sharing at scene height %s with keyboard height %s', (height, keyboardHeight) => {
+        jest.mocked(useKeyboardState).mockReturnValue(keyboardHeight)
         render(
             <SceneDimensionsContext.Provider value={{ width: 375, height }}>
                 <FeedbackSheet visible email="person@example.com" onClose={jest.fn()} onSent={jest.fn()} />
@@ -102,5 +109,8 @@ describe('FeedbackSheet', () => {
         expect(screen.getByTestId('feedback-description')).toHaveTextContent(/PostHog team/)
         expect(screen.getByTestId('feedback-description')).toHaveTextContent(/email/)
         expect(screen.getByTestId('feedback-description')).toHaveTextContent(/person@example\.com/)
+        if (height - keyboardHeight < 480) {
+            expect(screen.getByTestId('feedback-description')).toHaveTextContent(/Your message and email go/)
+        }
     })
 })
