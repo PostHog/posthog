@@ -1,6 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { useEffect } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import { mswDecorator } from '~/mocks/browser'
 import { EMPTY_PAGINATED_RESPONSE } from '~/mocks/handlers'
 
@@ -31,6 +33,30 @@ const LONG_NAMES: Partial<NewMetricFormValues> = {
     sql: 'SELECT plan, region, count() AS accounts FROM accounts GROUP BY plan, region',
     description: '',
     unit: '',
+}
+
+const WEEKLY_SIGNUPS_INSIGHT: Partial<NewMetricFormValues> = {
+    display_name: 'Weekly signups',
+    name: 'weekly_signups',
+    definitionType: 'insight',
+    sourceInsightShortId: 'abc123',
+    description: 'People who signed up each week.',
+    unit: 'signups',
+}
+
+const SAVED_INSIGHTS = {
+    results: [
+        {
+            short_id: 'abc123',
+            name: 'Weekly signups',
+            query: { kind: 'InsightVizNode', source: { kind: 'TrendsQuery' } },
+        },
+        {
+            short_id: 'def456',
+            name: 'Activation funnel',
+            query: { kind: 'InsightVizNode', source: { kind: 'FunnelsQuery' } },
+        },
+    ],
 }
 
 const BREAKDOWN: SqlPreview = {
@@ -89,4 +115,32 @@ export const SqlWithResult: Story = {
 
 export const NarrowSceneWithTable: Story = {
     render: () => <FilledNewMetricScene form={LONG_NAMES} preview={BREAKDOWN} className="w-130" />,
+}
+
+const QUILL_PARAMETERS = {
+    featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
+    testOptions: { snapshotBrowsers: [] },
+}
+
+export const QuillSqlWithResult: Story = {
+    parameters: QUILL_PARAMETERS,
+    render: () => <FilledNewMetricScene form={MONTHLY_ACTIVE_USERS} preview={SINGLE_NUMBER} className="w-[960px]" />,
+}
+
+export const QuillNarrowSceneWithTable: Story = {
+    parameters: QUILL_PARAMETERS,
+    render: () => <FilledNewMetricScene form={LONG_NAMES} preview={BREAKDOWN} className="w-128" />,
+}
+
+export const QuillInsightDefinition: Story = {
+    parameters: QUILL_PARAMETERS,
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/environments/:team_id/insights/': SAVED_INSIGHTS,
+                '/api/projects/:team_id/insights/': SAVED_INSIGHTS,
+            },
+        }),
+    ],
+    render: () => <FilledNewMetricScene form={WEEKLY_SIGNUPS_INSIGHT} preview={SINGLE_NUMBER} className="w-[960px]" />,
 }

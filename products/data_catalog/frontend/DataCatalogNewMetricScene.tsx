@@ -7,6 +7,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -14,31 +15,32 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { catalogRestructureEnabled } from 'products/data_modeling/frontend/catalogRestructure'
+
 import { METRIC_DESCRIPTION_MAX_LENGTH, METRIC_FIELD_COPY } from './common'
 import { MetricMarkdownEditorField } from './components/MetricMarkdownEditorField'
 import { MetricNameField } from './components/MetricNameField'
 import { NewMetricInsightDefinition } from './components/NewMetricInsightDefinition'
 import { NewMetricSqlDefinition } from './components/NewMetricSqlDefinition'
-import { dataCatalogNewMetricSceneLogic, MetricDefinitionType } from './dataCatalogNewMetricSceneLogic'
+import { dataCatalogNewMetricSceneLogic } from './dataCatalogNewMetricSceneLogic'
+import { DEFINITION_TYPE_HINTS, DEFINITION_TYPE_OPTIONS } from './newMetricDefinitionTypes'
+import { QuillDataCatalogNewMetricScene } from './QuillDataCatalogNewMetricScene'
 
 export const scene: SceneExport = {
     component: DataCatalogNewMetricScene,
     logic: dataCatalogNewMetricSceneLogic,
 }
 
-const DEFINITION_TYPE_OPTIONS: { value: MetricDefinitionType; label: string }[] = [
-    { value: 'sql', label: 'SQL' },
-    { value: 'insight', label: 'Insight' },
-    { value: 'markdown', label: 'Markdown' },
-]
-
-const DEFINITION_TYPE_HINTS: Record<MetricDefinitionType, string> = {
-    sql: 'Return the number. Agents and dashboards run this query.',
-    insight: 'Use a saved insight. The metric copies its query.',
-    markdown: 'Write the steps in words, for metrics that are not one query. Agents follow them.',
+export function DataCatalogNewMetricScene(): JSX.Element {
+    const { featureFlags } = useValues(featureFlagLogic)
+    return catalogRestructureEnabled(featureFlags) ? (
+        <QuillDataCatalogNewMetricScene />
+    ) : (
+        <LemonDataCatalogNewMetricScene />
+    )
 }
 
-export function DataCatalogNewMetricScene(): JSX.Element {
+function LemonDataCatalogNewMetricScene(): JSX.Element {
     const { metricForm, metricFormValidationErrors, showMetricFormErrors, saving, sqlNameTaken } =
         useValues(dataCatalogNewMetricSceneLogic)
     const { setMetricFormValues, submitMetric } = useActions(dataCatalogNewMetricSceneLogic)

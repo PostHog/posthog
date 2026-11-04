@@ -8,9 +8,10 @@ import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 import { dataCatalogNewMetricSceneLogic } from '../dataCatalogNewMetricSceneLogic'
 import { SqlTestResult } from './SqlTestResult'
 
-const NEW_METRIC_SQL_QUERY_KEY = 'data-catalog-new-metric'
+export const NEW_METRIC_SQL_QUERY_KEY = 'data-catalog-new-metric'
 
-const SQL_PLACEHOLDER = '-- e.g. SELECT count(DISTINCT person_id) FROM events WHERE timestamp > now() - INTERVAL 30 DAY'
+export const SQL_PLACEHOLDER =
+    '-- e.g. SELECT count(DISTINCT person_id) FROM events WHERE timestamp > now() - INTERVAL 30 DAY'
 
 export function NewMetricSqlDefinition({ onAddUnit }: { onAddUnit: () => void }): JSX.Element {
     const {
