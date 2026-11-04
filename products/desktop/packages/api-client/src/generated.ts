@@ -16151,6 +16151,10 @@ export namespace Schemas {
         id: number;
         organization: string;
         /**
+         * Whether the project's organization approved AI data processing. AI features need this approval.
+         */
+        is_ai_data_processing_approved: boolean | null;
+        /**
          * A project and its settings, including the settings that live on its passthrough Team.
          *
          * This shape is a superset of TeamSerializer's, so a request rewritten from /api/environments/
@@ -18634,6 +18638,7 @@ export namespace Endpoints {
                 id: string;
                 latest_send_first: boolean;
                 limit: number;
+                name: string;
                 offset: number;
                 optimization_enabled: boolean;
                 origin_product: "broadcasts" | "loops" | "transactional_emails";

@@ -27,6 +27,15 @@ const POOL_NAME: &str = "posthog_cohort";
 /// loses its replay dedup, so a non-zero TTL below this floor warns at startup.
 const MIN_SAFE_PERSON_RECORD_TTL_DAYS: u32 = 30;
 
+/// `message.max.bytes` on every consumer, although the key reads as a producer setting. librdkafka
+/// also uses it to cap the first buffer it allocates for decompressing an LZ4 record batch, whose
+/// frame usually carries no content size, and then grows that buffer in steps until the batch fits
+/// (`rd_kafka_lz4_decompress` in librdkafka's `rdkafka_lz4.c`). The 1 MB default starts below a
+/// large decompressed batch. The key also floors `fetch.max.bytes`: an explicit value below it
+/// fails client creation, and a smaller `queued.max.messages.kbytes` does not bound the fetch
+/// size.
+const CONSUMER_MESSAGE_MAX_BYTES: u32 = 8 * 1024 * 1024;
+
 #[derive(Envconfig, Clone, Debug)]
 pub struct Config {
     /// Host for the observability HTTP server (`/_health`, `/_ready`, `/metrics`).
@@ -1193,7 +1202,8 @@ impl Config {
             .set("enable.auto.commit", "false")
             .set("enable.auto.offset.store", "false")
             .set("auto.offset.reset", "earliest")
-            .set("socket.timeout.ms", "10000");
+            .set("socket.timeout.ms", "10000")
+            .set("message.max.bytes", CONSUMER_MESSAGE_MAX_BYTES.to_string());
 
         if let Some(id) = self.pod_identity() {
             config.set("client.id", id);
@@ -1645,6 +1655,13 @@ mod tests {
         let client = config.consumer_client_config();
         assert_eq!(client.get("queued.max.messages.kbytes"), Some("131072"));
         assert_eq!(client.get("queued.min.messages"), Some("2000"));
+        assert_eq!(client.get("message.max.bytes"), Some("8388608"));
+        assert_eq!(
+            config
+                .follower_client_config("cohort-stream-seeds")
+                .get("message.max.bytes"),
+            Some("8388608"),
+        );
     }
 
     #[test]

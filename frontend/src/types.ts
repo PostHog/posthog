@@ -1768,7 +1768,7 @@ export type SearchableEntity =
     | 'survey'
 
 export type SearchListParams = {
-    q: string
+    q?: string
     entities?: SearchableEntity[]
     include_counts?: boolean
 }
@@ -3668,6 +3668,8 @@ export interface InsightLogicProps<Q extends QuerySchema = QuerySchema> {
     dashboardItemId?: InsightShortId | 'new' | `new-${string}` | null
     /** id of the dashboard the insight is on (when the insight is being displayed on a dashboard) **/
     dashboardId?: DashboardType['id']
+    /** render a static picture of the insight, hiding interactive controls such as filter bars (e.g. in exports) */
+    presentationOnly?: boolean
     /** cached insight */
     cachedInsight?: Partial<InsightModel> | null
     /** Reuse recent completed responses when this embedded insight remounts. */
