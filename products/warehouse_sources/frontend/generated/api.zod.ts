@@ -1564,6 +1564,12 @@ export const ExternalDataSourcesStoreCredentialsCreateBody = /* @__PURE__ */ zod
         .describe(
             'Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored.'
         ),
+    migration_item_id: zod
+        .uuid()
+        .optional()
+        .describe(
+            'The migration item whose prefilled settings the connect page showed. Every prefilled setting must keep its value, or the request is rejected before PostHog connects anywhere.'
+        ),
 })
 
 /**

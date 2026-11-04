@@ -192,6 +192,11 @@ class WarehouseMigrationSerializer(serializers.Serializer):
     )
 
 
+class WarehouseMigrationCreatorSerializer(serializers.Serializer):
+    first_name = serializers.CharField(help_text="First name of the person who prepared the migration.")
+    email = serializers.EmailField(help_text="Email of the person who prepared the migration.")
+
+
 class WarehouseMigrationItemSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="Item ID. Pass it to the apply and skip actions.")
     vendor_connection_id = serializers.CharField(help_text="The connection ID in the vendor account.")
@@ -218,6 +223,10 @@ class WarehouseMigrationItemSerializer(serializers.Serializer):
         allow_null=True, help_text="The PostHog source created for this connection, if any."
     )
     error = serializers.CharField(help_text="Why the last apply attempt failed, if it did.")
+    created_by = WarehouseMigrationCreatorSerializer(
+        allow_null=True,
+        help_text="Who prepared the migration, and so chose the connection settings in `proposal.prefill`.",
+    )
 
 
 class WarehouseMigrationUploadResponseSerializer(serializers.Serializer):

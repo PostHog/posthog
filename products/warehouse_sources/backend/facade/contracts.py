@@ -484,6 +484,12 @@ class WarehouseMigration:
 
 
 @dataclass(frozen=True)
+class WarehouseMigrationCreator:
+    first_name: str
+    email: str
+
+
+@dataclass(frozen=True)
 class WarehouseMigrationItem:
     id: UUID
     migration_id: UUID
@@ -497,6 +503,8 @@ class WarehouseMigrationItem:
     status: str
     external_data_source_id: UUID | None
     error: str
+    # Who prepared the migration, so whoever types a password for this item can see who chose its server.
+    created_by: WarehouseMigrationCreator | None = None
 
 
 @dataclass(frozen=True)
