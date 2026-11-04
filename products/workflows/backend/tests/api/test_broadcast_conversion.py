@@ -109,29 +109,33 @@ class TestBroadcastConversionAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("sandbox sender", {"integrationId": "sandbox"}, int, False),
-            ("sandbox sender stored as a whole-number float", {"integrationId": "sandbox"}, float, False),
-            ("sandbox sender stored as a string", {"integrationId": "sandbox"}, str, False),
-            ("sandbox sender in a rotation", {"integrationIds": ["own", "sandbox"]}, int, False),
-            ("own sender", {"integrationId": "own"}, int, True),
+            ("sandbox sender", {"integrationId": "sandbox"}, int, True, False),
+            ("sandbox sender with the project flag off", {"integrationId": "sandbox"}, int, False, False),
+            ("sandbox sender stored as a whole-number float", {"integrationId": "sandbox"}, float, True, False),
+            ("sandbox sender stored as a string", {"integrationId": "sandbox"}, str, True, False),
+            ("sandbox sender in a rotation", {"integrationIds": ["own", "sandbox"]}, int, True, False),
+            ("own sender", {"integrationId": "own"}, int, True, True),
             (
                 "own rotation with a stale sandbox fallback",
                 {"integrationId": "sandbox", "integrationIds": ["own"]},
                 int,
                 True,
+                True,
             ),
         ]
     )
     @override_settings(**SANDBOX_SETTINGS)
-    @patch("posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthoganalytics.feature_enabled")
     def test_a_workflow_sending_through_the_sandbox_sender_does_not_become_a_broadcast(
         self,
         _name: str,
         sender: dict[str, Any],
         stored_as: Callable[[int], Any],
+        flag_on: bool,
         convertible: bool,
-        _flag: Any,
+        flag: Any,
     ) -> None:
+        flag.return_value = flag_on
         integration_ids = {
             "sandbox": Integration.objects.create(
                 team=self.team,
@@ -159,17 +163,10 @@ class TestBroadcastConversionAPI(APIBaseTest):
         response = self._convert(flow)
         assert (response.status_code == status.HTTP_200_OK) is convertible, response.json()
 
-    @parameterized.expand([("no sandbox settings", {}, True), ("flag off", SANDBOX_SETTINGS, False)])
-    def test_conversion_skips_the_sandbox_lookup_while_the_sandbox_sender_is_off(
-        self, _name: str, sandbox_settings: dict[str, str], flag: bool
-    ) -> None:
+    def test_conversion_skips_the_sandbox_lookup_without_sandbox_settings(self) -> None:
         flow = self._flow()
 
-        with (
-            override_settings(**sandbox_settings),
-            patch("posthoganalytics.feature_enabled", return_value=flag),
-            CaptureQueriesContext(connection) as queries,
-        ):
+        with CaptureQueriesContext(connection) as queries:
             assert str(flow.id) in self._candidate_ids()
             assert self._convert(flow).status_code == status.HTTP_200_OK
 
