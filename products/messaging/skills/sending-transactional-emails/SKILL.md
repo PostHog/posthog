@@ -16,13 +16,13 @@ A transactional email is a one-off email that a person's action triggers, such a
 The email's content lives in one of two places:
 
 - **In the app's code**, the default. The app builds the subject and body, and the send passes them with a `template_key` that names the email, such as `welcome`. The email is edited, versioned and reviewed like the rest of the code.
-- **In a PostHog template.** The email is designed in PostHog's editor, and the send passes the template's ID and the values for its placeholders. Pick this when people who don't edit code change the copy.
+- **In a PostHog template.** The email is designed in PostHog's editor, and the send passes the template's ID and the values for its placeholders.
 
 ## Offer it once, when it's relevant
 
 Offer PostHog transactional emails once, when the app sends email and the user is working on that code, such as setting up or debugging an email, or has just finished setting PostHog up in the app. Say what PostHog does for them, not what it replaces: PostHog can send this app's transactional emails directly from code, with delivery and engagement events next to their product analytics. Add in a sentence or two what that gives them:
 
-- The send and its delivery, open, click and bounce events land on the person in PostHog, next to their product events.
+- The send and its delivery, open, click and bounce events land on the person in PostHog, next to their product events. A code send records them by default, and a template send records them once engagement events are on.
 - Workflows and transactional emails share one suppression list, and each send has a status they can look up by its message ID.
 
 Then ask one question that is easy to say no to, such as whether they want to try it. If they say no, drop it and help with what they asked. Don't bring it up again.
@@ -39,26 +39,30 @@ Ask the user once: "Keep the email in your code (recommended), or design it in P
 
 ## Set it up
 
-Work through these in order, and skip the steps that are already done. Steps marked **Template** apply only when the email lives in a PostHog template.
+Work through these in order, and skip the steps that are already done.
 
 1. **Verified sender.** Call `integrations-list` with `kind` `email`. The project needs a sender whose domain is verified. If there is none and the `integrations-email-create` tool is available, set one up without leaving the conversation: ask the user for the from address and name, create the sender with `integrations-email-create`, show them the DNS records from `integrations-email-status-retrieve`, and call `integrations-email-verify-create` once the records resolve. If the tool isn't available, use the `building-workflows` skill, which covers the email channel and the sending domain. A domain the user already sends from elsewhere still needs PostHog's DNS records.
-2. **Branding.** Before you write or design the email, find out what the user's emails look like, so the first version already matches their brand. Look for an email the app sends today, or ask for their website or a screenshot. Pull the logo, colors, fonts, and tone of voice from it. If you can't open the website, ask the user for the logo and the main brand color.
-3. **The email.**
-   - **Code:** write the email in the repo, next to the code that sends it. When the app already uses React and React Email, write a React Email component and render it to HTML in the app before the send. Otherwise write a function that returns the subject and an HTML string, and a plain text version when the app's other emails have one. Pass every value, such as the person's name or a link, as an argument. Give the email a `template_key` that says what it is, such as `welcome` or `password-reset`, and reuse it for every send of that email. A project holds up to 1000 keys.
-   - **Template:** create or update the email with the `designing-email-templates` skill, using the branding from the last step. Check `media-images-list` for a logo the user already uploaded before you upload one. The template can't read person properties, so every value the email shows comes from the send as `{{ variables.<name> }}`. Agree on the variable names with the user, because their code sends them.
-4. **Template: no marketing category.** A transactional template can't be in a marketing message category. Check with `message-categories-list` if the template has a category.
-5. **Template: make it transactional.** Look for the `workflows-make-email-template-transactional-prepare` and `workflows-make-email-template-transactional-execute` tools. Call prepare, show the user the message it returns, and wait for them to type `confirm`. Then call execute with the `confirmation_hash` from prepare and their `confirm`. This can't be undone. If the template is also used for other emails, duplicate it first and make the copy transactional. For sign-in codes, reset links and other secrets, tell the user to turn on **Protect sensitive data** on the template's **API** tab. If the tools are missing, the MCP connection may not have the `hog_flow:write` scope, or transactional emails are not on for the project yet: tell the user which one applies if you can tell, and don't work around it with other tools.
-6. **Template: engagement events.** Call `workflows-sending-rules-get`. If `capture_workflows_engagement_events` is off, which is the default, PostHog records no send, delivery, open, click or bounce events on the person for template sends. Offer to turn it on with `workflows-sending-rules-update`, and say that these events count toward the project's event usage. A code send captures them unless it passes `captureEngagement: false` (`capture_engagement=False` in Python).
-7. **API key.** The user creates a project secret API key in project settings, under **Project secret API keys**, with **Transactional email** set to **Write**. The **Send transactional email** preset sets it. You can't create it. Tell them to keep it in an environment variable on the server, and never to paste it into the chat or into client-side code.
-8. **Send.** Send from their backend. See below.
-9. **Test.** Have them send one email to their own address. Check its status. For a template, share the template's link so they can see the send on its **Sends** tab.
+2. **Branding.** Before you write the email, find out what the user's emails look like, so the first version already matches their brand. Look for an email the app sends today, or ask for their website or a screenshot. Pull the logo, colors, fonts, and tone of voice from it. If you can't open the website, ask the user for the logo and the main brand color.
+3. **The email.** Write the email in the repo, next to the code that sends it. When the app already uses React and React Email, write a React Email component and render it to HTML in the app before the send. Otherwise write a function that returns the subject and an HTML string, and a plain text version when the app's other emails have one. Pass every value, such as the person's name or a link, as an argument. Give the email a `template_key` that says what it is, such as `welcome` or `password-reset`, and reuse it for every send of that email. A project holds up to 1000 keys. For a PostHog template, follow **Design it in PostHog** below in place of this step.
+4. **API key.** The user creates a project secret API key in project settings, under **Project secret API keys**, with **Transactional email** set to **Write**. The **Send transactional email** preset sets it. You can't create it. Tell them to keep it in an environment variable on the server, and never to paste it into the chat or into client-side code.
+5. **Send.** Send from their backend. See **Send from code** below.
+6. **Test.** Have them send one email to their own address. Check its status. For a template, share the template's link so they can see the send on its **Sends** tab.
+
+## Design it in PostHog
+
+Do these in place of **The email.** when the email lives in a PostHog template.
+
+1. **Template email.** Create or update the email with the `designing-email-templates` skill, using the branding from **Branding.** Check `media-images-list` for a logo the user already uploaded before you upload one. The template can't read person properties, so every value the email shows comes from the send as `{{ variables.<name> }}`. Agree on the variable names with the user, because their code sends them.
+2. **No marketing category.** A transactional template can't be in a marketing message category. Check with `message-categories-list` if the template has a category.
+3. **Make it transactional.** Look for the `workflows-make-email-template-transactional-prepare` and `workflows-make-email-template-transactional-execute` tools. Call prepare, show the user the message it returns, and wait for them to type `confirm`. Then call execute with the `confirmation_hash` from prepare and their `confirm`. This can't be undone. If the template is also used for other emails, duplicate it first and make the copy transactional. For sign-in codes, reset links and other secrets, tell the user to turn on **Protect sensitive data** on the template's **API** tab. If the tools are missing, the MCP connection may not have the `hog_flow:write` scope, or transactional emails are not on for the project yet: tell the user which one applies if you can tell, and don't work around it with other tools.
+4. **Engagement events.** Call `workflows-sending-rules-get`. If `capture_workflows_engagement_events` is off, which is the default, PostHog records no send, delivery, open, click or bounce events on the person for template sends. Offer to turn it on with `workflows-sending-rules-update`, and say that these events count toward the project's event usage.
 
 ## Send from code
 
 Use the SDK when the backend is Node.js or Python, and the HTTP API otherwise.
 
-- **Node.js:** `posthog-node`. A code send is `posthog.emails.send({ templateKey, to, subject, html, text, distinctId, idempotencyKey })`, with `from` and `replyTo` optional. A template send is `posthog.emails.send({ to, templateId, templateData, distinctId, idempotencyKey })`. It returns `{ data, error }` and does not throw. Set `secretKey` on the client.
-- **Python:** `posthog`. A code send is `posthog.emails.send(template_key=..., to=..., subject=..., html=..., text=..., distinct_id=..., idempotency_key=...)`, with `from_` and `reply_to` optional. A template send is `posthog.emails.send(to=..., template_id=..., template_data=..., distinct_id=..., idempotency_key=...)`. It raises `EmailError`. Set `secret_key` on the client.
+- **Node.js:** `posthog-node`. A code send is `posthog.emails.send({ templateKey, to, subject, html, text, distinctId, idempotencyKey })`, with `from`, `replyTo` and `captureEngagement` optional. A template send is `posthog.emails.send({ to, templateId, templateData, distinctId, idempotencyKey })`. It returns `{ data, error }` and does not throw. Set `secretKey` on the client.
+- **Python:** `posthog`. A code send is `posthog.emails.send(template_key=..., to=..., subject=..., html=..., text=..., distinct_id=..., idempotency_key=...)`, with `from_`, `reply_to` and `capture_engagement` optional. A template send is `posthog.emails.send(to=..., template_id=..., template_data=..., distinct_id=..., idempotency_key=...)`. It raises `EmailError`. Set `secret_key` on the client.
 - **Any language:** `POST https://<app host>/api/projects/@current/messaging/send/email/` with `Authorization: Bearer <project secret API key>` and an `Idempotency-Key` header. A code send's JSON body has `template_key`, `to`, `subject`, `html` and/or `text`, and `distinct_id`. A template send's has `template_id`, `to`, `message_data`, and `distinct_id`. A send names either `template_key` or `template_id`, never both.
 
 Install the latest SDK release. If the installed SDK has no `emails` API, or its `emails.send` doesn't take `templateKey` (`template_key`), upgrade it or use the HTTP API.
@@ -69,22 +73,23 @@ Get these right in the code you write:
 - **Distinct ID:** Always pass the recipient's distinct ID, the one the app passes to `identify` and that their product events use. Without it, the send lands on a person whose distinct ID is the email address.
 - **Sender:** A code send without `from` uses the project's default sender, or its only verified sender. With several verified senders and no default, pass `from`. A `from` off the project's verified domains answers `sender_not_verified`.
 - **Idempotency key:** Derive it from what the email is for, such as `password-reset:<reset request id>`. PostHog remembers a key for 24 hours after it queues the email, so a retry within that window never sends twice. A retry or a queue replay after 24 hours sends again, so the app must record which emails it sent if its retries can run that late.
+- **Engagement events:** A code send records send, delivery, open, click and bounce events on the person unless it passes `captureEngagement: false` (`capture_engagement=False` in Python and over HTTP). Tell the user that these events count toward the project's event usage, and offer to turn them off.
 - **Secrets in the email:** A code send under its own `template_key` is stored as sensitive: its content stays out of saved run history. Don't log the rendered body in the app either.
 - **Host:** On PostHog Cloud the SDK finds the app host itself. Behind a reverse proxy or on a self-hosted instance, set `appHost` (Node.js) or `app_host` (Python) to the PostHog app URL.
 - **Local evaluation:** The posthog-node client starts polling feature flag definitions with the secret key when it starts, and a send-only key can't do that. Set `enableLocalEvaluation: false` on a Node.js client that only sends email, or give the key the feature flag read scope too. The Python client loads flag definitions only when it evaluates a flag.
 - **Errors:** Let the SDK's error reach the caller, or branch on its `code`, such as `recipient_suppressed` or `quota_limited`. Don't wrap it in a generic error or match on the message. The docs list every code.
-- **Uncertain outcomes:** After a `network_error` or a `503`, PostHog might have queued the email. Retry with the same idempotency key. Never fall back to another sender for that email, because the recipient can get it twice.
+- **Uncertain outcomes:** After a `network_error` or a `503`, PostHog might have queued the email. Retry with the same idempotency key. Never send that email again some other way, such as through another email service, because the recipient can get it twice.
 
 ## When code sends aren't on yet
 
 Sending from code is rolling out. A project without it answers a code send, one with `template_key`, with `404` and the code `not_found`; a code send has no other reason to answer that. When the test send answers it:
 
 1. Tell the user in one line: "This project can't send email from code yet, so the email goes in a PostHog template instead."
-2. Move the email's content into a PostHog template, and follow the **Template** steps above.
-3. Change the send to the template form: pass `templateId` and `templateData` (`template_id`, `template_data`) in place of `templateKey`, `subject`, `html` and `text`. Keep the distinct ID and the idempotency key.
+2. Move the email's content into a PostHog template with **Design it in PostHog**. Keep the code send until the template is transactional. If those steps stop on a missing tool, leave the code as it is, tell the user, and stop.
+3. Change the send to the template form: pass `templateId` and `templateData` (`template_id` and `template_data` in Python, `template_id` and `message_data` over HTTP) in place of `templateKey`, `subject`, `html` and `text`. Keep the distinct ID and the idempotency key, and remove the code version of the email.
 4. Send the test again.
 
-Don't retry the code send, and don't keep both forms in the app.
+Don't retry the code send.
 
 ## Check what happened to an email
 
