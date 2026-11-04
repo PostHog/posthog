@@ -1,6 +1,9 @@
 import { ReactNode } from 'react'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+
 import { ChartOptionLabel } from './ChartOptionLabel'
+import { QuillChartOptionGroup } from './QuillChartOptionGroup'
 
 export interface ChartOptionGroupProps {
     title: string
@@ -9,6 +12,12 @@ export interface ChartOptionGroupProps {
 }
 
 export function ChartOptionGroup(props: ChartOptionGroupProps): JSX.Element {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+
+    if (todayRailNav) {
+        return <QuillChartOptionGroup {...props} />
+    }
+
     const { title, info, children } = props
     return (
         <section className="flex flex-col gap-2">

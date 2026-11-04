@@ -286,8 +286,8 @@ def doctor_disk(
             title="🦀 Rust Cargo targets",
             description=[
                 "Runs 'cargo clean' in all Rust workspaces to remove build artifacts.",
-                "The Flox env sets CARGO_TARGET_DIR, so the artifacts sit outside the repo",
-                "and every worktree shares one target directory.",
+                "Each worktree builds into its own rust/target, so this cleans only the current worktree.",
+                "A CARGO_TARGET_DIR set in your shell is cleaned too.",
             ],
             estimate=_estimate_rust_targets,
             cleanup=_cleanup_rust,
@@ -654,7 +654,7 @@ def _estimate_rust_targets(repo_root: Path) -> CleanupEstimate:
 
     external = _cargo_target_dir()
     if external is not None:
-        details.append(f"   CARGO_TARGET_DIR is {external}, shared by every worktree.")
+        details.append(f"   CARGO_TARGET_DIR is {external}, shared by every checkout that builds with it set.")
 
     if items:
         details.append(f"   Total target directory size: {_format_size(total)}")
@@ -1378,7 +1378,7 @@ def _collect_paths_from_patterns(repo_root: Path, patterns: Sequence[str]) -> li
 
 
 def _cargo_target_dir() -> Path | None:
-    """The shared target directory `.flox/env/on-activate.sh` points Cargo at, if set."""
+    """The target directory the shell points Cargo at with CARGO_TARGET_DIR, if set."""
 
     configured = os.environ.get("CARGO_TARGET_DIR")
     return Path(configured).expanduser() if configured else None

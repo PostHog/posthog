@@ -564,6 +564,27 @@ export const signalsReportsList = async (
     })
 }
 
+export const getSignalsReportsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/reports/`
+}
+
+/**
+ * File a complete inbox report yourself, with the same validation and safety judge a scout report passes. The report surfaces at the status `actionability` implies, or is suppressed. It never starts an implementation run or opens a pull request on its own, now or after a later edit: start one from the report's actions. Safe to retry: a resend returns the first report with `idempotent_replay` true. Each person can file a limited number of reports per project per day.
+ * @summary File an inbox report
+ */
+export const signalsReportsCreate = async (
+    projectId: string,
+    emitReportRequestApi: EmitReportRequestApi,
+    options?: RequestInit
+): Promise<EmitReportResponseApi> => {
+    return apiMutator<EmitReportResponseApi>(getSignalsReportsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(emitReportRequestApi),
+    })
+}
+
 export const getSignalsReportsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/signals/reports/${id}/`
 }
@@ -2455,7 +2476,7 @@ export const getSignalsScoutMembersListUrl = (projectId: string, params?: Signal
 }
 
 /**
- * Return the people who can review work on this project — one row per member with access to it, each with their `user_uuid`, `email`, `first_name`/`last_name`, resolved GitHub `login` (null when they have no linked GitHub identity), and the `teams` they're on. The cold-start reviewer-routing path: when a finding's owner can't be read off a fetched entity's `created_by` and there's no cached `reviewer:<area>` memory or inbox precedent, list members, match the owner by email/name, then put their resolved `github_login` in `suggested_reviewers` on `emit-report` / `edit-report`. Pass `team` to resolve a team slug to the people on it, maintainers first. Pass `search` to narrow a large roster; the result is capped at 200. Strictly team-scoped.
+ * Return the people who can review work on this project — one row per member with access to it, each with their `user_uuid`, `email`, `first_name`/`last_name`, resolved GitHub `login` (null when they have no linked GitHub identity), and the `teams` they're on. The cold-start reviewer-routing path: when a finding's owner can't be read off a fetched entity's `created_by` and there's no cached `reviewer:<area>` memory or inbox precedent, list members, match the owner by email/name, then put their resolved `github_login` in `suggested_reviewers` on `emit-report` / `edit-report`. Pass `team` to resolve a team slug to the people on it, maintainers first. Pass `search` to narrow a large roster; the result is capped at 200. When `search` or `team` narrows the result to 10 members or fewer, each row also carries `activity`: the member's recent work, so you can check they are close to the affected area. Strictly team-scoped.
  * @summary List project members for reviewer routing
  */
 export const signalsScoutMembersList = async (

@@ -406,6 +406,11 @@ To clear old `phw`, Claude Code, Codex, and PostHog Code worktrees in bulk, run 
 Both modes skip a worktree where `cargo` or `rustc` is running.
 `--mode deps` keeps a Cargo `target` that a build used after the cutoff, and, without `--source` or `--repo`, offers to delete the old shared `~/.cargo/target` when `CARGO_TARGET_DIR` is not set and no build used it after the cutoff.
 
+Flox activation also runs this once a day in the background: `--mode deps` on worktrees idle for 7 days and `--mode full` on worktrees idle for 14 days.
+It skips worktrees with uncommitted or unpushed work and keeps every branch.
+Set `POSTHOG_WORKTREES_AUTOCLEAN=0` to turn it off.
+The output goes to `.flox/cache/worktrees-clean.log` in the checkout that ran it.
+
 ## Quick Setup Script
 
 For a complete one-time setup, run:

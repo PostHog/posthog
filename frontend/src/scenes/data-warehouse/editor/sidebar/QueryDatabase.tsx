@@ -147,7 +147,7 @@ export const QueryDatabase = ({
         searchText,
         joinsByFieldName,
         editingDraftId,
-        displayedTreeData,
+        visibleTreeData,
         expandedItemIds,
         connectionId,
         activeDraggedViewId,
@@ -415,8 +415,8 @@ export const QueryDatabase = ({
         // searching, so an unfiltered section would sit above the results still listing
         // everything — and keeping the search term on this side means an embedder doesn't have to
         // mount this logic just to read it.
-        return getQueryDatabaseTreeData(displayedTreeData, extraTreeSections, searchText)
-    }, [extraTreeSections, displayedTreeData, searchText])
+        return getQueryDatabaseTreeData(visibleTreeData, extraTreeSections, searchText)
+    }, [extraTreeSections, visibleTreeData, searchText])
 
     const tree = (
         <LemonTree
@@ -461,6 +461,9 @@ export const QueryDatabase = ({
                 setEditingDraft('')
             }}
             onItemClick={(item) => {
+                if (item?.record?.type === 'show-all-tables') {
+                    posthog.capture('sql-editor-show-all-tables-clicked')
+                }
                 // Handle draft clicks - focus existing tab or create new one
                 if (item && item.record?.type === 'draft') {
                     router.actions.push(urls.sqlEditor({ draftId: item.record.draft.id }))

@@ -365,6 +365,18 @@ TASK_RUN_FOLLOWUP_DELIVERY_FAILED_TOTAL = Counter(
     labelnames=["origin_product", "retryable"],
 )
 
+ACTIVE_SESSION_CAP_HITS_TOTAL = Counter(
+    "posthog_tasks_active_session_cap_hits_total",
+    "Run starts and warm claims refused because the user or organization already holds the max open cloud sandbox sessions",
+    labelnames=["origin_product", "scope"],
+)
+
+WARM_CHURN_THROTTLED_TOTAL = Counter(
+    "posthog_tasks_warm_churn_throttled_total",
+    "Warm requests refused because the user ended too many unclaimed warm sandboxes in the last hour",
+    labelnames=["origin_product"],
+)
+
 SANDBOX_DEADLINE_BUCKETS = [5.0, 15.0, 30.0, 60.0, 120.0, 180.0, 300.0, 600.0]
 
 SANDBOX_DEADLINE_TOTAL = Counter(
@@ -472,6 +484,39 @@ DESKTOP_ACCESS_FLAG_UNRESOLVED_TOTAL = Counter(
 
 def observe_compute_quota_check(outcome: ComputeQuotaOutcome) -> None:
     COMPUTE_QUOTA_CHECK_TOTAL.labels(outcome=outcome).inc()
+
+
+ComputeSettlementOutcome = Literal[
+    "settled",
+    "duplicate",
+    "settled_locally",
+    "conflict",
+    "retry",
+    "attempts_exhausted",
+    "contract_error",
+    "deployment_error",
+    "skipped",
+]
+
+COMPUTE_SETTLEMENTS_TOTAL = Counter(
+    "posthog_tasks_compute_settlements_total",
+    "Sandbox compute settlement attempts against the gateway ledger, by outcome",
+    labelnames=["outcome"],
+)
+
+HOGLAND_SANDBOX_SESSIONS_OPEN_OVER_DAY = Gauge(
+    "posthog_tasks_hogland_sandbox_sessions_open_over_day",
+    "Hogland sandbox sessions with no end stamp that opened more than a day ago",
+    multiprocess_mode="mostrecent",
+)
+
+
+def observe_compute_settlement(outcome: ComputeSettlementOutcome) -> None:
+    COMPUTE_SETTLEMENTS_TOTAL.labels(outcome=outcome).inc()
+
+
+def set_hogland_sandbox_sessions_open_over_day(count: int) -> None:
+    HOGLAND_SANDBOX_SESSIONS_OPEN_OVER_DAY.set(count)
 
 
 # scoped: "true" when the delivery's installation resolved to at least one team, so the
@@ -773,6 +818,14 @@ def observe_followup_delivery_failed(task_run: "TaskRun", *, retryable: bool) ->
         origin_product=origin_product_label(task_run),
         retryable="true" if retryable else "false",
     ).inc()
+
+
+def observe_active_session_cap_hit(origin_product: str, scope: str) -> None:
+    ACTIVE_SESSION_CAP_HITS_TOTAL.labels(origin_product=_metric_label(origin_product), scope=scope).inc()
+
+
+def observe_warm_churn_throttled(origin_product: str) -> None:
+    WARM_CHURN_THROTTLED_TOTAL.labels(origin_product=_metric_label(origin_product)).inc()
 
 
 _SANDBOX_DEADLINE_OUTCOMES = {"rotated", "snapshot_only", "snapshot_failed", "routing_lost"}
