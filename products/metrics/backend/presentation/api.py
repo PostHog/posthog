@@ -725,11 +725,6 @@ class _MetricAttributeValuesParamsSerializer(serializers.Serializer):
     )
 
 
-class MetricAttributeMatchedOn(models.TextChoices):
-    KEY = "key", "key"
-    VALUE = "value", "value"
-
-
 class _MetricAttributeKeySerializer(serializers.Serializer):
     name = serializers.CharField(
         help_text="Attribute key as it appears on the team's metrics (e.g. 'env', 'k8s.pod.name')."
@@ -738,7 +733,7 @@ class _MetricAttributeKeySerializer(serializers.Serializer):
         help_text="Number of distinct values for this attribute in recent data. For a value match, only the matching values are counted."
     )
     matchedOn = serializers.ChoiceField(
-        choices=MetricAttributeMatchedOn.choices,
+        choices=["key", "value"],
         help_text='How the search matched this key: "key" if the key name matched, "value" if one of its values matched.',
     )
     matchedValue = serializers.CharField(
