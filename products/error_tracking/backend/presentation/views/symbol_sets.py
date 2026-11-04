@@ -1,12 +1,13 @@
 import posthoganalytics
 from drf_spectacular.utils import extend_schema
-from rest_framework import pagination, serializers, status, viewsets
+from rest_framework import serializers, status, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.parsers import FileUploadParser, JSONParser, MultiPartParser
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
+from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
 from posthog.event_usage import get_request_analytics_properties, groups
@@ -16,9 +17,9 @@ from products.error_tracking.backend.facade import (
     contracts,
     symbol_sets as symbol_sets_facade,
 )
-from products.error_tracking.backend.presentation.pagination import paginate_via_facade
 
 BULK_CHECK_UPLOAD_MAX_SYMBOL_SETS = 1000
+MULTIPART_OVERHEAD_BYTES = 1024 * 1024
 
 
 class ErrorTrackingSymbolSetSerializer(DataclassSerializer):
@@ -203,7 +204,7 @@ class _SymbolSetDownloadResponseSerializer(serializers.Serializer):
     )
 
 
-class ErrorTrackingSymbolSetPagination(pagination.LimitOffsetPagination):
+class ErrorTrackingSymbolSetPagination(FacadeLimitOffsetPagination):
     max_limit = 100
 
 
@@ -227,22 +228,31 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
         "create",
     ]
 
+    def initial(self, request: Request, *args, **kwargs) -> None:
+        # Authentication and permission checks read the request body, which makes DRF parse a raw upload, so check
+        # the declared length before them. Middleware has already parsed a multipart body by this point.
+        if self.action == "create":
+            try:
+                declared_size = int(request.META.get("CONTENT_LENGTH") or 0)
+            except ValueError:
+                declared_size = 0
+            symbol_sets_facade.check_upload_size(declared_size - MULTIPART_OVERHEAD_BYTES)
+        super().initial(request, *args, **kwargs)
+
     @extend_schema(parameters=[ErrorTrackingSymbolSetListQuerySerializer])
     def list(self, request: Request, *args, **kwargs) -> Response:
         query = ErrorTrackingSymbolSetListQuerySerializer(data=request.query_params)
         query.is_valid(raise_exception=True)
         params = dict(query.validated_data)
-        return paginate_via_facade(
+        return facade_page_response(
             self,
-            request,
-            lambda limit, offset: symbol_sets_facade.list_symbol_sets(
+            lambda page: symbol_sets_facade.list_symbol_sets(
                 self.team.id,
                 ref=params.get("ref"),
                 search=params.get("search"),
                 symbol_set_status=params.get("status"),
                 order_by=params.get("order_by"),
-                limit=limit,
-                offset=offset,
+                page=page,
             ),
         )
 
@@ -305,7 +315,6 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
     @extend_schema(exclude=True)  # deprecated; serializer has no settable fields, hidden from typed clients
     def create(self, request: Request, *args, **kwargs) -> Response:
         chunk_id = request.query_params.get("chunk_id", None)
-        multipart = request.query_params.get("multipart", False)
         release_id = request.query_params.get("release_id", None)
 
         posthoganalytics.capture(
@@ -317,16 +326,19 @@ class ErrorTrackingSymbolSetViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
         if not chunk_id:
             return Response({"detail": "chunk_id query parameter is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        if multipart:
-            data = bytearray()
-            for chunk in request.FILES["file"].chunks():
-                data.extend(chunk)
-        else:
-            # legacy: older versions of the CLI did not use multipart uploads
-            # file added to the request data by the FileUploadParser
-            data = request.data["file"].read()
+        # MultiPartParser and the legacy FileUploadParser both put the upload in request.FILES.
+        upload = request.FILES.get("file")
+        if upload is None:
+            return Response({"detail": "file is required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        symbol_sets_facade.create_deprecated_symbol_set(self.team, chunk_id, release_id, bytearray(data))
+        # The upload handler has already counted the bytes, so check the size before reading them into memory.
+        symbol_sets_facade.check_upload_size(upload.size or 0)
+
+        data = bytearray()
+        for chunk in upload.chunks():
+            data.extend(chunk)
+
+        symbol_sets_facade.create_deprecated_symbol_set(self.team, chunk_id, release_id, data)
 
         return Response({"ok": True}, status=status.HTTP_201_CREATED)
 

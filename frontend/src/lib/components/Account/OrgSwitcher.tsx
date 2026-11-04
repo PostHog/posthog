@@ -4,10 +4,11 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 
 import { IconCheck, IconPlusSmall, IconSearch, IconX } from '@posthog/icons'
 
-import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { IconBlank } from 'lib/lemon-ui/icons'
+import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
+import { ScrollableShadows } from 'lib/lemon-ui/ScrollableShadows/ScrollableShadows'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -21,7 +22,6 @@ import { globalModalsLogic } from '~/layout/globalModalsLogic'
 import { AccessLevelIndicator } from '~/layout/navigation/AccessLevelIndicator'
 import { AvailableFeature, OrganizationBasicType } from '~/types'
 
-import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 import { newAccountMenuLogic } from './newAccountMenuLogic'
 import { pendingInvitesLogic, PendingInviteForCurrentUser } from './pendingInvitesLogic'
 

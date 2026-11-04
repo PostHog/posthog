@@ -167,6 +167,8 @@ class ReviewerCorrection(_Section):
     report_title: str | None
     before: list[str]
     after: list[str]
+    removal_reason: str | None = None
+    removal_reason_reviewers: list[str] = []
     at: str | None
 
 

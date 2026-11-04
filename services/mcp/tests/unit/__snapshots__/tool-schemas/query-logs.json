@@ -171,7 +171,8 @@
                 },
                 "limit": {
                     "default": 100,
-                    "description": "Max results (1-1000).",
+                    "description": "Max results. Values above 2000 are capped at 2000.",
+                    "minimum": 1,
                     "type": "number"
                 },
                 "orderBy": {

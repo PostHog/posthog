@@ -1,6 +1,9 @@
+from typing import TYPE_CHECKING
+
 from django.utils import timezone
 
 import posthoganalytics
+from drf_spectacular.extensions import OpenApiSerializerExtension
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
@@ -10,6 +13,33 @@ from posthog.models import EventDefinition, ObjectMediaPreview
 from posthog.models.organization import OrganizationMembership
 
 from ee.models.event_definition import EnterpriseEventDefinition
+
+if TYPE_CHECKING:
+    from drf_spectacular.openapi import AutoSchema
+    from drf_spectacular.utils import Direction
+
+
+class EnterpriseEventDefinitionSerializerExtension(OpenApiSerializerExtension):
+    """Documents `owner` as a user ID in request bodies, and as the user object that `to_representation` returns."""
+
+    target_class = "ee.api.ee_event_definition.EnterpriseEventDefinitionSerializer"
+
+    def get_name(self, auto_schema: "AutoSchema", direction: "Direction") -> str | None:
+        # One component cannot describe both `owner` shapes. A PATCH body already gets its own "Patched"
+        # component, so only POST and PUT bodies need a name apart from the response.
+        if direction == "request" and not getattr(self.target, "partial", False):
+            return "EnterpriseEventDefinitionRequest"
+        return None
+
+    def map_serializer(self, auto_schema: "AutoSchema", direction: "Direction") -> dict[str, object]:
+        schema: dict = auto_schema._map_serializer(self.target, direction, bypass_extensions=True)
+        if direction == "response":
+            schema["properties"]["owner"] = {
+                "oneOf": [auto_schema.resolve_serializer(UserBasicSerializer, direction).ref, {"type": "null"}],
+                "readOnly": True,
+                "description": "The user responsible for the event, or null when it has no owner.",
+            }
+        return schema
 
 
 class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
@@ -65,6 +95,7 @@ class EnterpriseEventDefinitionSerializer(TaggedItemSerializerMixin, serializers
             "default_columns",
             "media_preview_urls",
         )
+        extra_kwargs = {"owner": {"help_text": "ID of the user responsible for the event. Null removes the owner."}}
         read_only_fields = [
             "id",
             "name",

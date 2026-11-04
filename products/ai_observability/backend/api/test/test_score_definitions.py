@@ -307,11 +307,12 @@ class TestScoreDefinitionsApi(APIBaseTest):
         self.assertEqual(first.data["count"], 2)
         self.assertEqual([row["version"] for row in first.data["results"]], [2])
         definition.create_new_version(config={"min": -1, "max": 1}, created_by=self.user)
-        second = self.client.get(endpoint, {"limit": 1, "cursor": first.data["next_cursor"]})
+        second = self.client.get(first.data["next"])
         self.assertEqual(second.status_code, status.HTTP_200_OK)
         self.assertEqual(second.data["count"], 3)
         self.assertEqual([row["id"] for row in second.data["results"]], [str(original.id)])
         self.assertIsNone(second.data["next_cursor"])
+        self.assertIsNone(second.data["next"])
 
         historical = self.client.get(f"{endpoint}{original.id}/")
         self.assertEqual(historical.status_code, status.HTTP_200_OK)

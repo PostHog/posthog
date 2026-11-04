@@ -953,10 +953,16 @@ function buildResponseFilter(config: ToolConfig): {
             : `[${paths}]`
         helperImports.push('pickResponseFields')
         shapeItem = (target) => `pickResponseFields(${target}, ${pathsExpr})`
-    } else if (config.response?.exclude?.length) {
-        const paths = config.response.exclude.map((f) => `'${f}'`).join(', ')
+    } else if (config.response?.exclude?.length || config.response?.expandable?.length) {
+        const paths = (config.response.exclude ?? []).map((f) => `'${f}'`)
+        const expandable = config.response.expandable ?? []
+        if (expandable.length) {
+            // `as const` keeps the literal types, so `includes` accepts them against the `expand` enum.
+            const expandablePaths = expandable.map((f) => `'${f}'`).join(', ')
+            paths.push(`...([${expandablePaths}] as const).filter((path) => !params.expand?.includes(path))`)
+        }
         helperImports.push('omitResponseFields')
-        shapeItem = (target) => `omitResponseFields(${target}, [${paths}])`
+        shapeItem = (target) => `omitResponseFields(${target}, [${paths.join(', ')}])`
     }
 
     if (config.response?.strip_nulls) {
@@ -1016,6 +1022,23 @@ function buildSelectableFieldsExtension(config: ToolConfig): string {
         'Optional subset of response fields to return, each a dot-path from the allowlist. ' +
         'Omit to return all fields. Request only the fields your task needs to keep responses small.'
     return `.extend({ fields: z.array(z.enum([${enumValues}])).min(1).optional().describe(${JSON.stringify(description)}) })`
+}
+
+/**
+ * When `response.expandable` is set, emit a `.extend({ expand: ... })` clause adding an optional
+ * `expand` request param constrained (via `z.enum`) to the expandable paths. Returns '' when the
+ * tool doesn't opt in.
+ */
+function buildExpandableFieldsExtension(config: ToolConfig): string {
+    const expandable = config.response?.expandable
+    if (!expandable?.length) {
+        return ''
+    }
+    const enumValues = expandable.map((f) => `'${f}'`).join(', ')
+    const description =
+        'Optional list of response fields to include that the response omits by default, each a dot-path. ' +
+        'Omit to keep the response small.'
+    return `.extend({ expand: z.array(z.enum([${enumValues}])).min(1).optional().describe(${JSON.stringify(description)}) })`
 }
 
 // ------------------------------------------------------------------
@@ -1159,6 +1182,10 @@ function generateToolCode(
     const selectableExtension = buildSelectableFieldsExtension(config)
     if (selectableExtension) {
         schemaExpr = `${schemaExpr}${selectableExtension}`
+    }
+    const expandableExtension = buildExpandableFieldsExtension(config)
+    if (expandableExtension) {
+        schemaExpr = `${schemaExpr}${expandableExtension}`
     }
     if (config.validators && config.validators.length > 0) {
         for (const fn of config.validators) {
@@ -1341,7 +1368,8 @@ function generateToolCode(
         hasQuery ||
         composition.pathParamNames.length > 0 ||
         enrichUsesParams ||
-        !!selectableExtension
+        !!selectableExtension ||
+        !!expandableExtension
     const paramsName = paramsUsed ? 'params' : '_params'
 
     // When `confirmed_action` is declared, emit TWO factories instead of
@@ -1641,7 +1669,9 @@ function generateCustomSchemaToolCode(
         handlerBody += `        const projectId = await context.stateManager.getProjectId()\n`
     }
 
-    handlerBody += `        const parsedParams = ${schemaName}().parse(params)\n`
+    // `expand` only shapes the response, so keep it out of the API request.
+    const parsedTarget = config.response?.expandable?.length ? '{ expand: _expand, ...parsedParams }' : 'parsedParams'
+    handlerBody += `        const ${parsedTarget} = ${schemaName}().parse(params)\n`
 
     if (pathParamNames.length > 0) {
         const destructured = pathParamNames.map((p) => `${p}, `).join('')
@@ -1682,6 +1712,10 @@ function generateCustomSchemaToolCode(
     const selectableExtension = buildSelectableFieldsExtension(config)
     if (selectableExtension) {
         baseSchemaExpr = `${baseSchemaExpr}${selectableExtension}`
+    }
+    const expandableExtension = buildExpandableFieldsExtension(config)
+    if (expandableExtension) {
+        baseSchemaExpr = `${baseSchemaExpr}${expandableExtension}`
     }
     if (config.validators && config.validators.length > 0) {
         for (const fn of config.validators) {
@@ -2198,6 +2232,18 @@ function generateDefinitionsJson(
             const supersededBy = toolConfig.superseded_by
             const hiddenWhenFlagOn = toolConfig.hidden_when_flag_on
             const redirectHint = toolConfig.redirect_hint
+            const optionalFields = {
+                ...(toolConfig.requires_ai_consent ? { requires_ai_consent: true } : {}),
+                ...(featureFlag ? { feature_flag: featureFlag } : {}),
+                ...(featureEntitlement ? { feature_entitlement: featureEntitlement } : {}),
+                ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
+                ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
+                ...(hiddenWhenFlagOn ? { hidden_when_flag_on: hiddenWhenFlagOn } : {}),
+                ...(supersededBy?.length ? { superseded_by: supersededBy } : {}),
+                ...(redirectHint ? { redirect_hint: redirectHint } : {}),
+                ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
+                ...(toolConfig.search_keywords?.length ? { search_keywords: toolConfig.search_keywords } : {}),
+            }
             // The endpoint the handler calls. The Django API reads it to refuse a write that a
             // sandbox run did not pick a tool for (posthog/mcp_tool_operations.py).
             const apiOperations = [`${handlerHttpMethod(toolConfig, resolved).toUpperCase()} ${resolved.path}`]
@@ -2224,16 +2270,7 @@ function generateDefinitionsJson(
                         openWorldHint: true,
                         readOnlyHint: true,
                     },
-                    ...(toolConfig.requires_ai_consent ? { requires_ai_consent: true } : {}),
-                    ...(featureFlag ? { feature_flag: featureFlag } : {}),
-                    ...(featureEntitlement ? { feature_entitlement: featureEntitlement } : {}),
-                    ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
-                    ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
-                    ...(hiddenWhenFlagOn ? { hidden_when_flag_on: hiddenWhenFlagOn } : {}),
-                    ...(toolConfig.reads_ingested_data ? { reads_ingested_data: toolConfig.reads_ingested_data } : {}),
-                    ...(supersededBy?.length ? { superseded_by: supersededBy } : {}),
-                    ...(redirectHint ? { redirect_hint: redirectHint } : {}),
-                    ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
+                    ...optionalFields,
                 }
                 definitions[`${name}-execute`] = {
                     description:
@@ -2253,16 +2290,7 @@ function generateDefinitionsJson(
                         openWorldHint: true,
                         readOnlyHint: toolConfig.annotations.readOnly,
                     },
-                    ...(toolConfig.requires_ai_consent ? { requires_ai_consent: true } : {}),
-                    ...(featureFlag ? { feature_flag: featureFlag } : {}),
-                    ...(featureEntitlement ? { feature_entitlement: featureEntitlement } : {}),
-                    ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
-                    ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
-                    ...(hiddenWhenFlagOn ? { hidden_when_flag_on: hiddenWhenFlagOn } : {}),
-                    ...(toolConfig.reads_ingested_data ? { reads_ingested_data: toolConfig.reads_ingested_data } : {}),
-                    ...(supersededBy?.length ? { superseded_by: supersededBy } : {}),
-                    ...(redirectHint ? { redirect_hint: redirectHint } : {}),
-                    ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
+                    ...optionalFields,
                 }
             } else {
                 definitions[name] = {
@@ -2279,16 +2307,7 @@ function generateDefinitionsJson(
                         openWorldHint: true,
                         readOnlyHint: toolConfig.annotations.readOnly,
                     },
-                    ...(toolConfig.requires_ai_consent ? { requires_ai_consent: true } : {}),
-                    ...(featureFlag ? { feature_flag: featureFlag } : {}),
-                    ...(featureEntitlement ? { feature_entitlement: featureEntitlement } : {}),
-                    ...(featureFlagBehavior ? { feature_flag_behavior: featureFlagBehavior } : {}),
-                    ...(featureFlagVariant ? { feature_flag_variant: featureFlagVariant } : {}),
-                    ...(hiddenWhenFlagOn ? { hidden_when_flag_on: hiddenWhenFlagOn } : {}),
-                    ...(toolConfig.reads_ingested_data ? { reads_ingested_data: toolConfig.reads_ingested_data } : {}),
-                    ...(supersededBy?.length ? { superseded_by: supersededBy } : {}),
-                    ...(redirectHint ? { redirect_hint: redirectHint } : {}),
-                    ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
+                    ...optionalFields,
                 }
             }
         }
@@ -2322,12 +2341,10 @@ function generateDefinitionsJson(
                 ...(wrapperConfig.hidden_when_flag_on
                     ? { hidden_when_flag_on: wrapperConfig.hidden_when_flag_on }
                     : {}),
-                ...(wrapperConfig.reads_ingested_data
-                    ? { reads_ingested_data: wrapperConfig.reads_ingested_data }
-                    : {}),
                 ...(wrapperConfig.superseded_by?.length ? { superseded_by: wrapperConfig.superseded_by } : {}),
                 ...(wrapperConfig.redirect_hint ? { redirect_hint: wrapperConfig.redirect_hint } : {}),
                 ...(wrapperConfig.system_prompt_hint ? { system_prompt_hint: wrapperConfig.system_prompt_hint } : {}),
+                ...(wrapperConfig.search_keywords?.length ? { search_keywords: wrapperConfig.search_keywords } : {}),
             }
         }
     }
@@ -2505,10 +2522,10 @@ function generateQueryWrapperDefinitionsJson(
             ...(toolConfig.feature_flag_behavior ? { feature_flag_behavior: toolConfig.feature_flag_behavior } : {}),
             ...(toolConfig.feature_flag_variant ? { feature_flag_variant: toolConfig.feature_flag_variant } : {}),
             ...(toolConfig.hidden_when_flag_on ? { hidden_when_flag_on: toolConfig.hidden_when_flag_on } : {}),
-            ...(toolConfig.reads_ingested_data ? { reads_ingested_data: toolConfig.reads_ingested_data } : {}),
             ...(toolConfig.superseded_by?.length ? { superseded_by: toolConfig.superseded_by } : {}),
             ...(toolConfig.redirect_hint ? { redirect_hint: toolConfig.redirect_hint } : {}),
             ...(toolConfig.system_prompt_hint ? { system_prompt_hint: toolConfig.system_prompt_hint } : {}),
+            ...(toolConfig.search_keywords?.length ? { search_keywords: toolConfig.search_keywords } : {}),
         }
     }
     return definitions

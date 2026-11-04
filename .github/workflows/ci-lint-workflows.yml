@@ -36,10 +36,20 @@ jobs:
               uses: ./.github/actions/setup-uv
 
             - name: Install python dependencies
-              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --no-dev --package hogli
 
             - name: Lint workflows
               run: ./bin/hogli lint:workflows
+
+            - name: Verify Actions lockfile
+              if: ${{ !cancelled() }}
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  gh extension install github/gh-actions-lock --pin v0.4.0
+                  # Only onboarded workflows are verified, because an unscoped run fails on every workflow not yet in the lockfile.
+                  mapfile -t workflows < <(yq '.workflows | keys | .[]' .github/workflows/actions.lock)
+                  gh actions-lock --verify "${workflows[@]}"
 
     workflow-run-plans:
         name: Workflow run plans

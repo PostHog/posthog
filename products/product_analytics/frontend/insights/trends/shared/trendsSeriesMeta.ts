@@ -1,4 +1,4 @@
-import { ResultSeries, getResultSeries } from 'scenes/insights/utils/resultSeries'
+import { ActionNames, ResultSeries, getResultSeries } from 'scenes/insights/utils/resultSeries'
 
 import type { Noun } from '~/models/groupsModel'
 import type { InsightQueryNode } from '~/queries/schema/schema-general'
@@ -14,14 +14,14 @@ export type TrendsSeriesMeta = {
     compare_label?: SeriesDatum['compare_label']
     days?: string[]
     order?: number
-    filter?: SeriesDatum['filter']
 }
 
 export const buildTrendsSeriesMeta = (
     r: IndexedTrendResult,
-    querySource: InsightQueryNode | null | undefined
+    querySource: InsightQueryNode | null | undefined,
+    actionNames?: ActionNames
 ): TrendsSeriesMeta => {
-    const series = getResultSeries(querySource, r)
+    const series = getResultSeries(querySource, r, actionNames)
     return {
         series,
         // Formula results have no series node; their raw label (custom name or "Formula (…)") is the
@@ -31,7 +31,6 @@ export const buildTrendsSeriesMeta = (
         compare_label: r.compare_label,
         days: r.days,
         order: series.order,
-        filter: r.filter,
     }
 }
 

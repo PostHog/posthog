@@ -23,6 +23,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { dayjs } from 'lib/dayjs'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
+import { escapePropertyAsHogQLIdentifier, hogql } from 'lib/utils/hogql'
 import { FEATURE_FLAG_CALLED_EVENT } from 'scenes/feature-flags/flagEvaluationsTable'
 import {
     FLAG_CALLS_NOT_LOADABLE,
@@ -34,7 +35,6 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import { EventsQuery, NodeKind } from '~/queries/schema/schema-general'
-import { escapePropertyAsHogQLIdentifier, hogql } from '~/queries/utils'
 import {
     AnyPropertyFilter,
     CyclotronJobInvocationGlobals,

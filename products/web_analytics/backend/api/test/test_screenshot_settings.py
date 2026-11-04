@@ -1,5 +1,3 @@
-from ipaddress import ip_address
-
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -13,6 +11,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team_heatmap_config import TeamHeatmapConfig
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.web_analytics.backend.presentation.views.screenshot_settings import (
@@ -193,7 +192,7 @@ class TestScreenshotSettings(APIBaseTest):
 
     @parameterized.expand([("attacker.example", False), ("www.example.com", True)])
     @override_settings(**BROWSERLESS_SETTINGS)
-    @patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("93.184.216.34")})
+    @mock_anti_ssrf_dns_lookup()
     @patch("products.web_analytics.backend.tasks.heatmap_screenshot.browserless_request")
     @patch("products.web_analytics.backend.api.heatmaps_api.generate_heatmap_screenshot.delay")
     def test_editor_renders_only_send_credentials_to_admin_approved_hosts(

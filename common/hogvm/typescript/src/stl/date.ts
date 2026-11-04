@@ -119,7 +119,11 @@ export function parseDateLike(input: string, zone?: string): DateTime | null {
     // Normalize to strict ISO so luxon's parser accepts it: `T` separator, uppercase `Z`.
     const time = hourMinute ? `T${hourMinute}${second ? `:${second}${millis}` : ''}${offset?.toUpperCase() ?? ''}` : ''
     const dt = DateTime.fromISO(`${year}${monthDay}${time}`, { zone: zone || 'UTC' })
-    return dt.isValid ? dt : null
+    if (!dt.isValid) {
+        return null
+    }
+    // Luxon's default fold choice depends on the current offset. Match the other VMs' earlier instant.
+    return offset ? dt : DateTime.min(...dt.getPossibleOffsets())
 }
 
 // NOTE: `toUnixTimestamp` keeps each VM's own failure mode for unparseable input. Here it is an

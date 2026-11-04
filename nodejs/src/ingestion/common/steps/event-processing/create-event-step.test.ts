@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
+import { v5 as uuidv5 } from 'uuid'
 
 import { EVENTS_OUTPUT } from '~/common/outputs'
 import { castTimestampOrNow } from '~/common/utils/utils'
@@ -350,6 +351,7 @@ describe('create-event-step', () => {
                 ['an empty response', 2, '$feature_flag_called', ''],
                 ['a missing response', 2, '$feature_flag_called', undefined],
                 ['a different event', 2, '$pageview', 'test'],
+                ['a direct $experiment_exposure', 2, '$experiment_exposure', 'test'],
             ])('does not duplicate %s', async (_, teamId, event, response) => {
                 const step = createCreateEventStep(EVENTS_OUTPUT, '2')
                 const result = await step({
@@ -371,6 +373,78 @@ describe('create-event-step', () => {
                 expect(isOkResult(result)).toBe(true)
                 if (isOkResult(result)) {
                     expect(result.value.eventsToEmit).toHaveLength(1)
+                }
+            })
+
+            it.each([
+                ['the number 2', 2],
+                ['the string "2"', '2'],
+            ])(
+                'passes a $feature_flag_called through unchanged when $feature_flag_config_version is %s',
+                async (_, configVersion) => {
+                    const properties = {
+                        $feature_flag: 'checkout-experiment',
+                        $feature_flag_response: 'test',
+                        $feature_flag_config_version: configVersion,
+                    }
+                    const step = createCreateEventStep(EVENTS_OUTPUT, '*')
+                    const result = await step({
+                        team: mockTeam,
+                        person: mockPerson,
+                        preparedEvent: {
+                            ...mockPreparedEvent,
+                            teamId: 2,
+                            projectId: 2 as ProjectId,
+                            event: '$feature_flag_called',
+                            properties,
+                        },
+                        processPerson: true,
+                        historicalMigration: false,
+                        headers: createTestEventHeaders(),
+                        message: mockMessage,
+                    })
+
+                    expect(isOkResult(result)).toBe(true)
+                    if (isOkResult(result)) {
+                        expect(result.value.eventsToEmit).toHaveLength(1)
+                        const [flagCalled] = result.value.eventsToEmit
+                        expect(flagCalled.output).toBe(EVENTS_OUTPUT)
+                        expect(flagCalled.event.event).toBe('$feature_flag_called')
+                        expect(flagCalled.event.uuid).toBe('event-uuid-456')
+                        expect(flagCalled.event.properties).toEqual(properties)
+                    }
+                }
+            )
+
+            it.each([
+                ['1', 1],
+                ['missing', undefined],
+                ['the string "1"', '1'],
+            ])('duplicates as before when $feature_flag_config_version is %s', async (_, configVersion) => {
+                const step = createCreateEventStep(EVENTS_OUTPUT, '2')
+                const result = await step({
+                    team: mockTeam,
+                    person: mockPerson,
+                    preparedEvent: {
+                        ...mockPreparedEvent,
+                        teamId: 2,
+                        projectId: 2 as ProjectId,
+                        event: '$feature_flag_called',
+                        properties: { $feature_flag_response: 'test', $feature_flag_config_version: configVersion },
+                    },
+                    processPerson: true,
+                    historicalMigration: false,
+                    headers: createTestEventHeaders(),
+                    message: mockMessage,
+                })
+
+                expect(isOkResult(result)).toBe(true)
+                if (isOkResult(result)) {
+                    expect(result.value.eventsToEmit).toHaveLength(2)
+                    const exposure = result.value.eventsToEmit[1].event
+                    expect(exposure.event).toBe('$experiment_exposure')
+                    // Pins the derived uuid so a redelivered message keeps collapsing in ClickHouse.
+                    expect(exposure.uuid).toBe(uuidv5('event-uuid-456', '1b7c9119-5953-4668-97b7-ab0ef8a6bb48'))
                 }
             })
 

@@ -12,6 +12,5 @@ class Workload(StrEnum):
     OFFLINE = "OFFLINE"
     # Tables that exist only on the logs cluster
     LOGS = "LOGS"
-    NEW_EVENTS_CLUSTER = "NEW_EVENTS_CLUSTER"
     # Endpoints (the product) queries
     ENDPOINTS = "ENDPOINTS"

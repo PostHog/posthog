@@ -37,7 +37,7 @@ import type { SettingId, SettingLevelId, SettingSectionId } from './settings/typ
 /** The filters the analytics list reads from its URL. */
 export interface AnalyticsListUrlParams {
     orderBy?: string
-    type?: string
+    type?: string | string[]
     createdBy?: string[]
     folder?: string
     search?: string
@@ -46,7 +46,7 @@ export interface AnalyticsListUrlParams {
 
 export const urls = {
     ...productUrls,
-    absolute: (path = ''): string => window.location.origin + path,
+    absolute: (path = ''): string => new URL(path, window.location.origin).href,
     default: (): string => '/',
     project: (id: string | number, path = ''): string => `/project/${id}` + path,
     currentProject: (path = ''): string => urls.project(getCurrentTeamId(), path),
@@ -234,6 +234,8 @@ export const urls = {
     credentialReview: (next?: string): string =>
         `/account/credential-review${next ? `?next=${encodeURIComponent(next)}` : ''}`,
     cliAuthorize: (): string => '/cli/authorize',
+    // pinned: the OAuth server sends devices here as verification_uri, see posthog/api/oauth/device.py
+    oauthDeviceAuthorize: (): string => '/device',
     cliLive: (): string => '/cli/live',
     passwordReset: (): string => '/reset',
     passwordResetComplete: (userUuid: string, token: string): string => `/reset/${userUuid}/${token}`,

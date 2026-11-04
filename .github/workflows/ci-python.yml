@@ -43,13 +43,15 @@ jobs:
         steps:
             - name: Ask Trunk which jobs this diff needs
               continue-on-error: true
-              uses: trunk-io/dynamic-ci@7e3af9331e8ebdfe0c71ba7d0ff6b7424dde8c57 # v1
+              uses: trunk-io/dynamic-ci@5bfe63e878e3ec8bf14c0fa3b7e250685e668d75 # v0.1.6
               with:
                   token: ${{ secrets.TRUNK_API_TOKEN }}
 
     # Job to decide if we should run python ci
     # See .github/actions/paths-filter/README.md for filter semantics
     changes:
+        # Push and schedule runs only belong in this repo. Mirrors run CI on their own PRs only.
+        if: github.repository == 'PostHog/posthog' || (github.event_name != 'push' && github.event_name != 'schedule')
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         name: Determine need to run python checks
@@ -66,6 +68,9 @@ jobs:
             stamphog: ${{ steps.filter.outputs.stamphog || 'true' }}
             bin_scripts: ${{ steps.filter.outputs.bin_scripts || 'true' }}
             api_ratchet: ${{ steps.filter.outputs.api_ratchet || 'true' }}
+            mypy_cache_key: ${{ steps.filter.outputs.mypy_cache_key || 'false' }}
+            schema_python: ${{ steps.filter.outputs.schema_python || 'true' }}
+            warehouse_sources: ${{ steps.filter.outputs.warehouse_sources || 'true' }}
         steps:
             # For pull requests it's not necessary to checkout the code, but we
             # also want this to run on master so we need to checkout
@@ -101,6 +106,26 @@ jobs:
                           - 'posthog/**/*.py'
                           - 'ee/**/*.py'
                           - 'products/**/*.py'
+                      # The files the mypy cache key hashes. A change to them can leave the
+                      # restored cache stale for most modules, for example a django-stubs bump.
+                      mypy_cache_key:
+                          - 'uv.lock'
+                          - '**/pyproject.toml'
+                          - '**/mypy.ini'
+                      schema_python:
+                          - 'frontend/src/queries/schema.json'
+                          - 'posthog/schema.py'
+                          - 'posthog/schema_enums.py'
+                          - 'bin/build-schema-python.sh'
+                          - 'bin/patch-schema-array-discriminators.py'
+                          - 'bin/patch-schema-property-filter-discriminator.py'
+                          - 'bin/split-schema-enums.py'
+                          - '**/pyproject.toml'
+                          - '**/ruff.toml'
+                          - '**/.ruff.toml'
+                          - 'uv.lock'
+                          - '.github/actions/paths-filter/**'
+                          - '.github/workflows/ci-python.yml'
                       python:
                         # ruff/mypy/ty run repo-wide (`.`) in code-quality, so any Python
                         # file anywhere must trigger this workflow — otherwise an unformatted
@@ -108,12 +133,16 @@ jobs:
                         - '**/*.py'
                         - '*.py' # root-level scripts (e.g. manage.py); '**/' alone may not match root
                         - 'pyproject.toml'
+                        - '**/pyproject.toml'
+                        - '**/ruff.toml'
+                        - '**/.ruff.toml'
                         - 'uv.lock'
                         - 'posthog/**/*'
                         # Make sure we run if someone is explicitly change the workflows
                         - .github/workflows/ci-python.yml
                         - .github/workflows/ci-dagster.yml
                         - .github/actions/setup-uv/**
+                        - '.github/actions/paths-filter/**'
                         - .depot/actions/setup-uv/**
                         - '.depot/workflows/*.yml'
                         - .flox/env/manifest.toml
@@ -131,12 +160,16 @@ jobs:
                         - 'products/desktop/packages/core/src/inbox/objectKinds.generated.ts'
                         - 'packages/agent/packages/agent-contracts/src/objectTagKinds.generated.ts'
                         - 'frontend/src/lib/components/AgentObjectTags/objectKinds.generated.ts'
+                        - 'products/mobile/src/features/chat/objectKinds.generated.ts'
                         - 'products/tasks/frontend/modelCatalog.generated.ts'
                         - 'packages/agent/packages/agent-contracts/src/model-catalog.generated.ts'
                         - 'services/mcp/src/lib/oauth-scopes.generated.ts'
                         - 'frontend/src/lib/oauthScopes.generated.ts'
                         - 'products/commands/commands.generated.json'
                         - 'products/commands/COMMANDS.generated.md'
+                        # Formatter inputs can change the generated mobile projection.
+                        - 'products/mobile/biome.json'
+                        - 'products/mobile/pnpm-lock.yaml'
                         # hogli CLI changes need validation
                         - 'tools/hogli/**'
                         - 'tools/hogli-commands/hogli_commands/**'
@@ -235,6 +268,21 @@ jobs:
                         - '.semgrep/rules/devex/prefer-codegen-api-namespaced.yaml'
                         - 'hogli.yaml'
                         - .github/workflows/ci-python.yml
+                      # The warehouse source vendors, their SDK and the product code the
+                      # SDK re-exports.
+                      warehouse_sources:
+                        - 'products/warehouse_sources/sources/**'
+                        - 'products/warehouse_sources/backend/**'
+                        - 'pyproject.toml'
+                        - 'uv.lock'
+                        - 'pytest.ini'
+                        - 'conftest.py'
+                        - 'tach.toml'
+                        - .github/workflows/ci-python.yml
+                        - .github/actions/setup-python-cached/**
+                        - .github/actions/setup-uv/**
+                        - tools/warehouse_sources_vendor_selection.py
+                        - tools/test_warehouse_sources_vendor_selection.py
 
     code-quality:
         needs: changes
@@ -244,8 +292,9 @@ jobs:
         timeout-minutes: 30
 
         name: Python code quality (depot-ubuntu-24.04)
-        # Master runs mypy cold after a dependency change, which needs more than 8 GB.
-        runs-on: ${{ github.event_name == 'pull_request' && 'depot-ubuntu-24.04' || 'depot-ubuntu-24.04-4' }}
+        # Master and the merge queue run mypy cold after a dependency change, which needs more than 8 GB. A pull
+        # request that changes the cache key can also run nearly cold, so it gets the big runner too.
+        runs-on: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') && needs.changes.outputs.mypy_cache_key != 'true' && 'depot-ubuntu-24.04' || 'depot-ubuntu-24.04-4' }}
         # Read by shell guards on the pytest steps below. Those steps sit in a
         # `parallel:` block, where step-level `if:` is untested in this repo.
         env:
@@ -344,8 +393,11 @@ jobs:
             - name: Check static typing
               shell: bash -e {0}
               env:
-                  MYPY_NUM_WORKERS: 2
-              run: mypy --version && mypy --cache-fine-grained .
+                  # Each worker holds its own copy of the build graph, so the worker count follows
+                  # the runner's memory. Keep this condition in sync with the job's runs-on: the
+                  # 8 GB depot-ubuntu-24.04 fits one worker on a cold cache, the 16 GB -4 fits two.
+                  MYPY_NUM_WORKERS: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') && needs.changes.outputs.mypy_cache_key != 'true' && 1 || 2 }}
+              run: mypy --version && mypy .
 
             - name: Save mypy cache
               if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
@@ -355,9 +407,10 @@ jobs:
                   key: ${{ steps.mypy-cache.outputs.cache-primary-key }}
 
             - name: Check if "schema.py" is up to date
+              if: github.event_name != 'pull_request' || startsWith(github.head_ref, 'trunk-merge/') || needs.changes.outputs.schema_python != 'false'
               shell: bash
               run: |
-                  npm run schema:build:python && git diff --exit-code
+                  bash bin/build-schema-python.sh && git diff --exit-code
 
             # Every projection renderer is Python, so this job needs neither pnpm nor
             # node_modules. Keep the step after "Install Python dependencies": the taxonomy
@@ -499,6 +552,12 @@ jobs:
                         [ "$RUN_BIN_SCRIPTS" = "true" ] || { echo "bin/ unchanged — skipping"; exit 0; }
                         pytest bin/test/test_find_python_dependencies.py -v --junitxml=junit-dependency-detection.xml
 
+                  - name: Run semgrep ratchet script tests
+                    shell: bash
+                    run: |
+                        [ "$RUN_BIN_SCRIPTS" = "true" ] || { echo "bin/ unchanged — skipping"; exit 0; }
+                        pytest bin/test/test_semgrep_ratchet.py -v
+
                   - name: Run granian shared socket tests
                     shell: bash
                     # The bin_scripts filter includes uv.lock, so every granian upgrade runs this.
@@ -562,7 +621,12 @@ jobs:
               uses: ./.github/actions/setup-uv
 
             - name: Install python dependencies
-              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+              run: |
+                  if grep -q '^from posthog.dataclasses import frozen' tools/hogli-commands/hogli_commands/api_ratchet.py; then
+                      UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+                  else
+                      UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --no-dev --package hogli
+                  fi
 
             # Skip on unrebased branches: the command may not be registered yet.
             - name: Ratchet product paths in lib/api.ts
@@ -575,11 +639,151 @@ jobs:
                   fi
                   ./bin/hogli lint:api-ratchet
 
+    # The warehouse source vendors under products/warehouse_sources/sources/ need no service:
+    # no Postgres, ClickHouse, Redis or Kafka. So a pull request that changes only vendors
+    # runs this job, and Backend CI does not start (its `backend` filter excludes that
+    # directory). code-quality already runs ruff, mypy and ty on the vendors.
+    warehouse-sources:
+        needs: changes
+        # Skipped on master push: the merge queue already ran this for every landed commit,
+        # and the hourly scheduled run tests every vendor. The scheduled run also catches a
+        # posthog/ change that breaks a vendor through the SDK, which no filter above sees.
+        if: needs.changes.outputs.warehouse_sources == 'true' && github.event_name != 'push'
+        name: Warehouse sources checks and tests
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 20
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  # The pull request merge commit and its first parent, the base, so the
+                  # vendor selection below can diff the two without the GitHub API.
+                  fetch-depth: 2
+                  persist-credentials: false
+
+            - name: Set up Python
+              uses: ./.github/actions/setup-python-cached
+              with:
+                  python-version: 3.14.7
+
+            - name: Install uv
+              id: setup-uv
+              uses: ./.github/actions/setup-uv
+
+            - name: Install SAML dependencies
+              if: steps.setup-uv.outputs.cache-hit != 'true'
+              run: sudo rm -f /etc/apt/sources.list.d/*twingate* && sudo apt-get update && sudo apt-get install -y libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+
+            - name: Install Python dependencies
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            # A broken selector must fail here, before it narrows a run.
+            - name: Test the vendor selector
+              run: python tools/test_warehouse_sources_vendor_selection.py
+
+            # A pull request diff that stays inside vendor directories runs only those vendors.
+            # A vendor cannot import another vendor (tach and import-linter enforce that), so the
+            # other vendors cannot change. Any other file (the SDK, the conftest.py and other
+            # files at the top of the plugin directory, the product, a manifest, this workflow)
+            # selects the full run. The merge queue, the
+            # hourly run and a manual run have no pull request diff to narrow by, so they also
+            # take the full run.
+            - name: Select vendors
+              id: select
+              env:
+                  EVENT_NAME: ${{ github.event_name }}
+                  HEAD_REF: ${{ github.head_ref }}
+              run: |
+                  if [ "$EVENT_NAME" != "pull_request" ] || [[ "$HEAD_REF" == trunk-merge/* ]]; then
+                      python tools/warehouse_sources_vendor_selection.py --full
+                  else
+                      git diff --name-only HEAD^1 HEAD | python tools/warehouse_sources_vendor_selection.py
+                  fi | tee -a "$GITHUB_OUTPUT"
+
+            - name: Check module boundaries (tach)
+              run: ./bin/hogli lint:tach
+
+            # tach leaves test files out of its dependency pass. The import-linter contracts
+            # for the vendors also check the vendor tests, and one of them fails a vendor that
+            # imports a sibling vendor.
+            - name: Check vendor imports (import-linter)
+              run: lint-imports
+
+            # The Django matrix runs every repo invariant, but it does not start for a vendor-only
+            # diff. So this job runs the ones that walk the vendor tree. The full run takes all
+            # of them. A vendors run takes the ones that check code a vendor writes, and scopes
+            # their walk to the changed vendor directories. The others look for calls into
+            # posthog/, products/ or DRF, which a vendor cannot import, so a vendor diff cannot
+            # break them. The lists are explicit: a new invariant that walks products/ has to be
+            # added here by hand.
+            - name: Run repo invariants that scan the vendors
+              env:
+                  MODE: ${{ steps.select.outputs.mode }}
+                  SCAN_SCOPE: ${{ steps.select.outputs.scan_scope }}
+              run: |
+                  vendor_invariants=(
+                      test_warehouse_source_static_contract.py
+                      test_warehouse_source_test_shapes.py
+                      test_resume_state_staged_before_yield.py
+                      test_resume_state_saved_by_the_source_generator.py
+                      test_dataclass_defaults.py
+                      test_dataclass_secret_fields.py
+                      test_database_free_test_classes.py
+                  )
+                  if [ "$MODE" = "vendors" ]; then
+                      REPO_INVARIANTS_SCAN_SCOPE="$SCAN_SCOPE" pytest -p no:cacheprovider "${vendor_invariants[@]/#/posthog/test/repo_invariants/}"
+                      exit 0
+                  fi
+                  full_invariants=(
+                      "${vendor_invariants[@]}"
+                      test_authentication_credential_types.py
+                      test_feature_flag_gated_writes.py
+                      test_feature_flag_raw_reads.py
+                      test_local_kafka_consumers.py
+                      test_rbac_shadow_resolver_callers.py
+                  )
+                  pytest -p no:cacheprovider -n auto "${full_invariants[@]/#/posthog/test/repo_invariants/}"
+
+            # These tests load the full vendor catalog, so a change to one vendor can fail them.
+            # A vendors run keeps the tests of the whole catalog and runs the tests that check one
+            # source at a time only for the selected vendors.
+            - name: Run vendor catalog tests
+              env:
+                  MODE: ${{ steps.select.outputs.mode }}
+                  VENDORS: ${{ steps.select.outputs.vendors }}
+              run: |
+                  narrow=()
+                  if [ "$MODE" = "vendors" ]; then
+                      narrow=("--source-vendors=${VENDORS// /,}")
+                  fi
+                  pytest -p no:cacheprovider products/warehouse_sources/backend/temporal/data_imports/sources/tests --tb=short "${narrow[@]}"
+
+            # The committed credential kind and auth type maps hold one line per vendor. A vendors
+            # run skips Backend CI, so these suites run here in both modes, or a vendor change that
+            # makes the maps stale would merge. They need no database.
+            - name: Run credential map tests
+              run: |
+                  credential_tests=products/warehouse_sources/backend/temporal/data_imports/sources/common/test
+                  pytest -p no:cacheprovider "$credential_tests/test_credential_kind.py" "$credential_tests/test_credential_auth_type.py" --tb=short
+
+            - name: Run vendor tests
+              if: steps.select.outputs.mode == 'full' || steps.select.outputs.vendors != ''
+              env:
+                  MODE: ${{ steps.select.outputs.mode }}
+                  VENDORS: ${{ steps.select.outputs.vendors }}
+              run: |
+                  plugin_dir=products/warehouse_sources/sources
+                  targets=("$plugin_dir/")
+                  if [ "$MODE" = "vendors" ]; then
+                      read -ra vendors <<< "$VENDORS"
+                      targets=("${vendors[@]/#/$plugin_dir/}")
+                  fi
+                  pytest -p no:cacheprovider "${targets[@]}" -m 'not async_migrations' --reruns=2 --reruns-delay=1 --tb=short
+
     # Collate job - single required status check for branch protection.
     # The code-quality job skips when no Python changes, but this job always
     # runs and reports success, allowing PRs to merge.
     python_tests:
-        needs: [changes, code-quality, api-ratchet]
+        needs: [changes, code-quality, api-ratchet, warehouse-sources]
         name: Python code quality checks
         runs-on: ubuntu-24.04
         timeout-minutes: 5
@@ -597,6 +801,13 @@ jobs:
                   # own filter, so it can run on a pull request that touches no Python.
                   if [[ "${{ needs.api-ratchet.result }}" != "success" && "${{ needs.api-ratchet.result }}" != "skipped" ]]; then
                     echo "lib/api.ts codegen ratchet did not succeed (result: ${{ needs.api-ratchet.result }})."
+                    exit 1
+                  fi
+
+                  # Checked before the no-Python-changes exit below for the same reason: the job
+                  # has its own filter, and a vendor change with no Python file still runs it.
+                  if [[ "${{ needs.warehouse-sources.result }}" != "success" && "${{ needs.warehouse-sources.result }}" != "skipped" ]]; then
+                    echo "Warehouse sources checks and tests did not succeed (result: ${{ needs.warehouse-sources.result }})."
                     exit 1
                   fi
 

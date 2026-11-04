@@ -17,7 +17,13 @@ import {
 } from '../../../tests/helpers/sql'
 import { Hub, Team } from '../../types'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
-import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
+import {
+    HOG_EXAMPLES,
+    HOG_FILTERS_EXAMPLES,
+    HOG_FLOW_MASK_EXAMPLES,
+    HOG_INPUTS_EXAMPLES,
+    HOG_MASK_EXAMPLES,
+} from '../_tests/examples'
 import {
     insertHogFunction as _insertHogFunction,
     createHogExecutionGlobals,
@@ -774,21 +780,24 @@ describe('CdpEventsConsumer', () => {
             it.each([
                 {
                     name: 'a message that is not an event object',
+                    step: 'parse',
                     bad: () => createKafkaMessage('not json at all'),
                 },
                 {
                     name: 'an event whose properties are not JSON',
+                    step: 'parse',
                     bad: (teamId: number) => createKafkaMessage(createIncomingEvent(teamId, { properties: '{' })),
                 },
                 ...lookupSpies.map(({ lookup, spy }) => ({
                     name: `an event whose ${lookup} lookup throws a non-retriable error`,
+                    step: 'lookup',
                     // The first message in the batch makes the first lookup call, so only it fails.
                     bad: (teamId: number) => {
                         spy().mockRejectedValueOnce(new Error('column "bytecode" does not exist'))
                         return createKafkaMessage(createIncomingEvent(teamId, {}))
                     },
                 })),
-            ])('parks $name and processes the rest of the batch', async ({ bad }) => {
+            ])('parks $name and processes the rest of the batch', async ({ step, bad }) => {
                 await insertHogFunction({
                     ...HOG_EXAMPLES.simple_fetch,
                     ...HOG_INPUTS_EXAMPLES.simple_fetch,
@@ -799,8 +808,50 @@ describe('CdpEventsConsumer', () => {
 
                 const parked = mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')
                 expect(parked).toHaveLength(1)
-                expect(parked[0].headers).toMatchObject({ dlq_step: 'parse', dlq_offset: '0' })
+                expect(parked[0].headers).toMatchObject({ dlq_step: step, dlq_offset: '0' })
                 expect(mockQueueInvocations).toHaveBeenCalledWith([expect.objectContaining({ teamId: team.id })])
+            })
+
+            it('leaves the body unread when the team id header names a team with no hog functions', async () => {
+                await insertHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                })
+                // team2 has no hog function and this body cannot be parsed, so a parked record could
+                // only come from reading a body the consumer does not need. The second message carries
+                // no header, so the batch also covers the fallback that reads the team from the body.
+                const unreadable = {
+                    ...createKafkaMessage(createIncomingEvent(team2.id, {}), {
+                        headers: [{ team_id: String(team2.id) }],
+                    }),
+                    value: Buffer.from('{'),
+                }
+
+                await handleBatch([unreadable, createKafkaMessage(createIncomingEvent(team.id, {}), { offset: 1 })])
+
+                expect(mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')).toHaveLength(0)
+                expect(mockQueueInvocations).toHaveBeenCalledWith([expect.objectContaining({ teamId: team.id })])
+            })
+
+            it('parks an event whose body names a different team than its header', async () => {
+                await insertHogFunction({
+                    ...HOG_EXAMPLES.simple_fetch,
+                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                    ...HOG_FILTERS_EXAMPLES.no_filters,
+                })
+                // The header decides which team's destinations load, the body carries the event data.
+                // Letting the two disagree would send one team's event to another team's destinations.
+                const mismatched = createKafkaMessage(createIncomingEvent(team2.id, {}), {
+                    headers: [{ team_id: String(team.id) }],
+                })
+
+                await handleBatch([mismatched])
+
+                const parked = mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')
+                expect(parked).toHaveLength(1)
+                expect(parked[0].headers).toMatchObject({ dlq_step: 'parse' })
+                expect(mockQueueInvocations).not.toHaveBeenCalledWith([expect.objectContaining({ teamId: team.id })])
             })
 
             it('fails the batch when the record cannot be written, so the offsets stay put', async () => {
@@ -830,27 +881,79 @@ describe('CdpEventsConsumer', () => {
                 }
             })
 
-            it('fails the batch on a dependency outage while parsing, rather than parking every event', async () => {
-                await insertHogFunction({
-                    ...HOG_EXAMPLES.simple_fetch,
-                    ...HOG_INPUTS_EXAMPLES.simple_fetch,
-                    ...HOG_FILTERS_EXAMPLES.no_filters,
-                })
-                const outage = new DependencyUnavailableError('Postgres is down', 'Postgres', new Error('down'))
-                const lookup = jest
-                    .spyOn(processor['hogFunctionManager'], 'getHogFunctionsForTeam')
-                    .mockRejectedValue(outage)
+            it.each([
+                {
+                    name: 'a dependency outage',
+                    error: new DependencyUnavailableError('Postgres is down', 'Postgres', new Error('down')),
+                    batchSize: 1,
+                    rejection: 'Postgres is down',
+                },
+                {
+                    name: 'a lookup error a retry cannot fix across the whole batch',
+                    error: new Error('column "bytecode" does not exist'),
+                    batchSize: 3,
+                    rejection: 'Refusing to dead-letter 3 of 3 messages (0 process, 3 lookup)',
+                },
+            ])(
+                'fails the batch on $name while parsing, rather than parking every event',
+                async ({ error, batchSize, rejection }) => {
+                    await insertHogFunction({
+                        ...HOG_EXAMPLES.simple_fetch,
+                        ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                        ...HOG_FILTERS_EXAMPLES.no_filters,
+                    })
+                    const lookup = jest
+                        .spyOn(processor['hogFunctionManager'], 'getHogFunctionsForTeam')
+                        .mockRejectedValue(error)
+                    const messages = Array.from({ length: batchSize }, (_, offset) =>
+                        createKafkaMessage(createIncomingEvent(team.id, {}), { offset })
+                    )
 
-                await expect(handleBatch([createKafkaMessage(createIncomingEvent(team.id, {}))])).rejects.toThrow(
-                    'Postgres is down'
-                )
+                    await expect(handleBatch(messages)).rejects.toThrow(rejection)
 
-                // The failed batch never reaches the write, so a failure recorded for it would be
-                // parked by the next batch instead.
-                lookup.mockRestore()
-                await handleBatch([createKafkaMessage(createIncomingEvent(team.id, {}))])
+                    // A failure recorded for the failed batch must not be parked by the next batch.
+                    lookup.mockRestore()
+                    await handleBatch([createKafkaMessage(createIncomingEvent(team.id, {}))])
 
-                expect(mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')).toHaveLength(0)
+                    expect(mockProducerObserver.getProducedKafkaMessagesForTopic('cdp_events_dlq_test')).toHaveLength(0)
+                }
+            )
+
+            it.each([
+                {
+                    name: 'destination',
+                    insert: () =>
+                        insertHogFunction({
+                            ...HOG_EXAMPLES.simple_fetch,
+                            ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                            ...HOG_FILTERS_EXAMPLES.no_filters,
+                            ...HOG_MASK_EXAMPLES.all,
+                        }),
+                },
+                {
+                    name: 'workflow',
+                    insert: () =>
+                        _insertHogFlow(
+                            hub.postgres,
+                            new FixtureHogFlowBuilder()
+                                .withTeamId(team.id)
+                                .withSimpleWorkflow({
+                                    trigger: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
+                                })
+                                .withTriggerMasking(HOG_FLOW_MASK_EXAMPLES.everyTime.trigger_masking)
+                                .build()
+                        ),
+                },
+            ])('releases the masking claims of a $name when the batch fails before queueing', async ({ insert }) => {
+                await insert()
+                const globals = await processor._parseKafkaBatch([createKafkaMessage(createIncomingEvent(team.id, {}))])
+
+                await expect(
+                    processor.processBatch(globals, () => Promise.reject(new Error('dead-letter write failed')))
+                ).rejects.toThrow('dead-letter write failed')
+
+                const { invocations } = await processor.processBatch(globals)
+                expect(invocations).toHaveLength(1)
             })
 
             it('parks nothing when every function builds', async () => {

@@ -1322,7 +1322,7 @@ class TestDirectPostgresQuery(APIBaseTest):
     )
     def test_ensure_single_direct_statement_rejects_multi_statement(self, _name: str, sql: str):
         with self.assertRaises(ExposedHogQLError):
-            ensure_single_direct_statement(sql)
+            ensure_single_direct_statement(sql, dialect="postgres")
 
     @parameterized.expand(
         [
@@ -1335,7 +1335,7 @@ class TestDirectPostgresQuery(APIBaseTest):
         ]
     )
     def test_ensure_single_direct_statement_allows_single_statement(self, _name: str, sql: str):
-        self.assertEqual(ensure_single_direct_statement(sql), sql)
+        self.assertEqual(ensure_single_direct_statement(sql, dialect="postgres"), sql)
 
     @patch("posthog.hogql.direct_sql.postgres_adapter.psycopg.connect")
     def test_send_raw_query_rejects_multi_statement_before_execution(self, mock_connect):
@@ -1920,6 +1920,12 @@ class TestDirectPostgresQuery(APIBaseTest):
             ("tunnel_tls_on", _SSH_TUNNEL_CONFIG, "require"),
             ("tunnel_tls_off", _SSH_TUNNEL_TLS_OFF, "prefer"),
             ("disabled_tunnel_tls_off_ignored", _SSH_TUNNEL_DISABLED_TLS_OFF, "require"),
+            ("verify_certificate", {"verify_server_certificate": "true"}, "verify-full"),
+            (
+                "verify_certificate_through_tunnel",
+                {**_SSH_TUNNEL_CONFIG, "verify_server_certificate": "true"},
+                "verify-ca",
+            ),
         ]
     )
     @override_settings(DEBUG=False, TEST=False)

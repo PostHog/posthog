@@ -15,7 +15,7 @@ pub const FILTER_CATALOG_TEAMS: &str = "filter_catalog_teams";
 /// Distinct `conditionHash`es across all teams in the current snapshot (gauge).
 pub const FILTER_CATALOG_UNIQUE_CONDITIONS: &str = "filter_catalog_unique_conditions";
 /// Unix timestamp of the last *successful* catalog refresh (gauge, seconds). Stamped inside
-/// `CatalogHandle::refresh`, so the boot load and the periodic loop both advance it. **Alert on
+/// `CatalogRefresher::refresh`, so the boot load and the periodic loop both advance it. **Alert on
 /// staleness** via `time() - gauge`: a failed refresh keeps serving the previous snapshot silently,
 /// so cohort edits go invisible with nothing else moving. A gauge written only on success would go
 /// flat rather than climb, and the refresh loop is a detached task — a per-tick age gauge would
@@ -45,9 +45,14 @@ pub const CASCADE_CYCLE_DETECTED_RUNTIME_TOTAL: &str = "cascade_cycle_detected_r
 /// Referrer re-evaluations dropped past `cohort_cascade_fanout_cap` (counter). Cohort ids are
 /// logged, not labelled, to keep cardinality bounded.
 pub const CASCADE_FANOUT_CAPPED_TOTAL: &str = "cascade_fanout_capped_total";
-/// First-hop or onward cascade produces to `cohort_cascade_events` that failed (counter). On the
-/// event path a failure holds the batch; on the sweep/merge paths it drops (at-most-once).
+/// First-hop or onward cascade produces to `cohort_cascade_events` that failed (counter). The
+/// live, sweep and merge paths drop the cascade (at-most-once); the cascade consumer holds its
+/// offset.
 pub const CASCADE_PRODUCE_ERRORS_TOTAL: &str = "cascade_produce_errors_total";
+/// Cascade messages settled as one group, which share one produce round trip and one `cf_stage2`
+/// write (histogram). Only messages that write a bit count. A person who repeats in a sub-batch, or a
+/// group that fills, splits the sub-batch into groups, so small values mean little batching.
+pub const CASCADE_BATCH_MESSAGES: &str = "cascade_batch_messages";
 /// The cascade-consumer commit floor pinned by a sticky offset hold, labelled by `partition` (gauge).
 /// Non-zero means a held cascade re-evaluation is stalling the commit. **Alert on a sustained
 /// non-zero level.**
@@ -361,8 +366,13 @@ pub const STAGE1_UNSUPPORTED_VARIANT_SKIPPED: &str = "stage1_unsupported_variant
 /// The seed path counts once per corrupt row its run reads, not once per tile that touches it;
 /// `cohort_seed_tiles_dropped_total{reason="corrupt_state"}` is still per tile-leaf.
 pub const STAGE1_STATE_DECODE_ERROR: &str = "stage1_state_decode_error_total";
-/// End-to-end per-event processing latency in the worker (histogram, seconds).
+/// Per-event Stage 1 fold latency in the worker (histogram, seconds). It excludes the redirect
+/// lookup before the fold ([`STAGE1_REDIRECT_LOOKUP_DURATION`]) and the Stage 2 composition after it.
 pub const STAGE1_EVENT_PROCESS_DURATION: &str = "stage1_event_process_duration_seconds";
+/// Time one event spends resolving its person through the merge tombstones, labelled by `partition`
+/// (histogram, seconds). A partition's `rate(..._sum)` is the fraction of its worker's wall time the
+/// lookup takes.
+pub const STAGE1_REDIRECT_LOOKUP_DURATION: &str = "stage1_redirect_lookup_duration_seconds";
 /// Keys in the event's single batched Stage-1 pre-read — the reads-per-event distribution
 /// (histogram).
 pub const STAGE1_SNAPSHOT_KEYS: &str = "stage1_snapshot_keys";
@@ -437,9 +447,12 @@ pub const OUTPUT_MEMBERSHIP_CHANGES_EMITTED: &str = "output_membership_changes_e
 /// Leaf transitions that mapped to zero output cohorts, labelled by `reason` (counter).
 pub const OUTPUT_TRANSITIONS_UNMAPPED: &str = "output_transitions_unmapped_total";
 /// Produce failures on the membership output topic (counter). Not every failure loses data: most
-/// paths hold or reschedule the offset for replay. Sweep stage 2 and merge drop the change,
+/// paths hold or reschedule the offset for replay. Live, sweep stage 2 and merge drop the change,
 /// because their state is already committed.
 pub const OUTPUT_PRODUCE_ERRORS: &str = "output_produce_errors_total";
+/// Live output batches a worker waited on because its produce window was full (counter). Non-zero
+/// means the broker acks slower than the partition's live output arrives.
+pub const OUTPUT_WINDOW_WAITS_TOTAL: &str = "output_window_waits_total";
 
 /// Sweep cycles that fired, labelled by `loop`
 /// (`eviction`|`redrive`|`merge_gc`|`checkpoint`|`store_stats`) (counter).

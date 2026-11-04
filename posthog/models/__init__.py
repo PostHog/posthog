@@ -10,6 +10,7 @@ from .activity_logging.activity_log import ActivityLog
 from .activity_logging.notification_viewed import NotificationViewed
 from .async_deletion import AsyncDeletion, DeletionType
 from .async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
+from .workload_trust_policy import WorkloadTrustPolicy
 from .column_configuration import ColumnConfiguration
 from .comment import Comment, CommentSlackThread
 from .core_event import CoreEvent
@@ -17,13 +18,12 @@ from .data_deletion_request import DataDeletionRequest
 from .data_color_theme import DataColorTheme
 from .element import Element
 from .element_group import ElementGroup
-from .entity import Entity
 from .events_retention_config import OrganizationEventsRetentionConfig, TeamEventsRetentionConfig
 from .event.event import Event
 from .event_buffer import EventBuffer
 
 # TODO: remove noqa once the event filters API imports from posthog.models
-from .event_filter_config import EventFilterConfig  # noqa: F401
+from .event_filter_config import EventFilterConfig, EventFilterPipelineOverride  # noqa: F401
 from products.event_definitions.backend.models import EventDefinition
 from products.event_definitions.backend.models import EventProperty
 from .file_system.file_system import FileSystem
@@ -85,6 +85,7 @@ from .oauth import (
     CIMDVerificationToken,
     OAuthAccessToken,
     OAuthApplication,
+    OAuthDeviceGrant,
     OAuthGrant,
     OAuthIDToken,
     OAuthRefreshToken,
@@ -95,6 +96,7 @@ __all__ = [
     "AsyncDeletion",
     "AsyncMigration",
     "AsyncMigrationError",
+    "WorkloadTrustPolicy",
     "CIMDVerificationToken",
     "ColumnConfiguration",
     "CoreEvent",
@@ -106,7 +108,6 @@ __all__ = [
     "DeletionType",
     "Element",
     "ElementGroup",
-    "Entity",
     "Event",
     "EventBuffer",
     "EventDefinition",
@@ -141,6 +142,7 @@ __all__ = [
     "OrganizationProvisioning",
     "OAuthAccessToken",
     "OAuthApplication",
+    "OAuthDeviceGrant",
     "OAuthGrant",
     "OAuthIDToken",
     "OAuthRefreshToken",

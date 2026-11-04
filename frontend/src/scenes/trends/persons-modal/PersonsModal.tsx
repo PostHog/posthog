@@ -22,6 +22,7 @@ import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { PropertiesTable } from 'lib/components/PropertiesTable'
 import { PropertiesTimeline } from 'lib/components/PropertiesTimeline'
+import { consumePersonsModalClick } from 'lib/components/ResultMenu/personsModalCapture'
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { IconPlayCircle } from 'lib/lemon-ui/icons'
@@ -663,6 +664,10 @@ export const openPersonsModal = (props: OpenPersonsModalProps): void => {
     if (isSharedView()) {
         // Shared/exported views authenticate with a sharing token, which can never run the
         // person-level queries this modal needs — it would only ever render an error state.
+        return
+    }
+
+    if (consumePersonsModalClick(props)) {
         return
     }
 

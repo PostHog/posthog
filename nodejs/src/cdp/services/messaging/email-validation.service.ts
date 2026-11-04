@@ -104,12 +104,20 @@ export class EmailValidationService {
             // EmailService skips a missing recipient at send time and records email_missing_recipient.
             return null
         }
+        return this.getRecipientSkipReason(invocation.teamId, rawEmail)
+    }
+
+    /**
+     * The same check for one recipient address, without a workflow action. The transactional email
+     * API runs it before it answers, so the caller learns that the send would be skipped.
+     */
+    public async getRecipientSkipReason(teamId: number, rawEmail: string): Promise<string | null> {
         const email = rawEmail.trim()
 
         if (!EMAIL_SYNTAX_RE.test(email)) {
             cdpEmailMxValidationTotal.inc({ result: 'invalid_syntax' })
             return this.skip(
-                invocation.teamId,
+                teamId,
                 'invalid_syntax',
                 `Skipping send: "${email}" is not a valid email address, so it would hard bounce.`
             )
@@ -124,12 +132,12 @@ export class EmailValidationService {
         const domain = domainToASCII(rawDomain) || rawDomain.toLowerCase()
         // Above resolveDeliverability on purpose: one verdict is cached and shared across teams for
         // up to a day, so a check inside the lookup would miss every send that hits the cache.
-        noteOobDomain(domain, 'node_email_validation', { teamId: invocation.teamId })
+        noteOobDomain(domain, 'node_email_validation', { teamId })
 
         const deliverable = await this.resolveDeliverability(domain)
         if (!deliverable) {
             return this.skip(
-                invocation.teamId,
+                teamId,
                 'invalid_domain',
                 `Skipping send: the domain "${domain}" has no reachable mail servers, so this message would hard bounce.`
             )

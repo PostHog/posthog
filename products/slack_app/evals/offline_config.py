@@ -14,6 +14,10 @@ _SCORERS: dict[str, dict[str, OfflineScorer]] = {
         "followup_routing": OfflineScorer(kind="boolean", version=UUID("01a1557c-d1ca-7c68-96eb-5406fd8dde02")),
         "no_unasked_wake": OfflineScorer(kind="boolean", version=UUID("01a1557c-dd52-78d0-a1f1-1854076c09ac")),
     },
+    "interview_sentiment": {
+        "interview_sentiment": OfflineScorer(kind="boolean", version=UUID("01a1783a-9ee4-73a5-bbdf-fe91e943eb96")),
+        "no_unasked_invite": OfflineScorer(kind="boolean", version=UUID("01a1783a-9ee4-73a5-bbdf-fe92235d3e9c")),
+    },
     "model_classifier": {
         "exit_code_zero": OfflineScorer(kind="boolean", version=UUID("01a1557c-e620-710d-82d2-de63990000f1")),
         "model_override_match": OfflineScorer(kind="boolean", version=UUID("01a1557c-ee78-7412-9b90-2ecf80591aa0")),
@@ -33,6 +37,13 @@ _SCORERS: dict[str, dict[str, OfflineScorer]] = {
             kind="boolean", version=UUID("01a1557d-415e-78ff-8bcb-1e6cc67b77ac")
         ),
         "project_route_match": OfflineScorer(kind="boolean", version=UUID("01a1557d-37df-756c-a5fb-73edde0b1561")),
+    },
+    "repo_selection_routing": {
+        "exit_code_zero": OfflineScorer(kind="boolean", version=UUID("01a1a29b-30cf-7fef-907b-69efc56159bb")),
+        "routing_stage_correct": OfflineScorer(kind="boolean", version=UUID("01a1a29b-32a3-7dfc-b5b7-33931ddc73ac")),
+        "routing_repository_correct": OfflineScorer(
+            kind="boolean", version=UUID("01a1a29b-3447-794a-afcb-83778635c273")
+        ),
     },
     "reply_suggestions": {
         "exit_code_zero": OfflineScorer(kind="boolean", version=UUID("01a1557d-49a7-7417-aa9f-4dbe00ec7b47")),

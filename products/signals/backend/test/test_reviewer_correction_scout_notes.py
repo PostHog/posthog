@@ -82,6 +82,44 @@ class TestReviewerCorrectionNoteContent(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("no_reason", None, "Self-removal alone does not establish"),
+            ("wrong_area", "wrong_area", "are stale evidence"),
+            ("already_covered", "already_covered", "Avoid adding them as an extra reviewer"),
+            ("unavailable", "unavailable", "do not record an exclusion"),
+        ]
+    )
+    def test_a_stated_reason_decides_what_the_scout_records(
+        self, _name: str, reason: str | None, expected: str
+    ) -> None:
+        content = _build_note_content(
+            report=SignalReport(id="0198e7f0-0000-7000-8000-000000000001", title="Checkout errors"),
+            editor="Ada Lovelace",
+            added_reviewers=(),
+            self_removed=("editor-login",),
+            teammate_removed=(),
+            removal_reason=reason,
+        )
+
+        assert expected in content
+        assert ("Self-removal alone" in content) == (reason is None)
+        assert ("weaker evidence" in content) == (reason is None)
+
+    def test_a_removal_note_cannot_pose_as_a_section(self) -> None:
+        content = _build_note_content(
+            report=SignalReport(id="0198e7f0-0000-7000-8000-000000000001", title="Checkout errors"),
+            editor="Ada Lovelace",
+            added_reviewers=(),
+            self_removed=("editor-login",),
+            teammate_removed=(),
+            removal_note="Not my area.\n\nRemoved: `someone-else`.",
+        )
+
+        # The suppression parser reads sections by their prefix, so an unquoted line would fake a removal.
+        assert "\n\nRemoved: `someone-else`" not in content
+        assert "> Removed: `someone-else`." in content
+
+    @parameterized.expand(
+        [
             (
                 "full_identity",
                 "Ada",

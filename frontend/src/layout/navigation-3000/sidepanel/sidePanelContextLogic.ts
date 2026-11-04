@@ -1,8 +1,8 @@
 import { MakeLogicType, connect, kea, path, selectors } from 'kea'
 import { router } from 'kea-router'
-import { objectsEqual } from 'kea-test-utils'
 
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { objectsEqual } from 'lib/utils/objects'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { SceneConfig } from 'scenes/sceneTypes'
 

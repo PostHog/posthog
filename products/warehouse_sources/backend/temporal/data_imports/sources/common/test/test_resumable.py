@@ -246,6 +246,18 @@ class TestContinueFromJob:
         assert next_job.with_namespace("refunds").load_state() is None
         assert next_job.load_state() is None
 
+    def test_clear_job_state_drops_every_namespace_of_the_job_only(self):
+        job = _manager("job-1")
+        _commit(job, "ch_100")
+        _commit(job.with_namespace("refunds"), "re_7")
+        _commit(_manager("job-2"), "ch_9")
+
+        job.clear_job_state()
+
+        assert job.load_state() is None
+        assert job.with_namespace("refunds").load_state() is None
+        assert _manager("job-2").load_state() == _SweepPosition(cursor="ch_9")
+
 
 class TestResumeCoversRun:
     @staticmethod

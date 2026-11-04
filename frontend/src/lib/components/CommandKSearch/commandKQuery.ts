@@ -335,6 +335,51 @@ export interface ResolvedQuery {
     backendSearch: string
 }
 
+function shellWords(text: string, quotes: string): string[] | null {
+    const words: string[] = []
+    let word: string | null = null
+    let quote: string | null = null
+    for (let i = 0; i < text.length; i++) {
+        const char = text[i]
+        if (quote) {
+            if (char === quote) {
+                quote = null
+            } else if (char === '\\' && quote === '"' && (text[i + 1] === '"' || text[i + 1] === '\\')) {
+                word += text[++i]
+            } else {
+                word += char
+            }
+        } else if (/\s/.test(char)) {
+            if (word !== null) {
+                words.push(word)
+                word = null
+            }
+        } else if (quotes.includes(char)) {
+            word ??= ''
+            quote = char
+        } else if (char === '\\') {
+            if (i + 1 === text.length) {
+                return null
+            }
+            word = (word ?? '') + text[++i]
+        } else {
+            word = (word ?? '') + char
+        }
+    }
+    if (quote) {
+        return null
+    }
+    if (word !== null) {
+        words.push(word)
+    }
+    return words
+}
+
+// Mirrors `tokenize_search` in posthog/api/file_system/file_system.py, which reads every `'` as a letter once one is unmatched.
+function tokenizeSearch(text: string): string[] {
+    return shellWords(text, `"'`) ?? shellWords(text, '"') ?? text.split(/\s+/).filter(Boolean)
+}
+
 /**
  * Resolves the input once per change, so every consumer agrees on what applies. A typed value
  * previews what committing it would do, so `createdBy:Ca` narrows results before it is committed.
@@ -361,6 +406,32 @@ export function resolveQuery(text: string, chips: QueryChip[], options: FilterOp
         freeText: freeTokens.join(' '),
         backendSearch: [...filterTokens, ...freeTokens].join(' '),
     }
+}
+
+const isQuotedBy = (text: string, quote: string): boolean => text.startsWith(quote) && text.endsWith(quote)
+const stripQuotes = (text: string): string =>
+    isQuotedBy(text, '"') || isQuotedBy(text, "'") ? text.slice(1, -1) : text
+
+const BACKEND_FILTER_FIELDS = new Set(['path', 'name', 'user', 'author', 'type', 'ref'])
+
+// Reads `backendSearch` like the file system search does, so the list searches the words Cmd+K matched.
+// List pages match one phrase, which cannot exclude, so excluded words and filters other than `name:` stay out.
+export function listSearchText({ backendSearch }: ResolvedQuery): string {
+    const words: string[] = []
+    for (const raw of tokenizeSearch(backendSearch)) {
+        if (raw.startsWith('-') || raw.startsWith('!')) {
+            continue
+        }
+        const token = stripQuotes(raw)
+        const colonIndex = token.indexOf(':')
+        const field = colonIndex === -1 ? null : token.slice(0, colonIndex).toLowerCase()
+        if (field === 'name') {
+            words.push(stripQuotes(token.slice(colonIndex + 1).trim()))
+        } else if (field === null || !BACKEND_FILTER_FIELDS.has(field)) {
+            words.push(token)
+        }
+    }
+    return words.filter(Boolean).join(' ')
 }
 
 /** The raw query as a person would type it, chips included. Used when copying the input. */
