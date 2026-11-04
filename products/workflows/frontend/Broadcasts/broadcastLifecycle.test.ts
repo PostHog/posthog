@@ -2,7 +2,20 @@ import '@testing-library/jest-dom'
 
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 
-import { archiveDisabledReason, confirmCreateAsBroadcast } from './broadcastLifecycle'
+import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
+
+import { hogFlowsConvertToBroadcast } from 'products/workflows/frontend/generated/api'
+
+import { archiveDisabledReason, confirmCreateAsBroadcast, moveWorkflowsToBroadcasts } from './broadcastLifecycle'
+
+jest.mock('products/workflows/frontend/generated/api', () => ({
+    ...jest.requireActual('products/workflows/frontend/generated/api'),
+    hogFlowsConvertToBroadcast: jest.fn(),
+}))
+jest.mock('~/layout/panel-layout/ProjectTree/projectTreeLogic', () => ({
+    ...jest.requireActual('~/layout/panel-layout/ProjectTree/projectTreeLogic'),
+    deleteFromTree: jest.fn(),
+}))
 
 const TITLE = 'Track this send as a broadcast?'
 
@@ -53,6 +66,22 @@ describe('broadcastLifecycle', () => {
 
             await expect(result).resolves.toBe(choice)
             await waitFor(() => expect(screen.queryByText(TITLE)).not.toBeInTheDocument())
+        })
+    })
+
+    describe('moveWorkflowsToBroadcasts', () => {
+        it('drops only the moved workflows from the project tree', async () => {
+            jest.mocked(hogFlowsConvertToBroadcast).mockImplementation(async (_projectId, id) => {
+                if (id === 'stays') {
+                    throw new Error('not convertible')
+                }
+                return { id, origin_product: 'broadcasts' } as Awaited<ReturnType<typeof hogFlowsConvertToBroadcast>>
+            })
+
+            await expect(moveWorkflowsToBroadcasts('1', ['moves', 'stays'])).resolves.toBe(1)
+
+            expect(deleteFromTree).toHaveBeenCalledTimes(1)
+            expect(deleteFromTree).toHaveBeenCalledWith('hog_flow', 'moves')
         })
     })
 })

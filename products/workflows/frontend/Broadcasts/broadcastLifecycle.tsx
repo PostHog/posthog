@@ -3,6 +3,7 @@ import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { pluralize } from 'lib/utils/strings'
 
+import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import {
@@ -214,9 +215,15 @@ export async function loadBroadcastConversionCandidates(
     }
 }
 
+/** Moves one workflow to broadcasts. The server removes its workflow file, so the loaded project tree drops it too. */
+export async function moveWorkflowToBroadcasts(projectId: string, workflowId: string): Promise<void> {
+    await hogFlowsConvertToBroadcast(projectId, workflowId)
+    deleteFromTree('hog_flow', workflowId)
+}
+
 /** Moves each workflow to broadcasts and returns how many moved. */
 export async function moveWorkflowsToBroadcasts(projectId: string, workflowIds: string[]): Promise<number> {
-    const results = await Promise.allSettled(workflowIds.map((id) => hogFlowsConvertToBroadcast(projectId, id)))
+    const results = await Promise.allSettled(workflowIds.map((id) => moveWorkflowToBroadcasts(projectId, id)))
     return results.filter((result) => result.status === 'fulfilled').length
 }
 
