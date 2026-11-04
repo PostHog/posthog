@@ -112,9 +112,8 @@ function bunSecrets(service: string): Secrets {
     return {
         get: (name) => tracked(() => Bun.secrets.get({ service, name })),
         // Windows only: the default `enterprise` lets a roaming profile copy the item to every machine the
-        // person signs in to. Bun versions without the option, and its types, ignore it.
-        // TODO: require Bun 1.4.3+ (engines.bun and the flox pin) once hog can move to it. Older Bun
-        // ignores `persist` on Windows, so the item roams with the profile.
+        // person signs in to. Bun before 1.4.3 ignores the option, so the item still roams there.
+        // TODO: require Bun 1.4.3+ (engines.bun and the flox pin) once hog can move to it.
         set: (name, value) =>
             tracked(() =>
                 Bun.secrets.set({ service, name, value, persist: 'local' } as Parameters<typeof Bun.secrets.set>[0])
