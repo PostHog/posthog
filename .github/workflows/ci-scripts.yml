@@ -28,6 +28,8 @@ on:
             # The backend test selector and its verdict script gate ci-backend.
             - tools/snob_backend_test_selection_shadow.py
             - tools/test_snob_backend_test_selection_shadow.py
+            - tools/schema_type_scope.py
+            - tools/test_schema_type_scope.py
             - tools/test_selection_verdict.py
             - tools/test_test_selection_verdict.py
             # test_tach_map.py holds tach_map.py's pin to the locked tach version,
@@ -116,6 +118,7 @@ jobs:
                   python3 -m pytest -v -c /dev/null -p no:cacheprovider --noconftest \
                       .github/scripts/test_*.py \
                       tools/test_snob_backend_test_selection_shadow.py \
+                      tools/test_schema_type_scope.py \
                       tools/test_test_selection_verdict.py
 
             # schema-impact.test.js shells out to schema_usage_scan.py via the same

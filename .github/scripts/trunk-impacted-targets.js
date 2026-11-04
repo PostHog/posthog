@@ -646,6 +646,8 @@ const TRIPWIRE_RULES = [
     // playwright pair the E2E specs.
     ['tools/snob_backend_test_selection_shadow.py', PYTHON],
     ['tools/test_snob_backend_test_selection_shadow.py', PYTHON],
+    ['tools/schema_type_scope.py', PYTHON],
+    ['tools/test_schema_type_scope.py', PYTHON],
     ['tools/test_selection_verdict.py', PYTHON],
     ['tools/test_test_selection_verdict.py', PYTHON],
     ['tools/dagster_test_selection.py', PYTHON],

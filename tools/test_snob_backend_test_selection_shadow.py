@@ -252,13 +252,21 @@ class TestSnobBackendTestSelectionShadow(unittest.TestCase):
         # Different app tests NOT included
         self.assertNotIn("products/experiments/backend/test/test_api.py", result.tests)
 
-    def test_too_many_files_signals_full_run(self) -> None:
+    # A schema change reaches dozens of files that name its types. They join the selection,
+    # but only the diff's own size may force a full run, or every schema PR would.
+    @parameterized.expand(
+        [
+            ("large_diff", None, True),
+            ("small_diff_reaching_many_files", ["posthog/models/model_0.py"], False),
+        ]
+    )
+    def test_too_many_files_signals_full_run(self, _name: str, diff_files: list[str] | None, expected: bool) -> None:
         selection = _load_selection_module()
 
         many_files = [f"posthog/models/model_{i}.py" for i in range(60)]
-        result = selection.ast_select_tests(many_files, {})
+        result = selection.ast_select_tests(many_files, {}, diff_files=diff_files)
 
-        self.assertTrue(any("too many changed files" in r for r in result.full_run_reasons))
+        self.assertEqual(expected, any("too many changed files" in r for r in result.full_run_reasons))
 
     def test_high_fanout_file_signals_full_run(self) -> None:
         selection = _load_selection_module()

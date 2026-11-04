@@ -50,6 +50,9 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+# A sibling module: running this file as a script puts tools/ on sys.path.
+import schema_type_scope  # ty: ignore[unresolved-import]
+
 REPO_ROOT = Path(__file__).parent.parent.resolve()
 DURATIONS_PATH = REPO_ROOT / ".test_durations"
 HIGH_FANOUT_PATH = Path(__file__).parent / "testmon_high_fanout_files.txt"
@@ -462,7 +465,11 @@ def _add_group(groups: dict[str, set[str]], name: str, tests: list[str] | set[st
     groups.setdefault(name, set()).update(tests)
 
 
-def ast_select_tests(changed_files: list[str], features_by_path: dict[str, TestFeatures]) -> AstSelection:
+def ast_select_tests(
+    changed_files: list[str], features_by_path: dict[str, TestFeatures], diff_files: list[str] | None = None
+) -> AstSelection:
+    """``diff_files`` are the files the diff itself changed, when ``changed_files`` adds
+    files the diff reaches. Only the diff's own size can force a full run."""
     groups: dict[str, set[str]] = {}
     full_run_reasons: list[str] = []
     all_test_files = set(features_by_path.keys())
@@ -503,8 +510,13 @@ def ast_select_tests(changed_files: list[str], features_by_path: dict[str, TestF
             posthog_api_tokens.update(_tokens_for_changed_file(path))
 
     # Too many changed files — signal that full run is warranted
-    if len(changed_prod_files) > MAX_CHANGED_FILES:
-        full_run_reasons.append(f"too many changed files ({len(changed_prod_files)} > {MAX_CHANGED_FILES})")
+    diff_prod_files = (
+        changed_prod_files
+        if diff_files is None
+        else [p for p in diff_files if not _is_test_file(p) and p.endswith(".py")]
+    )
+    if len(diff_prod_files) > MAX_CHANGED_FILES:
+        full_run_reasons.append(f"too many changed files ({len(diff_prod_files)} > {MAX_CHANGED_FILES})")
 
     # ── 4. Product API client tests (URL dispatch heuristic) ───────���─
     for product, tokens in sorted(product_api_changes.items()):
@@ -717,6 +729,47 @@ def narrowable_baseline_seconds(durations: dict[str, float]) -> float:
     return total
 
 
+def django_seconds(test_files: list[str], durations: dict[str, float]) -> int:
+    """Recorded seconds of the test files a Django matrix segment runs, each counted once."""
+    return round(estimate_duration([path for path in test_files if segments_for_test_file(path)], durations))
+
+
+def schema_narrowing(
+    base_ref: str, changed_files: list[str], features_by_path: dict[str, TestFeatures], durations: dict[str, float]
+) -> dict[str, Any]:
+    """Shadow only: the selection a schema change would get if it were scoped to the types it
+    changed. Nothing reads it to decide what runs.
+
+    A schema PR matches the frontend/src/queries/schema.json full-run pattern, and every test
+    imports posthog/schema.py. This replaces the three schema files with the files that can see
+    the change (schema_type_scope.py says which), then selects as for any other diff.
+    """
+    if not set(changed_files) & set(schema_type_scope.SCHEMA_SOURCE_PATHS):
+        return {"status": "not_applicable"}
+    scope = schema_type_scope.schema_scope_for_diff(REPO_ROOT, base_ref, _iter_python_files())
+    if scope.fallback_reason is not None:
+        return {"status": "fallback", "reason": scope.fallback_reason}
+    diff_files = [path for path in changed_files if path not in schema_type_scope.SCHEMA_SOURCE_PATHS]
+    reached = sorted(set(diff_files) | set(scope.referencing_files))
+    ast_selection = ast_select_tests(reached, features_by_path, diff_files=diff_files)
+    snob_selection = snob_select_tests(reached)
+    tests = _runnable_test_files(set(snob_selection["tests"]) | set(ast_selection.tests))
+    full_run_reasons = list(ast_selection.full_run_reasons)
+    if snob_selection["status"] != "ok":
+        full_run_reasons.append(f"snob failed: {snob_selection.get('error', 'unknown')}")
+    return {
+        "status": "full_run" if full_run_reasons else "narrowed",
+        "changed_types": list(scope.changed_types),
+        "affected_type_count": len(scope.affected_types),
+        "referencing_file_count": len(scope.referencing_files),
+        "wildcard_files": list(scope.wildcard_files),
+        "full_run_reasons": full_run_reasons[:20],
+        "tests": tests,
+        "count": len(tests),
+        "django_seconds": django_seconds(tests, durations),
+    }
+
+
 def build_result(base_ref: str) -> dict[str, Any]:
     os.chdir(REPO_ROOT)
     changed_files = changed_files_from_git(base_ref)
@@ -730,6 +783,13 @@ def build_result(base_ref: str) -> dict[str, Any]:
     durations = load_durations()
     selected_seconds = estimate_duration(combined_tests, durations)
     baseline_seconds = narrowable_baseline_seconds(durations)
+    try:
+        narrowing = schema_narrowing(base_ref, changed_files, features_by_path, durations)
+    except Exception as exc:
+        # The shadow must not take down the selection that ci-backend acts on.
+        narrowing = {"status": "error", "reason": f"{type(exc).__name__}: {exc}"}
+    if narrowing["status"] != "not_applicable":
+        sys.stderr.write(f"Schema type narrowing (shadow): {_narrowing_line(narrowing, baseline_seconds)}\n")
     return {
         "mode": "shadow",
         "base_ref": base_ref,
@@ -757,7 +817,21 @@ def build_result(base_ref: str) -> dict[str, Any]:
             "skipped_seconds": round(max(baseline_seconds - selected_seconds, 0.0)),
             "selected_seconds_by_segment": selected_seconds_by_segment(combined_tests, durations),
         },
+        "schema_narrowing": narrowing,
     }
+
+
+def _narrowing_line(narrowing: dict[str, Any], baseline_seconds: float) -> str:
+    if narrowing["status"] in ("fallback", "error"):
+        return f"{narrowing['status']}, the full suite runs: {narrowing['reason']}"
+    line = (
+        f"{len(narrowing['changed_types'])} changed types, {narrowing['affected_type_count']} with the types"
+        f" that contain them, {narrowing['referencing_file_count']} files reached,"
+        f" {narrowing['count']} test files selected ({narrowing['django_seconds']}s of {round(baseline_seconds)}s)"
+    )
+    if narrowing["status"] == "full_run":
+        line += f", but a full run would still be forced: {narrowing['full_run_reasons'][0]}"
+    return line
 
 
 def format_summary(result: dict[str, Any]) -> str:
@@ -797,6 +871,15 @@ def format_summary(result: dict[str, Any]) -> str:
     if full_run_reasons:
         lines += ["", "### Full-run signals", ""]
         lines.extend(f"- {reason}" for reason in full_run_reasons)
+
+    narrowing = result.get("schema_narrowing") or {}
+    if narrowing.get("status", "not_applicable") != "not_applicable":
+        lines += [
+            "",
+            "### Schema type narrowing (shadow)",
+            "",
+            _narrowing_line(narrowing, durations["narrowable_baseline_seconds"]),
+        ]
 
     return "\n".join(lines) + "\n"
 

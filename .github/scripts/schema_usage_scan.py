@@ -39,6 +39,8 @@ class _SchemaUsageVisitor(ast.NodeVisitor):
         self.star_import = False
         self._alias_uses: Counter[str] = Counter()  # every reference to an alias
         self._alias_attr_uses: Counter[str] = Counter()  # references of the form `alias.Type`
+        self._dotted_uses = 0  # every `posthog.schema` expression
+        self._dotted_attr_uses = 0  # those of the form `posthog.schema.Type`
 
     def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
         if node.module in SCHEMA_MODULES:
@@ -65,17 +67,23 @@ class _SchemaUsageVisitor(ast.NodeVisitor):
                 self.posthog_pkg = True
         self.generic_visit(node)
 
+    def _is_dotted_module(self, node: ast.expr) -> bool:
+        return (
+            self.posthog_pkg
+            and isinstance(node, ast.Attribute)
+            and node.attr in ("schema", "schema_enums")
+            and isinstance(node.value, ast.Name)
+            and node.value.id == "posthog"
+        )
+
     def visit_Attribute(self, node: ast.Attribute) -> None:
         value = node.value
+        if self._is_dotted_module(node):
+            self._dotted_uses += 1
         # posthog.schema.Foo / posthog.schema_enums.Foo
-        if (
-            self.posthog_pkg
-            and isinstance(value, ast.Attribute)
-            and value.attr in ("schema", "schema_enums")
-            and isinstance(value.value, ast.Name)
-            and value.value.id == "posthog"
-        ):
+        if self._is_dotted_module(value):
             self.types.add(node.attr)
+            self._dotted_attr_uses += 1
         # alias.Foo
         elif isinstance(value, ast.Name) and value.id in self.module_aliases:
             self.types.add(node.attr)
@@ -89,8 +97,27 @@ class _SchemaUsageVisitor(ast.NodeVisitor):
 
     @property
     def is_wildcard(self) -> bool:
-        # opaque if a star import, or an alias is ever used bare rather than as `alias.Type`
-        return self.star_import or any(self._alias_uses[a] > self._alias_attr_uses[a] for a in self.module_aliases)
+        # opaque if a star import, or a module binding is ever used bare rather than as `module.Type`
+        return (
+            self.star_import
+            or self._dotted_uses > self._dotted_attr_uses
+            or any(self._alias_uses[a] > self._alias_attr_uses[a] for a in self.module_aliases)
+        )
+
+
+def tree_usage(tree: ast.AST) -> tuple[set[str], bool]:
+    """The schema types one module names, and whether its use is opaque."""
+    visitor = _SchemaUsageVisitor()
+    visitor.visit(tree)
+    return visitor.types, visitor.is_wildcard
+
+
+def file_usage(source: str) -> tuple[set[str], bool]:
+    """tree_usage for a module's source. Raises SyntaxError."""
+    # every relevant form contains "schema", so skip the rest cheaply
+    if "schema" not in source:
+        return set(), False
+    return tree_usage(ast.parse(source))
 
 
 def scan(products_root: str) -> dict[str, list[str]]:
@@ -101,23 +128,13 @@ def scan(products_root: str) -> dict[str, list[str]]:
         if product is None:
             continue
         try:
-            source = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
+            types, wildcard = file_usage(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, SyntaxError):
             type_to_products[WILDCARD].add(product)
             continue
-        # every relevant form contains "schema" — skip the rest cheaply
-        if "schema" not in source:
-            continue
-        try:
-            tree = ast.parse(source)
-        except SyntaxError:
-            type_to_products[WILDCARD].add(product)
-            continue
-        visitor = _SchemaUsageVisitor()
-        visitor.visit(tree)
-        for type_name in visitor.types:
+        for type_name in types:
             type_to_products[type_name].add(product)
-        if visitor.is_wildcard:
+        if wildcard:
             type_to_products[WILDCARD].add(product)
     return {key: sorted(products) for key, products in sorted(type_to_products.items())}
 

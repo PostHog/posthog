@@ -1209,6 +1209,11 @@ function selectionMetrics(selection) {
         full_run_reasons_count: selection ? (selection.ast?.full_run_reasons ?? []).length : null,
         selected_test_seconds: selection?.durations?.selected_seconds ?? null,
         skipped_test_seconds: selection?.durations?.skipped_seconds ?? null,
+        // The selector's shadow selection for a schema change scoped to the changed types.
+        // A schema PR runs the full suite, so these say what it would have run instead.
+        schema_narrowing_status: selection?.schema_narrowing?.status ?? null,
+        schema_narrowed_test_seconds: selection?.schema_narrowing?.django_seconds ?? null,
+        schema_changed_type_count: selection?.schema_narrowing?.changed_types?.length ?? null,
     }
 }
 

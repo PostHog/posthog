@@ -101,11 +101,20 @@ test('the kill switch wins over a selection the selector was happy with', () => 
 })
 
 test('a fallback still reports the counts the selector produced', () => {
-    const decision = decide({ selection: selectionFixture({ ast: { full_run_reasons: ['a', 'b'] } }) })
+    const decision = decide({
+        selection: selectionFixture({
+            ast: { full_run_reasons: ['a', 'b'] },
+            schema_narrowing: { status: 'narrowed', django_seconds: 900, changed_types: ['DateRange'] },
+        }),
+    })
     assert.equal(decision.full_run_reasons_count, 2)
     assert.equal(decision.changed_file_count, 3)
     assert.equal(decision.selected_test_seconds, 120)
     assert.equal(decision.skipped_test_seconds, 4500)
+    // A schema PR always falls back, so this is the only place its shadow selection is reported.
+    assert.equal(decision.schema_narrowing_status, 'narrowed')
+    assert.equal(decision.schema_narrowed_test_seconds, 900)
+    assert.equal(decision.schema_changed_type_count, 1)
 })
 
 test('a selected run hands each matrix leg its own file list', () => {
