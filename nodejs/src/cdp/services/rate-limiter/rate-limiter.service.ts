@@ -191,12 +191,14 @@ export class RateLimiterService {
      * consumes no tokens, so a caller retrying a multi-token claim cannot drain the bucket while
      * never succeeding.
      *
-     * `retryAfterMs` is null when the limiter itself failed rather than when the bucket came up
-     * short, which is how a caller tells a reached cap from an unreachable Valkey.
+     * `retryAfterMs` is null when the limiter itself failed, which is how a caller tells a reached
+     * cap from an unreachable Valkey. A denial reports a horizon only when `reserveOnDenyMs` and
+     * `refillPerSecond` are both above 0, so `reserveOnDenyMs` has no default: with 0 a reached
+     * cap would also read back as null.
      */
     public async claimAllOrNothing(
         req: ClaimRequest,
-        reserveOnDenyMs: number = 0
+        reserveOnDenyMs: number
     ): Promise<{ granted: boolean; retryAfterMs: number | null; reserved: boolean }> {
         const { granted, retryAfterMs, reserved } = await this.evalClaim(req, reserveOnDenyMs, true)
         return { granted: granted >= req.requested, retryAfterMs, reserved }

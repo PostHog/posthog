@@ -201,12 +201,10 @@ describe('RateLimiterService', () => {
         const AON_KEY = `${KEY}/all-or-nothing`
 
         it('grants and charges the pool when the bucket covers the request', async () => {
-            const claim = await limiter.claimAllOrNothing({
-                key: AON_KEY,
-                requested: 30,
-                capacity: 50,
-                refillPerSecond: 0,
-            })
+            const claim = await limiter.claimAllOrNothing(
+                { key: AON_KEY, requested: 30, capacity: 50, refillPerSecond: 0 },
+                600_000
+            )
             expect(claim).toEqual({ granted: true, retryAfterMs: null, reserved: false })
             // The remainder is all that is left to claim.
             expect(await limiter.claimUpTo({ key: AON_KEY, requested: 50, capacity: 50, refillPerSecond: 0 })).toBe(20)
@@ -217,7 +215,7 @@ describe('RateLimiterService', () => {
             // Without that, a rescheduled multi-recipient send would burn the refill on every
             // retry while never sending.
             const req = { key: `${AON_KEY}/denied`, requested: 30, capacity: 10, refillPerSecond: 0 }
-            const claim = await limiter.claimAllOrNothing(req)
+            const claim = await limiter.claimAllOrNothing(req, 600_000)
             // refillPerSecond 0 means the missing tokens never accrue, so no horizon is reported.
             expect(claim).toEqual({ granted: false, retryAfterMs: null, reserved: false })
             expect(await limiter.claimUpTo({ ...req, requested: 10 })).toBe(10)

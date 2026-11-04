@@ -284,8 +284,9 @@ export function parseTeamEmailCapMode(value: string | undefined): TeamEmailCapMo
     return mode === 'shadow' || mode === 'enforce' ? mode : 'off'
 }
 
-/** Parses a comma-separated cap table. Any unusable entry drops the whole table, which turns the
- * cap off rather than applying a wrong number to a paying customer. */
+/** Parses a comma-separated cap table. Any unusable entry drops the whole table, and the send path
+ * then applies DEFAULT_TEAM_EMAIL_TIER_DAILY_CAPS. A non-integer cap is unusable because the
+ * all-or-nothing claim needs a whole-number request. */
 export function parseTierCaps(value: string | undefined): number[] {
     const parts = (value ?? '')
         .split(',')
@@ -895,9 +896,9 @@ export class EmailService {
      * trust-tier daily bucket.
      *
      * Returns the delay to reschedule with when the cap is reached, or null when the send may go
-     * out. The cap bounds how much damage a team can do to the shared SES account's reputation,
-     * and the continuous refill spreads that volume out so complaint feedback (which lags by
-     * hours) arrives while the team's total volume is still small.
+     * out. The cap bounds how much damage a team can do to the shared SES account's reputation
+     * in a day. It does not spread that volume out: a full bucket lets the team send its whole
+     * daily cap as one burst, and only volume past that waits for the refill.
      *
      * Failure stances differ on purpose. A failed tier lookup lets the send through, because a
      * config blip must never throttle a legitimate customer. A failed bucket claim delays the
@@ -930,11 +931,7 @@ export class EmailService {
         const dailyCaps = this.sesConfig.teamEmailTierDailyCaps?.length
             ? this.sesConfig.teamEmailTierDailyCaps
             : DEFAULT_TEAM_EMAIL_TIER_DAILY_CAPS
-        const topTier = dailyCaps.length - 1
-        if (topTier < 0) {
-            return null
-        }
-        const tier = Math.min(Math.max(teamTier, 0), topTier)
+        const tier = Math.min(Math.max(teamTier, 0), dailyCaps.length - 1)
 
         const bucket = teamEmailCapBucket(invocation.teamId, dailyCaps[tier])
         // Clamped to the capacity: a send with more copies than a whole allowance could never be
