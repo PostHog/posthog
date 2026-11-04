@@ -38,6 +38,7 @@ from posthog.models.integration import (
     Integration,
 )
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.user_integration import (
     NEEDS_REAUTHORIZATION_AT_CONFIG_KEY,
     GitHubInstallRequest,
@@ -546,7 +547,13 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         )
         self.assertIs(_has_unlinked_github_installations(self.user), expected)
 
-    @parameterized.expand([("oauth_discover", "posthog_code"), ("app_install", None)])
+    @parameterized.expand(
+        [
+            (flow, source, policy)
+            for flow, source in (("oauth_discover", "posthog_code"), ("app_install", None))
+            for policy in ("none", "target", "selection")
+        ]
+    )
     @override_settings(GITHUB_APP_CLIENT_ID="gh_client_123")
     @patch("posthog.api.user_integration._has_unlinked_github_installations", return_value=None)
     @patch(
@@ -554,16 +561,32 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         return_value={"GITHUB_APP_SLUG": "posthog-dev"},
     )
     def test_github_start_records_the_selected_project_organization(
-        self, expected_flow, connect_from, _mock_settings, _mock_unlinked
+        self, expected_flow, connect_from, policy, _mock_settings, _mock_unlinked
     ):
         other_org = Organization.objects.create(name="Synthetic other organization")
         OrganizationMembership.objects.create(organization=other_org, user=self.user)
+        other_team = Team.objects.create(organization=other_org)
         self.user.current_organization = other_org
-        self.user.save(update_fields=["current_organization"])
+        self.user.current_team = other_team
+        self.user.save(update_fields=["current_organization", "current_team"])
+        if policy != "none":
+            OrganizationIPRestrictions.objects.create(
+                organization=self.organization if policy == "target" else other_org,
+                ip_restrictions=["203.0.113.0/24"],
+            )
 
         body = {"team_id": self.team.id, **({"connect_from": connect_from} if connect_from else {})}
-        response = self.client.post("/api/users/@me/integrations/github/start/", body, content_type="application/json")
+        response = self.client.post(
+            "/api/users/@me/integrations/github/start/",
+            body,
+            content_type="application/json",
+            REMOTE_ADDR="198.51.100.7",
+        )
 
+        if policy == "target":
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
+            self.assertEqual(response.json()["code"], "ip_not_allowed")
+            return
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["connect_flow"], expected_flow)
         state = parse_qs(urlparse(response.json()["install_url"]).query)["state"][0]
@@ -1674,11 +1697,41 @@ class TestUserIntegrationSlackEndpoints(APIBaseTest):
             sensitive_config={"access_token": "xoxb-test"},
         )
 
-    def test_slack_start_returns_install_url_when_workspace_connected(self):
+    @parameterized.expand(
+        [(False, True, "203.0.113.7", 200), (True, True, "198.51.100.7", 403), (True, False, "198.51.100.7", 200)]
+    )
+    def test_slack_start_returns_install_url_when_workspace_connected(
+        self, select_other: bool, restrict_target: bool, ip: str, expected_status: int
+    ) -> None:
         self._seed_workspace_integration()
+        policy_organization = self.organization
+        if select_other:
+            other = Organization.objects.create(name="Other example organization")
+            other_team = Team.objects.create(organization=other)
+            self.user.join(organization=other)
+            self.user.current_organization = other
+            self.user.current_team = other_team
+            self.user.save()
+            if not restrict_target:
+                policy_organization = other
+        OrganizationIPRestrictions.objects.create(organization=policy_organization, ip_restrictions=["203.0.113.0/24"])
         with self._enable_flag():
-            response = self.client.post("/api/users/@me/integrations/slack/start/", data={}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+            listed = self.client.get("/api/users/@me/integrations/slack/linkable_workspaces/", REMOTE_ADDR=ip)
+            response = self.client.post(
+                "/api/users/@me/integrations/slack/start/",
+                data={"team_id": self.team.id},
+                format="json",
+                REMOTE_ADDR=ip,
+            )
+        self.assertEqual(listed.status_code, status.HTTP_200_OK, listed.content)
+        self.assertEqual(
+            [row["slack_team_id"] for row in listed.json()["results"]],
+            [] if expected_status == status.HTTP_403_FORBIDDEN else ["T12345"],
+        )
+        self.assertEqual(response.status_code, expected_status, response.content)
+        if expected_status == status.HTTP_403_FORBIDDEN:
+            self.assertEqual(response.json()["code"], "ip_not_allowed")
+            return
         install_url = response.json()["install_url"]
         # Routes through the same backend authorize entry — settings is just
         # another invite origin, not a separate OAuth flow.

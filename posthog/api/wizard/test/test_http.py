@@ -1,8 +1,10 @@
 import json
 from datetime import timedelta
 from decimal import Decimal
+from uuid import uuid4
 
 import pytest
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, MagicMock, patch
 
@@ -28,7 +30,9 @@ from posthog.llm.wizard_gateway_token import (
     WIZARD_SYSTEM_PROMPT_FLAG,
     WizardGatewayMintError,
 )
-from posthog.models import Organization, PersonalAPIKey, User
+from posthog.models import Organization, PersonalAPIKey, Team, User
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rate_limit import SetupWizardGatewayTokenRateThrottle, refund_wizard_mint, reserve_wizard_mint
 
@@ -54,17 +58,43 @@ class SetupWizardCloudRunTests(APIBaseTest):
         )
         assert response.status_code == status.HTTP_404_NOT_FOUND
 
+    @parameterized.expand(
+        [
+            (False, True, "203.0.113.7", 200),
+            (True, True, "198.51.100.7", 403),
+            (True, True, "203.0.113.7", 200),
+            (True, False, "198.51.100.7", 200),
+        ]
+    )
     @patch("posthog.api.wizard.http.tasks_facade.create_wizard_cloud_run")
-    def test_creates_run_and_returns_ids(self, mock_create):
+    def test_creates_run_and_returns_ids(
+        self, select_other: bool, restrict_target: bool, ip: str, expected_status: int, mock_create: MagicMock
+    ) -> None:
+        policy_organization = self.organization
+        if select_other:
+            other = Organization.objects.create(name="Other example organization")
+            other_team = Team.objects.create(organization=other)
+            self.user.join(organization=other)
+            self.user.current_organization = other
+            self.user.current_team = other_team
+            self.user.save()
+            if not restrict_target:
+                policy_organization = other
+        OrganizationIPRestrictions.objects.create(organization=policy_organization, ip_restrictions=["203.0.113.0/24"])
         mock_create.return_value = MagicMock(task_id="task-uuid", latest_run=MagicMock(id="run-uuid", status="queued"))
 
         response = self.client.post(
             self.CLOUD_RUN_URL,
             data={"project_id": self.team.id, "repository": "acme/app", "branch": ""},
             format="json",
+            REMOTE_ADDR=ip,
         )
 
-        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.status_code == expected_status, response.content
+        if expected_status == status.HTTP_403_FORBIDDEN:
+            assert response.json()["code"] == "ip_not_allowed"
+            mock_create.assert_not_called()
+            return
         assert response.json() == {"task_id": "task-uuid", "run_id": "run-uuid", "status": "queued"}
         assert mock_create.call_count == 1
         kwargs = mock_create.call_args.kwargs
@@ -299,17 +329,58 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         assert response.status_code == status.HTTP_404_NOT_FOUND, response.content
         assert response.json()["code"] == "unconfigured"
 
-    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
+    @parameterized.expand(
+        [
+            ("203.0.113.7", True, 201),
+            ("198.51.100.7", True, 403),
+            ("198.51.100.7", False, 201),
+        ]
+    )
+    @time_machine.travel("2026-11-04T12:00:00Z", tick=False)
     @patch("posthog.api.wizard.http.mint_wizard_gateway_token", return_value=MINTED)
-    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
-    def test_mints_for_scoped_oauth_token(self, mock_authentication, mock_mint, mock_authorized):
-        self._mock_oauth(mock_authentication)
-
-        response = self.client.post(
-            self.GATEWAY_TOKEN_URL, {"program": "integration"}, headers={"authorization": "Bearer pha_test"}
+    def test_mints_for_scoped_oauth_token(
+        self, ip: str, restrict_target: bool, expected_status: int, mock_mint: MagicMock
+    ) -> None:
+        application = OAuthApplication.objects.create(
+            name="Example wizard app",
+            client_id="wizard-client-id",
+            user=self.user,
+            organization=self.organization,
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+        )
+        token = OAuthAccessToken.objects.create(
+            user=self.user,
+            application=application,
+            token=f"pha_{uuid4().hex}",
+            expires=timezone.now() + timedelta(hours=1),
+            scope="llm_gateway:read",
+            scoped_teams=[self.team.id],
+        )
+        other = Organization.objects.create(name="Other example organization")
+        other_team = Team.objects.create(organization=other)
+        self.user.join(organization=other)
+        self.user.current_organization = other
+        self.user.current_team = other_team
+        self.user.save()
+        OrganizationIPRestrictions.objects.create(
+            organization=self.organization if restrict_target else other, ip_restrictions=["203.0.113.0/24"]
         )
 
-        assert response.status_code == status.HTTP_201_CREATED, response.content
+        response = self.client.post(
+            self.GATEWAY_TOKEN_URL,
+            {"program": "integration"},
+            headers={"authorization": f"Bearer {token.token}"},
+            REMOTE_ADDR=ip,
+        )
+
+        assert response.status_code == expected_status, response.content
+        if expected_status == status.HTTP_403_FORBIDDEN:
+            assert response.json()["code"] == "ip_not_allowed"
+            mock_mint.assert_not_called()
+            return
         body = response.json()
         assert body["token"] == "phe_test_token"
         assert body["expires_at"] == self.MINTED["expires_at"]

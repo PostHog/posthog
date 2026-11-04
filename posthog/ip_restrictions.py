@@ -383,7 +383,11 @@ def _request_organization_id(
 def _uses_view_scope(request: HttpRequest) -> bool:
     match = request.resolver_match
     view_class = getattr(match.func, "cls", None) if match else None
-    return bool(getattr(view_class, "_ip_restrictions_use_view_scope", False))
+    scope = getattr(view_class, "_ip_restrictions_use_view_scope", False)
+    if isinstance(scope, frozenset) and match is not None:
+        method = "get" if request.method == "HEAD" else (request.method or "").lower()
+        return getattr(match.func, "actions", {}).get(method) in scope
+    return bool(scope)
 
 
 def _request_policies(request: Any, user: Any) -> list[tuple[str, list[str]]]:

@@ -19,6 +19,7 @@ from rest_framework.response import Response
 from posthog.api.email_verification import email_verification_pending
 from posthog.auth import OAuthAccessTokenAuthentication, SessionAuthentication
 from posthog.exceptions_capture import capture_exception
+from posthog.ip_restrictions import enforce_ip_restrictions
 from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL
 from posthog.llm.wizard_gateway_token import (
     WizardGatewayMintError,
@@ -143,6 +144,9 @@ class SetupWizardCloudRunResponseSerializer(serializers.Serializer):
 
 
 class SetupWizardViewSet(viewsets.ViewSet):
+    # Each action resolves its target from the submitted project or validated OAuth token.
+    _ip_restrictions_use_view_scope = True
+
     permission_classes = ()
 
     def throttled(self, request: Request, wait: float) -> NoReturn:
@@ -246,6 +250,8 @@ class SetupWizardViewSet(viewsets.ViewSet):
                 exceptions.PermissionDenied("Access token is no longer authorized for this project."),
                 user=user,
             )
+
+        enforce_ip_restrictions(request, user, authenticator, organization_id=str(team.organization_id))
 
         distinct_id = str(user.distinct_id)
         try:
@@ -408,6 +414,9 @@ class SetupWizardViewSet(viewsets.ViewSet):
             raise exceptions.PermissionDenied("You don't have access to this project.")
 
         user = cast(User, request.user)
+        enforce_ip_restrictions(
+            request, user, request.successful_authenticator, organization_id=str(project.organization_id)
+        )
         # The sandbox this starts mints its own gateway token. Refused before the
         # attempt is reserved, so a ban does not also cost a daily slot.
         try:
