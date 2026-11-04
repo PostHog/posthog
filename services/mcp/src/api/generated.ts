@@ -51785,6 +51785,8 @@ export namespace Schemas {
      * * `dashboard` - On a dashboard you open often
      * * `key_metric` - Project key metric
      * * `popular` - Opened often in this project
+     * * `watched` - You get updates on this
+     * * `built` - You created or edited this
      */
     export type HighlightMetricReasonEnum = typeof HighlightMetricReasonEnum[keyof typeof HighlightMetricReasonEnum];
 
@@ -51794,6 +51796,8 @@ export namespace Schemas {
       Dashboard: 'dashboard',
       KeyMetric: 'key_metric',
       Popular: 'popular',
+      Watched: 'watched',
+      Built: 'built',
     } as const;
 
     export interface HighlightMover {
@@ -51843,12 +51847,14 @@ export namespace Schemas {
       value_format: HighlightValueFormat | null;
       /** The first day of the period each value in `series` covers, in the project's timezone. Same length and order as `series`. */
       period_starts: string[];
-      /** Why the pulse suggests the metric: `routine` for an insight the person opens often, `dashboard` for a tile of a dashboard they open often, `key_metric` for a key metric of the project, `popular` for an insight that many people in the project open. Null for metrics computed before this field existed.
+      /** Why the pulse suggests the metric: `routine` for an insight the person opens often, `dashboard` for a tile of a dashboard they open often, `key_metric` for a key metric of the project, `popular` for an insight that many people in the project open, `watched` for an insight the person gets an alert or a subscription for, `built` for an insight the person created or edited recently. Null for metrics computed before this field existed.
        *
        * * `routine` - You open this often
        * * `dashboard` - On a dashboard you open often
        * * `key_metric` - Project key metric
-       * * `popular` - Opened often in this project */
+       * * `popular` - Opened often in this project
+       * * `watched` - You get updates on this
+       * * `built` - You created or edited this */
       reason: HighlightMetricReasonEnum | null;
       /**
          * Name of the dashboard the tile comes from when `reason` is `dashboard`, else null.
@@ -51937,7 +51943,9 @@ export namespace Schemas {
        * * `routine` - You open this often
        * * `dashboard` - On a dashboard you open often
        * * `key_metric` - Project key metric
-       * * `popular` - Opened often in this project */
+       * * `popular` - Opened often in this project
+       * * `watched` - You get updates on this
+       * * `built` - You created or edited this */
       reason?: HighlightMetricReasonEnum | null;
       /** Stable key of the selected number. */
       key: string;
