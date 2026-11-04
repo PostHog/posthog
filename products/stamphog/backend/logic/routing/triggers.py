@@ -239,6 +239,10 @@ def _upgrades_pinned(at_head: dict[str, Any], outcome: str) -> bool:
 
 
 def _verdict_step(client: StamphogGitHubClient, state: _State, *, head_sha: str, outcome: str) -> _Step | None:
+    if state.stored is None:
+        # No routing event ran for this PR, so it opened before routing was on and got its reviewers elsewhere.
+        # Routing it now would request again owners its author removed. A dead first claim still counts as a record.
+        return None
     record = state.record
     if record is not None and record.get(FULL_ROUTED_HEAD):
         return None

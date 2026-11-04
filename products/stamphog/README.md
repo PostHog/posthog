@@ -190,6 +190,7 @@ A comment names the cut owners and why.
   - Any other outcome (refused, escalate, gated, failed) routes in full.
   - A safety net fires 30 minutes after a head starts waiting. Unless the PR was already routed in full, or its current head was approved, it routes the current head in full, even when the head moved since.
   - Full routing happens at most once per PR, like `always`. After it, later verdicts and safety nets do nothing.
+  - A PR that opened before `fallback` was on has no routing record, so its verdicts route nothing. Its reviewers came from elsewhere, and routing it would request again owners its author removed.
 
 `routing_fork_labels` maps a team slug to a label name. On a fork PR, a kept team with an entry gets that label instead of a review request, so an outside author cannot ping it.
 

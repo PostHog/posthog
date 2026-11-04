@@ -162,20 +162,42 @@ def _seed_routing_comment(chain: RoutingChain, repo_config: StamphogRepoConfig) 
         pr_obj.save(update_fields=["routing"])
 
 
+def _finish_review(
+    repo_config: StamphogRepoConfig, status: ReviewRunStatus, verdict: ReviewVerdict, head_sha: str = HEAD_SHA
+) -> None:
+    # The function post_verdict and mark_review_failed call. Celery runs eagerly in tests.
+    queue_routing_after_verdict(repo_config, pr_number=PR_NUMBER, head_sha=head_sha, status=status, verdict=verdict)
+
+
 @pytest.mark.parametrize(
-    "name,setup_kwargs,action",
+    "name,setup_kwargs,action,later_verdict",
     [
-        ("routing_off", {"routing_mode": "off"}, "opened"),
-        ("draft", {"draft": True}, "opened"),
-        ("closed", {"state": "closed"}, "ready_for_review"),
-        ("other_action", {}, "synchronize"),
+        ("routing_off", {"routing_mode": "off"}, "opened", None),
+        ("draft", {"draft": True}, "opened", None),
+        ("closed", {"state": "closed"}, "ready_for_review", None),
+        ("other_action", {}, "synchronize", None),
+        # The pull request opened before fallback was on, so its reviewers came from elsewhere.
+        ("verdict_on_a_pull_request_opened_before_fallback", {"routing_mode": "off"}, "opened", ReviewVerdict.REFUSED),
     ],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_routing_skips_quietly(name: str, setup_kwargs: dict[str, Any], action: str, team, user, routing_chain) -> None:
-    _setup(routing_chain, team, user, **setup_kwargs)
+def test_routing_skips_quietly(
+    name: str,
+    setup_kwargs: dict[str, Any],
+    action: str,
+    later_verdict: ReviewVerdict | None,
+    team,
+    user,
+    routing_chain,
+) -> None:
+    repo_config = _setup(routing_chain, team, user, **setup_kwargs)
 
     _route(action)
+    if later_verdict is not None:
+        with team_scope(team.id):
+            StamphogRepoConfig.objects.for_team(team.id).filter(id=repo_config.id).update(routing_mode="fallback")
+            repo_config.refresh_from_db()
+        _finish_review(repo_config, ReviewRunStatus.COMPLETED, later_verdict)
 
     assert routing_chain.recorder.github_writes == []
     assert routing_chain.cut_model.calls == []
@@ -289,13 +311,6 @@ def test_a_retry_for_the_same_head_requests_nobody_twice(team, user, routing_cha
 
     assert len(_writes(routing_chain, "request_reviewers")) == 1
     assert len(routing_chain.cut_model.calls) == 1
-
-
-def _finish_review(
-    repo_config: StamphogRepoConfig, status: ReviewRunStatus, verdict: ReviewVerdict, head_sha: str = HEAD_SHA
-) -> None:
-    # The function post_verdict and mark_review_failed call. Celery runs eagerly in tests.
-    queue_routing_after_verdict(repo_config, pr_number=PR_NUMBER, head_sha=head_sha, status=status, verdict=verdict)
 
 
 @pytest.fixture
