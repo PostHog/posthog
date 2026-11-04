@@ -25,6 +25,7 @@ from django.conf import settings
 from django.test import override_settings
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
@@ -396,125 +397,12 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[0]["data"][5], 1.0)
 
     # just make sure this doesn't error
-    def test_no_props_string(self):
+    @parameterized.expand([(PropertyType.String,), (PropertyType.Numeric,), (PropertyType.Boolean,)])
+    def test_no_props(self, property_type: PropertyType):
         create_property_definition(
             team_id=self.team.id,
             name="$some_property",
-            property_type=PropertyType.String,
-            type=PropertyDefinitionType.EVENT,
-        )
-
-        with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
-            self._run_query(
-                TrendsQuery(
-                    breakdownFilter=BreakdownFilter(
-                        breakdown="$some_property",
-                    ),
-                    dateRange=DateRange(
-                        date_from="-14d",
-                    ),
-                    series=[
-                        EventsNode(
-                            event="sign up",
-                            name="sign up",
-                        ),
-                        EventsNode(
-                            event="no events",
-                            name="no events",
-                        ),
-                    ],
-                ),
-                self.team,
-            )
-            self._run_query(
-                TrendsQuery(
-                    breakdownFilter=BreakdownFilter(
-                        breakdowns=[
-                            Breakdown(
-                                property="$some_property",
-                                type=MultipleBreakdownType.EVENT,
-                            ),
-                        ],
-                    ),
-                    dateRange=DateRange(
-                        date_from="-14d",
-                    ),
-                    series=[
-                        EventsNode(
-                            event="sign up",
-                            name="sign up",
-                        ),
-                        EventsNode(
-                            event="no events",
-                            name="no events",
-                        ),
-                    ],
-                ),
-                self.team,
-            )
-
-    def test_no_props_numeric(self):
-        create_property_definition(
-            team_id=self.team.id,
-            name="$some_property",
-            property_type=PropertyType.Numeric,
-            type=PropertyDefinitionType.EVENT,
-        )
-
-        with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
-            self._run_query(
-                TrendsQuery(
-                    breakdownFilter=BreakdownFilter(
-                        breakdown="$some_property",
-                    ),
-                    dateRange=DateRange(
-                        date_from="-14d",
-                    ),
-                    series=[
-                        EventsNode(
-                            event="sign up",
-                            name="sign up",
-                        ),
-                        EventsNode(
-                            event="no events",
-                            name="no events",
-                        ),
-                    ],
-                ),
-                self.team,
-            )
-            self._run_query(
-                TrendsQuery(
-                    breakdownFilter=BreakdownFilter(
-                        breakdowns=[
-                            Breakdown(
-                                property="$some_property",
-                                type=MultipleBreakdownType.EVENT,
-                            ),
-                        ],
-                    ),
-                    dateRange=DateRange(
-                        date_from="-14d",
-                    ),
-                    series=[
-                        EventsNode(
-                            event="sign up",
-                            name="sign up",
-                        ),
-                        EventsNode(
-                            event="no events",
-                            name="no events",
-                        ),
-                    ],
-                ),
-                self.team,
-            )
-
-    def test_no_props_boolean(self):
-        create_property_definition(
-            team_id=self.team.id,
-            name="$some_property",
-            property_type=PropertyType.Boolean,
+            property_type=property_type,
             type=PropertyDefinitionType.EVENT,
         )
 
