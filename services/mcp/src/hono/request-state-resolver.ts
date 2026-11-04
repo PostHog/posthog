@@ -299,7 +299,9 @@ export class RequestStateResolver {
             uiSupported: requestContext.mcpUiSupported ?? sessionContext?.mcpUiSupported,
         })
 
-        const renderUiEnabled = !fixedTools && clientProfile.isRenderUiHost()
+        const supportsUiApps = clientProfile.isRenderUiHost()
+        const renderUiEnabled = !fixedTools && supportsUiApps
+        context.clientSupportsUiApps = supportsUiApps
 
         const { mode: resolvedMode, useSingleExec } = fixedTools
             ? { mode: 'tools' as const, useSingleExec: false }

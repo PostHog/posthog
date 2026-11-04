@@ -25,6 +25,27 @@ export interface AgentOperationResult {
     follow_ups: string[]
 }
 
+export type AgentOperationApprovals = 'client' | 'auto'
+
+export interface AgentOperationApprovalOption {
+    option_id: string
+    kind: string
+    name: string
+}
+
+export interface AgentOperationApproval {
+    request_id: string
+    title: string
+    options: AgentOperationApprovalOption[]
+}
+
+/** Reply messages that answer a pending approval. */
+export const APPROVAL_REPLIES = {
+    allow: 'allow',
+    allowAll: 'allow all',
+    deny: 'deny',
+} as const
+
 export interface AgentOperation {
     id: string
     state: AgentOperationState
@@ -43,6 +64,8 @@ export interface AgentOperation {
     cursor: string
     retry_after_seconds: number
     question: string | null
+    approvals: AgentOperationApprovals
+    approval: AgentOperationApproval | null
     result: AgentOperationResult | null
     created_at: string
     deadline_at: string | null
@@ -166,6 +189,9 @@ function nextStepHint(operation: AgentOperation): string | undefined {
     if (isTerminalAgentOperation(operation)) {
         return undefined
     }
+    if (operation.approval) {
+        return `Next: if the PostHog Agent view is open, the user can approve the tool there. Otherwise ask the user, then call posthog-agent-reply with operation_id "${operation.id}", project_id ${operation.project.id}, the message "${APPROVAL_REPLIES.allow}", "${APPROVAL_REPLIES.allowAll}" or "${APPROVAL_REPLIES.deny}", and a new client_request_id.`
+    }
     if (operation.state === 'needs_input') {
         return `Next: ask the user the question above. Then call posthog-agent-reply with operation_id "${operation.id}", project_id ${operation.project.id}, the answer, and a new client_request_id.`
     }
@@ -206,7 +232,9 @@ export function formatAgentOperationText(operation: AgentOperation): string {
     }
 
     const question = operation.result?.question ?? operation.question
-    if (question) {
+    if (operation.approval) {
+        agentLines.push('', 'Approval needed for this tool call:', operation.approval.title)
+    } else if (question) {
         agentLines.push('', 'Question for the user:', question)
     }
 

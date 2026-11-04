@@ -7,6 +7,18 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+/**
+ * * `client` - Client
+ * * `auto` - Auto
+ */
+export type AgentOperationApprovalsEnumApi =
+    (typeof AgentOperationApprovalsEnumApi)[keyof typeof AgentOperationApprovalsEnumApi]
+
+export const AgentOperationApprovalsEnumApi = {
+    Client: 'client',
+    Auto: 'auto',
+} as const
+
 export interface AgentOperationStartApi {
     /**
      * The product goal for PostHog AI, written as a complete request. For example: 'Why did signups drop last week?'
@@ -31,6 +43,11 @@ export interface AgentOperationStartApi {
      * @pattern ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$
      */
     repository?: string
+    /** 'client' when the client can show approval prompts to its user, so PostHog AI asks before each sensitive tool call. 'auto' (default) runs with no prompts; the key's scopes still limit the run.
+     *
+     * * `client` - Client
+     * * `auto` - Auto */
+    approvals?: AgentOperationApprovalsEnumApi
     /**
      * Optional branch, tag, or commit in the repository. The default branch when not set. The server pins it to one commit.
      * @maxLength 255
@@ -94,6 +111,24 @@ export interface AgentOperationPlanItemApi {
      * * `completed` - Completed
      * * `failed` - Failed */
     status: AgentOperationPlanStatusEnumApi
+}
+
+export interface AgentOperationApprovalOptionApi {
+    /** Send this option's meaning as the reply: allow, allow all, or deny. */
+    option_id: string
+    /** Option kind, such as allow_once, allow_always or reject_once. */
+    kind: string
+    /** Option label. */
+    name: string
+}
+
+export interface AgentOperationApprovalApi {
+    /** The pending approval request. */
+    request_id: string
+    /** The tool call that waits for approval. */
+    title: string
+    /** The answers that the sandbox accepts. */
+    options: AgentOperationApprovalOptionApi[]
 }
 
 /**
@@ -212,6 +247,13 @@ export interface AgentOperationApi {
      * @nullable
      */
     summary: string | null
+    /** Whether the client answers approval prompts.
+     *
+     * * `client` - Client
+     * * `auto` - Auto */
+    approvals: AgentOperationApprovalsEnumApi
+    /** The approval that the operation waits for. Reply 'allow', 'allow all' or 'deny'. */
+    approval: AgentOperationApprovalApi | null
     /**
      * The question or approval that the operation waits for.
      * @nullable

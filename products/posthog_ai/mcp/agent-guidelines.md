@@ -24,6 +24,9 @@ Do local code edits yourself. Use the answer and the plan from PostHog Agent as 
 4. When the state is `needs_input`, show the question to the user.
    Then call `posthog-agent-reply` with the answer of the user and a new `client_request_id`.
    The same operation continues.
+   If the state reason is `approval_required`, PostHog AI asks to run a tool.
+   The user can approve it in the PostHog Agent view, if your host shows it.
+   Otherwise ask the user, then reply with `allow`, `allow all`, or `deny`.
 5. When the state is `succeeded`, show the answer, the assumptions, and the links to the user.
 6. To stop an operation, call `posthog-agent-cancel`.
    Closing the conversation or losing the connection does not cancel an operation.

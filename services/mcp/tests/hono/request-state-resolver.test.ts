@@ -622,6 +622,37 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(props.mode).toBe('cli')
     })
 
+    it.each([
+        ['declared UI support', { mcpClientName: 'codex', mcpUiSupported: true }, true],
+        [
+            'declared no UI support on a Claude UI host',
+            { mcpClientName: 'Claude Desktop', mcpVendorClient: 'ClaudeAI', mcpUiSupported: false },
+            false,
+        ],
+        [
+            'unknown capabilities on a Claude UI host',
+            { mcpClientName: 'Claude Desktop', mcpVendorClient: 'ClaudeAI' },
+            true,
+        ],
+        [
+            'unknown capabilities on Claude Code',
+            { mcpClientName: 'Anthropic/ClaudeAI', mcpVendorClient: 'ClaudeCode' },
+            false,
+        ],
+    ] as const)('resolves UI app support for tools from %s', async (_label, overrides, expected) => {
+        const result = await makeResolver().resolve(makeProps(overrides))
+
+        expect(result.context.clientSupportsUiApps).toBe(expected)
+    })
+
+    it('keeps UI app support from initialize for later calls in the session', async () => {
+        await makeResolver().resolve(makeProps({ mcpClientName: 'codex', mcpUiSupported: true }))
+
+        const result = await makeResolver().resolve(makeProps({ mcpClientName: undefined }))
+
+        expect(result.context.clientSupportsUiApps).toBe(true)
+    })
+
     it.each([MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_INTERVIEW_RECRUITMENT_FLAG, MCP_INTENT_PROMPT_FLAG])(
         'evaluates %s even though no generated tool declares it',
         async (flag) => {

@@ -56,10 +56,15 @@ RETRY_AFTER_IDLE_SECONDS = 30
 # One operation stays in one project, so the agent must not switch projects or reach other projects
 # through connections.
 EXCLUDED_MCP_TOOLS = ["posthog-connection-call", "posthog-connection-forward", "switch-project", "switch-organization"]
-# No person watches a delegated run, and `auto` relays every MCP approval to the client, so each PostHog
-# tool call would stall on a question. The key's scopes, not per-call approvals, limit what the run can do.
-DELEGATED_PERMISSION_MODE = "bypassPermissions"
+# `auto` relays every MCP approval to the client. A client without an approval UI would stall on each
+# PostHog tool call, so its runs ask for none: the key's scopes, not per-call approvals, limit the run.
+PERMISSION_MODES: dict[str, str] = {
+    AgentOperation.Approvals.CLIENT: "auto",
+    AgentOperation.Approvals.AUTO: "bypassPermissions",
+}
 ALLOW_REPLIES = frozenset({"allow", "approve", "approved", "yes", "y", "ok", "go ahead"})
+ALLOW_ALWAYS_REPLIES = frozenset({"allow all", "always", "always allow", "allow always"})
+DENY_REPLIES = frozenset({"deny", "reject", "no", "n"})
 
 
 class AgentOperationError(Exception):
@@ -80,6 +85,7 @@ class StartRequest:
     conversation_id: str | None = None
     repository: str | None = None
     ref: str | None = None
+    approvals: str = AgentOperation.Approvals.AUTO
 
     def request_hash(self) -> str:
         payload = {
@@ -88,6 +94,7 @@ class StartRequest:
             "conversation_id": self.conversation_id,
             "repository": self.repository,
             "ref": self.ref,
+            "approvals": self.approvals,
         }
         return hashlib.sha256(json.dumps(payload, sort_keys=True).encode()).hexdigest()
 
@@ -221,6 +228,7 @@ class AgentOperationService:
                     repository=repository,
                     requested_ref=request.ref,
                     resolved_commit=commit,
+                    approvals=request.approvals,
                     deadline_at=timezone.now() + OPERATION_DEADLINE,
                 )
         except IntegrityError:
@@ -235,7 +243,7 @@ class AgentOperationService:
                 {
                     "content": request.goal,
                     "attached_context": attached_context,
-                    "initial_permission_mode": DELEGATED_PERMISSION_MODE,
+                    "initial_permission_mode": PERMISSION_MODES[operation.approvals],
                 },
                 repository=repository,
             )
@@ -431,6 +439,9 @@ class AgentOperationService:
             return operation
         if status in (tasks_facade.TaskRunStatus.QUEUED, tasks_facade.TaskRunStatus.NOT_STARTED):
             return self._set_state(operation, State.QUEUED, None)
+        if progress is None and operation.pending_permission_request:
+            # The log cannot be read now, so keep the approval that the last read found.
+            return operation
         pending = progress.pending_permission if progress is not None else None
         if pending is not None:
             operation.pending_permission_request = {
@@ -552,9 +563,12 @@ class AgentOperationService:
     def _answer_permission(self, operation: AgentOperation, message: str) -> None:
         pending = operation.pending_permission_request or {}
         options = pending.get("options") or []
-        allow = message.strip().lower().rstrip(".!") in ALLOW_REPLIES
+        normalized = message.strip().lower().rstrip(".!")
+        always = normalized in ALLOW_ALWAYS_REPLIES
+        allow = always or normalized in ALLOW_REPLIES
         wanted = [o for o in options if (not o["kind"].startswith("reject")) == allow]
-        preferred = next((o for o in wanted if o["kind"] in ("allow_once", "reject_once")), None)
+        preferred_kinds = ("allow_always", "allow_once") if always else ("allow_once", "reject_once")
+        preferred = next((o for kind in preferred_kinds for o in wanted if o["kind"] == kind), None)
         option = preferred or (wanted[0] if wanted else None)
         if option is None or operation.run_id is None or operation.task_id is None:
             raise AgentOperationError("no_matching_option", "The pending approval has no option for this reply.")
@@ -572,13 +586,13 @@ class AgentOperationService:
             )
         operation.pending_permission_request = None
         self._set_state(operation, State.RUNNING, None)
-        if not allow and message.strip().lower().rstrip(".!") not in ("no", "n", "deny", "reject"):
+        if not allow and normalized not in DENY_REPLIES:
             self._send_message(operation, message)
 
     def _send_message(self, operation: AgentOperation, message: str) -> None:
         conversation = Conversation.objects.get(id=operation.conversation_id, team=self.team)
         routed = SandboxSession(conversation, self.user, options=self._dispatch_options(operation)).open(
-            {"content": message, "initial_permission_mode": DELEGATED_PERMISSION_MODE}
+            {"content": message, "initial_permission_mode": PERMISSION_MODES[operation.approvals]}
         )
         if routed is None:
             raise AgentOperationError(
