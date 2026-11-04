@@ -10,24 +10,16 @@ from temporalio.common import RetryPolicy
 
 from posthog.temporal.common.base import PostHogWorkflow
 
-from products.alerts_platform.backend.temporal.outcomes import alerts_platform_record_outcomes_activity
 from products.alerts_platform.backend.temporal.sources import APPEARANCE_WORKFLOW_NAME
-from products.alerts_platform.backend.temporal.workflows import start_deliveries
+from products.alerts_platform.backend.temporal.workflows import record_and_start_deliveries
 
 with workflow.unsafe.imports_passed_through():
     from posthog.temporal.common.utils import close_db_connections
 
-    from products.alerts_platform.backend.facade.contracts import (
-        SourceBatchEvaluation,
-        SourceEvaluationInputs,
-        SourceOutcomeInputs,
-    )
-    from products.alerts_platform.backend.facade.payload import outcome_chunks
+    from products.alerts_platform.backend.facade.contracts import SourceBatchEvaluation, SourceEvaluationInputs
 
 EVALUATE_START_TO_CLOSE = dt.timedelta(seconds=40)
 EVALUATE_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=60)
-RECORD_START_TO_CLOSE = dt.timedelta(seconds=8)
-RECORD_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=12)
 
 
 @activity.defn
@@ -59,21 +51,7 @@ class AppearanceAlertEvaluateWorkflow(PostHogWorkflow):
             schedule_to_close_timeout=EVALUATE_SCHEDULE_TO_CLOSE,
             retry_policy=RetryPolicy(maximum_attempts=1),
         )
-        started = 0
-        for chunk in outcome_chunks(evaluation.outcomes):
-            await workflow.execute_activity(
-                alerts_platform_record_outcomes_activity,
-                SourceOutcomeInputs(team_id=inputs.batch_key.team_id, cutoff=inputs.cutoff, outcomes=chunk),
-                start_to_close_timeout=RECORD_START_TO_CLOSE,
-                schedule_to_close_timeout=RECORD_SCHEDULE_TO_CLOSE,
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
-            # Started only after the record, because a delivery reads the history row the record writes.
-            recorded = {str(outcome.configuration_id) for outcome in chunk}
-            started += await start_deliveries(
-                [delivery for delivery in evaluation.deliveries if delivery.configuration_id in recorded]
-            )
-        return started
+        return await record_and_start_deliveries(inputs, evaluation)
 
 
 APPEARANCE_EVALUATION_WORKFLOWS = [AppearanceAlertEvaluateWorkflow]

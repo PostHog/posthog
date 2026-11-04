@@ -1,10 +1,11 @@
 """Facade for appearance alerts: how a source plugs in what is new, and what its alerts filter on.
 
-A source registers an occurrence store that reads its own tables, or a feed that the platform's
-registry records. The platform evaluates every appearance alert itself.
+A source pushes occurrence facts with `record_occurrence`, or registers a feed that the platform's
+registrar reads. The platform evaluates every appearance alert itself.
 """
 
 from collections.abc import Callable
+from datetime import datetime
 from typing import Any, Final, Literal
 from uuid import UUID
 
@@ -15,7 +16,7 @@ from products.alerts_platform.backend.facade.contracts import (
     InvalidPlatformAlertEdit,
     NativeAlertLifecycle,
     OccurrenceFeed,
-    OccurrenceStore,
+    OccurrenceKind,
     PlatformAlertConfigurationEdit,
     SourceConfigSpec,
     SourceKind,
@@ -114,9 +115,36 @@ def _validate_edit(edit: PlatformAlertConfigurationEdit) -> None:
         raise InvalidPlatformAlertEdit("evaluation_periods", "An appearance alert announces each identity once.")
 
 
-def register_occurrence_store(source: SourceKind, store: OccurrenceStore) -> None:
-    """A source with detection of its own answers what is new from its own tables."""
-    occurrences.register_store(source, store)
+def record_occurrence(
+    source: SourceKind,
+    *,
+    team_id: int,
+    identity_key: str,
+    kind: OccurrenceKind,
+    occurred_at: datetime,
+    first_seen_at: datetime,
+    labels: dict[str, str],
+    detail: dict[str, Any] | None = None,
+) -> bool:
+    """Records that an identity is new, or back, for a project's appearance alerts on this source.
+
+    Idempotent, so a retried caller is safe: a repeated fact, or an older one arriving late, changes
+    nothing. `first_seen_at` is the identity's own first sighting, which its messages thread on.
+    Records nothing, and returns False, when the project has no enabled appearance alert on the source.
+    """
+    if not occurrences.has_enabled_alert(source, team_id=team_id):
+        return False
+    occurrences.record(
+        source,
+        team_id=team_id,
+        identity_key=identity_key,
+        kind=kind,
+        occurred_at=occurred_at,
+        first_seen_at=first_seen_at,
+        labels=labels,
+        detail=detail or {},
+    )
+    return True
 
 
 def register_occurrence_feed(source: SourceKind, feed: OccurrenceFeed) -> None:

@@ -30,7 +30,6 @@ from products.alerts_platform.backend.facade.contracts import (
     GroupOutcome,
     Occurrence,
     OccurrenceKind,
-    OccurrenceStore,
     OccurrenceWindow,
     PlatformAlertCheckInput,
     PlatformAlertOutcome,
@@ -85,7 +84,7 @@ def event_ids_by_kind(source: SourceKind) -> dict[str, str]:
 class _Reader:
     """One batch's reads of a store, shared by every check that starts its window at the same time."""
 
-    def __init__(self, store: OccurrenceStore, team_id: int, now: datetime) -> None:
+    def __init__(self, store: occurrences.RegistryStore, team_id: int, now: datetime) -> None:
         self.store = store
         self.team_id = team_id
         self.until = min(store.ready_until(team_id=team_id, now=now), now)
@@ -107,10 +106,6 @@ def evaluate_appearance_batch(source: SourceKind, team_id: int, slot: str, cutof
     if tz_name is None:
         return SourceBatchEvaluation(outcomes=(), deliveries=())
     store = occurrences.store_for(source)
-    if store is None:
-        # No store registered in this process. The checks stay due, so a worker that has one reads them.
-        logger.error("No occurrence store is registered", source=source.value)
-        return SourceBatchEvaluation(outcomes=(), deliveries=(), omitted=len(checks))
     try:
         reader = _Reader(store, team_id, cutoff)
     except Exception:
@@ -126,7 +121,8 @@ def _evaluate(
         config = AppearanceAlertConfig.model_validate(check.source_config)
     except ValidationError:
         return _failed(source, check, _INVALID_CONFIG, transient=False, now=now)
-    since = check.evaluated_until or check.created_at or now
+    created = check.created_at or now
+    since = check.evaluated_until or created
     if _in_quiet_hours(check, now, tz_name):
         # A late check that runs inside quiet hours announces nothing and keeps its window, so the
         # first check after them announces what appeared.
@@ -145,7 +141,10 @@ def _evaluate(
 
     keyed = {
         bounded_grouping_key(occurrence.identity_key): occurrence
-        for occurrence in _one_per_identity([o for o in window.occurrences if config.matches(o.labels)])
+        for occurrence in _one_per_identity(
+            # An alert announces only what happened after it existed, whenever the fact was recorded.
+            [o for o in window.occurrences if o.occurred_at >= created and config.matches(o.labels)]
+        )
     }
     admission = check.admit(list(keyed), now=now)
     checked_until = max(reader.until, since)
@@ -167,7 +166,6 @@ def _in_quiet_hours(check: PlatformAlertCheckInput, now: datetime, tz_name: str)
     try:
         return is_utc_datetime_blocked(now, tz_name, parse_blocked_windows_tuples(check.schedule_restriction))
     except Exception:
-        # A restriction that cannot be read must not hold back every announcement.
         logger.exception("Unparseable schedule restriction on an appearance alert", check_id=str(check.id))
         return False
 

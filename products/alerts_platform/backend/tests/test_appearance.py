@@ -1,16 +1,19 @@
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
+import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from parameterized import parameterized
 
+from products.alerts_platform.backend.facade.appearance import record_occurrence
 from products.alerts_platform.backend.facade.contracts import (
     APPEARANCE_DETAIL_KEY,
     APPEARANCE_GROUPING,
     AlertEventKind,
     OccurrenceFeed,
+    OccurrenceKind,
     SeenIdentity,
     SourceKind,
 )
@@ -36,7 +39,7 @@ class TestAppearanceAlerts(BaseTest):
             seen=lambda team_id, since, until, limit: [s for s in self.sightings if since <= s.seen_at < until][:limit],
             seed_lookback=timedelta(days=1),
         )
-        patcher = patch.dict(occurrences._stores, {SOURCE: occurrences.RegistryStore(SOURCE, feed)})
+        patcher = patch.dict(occurrences._feeds, {SOURCE: feed})
         patcher.start()
         self.addCleanup(patcher.stop)
         self.configuration = PlatformAlertConfiguration.objects.for_team(self.team.id).create(
@@ -54,13 +57,20 @@ class TestAppearanceAlerts(BaseTest):
         PlatformAlertConfiguration.objects.for_team(self.team.id).filter(id=self.configuration.id).update(created_at=T0)
 
     def _tick(self, now: datetime):
-        self.configuration.refresh_from_db()
-        evaluation = evaluate_appearance_batch(
-            SOURCE, self.team.id, slot_of(self.configuration.next_check_at, now), now
-        )
-        record_outcomes(self.team.id, evaluation.outcomes, now)
+        # The registry stamps what it records with the clock, so the clock is the check's own time.
+        with time_machine.travel(now, tick=False):
+            self.configuration.refresh_from_db()
+            evaluation = evaluate_appearance_batch(
+                SOURCE, self.team.id, slot_of(self.configuration.next_check_at, now), now
+            )
+            record_outcomes(self.team.id, evaluation.outcomes, now)
         (outcome,) = evaluation.outcomes
         return outcome, evaluation.deliveries
+
+    def _record_then_tick(self, now: datetime):
+        # A fact the registrar records during a check is read by the next one, a minute later.
+        self._tick(now)
+        return self._tick(now + timedelta(minutes=1))
 
     def test_announces_each_identity_once_and_again_when_it_comes_back_after_a_resolve(self) -> None:
         self.sightings = [
@@ -69,7 +79,7 @@ class TestAppearanceAlerts(BaseTest):
             _seen("other-service", T0 + timedelta(minutes=10), service="web"),
         ]
 
-        outcome, deliveries = self._tick(T0 + timedelta(minutes=20))
+        outcome, deliveries = self._record_then_tick(T0 + timedelta(minutes=20))
         (group,) = outcome.groups
         assert group.grouping_key == "fresh"
         assert group.kind == AlertEventKind.APPEARED
@@ -90,7 +100,7 @@ class TestAppearanceAlerts(BaseTest):
                 labels={"service_name": "api", "release": "v2"},
             )
         )
-        outcome, _ = self._tick(T0 + timedelta(minutes=50))
+        outcome, _ = self._record_then_tick(T0 + timedelta(minutes=50))
         (group,) = outcome.groups
         assert group.source_detail[APPEARANCE_DETAIL_KEY] == "reappeared"
         # It is described as it came back, not as it was first seen.
@@ -110,6 +120,41 @@ class TestAppearanceAlerts(BaseTest):
         assert held.groups == ()
         assert [group.grouping_key for group in announced.groups] == ["fresh"]
         assert len(deliveries) == 1
+
+    def test_a_pushed_fact_is_announced_once_even_when_it_arrives_after_its_window(self) -> None:
+        late = T0 + timedelta(minutes=12)
+        # Pushed at 12:21 about something that occurred at 12:12, after the check at 12:20 read up to 12:15.
+        self._tick(T0 + timedelta(minutes=20))
+        with time_machine.travel(T0 + timedelta(minutes=21), tick=False):
+            for _ in range(2):
+                record_occurrence(
+                    SOURCE,
+                    team_id=self.team.id,
+                    identity_key="issue-1",
+                    kind=OccurrenceKind.REAPPEARED,
+                    occurred_at=late,
+                    first_seen_at=T0 - timedelta(days=3),
+                    labels={"service_name": "api"},
+                )
+
+        outcome, deliveries = self._tick(T0 + timedelta(minutes=30))
+        again, _ = self._tick(T0 + timedelta(minutes=40))
+
+        (group,) = outcome.groups
+        assert (group.grouping_key, group.source_detail[APPEARANCE_DETAIL_KEY]) == ("issue-1", "reappeared")
+        assert group.firing_episode is not None and group.firing_episode.started_at == T0 - timedelta(days=3)
+        assert len(deliveries) == 1
+        assert again.groups == ()
+        # A project with no appearance alert on a source records nothing for it.
+        assert not record_occurrence(
+            SourceKind.INSIGHT,
+            team_id=self.team.id,
+            identity_key="issue-1",
+            kind=OccurrenceKind.NEW,
+            occurred_at=late,
+            first_seen_at=late,
+            labels={},
+        )
 
     @parameterized.expand(
         [
@@ -131,7 +176,7 @@ class TestAppearanceAlerts(BaseTest):
                 snooze_until=T0 + timedelta(days=1),
             )
 
-        outcome, deliveries = self._tick(T0 + timedelta(minutes=20))
+        outcome, deliveries = self._record_then_tick(T0 + timedelta(minutes=20))
 
         (group,) = outcome.groups
         assert (group.kind, group.notified) == (AlertEventKind.CHECK, False)

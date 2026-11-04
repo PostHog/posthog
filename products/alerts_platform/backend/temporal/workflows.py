@@ -44,6 +44,7 @@ with workflow.unsafe.imports_passed_through():
     from products.alerts_platform.backend.delivery.evaluation import deliver_evaluation
     from products.alerts_platform.backend.delivery.thread_store import PENDING_CLAIM_TTL, ThreadBusy
     from products.alerts_platform.backend.facade.contracts import (
+        RECORD_OUTCOMES_ACTIVITY,
         AlertBatchKey,
         AlertDeliveryRequest,
         AlertDemand,
@@ -51,13 +52,15 @@ with workflow.unsafe.imports_passed_through():
         HeldDeliveryAddress,
         OrchestrateInputs,
         OrchestrateResult,
+        SourceBatchEvaluation,
         SourceDispatchInputs,
         SourceDispatchReport,
         SourceEvaluationInputs,
+        SourceOutcomeInputs,
         TickPage,
     )
     from products.alerts_platform.backend.facade.enums import PlatformAlertKind
-    from products.alerts_platform.backend.facade.payload import MAX_BATCH_PAYLOAD_BYTES
+    from products.alerts_platform.backend.facade.payload import MAX_BATCH_PAYLOAD_BYTES, outcome_chunks
     from products.alerts_platform.backend.logic import delivery_holds
     from products.alerts_platform.backend.logic.demand import discover_demand
     from products.alerts_platform.backend.logic.inventory import count_inventory
@@ -335,6 +338,33 @@ async def start_deliveries(
         if isinstance(result, BaseException):
             raise result
         started += 1
+    return started
+
+
+# A source's record of one chunk, which its evaluation workflow waits on before starting deliveries.
+RECORD_START_TO_CLOSE = dt.timedelta(seconds=8)
+RECORD_SCHEDULE_TO_CLOSE = dt.timedelta(seconds=12)
+
+
+async def record_and_start_deliveries(inputs: SourceEvaluationInputs, evaluation: SourceBatchEvaluation) -> int:
+    """Records a source's evaluation in payload-sized chunks, and starts each chunk's deliveries after its record.
+
+    Returns how many deliveries started. A delivery reads the history row the record writes, so it never
+    starts before that record.
+    """
+    started = 0
+    for chunk in outcome_chunks(evaluation.outcomes):
+        await workflow.execute_activity(
+            RECORD_OUTCOMES_ACTIVITY,
+            SourceOutcomeInputs(team_id=inputs.batch_key.team_id, cutoff=inputs.cutoff, outcomes=chunk),
+            start_to_close_timeout=RECORD_START_TO_CLOSE,
+            schedule_to_close_timeout=RECORD_SCHEDULE_TO_CLOSE,
+            retry_policy=RetryPolicy(maximum_attempts=3),
+        )
+        recorded = {str(outcome.configuration_id) for outcome in chunk}
+        started += await start_deliveries(
+            [delivery for delivery in evaluation.deliveries if delivery.configuration_id in recorded]
+        )
     return started
 
 
