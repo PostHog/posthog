@@ -2857,6 +2857,12 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
                 ["signal_scout:write", "llm_skill:write", "task:read"],
                 status.HTTP_403_FORBIDDEN,
             ),
+            (
+                "caller_with_inbox_write_only",
+                "own",
+                ["signal_scout:write", "llm_skill:write", "inbox:write"],
+                status.HTTP_403_FORBIDDEN,
+            ),
         ]
     )
     def test_create_with_report_id_writes_nothing_when_refused(

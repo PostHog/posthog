@@ -410,17 +410,19 @@ def _may_read_reports(request: Request, view: APIView, canonical_team: Team) -> 
     return may_read_reports(user=user, team=canonical_team)
 
 
-def _may_write_reports(request: Request, canonical_team: Team) -> bool:
+def _may_write_reports(request: Request, view: APIView, canonical_team: Team) -> bool:
     """Whether this caller could append to an inbox report's activity log canonically.
 
     A note left from a report appends a `scout_note_left` artefact, and the reports artefact API
-    gates every write on the `task` scope object plus the `task` editor bar. The notes surface
-    rides `signal_scout`, so both legs are re-checked here, as `_may_read_reports` does on the read
-    side, or steering access alone would write to a report the caller may not edit.
+    gates every write on the `inbox:write` + `task:write` pair plus the `task` editor bar. The
+    notes surface rides `signal_scout`, so both legs are re-checked here, as `_may_read_reports`
+    does on the read side, or steering access alone would write to a report the caller may not edit.
     """
     scopes = get_authenticator_scopes(request.successful_authenticator)
-    if scopes is not None and not ("*" in scopes or "task:write" in scopes):
-        return False
+    if scopes is not None and "*" not in scopes:
+        if scopes_missing_after_legacy_fallback(request, view, scopes, ["inbox:write", "task:write"]):
+            return False
+
     user = request.user
     if not isinstance(user, User):
         return False
@@ -2251,7 +2253,7 @@ class SignalScoutNoteViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return None
         # The note names the report and its activity log gains an entry, so the caller must be able
         # to edit reports, not only steer scouts.
-        if not _may_write_reports(request, self.team.parent_team or self.team):
+        if not _may_write_reports(request, self, self.team.parent_team or self.team):
             raise exceptions.PermissionDenied("Leaving a note on a report requires edit access to inbox reports.")
         report = (
             SignalReport.objects.filter(team_id=team_id, id=report_id)
