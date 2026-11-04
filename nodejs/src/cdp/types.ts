@@ -13,6 +13,7 @@ import {
     PersonPropertyFilter,
     Team,
 } from '../types'
+import type { AcceptedSend } from './services/hogflows/transactional-email'
 import type { HogErrorClass } from './utils/hog-error-classification'
 
 export type HogBytecode = any[]
@@ -262,6 +263,7 @@ export type MinimalAppMetric = {
         | 'email_bounced_undetermined'
         | 'email_bounce_prevented'
         | 'message_frequency_capped'
+        | 'message_frequency_cap_held'
         | 'email_suppressed'
         | 'email_missing_recipient'
         | 'email_suspended'
@@ -426,8 +428,11 @@ export type CyclotronJobInvocationHogFunctionContext = {
     // version (a retry's scheduled time) and lose the original.
     firstScheduledAt?: string
     actionId?: string // The hogflow action node ID, used for metrics instance_id when executing within a workflow
+    // Set when a protected workflow step pauses mid-send, so its retries stay protected.
+    sensitive?: boolean
     actionStepCount?: number
     customerTaskIdempotencyVersion?: 1
+    send?: AcceptedSend
 }
 
 export type WorkflowStepResumeStatus = 'completed' | 'failed' | 'cancelled'
@@ -483,7 +488,7 @@ export type HogFlowInvocationContext = {
     // Opt-outs this run's "Opt out of messages" steps made. Message steps check them before the recipient cache,
     // because a worker that resumes the run can hold the recipient's preferences from before the opt-out.
     messageOptOuts?: MessageOptOutRecord[]
-    // Stamped at run start and persisted with the state, so a recovery path that holds only the
+    // Stamped on every execution of a protected workflow and persisted with the state, so a recovery path that holds only the
     // workflow id still keeps a sensitive run's message data out of its snapshot.
     sensitive?: boolean
     // Set by the transactional email API, which skips the trigger pipeline. The email worker counts the run as
@@ -558,6 +563,9 @@ export type HogFlowInvocationContext = {
             parkedAt?: string
         }
         resumeResult?: { key: string; status: WorkflowStepResumeStatus; result?: Record<string, unknown> }
+        // Set when a message step first finds the person at the frequency cap and the team holds capped
+        // messages. The step re-checks the cap on each wake and skips the send once this ISO time passes.
+        frequencyCapHoldDeadlineAt?: string
     }
     // Set by the subscription matcher consumer when an incoming event matched the
     // workflow's event-based conversion goals. shouldExitEarly reads and clears it.
@@ -571,6 +579,7 @@ export type HogFlowInvocationContext = {
     // conversions are counted by the matcher and never touch this flag.
     conversionCounted?: boolean
     variables?: Record<string, any>
+    send?: AcceptedSend
     // Sticky counter incremented by the rerun paginator on rehydration. Lets
     // the lifecycle row producer derive `attempts` / `is_retry` for hog flows
     // the same way it does for hog functions, so the `max_attempts` guard on
@@ -607,6 +616,7 @@ export type HogFunctionInputSchemaType = {
         | 'task_repository'
         | 'task_mcp_installations'
         | 'signals_scout'
+        | 'posthog_survey'
         | 'replay_vision_scan'
         | 'task_skills'
     key: string

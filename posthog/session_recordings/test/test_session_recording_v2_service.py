@@ -6,7 +6,7 @@ from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
 from posthog.session_recordings.models.session_recording import SessionRecording
-from posthog.session_recordings.recordings.errors import RecordingApiConfigurationError
+from posthog.session_recordings.recordings.errors import RecordingApiConfigurationError, RecordingDeletedError
 from posthog.session_recordings.session_recording_v2_service import (
     FIVE_SECONDS,
     RecordingBlock,
@@ -77,16 +77,30 @@ class TestSessionRecordingV2Service(TestCase):
 
         assert blocks == []
 
-    @parameterized.expand([("sync", False), ("async", True)])
+    @parameterized.expand(
+        [
+            (f"{error_name}_{mode}", use_async, error)
+            for mode, use_async in (("sync", False), ("async", True))
+            for error_name, error in (
+                ("missing_url", RecordingApiConfigurationError("RECORDING_API_URL is not configured")),
+                ("deleted", RecordingDeletedError("Recording has been deleted", deleted_at=1700000000)),
+            )
+        ]
+    )
+    @patch("posthog.session_recordings.session_recording_v2_service.cache")
     @patch("posthog.session_recordings.session_recording_v2_service.fetch_blocks_from_recording_api")
-    def test_missing_recording_api_url_is_not_reported_as_no_blocks(self, _name, use_async, mock_fetch):
-        mock_fetch.side_effect = RecordingApiConfigurationError("RECORDING_API_URL is not configured")
+    def test_errors_that_are_not_an_empty_listing_propagate_uncached(
+        self, _name, use_async, error, mock_fetch, mock_cache
+    ):
+        mock_cache.get.return_value = None
+        mock_fetch.side_effect = error
 
-        with self.assertRaises(RecordingApiConfigurationError):
+        with self.assertRaises(type(error)):
             if use_async:
                 async_to_sync(list_blocks_async)(self.recording)
             else:
                 list_blocks(self.recording)
+        mock_cache.set.assert_not_called()
 
     @patch("posthog.session_recordings.session_recording_v2_service.fetch_blocks_from_recording_api")
     def test_list_blocks_returns_empty_list_when_no_blocks(self, mock_fetch):

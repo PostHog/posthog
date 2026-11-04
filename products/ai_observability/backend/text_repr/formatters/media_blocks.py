@@ -1,5 +1,6 @@
 import re
 from collections.abc import Callable
+from dataclasses import replace
 
 from posthog.dataclasses import frozen
 
@@ -8,6 +9,9 @@ _AUDIO_TYPES = frozenset({"audio", "input_audio"})
 _FILE_TYPES = frozenset({"document", "file", "input_file"})
 _GEMINI_DATA_KEYS = ("inline_data", "inlineData", "file_data", "fileData")
 _OTEL_TYPES = frozenset({"blob", "uri"})
+_GENERIC_MIME_TYPE = "application/octet-stream"
+_MIME_KEYS = ("mediaType", "mimeType", "mime_type", "media_type")
+_FILE_SOURCE_KEYS = ("file_data", "file_url", "data", "uri", "url")
 _LINK_SCHEMES = ("https://", "http://", "phaiblob://")
 # Without full capture the SDKs replace the bytes with a placeholder such as `[base64 image redacted]`.
 # Same pattern as the frontend's `isRedactedMediaSentinel`.
@@ -62,9 +66,9 @@ def parse_media_block(block: dict) -> MediaBlock | None:
         if block_type in _IMAGE_TYPES:
             return _image_block(block)
         if block_type in _AUDIO_TYPES:
-            return MediaBlock(modality="audio")
+            return _audio_block(block)
         if block_type in _FILE_TYPES:
-            return MediaBlock(modality="file")
+            return _file_block(block)
     return None
 
 
@@ -97,7 +101,47 @@ def _image_block(block: dict) -> MediaBlock:
         )
     # The Gemini Interactions API puts `data` and `mime_type` on the block itself.
     mime_type = block.get("mime_type") or block.get("mimeType")
-    return _with_source("image", mime_type if isinstance(mime_type, str) else None, image_url or block.get("data"))
+    return _with_source(
+        "image", mime_type if isinstance(mime_type, str) else None, image_url or block.get("data") or block.get("uri")
+    )
+
+
+def _audio_block(block: dict) -> MediaBlock:
+    # OpenAI chat names the format instead of a MIME type: `{"input_audio": {"data": ..., "format": "wav"}}`.
+    audio = block.get("input_audio")
+    if isinstance(audio, dict):
+        audio_format = audio.get("format")
+        mime_type = f"audio/{audio_format}" if isinstance(audio_format, str) and audio_format else None
+        return _with_source("audio", mime_type, audio.get("data"))
+    source = block.get("source")
+    fields = source if isinstance(source, dict) else block
+    mime_type = next((fields[key] for key in _MIME_KEYS if isinstance(fields.get(key), str)), None)
+    value = next((fields[key] for key in _FILE_SOURCE_KEYS if fields.get(key)), None)
+    return _with_source("audio", mime_type, value)
+
+
+def _file_block(block: dict) -> MediaBlock:
+    source = block.get("source")
+    if isinstance(source, dict):
+        # Anthropic document.
+        mime_type, value = source.get("media_type"), source.get("data") or source.get("url")
+        filename = None
+    else:
+        file = block.get("file")
+        # OpenAI chat nests the file, and the Responses API, Gemini and the Vercel AI SDK put it on the block.
+        # Vercel records `{"type": "file", "mediaType": ..., "file": <data>}`.
+        fields = file if isinstance(file, dict) else block
+        mime_type = next((block[key] for key in _MIME_KEYS if isinstance(block.get(key), str)), None)
+        value = next((fields[key] for key in _FILE_SOURCE_KEYS if fields.get(key)), None)
+        if value is None and isinstance(file, str):
+            value = file
+        filename = fields.get("filename")
+    media = _with_source("file", mime_type if isinstance(mime_type, str) else None, value)
+    if media.mime_type is None and isinstance(filename, str) and filename.lower().endswith(".pdf"):
+        media = replace(media, mime_type="application/pdf")
+    # The Vercel AI SDK sends images, audio and video as file parts too.
+    modality = media.mime_type.split("/")[0] if media.mime_type else ""
+    return replace(media, modality=modality) if modality in ("image", "audio", "video") else media
 
 
 def _with_source(modality: str, mime_type: str | None, value: object) -> MediaBlock:
@@ -107,9 +151,14 @@ def _with_source(modality: str, mime_type: str | None, value: object) -> MediaBl
         # Unwrap one envelope only. Its payload is bytes or a wrapped pointer, never another data URI,
         # and unwrapping nested prefixes would copy the payload once per level.
         header, value = value[len("data:") :].split(";base64,", 1)
-        mime_type = header or mime_type
+        # A declared type beats a generic one in the data URI, as in the trace view.
+        if header and (mime_type is None or mime_type.strip().lower() == _GENERIC_MIME_TYPE):
+            mime_type = header
     if _REDACTED_RE.match(value) or value.startswith("data:"):
         return MediaBlock(modality=modality, mime_type=mime_type)
     if value.startswith(_LINK_SCHEMES):
         return MediaBlock(modality=modality, mime_type=mime_type, url=value)
+    # Base64 never holds a space, so a value with one is an SDK placeholder such as `raw files not supported`.
+    if " " in value:
+        return MediaBlock(modality=modality, mime_type=mime_type)
     return MediaBlock(modality=modality, mime_type=mime_type, base64_data=value)

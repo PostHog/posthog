@@ -193,6 +193,21 @@ export function computeMoveEdges(
     return newEdges
 }
 
+const BRANCHING_STEP_TYPES: HogFlowAction['type'][] = [
+    'conditional_branch',
+    'random_cohort_branch',
+    'wait_until_condition',
+]
+
+/** A step moves on its own when it has one next step and no paths of its own to carry along. */
+export function canMoveStep(workflow: HogFlow, actionId: string): boolean {
+    const action = workflow.actions.find((candidate) => candidate.id === actionId)
+    if (!action || action.type === 'trigger' || action.type === 'exit' || BRANCHING_STEP_TYPES.includes(action.type)) {
+        return false
+    }
+    return new Set(workflow.edges.filter((edge) => edge.from === actionId).map((edge) => edge.to)).size === 1
+}
+
 export const HOG_FLOW_EDITOR_MODES = ['build', 'variables', 'test', 'metrics', 'logs'] as const
 export type HogFlowEditorMode = (typeof HOG_FLOW_EDITOR_MODES)[number]
 export const HOG_FLOW_EDITOR_DEFAULT_PANEL_WIDTH = 592
@@ -594,6 +609,7 @@ export interface hogFlowEditorLogicActions {
                                                         | 'number'
                                                         | 'posthog_assignee'
                                                         | 'posthog_business_hours'
+                                                        | 'posthog_survey'
                                                         | 'posthog_ticket_tags'
                                                         | 'replay_vision_scan'
                                                         | 'signals_scout'
@@ -706,54 +722,6 @@ export interface hogFlowEditorLogicActions {
                                 >
                                 message_category_id?: string | undefined
                                 message_category_type?: 'marketing' | 'transactional' | undefined
-                                template_id: 'template-native-push'
-                                template_uuid?: string | undefined
-                            }
-                            created_at?: number | undefined
-                            description: string
-                            filters?:
-                                | {
-                                      actions?: any[] | undefined
-                                      events?: any[] | undefined
-                                      properties?: any[] | undefined
-                                  }
-                                | null
-                                | undefined
-                            id: string
-                            name: string
-                            on_error?: 'abort' | 'continue' | null | undefined
-                            output_variable?:
-                                | {
-                                      key: string
-                                      label?: string | null | undefined
-                                      result_path?: string | null | undefined
-                                      spread?: boolean | null | undefined
-                                  }
-                                | {
-                                      key: string
-                                      label?: string | null | undefined
-                                      result_path?: string | null | undefined
-                                      spread?: boolean | null | undefined
-                                  }[]
-                                | null
-                                | undefined
-                            type: 'function_push'
-                            updated_at?: number | undefined
-                        }
-                      | {
-                            config: {
-                                inputs: Record<
-                                    string,
-                                    {
-                                        bytecode?: any
-                                        order?: number | undefined
-                                        secret?: boolean | undefined
-                                        templating?: 'hog' | 'liquid' | undefined
-                                        value: any
-                                    }
-                                >
-                                message_category_id?: string | undefined
-                                message_category_type?: 'marketing' | 'transactional' | undefined
                                 template_id: 'template-twilio'
                                 template_uuid?: string | undefined
                             }
@@ -786,6 +754,55 @@ export interface hogFlowEditorLogicActions {
                                 | null
                                 | undefined
                             type: 'function_sms'
+                            updated_at?: number | undefined
+                        }
+                      | {
+                            config: {
+                                inputs: Record<
+                                    string,
+                                    {
+                                        bytecode?: any
+                                        order?: number | undefined
+                                        secret?: boolean | undefined
+                                        templating?: 'hog' | 'liquid' | undefined
+                                        value: any
+                                    }
+                                >
+                                message_category_id?: string | undefined
+                                message_category_type?: 'marketing' | 'transactional' | undefined
+                                sensitive?: boolean | undefined
+                                template_id: 'template-native-push'
+                                template_uuid?: string | undefined
+                            }
+                            created_at?: number | undefined
+                            description: string
+                            filters?:
+                                | {
+                                      actions?: any[] | undefined
+                                      events?: any[] | undefined
+                                      properties?: any[] | undefined
+                                  }
+                                | null
+                                | undefined
+                            id: string
+                            name: string
+                            on_error?: 'abort' | 'continue' | null | undefined
+                            output_variable?:
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }[]
+                                | null
+                                | undefined
+                            type: 'function_push'
                             updated_at?: number | undefined
                         }
                       | {
@@ -1173,6 +1190,7 @@ export interface hogFlowEditorLogicActions {
                                 | 'number'
                                 | 'posthog_assignee'
                                 | 'posthog_business_hours'
+                                | 'posthog_survey'
                                 | 'posthog_ticket_tags'
                                 | 'replay_vision_scan'
                                 | 'signals_scout'
@@ -1480,6 +1498,7 @@ export interface hogFlowEditorLogicActions {
                                                         | 'number'
                                                         | 'posthog_assignee'
                                                         | 'posthog_business_hours'
+                                                        | 'posthog_survey'
                                                         | 'posthog_ticket_tags'
                                                         | 'replay_vision_scan'
                                                         | 'signals_scout'
@@ -1592,54 +1611,6 @@ export interface hogFlowEditorLogicActions {
                                 >
                                 message_category_id?: string | undefined
                                 message_category_type?: 'marketing' | 'transactional' | undefined
-                                template_id: 'template-native-push'
-                                template_uuid?: string | undefined
-                            }
-                            created_at?: number | undefined
-                            description: string
-                            filters?:
-                                | {
-                                      actions?: any[] | undefined
-                                      events?: any[] | undefined
-                                      properties?: any[] | undefined
-                                  }
-                                | null
-                                | undefined
-                            id: string
-                            name: string
-                            on_error?: 'abort' | 'continue' | null | undefined
-                            output_variable?:
-                                | {
-                                      key: string
-                                      label?: string | null | undefined
-                                      result_path?: string | null | undefined
-                                      spread?: boolean | null | undefined
-                                  }
-                                | {
-                                      key: string
-                                      label?: string | null | undefined
-                                      result_path?: string | null | undefined
-                                      spread?: boolean | null | undefined
-                                  }[]
-                                | null
-                                | undefined
-                            type: 'function_push'
-                            updated_at?: number | undefined
-                        }
-                      | {
-                            config: {
-                                inputs: Record<
-                                    string,
-                                    {
-                                        bytecode?: any
-                                        order?: number | undefined
-                                        secret?: boolean | undefined
-                                        templating?: 'hog' | 'liquid' | undefined
-                                        value: any
-                                    }
-                                >
-                                message_category_id?: string | undefined
-                                message_category_type?: 'marketing' | 'transactional' | undefined
                                 template_id: 'template-twilio'
                                 template_uuid?: string | undefined
                             }
@@ -1672,6 +1643,55 @@ export interface hogFlowEditorLogicActions {
                                 | null
                                 | undefined
                             type: 'function_sms'
+                            updated_at?: number | undefined
+                        }
+                      | {
+                            config: {
+                                inputs: Record<
+                                    string,
+                                    {
+                                        bytecode?: any
+                                        order?: number | undefined
+                                        secret?: boolean | undefined
+                                        templating?: 'hog' | 'liquid' | undefined
+                                        value: any
+                                    }
+                                >
+                                message_category_id?: string | undefined
+                                message_category_type?: 'marketing' | 'transactional' | undefined
+                                sensitive?: boolean | undefined
+                                template_id: 'template-native-push'
+                                template_uuid?: string | undefined
+                            }
+                            created_at?: number | undefined
+                            description: string
+                            filters?:
+                                | {
+                                      actions?: any[] | undefined
+                                      events?: any[] | undefined
+                                      properties?: any[] | undefined
+                                  }
+                                | null
+                                | undefined
+                            id: string
+                            name: string
+                            on_error?: 'abort' | 'continue' | null | undefined
+                            output_variable?:
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }
+                                | {
+                                      key: string
+                                      label?: string | null | undefined
+                                      result_path?: string | null | undefined
+                                      spread?: boolean | null | undefined
+                                  }[]
+                                | null
+                                | undefined
+                            type: 'function_push'
                             updated_at?: number | undefined
                         }
                       | {
@@ -2059,6 +2079,7 @@ export interface hogFlowEditorLogicActions {
                                 | 'number'
                                 | 'posthog_assignee'
                                 | 'posthog_business_hours'
+                                | 'posthog_survey'
                                 | 'posthog_ticket_tags'
                                 | 'replay_vision_scan'
                                 | 'signals_scout'
@@ -2565,8 +2586,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     return false
                 }
 
-                const branchingTypes = ['conditional_branch', 'random_cohort_branch', 'wait_until_condition']
-                return !branchingTypes.includes(selectedNode?.data.type ?? '')
+                return !!selectedNode && !BRANCHING_STEP_TYPES.includes(selectedNode.data.type)
             },
         ],
     }),
@@ -2771,11 +2791,13 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                 if (isMovingNode && movingNodeId) {
                     const incomingEdges = edges.filter((e) => e.target === movingNodeId)
                     const outgoingEdges = edges.filter((e) => e.source === movingNodeId)
-                    // Only skip in the simple linear case (1 incoming, 1 outgoing)
-                    // where placing on adjacent edges would result in the same position
+                    // A move drops the step's outgoing edge before it splits the target, so that edge can never take the step.
+                    if (outgoingEdges.length === 1) {
+                        skipEdgeIds.add(outgoingEdges[0].id)
+                    }
+                    // With one incoming edge, placing the step there leaves it where it is.
                     if (incomingEdges.length === 1 && outgoingEdges.length === 1) {
                         skipEdgeIds.add(incomingEdges[0].id)
-                        skipEdgeIds.add(outgoingEdges[0].id)
                     }
                 }
 

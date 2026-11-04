@@ -335,6 +335,51 @@ export interface ResolvedQuery {
     backendSearch: string
 }
 
+function shellWords(text: string, quotes: string): string[] | null {
+    const words: string[] = []
+    let word: string | null = null
+    let quote: string | null = null
+    for (let i = 0; i < text.length; i++) {
+        const char = text[i]
+        if (quote) {
+            if (char === quote) {
+                quote = null
+            } else if (char === '\\' && quote === '"' && (text[i + 1] === '"' || text[i + 1] === '\\')) {
+                word += text[++i]
+            } else {
+                word += char
+            }
+        } else if (/\s/.test(char)) {
+            if (word !== null) {
+                words.push(word)
+                word = null
+            }
+        } else if (quotes.includes(char)) {
+            word ??= ''
+            quote = char
+        } else if (char === '\\') {
+            if (i + 1 === text.length) {
+                return null
+            }
+            word = (word ?? '') + text[++i]
+        } else {
+            word = (word ?? '') + char
+        }
+    }
+    if (quote) {
+        return null
+    }
+    if (word !== null) {
+        words.push(word)
+    }
+    return words
+}
+
+// Mirrors `tokenize_search` in posthog/api/file_system/file_system.py, which reads every `'` as a letter once one is unmatched.
+function tokenizeSearch(text: string): string[] {
+    return shellWords(text, `"'`) ?? shellWords(text, '"') ?? text.split(/\s+/).filter(Boolean)
+}
+
 /**
  * Resolves the input once per change, so every consumer agrees on what applies. A typed value
  * previews what committing it would do, so `createdBy:Ca` narrows results before it is committed.
@@ -360,6 +405,63 @@ export function resolveQuery(text: string, chips: QueryChip[], options: FilterOp
         filters: [...filters.values()],
         freeText: freeTokens.join(' '),
         backendSearch: [...filterTokens, ...freeTokens].join(' '),
+    }
+}
+
+const isQuotedBy = (text: string, quote: string): boolean => text.startsWith(quote) && text.endsWith(quote)
+const stripQuotes = (text: string): string =>
+    isQuotedBy(text, '"') || isQuotedBy(text, "'") ? text.slice(1, -1) : text
+
+const BACKEND_FILTER_FIELDS = new Set(['path', 'name', 'user', 'author', 'type', 'ref'])
+
+// Reads `backendSearch` like the file system search does, so the list searches the words Cmd+K matched.
+// List pages match one phrase, which cannot exclude, so excluded words and filters other than `name:` stay out.
+interface SearchTerms {
+    words: string[]
+    freeWords: string[]
+    name: string | null
+    excludes: boolean
+}
+
+function searchTerms(backendSearch: string): SearchTerms {
+    const terms: SearchTerms = { words: [], freeWords: [], name: null, excludes: false }
+    for (const raw of tokenizeSearch(backendSearch)) {
+        if (raw.startsWith('-') || raw.startsWith('!')) {
+            terms.excludes ||= raw.length > 1
+            continue
+        }
+        const token = stripQuotes(raw)
+        const colonIndex = token.indexOf(':')
+        const field = colonIndex === -1 ? null : token.slice(0, colonIndex).toLowerCase()
+        if (field === 'name') {
+            terms.name = stripQuotes(token.slice(colonIndex + 1).trim())
+            terms.words.push(terms.name)
+        } else if (field === null || !BACKEND_FILTER_FIELDS.has(field)) {
+            terms.words.push(token)
+            terms.freeWords.push(token)
+        }
+    }
+    return terms
+}
+
+export function listSearchText({ backendSearch }: Pick<ResolvedQuery, 'backendSearch'>): string {
+    return searchTerms(backendSearch).words.filter(Boolean).join(' ')
+}
+
+export interface TypeSearchTerms {
+    text: string
+    name: string | null
+    freeText: string
+    excludes: boolean
+}
+
+export function typeSearchTerms({ backendSearch }: Pick<ResolvedQuery, 'backendSearch'>): TypeSearchTerms {
+    const { words, freeWords, name, excludes } = searchTerms(backendSearch)
+    return {
+        text: words.filter(Boolean).join(' '),
+        name: name || null,
+        freeText: freeWords.filter(Boolean).join(' '),
+        excludes,
     }
 }
 

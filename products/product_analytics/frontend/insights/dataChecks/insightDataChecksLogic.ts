@@ -6,6 +6,7 @@ import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
@@ -14,12 +15,19 @@ import { objectsEqual } from 'lib/utils/objects'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { autoRunMaxPrompt } from 'scenes/max/maxPrompt'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { cancelQueryOnServer, concurrencyController } from '~/queries/nodes/DataNode/dataNodeLogic'
+import {
+    isActionsNode,
+    isEventsNode,
+    isFunnelsQuery,
+    isGroupNode,
+    isInsightQueryWithSeries,
+    isInsightVizNode,
+} from '~/queries/schema/node-guards'
 import { NodeKind } from '~/queries/schema/schema-general'
 import type {
     FunnelsQuery,
@@ -29,15 +37,7 @@ import type {
     StickinessQuery,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
-import {
-    isActionsNode,
-    isEventsNode,
-    isFunnelsQuery,
-    isGroupNode,
-    isInsightQueryWithSeries,
-    isInsightVizNode,
-    shouldQueryBeAsync,
-} from '~/queries/utils'
+import { shouldQueryBeAsync } from '~/queries/utils'
 import { SidePanelTab } from '~/types'
 import type { AnyPropertyFilter, InsightLogicProps, TeamPublicType, TeamType } from '~/types'
 

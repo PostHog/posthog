@@ -20,7 +20,7 @@ from posthog.temporal.ai_observability.evaluation_llm_judge import (
     get_output_type_config,
 )
 from posthog.temporal.ai_observability.evaluation_payload import payload_budget_bytes
-from posthog.temporal.ai_observability.judge_images import JudgeImages
+from posthog.temporal.ai_observability.judge_attachments import JudgeAttachments
 from posthog.temporal.ai_observability.run_session_evaluation import (
     _SESSION_EVENT_COUNT_SQL,
     AI_EVENTS_RETENTION_DAYS,
@@ -46,6 +46,7 @@ from posthog.temporal.ai_observability.run_trace_evaluation import (
 )
 
 from products.ai_observability.backend.hog import compile_ai_observability_hog
+from products.ai_observability.backend.llm.attachments import AttachmentPart
 from products.cdp.backend.validation import compile_hog
 
 FROZEN_NOW = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
@@ -148,7 +149,7 @@ class TestFormatSessionForJudge:
         for trace in traces:
             trace.events[0].properties["$ai_input"] = [{"role": "user", "content": [image]}]
 
-        rendered = format_session_for_judge(traces, JudgeImages(team_id=1).marker)
+        rendered = format_session_for_judge(traces, JudgeAttachments(team_id=1).marker)
 
         assert rendered is not None
         assert rendered.count("[image 1]") == 2
@@ -675,6 +676,39 @@ class TestExecuteSessionActivities:
         assert result["reasoning"]
         # The whole point of the truncation-as-skip choice: never grade a partial transcript.
         mock_call_llm_judge.assert_not_called()
+
+    def test_judge_gets_the_session_images(self) -> None:
+        trace = _trace("trace-1", cost=0, latency=0)
+        image = {"type": "image_url", "image_url": {"url": "data:image/png;base64,aGk="}}
+        trace.events[0].properties["$ai_input"] = [{"role": "user", "content": [image]}]
+        with (
+            patch(
+                "posthog.temporal.ai_observability.run_session_evaluation.fetch_session_for_evaluation",
+                return_value=SessionFetchOutcome(traces=[trace], skip_reason=None, event_count=1),
+            ),
+            patch("posthog.temporal.ai_observability.judge_attachments.judge_sees_attachments", return_value=True),
+            patch("posthog.temporal.ai_observability.run_session_evaluation.call_llm_judge") as mock_call_llm_judge,
+        ):
+            execute_session_llm_judge_activity(
+                ExecuteSessionEvaluationInputs(
+                    evaluation={
+                        "team_id": 1,
+                        "evaluation_type": "llm_judge",
+                        "evaluation_config": {"prompt": "Did the user accomplish their goal?"},
+                        "output_type": "boolean",
+                        "output_config": {},
+                    },
+                    team_id=1,
+                    session_id="s-1",
+                    window_start=FROZEN_NOW.isoformat(),
+                )
+            )
+
+        attachment_prompt = mock_call_llm_judge.call_args.kwargs["attachment_prompt"]
+        assert "[image 1]" in attachment_prompt.text
+        assert attachment_prompt.attachments.content(attachment_prompt.text, "openai", "gpt-5.5")[2] == AttachmentPart(
+            mime_type="image/png", data=b"hi"
+        )
 
     def test_judge_skips_without_judging_when_the_rendered_transcript_would_overflow(self):
         # The fetch itself succeeds (session_truncated wasn't raised there), but the session has

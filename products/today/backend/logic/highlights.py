@@ -9,6 +9,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.core.cache import cache
+from django.db import transaction
 from django.utils import timezone
 
 import structlog
@@ -17,6 +18,7 @@ from pydantic import TypeAdapter, ValidationError
 from temporalio.common import WorkflowIDReusePolicy
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.temporal.common.client import sync_connect
@@ -31,7 +33,9 @@ from ..facade.enums import (
     HighlightPinStatus,
     HighlightPriority,
     HighlightsStatus,
+    PulseSlotStatus,
 )
+from ..feature_flags import progressive_pulse_enabled
 from ..models import TodayHighlights
 from ..temporal.inputs import (
     HIGHLIGHTS_WORKFLOW_NAME,
@@ -62,10 +66,24 @@ _FINDINGS = TypeAdapter(HighlightFindings)
 _HIGHLIGHTS = TypeAdapter(contracts.Highlights)
 
 
-def get_highlights(*, team: Team, user: User, scopes: frozenset[str] | None) -> contracts.Highlights:
+@frozen
+class PulseSourceProgress:
+    found: HighlightFindings
+    slots: list[contracts.PulseSlot]
+
+
+_PROGRESS = TypeAdapter(dict[str, PulseSourceProgress])
+
+
+def get_highlights(
+    *, team: Team, user: User, scopes: frozenset[str] | None, refresh: bool = False
+) -> contracts.Highlights:
     now = timezone.now()
     day = now.astimezone(team.timezone_info).date()
     key = _key(team, user, scopes)
+    progressive = progressive_pulse_enabled(user, team)
+    if progressive:
+        key = hashlib.sha256(f"{key}:progressive".encode()).hexdigest()[:32]
     rows = (
         TodayHighlights.objects.for_team(team.id)
         .filter(user_id=user.id, key=key, local_day=day)
@@ -73,8 +91,16 @@ def get_highlights(*, team: Team, user: User, scopes: frozenset[str] | None) -> 
     )
     latest = rows.first()
     # A row with a pins key puts pinned tiles first, so compute it again with suggestions only.
-    if latest is None or latest.pins_key or _is_due(latest, now):
-        _start(team, user, scopes, day, key, after=latest.id if latest else None)
+    retry_failed = (
+        progressive
+        and refresh
+        and latest is not None
+        and latest.failed_sources
+        and latest.status != HighlightsStatus.COMPUTING
+        and cache.add(f"today_highlights:retry:{team.id}:{user.id}", True, FAILED_CACHE_SECONDS)
+    )
+    if latest is None or latest.pins_key or _is_due(latest, now) or retry_failed:
+        _start(team, user, scopes, day, key, after=latest.id if latest else None, progressive=progressive)
         status = HighlightsStatus.COMPUTING
     else:
         status = HighlightsStatus(latest.status)
@@ -83,11 +109,34 @@ def get_highlights(*, team: Team, user: User, scopes: frozenset[str] | None) -> 
         if latest is not None and latest.status == HighlightsStatus.READY
         else rows.filter(status=HighlightsStatus.READY).first()
     )
+    if progressive and latest is not None and latest.content.get("pulse_slots"):
+        with suppress(ValidationError):
+            content = _HIGHLIGHTS.validate_python(latest.content)
+            if status == HighlightsStatus.COMPUTING and ready is not None and ready.id != latest.id:
+                old = _HIGHLIGHTS.validate_python(ready.content)
+                pending = {slot.key for slot in content.pulse_slots or [] if slot.status == PulseSlotStatus.PENDING}
+                retained = [metric for metric in old.pulse if metric.key in pending]
+                retained_keys = {metric.key for metric in retained}
+                content = replace(
+                    content,
+                    pulse=[*content.pulse, *retained],
+                    pulse_slots=[
+                        replace(slot, status=PulseSlotStatus.READY) if slot.key in retained_keys else slot
+                        for slot in content.pulse_slots or []
+                    ],
+                )
+            return replace(content, status=status)
     if ready is not None:
         with suppress(ValidationError):
             return replace(_HIGHLIGHTS.validate_python(ready.content), status=status)
     return contracts.Highlights(
-        status=status, generated_at=None, day=day, refresh_at=_refresh_at(team, day), pulse=[], items=[]
+        status=status,
+        generated_at=None,
+        day=day,
+        refresh_at=_refresh_at(team, day),
+        pulse=[],
+        items=[],
+        pulse_slots=[] if progressive else None,
     )
 
 
@@ -111,6 +160,7 @@ def _start(
     day: date,
     key: str,
     after: UUID | None,
+    progressive: bool = False,
 ) -> None:
     lock = f"today_highlights:start:{team.id}:{user.id}:{key}:{day.isoformat()}:{after}"
     if not cache.add(lock, True, START_LOCK_SECONDS):
@@ -123,6 +173,7 @@ def _start(
         local_day=day.isoformat(),
         scopes=None if scopes is None else sorted(scopes),
         source_names=[source.name for source in load_sources()],
+        progressive=progressive,
     )
     try:
         asyncio.run(
@@ -139,6 +190,88 @@ def _start(
         capture_exception(error, {"highlights_id": str(row.id), "product": "today"})
 
 
+def _pulse_content(
+    content: contracts.Highlights,
+    progress: dict[str, PulseSourceProgress],
+    previous: list[contracts.PulseSlot],
+    *,
+    complete: bool = False,
+) -> contracts.Highlights:
+    metrics = {metric.key: metric for metric in content.pulse}
+    offered = {metric.key for source in progress.values() for metric in source.found.pulse}
+    slots = {slot.key: slot for slot in previous}
+    owners: dict[str, int] = {}
+    order = {source.name: source.pulse_order for source in load_sources()}
+    for name, source in progress.items():
+        for metric in source.found.pulse:
+            owners[metric.key] = order.get(name, 0)
+        for slot in source.slots:
+            slots[slot.key] = slot
+            owners[slot.key] = order.get(name, 0)
+    for metric in content.pulse:
+        slots[metric.key] = contracts.PulseSlot(
+            key=metric.key,
+            name=metric.name,
+            url=metric.url,
+            interval=metric.interval,
+            reason=metric.reason,
+            status=PulseSlotStatus.READY,
+        )
+    pin_order = {pin.key: index for index, pin in enumerate(content.pins)}
+    selected = [
+        slot
+        for slot in slots.values()
+        if slot.status != PulseSlotStatus.EMPTY and (slot.key not in offered or slot.key in metrics)
+    ]
+    selected.sort(
+        key=lambda slot: (
+            slot.key not in pin_order,
+            pin_order.get(slot.key, 0),
+            slot.reason == HighlightMetricReason.POPULAR,
+            owners.get(slot.key, 0),
+        )
+    )
+    if complete:
+        selected = [
+            replace(slot, status=PulseSlotStatus.ERROR) if slot.status == PulseSlotStatus.PENDING else slot
+            for slot in selected
+        ]
+    return replace(content, pulse_slots=selected)
+
+
+def publish_pulse(inputs: HighlightSourceInputs, found: HighlightFindings, slots: list[contracts.PulseSlot]) -> None:
+    if inputs.highlights_id is None:
+        return
+    with transaction.atomic():
+        row = (
+            TodayHighlights.objects.for_team(inputs.team_id)
+            .select_for_update()
+            .filter(id=inputs.highlights_id, status=HighlightsStatus.COMPUTING)
+            .first()
+        )
+        if row is None:
+            return
+        progress = _PROGRESS.validate_python(row.content.get("_pulse_sources", {}))
+        previous = progress.get(inputs.source_name)
+        if previous is not None:
+            metrics = {metric.key: metric for metric in previous.found.pulse}
+            metrics.update({metric.key: metric for metric in found.pulse})
+            found = replace(found, pulse=tuple(metrics.values()))
+            slots = list({slot.key: slot for slot in [*previous.slots, *slots]}.values())
+        progress[inputs.source_name] = PulseSourceProgress(found=found, slots=slots)
+        content = build_highlights(
+            load_sources(),
+            {name: source.found for name, source in progress.items()},
+            Team.objects.get(id=inputs.team_id),
+            row.local_day,
+        )
+        previous_slots = _HIGHLIGHTS.validate_python(row.content).pulse_slots if row.content else []
+        content = _pulse_content(content, progress, previous_slots or [])
+        row.content = _HIGHLIGHTS.dump_python(replace(content, status=HighlightsStatus.COMPUTING), mode="json")
+        row.content["_pulse_sources"] = _PROGRESS.dump_python(progress, mode="json")
+        row.save(update_fields=["content"])
+
+
 def run_source(inputs: HighlightSourceInputs) -> HighlightSourceResult:
     source = next((source for source in load_sources() if source.name == inputs.source_name), None)
     context = Context(
@@ -147,21 +280,36 @@ def run_source(inputs: HighlightSourceInputs) -> HighlightSourceResult:
         date.fromisoformat(inputs.local_day),
         None if inputs.scopes is None else frozenset(inputs.scopes),
         frozenset(inputs.pinned),
+        publish_pulse=partial(publish_pulse, inputs) if inputs.highlights_id is not None else None,
     )
     if source is None or not context.allows(*source.scopes):
         return HighlightSourceResult(source_name=inputs.source_name, found=None, failed=False)
     with tags_context(product=Product.TODAY, feature=Feature.QUERY, team_id=context.team.id):
         found = context.guard(source.name, partial(source.find, context), HighlightFindings())
+    if context.publish_pulse is not None:
+        context.publish_pulse(found, [])
     return HighlightSourceResult(
         source_name=source.name, found=_FINDINGS.dump_json(found).decode(), failed=bool(context.failures)
     )
 
 
+@transaction.atomic
 def finalize(inputs: FinalizeHighlightsInputs) -> None:
-    row = TodayHighlights.objects.for_team(inputs.team_id).filter(id=inputs.highlights_id).first()
+    row = (
+        TodayHighlights.objects.for_team(inputs.team_id)
+        .select_for_update()
+        .filter(id=inputs.highlights_id, status=HighlightsStatus.COMPUTING)
+        .first()
+    )
     if row is None:
         return
     found = {result.source_name: _FINDINGS.validate_json(result.found) for result in inputs.results if result.found}
+    progress = _PROGRESS.validate_python(row.content.get("_pulse_sources", {}))
+    for name, source in progress.items():
+        final = found.get(name, source.found)
+        metrics = {metric.key: metric for metric in source.found.pulse}
+        metrics.update({metric.key: metric for metric in final.pulse})
+        found[name] = replace(final, pulse=tuple(metrics.values()))
     highlights = build_highlights(
         load_sources(),
         found,
@@ -170,6 +318,10 @@ def finalize(inputs: FinalizeHighlightsInputs) -> None:
         pins=[pin.key for pin in inputs.pins],
         pinned={metric.key: metric for metric in PINNED_METRICS.validate_json(inputs.pinned)},
     )
+    if "_pulse_sources" in row.content:
+        highlights = _pulse_content(
+            highlights, progress, _HIGHLIGHTS.validate_python(row.content).pulse_slots or [], complete=True
+        )
     failed = [result for result in inputs.results if result.failed]
     usable = bool(highlights.items or highlights.pulse)
     row.status = (

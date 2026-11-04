@@ -13,7 +13,9 @@ import {
 } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonTabs, LemonSelect, Link } from '@posthog/lemon-ui'
 
+import { FlaggedFeature } from 'lib/components/FlaggedFeature'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
@@ -28,19 +30,14 @@ import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalCard } from '../../SignalCard'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { canCreateImplementationPr } from '../../utils/reportActions'
-import {
-    displayConventionalCommitTitle,
-    parseConventionalCommitTitle,
-    parsePrUrlParts,
-    safeHttpUrl,
-} from '../../utils/reportPresentation'
+import { displayConventionalCommitTitle, parsePrUrlParts, safeHttpUrl } from '../../utils/reportPresentation'
 import { reportPullRequests } from '../../utils/reportPullRequests'
 import { parseReportSummary } from '../../utils/reportSummary'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
 import { SignalReportBillingBadge } from '../badges/SignalReportBillingBadge'
 import { SignalReportPriorityBadge } from '../badges/SignalReportPriorityBadge'
 import { isStatusRedundantWithActionability, SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
-import { ConventionalCommitScopeTag } from '../cards/ReportCard'
+import { ReportSpendSection } from '../spend/ReportSpendSection'
 import { CommitContent } from './artefactTypes'
 import { DetailSection } from './DetailSection'
 import { DiscussReportButton } from './DiscussReportButton'
@@ -174,7 +171,6 @@ export function ReportDetailSkeleton(): JSX.Element {
 
 interface InboxDetailFrameProps {
     report: SignalReport
-    hasPullRequest: boolean
     /** Content closing the evidence rail, after Activity (e.g. the PR conversation). */
     asideFooter?: ReactNode
     /** Extra primary action(s) rendered after the shared report actions. */
@@ -205,7 +201,6 @@ interface InboxDetailFrameProps {
  */
 export function InboxDetailFrame({
     report,
-    hasPullRequest,
     asideFooter,
     primaryAction,
     showFilesTab,
@@ -284,9 +279,7 @@ export function InboxDetailFrame({
             extra: { section },
         })
 
-    const conventionalTitle = parseConventionalCommitTitle(report.title)
     const displayTitle = displayConventionalCommitTitle(report.title, 'Untitled report')
-    const plainReportTitles = useFeatureFlag('SIGNALS_PLAIN_REPORT_TITLES', 'test')
     // Absolute URL to this report – seeded into the Discuss prompt so the agent can open and read
     // the report directly.
     const reportUrl = `${window.location.origin}${addProjectIdIfMissing(urls.inboxReport('reports', report.id))}`
@@ -346,12 +339,7 @@ export function InboxDetailFrame({
     )
 
     const titleHeading = (
-        <h1 className="min-w-0 m-0 break-words text-xl font-bold leading-tight tracking-tight">
-            {hasPullRequest && !plainReportTitles && conventionalTitle && (
-                <ConventionalCommitScopeTag type={conventionalTitle.type} scope={conventionalTitle.scope} />
-            )}
-            {displayTitle}
-        </h1>
+        <h1 className="min-w-0 m-0 break-words text-xl font-bold leading-tight tracking-tight">{displayTitle}</h1>
     )
 
     const claimPill = (
@@ -532,6 +520,9 @@ export function InboxDetailFrame({
                         {/* The pull request picker (when present), then reviewers, runs, and activity. */}
                         {children}
                         <SuggestedReviewersSection report={report} />
+                        <FlaggedFeature flag={FEATURE_FLAGS.SELF_DRIVING_USAGE_DISPLAY}>
+                            <ReportSpendSection reportId={report.id} />
+                        </FlaggedFeature>
                         <ReportTasksSection report={report} />
                         <ReportChecksSection report={report} />
                         <ReportActivitySection report={report} />
@@ -721,7 +712,6 @@ export function ReportDetail({ report }: { report: SignalReport }): JSX.Element 
     return (
         <InboxDetailFrame
             report={report}
-            hasPullRequest={hasPr}
             showFilesTab={hasPr || canDiff}
             diffSection={
                 canDiff && commit ? (

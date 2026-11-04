@@ -509,7 +509,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.client.get(f"/api/projects/{self.team.id}/actions/")
 
         # No actions yet, so no tags prefetch query
-        with self.assertNumQueries(9), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(8), snapshot_postgres_queries_context(self):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
         Action.objects.create(
@@ -519,7 +519,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         )
 
         # With actions, there's an extra tags prefetch query
-        with self.assertNumQueries(10), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(9), snapshot_postgres_queries_context(self):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
         Action.objects.create(
@@ -528,7 +528,7 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             created_by=User.objects.create_and_join(self.organization, "b", ""),
         )
 
-        with self.assertNumQueries(10), snapshot_postgres_queries_context(self):
+        with self.assertNumQueries(9), snapshot_postgres_queries_context(self):
             self.client.get(f"/api/projects/{self.team.id}/actions/")
 
     @parameterized.expand(
@@ -554,6 +554,18 @@ class TestActionApi(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/projects/{self.team.id}/actions/{params}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual([action["name"] for action in response.json()["results"]], expected_names)
+
+    @parameterized.expand(
+        [
+            ("non_numeric_limit", "limit", "abc"),
+            ("negative_limit", "limit", "-1"),
+            ("non_numeric_offset", "offset", "abc"),
+        ]
+    )
+    def test_listing_actions_rejects_bad_paging_params(self, _name: str, param: str, value: str) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/actions/?{param}={value}")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], param)
 
     def test_list_count_reflects_full_filtered_set_not_the_page(self) -> None:
         for name in ["alpha", "beta", "gamma", "delta"]:

@@ -140,7 +140,64 @@ describe('reportCheckPresentation', () => {
                     },
                 },
                 'Awaiting verification',
-                'The observation window has ended. Interim measurements have stopped. A final verdict has not been recorded.',
+                'The observation window has ended. Final verification is pending.',
+            ],
+            [
+                'an agent check awaits its final window without appearing paused',
+                {
+                    monitoring_timing: {
+                        state: 'paused',
+                        final_verification_state: 'monitoring',
+                        started_at: '2026-09-20T09:00:00Z',
+                        ends_at: '2026-09-27T09:00:00Z',
+                        next_measurement_at: null,
+                    },
+                },
+                'Monitoring',
+                'Final verification is scheduled for the end of this check’s observation window.',
+            ],
+            [
+                'a final scout runs without a legacy dispatch timestamp',
+                {
+                    dispatched_at: null,
+                    monitoring_timing: {
+                        state: 'paused',
+                        final_verification_state: 'verifying',
+                        started_at: '2026-09-20T09:00:00Z',
+                        ends_at: '2026-09-27T09:00:00Z',
+                        next_measurement_at: null,
+                    },
+                },
+                'Verifying',
+                'The scout is running the final check.',
+            ],
+            [
+                'a settled inconclusive evaluation needs assessment',
+                {
+                    monitoring_timing: {
+                        state: 'paused',
+                        final_verification_state: 'assessment_required',
+                        started_at: '2026-09-20T09:00:00Z',
+                        ends_at: '2026-09-27T09:00:00Z',
+                        next_measurement_at: null,
+                    },
+                },
+                'Inconclusive',
+                'Final verification could not settle this check. Further assessment is needed.',
+            ],
+            [
+                'a recorded verdict does not promise another final run',
+                {
+                    monitoring_timing: {
+                        state: 'paused',
+                        final_verification_state: 'verification_complete',
+                        started_at: '2026-09-20T09:00:00Z',
+                        ends_at: '2026-09-27T09:00:00Z',
+                        next_measurement_at: null,
+                    },
+                },
+                'Verification complete',
+                'A final verdict has been recorded for this check.',
             ],
             [
                 'a paused Monitoring check does not promise a scout run',
@@ -149,6 +206,20 @@ describe('reportCheckPresentation', () => {
                         state: 'paused',
                         started_at: '2026-09-20T09:00:00Z',
                         ends_at: '2026-09-27T09:00:00Z',
+                        next_measurement_at: null,
+                    },
+                },
+                'Paused',
+                'This check is paused during Monitoring.',
+            ],
+            [
+                'null final verification metadata keeps the legacy paused state',
+                {
+                    monitoring_timing: {
+                        state: 'paused',
+                        final_verification_state: null,
+                        started_at: null,
+                        ends_at: null,
                         next_measurement_at: null,
                     },
                 },
@@ -351,15 +422,18 @@ describe('reportCheckPresentation', () => {
     })
 
     describe('lifecycle log entries', () => {
-        it('gives a dated check its run date and the scout that answers it', () => {
+        it.each([false, true])('gives a dated check its run date with monitoring enabled: %s', (monitoringEnabled) => {
             expect(
-                checkScheduledEntry({
-                    kind: 'agent',
-                    next_run_at: '2026-09-27T09:00:00Z',
-                    arms_on_resolve: false,
-                    skill_name: 'signals-scout-error-tracking',
-                    runs: 2,
-                })
+                checkScheduledEntry(
+                    {
+                        kind: 'agent',
+                        next_run_at: '2026-09-27T09:00:00Z',
+                        arms_on_resolve: false,
+                        skill_name: 'signals-scout-error-tracking',
+                        runs: 2,
+                    },
+                    monitoringEnabled
+                )
             ).toEqual({
                 tag: { label: 'Runs Sep 27', type: 'primary' },
                 detail: 'Error tracking scout runs it · 2 runs',
@@ -388,6 +462,21 @@ describe('reportCheckPresentation', () => {
                 })
             }
         )
+
+        it.each([
+            ['metric_threshold', 480, 'Final evaluation after 8 hours of monitoring'],
+            ['metric_threshold', 720, 'Final evaluation after 12 hours of monitoring'],
+            ['metric_threshold', 95, 'Final evaluation after 1 hour 35 minutes of monitoring'],
+            ['metric_threshold', 0, 'Final evaluation when monitoring starts'],
+            ['metric_threshold', null, 'Final evaluation during monitoring'],
+            ['agent', 480, 'Final evaluation after 8 hours of monitoring · The follow-up scout runs it'],
+            ['agent', 0, 'Final evaluation when monitoring starts · The follow-up scout runs it'],
+        ])('describes final evaluation for a pending %s check (soak_minutes=%s)', (kind, soakMinutes, detail) => {
+            expect(checkScheduledEntry({ kind, arms_on_resolve: true, soak_minutes: soakMinutes }, true)).toEqual({
+                tag: { label: 'Runs during monitoring', type: 'muted' },
+                detail,
+            })
+        })
 
         it('separates a check that never ran from one that ran and never settled', () => {
             expect(checkExpiredEntry({}).tag.label).toEqual('Never ran')

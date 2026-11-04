@@ -22,16 +22,26 @@ from products.alerts.backend.judge import (
     LLM_DETECTOR_UNAVAILABLE_MESSAGE,
     EarlierFlag,
 )
-from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
+from products.alerts.backend.models.alert import (
+    AlertCheck,
+    AlertConfiguration,
+    InvestigationStatus,
+    InvestigationVerdict,
+)
+from products.alerts.backend.models.investigation import InsightAlertInvestigation
 from products.alerts.backend.platform_cutover import cut_over_team
+from products.alerts.backend.platform_investigation_detail import SUPPRESSED_BY_AGENT_KEY
 from products.alerts.backend.test.insight_alerts import create_insight_alert
 from products.alerts_platform.backend.facade import testing as platform_testing
-from products.alerts_platform.backend.facade.api import get_configuration, update_configuration
+from products.alerts_platform.backend.facade.api import get_configuration, record_verdict_change, update_configuration
 from products.alerts_platform.backend.facade.contracts import (
     InvalidPlatformAlertEdit,
     PlatformAlertConfigurationEdit,
     SourceKind,
+    VerdictChange,
 )
+from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy
+from products.notebooks.backend.facade.api import create_notebook
 
 
 def _iso(moment: datetime) -> str:
@@ -77,6 +87,22 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
             source_detail=detail,
         )
 
+    def _follow_up(self, minutes_ago: int, *, firing_minutes_ago: int) -> None:
+        firing_at = self._at(firing_minutes_ago)
+        with team_scope(self.team.id):
+            platform_testing.start_firing(self.copy_id, team_id=self.team.id, at=firing_at)
+            request = record_verdict_change(
+                VerdictChange(
+                    team_id=self.team.id,
+                    configuration_id=self.copy_id,
+                    firing_evaluation_key=f"slot:{firing_at.isoformat()}",
+                    episode_started_at=firing_at,
+                    firing_event_id="$insight_alert_firing",
+                ),
+                now=self._at(minutes_ago),
+            )
+        assert request is not None
+
     def _own_check(self, minutes_ago: int, date: str, rationale: str) -> None:
         check = AlertCheck.objects.create(
             alert_configuration=self.alert,
@@ -100,8 +126,7 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
     @parameterized.expand([("list",), ("retrieve",)])
     def test_a_moved_alert_shows_the_platform_state_and_last_check(self, action: str) -> None:
         self._record(30, "firing", value=150.0)
-        with team_scope(self.team.id):
-            platform_testing.start_firing(self.copy_id, team_id=self.team.id, at=self._at(30))
+        self._follow_up(10, firing_minutes_ago=30)
 
         row = self._row(action)
 
@@ -113,6 +138,7 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
         self._record(30, "errored", error="Query timed out")
         # A snoozed check evaluates nothing, so it measures no value either.
         self._record(15, "snoozed")
+        self._follow_up(10, firing_minutes_ago=60)
 
         row = self._row("retrieve", "?checks_limit=2")
 
@@ -161,6 +187,56 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
             "code": LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
             "message": LLM_DETECTOR_UNAVAILABLE_MESSAGE,
         }
+
+    def test_a_moved_alert_shows_each_checks_investigation_and_what_the_agent_suppressed(self) -> None:
+        notebook = create_notebook(self.team.id, title="Signups investigation", content=None)
+        for minutes_ago in (40, 30, 20, 10):
+            self._record(
+                minutes_ago,
+                "firing",
+                value=150.0,
+                detail={SUPPRESSED_BY_AGENT_KEY: True} if minutes_ago == 10 else None,
+            )
+        InsightAlertInvestigation.objects.for_team(self.team.id).create(
+            team=self.team,
+            alert_configuration=self.alert,
+            configuration_id=self.copy_id,
+            evaluation_key=f"slot:{self._at(40).isoformat()}",
+            kind=InsightAlertInvestigation.Kind.AGENT,
+            status=InvestigationStatus.DONE,
+            verdict=InvestigationVerdict.FALSE_POSITIVE,
+            summary="A release changed the event name.",
+            notebook_id=notebook.id,
+        )
+        released = [
+            (40, HoldReleasedBy.VERDICT),
+            (30, HoldReleasedBy.SAFETY_NET),
+            (20, HoldReleasedBy.CLAIM_REFUSED),
+        ]
+        for minutes_ago, released_by in released:
+            platform_testing.released_hold(
+                self.copy_id,
+                team_id=self.team.id,
+                at=self._at(minutes_ago),
+                action=HoldRelease.SUPPRESS,
+                released_by=released_by,
+            )
+
+        checks = self._row("retrieve")["checks"]
+
+        fields = (
+            "investigation_status",
+            "investigation_verdict",
+            "investigation_summary",
+            "investigation_notebook_short_id",
+            "notification_suppressed_by_agent",
+        )
+        assert [tuple(check[field] for field in fields) for check in checks] == [
+            (None, None, None, None, True),
+            (None, None, None, None, True),
+            (None, None, None, None, False),
+            ("done", "false_positive", "A release changed the event name.", notebook.short_id, True),
+        ]
 
     def test_a_moved_detector_alert_marks_the_points_both_stacks_fired_on(self) -> None:
         self._own_check(60 * 24, "2026-10-18", "Before the move.")
@@ -213,7 +289,7 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
         self._record(30, "firing", value=150.0)
 
         with patch(
-            "products.alerts.backend.platform_alert_reads.check_page_by_legacy_id",
+            "products.alerts.backend.platform_alert_reads.check_page_by_public_id",
             side_effect=RuntimeError("ClickHouse is down"),
         ):
             row = self._row("retrieve")
@@ -292,11 +368,27 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         assert (self.alert.threshold.configuration["type"], self.alert.detector_config) == ("absolute", None)
         assert self._copy().source_config == stored_config
 
-    def test_a_platform_edit_cannot_turn_an_ai_alert_back_on(self) -> None:
+    @parameterized.expand(
+        [
+            ("ai_alert", {"detector_config": {"type": "llm"}}, True, None),
+            ("real_time_alert_over_the_limit", {"calculation_interval": "real_time"}, True, "Limit reached."),
+            ("real_time_alert_without_the_plan", {"calculation_interval": "real_time"}, False, None),
+        ]
+    )
+    def test_a_platform_edit_cannot_turn_an_alert_back_on_past_its_admission(
+        self, _name: str, stored: dict[str, Any], has_real_time_plan: bool, real_time_limit_error: str | None
+    ) -> None:
+        self.organization.available_product_features = (
+            [{"key": AvailableFeature.REAL_TIME_ALERTS, "name": "Real-time alerts"}] if has_real_time_plan else []
+        )
+        self.organization.save()
         self._edit_on_the_platform(lambda stored: replace(stored, enabled=False))
-        AlertConfiguration.objects.filter(id=self.alert.id).update(detector_config={"type": "llm"})
+        AlertConfiguration.objects.filter(id=self.alert.id).update(**stored)
 
-        with pytest.raises(InvalidPlatformAlertEdit) as refused:
+        with (
+            patch.object(AlertConfiguration, "check_real_time_alert_limit", return_value=real_time_limit_error),
+            pytest.raises(InvalidPlatformAlertEdit) as refused,
+        ):
             self._edit_on_the_platform(lambda stored: replace(stored, enabled=True))
 
         assert refused.value.field_name == "enabled"
@@ -322,23 +414,35 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         self.alert.refresh_from_db()
         assert (self.alert.snoozed_until, self._copy().snooze_until) == (None, None)
 
-    def test_an_edit_the_platform_cannot_run_is_refused_on_both_rows(self) -> None:
-        # Real-time passes the insight API's own checks on this insight, so only the platform refuses it.
+    @parameterized.expand(
+        [
+            ("to_real_time", {"calculation_interval": AlertCalculationInterval.REAL_TIME.value}, True),
+            ("threshold", {"threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 50}}}}, True),
+            ("name_only", {"name": "Renamed"}, False),
+        ]
+    )
+    def test_an_edit_reschedules_the_copy_when_it_reschedules_the_insight_alert(
+        self, _name: str, edit: dict[str, Any], rescheduled: bool
+    ) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.REAL_TIME_ALERTS, "name": "Real-time alerts"}
         ]
         self.organization.save()
+        with team_scope(self.team.id):
+            due_before = platform_testing.copy_of(self.alert.id).next_check_at
 
-        response = self.client.patch(
-            f"{self.url}/{self.alert.id}/",
-            {"calculation_interval": AlertCalculationInterval.REAL_TIME.value},
-            format="json",
-        )
+        response = self.client.patch(f"{self.url}/{self.alert.id}/", edit, format="json")
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert "alerts platform" in str(response.json())
+        assert response.status_code == status.HTTP_200_OK, response.json()
         self.alert.refresh_from_db()
-        assert self.alert.calculation_interval == AlertCalculationInterval.DAILY.value
+        with team_scope(self.team.id):
+            due_after = platform_testing.copy_of(self.alert.id).next_check_at
+        assert self.alert.owner == "platform"
+        assert due_before is not None and due_after is not None and self.alert.next_check_at is not None
+        if rescheduled:
+            assert self.alert.next_check_at + timedelta(minutes=1) <= due_after < due_before
+        else:
+            assert due_after == due_before
 
     @parameterized.expand([("a_team_on_the_platform", True), ("a_team_off_the_platform", False)])
     def test_a_new_alert_is_handed_over_only_in_a_team_on_the_platform(self, _name: str, begun: bool) -> None:

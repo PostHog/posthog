@@ -23,7 +23,7 @@ export const PROMPTS_PAGE_SIZE = 50
 
 export type ContentAutopilotPromptsError = 'forbidden' | 'failed'
 
-const promptsErrorFrom = (error: unknown): ContentAutopilotPromptsError =>
+export const promptsErrorFrom = (error: unknown): ContentAutopilotPromptsError =>
     error instanceof ApiError && error.status === 403 ? 'forbidden' : 'failed'
 
 const omitKey = (record: Record<string, boolean>, key: string): Record<string, boolean> => {

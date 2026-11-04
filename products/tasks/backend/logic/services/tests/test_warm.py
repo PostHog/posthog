@@ -1,17 +1,48 @@
+from datetime import datetime, timedelta
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
+
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework.exceptions import PermissionDenied, Throttled
 
 from posthog.exceptions import QuotaLimitExceeded
+from posthog.models.team import Team
 
+from products.signals.backend.models import SignalReport
+from products.tasks.backend.access import PostHogAIAccessDecision
 from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR
-from products.tasks.backend.logic.services.warm import SandboxWarmer, WarmSourceChanged
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.logic.services.warm import ActiveSessionCaps, SandboxWarmer, WarmSourceChanged
+from products.tasks.backend.models import SandboxSession, Task, TaskRun
 
 WARM = "products.tasks.backend.logic.services.warm"
 _CAPS = SandboxWarmer.ORIGIN_PRODUCT_CAPS[Task.OriginProduct.POSTHOG_AI]
+_ACTIVE_CAPS = SandboxWarmer.ORIGIN_ACTIVE_SESSION_CAPS[Task.OriginProduct.POSTHOG_AI]
+
+
+def _session(
+    team: Team,
+    run: TaskRun,
+    *,
+    prewarmed: bool = False,
+    user_attributed_at: datetime | None = None,
+    ended_at: datetime | None = None,
+) -> SandboxSession:
+    return SandboxSession.objects.unscoped().create(
+        team=team,
+        task_run=run,
+        sandbox_id=f"sb-{SandboxSession.objects.unscoped().count()}-{run.id}",
+        cpu_cores=4.0,
+        memory_gb=16.0,
+        ttl_seconds=3600,
+        ttl_expires_at=timezone.now() + timedelta(hours=1),
+        prewarmed=prewarmed,
+        user_attributed_at=user_attributed_at,
+        ended_at=ended_at,
+        origin_product=run.task.origin_product,
+    )
 
 
 def test_code_cloud_warm_pool_caps():
@@ -22,6 +53,15 @@ def test_code_cloud_warm_pool_caps():
 
 
 class TestSandboxWarmerWarm(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.posthog_ai_access = PostHogAIAccessDecision.GRANDFATHERED
+        access_patcher = patch(
+            f"{WARM}.get_posthog_ai_access_decision", side_effect=lambda *_args, **_kwargs: self.posthog_ai_access
+        )
+        access_patcher.start()
+        self.addCleanup(access_patcher.stop)
+
     def _task(self, *, origin=Task.OriginProduct.POSTHOG_AI, created_by=None) -> Task:
         return Task.objects.create(
             team=self.team,
@@ -151,13 +191,26 @@ class TestSandboxWarmerWarm(APIBaseTest):
         assert result.just_created is True
         assert task.runs.count() == 1
 
-    def test_over_quota_raises_and_creates_no_run(self):
+    @parameterized.expand(
+        [
+            ("over_quota", PostHogAIAccessDecision.GRANDFATHERED, True, QuotaLimitExceeded),
+            ("posthog_ai_denied", PostHogAIAccessDecision.BETA_OFF, False, PermissionDenied),
+        ]
+    )
+    def test_refused_warm_creates_no_run(
+        self,
+        _name: str,
+        access: PostHogAIAccessDecision,
+        over_quota: bool,
+        expected_error: type[Exception],
+    ):
+        self.posthog_ai_access = access
         task = self._task()
         with (
             patch(f"{WARM}.execute_task_processing_workflow") as m_workflow,
-            patch(f"{WARM}.is_team_limited", return_value=True),
+            patch(f"{WARM}.is_team_limited", return_value=over_quota),
         ):
-            with self.assertRaises(QuotaLimitExceeded):
+            with self.assertRaises(expected_error):
                 SandboxWarmer(task, user=self.user).warm()
 
         assert task.runs.count() == 0
@@ -194,6 +247,76 @@ class TestSandboxWarmerWarm(APIBaseTest):
 
         assert task.runs.count() == 0
         m_workflow.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("four_unclaimed", 4, False, timedelta(minutes=10), None, None, False, False),
+            ("five_unclaimed", 5, False, timedelta(minutes=10), None, None, False, True),
+            ("five_claimed", 5, True, timedelta(minutes=10), None, None, False, False),
+            ("five_ended_over_an_hour_ago", 5, False, timedelta(minutes=70), None, None, False, False),
+            (
+                "five_of_another_bucket",
+                5,
+                False,
+                timedelta(minutes=10),
+                Task.OriginProduct.USER_CREATED,
+                None,
+                False,
+                False,
+            ),
+            (
+                "five_of_another_client_origin",
+                5,
+                False,
+                timedelta(minutes=10),
+                Task.OriginProduct.ERROR_TRACKING,
+                Task.OriginProduct.USER_CREATED,
+                False,
+                True,
+            ),
+            ("five_by_another_user", 5, False, timedelta(minutes=10), None, None, True, False),
+        ]
+    )
+    def test_warm_churn_throttle(
+        self,
+        _name: str,
+        sessions: int,
+        claimed: bool,
+        ended_ago: timedelta,
+        churned_origin: str | None,
+        task_origin: str | None,
+        other_user: bool,
+        throttled: bool,
+    ) -> None:
+        churned_run = self._task(
+            origin=churned_origin or Task.OriginProduct.POSTHOG_AI,
+            created_by=self._create_user("churner@posthog.com") if other_user else None,
+        ).create_run(mode="interactive")
+        churned_run.status = TaskRun.Status.CANCELLED
+        churned_run.save(update_fields=["status"])
+        now = timezone.now()
+        for _ in range(sessions):
+            _session(
+                self.team,
+                churned_run,
+                prewarmed=True,
+                user_attributed_at=now - ended_ago - timedelta(minutes=1) if claimed else None,
+                ended_at=now - ended_ago,
+            )
+
+        task = self._task(origin=task_origin or Task.OriginProduct.POSTHOG_AI)
+        with (
+            patch(f"{WARM}.execute_task_processing_workflow"),
+            patch(f"{WARM}.is_team_limited", return_value=False),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            if throttled:
+                with self.assertRaises(Throttled):
+                    SandboxWarmer(task, user=self.user).warm()
+            else:
+                SandboxWarmer(task, user=self.user).warm()
+
+        assert task.runs.count() == (0 if throttled else 1)
 
 
 class TestSandboxWarmerAtCapacity(APIBaseTest):
@@ -238,3 +361,170 @@ class TestSandboxWarmerAtCapacity(APIBaseTest):
 
         # The requesting user holds no warm runs, but the org cap is full.
         assert SandboxWarmer.at_capacity(origin, self.team, self.user) is True
+
+    def test_active_session_cap_hit_counts_attributed_open_sessions_only(self) -> None:
+        origin = Task.OriginProduct.POSTHOG_AI
+        now = timezone.now()
+        run = self._warm_run_on_new_task(warm=False)
+
+        for _ in range(_ACTIVE_CAPS.per_org):
+            _session(self.team, run, prewarmed=True)
+            _session(self.team, run, user_attributed_at=now, ended_at=now)
+        assert (
+            SandboxWarmer.active_session_cap_hit(
+                origin, organization_id=self.organization.id, created_by_id=self.user.pk
+            )
+            is None
+        )
+
+        for _ in range(_ACTIVE_CAPS.per_user):
+            _session(self.team, run, user_attributed_at=now)
+        assert (
+            SandboxWarmer.active_session_cap_hit(
+                origin, organization_id=self.organization.id, created_by_id=self.user.pk
+            )
+            == "user"
+        )
+
+        other = self._create_user("capped@posthog.com")
+        other_run = self._warm_run_on_new_task(created_by=other, warm=False)
+        for _ in range(_ACTIVE_CAPS.per_org - _ACTIVE_CAPS.per_user):
+            _session(self.team, other_run, user_attributed_at=now)
+        third = self._create_user("idle@posthog.com")
+        assert (
+            SandboxWarmer.active_session_cap_hit(origin, organization_id=self.organization.id, created_by_id=third.pk)
+            == "org"
+        )
+
+    @parameterized.expand(
+        [
+            ("modal_live", "modal", timedelta(hours=1), TaskRun.Status.IN_PROGRESS, False, False, True),
+            ("modal_past_ttl", "modal", -timedelta(hours=1), TaskRun.Status.IN_PROGRESS, False, False, False),
+            (
+                "hogland_past_ttl_live_run",
+                "hogland",
+                -timedelta(hours=1),
+                TaskRun.Status.IN_PROGRESS,
+                False,
+                False,
+                True,
+            ),
+            (
+                "hogland_past_ttl_terminal_run",
+                "hogland",
+                -timedelta(hours=1),
+                TaskRun.Status.COMPLETED,
+                False,
+                False,
+                False,
+            ),
+            (
+                "hogland_past_ttl_not_started_run",
+                "hogland",
+                -timedelta(hours=1),
+                TaskRun.Status.NOT_STARTED,
+                False,
+                False,
+                True,
+            ),
+            ("own_run_excluded", "modal", timedelta(hours=1), TaskRun.Status.IN_PROGRESS, True, False, False),
+            ("deleted_task", "modal", timedelta(hours=1), TaskRun.Status.IN_PROGRESS, False, True, True),
+        ]
+    )
+    def test_active_session_cap_hit_counts_live_sessions(
+        self,
+        _name: str,
+        backend: str,
+        ttl_from_now: timedelta,
+        status: str,
+        exclude_own: bool,
+        deleted: bool,
+        counts: bool,
+    ) -> None:
+        run = self._warm_run_on_new_task(warm=False, status=status)
+        session = _session(self.team, run, user_attributed_at=timezone.now())
+        SandboxSession.objects.unscoped().filter(id=session.id).update(
+            sandbox_backend=backend, ttl_expires_at=timezone.now() + ttl_from_now
+        )
+        if deleted:
+            Task.objects.filter(id=run.task_id).update(deleted=True)
+
+        with patch.dict(
+            SandboxWarmer.ORIGIN_ACTIVE_SESSION_CAPS,
+            {Task.OriginProduct.POSTHOG_AI: ActiveSessionCaps(per_user=1, per_org=1)},
+        ):
+            scope = SandboxWarmer.active_session_cap_hit(
+                Task.OriginProduct.POSTHOG_AI,
+                organization_id=self.organization.id,
+                created_by_id=self.user.pk,
+                exclude_run_id=run.id if exclude_own else None,
+            )
+
+        assert scope == ("user" if counts else None)
+
+    def test_active_session_cap_hit_caps_a_report_linked_task_to_one_live_sandbox(self) -> None:
+        report = SignalReport.objects.create(team=self.team)
+        task, sibling = (
+            Task.objects.create(
+                team=self.team,
+                title="",
+                description="",
+                origin_product=Task.OriginProduct.SIGNAL_REPORT,
+                signal_report=report,
+                created_by=self.user,
+            )
+            for _ in range(2)
+        )
+        run = task.create_run(mode="interactive")
+        _session(self.team, run, user_attributed_at=timezone.now())
+
+        def hit(task_id, **kwargs):
+            return SandboxWarmer.active_session_cap_hit(
+                Task.OriginProduct.SIGNAL_REPORT,
+                organization_id=self.organization.id,
+                created_by_id=self.user.pk,
+                signal_report_id=report.id,
+                task_id=task_id,
+                **kwargs,
+            )
+
+        assert hit(task.id) == "task"
+        assert hit(task.id, exclude_run_id=run.id) is None
+        assert hit(sibling.id) is None
+        assert SandboxWarmer.active_session_cap_detail(
+            Task.OriginProduct.SIGNAL_REPORT, "task", signal_report_id=report.id
+        ) == ("This report task already has a cloud sandbox running. Wait for it to finish or stop it, then try again.")
+
+    @parameterized.expand(
+        [
+            ("server_only_origin", Task.OriginProduct.SLACK, False, None),
+            ("client_origin_shares_bucket", Task.OriginProduct.ERROR_TRACKING, False, "user"),
+            ("bare_signal_report_shares_bucket", Task.OriginProduct.SIGNAL_REPORT, False, "user"),
+            ("linked_signal_report", Task.OriginProduct.SIGNAL_REPORT, True, None),
+        ]
+    )
+    def test_active_session_cap_hit_buckets_by_provenance(
+        self, _name: str, origin: str, linked_report: bool, expected: str | None
+    ) -> None:
+        held = Task.objects.create(
+            team=self.team,
+            title="",
+            description="",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            created_by=self.user,
+        )
+        _session(self.team, held.create_run(mode="interactive"), user_attributed_at=timezone.now())
+        report = SignalReport.objects.create(team=self.team) if linked_report else None
+
+        with patch.dict(
+            SandboxWarmer.ORIGIN_ACTIVE_SESSION_CAPS,
+            {Task.OriginProduct.USER_CREATED: ActiveSessionCaps(per_user=1, per_org=100)},
+        ):
+            scope = SandboxWarmer.active_session_cap_hit(
+                origin,
+                organization_id=self.organization.id,
+                created_by_id=self.user.pk,
+                signal_report_id=report.id if report else None,
+            )
+
+        assert scope == expected

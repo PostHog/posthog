@@ -12,8 +12,8 @@ import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { captureMarketingCrossSellSourceCreated, getMarketingCrossSellAttribution } from 'lib/marketingCrossSell'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -24,6 +24,7 @@ import {
     Breadcrumb,
     ExternalDataSourceCreatePayload,
     ExternalDataSourceSyncSchema,
+    type ExternalDataSourceType,
     IncrementalField,
     ManualLinkSourceType,
     manualLinkSources,
@@ -32,7 +33,11 @@ import {
 
 import type { SourceFieldConfig } from 'products/data_warehouse/frontend/types'
 import {
-    ExternalDataSourceTypeEnumApi,
+    externalDataSourcesBulkUpdateSchemasPartialUpdate,
+    externalDataSourcesRetrieve,
+} from 'products/warehouse_sources/frontend/generated/api'
+import {
+    ExternalDataSourceBulkUpdateSchemaApi,
     SourceConfigResponseApi,
     SourceFieldSwitchGroupConfigApi,
     SuggestedTableApi,
@@ -277,6 +282,11 @@ export function buildCreateSourcePayload(
     }
 }
 
+function withoutColumns(columns: string[] | null | undefined, removed: (string | null)[]): string[] | null | undefined {
+    const names = new Set(removed.filter((name): name is string => !!name).map((name) => name.toLowerCase()))
+    return columns?.filter((column) => !names.has(column.toLowerCase())) ?? columns
+}
+
 function webhookResultHasNoPendingInputs(webhookResult: WebhookCreateResult | null | undefined): boolean {
     return !!webhookResult?.success && (webhookResult.pending_inputs?.length ?? 0) === 0
 }
@@ -409,6 +419,39 @@ export const bulkToggledShouldSync = (schema: ExternalDataSourceSyncSchema, sele
         return schema.should_sync
     }
     return selectAll
+}
+
+export interface PollingSyncSettings {
+    sync_type: 'full_refresh' | 'incremental' | 'append'
+    incremental_field?: string
+    incremental_field_type?: string
+}
+
+/** The default sync method for a table that does not sync by CDC or webhook. */
+export function defaultPollingSyncSettings(
+    schema: ExternalDataSourceSyncSchema,
+    connectorName: string
+): PollingSyncSettings {
+    if (schema.prefers_full_refresh) {
+        return { sync_type: 'full_refresh' }
+    }
+    if (schema.incremental_available && !hasIncrementalMergeKey(schema)) {
+        return { sync_type: 'full_refresh' }
+    }
+    if (schema.incremental_available || schema.append_available) {
+        const resolvedField =
+            connectorName === 'Supabase'
+                ? resolveUpdateTrackedIncrementalField(schema.incremental_fields)
+                : resolveIncrementalField(schema.incremental_fields)
+        if (resolvedField) {
+            return {
+                sync_type: schema.incremental_available ? 'incremental' : 'append',
+                incremental_field: resolvedField.field,
+                incremental_field_type: resolvedField.field_type,
+            }
+        }
+    }
+    return { sync_type: 'full_refresh' }
 }
 
 function syncExpandedSchemaGroupKeys(
@@ -549,8 +592,11 @@ export interface sourceWizardLogicValues {
     webhookFieldInputsTouched: boolean
     webhookFieldInputsTouches: Record<string, boolean>
     webhookFieldInputsValidationErrors: DeepPartialMap<Record<string, any>, ValidationErrorType>
+    webhookManualSetupConfirmed: boolean
+    webhookNeedsManualConfirmation: boolean
     webhookResult: WebhookCreateResult | null
     webhookStepComplete: boolean
+    webhookTablesSwitching: boolean
     wizardAvailableDestinationCount: number
     wizardDestinationIds: string[]
 }
@@ -665,11 +711,11 @@ export interface sourceWizardLogicActions {
         value: true
     }
     handleRedirect: (
-        source: ExternalDataSourceTypeEnumApi,
+        source: ExternalDataSourceType,
         searchParams?: any
     ) => {
         searchParams: any
-        source: ExternalDataSourceTypeEnumApi
+        source: string
     }
     onBack: () => {
         value: true
@@ -735,6 +781,13 @@ export interface sourceWizardLogicActions {
         returnLabel: string
         returnUrl: string
     }
+    setSchemaMaskedColumns: (
+        schema: ExternalDataSourceSyncSchema,
+        maskedColumns: string[]
+    ) => {
+        maskedColumns: string[]
+        schema: ExternalDataSourceSyncSchema
+    }
     setSchemaNameFilter: (schemaNameFilter: string) => {
         schemaNameFilter: string
     }
@@ -784,14 +837,23 @@ export interface sourceWizardLogicActions {
     setWebhookFieldInputsValues: (values: DeepPartial<Record<string, any>>) => {
         values: DeepPartial<Record<string, any>>
     }
+    setWebhookManualSetupConfirmed: (confirmed: boolean) => {
+        confirmed: boolean
+    }
     setWebhookResult: (result: WebhookCreateResult | null) => {
         result: WebhookCreateResult | null
+    }
+    setWebhookTablesSwitching: (switching: boolean) => {
+        switching: boolean
     }
     setWizardAvailableDestinationCount: (count: number) => {
         count: number
     }
     setWizardDestinationIds: (destinationIds: string[]) => {
         destinationIds: string[]
+    }
+    skipWebhookSetup: () => {
+        value: true
     }
     submitSourceConnectionDetails: () => {
         value: boolean
@@ -826,6 +888,9 @@ export interface sourceWizardLogicActions {
         webhookFieldInputs: Record<string, any>
     }
     submitWebhookFields: () => {
+        value: true
+    }
+    switchWebhookTablesToPolling: () => {
         value: true
     }
     syncExpandedSchemaGroupKeys: (
@@ -928,9 +993,14 @@ export interface sourceWizardLogicMeta {
             }[]
         ) => Breadcrumb[]
         hasWebhookSchemas: (databaseSchema: ExternalDataSourceSyncSchema[]) => boolean
-        webhookStepComplete: (
+        webhookNeedsManualConfirmation: (
             webhookResult: WebhookCreateResult | null,
             selectedConnector: SourceConfigResponseApi | null
+        ) => boolean
+        webhookStepComplete: (
+            webhookResult: WebhookCreateResult | null,
+            webhookNeedsManualConfirmation: boolean,
+            webhookManualSetupConfirmed: boolean
         ) => boolean
         isManualLinkingSelected: (selectedConnector: SourceConfigResponseApi | null) => boolean
         isDirectQueryMode: (
@@ -1066,7 +1136,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         }),
         setInitialConnector: (connector: SourceConfigResponseApi | null) => ({ connector }),
         toggleManualLinkFormVisible: (visible: boolean) => ({ visible }),
-        handleRedirect: (source: ExternalDataSourceTypeEnumApi, searchParams?: any) => ({
+        handleRedirect: (source: ExternalDataSourceType, searchParams?: any) => ({
             source,
             searchParams,
         }),
@@ -1094,6 +1164,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
         setSchemaRowFilters: (schema: ExternalDataSourceSyncSchema, rowFilters: RowFilter[] | null) => ({
             schema,
             rowFilters,
+        }),
+        setSchemaMaskedColumns: (schema: ExternalDataSourceSyncSchema, maskedColumns: string[]) => ({
+            schema,
+            maskedColumns,
         }),
         updateSchemaSyncType: (
             schema: ExternalDataSourceSyncSchema,
@@ -1143,6 +1217,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             result,
         }),
         submitWebhookFields: true,
+        setWebhookManualSetupConfirmed: (confirmed: boolean) => ({ confirmed }),
+        switchWebhookTablesToPolling: true,
+        setWebhookTablesSwitching: (switching: boolean) => ({ switching }),
+        skipWebhookSetup: true,
         openCdcSelfManagedSetupDialog: true,
         closeCdcSelfManagedSetupDialog: true,
         clearCdcPrereqsCheckResult: true,
@@ -1267,6 +1345,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         row_filters: s.table === schema.table ? rowFilters : s.row_filters,
                     }))
                 },
+                setSchemaMaskedColumns: (state, { schema, maskedColumns }) => {
+                    return state.map((s) => ({
+                        ...s,
+                        masked_columns: s.table === schema.table ? maskedColumns : s.masked_columns,
+                    }))
+                },
                 updateSchemaSyncType: (
                     state,
                     {
@@ -1290,6 +1374,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                                 ? (incrementalFieldLookbackSeconds ?? null)
                                 : s.incremental_field_lookback_seconds,
                         primary_key_columns: s.table === schema.table ? primaryKeyColumns : s.primary_key_columns,
+                        // The server refuses to mask a cursor or key column, which would fail the whole source creation.
+                        masked_columns:
+                            s.table === schema.table
+                                ? withoutColumns(s.masked_columns, [incrementalField, ...(primaryKeyColumns ?? [])])
+                                : s.masked_columns,
                         ...(s.table === schema.table && syncType === 'cdc' && cdcTableMode
                             ? { cdc_table_mode: cdcTableMode }
                             : {}),
@@ -1455,6 +1544,20 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 setWebhookResult: () => false,
             },
         ],
+        webhookManualSetupConfirmed: [
+            false,
+            {
+                setWebhookManualSetupConfirmed: (_, { confirmed }) => confirmed,
+                setWebhookResult: () => false,
+                onClear: () => false,
+            },
+        ],
+        webhookTablesSwitching: [
+            false,
+            {
+                setWebhookTablesSwitching: (_, { switching }) => switching,
+            },
+        ],
     }),
     loaders(({ values }) => ({
         cdcPrereqsCheckResult: [
@@ -1471,8 +1574,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     try {
                         return await api.externalDataSources.check_cdc_prerequisites(
                             {
-                                source_type: (values.selectedConnector?.name ||
-                                    'Postgres') as ExternalDataSourceTypeEnumApi,
+                                source_type: (values.selectedConnector?.name || 'Postgres') as ExternalDataSourceType,
                                 ...payload,
                                 cdc_management_mode: mode,
                                 tables: [],
@@ -1509,8 +1611,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     try {
                         return await api.externalDataSources.check_cdc_prerequisites(
                             {
-                                source_type: (values.selectedConnector?.name ||
-                                    'Postgres') as ExternalDataSourceTypeEnumApi,
+                                source_type: (values.selectedConnector?.name || 'Postgres') as ExternalDataSourceType,
                                 ...connectionPayload,
                                 cdc_management_mode: 'self_managed',
                                 // PostHog creates the slot itself — only verify the publication.
@@ -1600,19 +1701,28 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             (databaseSchema: ExternalDataSourceSyncSchema[]): boolean =>
                 databaseSchema.some((s) => s.supports_webhooks && s.sync_type === 'webhook' && s.should_sync),
         ],
-        webhookStepComplete: [
+        webhookNeedsManualConfirmation: [
             (s) => [s.webhookResult, s.selectedConnector],
             (webhookResult: WebhookCreateResult | null, selectedConnector: SourceConfigResponseApi | null): boolean => {
+                if (!webhookResult?.webhook_url || webhookResultHasNoPendingInputs(webhookResult)) {
+                    return false
+                }
+                // With a required field to save, saving that form is the proof of the manual setup.
+                const webhookFields = selectedConnector?.webhookFields ?? []
+                return !webhookFields.some((f) => 'required' in f && f.required)
+            },
+        ],
+        webhookStepComplete: [
+            (s) => [s.webhookResult, s.webhookNeedsManualConfirmation, s.webhookManualSetupConfirmed],
+            (
+                webhookResult: WebhookCreateResult | null,
+                webhookNeedsManualConfirmation: boolean,
+                webhookManualSetupConfirmed: boolean
+            ): boolean => {
                 if (webhookResultHasNoPendingInputs(webhookResult)) {
                     return true
                 }
-                if (!webhookResult) {
-                    return false
-                }
-
-                const webhookFields = selectedConnector?.webhookFields ?? []
-                const requiredFields = webhookFields.filter((f) => 'required' in f && f.required)
-                return requiredFields.length === 0
+                return webhookNeedsManualConfirmation && webhookManualSetupConfirmed
             },
         ],
         isManualLinkingSelected: [
@@ -1714,7 +1824,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 }
 
                 if (currentStep === 4 && !webhookStepComplete) {
-                    return 'Finish setting up the webhook to continue'
+                    return 'Set up the webhook, or choose another option below this step'
                 }
 
                 if (currentStep === WIZARD_DESTINATION_STEP) {
@@ -2202,6 +2312,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                                         sync_time_of_day: schema.sync_time_of_day,
                                         primary_key_columns: schema.primary_key_columns,
                                         enabled_columns: schema.enabled_columns ?? null,
+                                        masked_columns: schema.masked_columns ?? null,
                                         row_filters: schema.row_filters ?? null,
                                         ...(schema.sync_type === 'cdc' && schema.cdc_table_mode
                                             ? { cdc_table_mode: schema.cdc_table_mode }
@@ -2415,6 +2526,101 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 posthog.captureException(e)
             }
         },
+        switchWebhookTablesToPolling: async () => {
+            const { sourceId, currentTeamId, selectedConnector } = values
+            if (!sourceId || !currentTeamId || !selectedConnector) {
+                return
+            }
+            actions.setWebhookTablesSwitching(true)
+            try {
+                const source = await externalDataSourcesRetrieve(String(currentTeamId), sourceId)
+                const wizardSchemas = new Map(values.databaseSchema.map((schema) => [schema.table, schema]))
+                const updates: ExternalDataSourceBulkUpdateSchemaApi[] = []
+                const switched = new Map<string, PollingSyncSettings>()
+                let webhookOnlyCount = 0
+                for (const item of source.schemas) {
+                    const schemaId = typeof item.id === 'string' ? item.id : null
+                    const name = typeof item.name === 'string' ? item.name : null
+                    const wizardSchema = name ? wizardSchemas.get(name) : undefined
+                    if (!schemaId || !name || !wizardSchema || item.sync_type !== 'webhook' || !item.should_sync) {
+                        continue
+                    }
+                    // A webhook-only table (e.g. Stripe Discount) has no list endpoint to poll, and the
+                    // API rejects any other sync type for it, so it stays on webhook sync.
+                    if (wizardSchema.webhook_only) {
+                        webhookOnlyCount += 1
+                        continue
+                    }
+                    const settings = defaultPollingSyncSettings(wizardSchema, selectedConnector.name)
+                    switched.set(name, settings)
+                    updates.push({
+                        id: schemaId,
+                        sync_type: settings.sync_type,
+                        incremental_field: settings.incremental_field ?? null,
+                        incremental_field_type: settings.incremental_field_type ?? null,
+                    })
+                }
+                if (updates.length > 0) {
+                    await externalDataSourcesBulkUpdateSchemasPartialUpdate(String(currentTeamId), sourceId, {
+                        schemas: updates,
+                    })
+                }
+                actions.setDatabaseSchemas(
+                    values.databaseSchema.map((schema) => {
+                        const settings = switched.get(schema.table)
+                        return settings
+                            ? {
+                                  ...schema,
+                                  sync_type: settings.sync_type,
+                                  incremental_field: settings.incremental_field ?? null,
+                                  incremental_field_type: settings.incremental_field_type ?? null,
+                              }
+                            : schema
+                    })
+                )
+                posthog.capture('source wizard webhook tables switched to polling', {
+                    sourceType: selectedConnector.name,
+                    tableCount: updates.length,
+                })
+                lemonToast.success(
+                    `Switched ${updates.length.toLocaleString()} ${updates.length === 1 ? 'table' : 'tables'} to another sync method` +
+                        (webhookOnlyCount > 0
+                            ? `. ${webhookOnlyCount.toLocaleString()} ${webhookOnlyCount === 1 ? 'table syncs' : 'tables sync'} only by webhook and stayed on webhook sync.`
+                            : '')
+                )
+                actions.setStep(5)
+            } catch (e: any) {
+                posthog.captureException(e)
+                lemonToast.error(
+                    `Couldn't change the sync method: ${e.data?.detail ?? e.data?.message ?? e.message ?? 'unknown error'}. Try again, or change it on the source's Schemas tab later.`
+                )
+            } finally {
+                actions.setWebhookTablesSwitching(false)
+            }
+        },
+        skipWebhookSetup: () => {
+            const sourceName = values.selectedConnector?.label ?? values.selectedConnector?.name ?? 'the source'
+            LemonDialog.open({
+                title: 'Skip the webhook setup?',
+                description: `Tables that use webhook sync get no webhook updates until you set up the webhook. Until then, each sync reads the ${sourceName} API instead. This is slower, and a sync can read the whole table each time. You can set up the webhook later on the source's Webhook tab.`,
+                primaryButton: {
+                    children: 'Skip webhook setup',
+                    status: 'danger',
+                    onClick: () => {
+                        posthog.capture('source wizard webhook setup skipped', {
+                            sourceType: values.selectedConnector?.name,
+                            webhookCreateFailed: values.webhookResult ? !values.webhookResult.success : null,
+                        })
+                        actions.setStep(5)
+                    },
+                    'data-attr': 'source-wizard-skip-webhook-confirm',
+                },
+                secondaryButton: {
+                    children: 'Go back',
+                    type: 'tertiary',
+                },
+            })
+        },
         submitWebhookFields: async () => {
             if (!values.sourceId) {
                 return
@@ -2438,8 +2644,8 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             }
         },
         handleRedirect: async ({ source }) => {
-            // By default, we assume the source is a valid external data source
-            if (Object.values(ExternalDataSourceTypeEnumApi).includes(source)) {
+            // The redirect names the source it came back for. Only a source the catalog lists can continue.
+            if (values.availableSources?.[source]) {
                 actions.updateSource({
                     source_type: source,
                 })
@@ -2519,25 +2725,13 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                             schema.sync_type = 'cdc'
                         } else if (schema.supports_webhooks) {
                             schema.sync_type = 'webhook'
-                        } else if (schema.prefers_full_refresh) {
-                            schema.sync_type = 'full_refresh'
-                        } else if (schema.incremental_available && !hasIncrementalMergeKey(schema)) {
-                            schema.sync_type = 'full_refresh'
-                        } else if (schema.incremental_available || schema.append_available) {
-                            const method = schema.incremental_available ? 'incremental' : 'append'
-                            const resolvedField =
-                                values.selectedConnector.name === 'Supabase'
-                                    ? resolveUpdateTrackedIncrementalField(schema.incremental_fields)
-                                    : resolveIncrementalField(schema.incremental_fields)
-                            schema.sync_type = method
-                            if (resolvedField) {
-                                schema.incremental_field = resolvedField.field
-                                schema.incremental_field_type = resolvedField.field_type
-                            } else {
-                                schema.sync_type = 'full_refresh'
-                            }
                         } else {
-                            schema.sync_type = 'full_refresh'
+                            const settings = defaultPollingSyncSettings(schema, values.selectedConnector.name)
+                            schema.sync_type = settings.sync_type
+                            if (settings.incremental_field) {
+                                schema.incremental_field = settings.incremental_field
+                                schema.incremental_field_type = settings.incremental_field_type ?? null
+                            }
                         }
                     }
 
@@ -2677,10 +2871,28 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 })
             }
         },
-        toggleAllTables: () => {
+        toggleAllTables: ({ selectAll, tableNames }) => {
             // databaseSchema reducer already applied the toggle; re-emit so the
             // setDatabaseSchemas listener (syncExpandedSchemaGroupKeys) fires.
             actions.setDatabaseSchemas(values.databaseSchema)
+
+            if (selectAll) {
+                // Select all leaves default-off tables off, so the header checkbox never fills.
+                // Say why, otherwise it reads as a checkbox that ignores clicks.
+                const targetSet = tableNames ? new Set(tableNames) : null
+                const skippedDefaultOff = values.databaseSchema.some(
+                    (schema) =>
+                        (!targetSet || targetSet.has(schema.table)) &&
+                        schema.should_sync_default === false &&
+                        !schema.should_sync &&
+                        !schema.permission_error
+                )
+                if (skippedDefaultOff) {
+                    lemonToast.info(
+                        'Select all skips tables that are off by default. Check those tables one at a time to sync them.'
+                    )
+                }
+            }
         },
     })),
     urlToAction(({ actions, values }) => {

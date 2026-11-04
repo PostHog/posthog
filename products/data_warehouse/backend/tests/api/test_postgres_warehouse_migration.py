@@ -33,6 +33,7 @@ def _stub_source_security_gate(source_mock) -> None:
     source_mock.job_inputs_add_connection_host.return_value = False
     source_mock.has_preserved_row_backed_credentials.return_value = False
     source_mock.serialize_config.side_effect = lambda config: config.to_dict()
+    source_mock.uploaded_file_name.return_value = None
 
 
 class TestPostgresWarehouseMigration(APIBaseTest):
