@@ -389,7 +389,7 @@ class SignupAttemptIPThrottle(IPThrottle):
     """
 
     scope = "signup_attempt_ip"
-    rate = "10/hour"
+    rate = settings.SIGNUP_ATTEMPT_IP_THROTTLE_RATE
 
 
 class WebAuthnSignupRegistrationThrottle(IPThrottle):
