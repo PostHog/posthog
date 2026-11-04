@@ -105,6 +105,8 @@ function ComboChartInner<Meta = unknown>({
         defaultSeriesType = DEFAULT_SERIES_TYPE,
         xTickFormatter,
         valueDomain,
+        valueBounds,
+        floatBaseline = false,
         curve,
         yAxes: configYAxes,
     } = config ?? {}
@@ -153,6 +155,8 @@ function ComboChartInner<Meta = unknown>({
                 bandPadding: config?.bandPadding,
                 groupPadding: config?.bandPadding === 0 ? 0 : undefined,
                 valueDomain,
+                valueBounds,
+                floatBaseline,
                 axes: configYAxes,
             })
 
@@ -186,7 +190,17 @@ function ComboChartInner<Meta = unknown>({
                 _private: comboPrivate,
             }
         },
-        [yScaleType, barLayout, seriesTypeOf, barStackedData, valueDomain, configYAxes, config?.bandPadding]
+        [
+            yScaleType,
+            barLayout,
+            seriesTypeOf,
+            barStackedData,
+            valueDomain,
+            valueBounds,
+            floatBaseline,
+            configYAxes,
+            config?.bandPadding,
+        ]
     )
 
     const drawStatic = useCallback(
