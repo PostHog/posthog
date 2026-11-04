@@ -23,13 +23,20 @@ from posthog.utils import absolute_uri
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.facade.signal_extras import AnalyticsAlertFiringSignalExtra
-from products.signals.backend.facade.source_configs import get_analytics_alert_scope, get_source_config
+from products.signals.backend.facade.source_configs import (
+    AlertFilterOutcome,
+    evaluate_alert_filter,
+    get_analytics_alert_name_patterns,
+    get_analytics_alert_scope,
+    get_source_config,
+)
 
 logger = structlog.get_logger(__name__)
 
 SIGNAL_SOURCE_PRODUCT = "analytics"
 SIGNAL_SOURCE_TYPE = "alert_firing"
-# The product analytics source row. Its `enabled` flag and `alert_scope` key govern this signal too.
+# The product analytics source row. Its `enabled` flag, its `alert_scope` key and its alert name patterns
+# govern this signal too.
 _SOURCE_CONFIG_TYPE = "anomaly_investigation"
 _ALL_FIRING_ALERTS = "all_firing_alerts"
 
@@ -50,6 +57,9 @@ class AlertFiringSkipReason(enum.StrEnum):
     INVESTIGATED = "investigated"
     SOURCE_DISABLED = "source_disabled"
     SCOPE = "scope"
+    FILTERED = "filtered"
+    # Logged apart from FILTERED, so a broken filter that drops every alert is not read as a quiet one.
+    FILTER_INVALID = "filter_invalid"
     CAP = "cap"
     CAP_UNAVAILABLE = "cap_unavailable"
     NOT_DISPATCHED = "not_dispatched"
@@ -182,6 +192,15 @@ def _prepare(
         return AlertFiringSkipReason.SCOPE, None
     if previous_state == AlertState.ERRORED and _resumes_interrupted_episode(alert, alert_check):
         return AlertFiringSkipReason.NOT_NEW_EPISODE, None
+    filter_outcome = evaluate_alert_filter(
+        get_analytics_alert_name_patterns(team_id=alert.team_id),
+        alert_name=alert.name,
+        insight_name=alert.insight.name or alert.insight.derived_name,
+    )
+    if filter_outcome == AlertFilterOutcome.INVALID:
+        return AlertFiringSkipReason.FILTER_INVALID, None
+    if filter_outcome != AlertFilterOutcome.PASSED:
+        return AlertFiringSkipReason.FILTERED, None
 
     team = alert.team
     # `emit_signal` reads the organization for its consent gate. Loading it here keeps that read off the event loop.

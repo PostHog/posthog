@@ -30,6 +30,10 @@ from products.signals.backend.agent_instructions import AGENT_STEERING_MAX_LENGT
 from products.signals.backend.anomaly_scores.config import covers_team, parse_config, read_payload
 from products.signals.backend.billing import REFUND_INELIGIBILITY_REASONS, refund_ineligibility_reason
 from products.signals.backend.contracts import (
+    ALERT_ALLOW_PATTERNS_KEY,
+    ALERT_BLOCK_PATTERNS_KEY,
+    ALERT_PATTERN_MAX_LENGTH,
+    ALERT_PATTERNS_MAX_COUNT,
     ALERT_SCOPE_KEY,
     ALERT_SCOPE_SOURCE,
     DEFAULT_NOT_ACTIONABLE_KEY,
@@ -37,6 +41,7 @@ from products.signals.backend.contracts import (
     STEERING_KEY,
     STEERING_MAX_LENGTH,
     AlertScope,
+    alert_patterns_problem,
     scope_ids_problem,
 )
 from products.signals.backend.credential_redaction import redact_credentials
@@ -213,7 +218,14 @@ _SOURCE_CONFIG_HELP_TEXT = (
     "The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) "
     "accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the "
     "investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts "
-    "without the investigation agent. Other sources reject this key."
+    "without the investigation agent. "
+    "It also accepts `alert_allow_patterns` and `alert_block_patterns` (lists of up to "
+    f"{ALERT_PATTERNS_MAX_COUNT} regex patterns, max {ALERT_PATTERN_MAX_LENGTH} characters each). "
+    "A pattern matches when it finds a match anywhere in the alert name or the insight name, and "
+    "matching is case sensitive unless the pattern uses the `(?i)` flag. When allow patterns are set, "
+    "an alert must match one of them. An alert that matches a block pattern is dropped, also when it "
+    "matches an allow pattern. Patterns use RE2 syntax, which has no lookaround and no "
+    "backreferences. Both keys apply to either `alert_scope`. Other sources reject these keys."
 )
 
 
@@ -362,6 +374,16 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
                     raise serializers.ValidationError(
                         {"config": f"alert_scope must be one of: {', '.join(AlertScope)}"}
                     )
+            for patterns_key in (ALERT_ALLOW_PATTERNS_KEY, ALERT_BLOCK_PATTERNS_KEY):
+                if patterns_key not in config:
+                    continue
+                if (source_product, source_type) != ALERT_SCOPE_SOURCE:
+                    raise serializers.ValidationError(
+                        {"config": f"{patterns_key} is only supported on the analytics anomaly_investigation source"}
+                    )
+                problem = alert_patterns_problem(config[patterns_key])
+                if problem is not None:
+                    raise serializers.ValidationError({"config": f"{patterns_key} {problem}"})
             scope_key = SCOPE_CONFIG_KEYS.get((source_product, source_type)) if source_product and source_type else None
             if scope_key is not None and scope_key in config:
                 problem = scope_ids_problem(config[scope_key])

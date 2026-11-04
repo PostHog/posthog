@@ -20,7 +20,13 @@ from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.signals.backend.emission.steering import afetch_source_config
-from products.signals.backend.facade.source_configs import get_analytics_alert_scope
+from products.signals.backend.facade.source_configs import (
+    AlertFilterOutcome,
+    AlertNamePatterns,
+    evaluate_alert_filter,
+    get_analytics_alert_name_patterns,
+    get_analytics_alert_scope,
+)
 from products.signals.backend.models import SignalSourceConfig
 from products.signals.backend.serializers import SignalSourceConfigSerializer
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
@@ -597,6 +603,30 @@ class TestSignalSourceConfigSerializerValidation(SimpleTestCase):
         )
         assert not serializer.is_valid()
 
+    @parameterized.expand(
+        [
+            ("allow", "analytics", "anomaly_investigation", "alert_allow_patterns", ["(?i)checkout", "^Daily"], None),
+            ("block", "analytics", "anomaly_investigation", "alert_block_patterns", ["test"], None),
+            ("empty_list", "analytics", "anomaly_investigation", "alert_block_patterns", [], None),
+            ("not_a_list", "analytics", "anomaly_investigation", "alert_allow_patterns", "checkout", "list"),
+            ("empty_pattern", "analytics", "anomaly_investigation", "alert_allow_patterns", [""], "list"),
+            ("too_many", "analytics", "anomaly_investigation", "alert_allow_patterns", ["a"] * 21, "at most 20"),
+            ("too_long", "analytics", "anomaly_investigation", "alert_block_patterns", ["a" * 201], "at most 200"),
+            ("lookahead", "analytics", "anomaly_investigation", "alert_block_patterns", ["ok", "(?=x)"], "'(?=x)'"),
+            ("unbalanced", "analytics", "anomaly_investigation", "alert_allow_patterns", ["a("], "'a('"),
+            ("other_source", "github", "issue", "alert_allow_patterns", ["checkout"], "only supported"),
+        ]
+    )
+    def test_alert_patterns(self, _name, source_product, source_type, key, value, expected_error):
+        serializer = SignalSourceConfigSerializer(
+            data={"source_product": source_product, "source_type": source_type, "config": {key: value}}
+        )
+        assert serializer.is_valid() is (expected_error is None), serializer.errors
+        if expected_error is not None:
+            error = str(serializer.errors["config"])
+            assert key in error
+            assert expected_error in error
+
 
 class TestScoutSourceCanonicalization(APIBaseTest):
     """The scout source config is a project-level singleton: the scout fleet canonicalizes child
@@ -854,6 +884,81 @@ class TestGetAnalyticsAlertScope(BaseTest):
             side_effect=RuntimeError("flag service down"),
         ):
             assert get_analytics_alert_scope(team_id=self.team.id) == "investigated_only"
+
+
+class TestGetAnalyticsAlertNamePatterns(BaseTest):
+    @parameterized.expand(
+        [
+            ("no_row", None, True, AlertNamePatterns()),
+            ("no_keys", {"alert_scope": "all_firing_alerts"}, True, AlertNamePatterns()),
+            (
+                "valid",
+                {"alert_allow_patterns": ["^Daily"], "alert_block_patterns": ["test"]},
+                True,
+                AlertNamePatterns(allow=("^Daily",), block=("test",)),
+            ),
+            ("flag_off", {"alert_block_patterns": ["test"]}, False, AlertNamePatterns()),
+            ("not_a_list", {"alert_block_patterns": "test"}, True, AlertNamePatterns(invalid=True)),
+            ("null", {"alert_allow_patterns": None}, True, AlertNamePatterns(invalid=True)),
+            ("no_longer_compiles", {"alert_block_patterns": ["(?=x)"]}, True, AlertNamePatterns(invalid=True)),
+        ]
+    )
+    def test_patterns(self, _name, config, flag_enabled, expected):
+        if config is not None:
+            SignalSourceConfig.objects.create(
+                team=self.team, source_product="analytics", source_type="anomaly_investigation", config=config
+            )
+
+        with patch(
+            "products.signals.backend.facade.source_configs.feature_enabled_or_false", return_value=flag_enabled
+        ):
+            assert get_analytics_alert_name_patterns(team_id=self.team.id) == expected
+
+    def test_flag_service_error_fails_closed(self) -> None:
+        SignalSourceConfig.objects.create(
+            team=self.team,
+            source_product="analytics",
+            source_type="anomaly_investigation",
+            config={"alert_allow_patterns": ["^Daily"]},
+        )
+
+        with patch(
+            "products.signals.backend.facade.source_configs.feature_enabled_or_false",
+            side_effect=RuntimeError("flag service down"),
+        ):
+            assert get_analytics_alert_name_patterns(team_id=self.team.id) == AlertNamePatterns(invalid=True)
+
+
+class TestEvaluateAlertFilter(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("no_patterns", AlertNamePatterns(), AlertFilterOutcome.PASSED),
+            ("allow_matches", AlertNamePatterns(allow=("Checkout",)), AlertFilterOutcome.PASSED),
+            ("allow_misses", AlertNamePatterns(allow=("signups",)), AlertFilterOutcome.NOT_ALLOWED),
+            ("block_misses", AlertNamePatterns(block=("signups",)), AlertFilterOutcome.PASSED),
+            ("block_matches", AlertNamePatterns(block=("conversion",)), AlertFilterOutcome.BLOCKED),
+            (
+                "block_wins_over_allow",
+                AlertNamePatterns(allow=("Checkout",), block=("conversion",)),
+                AlertFilterOutcome.BLOCKED,
+            ),
+            (
+                "allow_matches_and_block_misses",
+                AlertNamePatterns(allow=("Checkout",), block=("signups",)),
+                AlertFilterOutcome.PASSED,
+            ),
+            ("matches_the_insight_name", AlertNamePatterns(allow=("^Weekly revenue$",)), AlertFilterOutcome.PASSED),
+            ("search_not_full_match", AlertNamePatterns(allow=("out conv",)), AlertFilterOutcome.PASSED),
+            ("case_sensitive_by_default", AlertNamePatterns(allow=("^checkout",)), AlertFilterOutcome.NOT_ALLOWED),
+            ("case_insensitive_flag", AlertNamePatterns(allow=("(?i)^checkout",)), AlertFilterOutcome.PASSED),
+            ("pattern_that_does_not_compile", AlertNamePatterns(block=("(?=x)",)), AlertFilterOutcome.INVALID),
+            ("invalid_stored_patterns", AlertNamePatterns(invalid=True), AlertFilterOutcome.INVALID),
+        ]
+    )
+    def test_outcome(self, _name, patterns, expected):
+        outcome = evaluate_alert_filter(patterns, alert_name="Checkout conversion", insight_name="Weekly revenue")
+
+        assert outcome == expected
 
 
 @pytest.mark.django_db(transaction=True)
