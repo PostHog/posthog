@@ -138,7 +138,7 @@ export class ConversionWatchersService {
     private async insertChunk(pool: Pool, rows: ConversionWatcherRow[]): Promise<void> {
         const values: any[] = []
         const placeholders = rows.map((row, index) => {
-            const base = index * 10
+            const base = index * 11
             values.push(
                 row.id,
                 row.team_id,
@@ -149,14 +149,15 @@ export class ConversionWatchersService {
                 row.person_id,
                 row.flow_version,
                 JSON.stringify(row.goal),
+                row.created_at,
                 row.expires_at
             )
-            return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10})`
+            return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10}, $${base + 11})`
         })
 
         await pool.query(
             `INSERT INTO conversion_watchers
-                (id, team_id, function_id, run_id, parent_run_id, distinct_id, person_id, flow_version, goal, expires_at)
+                (id, team_id, function_id, run_id, parent_run_id, distinct_id, person_id, flow_version, goal, created_at, expires_at)
              VALUES ${placeholders.join(', ')}
              ON CONFLICT (id) DO NOTHING`,
             values

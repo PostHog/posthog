@@ -144,6 +144,7 @@ export class HogFunctionMonitoringService {
             metric_kind: metric.metric_kind,
             metric_name: metric.metric_name,
             count: metric.count,
+            timestamp: metric.timestamp,
         })
 
         // Guarded on the type rather than truthiness: a flow loaded without its `version` column would
@@ -158,6 +159,7 @@ export class HogFunctionMonitoringService {
                 metric_kind: metric.metric_kind,
                 metric_name: metric.metric_name,
                 count: metric.count,
+                timestamp: metric.timestamp,
             })
         }
     }

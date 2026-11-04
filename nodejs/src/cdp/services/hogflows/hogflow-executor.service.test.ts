@@ -1530,10 +1530,21 @@ describe('Hogflow Executor', () => {
                         },
                     }
                 )
+                invocation2.queueCreatedAt = DateTime.fromISO('2026-11-01T09:59:58Z')
                 const result2 = await executor.execute(invocation2)
                 expect(result2.finished).toBe(true)
                 // The property-based conversion is also counted on the exit path
-                expect(result2.metrics.map((m) => m.metric_name)).toEqual(['early_exit', 'conversion'])
+                expect(result2.metrics.map((m) => m.metric_name)).toEqual([
+                    'early_exit',
+                    'conversion',
+                    'conversion_by_start',
+                ])
+                expect(
+                    result2.metrics
+                        .find((m) => m.metric_name === 'conversion_by_start')
+                        ?.timestamp?.toUTC()
+                        .toISO()
+                ).toEqual('2026-11-01T09:59:58.000Z')
                 expect(result2.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                     [
                       "Workflow exited early due to exit condition: exit_on_conversion ([Person:person_id|John Doe] matches conversion filters)",
@@ -1790,7 +1801,11 @@ describe('Hogflow Executor', () => {
                 const result2 = await executor.execute(invocation2)
                 expect(result2.finished).toBe(true)
                 // The property-based conversion is also counted on the exit path
-                expect(result2.metrics.map((m) => m.metric_name)).toEqual(['early_exit', 'conversion'])
+                expect(result2.metrics.map((m) => m.metric_name)).toEqual([
+                    'early_exit',
+                    'conversion',
+                    'conversion_by_start',
+                ])
                 expect(result2.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                     [
                       "Workflow exited early due to exit condition: exit_on_trigger_not_matched_or_conversion ([Person:person_id|John Doe] matches conversion filters)",
