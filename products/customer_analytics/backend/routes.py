@@ -1,4 +1,5 @@
 from posthog.api.routing import RouterRegistry
+from posthog.settings import EE_AVAILABLE
 
 from products.customer_analytics.backend.presentation.views import urls as external_api_urls
 from products.customer_analytics.backend.presentation.views.account_persons_query import AccountPersonsViewSet
@@ -8,6 +9,7 @@ from products.customer_analytics.backend.presentation.views.customer_tasks impor
 from products.customer_analytics.backend.presentation.views.organization_members import (
     OrganizationMembersForAccountViewSet,
 )
+from products.customer_analytics.backend.presentation.views.usage_metrics import GroupUsageMetricViewSet
 from products.customer_analytics.backend.presentation.views.views import (
     AccountNotebookViewSet,
     AccountNotesViewSet,
@@ -153,3 +155,13 @@ def register_routes(routers: RouterRegistry) -> None:
         "project_workflow_customer_tasks",
         ["team_id"],
     )
+    # Usage metrics keep the URL they had under the groups API, so they stay EE-only like it.
+    # Products cannot nest onto another product's router, so the group type segment is spelled
+    # out here with the `parent_lookup_` name the nested router would have given it.
+    if EE_AVAILABLE:
+        routers.projects.register(
+            r"groups_types/(?P<parent_lookup_group_type_index>[^/.]+)/metrics",
+            GroupUsageMetricViewSet,
+            "project_groups_metrics",
+            ["project_id"],
+        )
