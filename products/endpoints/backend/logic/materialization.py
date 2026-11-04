@@ -283,7 +283,9 @@ class EndpointMaterializationService:
                 raise ValidationError(f"Cannot materialize endpoint. Reason: {e}")
 
             if replaced_version is not None and replaced_version.declared_target_seconds() == data_freshness_seconds:
-                carry_saved_query_frequency_target(saved_query, timedelta(seconds=data_freshness_seconds))
+                carry_saved_query_frequency_target(
+                    saved_query.team_id, saved_query.id, timedelta(seconds=data_freshness_seconds)
+                )
 
             # NOTE: on v1, schedule_materialization only triggers an immediate run when it CREATES
             # the Temporal schedule; re-enabling an existing materialization just (re)syncs it.

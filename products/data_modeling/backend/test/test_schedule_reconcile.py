@@ -23,9 +23,11 @@ from products.data_modeling.backend.logic.node_frequency import (
     set_declared_pin,
     set_declared_target,
 )
+from products.data_modeling.backend.logic.refresh_floor import REFRESH_FLOOR_FLAG, read_organization_plan_refresh_floor
 from products.data_modeling.backend.logic.saved_query_dag_sync import promote_dag_view_nodes_to_matview
 from products.data_modeling.backend.logic.schedule_reconcile import (
     DagScheduleTeardown,
+    OrganizationReconcileError,
     PlanFloorUnavailableError,
     TeamScheduleTeardownError,
     apply_saved_query_frequency_anchor,
@@ -42,7 +44,7 @@ from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import Node, NodeType
-from products.data_modeling.backend.schedule import DATA_MODELING_EXECUTE_DAG_WORKFLOW
+from products.data_modeling.backend.schedule import DATA_MODELING_EXECUTE_DAG_WORKFLOW, build_schedule_spec
 from products.data_modeling.backend.test.helpers import (
     no_existing_schedules,
     saved_query_node as _saved_query_node,
@@ -53,7 +55,8 @@ from products.data_modeling.backend.test.helpers import (
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 RECONCILE = "products.data_modeling.backend.logic.schedule_reconcile"
-FLAG_RESULT = "products.data_modeling.backend.logic.refresh_floor.posthoganalytics.get_feature_flag_result"
+REFRESH_FLOOR = "products.data_modeling.backend.logic.refresh_floor"
+FLAG_RESULT = f"{REFRESH_FLOOR}.posthoganalytics.get_feature_flag_result"
 
 M15 = timedelta(minutes=15)
 H1 = timedelta(hours=1)
@@ -620,24 +623,59 @@ class TestMaybeReconcileDag(BaseTest):
         delete.assert_not_called()
         capture.assert_called_once()
 
-    def test_organization_reconcile_only_touches_dags_that_already_have_a_schedule(self):
-        scheduled = self._dag_with_target()
-        unscheduled = DAG.objects.create(team=self.team, name="never scheduled")
+    def test_organization_reconcile_only_touches_dags_entirely_on_tier_schedules(self):
+        tiered = self._dag_with_target()
+        schedules = {str(tiered.id): {tier_schedule_id(str(tiered.id), H6)}}
+        for name, schedule_ids in (
+            ("never scheduled", set()),
+            ("legacy", {"{id}"}),
+            ("migrating", {"{id}", "{id}:21600"}),
+        ):
+            dag = DAG.objects.create(team=self.team, name=name)
+            schedules[str(dag.id)] = {schedule_id.format(id=dag.id) for schedule_id in schedule_ids}
 
         with (
-            mock.patch(f"{RECONCILE}.get_v2_scheduled_dag_ids", return_value={str(scheduled.id)}) as lookup,
+            mock.patch(f"{RECONCILE}.list_existing_schedule_ids", side_effect=schedules.__getitem__),
             mock.patch(f"{RECONCILE}.reconcile_dag_schedules") as reconcile,
         ):
             reconcile_organization_dags(str(self.organization.id))
 
-        self.assertEqual(set(lookup.call_args.args[0]), {str(scheduled.id), str(unscheduled.id)})
-        self.assertEqual([call.args[0] for call in reconcile.call_args_list], [scheduled])
+        self.assertEqual([call.args[0] for call in reconcile.call_args_list], [tiered])
+
+    def test_organization_reconcile_tries_every_dag_then_raises_so_the_task_retries(self):
+        first = self._dag_with_target()
+        second = DAG.objects.create(team=self.team, name="second")
+
+        with (
+            mock.patch(f"{RECONCILE}.list_existing_schedule_ids", side_effect=lambda dag_id: {f"{dag_id}:21600"}),
+            mock.patch(f"{RECONCILE}.reconcile_dag_schedules", side_effect=RuntimeError("temporal down")) as reconcile,
+            self.assertRaises(OrganizationReconcileError),
+        ):
+            reconcile_organization_dags(str(self.organization.id))
+
+        self.assertCountEqual([call.args[0] for call in reconcile.call_args_list], [first, second])
+
+    def test_unreadable_plan_floor_leaves_a_legacy_whole_dag_schedule_running(self):
+        dag = DAG.objects.create(team=self.team, name="legacy")
+        temporal = self._temporal_with_tier(str(dag.id), None)
+
+        with (
+            mock.patch(FLAG_RESULT, side_effect=RuntimeError("flags down")),
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=temporal)),
+            mock.patch(f"{RECONCILE}.a_update_schedule", new=mock.AsyncMock()) as update,
+            mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock()) as delete,
+            self.assertRaises(PlanFloorUnavailableError),
+        ):
+            reconcile_dag_schedules(dag)
+
+        delete.assert_not_called()
+        update.assert_not_called()
 
     def test_unreadable_plan_floor_still_takes_a_cleared_node_off_its_schedule(self):
         dag = self._dag_with_target()
         endpoint = Node.objects.get(dag=dag, type=NodeType.ENDPOINT)
         cleared = _saved_query_node(self.team, dag, "cleared", NodeType.MAT_VIEW)
-        kept_tier = tier_schedule_id(str(dag.id), H6)
+        kept_tier = tier_schedule_id(str(dag.id), H6, 30)
         emptied_tier = tier_schedule_id(str(dag.id), DAY)
         temporal = self._temporal_with_tier(
             kept_tier, [str(endpoint.id), str(cleared.id)], emptied_tier, [str(cleared.id)]
@@ -657,7 +695,32 @@ class TestMaybeReconcileDag(BaseTest):
         delete.assert_awaited_once_with(temporal, schedule_id=emptied_tier)
         update.assert_awaited_once()
         self.assertEqual(update.call_args.kwargs["id"], kept_tier)
-        self.assertEqual(update.call_args.kwargs["schedule"].action.args[0]["node_ids"], [str(endpoint.id)])
+        schedule = update.call_args.kwargs["schedule"]
+        self.assertEqual(schedule.action.args[0]["node_ids"], [str(endpoint.id)])
+        self.assertEqual(
+            schedule.spec,
+            build_schedule_spec(entity_id=dag.id, interval=H6, team_timezone=self.team.timezone, anchor_minutes=30),
+        )
+
+    @parameterized.expand(
+        [
+            ("self_hosted_never_loads_definitions", False, None, True),
+            ("cloud_with_definitions_that_failed_to_load", True, None, False),
+            ("cloud_with_empty_definitions", True, [], False),
+            ("cloud_after_the_flag_was_deleted", True, [{"key": "other-flag"}], True),
+            ("cloud_with_a_flag_it_could_not_evaluate", True, [{"key": REFRESH_FLOOR_FLAG}], False),
+        ]
+    )
+    def test_no_flag_result_only_reads_as_no_floor_when_there_is_no_floor(self, _name, cloud, definitions, evaluated):
+        with (
+            mock.patch(FLAG_RESULT, return_value=None),
+            mock.patch(f"{REFRESH_FLOOR}.is_cloud", return_value=cloud),
+            mock.patch(f"{REFRESH_FLOOR}.posthoganalytics.feature_flag_definitions", return_value=definitions),
+        ):
+            reading = read_organization_plan_refresh_floor(self.organization)
+
+        self.assertIsNone(reading.floor)
+        self.assertEqual(reading.evaluated, evaluated)
 
     @parameterized.expand(
         [

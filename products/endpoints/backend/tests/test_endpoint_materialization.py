@@ -448,6 +448,47 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         if was_materialized:
             self.assertEqual(new_version.data_freshness_seconds, 900)
 
+    def test_query_edit_cannot_speed_up_a_cadence_past_the_plan_floor(self):
+        self.organization.has_active_subscription = False
+        self.organization.save(update_fields=["has_active_subscription"])
+        endpoint = create_endpoint_with_version(
+            name="floored_speed_up",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            data_freshness_seconds=3600,
+        )
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"is_materialized": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        with mock.patch(
+            "products.data_modeling.backend.logic.refresh_floor.posthoganalytics.get_feature_flag_result",
+            return_value=FeatureFlagResult(
+                key="data-modeling-refresh-floor",
+                enabled=True,
+                variant=None,
+                payload={"min_interval": "6hour"},
+                reason=None,
+            ),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+                {
+                    "query": {"kind": "HogQLQuery", "query": "SELECT count() FROM events"},
+                    "is_materialized": True,
+                    "data_freshness_seconds": 900,
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertIn("materialization_error", response.json())
+        self.assertIsNone(endpoint.get_version().saved_query_id)
+
     @parameterized.expand([(True,), (False,)])
     def test_node_target_change_invalidates_readiness_after_commit(self, has_endpoint_link):
         endpoint = create_endpoint_with_version(

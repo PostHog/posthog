@@ -846,14 +846,14 @@ class BillingManager:
         if org_modified:
             organization.save()
 
+        if plan_changed:
+            data_modeling_api.schedule_organization_schedule_reconcile(str(organization.id))
+
         if events_retention_changed:
             reconcile_organization_events_retention(organization)
 
         if revoked_feature_keys:
             reset_revoked_logs_retention(organization, revoked_feature_keys)
-
-        if plan_changed:
-            data_modeling_api.schedule_organization_schedule_reconcile(str(organization.id))
 
         if should_update_org_billing_quotas:
             update_org_billing_quotas(organization)

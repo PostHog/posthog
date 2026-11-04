@@ -15,6 +15,7 @@ from datetime import timedelta
 import structlog
 import posthoganalytics
 
+from posthog.cloud_utils import is_cloud
 from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import Organization
 
@@ -65,8 +66,7 @@ def read_organization_plan_refresh_floor(organization: Organization) -> PlanRefr
     """Read the organization's plan floor without raising.
 
     Evaluated locally on the organization, so the bounds read and every reconcile can call it without
-    a network round trip. When the SDK has no flag definitions it returns no result, which reads as
-    no floor, because self-hosted instances never have definitions to load.
+    a network round trip.
     """
     organization_id = str(organization.id)
     try:
@@ -79,7 +79,9 @@ def read_organization_plan_refresh_floor(organization: Organization) -> PlanRefr
             only_evaluate_locally=True,
             send_feature_flag_events=False,
         )
-        if result is None or not result.enabled:
+        if result is None:
+            return PlanRefreshFloorReading(floor=None, evaluated=_no_result_means_no_floor())
+        if not result.enabled:
             return PlanRefreshFloorReading(floor=None, evaluated=True)
         return PlanRefreshFloorReading(floor=_parse(result.payload), evaluated=True)
     except InvalidRefreshFloorPayload as error:
@@ -90,6 +92,19 @@ def read_organization_plan_refresh_floor(organization: Organization) -> PlanRefr
     except Exception:
         logger.warning("refresh_floor_flag_evaluation_failed", organization_id=organization_id, exc_info=True)
         return PlanRefreshFloorReading(floor=None, evaluated=False)
+
+
+def _no_result_means_no_floor() -> bool:
+    """Tell an instance with no floor from a failed read, because the SDK returns no result for both.
+
+    Self-hosted instances never load flag definitions, and loaded definitions without the flag mean
+    the flag was deleted. On cloud, empty definitions or a flag that could not be evaluated are a
+    failed read. The SDK logs these cases and does not raise.
+    """
+    if not is_cloud():
+        return True
+    definitions = posthoganalytics.feature_flag_definitions()
+    return bool(definitions) and all(flag.get("key") != REFRESH_FLOOR_FLAG for flag in definitions)
 
 
 def _parse(payload: object) -> PlanRefreshFloor:
