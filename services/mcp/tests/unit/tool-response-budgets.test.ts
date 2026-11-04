@@ -10,10 +10,7 @@ import { GENERATED_TOOLS as SIGNALS_TOOLS } from '@/tools/generated/signals'
 import { GENERATED_TOOLS as WORKFLOWS_TOOLS } from '@/tools/generated/workflows'
 import type { Context } from '@/tools/types'
 
-/**
- * Each budget is the size that keeps one default page usable inside an agent's context, measured on
- * an ordinary page of invented data, not the size the payload happens to be today.
- */
+/** Each budget keeps one default page usable in an agent's context, not the size the payload is today. */
 const LOGS_TOKEN_BUDGET = 20_000
 const INSIGHTS_TOKEN_BUDGET = 18_000
 const INBOX_TOKEN_BUDGET = 10_000
