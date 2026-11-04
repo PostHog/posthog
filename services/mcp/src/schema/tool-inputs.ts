@@ -669,6 +669,13 @@ export const ExplainChartInputSchema = z.preprocess(
                 .min(1)
                 .max(8)
                 .describe('The moments that stand out, in the order to read them. At most 8.'),
+            explanationId: z
+                .string()
+                .uuid()
+                .optional()
+                .describe(
+                    'The id an earlier `explain-chart` call on this chart returned, when you are fixing that explanation. Its link then shows the fix. Omit it for a new explanation.'
+                ),
         })
         .refine((params) => (params.insightId === undefined) !== (params.query === undefined), {
             message: 'Pass exactly one of `insightId` or `query`.',

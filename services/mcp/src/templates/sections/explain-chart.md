@@ -3,6 +3,7 @@
 When the person asks why a metric changed over time, for example why it dropped, spiked or rose, load the `posthog:investigate-metric` skill and follow it.
 This applies to a saved insight or a dashboard tile by link or ID, to a screenshot of a chart, and to a metric the person only names, such as "why did signups drop last week?".
 Its answer is the chart explanation from `explain-chart` in the conversation, not a notebook: for that question, this replaces the notebook default above.
+Where the conversation cannot show the chart explanation, give the person the link `explain-chart` returns, which opens it beside the chart in PostHog.
 Write a notebook as well only when the person asks for one to keep.
 
 - Read the schema of `explain-chart` when you start, and make the chart explanation the last step of your plan. Call it before you write your final reply.
