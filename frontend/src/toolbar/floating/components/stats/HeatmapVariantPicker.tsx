@@ -3,16 +3,16 @@ import { useEffect } from 'react'
 
 import { LemonSelect, LemonSelectSection } from '@posthog/lemon-ui'
 
-import { HeatmapVariantFilter as VariantFilter } from 'lib/components/heatmaps/heatmapVariantFilter'
+import { HeatmapVariantFilter } from 'lib/components/heatmaps/heatmapVariantFilter'
 import { FEATURE_FLAGS } from 'lib/constants'
 
 import { heatmapToolbarMenuLogic } from '~/toolbar/shared/elements/heatmapToolbarMenuLogic'
 import { flagsToolbarLogic } from '~/toolbar/shared/flags/flagsToolbarLogic'
 import { useToolbarFeatureFlag } from '~/toolbar/shared/toolbarPosthogJS'
 
-const optionKey = ({ flagKey, variant }: VariantFilter): string => JSON.stringify([flagKey, variant])
+const optionKey = ({ flagKey, variant }: HeatmapVariantFilter): string => JSON.stringify([flagKey, variant])
 
-export function HeatmapVariantFilter(): JSX.Element | null {
+export function HeatmapVariantPicker(): JSX.Element | null {
     const eventFilterEnabled = useToolbarFeatureFlag(FEATURE_FLAGS.HEATMAPS_EVENT_FILTER)
     const { heatmapVariantFilter, heatmapVariantFlags } = useValues(heatmapToolbarMenuLogic)
     const { setHeatmapVariantFilter } = useActions(heatmapToolbarMenuLogic)
@@ -24,8 +24,8 @@ export function HeatmapVariantFilter(): JSX.Element | null {
         }
     }, [eventFilterEnabled, getUserFlags])
 
-    // A persisted filter stays visible so it can be cleared, even when its flag no longer loads.
-    if (!eventFilterEnabled || (!heatmapVariantFilter && !heatmapVariantFlags.length)) {
+    // A persisted filter stays visible so it can be cleared, even when its flag or the gate no longer loads.
+    if (!heatmapVariantFilter && (!eventFilterEnabled || !heatmapVariantFlags.length)) {
         return null
     }
 

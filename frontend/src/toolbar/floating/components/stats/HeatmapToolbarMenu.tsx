@@ -13,7 +13,7 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
 import { ToolbarMenu } from '~/toolbar/floating/components/bar/ToolbarMenu'
-import { HeatmapVariantFilter } from '~/toolbar/floating/components/stats/HeatmapVariantFilter'
+import { HeatmapVariantPicker } from '~/toolbar/floating/components/stats/HeatmapVariantPicker'
 import { elementsLogic } from '~/toolbar/shared/elements/elementsLogic'
 import { heatmapToolbarMenuLogic } from '~/toolbar/shared/elements/heatmapToolbarMenuLogic'
 import { currentPageLogic } from '~/toolbar/shared/stats/currentPageLogic'
@@ -193,7 +193,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                         }}
                         dateOptions={heatmapDateOptions}
                     />
-                    <HeatmapVariantFilter />
+                    <HeatmapVariantPicker />
                     <LemonButton
                         size="small"
                         type="secondary"
