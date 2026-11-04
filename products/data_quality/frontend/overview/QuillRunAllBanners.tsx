@@ -6,7 +6,7 @@ import { dataQualityOverviewLogic } from './dataQualityOverviewLogic'
 export function QuillRunAllBanners(): JSX.Element {
     const { overviewError, snapshotLoaded, startingRun, isRunning, runTarget, pollTimedOut, runError } =
         useValues(dataQualityOverviewLogic)
-    const { runChecks, loadOverview } = useActions(dataQualityOverviewLogic)
+    const { retryRun, loadOverview } = useActions(dataQualityOverviewLogic)
 
     const runningAll = (startingRun || isRunning) && runTarget?.kind === 'all'
 
@@ -28,10 +28,7 @@ export function QuillRunAllBanners(): JSX.Element {
                 </QuillCheckCallout>
             )}
             {runError && runTarget?.kind === 'all' && (
-                <QuillCheckCallout
-                    tone="destructive"
-                    action={{ label: 'Retry', onClick: () => runChecks({ kind: 'all' }) }}
-                >
+                <QuillCheckCallout tone="destructive" action={{ label: 'Retry', onClick: retryRun }}>
                     {runError}
                 </QuillCheckCallout>
             )}
