@@ -85,8 +85,10 @@ from .utils import opt_slash_path
 from .views import (
     handler500 as handler500,
     health,
+    llms_txt,
     login_required,
     metrics_view,
+    not_found,
     preflight_check,
     render_query,
     replay_player_frame,
@@ -327,6 +329,10 @@ urlpatterns = [
     # NOTE: When adding paths here that should be public make sure to update ALWAYS_ALLOWED_ENDPOINTS in middleware.py
     opt_slash_path("report", report.get_csp_event),  # CSP violation reports
     opt_slash_path("robots.txt", robots_txt),
+    opt_slash_path("llms.txt", llms_txt),
+    # Without these, the catch-all route answers with the app's HTML page, which agents read as a broken catalog
+    opt_slash_path("ai-catalog.json", not_found),
+    opt_slash_path(".well-known/ai-catalog.json", not_found),
     opt_slash_path(".well-known/security.txt", security_txt),
     opt_slash_path(".well-known/http-message-signatures-directory", http_message_signatures_directory),
     # auth

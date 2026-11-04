@@ -14,7 +14,7 @@ It never touches the processor's state directly.
 The seeder is a set of replicas polling Postgres, every 15 seconds by default.
 Each tick it:
 
-1. discovers runs in `awaiting_boundary` or `seeding` for allowlisted teams and enabled kinds, where person runs need `SEEDER_PERSON_SEEDS_ENABLED`,
+1. discovers runs in `awaiting_boundary` or `seeding` for teams in its env list or granted in the team access table for at least 120 seconds, and for enabled kinds, where person runs need `SEEDER_PERSON_SEEDS_ENABLED`,
 2. sets the boundary on newly discovered runs,
 3. validates each run's pinned payload and plans its chunks,
 4. fails chunks abandoned at the attempt cap, and fails runs that hold an exhausted chunk,

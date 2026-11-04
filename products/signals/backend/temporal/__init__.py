@@ -102,6 +102,11 @@ from products.signals.backend.temporal.inbox_notification import (
     send_report_github_comments_activity,
     send_report_inbox_notifications_activity,
 )
+from products.signals.backend.temporal.monitoring_assessment import (
+    MonitoringAssessmentWorkflow,
+    exhaust_monitoring_assessment_activity,
+    poll_monitoring_assessment_activity,
+)
 from products.signals.backend.temporal.reingestion import (
     SignalReportReingestionWorkflow,
     TeamSignalReingestionWorkflow,
@@ -149,6 +154,7 @@ from products.signals.backend.temporal.summary import (
 )
 
 WORKFLOWS = [
+    MonitoringAssessmentWorkflow,
     UpdateSignalSpendWorkflow,
     GenerateScoutRubricsWorkflow,
     BackfillErrorTrackingWorkflow,
@@ -173,6 +179,8 @@ WORKFLOWS = [
 ]
 
 ACTIVITIES = [
+    poll_monitoring_assessment_activity,
+    exhaust_monitoring_assessment_activity,
     update_signal_spend_activity,
     confirm_signal_spend_activity,
     load_scout_trial_evaluation_activity,

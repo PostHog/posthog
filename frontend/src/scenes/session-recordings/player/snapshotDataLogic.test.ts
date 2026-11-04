@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import { HttpResponse } from 'msw'
 import { EventType, IncrementalSource, NodeType, mutationData } from 'posthog-js/rrweb-types'
 
 import { chunkMutationSnapshot, MUTATION_CHUNK_SIZE } from '@posthog/replay-shared'
@@ -9,6 +10,7 @@ import { parseEncodedSnapshots } from 'scenes/session-recordings/player/snapshot
 
 import { RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
 
+import { snapshotsAsJSONLines } from '../__mocks__/recording_snapshots'
 import { overrideSessionRecordingMocks, setupSessionRecordingTest } from './__mocks__/test-setup'
 import { snapshotDataLogic } from './snapshotDataLogic'
 
@@ -61,6 +63,26 @@ describe('snapshotDataLogic', () => {
             expect(logic.values.isRecordingDeleted).toBe(false)
             expect(logic.values.recordingDeletedAt).toBe(null)
             expect(logic.values.recordingDeletedBy).toBe(null)
+        })
+
+        it('marks the recording deleted when the sources listing returns 410, and a later block load keeps it so', async () => {
+            overrideSessionRecordingMocks({
+                getMocks: {
+                    '/api/environments/:team_id/session_recordings/:id/snapshots': () => [
+                        410,
+                        { error: 'recording_deleted', deleted_at: 1700000000, deleted_by: 'admin@example.com' },
+                    ],
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadSnapshotSources()
+            })
+                .toDispatchActions(['loadSnapshotSourcesFailure'])
+                .toMatchValues({ isRecordingDeleted: true, recordingDeletedBy: 'admin@example.com' })
+
+            logic.actions.loadSnapshotsForSourceSuccess({ sources: [BLOB_SOURCE] })
+            expect(logic.values.isRecordingDeleted).toBe(true)
         })
 
         it('recordingDeletedAt is null when deleted_at is not provided', () => {
@@ -145,6 +167,70 @@ describe('snapshotDataLogic', () => {
             })
                 .toDispatchActions(['loadSnapshotSourcesSuccess'])
                 .toMatchValues({ replayProxyToken: expected })
+        })
+    })
+
+    describe('direct block fetch', () => {
+        const BLOCK_PATH = '/replay-blocks/1/2/u1/v1.ref0'
+        const DIRECT_SOURCE: SessionRecordingSnapshotSource = {
+            ...BLOB_SOURCE,
+            url: `${window.location.origin}${BLOCK_PATH}`,
+        }
+
+        it.each([
+            ['reads the block from its url', 200, false, 'loadSnapshotsForSourceSuccess'],
+            [
+                'falls back to the snapshots endpoint when the block fetch fails',
+                500,
+                true,
+                'loadSnapshotsForSourceSuccess',
+            ],
+            [
+                'falls back when the block route answers with the app shell',
+                'html',
+                true,
+                'loadSnapshotsForSourceSuccess',
+            ],
+            ['shows the recording as deleted on a 410', 410, false, 'loadSnapshotsForSourceFailure'],
+            [
+                'reports a rate limit instead of reading through the snapshots endpoint',
+                429,
+                false,
+                'loadSnapshotsForSourceFailure',
+            ],
+        ] as const)('%s', async (_, blockStatus, expectsSnapshotsEndpoint, expectedAction) => {
+            let snapshotsEndpointBlockReads = 0
+            overrideSessionRecordingMocks({
+                getMocks: {
+                    '/api/environments/:team_id/session_recordings/:id/snapshots': ({ request }) => {
+                        if (new URL(request.url).searchParams.get('source') === 'blob_v2') {
+                            snapshotsEndpointBlockReads += 1
+                            return new HttpResponse(snapshotsAsJSONLines())
+                        }
+                        return [200, { sources: [DIRECT_SOURCE], block_token: 'block.token.sig' }]
+                    },
+                    [BLOCK_PATH]: () =>
+                        blockStatus === 200
+                            ? new HttpResponse(snapshotsAsJSONLines(), {
+                                  headers: { 'Content-Type': 'application/octet-stream' },
+                              })
+                            : blockStatus === 'html'
+                              ? new HttpResponse('<!doctype html><html></html>', {
+                                    headers: { 'Content-Type': 'text/html' },
+                                })
+                              : [blockStatus, { error: 'recording_deleted', deleted_at: 1700000000 }],
+                },
+            })
+            await expectLogic(logic, () => logic.actions.loadSnapshotSources()).toDispatchActions([
+                'loadSnapshotSourcesSuccess',
+            ])
+
+            await expectLogic(logic, () => logic.actions.loadSnapshotsForSource([DIRECT_SOURCE])).toDispatchActions([
+                expectedAction,
+            ])
+
+            expect(snapshotsEndpointBlockReads > 0).toBe(expectsSnapshotsEndpoint)
+            expect(logic.values.isRecordingDeleted).toBe(blockStatus === 410)
         })
     })
 

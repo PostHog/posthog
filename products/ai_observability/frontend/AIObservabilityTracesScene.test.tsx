@@ -351,7 +351,7 @@ describe('AIObservabilityTracesScene', () => {
             const view = await renderTraces()
 
             fireEvent.click(firstCell(view))
-            act(() => traceDrawerLogic({ listId: 'traces' }).actions.requestStep('gen-1'))
+            act(() => traceDrawerLogic({ listId: 'traces' }).actions.requestStep('gen-1', 'trace-1'))
 
             expect(tracesRequests()).toBe(1)
 

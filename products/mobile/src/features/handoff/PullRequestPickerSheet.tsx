@@ -1,13 +1,13 @@
 import { type ReactElement, useMemo } from 'react'
-import { ScrollView, Text, useWindowDimensions, View } from 'react-native'
+import { ScrollView, Text, View } from 'react-native'
 import { Gesture, GestureDetector } from 'react-native-gesture-handler'
-
 import type { PullRequestView } from '@/model/types'
 import { BottomSheet } from '@/ui/BottomSheet'
 import { CheckIcon } from '@/ui/icons/CheckIcon'
 import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles, useColors } from '@/ui/theme'
 import { iconSizes, radii, type } from '@/ui/tokens'
+import { useSceneDimensions } from '@/ui/useSceneDimensions'
 
 import { PULL_REQUEST_STATE_LABELS, pullRequestIdentity, pullRequestTitle } from './pullRequestDisplay'
 import { SheetPageHeader } from './SheetPageHeader'
@@ -29,7 +29,7 @@ export function PullRequestPickerSheet({
 }: PullRequestPickerSheetProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
-    const { height } = useWindowDimensions()
+    const { height } = useSceneDimensions()
     const listGesture = useMemo(() => Gesture.Native(), [])
     return (
         <BottomSheet

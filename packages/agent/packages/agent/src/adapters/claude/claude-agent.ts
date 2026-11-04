@@ -3205,6 +3205,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
           background: meta?.mode === "background",
           taskOriginProduct,
           endRunWhenDone,
+          callerEndsRun: meta?.callerEndsRun === true,
         },
       );
       return server ? { [LOCAL_TOOLS_MCP_NAME]: server } : {};
