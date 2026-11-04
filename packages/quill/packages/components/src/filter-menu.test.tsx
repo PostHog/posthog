@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from '@posthog/quill-primitives'
 
@@ -70,7 +70,8 @@ describe('FilterSearchSubMenu', () => {
         expect(onOpen).toHaveBeenCalledTimes(1)
     })
 
-    it('caps the rows until a search narrows them', async () => {
+    it('reports how long the submenu took to open', async () => {
+        const onOpened = jest.fn()
         render(
             <DropdownMenu defaultOpen>
                 <DropdownMenuTrigger>Filters</DropdownMenuTrigger>
@@ -79,12 +80,10 @@ describe('FilterSearchSubMenu', () => {
                         label="Tags"
                         allLabel="Any tag"
                         pluralNoun="tags"
-                        options={Array.from({ length: 300 }, (_, index) => ({
-                            value: `tag-${index}`,
-                            label: `tag-${index}`,
-                        }))}
+                        options={[]}
                         selected={[]}
                         onChange={jest.fn()}
+                        onOpened={onOpened}
                         searchPlaceholder="Search tags"
                         emptyText="No tag matches"
                     />
@@ -95,17 +94,47 @@ describe('FilterSearchSubMenu', () => {
         await act(async () => {
             fireEvent.click(await screen.findByText('Tags'))
         })
-        const input = await screen.findByLabelText('Search tags')
 
-        expect(screen.getAllByRole('option')).toHaveLength(200)
-        expect(screen.getByText('Keep typing to see more')).toBeTruthy()
-        expect(screen.queryByText('tag-299')).toBeNull()
+        await waitFor(() => expect(onOpened).toHaveBeenCalledTimes(1))
+        expect(onOpened).toHaveBeenCalledWith(expect.any(Number))
+    })
+
+    it('adds a picked row to the selection and keeps the menu open', async () => {
+        const onChange = jest.fn()
+        render(
+            <DropdownMenu defaultOpen>
+                <DropdownMenuTrigger>Filters</DropdownMenuTrigger>
+                <DropdownMenuContent>
+                    <FilterSearchSubMenu
+                        label="Tags"
+                        allLabel="Any tag"
+                        pluralNoun="tags"
+                        options={[
+                            { value: 'growth', label: 'growth' },
+                            { value: 'revenue', label: 'revenue' },
+                        ]}
+                        selected={['growth']}
+                        onChange={onChange}
+                        searchPlaceholder="Search tags"
+                        emptyText="No tag matches"
+                    />
+                </DropdownMenuContent>
+            </DropdownMenu>
+        )
+        await act(async () => {
+            fireEvent.click(await screen.findByText('Tags'))
+        })
+        const input = await screen.findByLabelText('Search tags')
+        await act(async () => {
+            fireEvent.change(input, { target: { value: 'rev' } })
+        })
+        expect(screen.getAllByRole('menuitemcheckbox').map((row) => row.textContent)).toEqual(['revenue'])
 
         await act(async () => {
-            fireEvent.change(input, { target: { value: 'tag-299' } })
+            fireEvent.click(screen.getByText('revenue'))
         })
 
-        expect(screen.getByText('tag-299')).toBeTruthy()
-        expect(screen.queryByText('Keep typing to see more')).toBeNull()
+        expect(onChange).toHaveBeenCalledWith(['growth', 'revenue'])
+        expect(screen.getByLabelText('Search tags')).toBeTruthy()
     })
 })
