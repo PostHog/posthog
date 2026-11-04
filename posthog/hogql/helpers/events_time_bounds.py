@@ -72,7 +72,6 @@ class _SelectScan(TraversingVisitor):
         self._enclosing_selects: list[ast.SelectQuery] = []
 
     def visit(self, node: ast.AST | None) -> None:
-        # Types hold no AST nodes and share CTE types, so following them adds only repeated work.
         if not isinstance(node, ast.Type):
             super().visit(node)
 
@@ -143,7 +142,6 @@ def _subquery_columns(table_type: Optional[ast.Type], blocked: set[int]) -> dict
 
 
 def _set_query_columns(branches: list[dict[str, list[ast.Type]]]) -> dict[str, list[ast.Type]]:
-    # A set query takes its column names from the first branch and matches the other branches by position.
     readable = [list(branch.values()) for branch in branches if branch]
     if not readable or len({len(columns) for columns in readable}) > 1:
         return {}
@@ -246,7 +244,6 @@ class _ConstantVisitor(IsTimeOrIntervalConstantVisitor):
         if alias_expr is not None:
             return self.visit(alias_expr)
         if isinstance(node.type, ast.FieldAliasType):
-            # A nested scope can reuse a scalar CTE's name, so every definition of the name must be constant.
             definitions = self.scan.scalar_ctes.get(node.type.alias, [])
             return bool(definitions) and all(self.visit(definition) for definition in definitions)
         return False
