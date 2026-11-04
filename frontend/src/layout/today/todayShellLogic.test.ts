@@ -14,8 +14,16 @@ import {
     TODAY_SIDEBAR_MAX_WIDTH,
     railPaneForPath,
     railPaneHref,
+    todayRailPanes,
     todayShellLogic,
 } from './todayShellLogic'
+
+const PEOPLE_FLAGS = { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true, [FEATURE_FLAGS.TODAY_RAIL_PEOPLE]: true }
+
+function enablePeoplePane(extraFlags: Record<string, boolean> = {}): void {
+    const flags = { ...PEOPLE_FLAGS, ...extraFlags }
+    featureFlagLogic.actions.setFeatureFlags(Object.keys(flags), flags)
+}
 
 describe('todayShellLogic', () => {
     beforeEach(() => {
@@ -58,6 +66,58 @@ describe('todayShellLogic', () => {
     ])('puts %s under %s', (pathname, pane) => {
         expect(railPaneForPath(pathname)).toBe(pane)
     })
+
+    test.each([
+        ['/project/1/persons', 'people', 'products'],
+        ['/project/1/persons/0190-uuid', 'people', 'products'],
+        ['/project/1/person/ada%40example.com', 'people', null],
+        ['/project/1/cohorts', 'people', 'products'],
+        ['/project/1/cohorts/5', 'people', 'products'],
+        ['/project/1/groups/0', 'people', null],
+        ['/project/1/groups/0/acme', 'people', null],
+        ['/project/1/customer_analytics/dashboard', 'people', 'products'],
+        ['/project/1/customer_analytics/journeys', 'people', 'products'],
+        ['/project/1/customer_analytics/journeys/new', 'people', 'products'],
+        ['/project/1/customer_analytics/accounts', 'products', 'products'],
+        ['/project/1/customer_analytics/accounts/1', 'products', 'products'],
+        ['/project/1/customer_analytics/feed', 'products', 'products'],
+        ['/project/1/customer_analytics/configuration', 'products', 'products'],
+    ])('puts %s under %s with the People pane, and under %s without it', (pathname, withPeople, withoutPeople) => {
+        expect(railPaneForPath(pathname, true)).toBe(withPeople)
+        expect(railPaneForPath(pathname, false)).toBe(withoutPeople)
+    })
+
+    test.each([
+        [{}, ['home', 'spaces', 'analytics', 'products']],
+        [{ [FEATURE_FLAGS.TODAY_RAIL_NAV]: true }, ['home', 'spaces', 'analytics', 'products']],
+        [{ [FEATURE_FLAGS.TODAY_RAIL_PEOPLE]: true }, ['home', 'spaces', 'analytics', 'products']],
+        [PEOPLE_FLAGS, ['home', 'spaces', 'analytics', 'people', 'products']],
+    ])('with flags %o the rail shows %o', (flags, panes) => {
+        expect(todayRailPanes(flags)).toEqual(panes)
+    })
+
+    test.each([
+        ['a rail pick on Analytics', '/project/1/airplane', 'analytics', 'analytics'],
+        ['a fresh load of an insight', '/project/1/insights/abc', null, 'analytics'],
+        ['a rail pick on Products', '/project/1/airplane', 'products', 'people'],
+    ] as const)(
+        'a person opened after %s (from %s, %s picked) shows the %s pane, and the persons list shows People',
+        (_, startPath, pickedPane, pane) => {
+            enablePeoplePane()
+            router.actions.push(startPath)
+            const logic = todayShellLogic()
+            logic.mount()
+
+            if (pickedPane) {
+                logic.actions.pickPane(pickedPane)
+            }
+            router.actions.push('/project/1/person/ada%40example.com')
+            expect(logic.values.activePane).toBe(pane)
+
+            router.actions.push('/project/1/persons')
+            expect(logic.values.activePane).toBe('people')
+        }
+    )
 
     test.each([
         ['/data-management/destinations', '/data-management/destinations?tab=all'],
@@ -119,15 +179,26 @@ describe('todayShellLogic', () => {
     })
 
     test.each([
-        ['home', 'new', urls.projectHomepage()],
-        ['spaces', 'new', urls.taskNewSession()],
-        ['spaces', 'legacy', urls.ai()],
-        ['analytics', 'new', urls.analyticsList()],
-        ['products', 'new', undefined],
-        ['settings', 'new', urls.settings('project')],
-    ] as const)('a rail pick on %s with the %s PostHog AI view opens %s', (pane, phaiView, href) => {
-        expect(railPaneHref(pane, phaiView)).toBe(href)
-    })
+        ['home', 'new', {}, urls.projectHomepage()],
+        ['spaces', 'new', {}, urls.taskNewSession()],
+        ['spaces', 'legacy', {}, urls.ai()],
+        ['analytics', 'new', {}, urls.analyticsList()],
+        ['products', 'new', {}, undefined],
+        ['settings', 'new', {}, urls.settings('project')],
+        ['people', 'new', {}, urls.persons()],
+        ['people', 'new', { [FEATURE_FLAGS.CUSTOMER_ANALYTICS]: true }, urls.customerAnalyticsDashboard()],
+        [
+            'people',
+            'new',
+            { [FEATURE_FLAGS.CUSTOMER_ANALYTICS]: true, [FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP]: true },
+            urls.customerAnalyticsDashboard(),
+        ],
+    ] as const)(
+        'a rail pick on %s with the %s PostHog AI view and flags %o opens %s',
+        (pane, phaiView, flags, href) => {
+            expect(railPaneHref(pane, phaiView, flags)).toBe(href)
+        }
+    )
 
     test.each(['spaces', 'analytics', 'products'] as const)(
         'a second rail click on %s hides the sidebar it opened',
