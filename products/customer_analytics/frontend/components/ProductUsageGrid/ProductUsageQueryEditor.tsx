@@ -10,12 +10,27 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { DotMatrixColumnMapping } from '../Accounts/DotMatrixColumnMapping'
 import { getMatrixHogQLScope } from '../Accounts/dotMatrixHogQLScope'
 import { productUsageGridLogic } from './productUsageGridLogic'
+import { getProductUsageHogQLBindings } from './productUsageQueries'
 const CodeEditor = lazyWithRetry(async () => ({ default: (await import('lib/monaco/CodeEditor')).CodeEditor }))
 
 export function ProductUsageQueryEditor(): JSX.Element {
-    const { draftKind, queryDraft, mappingDraft, result, loading, querySaveError, saveError } =
-        useValues(productUsageGridLogic)
+    const {
+        draftKind,
+        queryDraft,
+        mappingDraft,
+        result,
+        loading,
+        querySaveError,
+        saveError,
+        controls,
+        customerAnalyticsConfig,
+    } = useValues(productUsageGridLogic)
     const { setQueryDraft, setMappingDraft, runQuery, saveSource, cancelEditor } = useActions(productUsageGridLogic)
+    const bindings = getProductUsageHogQLBindings(
+        result?.accounts.results ?? [],
+        controls.dateRange,
+        customerAnalyticsConfig?.account_group_type_index
+    )
     const scope = getMatrixHogQLScope(queryDraft)
     const columns = result?.hogql?.columns ?? []
     return (
@@ -32,7 +47,8 @@ export function ProductUsageQueryEditor(): JSX.Element {
                             queryKey="product-activity-book"
                             language="hogQL"
                             height={200}
-                            sourceQuery={{ kind: NodeKind.HogQLQuery, query: queryDraft }}
+                            sourceQuery={{ kind: NodeKind.HogQLQuery, query: queryDraft, ...bindings }}
+                            globals={bindings.values ?? undefined}
                             value={queryDraft}
                             onChange={(query) => setQueryDraft(query ?? '')}
                             onPressCmdEnter={runQuery}

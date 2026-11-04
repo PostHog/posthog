@@ -9,13 +9,30 @@ import { NodeKind } from '~/queries/schema/schema-general'
 
 import type { accountDotMatrixTileLogic } from './accountDotMatrixTileLogic'
 import { DotMatrixColumnMapping } from './DotMatrixColumnMapping'
+import { getMatrixHogQLBindings } from './dotMatrixTileQuery'
 
 const CodeEditor = lazyWithRetry(async () => ({ default: (await import('lib/monaco/CodeEditor')).CodeEditor }))
 
 export function DotMatrixQueryEditor({ logic }: { logic: ReturnType<typeof accountDotMatrixTileLogic> }): JSX.Element {
-    const { queryDraft, mappingDraft, matrixResult, matrixResultLoading, querySaveError, queryScopeWarning } =
-        useValues(logic)
+    const {
+        queryDraft,
+        mappingDraft,
+        matrixResult,
+        matrixResultLoading,
+        querySaveError,
+        queryScopeWarning,
+        config,
+        customerAnalyticsConfig,
+        weekStartDay,
+    } = useValues(logic)
     const { setQueryDraft, setMappingDraft, runQuery, saveQuery, cancelQuery } = useActions(logic)
+    const bindings = getMatrixHogQLBindings({
+        accountId: logic.props.accountId,
+        externalId: logic.props.externalId,
+        groupTypeIndex: customerAnalyticsConfig?.account_group_type_index,
+        weeks: config.weeks,
+        weekStartDay,
+    })
     const columns = matrixResult?.kind === 'hogql' ? (matrixResult.result.columns ?? []) : []
     const names = [...new Set(columns.filter((column): column is string => typeof column === 'string'))]
     return (
@@ -31,7 +48,8 @@ export function DotMatrixQueryEditor({ logic }: { logic: ReturnType<typeof accou
                     queryKey={`dot-matrix-${logic.props.instanceId}`}
                     language="hogQL"
                     height={200}
-                    sourceQuery={{ kind: NodeKind.HogQLQuery, query: queryDraft }}
+                    sourceQuery={{ kind: NodeKind.HogQLQuery, query: queryDraft, ...bindings }}
+                    globals={bindings.values ?? undefined}
                     value={queryDraft}
                     onChange={(query) => setQueryDraft(query ?? '')}
                     onPressCmdEnter={runQuery}

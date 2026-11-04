@@ -48,6 +48,31 @@ export function buildProductUsageAccountsQuery(filters: ProductUsageFilters): Ac
         tags: { ...CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS, name: 'customer_analytics_product_activity_accounts' },
     }
 }
+export function getProductUsageHogQLBindings(
+    accounts: AccountsTableRow[],
+    dateRange: DateRange,
+    groupTypeIndex?: number | null
+): Pick<HogQLQuery, 'values' | 'filters'> {
+    const externalIds = accounts.flatMap((account) => (account.externalId ? [account.externalId] : []))
+    return {
+        values: { account_ids: accounts.map(({ id }) => id), account_external_ids: externalIds },
+        filters: {
+            dateRange,
+            properties:
+                groupTypeIndex == null
+                    ? []
+                    : [
+                          {
+                              type: PropertyFilterType.Event,
+                              key: `$group_${groupTypeIndex}`,
+                              operator: PropertyOperator.Exact,
+                              value: externalIds,
+                          },
+                      ],
+        },
+    }
+}
+
 export function buildProductUsageHogQLQuery(
     query: string,
     accounts: AccountsTableRow[],
@@ -70,21 +95,7 @@ export function buildProductUsageHogQLQuery(
     return {
         kind: NodeKind.HogQLQuery,
         query,
-        values: { account_ids: accounts.map(({ id }) => id), account_external_ids: externalIds },
-        filters: {
-            dateRange,
-            properties:
-                groupTypeIndex == null
-                    ? []
-                    : [
-                          {
-                              type: PropertyFilterType.Event,
-                              key: `$group_${groupTypeIndex}`,
-                              operator: PropertyOperator.Exact,
-                              value: externalIds,
-                          },
-                      ],
-        },
+        ...getProductUsageHogQLBindings(accounts, dateRange, groupTypeIndex),
         tags: { ...CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS, name: 'customer_analytics_product_activity_hogql' },
     }
 }

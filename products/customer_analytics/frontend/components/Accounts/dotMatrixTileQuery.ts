@@ -27,20 +27,8 @@ export type DotMatrixTileResult =
     | { kind: 'product_usage'; result: BookActivityMatrixResult }
     | { kind: 'hogql'; query: string; result: HogQLQueryResponse }
 
-export function createMatrixHogQLQuery(query: string, context: DotMatrixQueryContext): HogQLQuery {
-    if (getMatrixHogQLScope(query).usesFilters && (context.groupTypeIndex == null || !context.externalId)) {
-        // Status 400 marks this as the user's to fix, like a SQL mistake, so it isn't reported as an exception.
-        throw Object.assign(
-            new Error(
-                'Link this account and choose an account group type in Customer analytics settings to use {filters}.'
-            ),
-            { status: 400 }
-        )
-    }
+export function getMatrixHogQLBindings(context: DotMatrixQueryContext): Pick<HogQLQuery, 'values' | 'filters'> {
     return {
-        kind: NodeKind.HogQLQuery,
-        tags: { productKey: 'customer_analytics', scene: 'CustomerAnalytics' },
-        query,
         values: {
             account_id: context.accountId,
             account_external_id: context.externalId ?? '',
@@ -60,6 +48,24 @@ export function createMatrixHogQLQuery(query: string, context: DotMatrixQueryCon
                       ]
                     : [],
         },
+    }
+}
+
+export function createMatrixHogQLQuery(query: string, context: DotMatrixQueryContext): HogQLQuery {
+    if (getMatrixHogQLScope(query).usesFilters && (context.groupTypeIndex == null || !context.externalId)) {
+        // Status 400 marks this as the user's to fix, like a SQL mistake, so it isn't reported as an exception.
+        throw Object.assign(
+            new Error(
+                'Link this account and choose an account group type in Customer analytics settings to use {filters}.'
+            ),
+            { status: 400 }
+        )
+    }
+    return {
+        kind: NodeKind.HogQLQuery,
+        tags: { productKey: 'customer_analytics', scene: 'CustomerAnalytics' },
+        query,
+        ...getMatrixHogQLBindings(context),
     }
 }
 
