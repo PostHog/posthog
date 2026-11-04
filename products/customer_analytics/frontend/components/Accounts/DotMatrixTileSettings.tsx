@@ -35,19 +35,23 @@ export function DotMatrixTileSettings({ logic }: { logic: ReturnType<typeof acco
                                 setOpen(false)
                             }}
                         />
-                        <LemonLabel htmlFor={`${id}-mode`}>Display</LemonLabel>
-                        <LemonSelect<'dots' | 'count'>
-                            id={`${id}-mode`}
-                            value={config.mode}
-                            onChange={setMode}
-                            options={[
-                                { value: 'dots', label: 'Dots' },
-                                { value: 'count', label: 'Count' },
-                            ]}
-                            fullWidth
-                            aria-label="Dot matrix display"
-                            data-attr="account-dot-matrix-mode"
-                        />
+                        {sourceKind !== 'product_usage' && (
+                            <>
+                                <LemonLabel htmlFor={`${id}-mode`}>Display</LemonLabel>
+                                <LemonSelect<'dots' | 'count'>
+                                    id={`${id}-mode`}
+                                    value={config.mode}
+                                    onChange={setMode}
+                                    options={[
+                                        { value: 'dots', label: 'Dots' },
+                                        { value: 'count', label: 'Count' },
+                                    ]}
+                                    fullWidth
+                                    aria-label="Dot matrix display"
+                                    data-attr="account-dot-matrix-mode"
+                                />
+                            </>
+                        )}
                         <LemonLabel htmlFor={`${id}-weeks`}>Weeks</LemonLabel>
                         <LemonSelect<DotMatrixWeeks>
                             id={`${id}-weeks`}

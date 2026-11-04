@@ -7,8 +7,8 @@ import { DotMatrix } from 'lib/components/DotMatrix/DotMatrix'
 
 import type { AccountActivityMatrixDatum } from './accountActivityMatrix'
 import { accountDotMatrixTileLogic } from './accountDotMatrixTileLogic'
+import { AccountProductUsage } from './AccountProductUsage'
 import type { AccountViewTileLogicProps } from './accountViewTileConfig'
-import { DotMatrixProductGroups } from './DotMatrixProductGroups'
 import { DotMatrixQueryEditor } from './DotMatrixQueryEditor'
 import { DotMatrixSourcePicker } from './DotMatrixSourcePicker'
 import { DotMatrixTileSettings } from './DotMatrixTileSettings'
@@ -42,8 +42,9 @@ export function AccountDotMatrixTile({
         selectedSeries,
         sourceKind,
         queryEditorOpen,
+        includeFirstUse,
     } = useValues(logic)
-    const { retry, setSelectedSeries, chooseSource } = useActions(logic)
+    const { retry, setSelectedSeries, chooseSource, setIncludeFirstUse } = useActions(logic)
 
     return (
         <div className="flex flex-col gap-3 min-w-0" data-attr="account-dot-matrix-tile">
@@ -65,14 +66,17 @@ export function AccountDotMatrixTile({
                         </LemonBanner>
                     ) : (
                         <>
-                            {displayResult?.kind === 'product_usage' && !matrixResultLoading && (
-                                <DotMatrixProductGroups
-                                    groupings={displayResult.result.groupings}
-                                    onSelect={setSelectedSeries}
-                                />
-                            )}
                             {presentation.error && !queryEditorOpen && !matrixResultLoading ? (
                                 <LemonBanner type="warning">{presentation.error}</LemonBanner>
+                            ) : displayResult?.kind === 'product_usage' ? (
+                                <AccountProductUsage
+                                    result={displayResult.result}
+                                    accountId={accountId}
+                                    instanceId={`${instanceId ?? 'tile'}:${generatedId}:products`}
+                                    includeFirstUse={includeFirstUse}
+                                    onIncludeFirstUseChange={setIncludeFirstUse}
+                                    loading={matrixResultLoading}
+                                />
                             ) : (
                                 (matrixResultLoading || (displayResult && !presentation.error)) && (
                                     <DotMatrix<AccountActivityMatrixDatum>
