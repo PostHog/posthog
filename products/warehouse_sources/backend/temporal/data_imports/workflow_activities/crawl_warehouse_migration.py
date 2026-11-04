@@ -35,11 +35,18 @@ class CrawlWarehouseMigrationInputs:
     migration_id: uuid.UUID
 
 
+def _crawl_workflow_id() -> str:
+    workflow_id = activity.info().workflow_id
+    if workflow_id is None:
+        raise RuntimeError("Crawl activities run only inside the crawl workflow.")
+    return workflow_id
+
+
 @activity.defn
 async def crawl_warehouse_migration_activity(inputs: CrawlWarehouseMigrationInputs) -> int:
     async with Heartbeater():
         return await database_sync_to_async(crawl_migration, thread_sensitive=False)(
-            team_id=inputs.team_id, migration_id=inputs.migration_id, workflow_id=activity.info().workflow_id
+            team_id=inputs.team_id, migration_id=inputs.migration_id, workflow_id=_crawl_workflow_id()
         )
 
 
@@ -55,7 +62,7 @@ async def mark_warehouse_migration_failed_activity(inputs: MarkWarehouseMigratio
     await database_sync_to_async(mark_migration_failed, thread_sensitive=False)(
         team_id=inputs.team_id,
         migration_id=inputs.migration_id,
-        workflow_id=activity.info().workflow_id,
+        workflow_id=_crawl_workflow_id(),
         auth_failed=inputs.auth_failed,
     )
 
