@@ -18,6 +18,7 @@ import structlog
 import posthoganalytics
 from rest_framework import exceptions, generics, permissions, response, serializers, status
 from rest_framework.request import Request
+from rest_framework.throttling import BaseThrottle
 from social_core.backends.base import BaseAuth
 from social_core.exceptions import AuthFailed
 from social_core.pipeline.partial import partial
@@ -538,11 +539,28 @@ class SignupViewset(generics.CreateAPIView):
     permission_classes = (permissions.AllowAny,) if settings.E2E_TESTING else (CanCreateOrg,)
     throttle_classes = [] if settings.E2E_TESTING else [SignupAttemptIPThrottle, SignupIPThrottle]
 
+    account_created = False
+
+    def get_throttles(self) -> list[BaseThrottle]:
+        # DRF builds new throttle instances on every call. `handle_exception` needs the instances that
+        # checked this request, because only they know which slot the request reserved.
+        if not hasattr(self, "_throttles"):
+            self._throttles = super().get_throttles()
+        return self._throttles
+
     def perform_create(self, serializer: SignupSerializer) -> None:
-        super().perform_create(serializer)
-        for throttle in self.get_throttles():
-            if isinstance(throttle, SignupIPThrottle):
-                throttle.record_signup(self.request, self)
+        try:
+            super().perform_create(serializer)
+        finally:
+            # The account commits before the verification email goes out, so a later failure still counts.
+            self.account_created = getattr(serializer, "_user", None) is not None
+
+    def handle_exception(self, exc: Exception) -> response.Response:
+        if not self.account_created:
+            for throttle in self.get_throttles():
+                if isinstance(throttle, SignupIPThrottle):
+                    throttle.release()
+        return super().handle_exception(exc)
 
 
 class InviteSignupSerializer(serializers.Serializer):

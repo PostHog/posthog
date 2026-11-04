@@ -542,9 +542,8 @@ WHITENOISE_ADD_HEADERS_FUNCTION = static_varies_origin
 # cache-bust can hold a stale SDK bundle after a release.
 WHITENOISE_MAX_AGE = get_from_env("WHITENOISE_MAX_AGE", 3600, type_cast=int)
 
-# Per-IP signup throttle rates (see posthog.rate_limit.SignupIPThrottle and SignupAttemptIPThrottle).
-# Overridable per-env so non-prod (e.g. dev deploy smoke-tests) can raise them without weakening the
-# prod defaults. The first counts successful signups, the second counts every signup request.
+# Per-IP signup throttle rates (see posthog.rate_limit). Overridable per-env so non-prod
+# (e.g. dev deploy smoke-tests) can raise them without weakening the prod defaults.
 SIGNUP_IP_THROTTLE_RATE = get_from_env("SIGNUP_IP_THROTTLE_RATE", "5/day")
 SIGNUP_ATTEMPT_IP_THROTTLE_RATE = get_from_env("SIGNUP_ATTEMPT_IP_THROTTLE_RATE", "10/hour")
 

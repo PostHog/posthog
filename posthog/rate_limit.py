@@ -360,27 +360,33 @@ class SignupIPThrottle(IPThrottle):
     """
     Limit how many accounts one IP address can create.
 
-    The check runs on every request, but only `record_signup` adds to the count, after a signup succeeds.
-    A user who retries a form that keeps failing (validation errors, challenges, passkey retries) would
-    otherwise lock out their IP for a day. `SignupAttemptIPThrottle` bounds the failed attempts instead.
+    Like any DRF throttle, the check reserves a slot when the request arrives, so concurrent requests
+    cannot all pass against the same count. The view calls `release` when a request ends without creating
+    an account, because a user who retries a form that keeps failing (validation errors, challenges,
+    passkey retries) would otherwise lock out their IP for a day. `SignupAttemptIPThrottle` bounds the
+    failed attempts instead.
     """
 
     scope = "signup_ip"
     rate = settings.SIGNUP_IP_THROTTLE_RATE
+    reserved = False
 
     def throttle_success(self) -> bool:
-        return True
+        self.reserved = True
+        return super().throttle_success()
 
-    def record_signup(self, request: "Request", view: "APIView") -> None:
-        if self.rate is None:
+    def release(self) -> None:
+        if not self.reserved:
             return
-        key = self.get_cache_key(request, view)
-        if key is None:
-            return
-        now = self.timer()
-        history = [timestamp for timestamp in self.cache.get(key, []) if timestamp > now - self.duration]
-        history.insert(0, now)
-        self.cache.set(key, history, self.duration)
+        self.reserved = False
+        try:
+            history = self.cache.get(self.key, [])
+            with suppress(ValueError):
+                history.remove(self.now)
+            self.cache.set(self.key, history, self.duration)
+        except Exception as e:
+            # The request is already failing, so a cache error here must not replace its original error.
+            capture_exception(e)
 
 
 class SignupAttemptIPThrottle(IPThrottle):
