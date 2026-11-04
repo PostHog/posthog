@@ -29,6 +29,7 @@ _CODEX = AgentRuntime(runtime_adapter="codex", model="gpt-5.5", reasoning_effort
 _SONNET_MODEL_ONLY = AgentRuntime(runtime_adapter=None, model="claude-sonnet-4-6", reasoning_effort=None)
 _CODEX_NO_EFFORT = AgentRuntime(runtime_adapter="codex", model="gpt-5.5", reasoning_effort=None)
 _SOL_HIGH = AgentRuntime(runtime_adapter="codex", model="gpt-6-sol", reasoning_effort="high")
+_LUNA_FLEX = AgentRuntime(runtime_adapter="codex", model="gpt-6-luna", reasoning_effort="medium", service_tier="flex")
 
 
 class TestResolveAgentRuntime:
@@ -45,6 +46,7 @@ class TestResolveAgentRuntime:
             ("wildcard_team_step_missing", 999, "research", DEFAULT_RUNTIME),
             ("rubrics_default", 999, "scout_rubrics", _SOL_HIGH),
             ("rubrics_wildcard_override", 2, "scout_rubrics", _SONNET_MODEL_ONLY),
+            ("repo_selection_default", 999, "repo_selection", _LUNA_FLEX),
         ]
     )
     def test_resolution_precedence(self, _name: str, team_id: int, step: str, expected: AgentRuntime) -> None:
@@ -122,7 +124,7 @@ class TestResolveAgentRuntime:
         with patch(_PAYLOAD_FN_PATH, return_value=json.dumps(_PAYLOAD)):
             assert resolve_agent_runtime(2, "research") == _CODEX
 
-    @parameterized.expand([("research", DEFAULT_RUNTIME), ("scout_rubrics", _SOL_HIGH)])
+    @parameterized.expand([("research", DEFAULT_RUNTIME), ("scout_rubrics", _SOL_HIGH), ("repo_selection", _LUNA_FLEX)])
     def test_flag_read_failure_falls_back_to_default(self, step: str, expected: AgentRuntime) -> None:
         with patch(_PAYLOAD_FN_PATH, side_effect=RuntimeError("flag service down")):
             assert resolve_agent_runtime(2, step) == expected
