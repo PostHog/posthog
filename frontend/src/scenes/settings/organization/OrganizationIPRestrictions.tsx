@@ -58,7 +58,7 @@ export function OrganizationIPRestrictions(): JSX.Element {
                     allowCustomValues
                     value={values}
                     onChange={(nextEntries) => {
-                        setDraftEntries(nextEntries)
+                        setDraftEntries(nextEntries, currentOrganization.id)
                         setTestResult(null)
                     }}
                     placeholder="203.0.113.4 or 10.0.0.0/8"
