@@ -157,12 +157,13 @@ vi.mock('@/hono/request-context', async () => {
 })
 
 import type { RedisLike } from '@/hono/cache/RedisCache'
-import { MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
+import { ASK_POSTHOG_HOW_FEATURE_FLAG, MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
 import { MCP_INTENT_PROMPT_FLAG } from '@/hono/intent-prompt'
 import { MCP_INTERVIEW_RECRUITMENT_FLAG } from '@/hono/interview-recruitment'
 import { RequestStateResolver } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { StateLookupCache } from '@/lib/cache/StateLookupCache'
+import { McpSurfaceUnavailableError } from '@/lib/errors'
 import type { MCPAnalyticsContext } from '@/lib/posthog/analytics'
 import { evaluateFeatureFlags, resolveFeatureFlagOverrides } from '@/lib/posthog/flags'
 import { parseRequestProperties, type RequestProperties } from '@/lib/request-properties'
@@ -428,6 +429,20 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(props.mode).toBe('tools')
         expect(result.requestContext.mode).toBe('tools')
         expect(mockSessionStore.get('mcpMode')).toBeUndefined()
+    })
+
+    it.each([
+        { flag: true, served: true },
+        { flag: false, served: false },
+    ])('serves the ask surface in single-exec mode only while its flag is on: %j', async ({ flag, served }) => {
+        vi.mocked(resolveFeatureFlagOverrides).mockReturnValueOnce({ [ASK_POSTHOG_HOW_FEATURE_FLAG]: flag })
+        const resolving = makeResolver().resolve(makeProps({ surface: 'ask', mode: 'tools' }))
+
+        if (served) {
+            expect(await resolving).toMatchObject({ surface: 'ask', useSingleExec: true })
+        } else {
+            await expect(resolving).rejects.toBeInstanceOf(McpSurfaceUnavailableError)
+        }
     })
 
     it('uses cached session client props when request client detection would resolve differently', async () => {

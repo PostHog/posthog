@@ -1,3 +1,5 @@
+import type { McpSurface } from '@/lib/request-properties'
+
 import type { Lifecycle } from './app'
 import type { RedisLike } from './cache/RedisCache'
 import { McpDispatcher } from './dispatcher'
@@ -23,7 +25,11 @@ export class StreamableMcpHandler {
         await this.dispatcher.warmup()
     }
 
-    fetch = async (c: HonoCtx): Promise<Response> => {
+    fetch = (c: HonoCtx): Promise<Response> => this.handle(c, 'mcp')
+
+    fetchAsk = (c: HonoCtx): Promise<Response> => this.handle(c, 'ask')
+
+    private handle = async (c: HonoCtx, surface: McpSurface): Promise<Response> => {
         if (c.req.method !== 'POST') {
             return new Response('Method not allowed', { status: 405 })
         }
@@ -35,6 +41,7 @@ export class StreamableMcpHandler {
         if ('error' in auth) {
             return auth.error
         }
+        auth.props.surface = surface
 
         // After auth so the bucket is keyed per token, not per IP — corporate
         // NATs shouldn't share buckets across unrelated users.

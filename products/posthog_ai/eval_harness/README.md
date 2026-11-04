@@ -76,28 +76,29 @@ python -m products.posthog_ai.eval_harness.harness --provider modal
 python -m products.posthog_ai.eval_harness.harness --list
 ```
 
-| Flag                              | Meaning                                                                                                  |
-| --------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `--eval <substr>`                 | Only run cases whose name contains the substring.                                                        |
-| `--provider {docker,modal}`       | Where sandboxes run. Default `docker`.                                                                   |
-| `--max-sandboxes N`               | Cap concurrently live sandboxes across all suites.                                                       |
-| `--agent-model <model>`           | Model the sandboxed agent runs against, pinned for stable cross-run comparison.                          |
-| `--agent-runtime {claude,codex}`  | Agent runtime serving the model. Default `claude`.                                                       |
-| `--skill-delivery {bundled,exec}` | Skill delivery path. Default `bundled`; `exec` removes native sandbox skills.                            |
-| `--reasoning-effort <effort>`     | Agent reasoning effort; valid values depend on runtime+model.                                            |
-| `--keep-sandbox-containers`       | Skip the end-of-run Docker sweep, to inspect a leftover container. Docker only.                          |
-| `--rebuild-sandbox-image`         | Force a rebuild of the `posthog-sandbox-base` image before the run. Docker only.                         |
-| `--create-db`                     | Rebuild the eval test database instead of reusing it.                                                    |
-| `--case-timeout <seconds>`        | Agent-run budget (minimum 1 second), started after the case's team setup.                                |
-| `--verbose`                       | Show detailed logs and tracebacks in the console. The transcript always keeps the detailed logs.         |
-| `--tui`                           | Force the interactive view using the session's terminal, including when standard streams are redirected. |
-| `--no-tui`                        | Use plain text output, including in an interactive terminal.                                             |
-| `--trials N`                      | Run every case N times (Braintrust trials), for variance on stochastic agents.                           |
-| `--infra-retries N`               | Retry temporary case setup failures and service readiness timeouts N times. Default 2; use 0 to disable. |
-| `--fail-under <fraction>`         | Exit nonzero when the mean score across all experiments falls below this (0-1).                          |
-| `--list`                          | Print the discovered suite ids (with their kinds) and exit.                                              |
+| Flag                              | Meaning                                                                                                   |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `--eval <substr>`                 | Only run cases whose name contains the substring.                                                         |
+| `--provider {docker,modal}`       | Where sandboxes run. Default `docker`.                                                                    |
+| `--max-sandboxes N`               | Cap concurrently live sandboxes across all suites.                                                        |
+| `--agent-model <model>`           | Model the sandboxed agent runs against, pinned for stable cross-run comparison.                           |
+| `--agent-runtime {claude,codex}`  | Agent runtime serving the model. Default `claude`.                                                        |
+| `--skill-delivery {bundled,exec}` | Skill delivery path. Default `bundled`; `exec` removes native sandbox skills.                             |
+| `--mcp-surface {mcp,ask,agent}`   | MCP endpoint the agent connects to. Default `mcp`. See [Comparing MCP surfaces](#comparing-mcp-surfaces). |
+| `--reasoning-effort <effort>`     | Agent reasoning effort; valid values depend on runtime+model.                                             |
+| `--keep-sandbox-containers`       | Skip the end-of-run Docker sweep, to inspect a leftover container. Docker only.                           |
+| `--rebuild-sandbox-image`         | Force a rebuild of the `posthog-sandbox-base` image before the run. Docker only.                          |
+| `--create-db`                     | Rebuild the eval test database instead of reusing it.                                                     |
+| `--case-timeout <seconds>`        | Agent-run budget (minimum 1 second), started after the case's team setup.                                 |
+| `--verbose`                       | Show detailed logs and tracebacks in the console. The transcript always keeps the detailed logs.          |
+| `--tui`                           | Force the interactive view using the session's terminal, including when standard streams are redirected.  |
+| `--no-tui`                        | Use plain text output, including in an interactive terminal.                                              |
+| `--trials N`                      | Run every case N times (Braintrust trials), for variance on stochastic agents.                            |
+| `--infra-retries N`               | Retry temporary case setup failures and service readiness timeouts N times. Default 2; use 0 to disable.  |
+| `--fail-under <fraction>`         | Exit nonzero when the mean score across all experiments falls below this (0-1).                           |
+| `--list`                          | Print the discovered suite ids (with their kinds) and exit.                                               |
 
-Sandbox-only flags (`--provider`, `--max-sandboxes`, `--agent-runtime`, `--skill-delivery`, `--reasoning-effort`, `--keep-sandbox-containers`, `--rebuild-sandbox-image`) are rejected in preflight when no selected suite is sandboxed, instead of being silently ignored.
+Sandbox-only flags (`--provider`, `--max-sandboxes`, `--agent-runtime`, `--skill-delivery`, `--mcp-surface`, `--reasoning-effort`, `--keep-sandbox-containers`, `--rebuild-sandbox-image`) are rejected in preflight when no selected suite is sandboxed, instead of being silently ignored.
 
 The run exits with status 1 if a suite crashes or a case has an infrastructure error, even without `--fail-under`.
 Infrastructure errors remain separate from score averages.
@@ -196,11 +197,28 @@ hogli evals eval_skill_distribution --skill-delivery exec --agent-runtime claude
 Both runs use the same prompts and experiment name.
 The experiment metadata records `skill_delivery`; compare the shared `expected_skill_loaded` and `skill_loaded_before_tool` scores rather than the aggregate mean, because the exec arm also reports search and discovery diagnostics.
 
+### Comparing MCP surfaces
+
+`--mcp-surface` selects the path the sandbox's MCP URL points at, so each surface runs as its own harness process:
+
+- `mcp` is the ordinary MCP server.
+- `ask` serves only `ask-posthog-how` and `exec`. `ask-posthog-how` takes the user's goal and returns a recipe: which commands to run with `exec`, their required arguments, and which skills to load. The harness turns on the `mcp-ask-posthog-how` flag and serves the skill archive to the MCP server for this surface.
+- `agent` is the hosted PostHog agent from PostHog/posthog#117125. A checkout without that surface fails before any sandbox starts.
+
+```bash
+hogli evals eval_mcp_surface_comparison --provider modal --trials 3 --mcp-surface mcp
+hogli evals eval_mcp_surface_comparison --provider modal --trials 3 --mcp-surface ask
+```
+
+The runs share an experiment name and record `mcp_surface` in their metadata.
+Each experiment summary prints the agent's mean time and model tokens per trial, and `--results-file` saves them under `usage`.
+These tokens are the sandboxed agent's own. An LLM call behind an MCP tool is not counted.
+
 ### Codex runtime
 
 `--agent-runtime codex` runs the same agent-server with OpenAI's Codex harness instead of Claude, defaulting the model to `gpt-6.1-sol`.
 It requires `LLM_GATEWAY_OPENAI_API_KEY` in the environment (checked by preflight), which the harness's AI gateway uses to proxy the agent's OpenAI calls.
-Experiment names don't change with the runtime or skill delivery. Each local evaluation and every PostHog event records `agent_model`, `trials`, `git_sha` and `git_dirty`. Sandboxed runs add `agent_runtime`, `skill_delivery` and `reasoning_effort`. Use these fields to separate runs. A comparison across runtimes measures the model and runtime together.
+Experiment names don't change with the runtime or skill delivery. Each local evaluation and every PostHog event records `agent_model`, `trials`, `git_sha` and `git_dirty`. Sandboxed runs add `agent_runtime`, `skill_delivery`, `mcp_surface` and `reasoning_effort`. Use these fields to separate runs. A comparison across runtimes measures the model and runtime together.
 
 ### Claude and Codex smoke comparison
 
@@ -227,7 +245,7 @@ Use `--comparison-dir PATH` to choose a new directory. Existing directories are 
 Each model retains its own full transcript, and the comparison has a combined transcript whose path prints last.
 Reports retain completed models if a later model fails or the comparison is interrupted.
 
-The table shows named scorer means with scored-trial counts, completed execution coverage, errors, timeouts, and wall time.
+The table shows named scorer means with scored-trial counts, agent time and tokens per trial, completed execution coverage, errors, timeouts, and wall time.
 Missing and skipped scores show `n/a`; a real zero shows `0.0%`. Costs show `unavailable` because these results do not contain cost data.
 Case-set, scorer-set, or checkout differences produce a warning and a nonzero exit status.
 Errors, timeouts, incomplete results, and failed score gates also make the comparison exit nonzero.
@@ -259,7 +277,7 @@ EXPORT_EVAL_RESULTS=1 hogli evals "${eval_comparison_args[@]}" --agent-runtime c
 ```
 
 Compare the named scorer results, completed cases, timeouts, infrastructure errors, and total duration in both final summaries.
-Keep both transcript paths and both agent-log directories. Each directory contains `case_results.jsonl` with scores and trial IDs.
+Keep both transcript paths and both agent-log directories. Each directory contains `case_results.jsonl` with scores, trial IDs, agent duration, and agent tokens.
 Check the recorded `git_sha` and `git_dirty` values before comparing runs.
 Treat missing or errored trials as incomplete coverage, rather than a model score.
 This is a smoke comparison, not a broad model ranking. Set `--trials 3` in the shared arguments to check repeatability after the first pair completes.

@@ -16,6 +16,10 @@ logger = logging.getLogger(__name__)
 
 SandboxProvider = Literal["docker", "modal"]
 
+McpSurface = Literal["mcp", "agent", "ask"]
+"""MCP endpoint the sandboxed agent connects to, served at ``/<surface>`` on the eval MCP server."""
+DEFAULT_MCP_SURFACE: McpSurface = "mcp"
+
 SANDBOX_PROVIDER_SETTING: dict[SandboxProvider, str] = {
     "docker": "docker",
     "modal": "MODAL_EVALS",
@@ -135,7 +139,8 @@ class SandboxProviderStrategy(ABC):
     default_max_sandboxes: ClassVar[int | None]
     """``None`` means unbounded — every case may hold a sandbox at once."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, mcp_surface: McpSurface = DEFAULT_MCP_SURFACE) -> None:
+        self.mcp_path = f"/{mcp_surface}"
         self._task_ids: set[str] = set()
         """Task ids whose sandboxes this run created. The end-of-run sweep filters
         on these so it only reaps this run's own sandboxes — never a dev-stack task
@@ -185,8 +190,14 @@ class DockerProviderStrategy(SandboxProviderStrategy):
     name: ClassVar[SandboxProvider] = "docker"
     default_max_sandboxes: ClassVar[int | None] = 4
 
-    def __init__(self, *, keep_containers: bool = False, rebuild_image: bool = False) -> None:
-        super().__init__()
+    def __init__(
+        self,
+        *,
+        keep_containers: bool = False,
+        rebuild_image: bool = False,
+        mcp_surface: McpSurface = DEFAULT_MCP_SURFACE,
+    ) -> None:
+        super().__init__(mcp_surface=mcp_surface)
         self.keep_containers = keep_containers
         self.rebuild_image = rebuild_image
 
@@ -227,7 +238,7 @@ class DockerProviderStrategy(SandboxProviderStrategy):
             "SANDBOX_API_URL": f"http://host.docker.internal:{DJANGO_LIVE_PORT}",
             "SANDBOX_AI_GATEWAY_URL": f"http://localhost:{AI_GATEWAY_PORT}",
             "SANDBOX_LLM_GATEWAY_URL": f"http://host.docker.internal:{AI_GATEWAY_PORT}",
-            "SANDBOX_MCP_URL": f"http://host.docker.internal:{MCP_PORT}/mcp",
+            "SANDBOX_MCP_URL": f"http://host.docker.internal:{MCP_PORT}{self.mcp_path}",
         }
 
     def keeps_sandboxes(self) -> bool:
@@ -265,8 +276,8 @@ class ModalProviderStrategy(SandboxProviderStrategy):
     name: ClassVar[SandboxProvider] = "modal"
     default_max_sandboxes: ClassVar[int | None] = None
 
-    def __init__(self) -> None:
-        super().__init__()
+    def __init__(self, *, mcp_surface: McpSurface = DEFAULT_MCP_SURFACE) -> None:
+        super().__init__(mcp_surface=mcp_surface)
         self._tunnels: TailscaleFunnel | None = None
         self._sandbox_app_name: str | None = None
 
@@ -312,7 +323,7 @@ class ModalProviderStrategy(SandboxProviderStrategy):
             "SANDBOX_API_URL": self._tunnels.url_for("django"),
             "SANDBOX_AI_GATEWAY_URL": self._tunnels.url_for("gateway"),
             "SANDBOX_LLM_GATEWAY_URL": self._tunnels.url_for("gateway"),
-            "SANDBOX_MCP_URL": f"{self._tunnels.url_for('mcp')}/mcp",
+            "SANDBOX_MCP_URL": f"{self._tunnels.url_for('mcp')}{self.mcp_path}",
         }
 
     def sandbox_timeout_seconds(self, per_case_timeout_seconds: int) -> int | None:
@@ -334,8 +345,14 @@ class ModalProviderStrategy(SandboxProviderStrategy):
 
 
 def build_provider(
-    provider: SandboxProvider, *, keep_containers: bool, rebuild_image: bool = False
+    provider: SandboxProvider,
+    *,
+    keep_containers: bool,
+    rebuild_image: bool = False,
+    mcp_surface: McpSurface = DEFAULT_MCP_SURFACE,
 ) -> SandboxProviderStrategy:
     if provider == "docker":
-        return DockerProviderStrategy(keep_containers=keep_containers, rebuild_image=rebuild_image)
-    return ModalProviderStrategy()
+        return DockerProviderStrategy(
+            keep_containers=keep_containers, rebuild_image=rebuild_image, mcp_surface=mcp_surface
+        )
+    return ModalProviderStrategy(mcp_surface=mcp_surface)

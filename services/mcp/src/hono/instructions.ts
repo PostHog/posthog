@@ -14,6 +14,7 @@ import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
 import CATALOG_TRUST_DISCOVERY from '@/templates/sections/catalog-trust-discovery.md'
 import METRIC_DISCOVERY from '@/templates/sections/metric-discovery.md'
 import SCHEMA_DISCOVERY from '@/templates/sections/schema-discovery.md'
+import { ASK_POSTHOG_HOW_INSTRUCTIONS } from '@/tools/ask-posthog-how'
 import { EXEC_TOOL_ANNOTATIONS } from '@/tools/exec'
 import { ExecLearnCatalog } from '@/tools/exec-learn'
 import {
@@ -77,6 +78,9 @@ export class InstructionsBuilder {
             return ''
         }
 
+        if (state.surface === 'ask') {
+            return ASK_POSTHOG_HOW_INSTRUCTIONS
+        }
         const ctx = this.buildContext(state)
         if (state.useSingleExec) {
             return this.formatter.buildExecInstructions(ctx)

@@ -8,7 +8,7 @@ from typing import Literal, cast, get_args
 
 from posthog.dataclasses import frozen
 
-from .providers import DockerProviderStrategy, ModalProviderStrategy, SandboxProvider
+from .providers import DEFAULT_MCP_SURFACE, DockerProviderStrategy, McpSurface, ModalProviderStrategy, SandboxProvider
 from .retries import DEFAULT_INFRA_RETRIES
 
 # Bare model ids, no "anthropic/"/"openai/" prefix: the LLM gateway checks the model against a
@@ -73,6 +73,7 @@ class HarnessOptions:
     suites can reject them instead of silently ignoring them."""
 
     verbose: bool = False
+    mcp_surface: McpSurface = DEFAULT_MCP_SURFACE
     infrastructure_retries: int = DEFAULT_INFRA_RETRIES
     interactive: bool | None = None
     comparison_models: tuple[ModelTarget, ...] = ()
@@ -145,6 +146,15 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "How product skills reach the agent. 'bundled' uses the harness's normal native skills; "
             "'exec' enables MCP skill distribution and removes native skills from every sandbox."
+        ),
+    )
+    parser.add_argument(
+        "--mcp-surface",
+        choices=get_args(McpSurface),
+        default=None,
+        help=(
+            "MCP endpoint the agent connects to (default: mcp). 'mcp' is the ordinary server, "
+            "'ask' serves only ask-posthog-how and exec, and 'agent' is the hosted PostHog agent."
         ),
     )
     parser.add_argument(
@@ -274,6 +284,7 @@ def parse_args(argv: list[str] | None = None) -> HarnessOptions:
             ("--provider", args.provider is not None),
             ("--agent-runtime", args.agent_runtime is not None),
             ("--skill-delivery", args.skill_delivery is not None),
+            ("--mcp-surface", args.mcp_surface is not None),
             ("--reasoning-effort", args.reasoning_effort is not None),
             ("--max-sandboxes", args.max_sandboxes is not None),
             ("--keep-sandbox-containers", args.keep_sandbox_containers),
@@ -323,6 +334,7 @@ def parse_args(argv: list[str] | None = None) -> HarnessOptions:
         agent_model=agent_model,
         agent_runtime=agent_runtime,
         skill_delivery=skill_delivery,
+        mcp_surface=cast(McpSurface, args.mcp_surface or DEFAULT_MCP_SURFACE),
         reasoning_effort=args.reasoning_effort,
         max_sandboxes=max_sandboxes,
         team_setup_concurrency=_default_team_setup_concurrency(),

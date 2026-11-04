@@ -125,5 +125,10 @@ class AgentArtifacts(BaseModel):
     duration_seconds: float = 0.0
     """Wall-clock time for the agent run in seconds."""
 
+    token_usage: dict[str, int] = Field(default_factory=dict)
+    """The agent's own model tokens summed over its generations, keyed as the ACP log reports them
+    (``inputTokens``, ``outputTokens``, ``cachedReadTokens``, ``cachedWriteTokens``). Tokens spent
+    by an LLM call behind an MCP tool are not included."""
+
     pr_url: str | None = None
     """URL of the created PR, if any."""

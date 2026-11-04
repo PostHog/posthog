@@ -15,7 +15,7 @@ from products.posthog_ai.eval_harness.harness.comparison import ModelComparison
 from products.posthog_ai.eval_harness.harness.discovery import EvalSuite
 from products.posthog_ai.eval_harness.harness.reporting import ProgressReporter
 from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
-from products.posthog_ai.eval_harness.harness.run_report import ExperimentReport, RunReport, ScoreReport
+from products.posthog_ai.eval_harness.harness.run_report import ExperimentReport, RunReport, ScoreReport, UsageReport
 from products.posthog_ai.eval_harness.harness.skill_snapshot import SkillSnapshot
 
 
@@ -63,6 +63,8 @@ def test_model_comparison_preserves_settings_and_partial_results(
             "modal",
             "--skill-delivery",
             "exec",
+            "--mcp-surface",
+            "ask",
             "--trials",
             "3",
             "--max-sandboxes",
@@ -86,6 +88,7 @@ def test_model_comparison_preserves_settings_and_partial_results(
         assert child.case_filter == options.case_filter
         assert child.provider == options.provider
         assert child.skill_delivery == options.skill_delivery
+        assert child.mcp_surface == options.mcp_surface
         assert child.trials == options.trials
         assert child.max_sandboxes == options.max_sandboxes
         assert child.per_case_timeout_seconds == options.per_case_timeout_seconds
@@ -153,6 +156,11 @@ def test_model_comparison_preserves_settings_and_partial_results(
                         )
                     },
                     log_dir=str(tmp_path),
+                    usage=UsageReport(
+                        trials=3,
+                        mean_duration_seconds=40 if second else 20,
+                        mean_token_usage={"inputTokens": 2000 if second else 1000, "outputTokens": 100},
+                    ),
                 ),
                 **(
                     {
@@ -187,8 +195,13 @@ def test_model_comparison_preserves_settings_and_partial_results(
     assert str(directory) in capsys.readouterr().out
     assert len(saved["runs"]) == 2
     assert saved["settings"]["skill_delivery"] == "exec"
+    assert saved["settings"]["mcp_surface"] == "ask"
     if scenario == "success":
         assert "0.0% (3/3 scored) | 100.0% (3/3 scored)" in text
+        assert (
+            "example / agent usage | 20.0s and 1,000 input, 100 output tokens per trial (3 trials) "
+            "| 40.0s and 2,000 input, 100 output tokens per trial (3 trials)"
+        ) in text
     if scenario == "skipped":
         assert "example / score | n/a | n/a" in text
     if scenario == "launch_error":

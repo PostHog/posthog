@@ -131,6 +131,14 @@ export const SESSION_RESET_REQUIRED_REASON = 'session_reset_required'
  * same session id, and it does not silently start over from the pin or the
  * shared token selection either. A new session starts with a clean selection.
  */
+/** The request reached a surface whose feature flag is off for this caller. */
+export class McpSurfaceUnavailableError extends Error {
+    constructor(surface: string) {
+        super(`The /${surface} MCP surface is not enabled`)
+        this.name = 'McpSurfaceUnavailableError'
+    }
+}
+
 export class McpSessionResetRequiredError extends Error {
     constructor() {
         super(

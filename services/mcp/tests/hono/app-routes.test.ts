@@ -237,14 +237,14 @@ describe('Hono App Routes', () => {
     })
 
     describe('MCP auth on /mcp', () => {
-        it('should return 401 with WWW-Authenticate when no token', async () => {
+        it.each(['/mcp', '/ask'])('should return 401 with WWW-Authenticate on %s when no token', async (path) => {
             const { app } = createApp(mockRedis)
-            const res = await app.request('/mcp', { method: 'POST' })
+            const res = await app.request(path, { method: 'POST' })
             expect(res.status).toBe(401)
             const text = await res.text()
             expect(text).toContain('No token provided')
             expect(res.headers.get('WWW-Authenticate')).toContain('Bearer')
-            expect(res.headers.get('WWW-Authenticate')).toContain('oauth-protected-resource/mcp')
+            expect(res.headers.get('WWW-Authenticate')).toContain(`oauth-protected-resource${path}`)
         })
 
         it('should return 401 for invalid token prefix', async () => {

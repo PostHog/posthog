@@ -269,6 +269,25 @@ describe('ToolExecutor', () => {
             expect(result.tools[0]!.name).toBe('exec')
         })
 
+        it.each([
+            { surface: 'ask' as const, listed: ['ask-posthog-how', 'exec'], answered: true },
+            { surface: 'mcp' as const, listed: ['exec'], answered: false },
+        ])('serves ask-posthog-how only on the ask surface: $surface', async ({ surface, listed, answered }) => {
+            const state = makeToolExecutorState(catalog.getFilteredTools({ scopes: ['*'] }), {
+                useSingleExec: true,
+                surface,
+            })
+
+            const tools = await executor.handleToolsList(state)
+            const result = (await executor.handleToolCall(
+                { name: 'ask-posthog-how', arguments: { intent: 'Which experiments are running?' } },
+                state
+            )) as any
+
+            expect(tools.tools.map((tool) => tool.name)).toEqual(listed)
+            expect(result.content[0].text.includes('call experiment-list')).toBe(answered)
+        })
+
         // The flag decides skill exposure per client; guides stay a Claude chat-host
         // feature; plugin and sandbox consumers get neither because they carry their
         // own skills. A regression in any row silently changes what an agent is told.

@@ -353,7 +353,12 @@ async def test_sandboxed_eval_publishes_existing_results_without_disrupting_repo
         results=[
             CaseResult(
                 input={"name": "example-case", "prompt": "Run the task"},
-                output={"last_message": "Done", "large_integer": 2**64},
+                output={
+                    "last_message": "Done",
+                    "large_integer": 2**64,
+                    "duration_seconds": 12.5,
+                    "token_usage": {"inputTokens": 1000, "outputTokens": 50, "cachedReadTokens": 0},
+                },
                 scores={"exit_code_zero": 1.0},
             )
         ],
@@ -369,6 +374,7 @@ async def test_sandboxed_eval_publishes_existing_results_without_disrupting_repo
         agent_model="test-model",
         agent_runtime="claude",
         skill_delivery="bundled",
+        mcp_surface="ask",
         reasoning_effort=None,
         trials=1,
         git_sha="test-sha",
@@ -400,18 +406,23 @@ async def test_sandboxed_eval_publishes_existing_results_without_disrupting_repo
 
     assert returned is result
     export_path = tmp_path / "offline-pilot" / "latest" / "case_results.jsonl"
-    assert json.loads(export_path.read_text())["scores"] == {"exit_code_zero": 1.0}
+    exported = json.loads(export_path.read_text())
+    assert exported["scores"] == {"exit_code_zero": 1.0}
+    assert exported["duration_seconds"] == 12.5
+    assert exported["token_usage"] == {"inputTokens": 1000, "outputTokens": 50, "cachedReadTokens": 0}
     assert not release_upload.is_set()
     release_upload.set()
     await delivery.drain()
     engine.run_experiment.assert_awaited_once()
     engine_spec = engine.run_experiment.call_args.args[0]
     assert engine_spec.record_scorer_results is (enrolled and send_to_posthog and configuration == "valid")
+    assert engine_spec.metadata.get("mcp_surface") == ("ask" if suite_kind == "sandboxed" else None)
     assert reporter.mean_score() == 1.0
     reporter.print_final_summary([], exit_code=0, fail_under=None, duration_seconds=0)
     output = capsys.readouterr().out
     assert "Braintrust:" not in output
     assert "exit_code_zero: 100.0%" in output
+    assert "Agent usage: 12.5s and 1,000 input, 50 output tokens per trial (1 trials)" in output
     assert not (tmp_path / "offline-pilot" / "latest" / "posthog-offline-upload.json").exists()
     if enrolled and send_to_posthog and configuration == "valid" and delivery_state == "ready":
         declaration = json.loads(requests[0].content)
@@ -834,18 +845,20 @@ async def test_sandboxed_trials_keep_separate_logs_and_trace_roots(
         trial_id = f"trial-{index}"
         hooks = NullCaseHooks()
         hooks.metadata["trial_id"] = trial_id
-        raw_log = json.dumps(
-            {
-                "notification": {
+        raw_log = "\n".join(
+            json.dumps({"type": "notification", "notification": notification})
+            for notification in (
+                {
                     "method": "session/update",
                     "params": {
                         "update": {
-                            "sessionUpdate": "agent_message_chunk",
+                            "sessionUpdate": "agent_message",
                             "content": {"type": "text", "text": str(index)},
                         }
                     },
-                }
-            }
+                },
+                {"result": {"stopReason": "end_turn", "usage": {"inputTokens": 100 * index, "outputTokens": 7}}},
+            )
         )
         output = await run._post_process(
             SandboxedEvalCase(name="same-case", prompt="Run the task"),
@@ -870,6 +883,7 @@ async def test_sandboxed_trials_keep_separate_logs_and_trace_roots(
     for index in range(3):
         artifacts = json.loads((tmp_path / f"same-case.trial-trial-{index}.artifacts.json").read_text())
         assert artifacts["report_id"] == f"report-{index}"
+        assert artifacts["token_usage"]["inputTokens"] == 100 * index
         summary = (tmp_path / f"same-case.trial-trial-{index}.summary.txt").read_text()
         assert f"trace_id: trace-{index}" in summary
         assert json.loads(summary.split("=== scores ===\n")[1]) == {"score": index / 2}

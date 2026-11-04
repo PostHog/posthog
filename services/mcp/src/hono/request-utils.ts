@@ -7,6 +7,7 @@ import {
     mapErrorToAuthResponse,
     validateBearerToken,
 } from '@/lib/auth-errors'
+import { McpSurfaceUnavailableError } from '@/lib/errors'
 import { getPostHogClient } from '@/lib/posthog'
 import {
     type ClientInfo,
@@ -146,6 +147,9 @@ export async function authenticateAndParse(
 }
 
 export function handleCatchError(error: unknown, props: RequestProperties): Response {
+    if (error instanceof McpSurfaceUnavailableError) {
+        return new Response('Not found', { status: 404 })
+    }
     if (!isStepUpChallengeError(error)) {
         console.error('[handleCatchError]', error)
     }

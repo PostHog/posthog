@@ -24,8 +24,10 @@ from redis.exceptions import (
 
 from products.posthog_ai.eval_harness import long_lived_subprocess
 from products.posthog_ai.eval_harness.harness import services
+from products.posthog_ai.eval_harness.harness.providers import PreflightError
 from products.posthog_ai.eval_harness.harness.services import (
     ensure_ai_gateway_binary,
+    ensure_mcp_surface_served,
     maintain_ai_gateway_mint_key,
     package_local_skills_archive,
     provision_ai_gateway_mint_key,
@@ -190,15 +192,17 @@ def test_package_local_skills_archive_is_deterministic_and_excludes_cache_marker
 
 
 @pytest.mark.parametrize(
-    "exec_skills_enabled,skill_archive_url,expected_flag_value",
+    "exec_skills_enabled,ask_posthog_how_enabled,skill_archive_url,expected_flag_value",
     [
-        (True, "http://localhost:18788/skills.zip?v=abc", True),
-        (False, None, False),
+        (True, False, "http://localhost:18788/skills.zip?v=abc", True),
+        (False, False, None, False),
+        (False, True, "http://localhost:18788/skills.zip?v=abc", False),
     ],
 )
 def test_start_mcp_server_isolates_the_selected_skill_delivery(
     tmp_path: Path,
     exec_skills_enabled: bool,
+    ask_posthog_how_enabled: bool,
     skill_archive_url: str | None,
     expected_flag_value: bool,
 ) -> None:
@@ -225,13 +229,15 @@ def test_start_mcp_server_isolates_the_selected_skill_delivery(
             "http://localhost:18000",
             skill_archive_url,
             exec_skills_enabled=exec_skills_enabled,
-            skill_archive_sha256="a" * 64 if exec_skills_enabled else None,
+            skill_archive_sha256="a" * 64 if skill_archive_url else None,
+            ask_posthog_how_enabled=ask_posthog_how_enabled,
         )
 
     env = start.call_args.kwargs["env"]
     overrides = json.loads(env["FEATURE_FLAG_OVERRIDES"])
     assert overrides["mcp-exec-skills"] is expected_flag_value
-    assert start.call_args.kwargs.get("readiness_timeout", 30) == (120 if exec_skills_enabled else 30)
+    assert overrides["mcp-ask-posthog-how"] is ask_posthog_how_enabled
+    assert start.call_args.kwargs.get("readiness_timeout", 30) == (120 if skill_archive_url else 30)
     # The skill delivery switch must not displace the overrides every eval run relies on.
     assert overrides["revamped-py-notebooks"] is True
     assert overrides["dashboard-widgets"] is True
@@ -243,6 +249,17 @@ def test_start_mcp_server_isolates_the_selected_skill_delivery(
         assert env["POSTHOG_MCP_SKILLS_SHA256"] == "a" * 64
     assert "POSTHOG_MCP_LOCAL_SKILLS_URL" not in env
     assert result is stop
+
+
+@pytest.mark.parametrize("status,served", [(401, True), (404, False)])
+def test_mcp_surface_check_fails_before_sandboxes_when_the_surface_has_no_route(status: int, served: bool) -> None:
+    with requests_mock.Mocker() as mocker:
+        mocker.post(f"http://localhost:{services.MCP_PORT}/agent", status_code=status)
+        if served:
+            ensure_mcp_surface_served("agent")
+        else:
+            with pytest.raises(PreflightError, match="#117125"):
+                ensure_mcp_surface_served("agent")
 
 
 @pytest.mark.parametrize("failures,retries,recovers", [(1, 2, True), (3, 2, False), (1, 0, False)])

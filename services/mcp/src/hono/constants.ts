@@ -2,6 +2,7 @@ import { parseSigningKeys } from '@/lib/client-ip-signature'
 import type { Env } from '@/tools/types'
 
 export const MCP_EXEC_SKILLS_FEATURE_FLAG = 'mcp-exec-skills'
+export const ASK_POSTHOG_HOW_FEATURE_FLAG = 'mcp-ask-posthog-how'
 
 export {
     USER_AGENT,
