@@ -68,7 +68,6 @@ frontend/src/layout/today/todayAiChatLogic.ts -> frontend/src/scenes/max/mainFoc
 frontend/src/layout/today/todayAiChatLogic.ts -> frontend/src/scenes/max/maxLogic.tsx
 frontend/src/layout/today/todayAnalyticsLogic.ts -> frontend/src/scenes/analytics/analyticsPinnedLogic.ts
 frontend/src/layout/today/todayAnalyticsLogic.ts -> frontend/src/scenes/analytics/analyticsUtils.ts
-frontend/src/layout/today/todayContextPanelLogic.ts -> frontend/src/scenes/notebooks/NotebookPanel/notebookPanelLogic.ts
 frontend/src/layout/today/todayContextPanelLogic.ts -> products/conversations/frontend/components/SidePanel/sidepanelTicketsLogic.ts
 frontend/src/layout/today/todayObjectGlanceLogic.ts -> frontend/src/scenes/library/libraryUtils.ts
 frontend/src/layout/today/todayObjectGlances.ts -> frontend/src/scenes/library/libraryUtils.ts

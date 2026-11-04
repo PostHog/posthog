@@ -10,7 +10,8 @@ Under that flag the side panel shrinks, and its tabs move to other surfaces:
 
 - **Info** renders the scene's `ScenePanel`. It is deprecated and will be removed, and the `SceneMenuBar` takes over its actions. See [`layout/scenes/AGENTS.md`](../../scenes/AGENTS.md) when you change a scene's actions.
 - **Support** opens from the menu bar's Help menu instead of a tab bar button.
-- **Notebooks** and **Discussion** are hidden from the tab bar (`visibleTabs`). Their panels still open from their existing entry points, such as a comment button or "Add to notebook". They will be removed from the side panel or moved; the new home is not decided yet.
+- **Notebooks** is not a side panel tab (`enabledTabs` leaves it out). `notebookPanelLogic.selectNotebook` opens the notebook page instead, and `sidePanelLogic` closes the panel when a `#panel=notebook` link opens it.
+- **Discussion** is hidden from the tab bar (`visibleTabs`). Its panel still opens from its existing entry points, such as a comment button. It will be removed from the side panel or moved; the new home is not decided yet.
 - **Adding to a notebook from outside a notebook is deprecated.** Under the flag, `NotebookSelectButton` (person pages, person hover card, group pages) and `SceneAddToNotebookDropdownMenu` render nothing, and the replay menu and the insight, feature flag and cohort menu bars leave their entry out. Inside a notebook the button stays. A finished quill picker, `scenes/notebooks/NotebookSelectButton/QuillNotebookSelectButton`, is kept but not rendered. If someone asks to bring it back, remove those gates and render that component instead of building a new one.
 
 Do not build new features on the Info, Notebooks or Discussion tabs.

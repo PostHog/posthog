@@ -1,4 +1,9 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { initKeaTests } from '~/test/init'
@@ -36,5 +41,16 @@ describe('notebookPanelLogic', () => {
             sidePanelOpen: true,
             selectedTab: SidePanelTab.Notebooks,
         })
+    })
+
+    it('opens the notebook as a page instead of the side panel under today-rail-nav', async () => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TODAY_RAIL_NAV], {
+            [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+        })
+
+        notebookPanelLogic.actions.selectNotebook('abc123')
+
+        expect(router.values.location.pathname).toContain(urls.notebook('abc123'))
+        await expectLogic(sidePanelStateLogic).toMatchValues({ sidePanelOpen: false })
     })
 })
