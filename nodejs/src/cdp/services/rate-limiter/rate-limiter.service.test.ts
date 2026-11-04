@@ -471,11 +471,15 @@ describe('RateLimiterService', () => {
 
     describe('claimAllOrNothing', () => {
         it('refills a bucket that a claim emptied', async () => {
-            const bucket = { key: `${KEY}/refill`, requested: 1, capacity: 1, refillPerSecond: 5 }
+            const bucket = { key: `${KEY}/refill`, requested: 1, capacity: 1, refillPerSecond: 1 / 3_600 }
 
             expect(await limiter.claimAllOrNothing([bucket])).toMatchObject({ granted: true })
             expect(await limiter.claimAllOrNothing([bucket])).toMatchObject({ granted: false })
-            await new Promise((resolve) => setTimeout(resolve, 300))
+            // The bucket reads the Valkey server clock, so the test moves the last claim an hour back instead.
+            await redis.useClient({ name: 'age-bucket' }, async (client) => {
+                const lastClaimAt = Number(await client.hget(bucket.key, 'ts'))
+                await client.hset(bucket.key, 'ts', lastClaimAt - 3_600_000)
+            })
             expect(await limiter.claimAllOrNothing([bucket])).toMatchObject({ granted: true })
         })
 
