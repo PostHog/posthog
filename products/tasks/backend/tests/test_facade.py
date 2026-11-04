@@ -732,7 +732,7 @@ class TestFacadeReadsAndMappers(TestCase):
     @parameterized.expand(
         [
             (f"{gate}_{mode}", gate, drive, enforced, refused)
-            for gate in ("prepare_artifacts", "finalize_artifacts", "warm_resume")
+            for gate in ("prepare_artifacts", "finalize_artifacts", "warm_resume", "update", "delete", "handoff")
             for mode, drive, enforced, refused in (
                 ("none_policy_in_log_mode", DrivePolicy.NONE, frozenset(), False),
                 ("none_policy_enforced", DrivePolicy.NONE, frozenset({ContractCheck.DRIVE}), True),
@@ -740,7 +740,7 @@ class TestFacadeReadsAndMappers(TestCase):
             )
         ]
     )
-    def test_gates_that_steer_the_next_run_apply_the_drive_policy(
+    def test_control_gates_outside_the_run_views_apply_the_drive_policy(
         self, _name: str, gate: str, drive: DrivePolicy, enforced: frozenset[ContractCheck], refused: bool
     ) -> None:
         profile = replace(
@@ -749,6 +749,9 @@ class TestFacadeReadsAndMappers(TestCase):
         task = self._make_task(profile=profile.key)
         sample = {"check": ContractCheck.DRIVE.value, "profile": profile.key}
         before = REGISTRY.get_sample_value("posthog_tasks_contract_violation_total", sample) or 0
+        if gate == "handoff":
+            recipient = User.objects.create(email="recipient@example.com", distinct_id="recipient-distinct")
+            self.organization.members.add(recipient)
 
         with patch.dict("products.tasks.backend.facade.profiles._profiles", {profile.key: profile}):
             if gate == "prepare_artifacts":
@@ -761,6 +764,16 @@ class TestFacadeReadsAndMappers(TestCase):
             elif gate == "finalize_artifacts":
                 refused_by_gate = (
                     facade.finalize_task_staged_artifacts(task.id, self.team.id, self.user.id, artifacts=[]) is None
+                )
+            elif gate == "update":
+                refused_by_gate = (
+                    facade.update_task(task.id, self.team.id, self.user.id, validated_data={"title": "Renamed"}) is None
+                )
+            elif gate == "delete":
+                refused_by_gate = not facade.soft_delete_task(task.id, self.team.id, self.user.id)
+            elif gate == "handoff":
+                refused_by_gate = (
+                    facade.handoff_task(task.id, self.team.id, self.user.id, target_user_id=recipient.id) is None
                 )
             else:
                 refused_by_gate = (

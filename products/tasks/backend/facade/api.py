@@ -8465,6 +8465,8 @@ def update_task(
         task = Task.objects.select_for_update().filter(id=task_id, team_id=team_id, deleted=False).first()
         if task is None or not Task.objects.filter(id=task.id).filter(task_control_q(user_id)).exists():
             return None
+        if not _task_drive_allowed(task, user_id):
+            return None
         previous_repositories = list(task.repositories or [])
         previous_integration_id = task.github_integration_id
 
@@ -8555,6 +8557,8 @@ def soft_delete_task(task_id: str | UUID, team_id: int, user_id: int | None) -> 
         task = Task.objects.select_for_update().filter(id=task_id, team_id=team_id, deleted=False).first()
         if task is None or not Task.objects.filter(id=task.id).filter(task_control_q(user_id)).exists():
             return False
+        if not _task_drive_allowed(task, user_id):
+            return False
         logger.info("Soft deleting task %s", task.id)
         task.soft_delete()
         soft_delete_conversations_for_task(task.id)
@@ -8575,6 +8579,8 @@ def handoff_task(
     if task is None:
         return None
     if user_id is None or task.created_by_id != user_id:
+        return None
+    if not _task_drive_allowed(task, user_id):
         return None
     if task.created_by_id == target_user_id:
         raise TaskHandoffError("That person already owns this task.")
