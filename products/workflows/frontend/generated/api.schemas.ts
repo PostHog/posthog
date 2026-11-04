@@ -415,6 +415,7 @@ export const HogFlowStateEnumApi = {
  * * `loops` - Loops
  * * `broadcasts` - Broadcasts
  * * `transactional_emails` - Transactional emails
+ * * `transactional_email_keys` - Transactional email keys
  */
 export type HogFlowOriginProductEnumApi = (typeof HogFlowOriginProductEnumApi)[keyof typeof HogFlowOriginProductEnumApi]
 
@@ -422,6 +423,7 @@ export const HogFlowOriginProductEnumApi = {
     Loops: 'loops',
     Broadcasts: 'broadcasts',
     TransactionalEmails: 'transactional_emails',
+    TransactionalEmailKeys: 'transactional_email_keys',
 } as const
 
 /**
@@ -768,11 +770,12 @@ export interface HogFlowApi {
      * * `active` - Active
      * * `archived` - Archived */
     status?: HogFlowStateEnumApi
-    /** Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.
+    /** Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow, and never to `transactional_email_keys`: the email send API sets that one. Filter the list with `?origin_product=`.
      *
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts
-     * * `transactional_emails` - Transactional emails */
+     * * `transactional_emails` - Transactional emails
+     * * `transactional_email_keys` - Transactional email keys */
     origin_product?: HogFlowOriginProductEnumApi | null
     /**
      * The record another product's entry point started this workflow from, as '<kind>:<id>'. Set only when creating a workflow. Filter the list with `?source_record=`.
@@ -887,7 +890,8 @@ export interface HogFlowUpdateApi {
      *
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts
-     * * `transactional_emails` - Transactional emails */
+     * * `transactional_emails` - Transactional emails
+     * * `transactional_email_keys` - Transactional email keys */
     readonly origin_product: HogFlowOriginProductEnumApi | null
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -995,7 +999,8 @@ export interface PatchedHogFlowUpdateApi {
      *
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts
-     * * `transactional_emails` - Transactional emails */
+     * * `transactional_emails` - Transactional emails
+     * * `transactional_email_keys` - Transactional email keys */
     readonly origin_product?: HogFlowOriginProductEnumApi | null
     readonly created_at?: string
     readonly created_by?: UserBasicApi
@@ -1156,6 +1161,7 @@ export interface MessageAssetApi {
  * * `queued` - Queued
  * * `active` - Active
  * * `completed` - Completed
+ * * `partially_failed` - Partially failed
  * * `cancelled` - Cancelled
  * * `failed` - Failed
  */
@@ -1166,6 +1172,7 @@ export const HogFlowBatchJobStateEnumApi = {
     Queued: 'queued',
     Active: 'active',
     Completed: 'completed',
+    PartiallyFailed: 'partially_failed',
     Cancelled: 'cancelled',
     Failed: 'failed',
 } as const
@@ -1173,12 +1180,13 @@ export const HogFlowBatchJobStateEnumApi = {
 export interface HogFlowBatchJobApi {
     /** ID of the batch run. */
     readonly id: string
-    /** Not currently tracked — stays at its initial value. Use the workflow logs/metrics endpoints for run outcome.
+    /** Status of the batch run. waiting: the audience's cohort is still calculating. queued and active: the run is enrolling its audience. completed: the whole audience was enrolled. When every enrolled person's run has ended, or a day after the run completed, PostHog checks for errored sends. A completed run stays completed when no send errored, becomes partially_failed when some sends errored, and becomes failed when every send errored. failed also means the run could not enroll its audience. cancelled: someone stopped the run. A send errors when its step throws, for example on a template that does not render. Provider failures such as bounces are not errored sends; read them from the run's metrics.
      *
      * * `waiting` - Waiting
      * * `queued` - Queued
      * * `active` - Active
      * * `completed` - Completed
+     * * `partially_failed` - Partially failed
      * * `cancelled` - Cancelled
      * * `failed` - Failed */
     status?: HogFlowBatchJobStateEnumApi
@@ -1208,6 +1216,7 @@ export interface HogFlowBatchJobCancelResponseApi {
      * * `queued` - Queued
      * * `active` - Active
      * * `completed` - Completed
+     * * `partially_failed` - Partially failed
      * * `cancelled` - Cancelled
      * * `failed` - Failed */
     status: HogFlowBatchJobStateEnumApi
@@ -1226,7 +1235,8 @@ export interface HogFlowConvertedToBroadcastApi {
      *
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts
-     * * `transactional_emails` - Transactional emails */
+     * * `transactional_emails` - Transactional emails
+     * * `transactional_email_keys` - Transactional email keys */
     readonly origin_product: HogFlowOriginProductEnumApi
 }
 
@@ -2302,12 +2312,13 @@ export type SendCalendarFlowApiAudiencePropertiesItem = { [key: string]: unknown
 export interface SendCalendarBatchJobApi {
     /** ID of the batch run. */
     readonly id: string
-    /** Status of the batch run.
+    /** Status of the batch run. waiting: the audience's cohort is still calculating. queued and active: the run is enrolling its audience. completed: the whole audience was enrolled. When every enrolled person's run has ended, or a day after the run completed, PostHog checks for errored sends. A completed run stays completed when no send errored, becomes partially_failed when some sends errored, and becomes failed when every send errored. failed also means the run could not enroll its audience. cancelled: someone stopped the run. A send errors when its step throws, for example on a template that does not render. Provider failures such as bounces are not errored sends; read them from the run's metrics.
      *
      * * `waiting` - Waiting
      * * `queued` - Queued
      * * `active` - Active
      * * `completed` - Completed
+     * * `partially_failed` - Partially failed
      * * `cancelled` - Cancelled
      * * `failed` - Failed */
     readonly status: HogFlowBatchJobStateEnumApi
@@ -2327,7 +2338,8 @@ export interface SendCalendarFlowApi {
      *
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts
-     * * `transactional_emails` - Transactional emails */
+     * * `transactional_emails` - Transactional emails
+     * * `transactional_email_keys` - Transactional email keys */
     readonly origin_product: HogFlowOriginProductEnumApi | null
     /** User who created the workflow. */
     readonly created_by: UserBasicApi | null
@@ -3122,7 +3134,7 @@ export type HogFlowsListParams = {
      */
     broadcast_eligible?: boolean
     /**
-     * Comma-separated broadcast statuses as the broadcasts UI shows them: draft, scheduled, sending, sent, failed, archived. Scheduled, sending, sent and failed come from the latest run and whether a schedule still has sends to come.
+     * Comma-separated broadcast statuses as the broadcasts UI shows them: draft, scheduled, sending, sent, partially_sent, failed, archived. Scheduled, sending, sent, partially_sent and failed come from the latest run and whether a schedule still has sends to come. A latest run that is completed reads as sent, partially_failed as partially_sent, and failed or cancelled as failed. With a schedule still to come, a completed or partially_failed latest run reads as scheduled.
      */
     broadcast_status?: string
     created_at?: string
@@ -3132,7 +3144,7 @@ export type HogFlowsListParams = {
     created_by?: string
     id?: string
     /**
-     * Pass `true` to order by when each workflow's newest completed run finished, newest first. Workflows that never finished a run come last.
+     * Pass `true` to order by when each workflow's newest completed or partially_failed run finished, newest first. Workflows that never finished such a run come last.
      */
     latest_send_first?: boolean
     /**
