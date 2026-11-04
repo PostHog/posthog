@@ -9105,6 +9105,7 @@ export namespace Schemas {
      * * `subscription_usage_limit` - subscription_usage_limit
      * * `task_spend_limit` - task_spend_limit
      * * `agent_error` - agent_error
+     * * `ActiveSessionCapError` - ActiveSessionCapError
      */
     export type ErrorTypeEnum =
         | "agent_reported"
@@ -9122,7 +9123,8 @@ export namespace Schemas {
         | "turn_ended_without_response"
         | "subscription_usage_limit"
         | "task_spend_limit"
-        | "agent_error";
+        | "agent_error"
+        | "ActiveSessionCapError";
     /**
      * * `active` - Active
      * * `paused` - Paused
@@ -11554,11 +11556,13 @@ export namespace Schemas {
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts
      * * `transactional_emails` - Transactional emails
+     * * `transactional_email_keys` - Transactional email keys
      */
     export type HogFlowOriginProductEnum =
         | "loops"
         | "broadcasts"
-        | "transactional_emails";
+        | "transactional_emails"
+        | "transactional_email_keys";
     export type HogFlowMasking = {
         ttl?: (number | null) | undefined;
         threshold?: (number | null) | undefined;
@@ -11998,6 +12002,7 @@ export namespace Schemas {
          * * `loops` - Loops
          * * `broadcasts` - Broadcasts
          * * `transactional_emails` - Transactional emails
+         * * `transactional_email_keys` - Transactional email keys
          */
         origin_product: HogFlowOriginProductEnum | NullEnum;
         created_at: string;
