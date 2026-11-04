@@ -303,7 +303,6 @@ def _export_for_destination(destination: BatchExportDestination, team_ids: Seque
 
 def _sync_schedule(export: BatchExport, counts: Counter[CredentialBackfillOutcome]) -> None:
     try:
-        # Reload so a concurrent change such as pausing is not overwritten by a stale copy.
         export.refresh_from_db()
         sync_batch_export(export, created=False)
     except Exception as error:
