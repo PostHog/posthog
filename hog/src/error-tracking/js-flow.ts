@@ -152,8 +152,9 @@ export function preparePairs(pairs: SourcePair[], mode: ReleaseMode): PreparedPa
         if (isEmptyMapContent(pair.map)) {
             skipped.push({
                 path: pair.sourcePath,
+                // Keep in step with WRAPPER_JS_SIZE_THRESHOLD_BYTES in cli/src/sourcemaps/plain/upload.rs.
                 reason:
-                    Buffer.byteLength(pair.source) < 2048
+                    Buffer.byteLength(pair.source) < 4096
                         ? 'the sourcemap is empty'
                         : 'the sourcemap is empty although the file is large. Check your bundler sourcemap setting.',
             })
