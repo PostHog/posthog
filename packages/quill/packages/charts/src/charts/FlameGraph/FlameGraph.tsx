@@ -10,6 +10,7 @@ import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import { clearAndPrepare } from '../../core/hooks/clearCanvas'
 import { useChartCanvas } from '../../core/hooks/useChartCanvas'
 import { markPaintDone, markPaintPending } from '../../core/paint-state'
+import { useResolvedChartTheme } from '../../core/theme'
 import type { ChartDimensions, ChartMargins, ChartScales, TooltipContext } from '../../core/types'
 import { defaultResolveValue } from '../../core/types'
 import { DefaultTooltip } from '../../overlays/DefaultTooltip'
@@ -157,7 +158,7 @@ export function FlameGraph<Meta = unknown>({ onError, ...rest }: FlameGraphProps
 
 function FlameGraphInner<Meta = unknown>({
     data,
-    theme,
+    theme: themeProp,
     config,
     search,
     defaultFocusedId,
@@ -165,6 +166,7 @@ function FlameGraphInner<Meta = unknown>({
     className,
     dataAttr,
 }: Omit<FlameGraphProps<Meta>, 'onError'>): React.ReactElement {
+    const theme = useResolvedChartTheme(themeProp)
     const { diff: diffConfig, valueFormatter = defaultValueFormatter, maxHeight = DEFAULT_MAX_HEIGHT } = config ?? {}
     const threshold = Math.max(0, diffConfig?.threshold ?? DEFAULT_THRESHOLD)
     const minCount = Math.max(0, diffConfig?.minCount ?? 0)
