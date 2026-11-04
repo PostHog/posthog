@@ -1820,19 +1820,6 @@ async fn flip(pools: &IdentityPools, tables: &IdentityTables, op: &OpRow) -> Res
     // Lock every row up front in id order; the writer's flush does the
     // same, so a deadlock cycle is impossible. Including the target keeps
     // the lock set a superset of any partner's.
-    //
-    // FOR NO KEY UPDATE, not FOR UPDATE: this transaction never changes a
-    // key column on posthog_person, and the weaker mode still excludes
-    // every other writer of the row (the writer's upsert, another flip, a
-    // delete). What it does not block is FOR KEY SHARE, the lock a foreign
-    // key check takes on the referenced person. The feature flag service
-    // inserts posthog_featureflaghashkeyoverride rows in a transaction
-    // whose FK check waited behind FOR UPDATE here while this transaction
-    // then waited on that insert's uncommitted override row in
-    // move_hash_key_overrides: a two-party deadlock. On 2026-11-04 the
-    // prod EU persons database logged about 110 of them per hour with the
-    // flip as the victim, plus around 900 feature flag statement timeouts
-    // per hour queued behind the same lock.
     let mut lock_ids = sources.clone();
     lock_ids.push(target);
     lock_ids.sort_unstable();
