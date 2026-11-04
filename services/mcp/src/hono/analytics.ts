@@ -340,6 +340,11 @@ const POSTHOG_CONNECTION_TOOL_NAMES: ReadonlySet<string> = new Set([
     'posthog-connection-forward',
 ])
 
+// Their input is a list of recipient email addresses, up to 1000 per call. Key-based
+// redaction can't recognize an address by its field name, so capturing the input would
+// copy a team's recipient list into analytics. `$mcp_tool_call` still records the call.
+const RECIPIENT_LIST_TOOL_NAMES: ReadonlySet<string> = new Set(['opt-outs-add', 'suppressions-add'])
+
 function shouldCaptureToolSpan(toolName: string, input: unknown): boolean {
     if (isPrivateScoutTrialTool(toolName)) {
         return false
@@ -357,6 +362,9 @@ function shouldCaptureToolSpan(toolName: string, input: unknown): boolean {
         return false
     }
     if (POSTHOG_CONNECTION_TOOL_NAMES.has(toolName)) {
+        return false
+    }
+    if (RECIPIENT_LIST_TOOL_NAMES.has(toolName)) {
         return false
     }
     // execute-sql can't be captured wholesale: its payload is the query result,

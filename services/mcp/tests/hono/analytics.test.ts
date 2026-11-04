@@ -554,6 +554,13 @@ describe('Hono MCP analytics contexts', () => {
                 { id: '1', method: 'GET', path: 'api/projects/1/persons/' },
                 false,
             ],
+            [
+                'a suppression list import',
+                'suppressions-add',
+                { suppressions: [{ identifier: 'user@example.com', reason: 'bounce' }] },
+                false,
+            ],
+            ['an opt-out list import', 'opt-outs-add', { opt_outs: [{ identifier: 'user@example.com' }] }, false],
         ])('gates capture for %s', async (_case, toolName, input, captured) => {
             await trackToolSpan(toolName, makeState(), { durationMs: 100, isError: false, input, output: 'rows' })
 
