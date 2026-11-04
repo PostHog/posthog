@@ -39,6 +39,11 @@ def validate_pipeline_address(address: str) -> None:
         )
 
 
+def _extension_as_windows_saves_it(filename: str) -> str | None:
+    _, dot, extension = filename.rstrip(". ").rpartition(".")
+    return extension.lower() if dot else None
+
+
 @extend_schema_field(
     {
         "oneOf": [
@@ -51,11 +56,6 @@ def validate_pipeline_address(address: str) -> None:
         ]
     }
 )
-def _extension_as_windows_saves_it(filename: str) -> str | None:
-    _, dot, extension = filename.rstrip(". ").rpartition(".")
-    return extension.lower() if dot else None
-
-
 class AddressListField(serializers.ListField):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(
