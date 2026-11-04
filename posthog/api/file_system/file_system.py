@@ -446,7 +446,8 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         about, so its product registers a filter. Evaluated on every read, so a channel's type or
         membership changing needs no resync.
         """
-        return apply_file_system_visibility_filters(queryset, request=self.request, project_id=self.team.project_id)
+        queryset = apply_file_system_visibility_filters(queryset, request=self.request, project_id=self.team.project_id)
+        return self._visible_files(queryset)
 
     def _filter_by_access_control(self, queryset: QuerySet) -> QuerySet:
         queryset = self._filter_by_product_visibility(queryset)
@@ -473,6 +474,22 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         denied = entries_missing_access_level(objects, self.user_access_control, self.team.project_id, "editor")
         if denied:
             raise PermissionDenied("You need editor access to change this. Ask a project admin to grant it.")
+
+    def _ensure_can_change_workflow_files(self, files: QuerySet) -> None:
+        workflow_files = self._filter_by_access_control(self._scope_by_project_and_environment(files)).filter(
+            type__in=WORKFLOW_FILE_SYSTEM_TYPES, shortcut=False
+        )
+        self._ensure_can_delete_objects(
+            [
+                (entry_type, ref, team_id)
+                for entry_type, ref, team_id in workflow_files.values_list("type", "ref", "team_id")
+                if ref
+            ]
+        )
+
+    def perform_update(self, serializer: serializers.BaseSerializer) -> None:
+        self._ensure_can_change_workflow_files(FileSystem.objects.filter(pk=cast(FileSystem, serializer.instance).pk))
+        super().perform_update(serializer)
 
     def _basename_regex(self, value: str) -> str:
         return rf"(^|(?<!\\)/)([^/]|\\.)*{re.escape(value)}([^/]|\\.)*$"
@@ -647,7 +664,6 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         queryset = self._scope_by_project_and_environment(queryset)
-        queryset = self._visible_files(queryset)
         if self.action in ("list", "retrieve"):
             queryset = queryset.exclude(type__in=RETIRED_FILE_SYSTEM_TYPES)
 
@@ -999,7 +1015,6 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             type__in=RETIRED_FILE_SYSTEM_TYPES
         )
         base_queryset = self._filter_by_access_control(base_queryset)
-        base_queryset = self._visible_files(base_queryset)
         if search_param:
             base_queryset = self._apply_search_to_queryset(
                 base_queryset, search_param, basename_only=str_to_bool(request.query_params.get("search_name_only"))
@@ -1058,7 +1073,6 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if current.type == "folder":
                 descendants = FileSystem.objects.filter(path__startswith=f"{current.path}/")
                 descendants = self._scope_by_project_and_environment(descendants)
-                descendants = self._visible_files(descendants)
                 descendants = self._filter_by_access_control(descendants)
                 stack.extend(descendants)
                 continue
@@ -1151,7 +1165,6 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if entry.type == "folder":
             descendants = FileSystem.objects.filter(path__startswith=f"{entry.path}/")
             descendants = self._scope_by_project_and_environment(descendants)
-            descendants = self._visible_files(descendants)
             descendants = self._filter_by_access_control(descendants)
             for child in descendants.order_by("depth", "path"):
                 deleted_objects.extend(self._delete_file_system_entry(child, reaches_backing_object))
@@ -1330,16 +1343,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         moving_files = FileSystem.objects.filter(pk=instance.pk)
         if instance.type == "folder":
             moving_files = FileSystem.objects.filter(path__startswith=f"{instance.path}/")
-        moving_files = self._filter_by_access_control(
-            self._visible_files(self._scope_by_project_and_environment(moving_files))
-        ).filter(type__in=WORKFLOW_FILE_SYSTEM_TYPES, shortcut=False)
-        self._ensure_can_delete_objects(
-            [
-                (entry_type, ref, team_id)
-                for entry_type, ref, team_id in moving_files.values_list("type", "ref", "team_id")
-                if ref
-            ]
-        )
+        self._ensure_can_change_workflow_files(moving_files)
 
         self._assure_parent_folders(new_path, cast(User, request.user))
 
@@ -1350,7 +1354,6 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             with transaction.atomic():
                 qs = FileSystem.objects.filter(path__startswith=f"{instance.path}/")
                 qs = self._scope_by_project_and_environment(qs)
-                qs = self._visible_files(qs)
                 qs = self._filter_by_access_control(qs)
                 for file in qs:
                     old_child_path = file.path
@@ -1579,7 +1582,6 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             .order_by("depth", "path")
         )
         qs = self._scope_by_project_and_environment(qs).exclude(type__in=RETIRED_FILE_SYSTEM_TYPES)
-        qs = self._visible_files(qs)
         qs = self._filter_by_access_control(qs)
 
         total_count = qs.count()

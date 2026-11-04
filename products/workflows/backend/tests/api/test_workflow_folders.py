@@ -43,6 +43,10 @@ class TestWorkflowFolders(APIBaseTest):
                 f"{files_url}{entry['id']}/move/", {"new_path": "Campaigns/Permission email"}, format="json"
             )
             self.assertEqual(moved.status_code, {"none": 404, "viewer": 403, "editor": 200}[level], moved.content)
+            patched = self.client.patch(
+                f"{files_url}{entry['id']}/", {"path": f"Patched/{level}/Permission email"}, format="json"
+            )
+            self.assertEqual(patched.status_code, {"none": 404, "viewer": 403, "editor": 200}[level], patched.content)
             deleted = self.client.delete(f"{files_url}{entry['id']}/")
             self.assertEqual(deleted.status_code, {"none": 404, "viewer": 403, "editor": 200}[level], deleted.content)
             restored = self.client.post(
@@ -82,6 +86,8 @@ class TestWorkflowFolders(APIBaseTest):
             self.assertFalse(any(row["type"] in ("hog_flow", "message_template") for row in rows))
             self.assertFalse(any(row["path"] in ("Unfiled/Workflows", "Unfiled/Email templates") for row in rows))
             self.assertTrue(any(row["id"] == str(notebook.id) for row in rows))
+        ranked = self.client.get(f"{files_url}search/", {"search": "Synthetic"}).json()["results"]
+        self.assertEqual([result["entry"]["id"] for result in ranked], [str(notebook.id)])
         FileSystem.objects.filter(team=self.team, type__in=["hog_flow", "message_template"]).delete()
         response = self.client.get(f"{files_url}unfiled/")
         self.assertEqual(response.status_code, 200)
