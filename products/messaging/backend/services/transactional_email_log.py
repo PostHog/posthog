@@ -49,6 +49,11 @@ MAX_CONVERSION_WINDOW_DAYS = 30
 # The results read at most this many recipients, newest sends first.
 MAX_RESULTS_RECIPIENTS = 10_000
 
+# A message's rows sit together in the table's sort key, so grouping can finish each message as it reads on.
+_GROUP_AS_READ: dict[str, int] = {"optimize_aggregation_in_order": 1}
+# Reading newest first is slow when few rows match, so a search reads in any order and sorts what it finds.
+_SEARCH: dict[str, int] = {"optimize_read_in_order": 0}
+
 _ENGAGEMENT = "(" + ", ".join(f"'{status}'" for status in EMAIL_ENGAGEMENT_STATUSES) + ")"
 
 # One row per message. `argMaxIf` keeps the delivery status, and the `anyIf` columns read the one row that sets each.
@@ -80,10 +85,24 @@ def _window(date_from: datetime | None, date_to: datetime | None) -> _Period:
     return _Period(start=start, end=end)
 
 
-def _execute(team_id: int, query: str, params: dict[str, Any]) -> list[tuple]:
+def _queued_at(message_id: UUID) -> datetime | None:
+    """When a message was queued, which its id starts with, or None when the log can't hold a message with this id."""
+    queued_ms = int.from_bytes(message_id.bytes[:6], "big")
+    now = datetime.now(UTC)
+    if not (now - RETENTION).timestamp() * 1000 <= queued_ms <= (now + _CLOCK_SKEW).timestamp() * 1000:
+        return None
+    return datetime.fromtimestamp(queued_ms / 1000, tz=UTC)
+
+
+def _execute(team_id: int, query: str, params: dict[str, Any], settings: dict[str, int] | None = None) -> list[tuple]:
     tag_queries(product=Product.MESSAGING, feature=Feature.QUERY)
     # The log is read by a person looking at the page, or by an agent answering one.
-    return cast(list, sync_execute(query, {"team_id": team_id, **params}, workload=Workload.ONLINE, team_id=team_id))
+    return cast(
+        list,
+        sync_execute(
+            query, {"team_id": team_id, **params}, settings=settings, workload=Workload.ONLINE, team_id=team_id
+        ),
+    )
 
 
 def _templates_by_workflow(team_id: int, workflow_ids: Sequence[str]) -> dict[str, MessageTemplate]:
@@ -149,43 +168,68 @@ def list_transactional_emails(
         return [], False
     period = _window(date_from, date_to)
     start, end = period.start, period.end
-    where = ["team_id = %(team_id)s", "created_at >= %(start)s", "created_at < %(end)s"]
+    period_filter = "team_id = %(team_id)s AND created_at >= %(start)s AND created_at < %(end)s"
     having = ["delivery_status != ''"]
     params: dict[str, Any] = {"start": start, "end": end, "limit": limit + 1, "offset": offset}
+    # Only the queued row names the recipient and the workflow, so these filters pick messages from queued rows.
+    queued_filters: list[str] = []
+    settings: dict[str, int] = {}
 
     search = (search or "").strip()
-    if search and _is_uuid(search):
-        where.append("message_id = %(message_id)s")
-        params["message_id"] = str(UUID(search))
+    message_id = UUID(search) if search and _is_uuid(search) else None
+    if message_id:
+        sent_around = _queued_at(message_id)
+        if sent_around is None:
+            return [], False
+        params["message_id"] = str(message_id)
+        params["start"] = max(start, sent_around - _CLOCK_SKEW)
+        params["end"] = min(end, sent_around + _CLOCK_SKEW)
     elif search:
-        # Only the queued row names the recipient, so match on it and keep every row of the matching messages.
-        where.append(
-            f"message_id IN (SELECT message_id FROM {EMAIL_STATUS_EVENTS_TABLE} WHERE team_id = %(team_id)s"
-            " AND created_at >= %(start)s AND created_at < %(end)s AND positionCaseInsensitive(recipient, %(search)s) > 0)"
-        )
+        queued_filters.append("positionCaseInsensitive(recipient, %(search)s) > 0")
         params["search"] = search
+        settings.update(_SEARCH)
     if status:
         having.append("delivery_status = %(status)s")
         params["status"] = status.value
     if workflow_id:
+        queued_filters.append("function_id = %(workflow_id)s")
         having.append("message_function_id = %(workflow_id)s")
         params["workflow_id"] = workflow_id
     if workflow_ids is not None:
+        queued_filters.append("function_id IN %(workflow_ids)s")
         having.append("message_function_id IN %(workflow_ids)s")
         params["workflow_ids"] = list(workflow_ids)
+
+    queued = " AND ".join([period_filter, "status = 'queued'", *queued_filters])
+    candidates = f"SELECT created_at, message_id FROM {EMAIL_STATUS_EVENTS_TABLE} WHERE {queued}"
+    if message_id:
+        scope = "AND message_id = %(message_id)s"
+    elif status:
+        # A delivery status comes from all of a message's rows, so this reads every message in the period.
+        settings.update(_GROUP_AS_READ)
+        scope = f"AND (created_at, message_id) IN ({candidates})" if search or workflow_id else ""
+    else:
+        # The page comes from queued rows alone, so a long period doesn't group every message to show 50 of them.
+        # Kafka can deliver a queued row twice, so this takes extra rows and the grouping below drops the repeats.
+        params["candidates"] = (limit + 1 + offset) * 2
+        scope = (
+            f"AND (created_at, message_id) IN ({candidates} ORDER BY created_at DESC, message_id DESC"
+            " LIMIT %(candidates)s)"
+        )
 
     rows = _execute(
         team_id,
         f"""
         SELECT {_MESSAGE_COLUMNS}
         FROM {EMAIL_STATUS_EVENTS_TABLE}
-        WHERE {" AND ".join(where)}
-        GROUP BY message_id
+        WHERE {period_filter} {scope}
+        GROUP BY created_at, message_id
         HAVING {" AND ".join(having)}
-        ORDER BY queued_at DESC, toString(message_id) DESC
+        ORDER BY queued_at DESC, message_id DESC
         LIMIT %(limit)s OFFSET %(offset)s
         """,
         params,
+        settings or None,
     )
     has_more = len(rows) > limit
     return _build_entries(team_id, rows[:limit]), has_more
@@ -196,12 +240,9 @@ def get_transactional_email(
 ) -> TransactionalEmailLogDetail | None:
     """One send with every status it went through, or None when the project has no send with this id, or the reader
     may not view its workflow."""
-    # A message id starts with the time it was queued, so the partition scan stays to that day.
-    queued_ms = int.from_bytes(message_id.bytes[:6], "big")
-    now = datetime.now(UTC)
-    if not (now - RETENTION).timestamp() * 1000 <= queued_ms <= (now + _CLOCK_SKEW).timestamp() * 1000:
+    queued = _queued_at(message_id)
+    if queued is None:
         return None
-    queued = datetime.fromtimestamp(queued_ms / 1000, tz=UTC)
     params = {"message_id": str(message_id), "start": queued - _CLOCK_SKEW, "end": queued + _CLOCK_SKEW}
     where = "team_id = %(team_id)s AND message_id = %(message_id)s AND created_at >= %(start)s AND created_at < %(end)s"
 
@@ -283,7 +324,7 @@ def transactional_email_stats(
             SELECT {_MESSAGE_COLUMNS}
             FROM {EMAIL_STATUS_EVENTS_TABLE}
             WHERE team_id = %(team_id)s AND created_at >= %(start)s AND created_at < %(end)s
-            GROUP BY message_id
+            GROUP BY created_at, message_id
         )
         WHERE delivery_status != '' AND group_key != '' {access}
         GROUP BY group_key
@@ -291,6 +332,7 @@ def transactional_email_stats(
         LIMIT 200
         """,
         params,
+        _GROUP_AS_READ,
     )
     templates = (
         _templates_by_workflow(team_id, [row[0] for row in rows]) if group_by == EmailStatsGroupBy.TEMPLATE else {}

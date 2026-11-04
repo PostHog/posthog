@@ -96,7 +96,6 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
     def test_lists_sends_newest_first_and_an_open_never_hides_a_bounce(self, _flag):
         oldest = self._send(30, "a@example.com", [("sent", 1, ""), ("delivered", 2, ""), ("opened", 60, "")])
         bounced = self._send(20, "b@example.com", [("sent", 1, ""), ("bounced", 2, "hard"), ("opened", 90, "")])
-        # Message ids sort by creation time as text, but ClickHouse compares a UUID in its own byte order.
         newest = self._send(10, "c@example.com", [("sent", 1, ""), ("clicked", 30, "")])
         self._send(5, "other@example.com", [("sent", 1, "")], team=Team.objects.create(organization=self.organization))
 
@@ -114,19 +113,35 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("part_of_the_recipient", {"search": "JANE"}, ["jane@example.com"]),
-            ("status", {"status": "failed"}, ["bob@example.com"]),
-            ("page_size", {"limit": 1}, ["bob@example.com"]),
+            ("part_of_the_recipient", {"search": "JANE"}, ["jane@example.com"], False),
+            ("status", {"status": "failed"}, ["bob@example.com"], False),
+            ("page_size", {"limit": 1}, ["bob@example.com"], True),
+            ("second_page", {"limit": 1, "offset": 1}, ["jane@example.com"], False),
+            ("search_and_status", {"search": "bob", "status": "failed"}, ["bob@example.com"], False),
+            ("search_with_no_match_for_the_status", {"search": "jane", "status": "failed"}, [], False),
+            ("status_past_its_last_send", {"status": "sent", "offset": 1}, [], False),
         ]
     )
-    def test_filters_the_list(self, _flag, _name, params, expected_recipients):
+    def test_filters_the_list(self, _flag, _name, params, expected_recipients, expected_has_more):
         self._send(20, "jane@example.com", [("sent", 1, "")])
         self._send(10, "bob@example.com", [("failed", 1, "provider_error")])
 
         response = self.client.get(self._url(), params)
 
         assert [r["recipient"] for r in response.json()["results"]] == expected_recipients
-        assert response.json()["has_more"] == (params.get("limit") == 1)
+        assert response.json()["has_more"] == expected_has_more
+
+    def test_finds_a_send_by_message_id_only_inside_the_date_range(self, _flag):
+        message_id = self._send(60, "jane@example.com", [("sent", 1, "")])
+        self._send(10, "bob@example.com", [("sent", 1, "")])
+
+        inside = self.client.get(self._url(), {"search": message_id}).json()
+        outside = self.client.get(
+            self._url(), {"search": message_id, "date_from": (NOW - timedelta(minutes=30)).isoformat()}
+        ).json()
+
+        assert [r["message_id"] for r in inside["results"]] == [message_id]
+        assert outside["results"] == []
 
     def test_shows_one_send_with_its_timeline(self, _flag):
         message_id = self._send(
@@ -152,6 +167,18 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         body = self.client.get(self._url(f"{message_id}/")).json()
 
         assert [event["kind"] for event in body["timeline"]] == ["queued", "sent", "clicked", "clicked"]
+
+    def test_a_queued_row_delivered_twice_takes_one_place_on_a_page(self, _flag):
+        self._send(20, "older@example.com", [("queued", 0, "")])
+        self._send(10, "newer@example.com", [("queued", 0, "")])
+
+        first_page = self.client.get(self._url(), {"limit": 1}).json()
+        second_page = self.client.get(self._url(), {"limit": 1, "offset": 1}).json()
+
+        assert [r["recipient"] for r in first_page["results"]] == ["newer@example.com"]
+        assert first_page["has_more"] is True
+        assert [r["recipient"] for r in second_page["results"]] == ["older@example.com"]
+        assert second_page["has_more"] is False
 
     @parameterized.expand(
         [
