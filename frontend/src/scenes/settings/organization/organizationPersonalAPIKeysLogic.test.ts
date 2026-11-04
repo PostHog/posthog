@@ -63,10 +63,16 @@ describe('organizationPersonalAPIKeysLogic', () => {
     })
 
     it('loads keys on mount', async () => {
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
         await expectLogic(logic).toDispatchActions(['loadKeys', 'loadKeysSuccess']).toMatchValues({
             keys: MOCK_KEYS,
             keysLoading: false,
         })
+
+        logic.actions.loadKeys()
+        await expectLogic(logic).toDispatchActions(['loadKeysSuccess'])
+        const views = capture.mock.calls.filter(([event]) => event === 'organization personal api keys viewed')
+        expect(views).toEqual([['organization personal api keys viewed', { key_count: MOCK_KEYS.length }]])
     })
 
     it('starts with empty array and loading state', () => {

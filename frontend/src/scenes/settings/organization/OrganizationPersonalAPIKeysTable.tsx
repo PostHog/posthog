@@ -76,29 +76,6 @@ export function OrganizationPersonalAPIKeysTable(): JSX.Element {
             render: (_, key) => <span className="font-mono">{key.mask_value}</span>,
         },
         {
-            title: 'Scopes',
-            key: 'scopes',
-            render: (_, key) => <TagList tags={[...key.scopes]} tooltip={<ScopeGroupSummary scopes={key.scopes} />} />,
-        },
-        {
-            title: 'Access scope',
-            key: 'access_scope',
-            render: (_, key) => <AccessScope accessScope={key.access_scope} />,
-        },
-        {
-            title: 'Last used',
-            key: 'last_used_at',
-            sorter: (a, b) => new Date(a.last_used_at ?? 0).getTime() - new Date(b.last_used_at ?? 0).getTime(),
-            render: (_, key) =>
-                key.last_used_at ? <TZLabel time={key.last_used_at} /> : <span className="text-muted">Never</span>,
-        },
-        {
-            title: 'Created',
-            key: 'created_at',
-            sorter: (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
-            render: (_, key) => <TZLabel time={key.created_at} />,
-        },
-        {
             key: 'actions',
             width: 0,
             render: (_, key) => {
@@ -137,6 +114,29 @@ export function OrganizationPersonalAPIKeysTable(): JSX.Element {
                     </div>
                 )
             },
+        },
+        {
+            title: 'Scopes',
+            key: 'scopes',
+            render: (_, key) => <TagList tags={[...key.scopes]} tooltip={<ScopeGroupSummary scopes={key.scopes} />} />,
+        },
+        {
+            title: 'Access scope',
+            key: 'access_scope',
+            render: (_, key) => <AccessScope accessScope={key.access_scope} />,
+        },
+        {
+            title: 'Last used',
+            key: 'last_used_at',
+            sorter: (a, b) => new Date(a.last_used_at ?? 0).getTime() - new Date(b.last_used_at ?? 0).getTime(),
+            render: (_, key) =>
+                key.last_used_at ? <TZLabel time={key.last_used_at} /> : <span className="text-muted">Never</span>,
+        },
+        {
+            title: 'Created',
+            key: 'created_at',
+            sorter: (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+            render: (_, key) => <TZLabel time={key.created_at} />,
         },
     ]
 

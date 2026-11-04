@@ -12,6 +12,7 @@ import type { BulkKeySummary, KeyAction, KeyActionTarget } from './organizationP
 
 const ROLL_ALL_PHRASE = 'roll all keys'
 const REVOKE_ALL_PHRASE = 'revoke all keys'
+const NONE_IN_OTHER_ORGANIZATIONS = 'None of these keys work in other organizations.'
 
 function captureDialogOpened(action: KeyAction, target: KeyActionTarget): void {
     posthog.capture('organization personal api key action dialog opened', { action, target })
@@ -91,7 +92,7 @@ interface BulkDialogOptions {
     action: KeyAction
     title: string
     description: string
-    counts: (string | null)[]
+    counts: string[]
     phrase: string
     confirmationDataAttr: string
     submitLabel: string
@@ -119,11 +120,9 @@ function openBulkKeyActionDialog({
         content: (
             <div className="space-y-4">
                 <ul className="list-disc pl-5 space-y-1">
-                    {counts
-                        .filter((line): line is string => line !== null)
-                        .map((line) => (
-                            <li key={line}>{line}</li>
-                        ))}
+                    {counts.map((line) => (
+                        <li key={line}>{line}</li>
+                    ))}
                 </ul>
                 <LemonField name="confirmation" label={typeToConfirm}>
                     <LemonInput autoFocus data-attr={confirmationDataAttr} />
@@ -139,8 +138,10 @@ function openBulkKeyActionDialog({
     })
 }
 
-function ownedByMeLine(ownedByMe: number): string | null {
-    return ownedByMe ? `${pluralize(ownedByMe, 'key')} ${agree(ownedByMe, 'belongs', 'belong')} to you.` : null
+function ownedByMeLine(ownedByMe: number): string {
+    return ownedByMe
+        ? `${pluralize(ownedByMe, 'key')} ${agree(ownedByMe, 'belongs', 'belong')} to you.`
+        : 'None of these keys belong to you.'
 }
 
 export function openRollAllKeysDialog(
@@ -156,7 +157,7 @@ export function openRollAllKeysDialog(
             `This rolls ${pluralize(total, 'key')}.`,
             alsoInOtherOrganizations
                 ? `${pluralize(alsoInOtherOrganizations, 'key')} also ${agree(alsoInOtherOrganizations, 'works', 'work')} in other organizations and ${agree(alsoInOtherOrganizations, 'stops', 'stop')} working there too.`
-                : null,
+                : NONE_IN_OTHER_ORGANIZATIONS,
             ownedByMeLine(ownedByMe),
         ],
         phrase: ROLL_ALL_PHRASE,
@@ -180,10 +181,10 @@ export function openRevokeAllKeysDialog(
             `This revokes ${pluralize(total, 'key')}.`,
             onlyInThisOrganization
                 ? `${pluralize(onlyInThisOrganization, 'key')} ${agree(onlyInThisOrganization, 'works', 'work')} only in this organization and ${agree(onlyInThisOrganization, 'gets', 'get')} deleted.`
-                : null,
+                : 'None of these keys get deleted.',
             alsoInOtherOrganizations
                 ? `${pluralize(alsoInOtherOrganizations, 'key')} also ${agree(alsoInOtherOrganizations, 'works', 'work')} in other organizations and ${agree(alsoInOtherOrganizations, 'keeps', 'keep')} working there.`
-                : null,
+                : NONE_IN_OTHER_ORGANIZATIONS,
             ownedByMeLine(ownedByMe),
         ],
         phrase: REVOKE_ALL_PHRASE,

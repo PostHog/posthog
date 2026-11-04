@@ -198,7 +198,7 @@ export const organizationPersonalAPIKeysLogic = kea<organizationPersonalAPIKeysL
             }),
         ],
     }),
-    listeners(({ actions }) => {
+    listeners(({ actions, cache }) => {
         const runKeyAction = async (
             action: KeyAction,
             inFlight: string,
@@ -225,6 +225,13 @@ export const organizationPersonalAPIKeysLogic = kea<organizationPersonalAPIKeysL
         }
 
         return {
+            loadKeysSuccess: ({ keys }) => {
+                // Every key action reloads the list, so only the first load counts as a view.
+                if (!cache.viewCaptured) {
+                    cache.viewCaptured = true
+                    posthog.capture('organization personal api keys viewed', { key_count: keys.length })
+                }
+            },
             rollKey: async ({ id }) => {
                 await runKeyAction('roll', id, async (organizationId) =>
                     countsFromOutcome(await organizationPersonalApiKeysRoll(organizationId, id))
