@@ -57,6 +57,8 @@ export function WorkflowsListV2(): JSX.Element {
     })
 
     const { loadBrowser } = useActions(workflowFoldersLogic)
+    // The folder view shows the same metrics retry as the flat list when health pills cannot be checked.
+    const metricsFailed = listLoaded && hasHealthFilter && !metricsLoaded && !metricsLoading
     const renderBody = (): JSX.Element => {
         if (browserLoadFailed) {
             return (
@@ -182,7 +184,7 @@ export function WorkflowsListV2(): JSX.Element {
                     <div className="min-w-0 flex-1 @container">
                         <WorkflowFolderDropMonitor />
                         <WorkflowFolderToolbar />
-                        {loadFailed || browserLoadFailed ? renderBody() : <WorkflowFolderContents />}
+                        {loadFailed || browserLoadFailed || metricsFailed ? renderBody() : <WorkflowFolderContents />}
                     </div>
                 </div>
             ) : (

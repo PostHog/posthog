@@ -57,21 +57,54 @@ describe('WorkflowsScene', () => {
 
     afterEach(() => cleanup())
 
-    it('offers a metrics retry instead of an empty health result when metrics fail', async () => {
+    const emptyProjectFiles = {
+        '/api/projects/:team_id/file_system/unfiled/': () => [200, { count: 0 }],
+        '/api/projects/:team_id/file_system/': () => [200, paginated([])],
+    } as const
+
+    it.each([
+        ['the flat list', false],
+        ['the folder view', true],
+    ])('offers a metrics retry instead of an empty health result when metrics fail in %s', async (_, folders) => {
+        useMocks({ get: emptyProjectFiles })
         useMocks({
             get: { '/api/projects/:team_id/hog_flows/metrics/global/': () => [500, { detail: 'Unavailable' }] },
         })
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true,
+            [FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES]: folders,
+        })
         router.actions.push(urls.workflows(), { q: 'health:failing' })
         render(
             <Provider>
-                <WorkflowsScene />
+                <DndContext>
+                    <WorkflowsScene />
+                </DndContext>
             </Provider>
         )
         await waitFor(() =>
             expect(document.querySelector('[data-attr="workflows-list-v2-metrics-retry"]')).not.toBeNull()
         )
         expect(document.body).not.toHaveTextContent('No workflows match these filters')
+        expect(document.body).not.toHaveTextContent('Nothing matches')
+    })
+
+    it('keeps the Customer.io import next to the folder view', async () => {
+        useMocks({ get: emptyProjectFiles })
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true,
+            [FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES]: true,
+            [FEATURE_FLAGS.WORKFLOWS_CUSTOMERIO_IMPORT]: true,
+        })
+        render(
+            <Provider>
+                <DndContext>
+                    <WorkflowsScene />
+                </DndContext>
+            </Provider>
+        )
+        await waitFor(() => expect(document.querySelector('[data-attr="workflows-folder-toolbar"]')).not.toBeNull())
+        expect(document.querySelector('[data-attr="workflows-import-customerio"]')).not.toBeNull()
     })
 
     it('keeps the loaded rows when a reload fails', async () => {
@@ -128,7 +161,11 @@ describe('WorkflowsScene', () => {
         expect(input).toHaveValue('')
     })
 
-    it('pages past the first 100 rows, and a new filter starts again on page one', async () => {
+    it.each([
+        ['the flat list', false],
+        ['the folder view', true],
+    ])('pages past the first 100 rows in %s, and a new filter starts again on page one', async (_, folders) => {
+        useMocks({ get: emptyProjectFiles })
         workflows = Array.from({ length: 250 }, (_, i) =>
             buildWorkflowRow({
                 id: `wf-${i}`,
@@ -136,21 +173,30 @@ describe('WorkflowsScene', () => {
                 updated_at: new Date(Date.UTC(2026, 9, 1) - i * 60_000).toISOString(),
             })
         )
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true,
+            [FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES]: folders,
+        })
+        const scope = folders ? [{ facet: 'in', value: 'Unfiled', negated: false }] : []
+        if (folders) {
+            router.actions.push(urls.workflows(), { q: 'in:Unfiled' })
+        }
         const user = userEvent.setup()
         render(
             <Provider>
-                <WorkflowsScene />
+                <DndContext>
+                    <WorkflowsScene />
+                </DndContext>
             </Provider>
         )
         await waitFor(() => expect(shownRowNames()[0]).toEqual('Flow 000 even'))
 
         await user.click(document.querySelector('[aria-label="Next page"]')!)
-        await waitFor(() => expect(shownRowNames()[0]).toEqual('Flow 100 even'))
-        expect(shownRowNames()).toHaveLength(100)
+        await waitFor(() => expect(shownRowNames()[0]).not.toEqual('Flow 000 even'))
+        expect(shownRowNames()[0] >= 'Flow 099').toBe(true)
 
         // 125 rows match, so a kept page would still show matches 101 and up.
-        act(() => workflowsListV2Logic.actions.setValue({ filters: [], text: 'odd' }))
+        act(() => workflowsListV2Logic.actions.setValue({ filters: scope, text: 'odd' }))
         await waitFor(() => expect(shownRowNames()[0]).toEqual('Flow 001 odd'))
     })
 

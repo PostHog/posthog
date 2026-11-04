@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 
 import { getItemId, parentPath } from '~/layout/panel-layout/ProjectTree/utils'
 
+import { serializeFacetQuery } from './FacetSearchBar/facetQuery'
 import { WorkflowFolderActions } from './WorkflowFolderActions'
 import { WORKFLOW_FOLDER_CONTENTS_DROP_SCOPE } from './workflowFolderDragScopes'
 import { WorkflowFolderPath } from './WorkflowFolderPath'
@@ -63,7 +64,10 @@ export function WorkflowFolderContents(): JSX.Element {
         cancelFolderDraft,
     } = useActions(workflowFoldersLogic)
     const showFolderDraft = !!folderDraft && folderDraft.parent === (currentFolder ?? '')
-    const { shownColumns, metricsLoading, listLoaded, serverSearchStatus } = useValues(workflowsListV2Logic)
+    const { shownColumns, metricsLoading, listLoaded, serverSearchStatus, hasHealthFilter, metricsLoaded, value } =
+        useValues(workflowsListV2Logic)
+    // Health pills match nothing until run metrics arrive, so wait instead of showing an empty folder.
+    const healthPending = hasHealthFilter && !metricsLoaded
     const { searchParams } = useValues(router)
     const sortOrder = String(searchParams[SORTING_URL_PARAM] ?? '').startsWith('-') ? -1 : 1
     const keepRowKindsInPlace =
@@ -259,8 +263,12 @@ export function WorkflowFolderContents(): JSX.Element {
                 </div>
             )}
             <LemonTable
-                // Remounting returns the table to page one, where the inline folder row is.
-                key={showFolderDraft ? 'folder-draft' : 'folder-contents'}
+                // Remounting returns the table to page one, where the inline folder row is, and a new folder or filter does the same.
+                key={
+                    showFolderDraft
+                        ? 'folder-draft'
+                        : `${currentFolder ?? ''}\n${serializeFacetQuery(value.filters)}\n${value.text}`
+                }
                 dataSource={rows}
                 columns={columns}
                 rowKey="id"
@@ -278,7 +286,13 @@ export function WorkflowFolderContents(): JSX.Element {
                         : {}
                 }
                 size="small"
-                loading={!browserReady || browserReadyLoading || !listLoaded || serverSearchStatus === 'pending'}
+                loading={
+                    !browserReady ||
+                    browserReadyLoading ||
+                    !listLoaded ||
+                    serverSearchStatus === 'pending' ||
+                    healthPending
+                }
                 pagination={{ pageSize: 100, useUrl: false }}
                 emptyState={empty}
                 data-attr="workflows-folder-contents"
@@ -286,6 +300,7 @@ export function WorkflowFolderContents(): JSX.Element {
             {browserReady &&
                 !browserReadyLoading &&
                 serverSearchStatus !== 'pending' &&
+                !healthPending &&
                 listLoaded &&
                 folderRows.length === 0 &&
                 folderTemplates.length === 0 &&

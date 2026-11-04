@@ -211,9 +211,9 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
         content: listV2 ? <WorkflowsListV2 /> : <WorkflowsTable />,
         link: urls.workflows(),
     }
-    const showsNewWorkflowButton =
-        (currentTab === 'workflows' || currentTab === 'templates' || currentTab === 'calendar') &&
-        !(currentTab === 'workflows' && listV2 && projectFiles)
+    const showsWorkflowActions = currentTab === 'workflows' || currentTab === 'templates' || currentTab === 'calendar'
+    // The folder view has its own New workflow button, which creates the workflow in the open folder.
+    const showsNewWorkflowButton = showsWorkflowActions && !(currentTab === 'workflows' && listV2 && projectFiles)
     const onNewWorkflow = (): void => {
         void addProductIntent({
             product_type: ProductKey.WORKFLOWS,
@@ -249,7 +249,7 @@ export function WorkflowsScene(props: WorkflowsSceneProps = {}): JSX.Element {
                 }}
                 actions={
                     <>
-                        {showsNewWorkflowButton && customerioImportEnabled && (
+                        {showsWorkflowActions && customerioImportEnabled && (
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.Workflow}
                                 minAccessLevel={AccessControlLevel.Editor}
