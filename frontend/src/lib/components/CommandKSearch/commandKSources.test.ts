@@ -7,7 +7,7 @@ import { alertsList } from 'products/alerts/frontend/generated/api'
 import { conversationsTicketsList } from 'products/conversations/frontend/generated/api'
 import { productToursList } from 'products/product_tours/frontend/generated/api'
 
-import { REMOTE_REQUESTS, RemoteContext, RemoteRequest, settleRequest } from './commandKSources'
+import { REMOTE_REQUESTS, RemoteContext, RemoteRequest, requestDebounceMs, settleRequest } from './commandKSources'
 
 jest.mock('products/alerts/frontend/generated/api', () => ({ alertsList: jest.fn() }))
 jest.mock('products/conversations/frontend/generated/api', () => ({ conversationsTicketsList: jest.fn() }))
@@ -150,6 +150,8 @@ describe('settleRequest', () => {
             ['type:alert user:me revenue', 'its API cannot apply createdBy'],
             ['type:alert path:Growth', 'its API cannot apply in'],
             ['type:alert revenue -legacy', 'its API cannot exclude words'],
+            ['type:alert "-legacy"', 'a quoted exclusion is still an exclusion'],
+            ["type:alert revenue '-legacy'", 'a single-quoted exclusion is still an exclusion'],
             ['type:ticket re', 'two letters would scan every ticket message'],
         ])('finds nothing for %s without a request, because %s', async (query) => {
             const result = await settleRequest(objects, query, new AbortController().signal, context)
@@ -158,6 +160,63 @@ describe('settleRequest', () => {
             expect(conversationsTicketsList).not.toHaveBeenCalled()
             expect(fileSystemSearchRetrieve).not.toHaveBeenCalled()
             expect(api.fileSystem.list).not.toHaveBeenCalled()
+        })
+
+        test.each([
+            [
+                'type:ticket name:refund',
+                () =>
+                    jest.mocked(conversationsTicketsList).mockResolvedValue({
+                        count: 2,
+                        results: [
+                            { id: 't-1', ticket_number: 1, email_subject: 'Refund not received' },
+                            { id: 't-2', ticket_number: 2, email_subject: 'Card declined' },
+                        ],
+                    } as any),
+                ['/support/tickets/1'],
+            ],
+            [
+                'type:product_tour name:"revenue tour"',
+                () =>
+                    jest.mocked(productToursList).mockResolvedValue({
+                        count: 2,
+                        results: [
+                            { id: 'p1', name: 'Revenue tour' },
+                            { id: 'p2', name: 'Onboarding', description: 'A revenue tour for new users' },
+                        ],
+                    } as any),
+                ['/product_tours/p1'],
+            ],
+        ])('keeps only the results whose name matches for %s', async (query, mockResults, hrefs) => {
+            mockResults()
+            const result = await settleRequest(objects, query, new AbortController().signal, context)
+            expect(result?.results.results?.map((item) => item.href)).toEqual(hrefs)
+        })
+
+        test.each([
+            ['type:alert revenue', () => alertsList, ['1', { search: 'revenue', limit: 5 }, expect.anything()]],
+            [
+                'type:workflows',
+                () => api.search.list,
+                [{ q: undefined, entities: ['hog_flow'], include_counts: false }, expect.anything()],
+            ],
+            [
+                'type:endpoints',
+                () => api.search.list,
+                [{ q: undefined, entities: ['endpoint'], include_counts: false }, expect.anything()],
+            ],
+        ])('requests %s with only the parameters it needs', async (query, endpoint, params) => {
+            await settleRequest(objects, query, new AbortController().signal, context)
+            expect(endpoint()).toHaveBeenCalledWith(...params)
+        })
+
+        test.each([
+            ['type:ticket refund', 150],
+            ['type:alert', 150],
+            ['type:dashboard revenue', 50],
+            ['revenue', 50],
+        ])('waits for typing to pause before searching %s', (query, debounceMs) => {
+            expect(requestDebounceMs(objects, query)).toBe(debounceMs)
         })
 
         test.each([

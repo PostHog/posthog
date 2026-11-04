@@ -29,10 +29,13 @@ import { accountsList } from 'products/customer_analytics/frontend/generated/api
 import { personsList } from 'products/persons/frontend/generated/api'
 import { productToursList } from 'products/product_tours/frontend/generated/api'
 
-import { listSearchText, parseToken, tokenize } from './commandKQuery'
+import { listSearchText, nameAndExclusions, parseToken, tokenize } from './commandKQuery'
 import { freeWords } from './commandKRanking'
 
 export const RESULTS_LIMIT = 20
+export const REMOTE_DEBOUNCE_MS = 150
+export const OBJECTS_DEBOUNCE_MS = 50
+const FAST_REQUESTS = ['objects', 'persons']
 export const REQUEST_DEADLINE_MS = 3000
 // An AbortError, so the API layer treats it like any cancelled request and reports nothing.
 const DEADLINE_PASSED = new DOMException('The request deadline passed', 'AbortError')
@@ -182,7 +185,10 @@ type TypeSearch = (text: string, signal: AbortSignal, context: RemoteContext) =>
 const unifiedTypeSearch =
     (entity: SearchableEntity, type: string): TypeSearch =>
     async (q, signal) => {
-        const response = await api.search.list({ q, entities: [entity], include_counts: false }, { signal })
+        const response = await api.search.list(
+            { q: q || undefined, entities: [entity], include_counts: false },
+            { signal }
+        )
         return response.results.map((result) => {
             const item = unifiedSearchResultToSearchItem(result)
             return { ...item, category: 'results', record: { ...item.record, type } }
@@ -193,7 +199,7 @@ const TYPE_SEARCHES: Record<string, TypeSearch> = {
     alert: async (search, signal, context) => {
         const response = await alertsList(
             String(context.currentTeamId),
-            { search: search || undefined, limit: RESULTS_LIMIT },
+            { search: search || undefined, limit: SECONDARY_LIMIT },
             { signal }
         )
         return response.results.map(alertToSearchItem)
@@ -223,23 +229,38 @@ const TYPE_SEARCHES: Record<string, TypeSearch> = {
 
 const PHRASE_FILTER_KEYS = new Set(['is', 'name'])
 
+function typeSearchFor(search: string): TypeSearch | null {
+    const type = tokenize(search)
+        .map((token) => parseToken(token.raw))
+        .find((token) => token.filter?.key === 'is' && !token.negated)?.value
+    return type && Object.hasOwn(TYPE_SEARCHES, type) ? TYPE_SEARCHES[type] : null
+}
+
+const nameOf = (item: SearchItem): string => String(item.displayName || item.name).toLowerCase()
+
 async function fetchTypeResults(
     search: string,
     signal: AbortSignal,
     context: RemoteContext
 ): Promise<SearchItem[] | null> {
-    const raws = tokenize(search).map((token) => token.raw)
-    const tokens = raws.map(parseToken)
-    const type = tokens.find((token) => token.filter?.key === 'is' && !token.negated)?.value
-    const typeSearch = type && Object.hasOwn(TYPE_SEARCHES, type) ? TYPE_SEARCHES[type] : null
+    const typeSearch = typeSearchFor(search)
     if (!typeSearch) {
         return null
     }
-    const excludes = raws.some((raw) => raw.length > 1 && /^[-!]/.test(raw))
-    if (excludes || tokens.some((token) => token.filter && !PHRASE_FILTER_KEYS.has(token.filter.key))) {
+    const { name, excludes } = nameAndExclusions({ backendSearch: search })
+    const otherFilters = tokenize(search)
+        .map((token) => parseToken(token.raw))
+        .some((token) => token.filter && !PHRASE_FILTER_KEYS.has(token.filter.key))
+    if (excludes || otherFilters) {
         return []
     }
-    return typeSearch(listSearchText({ backendSearch: search }), signal, context)
+    const items = await typeSearch(listSearchText({ backendSearch: search }), signal, context)
+    return name ? items.filter((item) => nameOf(item).includes(name.toLowerCase())) : items
+}
+
+export function requestDebounceMs(request: RemoteRequest, query: string): number {
+    const fast = FAST_REQUESTS.includes(request.id) && !(request.id === 'objects' && typeSearchFor(query))
+    return fast ? OBJECTS_DEBOUNCE_MS : REMOTE_DEBOUNCE_MS
 }
 
 export const REMOTE_REQUESTS: RemoteRequest[] = [

@@ -128,7 +128,9 @@ Results for a search with words follow ordered tie-breaking rules: words matched
 - With an `is:` chip, results show as one flat list. The creator shows on rows that share a name.
 - Some `is:` types are not file system objects, so the file system search cannot find them. `is:alert`, `is:ticket`, `is:workflow`, `is:endpoint`, and `is:product_tour` search their own API instead (`TYPE_SEARCHES` in `commandKSources.ts`): alerts, support tickets, and product tours through their list endpoint's `search=`, workflows and endpoints through the unified search API. Results keep the order the API returns, and the ranking keeps a result the API matched outside its name.
   - `is:ticket` lists the most recently updated tickets with no search text. With text, it follows the **Support tickets** rule: 3+ characters or a ticket number (`42`, `#42`), because the ticket search also scans message text. A ticket row shows its subject, then the number, the customer's name or email, and the status.
-  - These APIs cannot apply `createdBy:`, `in:`, or excluded words, so a query with any of them finds nothing for these types. A search that ignored the filter would show objects the filter excludes.
+  - These APIs cannot apply `createdBy:`, `in:`, or excluded words, so a query with any of them finds nothing for these types. A search that ignored the filter would show objects the filter excludes. Quoted exclusions (`"-legacy"`) count too.
+  - Some of these APIs also match descriptions, customers, or message text, so Command K keeps only the results whose name contains the `name:` value.
+  - These searches wait 150 ms after the last keystroke, like the other remote lists, instead of the 50 ms of the file system search. Alerts load 5 at a time, because the alerts list also loads each alert's fired checks.
 - Rows show the folder (when not Unfiled) and "viewed 3 days ago" when the person opened the item, otherwise "created 2 mos ago". Type labels show only in Best matches, where types mix.
 
 ## Smart filters
