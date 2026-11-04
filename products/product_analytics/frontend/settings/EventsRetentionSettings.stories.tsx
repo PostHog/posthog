@@ -49,7 +49,7 @@ const retentionMocks = ({
     }
     const project: EventsRetentionApi = {
         ...organization,
-        retention_months: projectMonths ?? organizationMonths ?? defaultMonths,
+        retention_months: Math.min(planMonths, projectMonths ?? organizationMonths ?? defaultMonths),
         retained_from: '2024-11-01',
         docs_url: 'https://posthog.com/docs/data/events-retention',
         project_retention_months: projectMonths,
@@ -96,4 +96,10 @@ export const ProjectUsingOrganizationWindow: Story = {
 export const ProjectWithOwnWindow: Story = {
     render: () => <ProjectEventsRetentionSetting />,
     decorators: [retentionMocks({ organizationMonths: 24, projectMonths: 12 })],
+}
+
+export const ProjectWithOwnPeriodAbovePlan: Story = {
+    render: () => <ProjectEventsRetentionSetting />,
+    decorators: [retentionMocks({ planMonths: 24, projectMonths: 36, billingPlan: BillingPlan.Paid })],
+    parameters: { testOptions: { snapshotBrowsers: [] } },
 }
