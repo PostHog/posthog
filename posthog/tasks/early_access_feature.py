@@ -12,6 +12,7 @@ from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.cloud_utils import is_cloud
+from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.scoping_audit import skip_team_scope_audit
 
@@ -155,25 +156,52 @@ def send_events_for_early_access_feature_stage_change(feature_id: str, from_stag
     # Get the unique persons enrolled in the feature along with their distinct ID.
     # Property access (rather than JSONExtractString) lets the HogQL printer use
     # materialized person-property columns when available.
-    response = execute_hogql_query(
-        """
-        SELECT
-            argMax(id, created_at) AS id,
-            properties.email AS email,
-            argMax(pdi.distinct_id, created_at) as distinct_id
-        FROM persons
-        WHERE properties[{enrollment_key}] = 'true'
-        AND notEmpty(properties.email)
-        GROUP BY properties.email
-        LIMIT {limit}
-        """,
-        placeholders={
-            "enrollment_key": ast.Constant(value=f"$feature_enrollment/{feature_flag.key}"),
-            "limit": ast.Constant(value=MAX_SELECT_RETURNED_ROWS),
-        },
-        team=instance.team,
-        limit_context=LimitContext.QUERY_ASYNC,
-    )
+    # Distinct IDs come from raw_person_distinct_ids filtered to the enrolled persons before
+    # aggregating: the persons.pdi join aggregates every distinct ID of the team first, which
+    # runs out of memory on large teams.
+    try:
+        response = execute_hogql_query(
+            """
+            SELECT p.id, p.email, d.distinct_id
+            FROM (
+                SELECT argMax(id, created_at) AS id, properties.email AS email
+                FROM persons
+                WHERE properties[{enrollment_key}] = 'true'
+                AND notEmpty(properties.email)
+                GROUP BY properties.email
+            ) AS p
+            INNER JOIN (
+                SELECT person_id, argMax(distinct_id, version) AS distinct_id
+                FROM raw_person_distinct_ids
+                WHERE is_deleted = 0
+                AND person_id IN (
+                    SELECT id
+                    FROM persons
+                    WHERE properties[{enrollment_key}] = 'true'
+                    AND notEmpty(properties.email)
+                )
+                GROUP BY person_id
+            ) AS d ON p.id = d.person_id
+            LIMIT {limit}
+            """,
+            placeholders={
+                "enrollment_key": ast.Constant(value=f"$feature_enrollment/{feature_flag.key}"),
+                "limit": ast.Constant(value=MAX_SELECT_RETURNED_ROWS),
+            },
+            team=instance.team,
+            limit_context=LimitContext.QUERY_ASYNC,
+        )
+    except Exception as e:
+        capture_exception(
+            error=e,
+            additional_properties={
+                "feature_id": str(instance.id),
+                "team_id": team_id,
+                "from_stage": from_stage,
+                "to_stage": to_stage,
+            },
+        )
+        raise
 
     enrolled_persons = response.results
     for _id, email, distinct_id in enrolled_persons:

@@ -46,6 +46,30 @@ class TestSendEventsForEarlyAccessFeatureStageChange(APIBaseTest):
         )
 
     @patch("posthog.tasks.early_access_feature.capture_event")
+    def test_sends_one_event_for_person_with_multiple_distinct_ids(self, mock_capture: MagicMock) -> None:
+        team = Team.objects.create(organization=self.organization)
+        feature_flag = FeatureFlag.objects.create(team=team, key="my-flag", filters={})
+        feature = EarlyAccessFeature.objects.create(
+            team=team,
+            feature_flag=feature_flag,
+            name="Test Feature",
+            description="desc",
+            stage=EarlyAccessFeature.Stage.BETA,
+        )
+
+        create_person(
+            team=team,
+            distinct_ids=["anon123", "abc123"],
+            properties={f"$feature_enrollment/{feature_flag.key}": True, "email": "test@example.com"},
+        )
+
+        send_events_for_early_access_feature_stage_change(feature.id, "concept", "beta")
+
+        mock_capture.assert_called_once()
+        assert mock_capture.call_args.kwargs["distinct_id"] in {"anon123", "abc123"}
+        assert mock_capture.call_args.kwargs["properties"]["user_email"] == "test@example.com"
+
+    @patch("posthog.tasks.early_access_feature.capture_event")
     def test_no_event_for_enrolled_users_on_different_team(self, mock_capture: MagicMock) -> None:
         team1 = Team.objects.create(organization=self.organization)
         team2 = Team.objects.create(organization=self.organization)
