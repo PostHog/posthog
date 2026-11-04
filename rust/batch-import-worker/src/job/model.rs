@@ -40,6 +40,10 @@ pub struct JobModel {
     // Not actually in the model, but we calculate it on fetch to let us reason about whether
     // we're resuming an interrupted job
     pub was_leased: bool,
+
+    /// The chunk a claim rewound for this worker to send again, kept out of the row so that a stop
+    /// before the re-send starts (backoff, shutdown) does not count as another interrupted send.
+    pub recovered_commit: Option<PendingCommit>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -51,12 +55,22 @@ pub enum JobStatus {
     Completed,
 }
 
+/// After this many interrupted sends of one chunk, a claim pauses the job for review instead of
+/// re-sending, so a chunk that crashes every worker cannot loop forever.
+pub const MAX_INTERRUPTED_SENDS: u32 = 3;
+
 /// The chunk a worker is sending; a value left on the row means a worker stopped mid-commit.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PendingCommit {
     pub key: String,
     pub from_offset: u64,
     pub to_offset: u64,
+    /// Earlier sends of this chunk that a worker stopped in the middle of.
+    #[serde(default)]
+    pub interrupted: u32,
+    /// Events the chunk added to `events_emitted`, so a rewind can take them back out.
+    #[serde(default)]
+    pub events: u64,
 }
 
 /// The result of a worker write to its job row.
@@ -130,6 +144,23 @@ impl JobState {
         let part = self.parts.iter_mut().find(|p| p.key == key)?;
         part.current_offset = part.current_offset.saturating_sub(consumed);
         Some(part.current_offset)
+    }
+
+    /// Move the part that `pending` names back to the start of its chunk, and take the chunk's
+    /// events out of `events_emitted` when the part moves. Returns false and changes nothing when
+    /// the part's offset is at neither end of the chunk.
+    pub fn rewind_to_commit_start(&mut self, pending: &PendingCommit) -> bool {
+        let Some(part) = self.parts.iter_mut().find(|p| p.key == pending.key) else {
+            return false;
+        };
+        if part.current_offset != pending.to_offset && part.current_offset != pending.from_offset {
+            return false;
+        }
+        if part.current_offset != pending.from_offset {
+            part.current_offset = pending.from_offset;
+            self.events_emitted = self.events_emitted.saturating_sub(pending.events);
+        }
+        true
     }
 
     /// Return why the job must not complete, or `None` when it can. The read loop
@@ -365,34 +396,105 @@ impl JobModel {
         Ok(())
     }
 
-    /// Pause a job left mid-commit for review, because its `pending_commit` chunk may not have
-    /// reached the sink, and release the lease so a resume is not blocked. Returns true when paused.
-    pub async fn pause_if_interrupted_commit(
+    /// Rewind a part a worker left mid-commit so this worker sends the chunk again, or pause for
+    /// review at the cap or on an offset mismatch. Returns true when this worker must skip the job.
+    pub async fn recover_interrupted_commit(
         &mut self,
         context: Arc<AppContext>,
     ) -> Result<bool, Error> {
         let Some(pending) = self.pending_commit.clone() else {
             return Ok(false);
         };
+        let interrupted = pending.interrupted.saturating_add(1);
+        let rewound = interrupted < MAX_INTERRUPTED_SENDS
+            && self
+                .state
+                .as_mut()
+                .is_some_and(|state| state.rewind_to_commit_start(&pending));
+        if !rewound {
+            return self
+                .pause_interrupted_commit(context, &pending, interrupted)
+                .await;
+        }
+
+        self.pending_commit = None;
+        if !self.save_recovered_commit(&context.db).await? {
+            self.release_lease(&context.db).await?;
+            return Ok(true);
+        }
+        self.recovered_commit = Some(PendingCommit {
+            interrupted,
+            ..pending.clone()
+        });
         warn!(
             job_id = %self.id,
             key = %pending.key,
             from_offset = pending.from_offset,
             to_offset = pending.to_offset,
+            interrupted,
+            "job was interrupted mid-commit, re-sending the chunk"
+        );
+        metrics::interrupted_commit_resent();
+        Ok(false)
+    }
+
+    async fn pause_interrupted_commit(
+        &mut self,
+        context: Arc<AppContext>,
+        pending: &PendingCommit,
+        interrupted: u32,
+    ) -> Result<bool, Error> {
+        warn!(
+            job_id = %self.id,
+            key = %pending.key,
+            from_offset = pending.from_offset,
+            to_offset = pending.to_offset,
+            interrupted,
             "job was interrupted mid-commit, pausing for review"
         );
         metrics::interrupted_commit_paused();
+        let chunk = format!(
+            "part {} (offsets {} to {})",
+            pending.key, pending.from_offset, pending.to_offset
+        );
+        let reason = if interrupted >= MAX_INTERRUPTED_SENDS {
+            format!("Workers stopped {interrupted} times while committing {chunk}.")
+        } else {
+            format!("A worker stopped while committing {chunk}, and the saved offset does not match that chunk.")
+        };
         self.pause(
             context.clone(),
-            format!(
-                "A worker stopped while committing part {} (offsets {} to {}). The chunk may not have reached the sink.",
-                pending.key, pending.from_offset, pending.to_offset
-            ),
+            format!("{reason} The chunk may not have reached the sink."),
             Some("Job paused after an interrupted commit. Resume it to continue.".to_string()),
         )
         .await?;
         self.release_lease(&context.db).await?;
         Ok(true)
+    }
+
+    /// Save a rewound part and clear its marker without changing the claim lease, which stays
+    /// long because job init is slow. Returns false when the row is no longer running.
+    async fn save_recovered_commit(&mut self, pool: &PgPool) -> Result<bool, Error> {
+        let Some(lease) = self.lease_id.clone() else {
+            anyhow::bail!("Cannot write a job with no lease")
+        };
+        let result = sqlx::query(
+            r#"
+            UPDATE posthog_batchimport
+            SET state = $2, pending_commit = NULL, updated_at = now()
+            WHERE id = $1 AND lease_id = $3 AND status = 'running'
+            "#,
+        )
+        .bind(self.id)
+        .bind(serde_json::to_value(&self.state)?)
+        .bind(&lease)
+        .execute(pool)
+        .await?;
+        if result.rows_affected() == 1 {
+            return Ok(true);
+        }
+        self.status = self.explain_missed_write(pool, &lease).await?;
+        Ok(false)
     }
 
     /// Give up the lease so the row shows that no worker holds it.
@@ -666,6 +768,7 @@ impl TryFrom<(JobRow, &[String], String)> for JobModel {
             backoff_until: row.backoff_until,
             pending_commit,
             was_leased: row.previous_lease_id.is_some(),
+            recovered_commit: None,
         })
     }
 }
@@ -716,6 +819,7 @@ mod tests {
             backoff_until: None,
             pending_commit: None,
             was_leased: false,
+            recovered_commit: None,
         }
     }
 
@@ -1046,38 +1150,153 @@ mod tests {
         }
     }
 
+    struct RecoveryCase {
+        name: &'static str,
+        part_offset: u64,
+        pending: Option<serde_json::Value>,
+        operator: Option<JobStatus>,
+        skipped: bool,
+        status: &'static str,
+        offset: u64,
+        stored_pending: Option<serde_json::Value>,
+        recovered_interrupted: Option<u32>,
+        events_emitted: u64,
+        message: Option<&'static str>,
+    }
+
     #[tokio::test]
-    async fn test_claim_with_pending_commit_pauses_for_review() {
+    async fn test_claim_recovers_an_interrupted_commit() {
         let context = test_db::context().await;
-        for pending in [
-            None,
-            Some(serde_json::json!({"key": "part-1", "from_offset": 100, "to_offset": 250})),
-        ] {
-            let row = fixture(JobStatus::Running, pending.clone());
+        let marker = |key: &str, interrupted: u32| {
+            Some(serde_json::json!(
+                {"key": key, "from_offset": 100, "to_offset": 250, "interrupted": interrupted, "events": 40}
+            ))
+        };
+        let resent = |name, part_offset, interrupted| RecoveryCase {
+            name,
+            part_offset,
+            pending: marker("part-1", interrupted),
+            operator: None,
+            skipped: false,
+            status: "running",
+            offset: 100,
+            stored_pending: None,
+            recovered_interrupted: Some(interrupted + 1),
+            events_emitted: if part_offset == 250 { 60 } else { 100 },
+            message: None,
+        };
+        let paused =
+            |name, part_offset, pending: Option<serde_json::Value>, message| RecoveryCase {
+                name,
+                part_offset,
+                pending: pending.clone(),
+                operator: None,
+                skipped: true,
+                status: "paused",
+                offset: part_offset,
+                stored_pending: pending,
+                recovered_interrupted: None,
+                events_emitted: 100,
+                message: Some(message),
+            };
+        let cases = [
+            RecoveryCase {
+                pending: None,
+                offset: 250,
+                recovered_interrupted: None,
+                events_emitted: 100,
+                ..resent("no marker", 250, 0)
+            },
+            resent("first crash re-sends", 250, 0),
+            resent("part already at the chunk start", 100, 1),
+            paused("cap pauses", 250, marker("part-1", 2), "3 times"),
+            paused(
+                "offset mismatch pauses",
+                300,
+                marker("part-1", 0),
+                "does not match",
+            ),
+            paused(
+                "unknown part pauses",
+                250,
+                marker("part-9", 0),
+                "does not match",
+            ),
+            RecoveryCase {
+                operator: Some(JobStatus::Paused),
+                ..paused(
+                    "operator stopped it after the claim",
+                    250,
+                    marker("part-1", 0),
+                    test_db::OPERATOR_MESSAGE,
+                )
+            },
+        ];
+        for case in cases {
+            let name = case.name;
+            let row = test_db::JobRowFixture {
+                state: JobState {
+                    events_emitted: 100,
+                    ..make_job_state(&[("part-1", case.part_offset)])
+                },
+                ..fixture(JobStatus::Running, case.pending)
+            };
             let id = test_db::insert_job(&context.db, &row).await;
             let mut model = test_db::claimed_model(id, &row);
+            if let Some(operator_status) = case.operator {
+                test_db::operator_sets(&context.db, id, operator_status).await;
+            }
+            let claimed = test_db::read_job(&context.db, id).await;
 
-            let paused = model
-                .pause_if_interrupted_commit(context.clone())
+            let skipped = model
+                .recover_interrupted_commit(context.clone())
                 .await
                 .unwrap();
 
             let stored = test_db::read_job(&context.db, id).await;
-            assert_eq!(paused, pending.is_some());
-            if pending.is_some() {
-                assert_eq!(stored.status, "paused");
-                let message = stored.status_message.unwrap();
-                assert!(message.contains("part-1"), "{message}");
-                assert!(message.contains("100 to 250"), "{message}");
-                assert!(stored.display_status_message.is_some());
-                assert_eq!(stored.pending_commit, pending);
+            assert_eq!(skipped, case.skipped, "case '{name}'");
+            assert_eq!(stored.status, case.status, "case '{name}'");
+            assert_eq!(
+                stored.state.parts[0].current_offset, case.offset,
+                "case '{name}'"
+            );
+            assert_eq!(
+                stored.state.events_emitted, case.events_emitted,
+                "case '{name}': only a part that moves back gives up its chunk's events"
+            );
+            assert_eq!(
+                stored.pending_commit, case.stored_pending,
+                "case '{name}': a re-send clears the marker, so a stop before it starts adds no interruption"
+            );
+            assert_eq!(
+                model.recovered_commit.as_ref().map(|r| r.interrupted),
+                case.recovered_interrupted,
+                "case '{name}'"
+            );
+            if case.skipped {
                 assert_eq!(
                     stored.lease_id, None,
-                    "a resume must not wait for this lease"
+                    "case '{name}': a skipped job frees the row"
                 );
             } else {
-                assert_eq!(stored.status, "running");
+                assert_eq!(
+                    (stored.lease_id, stored.leased_until),
+                    (claimed.lease_id, claimed.leased_until),
+                    "case '{name}': the worker keeps its claim lease while job init runs"
+                );
             }
+            if let Some(message) = case.message {
+                let stored_message = stored.status_message.unwrap();
+                assert!(
+                    stored_message.contains(message),
+                    "case '{name}': {stored_message}"
+                );
+            }
+            assert_eq!(
+                stored.display_status_message.is_some(),
+                case.skipped && case.operator.is_none(),
+                "case '{name}': only a review pause tells the customer to resume"
+            );
             test_db::delete_job(&context.db, id).await;
         }
     }
@@ -1127,7 +1346,9 @@ mod tests {
             Some(PendingCommit {
                 key: "k".to_string(),
                 from_offset: 1,
-                to_offset: 2
+                to_offset: 2,
+                interrupted: 0,
+                events: 0,
             })
         );
     }

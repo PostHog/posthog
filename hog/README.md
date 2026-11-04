@@ -11,40 +11,53 @@ It is not published yet.
 `hog` has no `exp` namespace.
 The commands `posthog-cli` keeps under `exp` (`query`, `endpoints`, `logs`, `tasks`, `schema`) are top-level commands in `hog`.
 
-| Command                                 | Status                                                                                                                  |
-| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `hog auth login`                        | Logs in through the browser and saves a personal API key. Agents finish with `hog auth login --wait`.                   |
-| `hog auth status`                       | Shows whether hog is logged in, whose key it is, and where the key comes from. Exits with code 1 without a working key. |
-| `hog auth logout`                       | Removes the stored key. The key stays valid in PostHog until you delete it there.                                       |
-| `hog query run <query>`                 | Runs a HogQL query. `-` reads the query from stdin.                                                                     |
-| `hog query check <query>`               | Checks a query without running it. Exits with code 1 when the query has errors.                                         |
-| `hog error-tracking inject [paths...]`  | Adds chunk IDs to JavaScript bundles and their sourcemaps. `hog et` is an alias for `hog error-tracking`.               |
-| `hog error-tracking clone <from> <to>`  | Copies the chunk ID from Metro's map to the map Hermes composed, for React Native.                                      |
-| `hog error-tracking upload [paths...]`  | Uploads symbols for readable stack traces: JavaScript sourcemaps, Hermes maps, ProGuard mappings, dSYMs and ELF files.  |
-| `hog error-tracking process [paths...]` | Runs `inject`, then `upload`. Use it in CI after the build.                                                             |
-| `hog error-tracking release`            | Finds or creates the release for this build. `-o text` prints just its ID.                                              |
-| `hog error-tracking download <id/ref>`  | Downloads a symbol set from PostHog and unpacks it.                                                                     |
-| `hog error-tracking extract <file>`     | Unpacks a symbol set file.                                                                                              |
-| `hog config check`, `hog config schema` | Check `posthog.json` against its schema, or print the schema.                                                           |
-| `hog commands`                          | Lists every command, its arguments, options and scopes.                                                                 |
-| Everything else                         | Not ported yet. Exits with code 1 and prints the `posthog-cli` command to run instead, with the same arguments.         |
+| Command                                   | Status                                                                                                                  |
+| ----------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `hog auth login`                          | Logs in through the browser and saves a personal API key. Agents finish with `hog auth login --wait`.                   |
+| `hog auth status`                         | Shows whether hog is logged in, whose key it is, and where the key comes from. Exits with code 1 without a working key. |
+| `hog auth logout`                         | Removes the stored key. The key stays valid in PostHog until you delete it there.                                       |
+| `hog auth migrate`                        | Moves the key `posthog-cli login` saved into hog's store, so you don't have to log in again.                            |
+| `hog query run <query>`                   | Runs a HogQL query. `-` reads the query from stdin.                                                                     |
+| `hog query check <query>`                 | Checks a query without running it. Exits with code 1 when the query has errors.                                         |
+| `hog api groups`, `hog api tools [group]` | List the PostHog MCP tools by group, with the scopes the key is missing for each.                                       |
+| `hog api search`, `info`, `schema`        | Find a tool, see what it does and the input it takes.                                                                   |
+| `hog api call <tool> [input]`             | Calls a tool with JSON input. `--dry-run` only checks the input, and destructive tools need `--confirm`.                |
+| `hog api access`                          | Shows the key's scopes and the missing scopes that block the most tools.                                                |
+| `hog error-tracking inject [paths...]`    | Adds chunk IDs to JavaScript bundles and their sourcemaps. `hog et` is an alias for `hog error-tracking`.               |
+| `hog error-tracking clone <from> <to>`    | Copies the chunk ID from Metro's map to the map Hermes composed, for React Native.                                      |
+| `hog error-tracking upload [paths...]`    | Uploads symbols for readable stack traces: JavaScript sourcemaps, Hermes maps, ProGuard mappings, dSYMs and ELF files.  |
+| `hog error-tracking process [paths...]`   | Runs `inject`, then `upload`. Use it in CI after the build.                                                             |
+| `hog error-tracking release`              | Finds or creates the release for this build. `-o text` prints just its ID.                                              |
+| `hog error-tracking download <id/ref>`    | Downloads a symbol set from PostHog and unpacks it.                                                                     |
+| `hog error-tracking extract <file>`       | Unpacks a symbol set file.                                                                                              |
+| `hog endpoints list`, `get`, `open`       | List your endpoints, show one, or open it in PostHog.                                                                   |
+| `hog endpoints run [name]`                | Runs an endpoint, or the query in a local file with `--file`. `--var name=value` sets variables.                        |
+| `hog endpoints pull`, `diff`, `push`      | Keep endpoints as YAML files: pull them, see how they differ, and push changes. `diff` exits with code 1 on drift.      |
+| `hog schema pull`                         | Generates a typed SDK (TypeScript, Go or Python) from your event definitions, and records it in `posthog.json`.         |
+| `hog schema status`                       | Checks each generated SDK against PostHog. Exits with code 1 when one is missing or out of date.                        |
+| `hog config check`, `hog config schema`   | Check `posthog.json` against its schema, or print the schema.                                                           |
+| `hog commands`                            | Lists every command, its arguments, options and scopes.                                                                 |
+| Everything else                           | Not ported yet. Exits with code 1 and prints the `posthog-cli` command to run instead, with the same arguments.         |
 
 ## What's left
 
-hog replaces posthog-cli once everything below is done.
+hog replaces posthog-cli in three steps: settle the CLI, ship it, then move everyone over.
+[MIGRATING.md](MIGRATING.md) drafts the guidance for people moving from `posthog-cli` to `hog`, and it moves to posthog.com when hog ships.
 
-First, the commands that make hog a complete CLI:
+First, settle the CLI:
 
-- [ ] `hog api`: the agent-first MCP tool catalog, with `tools`, `search`, `info`, `schema`, `call`, `skill` and `agents-md`. posthog-cli runs an embedded JavaScript bundle through Node. hog can import the bundle and drop the Node requirement.
-- [ ] `hog endpoints`: `list`, `get`, `open`, `run`, `push`, `pull` and `diff`.
-- [ ] `hog schema`: `pull` and `status`, which download event definitions and generate a typed SDK.
+- [ ] `hog upgrade`, which updates hog to the latest version. It downloads the release binaries, so it lands with distribution. Until then it points to `posthog-cli update`.
+- Agent skills and the AGENTS.md snippet come back as top-level commands, designed fresh rather than ported from `posthog-cli api skill` and `api agents-md`. Until then, hog points to those.
 
-Then, once the commands above work:
+Then ship it:
 
-- [ ] Global options from posthog-cli: `--dry-run` and `POSTHOG_CLI_DRY_RUN`, which skip the whole command without credentials, `--no-fail`, `--skip-ssl-verification`, and `--rate-limit` with `POSTHOG_CLIENT_RATE_LIMIT`.
-- [ ] Telemetry: the `posthog cli command run` and `error_tracking_cli_sourcemaps_upload_*` events posthog-cli sends.
-- [ ] Callers: the SDKs, build plugins and scripts that run `posthog-cli` with its arguments. Move them to hog, or give hog a `posthog-cli` entry point that translates the arguments.
-- [ ] Distribution: a binary for each platform, macOS signing and notarization, the npm package, the Homebrew formula, `hog update`, and CI on Linux and Windows.
+- [ ] Distribution: a binary for each platform, macOS signing and notarization, the npm package, the Homebrew formula, and CI on Linux and Windows.
+
+Then move everyone over:
+
+- [ ] Publish the migration guide on posthog.com.
+- [ ] Callers: move the SDK build integrations (posthog-js, React Native and Expo, the Android Gradle plugin, the iOS build script), the error tracking onboarding in the web app, and the posthog.com docs from `posthog-cli` to `hog`.
+- [ ] A `posthog-cli` entry point in hog that translates posthog-cli's commands, flags and `POSTHOG_CLI_` variables, so the posthog-cli package can ship hog and old pipelines and SDK versions keep working.
 
 Not planned:
 
@@ -66,10 +79,49 @@ Not planned:
 `-o text` or `-o json` overrides the default, and `--raw` prints a command's full result as JSON.
 Exit codes: 0 on success, 1 when a command fails, 2 for a usage error.
 
+## Global options
+
+Every option below works on any command, and each has an environment variable.
+A flag beats the environment variable, which beats `posthog.json`.
+
+| Option                    | Environment                        | `posthog.json`  | What it does                                                                                                                  |
+| ------------------------- | ---------------------------------- | --------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `--host <url>`            | `HOG_HOST`                         | `host`          | The PostHog host to use instead of the one in your credentials                                                                |
+| `--dotenv-file <path>`    | `HOG_DOTENV_FILE`                  |                 | Read credentials from this file when the environment has none                                                                 |
+| `-o, --output <format>`   | `HOG_OUTPUT`                       |                 | `text` or `json`                                                                                                              |
+| `--raw`                   | `HOG_RAW`                          |                 | Print a command's full result as JSON                                                                                         |
+| `--debug`                 | `HOG_DEBUG`                        |                 | Print each HTTP request, its status and duration to stderr                                                                    |
+| `--no-fail`               | `HOG_NO_FAIL`                      | `cli.noFail`    | Exit with code 0 when a command fails or reports a problem, such as `diff` finding drift. Usage errors still exit with code 2 |
+| `--skip-ssl-verification` | `HOG_SKIP_SSL_VERIFICATION`        |                 | Accept any TLS certificate, for a self-signed self-hosted PostHog                                                             |
+| `--no-telemetry`          | `HOG_NO_TELEMETRY`, `DO_NOT_TRACK` | `cli.telemetry` | Send no anonymous usage data. See [Telemetry](#telemetry)                                                                     |
+| `--rate-limit <requests>` | `HOG_RATE_LIMIT`                   | `cli.rateLimit` | The most requests per minute. No limit by default                                                                             |
+|                           | `HOG_DRY_RUN`                      |                 | Turns on `--dry-run` for every command that has one, and fails the commands that write without one                            |
+
+`--host` and `HOG_HOST` override the host of every credential source. `host` in `posthog.json` never sends your credentials elsewhere: `hog auth login` uses it, and other commands stop when your credentials are for another host.
+Commands that only read run as usual in a dry run, and `auth login` and `auth logout` fail.
+hog reads only the `HOG_` names. posthog-cli's `POSTHOG_CLI_` variables, `POSTHOG_HOME` and `POSTHOG_RELEASE_MODE` don't count.
+
+## Telemetry
+
+hog sends usage events to PostHog, so the team can see who uses which commands and where they fail.
+
+- `posthog cli command run`, once per command, the same event posthog-cli sends: the command, exit code, duration, the names of the options passed, the detected agent, the CI provider and runner (such as GitHub Actions on Depot or Blacksmith), the OS, and counts from the result, such as rows returned or endpoints pushed.
+- `$exception` when a command fails, with the error code, message, hint and HTTP status. A message can name a file, or quote part of a query or an API answer.
+- `error_tracking_cli_sourcemaps_upload_started`, `_finished` and `_endpoint_fallback`, as in posthog-cli.
+
+With a PostHog Cloud key, events belong to your PostHog user, organization and project, the same ones the web app uses.
+hog looks them up once per key with `/api/users/@me/` and `/api/projects/<id>/`, and keeps the answer in `~/.posthog/hog-telemetry-identity.json` for 30 days.
+Without a key, with a self-hosted PostHog, or with a key that can't read those, events belong to a random ID in `~/.posthog/hog-telemetry-id`.
+Usage events never carry argument or option values or API keys.
+
+Telemetry is on by default and goes to the same PostHog project as posthog-cli's.
+Turn it off with `--no-telemetry`, `HOG_NO_TELEMETRY=1`, `DO_NOT_TRACK=1`, or `"cli": { "telemetry": false }` in `posthog.json`.
+
 ## posthog.json
 
 Project settings live in `posthog.json`, which hog looks for from the current folder up to the git root.
 It never holds API keys.
+When the file isn't valid, every command stops with `invalid_config` except `hog config check`, which lists the problems.
 Point `$schema` at the published schema to get validation in your editor:
 
 ```json
@@ -81,6 +133,11 @@ Point `$schema` at the published schema to get validation in your editor:
   }
 }
 ```
+
+`errorTracking.releaseMode` sets the default for `--release-mode`. `HOG_RELEASE_MODE` overrides it.
+`endpoints.dir` names the folder of endpoint files, so `hog endpoints pull`, `diff` and `push` work without a path.
+`hog schema pull` keeps its entries under `languages` in the snake case posthog-cli uses, so either CLI can regenerate an SDK the other set up.
+posthog-cli rewrites `posthog.json` with only `languages` when it pulls, so it drops the other settings. Restore them from version control after running it.
 
 `posthog.schema.json` is generated from `src/core/config.ts` with `pnpm --filter @posthog/hog schema`.
 
@@ -123,20 +180,29 @@ hog uploads the same bytes and content hashes as posthog-cli, so either CLI can 
 
 ## Credentials
 
-`hog` reads the same credentials as `posthog-cli`, in the same order:
+`hog` reads credentials from these sources, in order:
 
-1. `POSTHOG_CLI_API_KEY` and `POSTHOG_CLI_PROJECT_ID` in the environment, plus an optional `POSTHOG_CLI_HOST`
-2. The same variables in the file `--dotenv-file` or `POSTHOG_CLI_DOTENV_FILE` names. A missing file prints a warning and hog moves on to the next source.
-3. `~/.posthog/credentials.json`, which `hog auth login` and `posthog-cli login` write (`POSTHOG_HOME` moves the folder). `hog auth login` makes it readable only by you.
+1. `HOG_PERSONAL_API_KEY` and `HOG_PROJECT_ID` in the environment, plus an optional `HOG_HOST`. The key is a personal API key: it acts as you, with your access.
+2. The same variables in the file `--dotenv-file` or `HOG_DOTENV_FILE` names. A missing file prints a warning and hog moves on to the next source.
+3. What `hog auth login` stored, one login per host: a short-lived OAuth token for one project, or a personal API key you pasted. It lives in the system keychain (Keychain on macOS, Credential Manager on Windows, Secret Service on Linux), or `credentials.json` in hog's folder when hog can't use the keychain, such as over SSH or in a container. Only you can read that file.
 
-`--host` overrides the host from any of these.
+hog doesn't read `~/.posthog/credentials.json`, the file `posthog-cli login` writes (`HOG_HOME` moves the folder). Run `hog auth migrate` once to move its key into hog's store.
+
+`--host` and `HOG_HOST` override the host from any of these, and pick which stored login to use.
+A `host` in `posthog.json` also picks a stored login, but never sends a key to a host it wasn't made for.
+
+hog's folder is `~/Library/Application Support/hog` on macOS, `$XDG_CONFIG_HOME/hog` or `~/.config/hog` on Linux, and `%LOCALAPPDATA%\hog` on Windows.
 
 ### Logging in and out
 
 - At a terminal, `hog auth login` asks where your PostHog account is hosted, opens the browser, and waits for you to approve. The address PostHog opens at, us.posthog.com or eu.posthog.com, tells you which to pick.
-- An agent or a script cannot answer prompts, so `hog auth login --region us` returns at once with a link and a code for a person to approve. `hog auth login --wait` then saves the key. Running `hog auth login` again before the code expires returns the same link.
+- On the approval page you check the code, pick a project and see what hog will be able to do. The token only works in that project; to use another one, log in again. hog renews the token by itself.
+- `hog auth login --read-only` asks only for read access. To change something later, run `hog auth login` again without the flag.
+- An agent or a script cannot answer prompts, so `hog auth login --region us` returns at once with a link and a code for a person to approve. `hog auth login --wait` then saves the token. Running `hog auth login` again before the code expires returns the same link.
+- Each login checks that hog can use the keychain, and records where it stored the token in `settings.json` in hog's folder, so other commands don't check again. The keychain, or the credentials file, keeps only the secrets. The rest of the login, such as the project and the scopes, is in `settings.json`. When the keychain shows a dialog, choose "Always Allow".
+- Self-hosted PostHog has to reach posthog.com to log hog in, because hog's OAuth client is described there. Without that, set the environment variables above.
 - In CI, skip login and set the environment variables above.
-- `hog auth status` checks the key against PostHog. `hog auth logout` warns when an environment variable still holds a key.
+- `hog auth status` checks the credentials against PostHog, and names where they come from, their scopes and when the token expires. `hog auth logout` revokes the login on this machine in PostHog and removes it from this machine. `hog auth logout --all` does the same for every login hog stored. Both warn when an environment variable still holds a key.
 
 ## Develop
 
@@ -152,4 +218,4 @@ pnpm --filter @posthog/hog typecheck        # check types
 pnpm --filter @posthog/hog compile          # build dist/hog for this machine
 ```
 
-hog reads credentials only from the sources above, like posthog-cli. Bun would otherwise load a `.env` or `bunfig.toml` from the working folder, so the scripts turn that off. Older Bun versions ignore those flags, hence the minimum version.
+hog reads credentials only from the sources above. Runs from source keep their keychain items under their own name, so they never read or replace an installed hog's login. Bun would otherwise load a `.env` or `bunfig.toml` from the working folder, so the scripts turn that off. Older Bun versions ignore those flags, hence the minimum version.

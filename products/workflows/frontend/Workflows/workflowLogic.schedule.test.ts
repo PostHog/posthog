@@ -497,4 +497,29 @@ describe('workflowLogic schedule reducers', () => {
             expect(logic.values.schedules.map((s) => s.id)).toEqual(['schedule-1', 'schedule-2'])
         })
     })
+
+    describe('loading a workflow', () => {
+        it('loads a schedule left behind when the trigger is no longer a schedule', async () => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/hog_flows/:id/': {
+                        id: 'wf-manual',
+                        name: 'Switched to manual',
+                        actions: [],
+                        trigger: { type: 'manual' },
+                    },
+                    '/api/environments/:team_id/hog_flows/:id/schedules/': [makeSchedule()],
+                    '/api/projects/:team_id/hog_function_templates/': { results: [], count: 0 },
+                },
+            })
+            logic.unmount()
+            logic = workflowLogic({ id: 'wf-manual' })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess', 'setSchedules']).toFinishAllListeners()
+
+            expect(logic.values.currentSchedule?.id).toBe('schedule-1')
+            expect(logic.values.pendingSchedule).toBe(false)
+        })
+    })
 })

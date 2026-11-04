@@ -1,6 +1,6 @@
 """Daily modeling dataset for the Self-driving Inbox report-ranking model.
 
-Eleven assets on one daily partition, each writing Parquet under the configured S3 prefix:
+Twelve assets on one daily partition, each writing Parquet under the configured S3 prefix:
 
     inbox_report_state/v1/dt=D/             Postgres spine + report-state columns
     inbox_report_embeddings/v1/dt=D/        report_id -> small-1536 vector as of snapshot end
@@ -13,6 +13,7 @@ Eleven assets on one daily partition, each writing Parquet under the configured 
     inbox_project_vectors/v1/dt=D/          per-team mean report vectors of past engagement, by kind
     inbox_user_vectors/v1/dt=D/             per-user mean report vectors of past engagement, by kind
     inbox_activity_summary_vectors/v1/dt=D/ one row per activity summary vector generated during D
+    inbox_activity_summary_profile_vectors/v1/dt=D/  the same shape, for the rendering with the profile
 
 inbox_engagement_export writes no dataset object. It sends the dt=D engagement moments of the other
 region's reports to the serving mirror store, for that region's project vectors.
@@ -28,6 +29,7 @@ inbox_user_vectors is an (organization, user, kind) leaf with its own schema ver
 embeddings and interactions snapshots.
 inbox_activity_summary_vectors is a (team, user, day) leaf with its own schema version: the durable
 copy of the per-user activity summary vectors, which the source table drops after its 3-month TTL.
+inbox_activity_summary_profile_vectors is the same leaf for the rendering with the profile.
 
 Partition dt=D is a full snapshot of the eligible report inventory (promoted or ever-labeled),
 with every label aggregate bounded `event_time < D+1 00:00 UTC`. Label columns are cumulative,
@@ -72,7 +74,9 @@ from collections.abc import Collection, Iterator, Mapping
 from typing import Any, cast
 from uuid import UUID
 
-from django.db.models import Count, Min
+from django.db.models import Case, CharField, Count, F, Func, IntegerField, Min, Value, When
+from django.db.models.functions import Coalesce
+from django.db.models.lookups import Exact
 
 import dagster
 import pyarrow as pa
@@ -90,6 +94,7 @@ from posthog.models import OrganizationMembership, Team, User
 from products.signals.backend.activity_summary.tick import (
     EMBEDDING_DOCUMENT_TYPE as ACTIVITY_SUMMARY_DOCUMENT_TYPE,
     EMBEDDING_RENDERING as ACTIVITY_SUMMARY_RENDERING,
+    EMBEDDING_RENDERING_PROFILE as ACTIVITY_SUMMARY_RENDERING_PROFILE,
 )
 from products.signals.backend.models import (
     SignalReport,
@@ -201,6 +206,7 @@ PROJECT_VECTORS_TABLE = "inbox_project_vectors"
 USER_VECTORS_TABLE = "inbox_user_vectors"
 ENGAGEMENT_EXPORT = "inbox_engagement_export"
 ACTIVITY_SUMMARY_VECTORS_TABLE = "inbox_activity_summary_vectors"
+ACTIVITY_SUMMARY_PROFILE_VECTORS_TABLE = "inbox_activity_summary_profile_vectors"
 
 # The reviewers asset is a leaf with its own columns, so its schema moves apart from
 # FEATURE_SCHEMA_VERSION. The same rule applies: additive nullable columns bump it.
@@ -210,6 +216,7 @@ REVIEWERS_SCHEMA_VERSION = 1
 ENGAGEMENT_EXPORT_SCHEMA_VERSION = 2
 # The activity summary vectors are a (team, user, day) leaf, so their shape moves apart too.
 ACTIVITY_SUMMARY_VECTORS_SCHEMA_VERSION = 1
+ACTIVITY_SUMMARY_PROFILE_VECTORS_SCHEMA_VERSION = 1
 # Every document type that carries an activity summary vector. A backfilled type joins this tuple,
 # and its rows say so through `source`.
 ACTIVITY_SUMMARY_DOCUMENT_TYPES = (ACTIVITY_SUMMARY_DOCUMENT_TYPE,)
@@ -246,11 +253,18 @@ def tag_dagster_queries(context: dagster.AssetExecutionContext, query_type: str)
 
 _TIMESTAMP = pa.timestamp("us", tz="UTC")
 
-_STATE_FIELDS: list[tuple[str, pa.DataType]] = [
-    ("snapshot_date", pa.date32()),
-    ("report_id", pa.string()),
-    ("report_team_id", pa.int64()),
-    ("region", pa.string()),
+_REPORT_CONTENT_FIELDS: list[tuple[str, pa.DataType]] = [
+    ("chart_count", pa.int32()),
+    ("metric_count", pa.int32()),
+    ("suggested_prompt_count", pa.int32()),
+    ("tag_count", pa.int32()),
+    ("content_revision_count", pa.int32()),
+    ("corroboration_count", pa.int32()),
+    ("user_authored", pa.bool_()),
+    ("already_addressed", pa.bool_()),
+]
+
+_REPORT_STATE_FIELDS: list[tuple[str, pa.DataType]] = [
     ("status", pa.string()),
     ("billing_exempt_reason", pa.string()),
     ("report_created_at", _TIMESTAMP),
@@ -266,6 +280,15 @@ _STATE_FIELDS: list[tuple[str, pa.DataType]] = [
     ("actionability", pa.string()),
     ("title_chars", pa.int32()),
     ("summary_chars", pa.int32()),
+    *_REPORT_CONTENT_FIELDS,
+]
+
+_STATE_FIELDS: list[tuple[str, pa.DataType]] = [
+    ("snapshot_date", pa.date32()),
+    ("report_id", pa.string()),
+    ("report_team_id", pa.int64()),
+    ("region", pa.string()),
+    *_REPORT_STATE_FIELDS,
     ("features_observed_at", _TIMESTAMP),
 ]
 STATE_SCHEMA = pa.schema(_STATE_FIELDS)
@@ -433,21 +456,7 @@ _MODEL_DATA_FIELDS: list[tuple[str, pa.DataType]] = [
     ("built_at", _TIMESTAMP),
     ("run_id", pa.string()),
     ("features_observed_at", _TIMESTAMP),
-    ("status", pa.string()),
-    ("billing_exempt_reason", pa.string()),
-    ("report_created_at", _TIMESTAMP),
-    ("promoted_at", _TIMESTAMP),
-    ("last_run_at", _TIMESTAMP),
-    ("pg_updated_at", _TIMESTAMP),
-    ("report_age_hours", pa.float32()),
-    ("hours_since_promotion", pa.float32()),
-    ("signal_count", pa.int32()),
-    ("total_weight", pa.float32()),
-    ("run_count", pa.int32()),
-    ("priority", pa.string()),
-    ("actionability", pa.string()),
-    ("title_chars", pa.int32()),
-    ("summary_chars", pa.int32()),
+    *_REPORT_STATE_FIELDS,
     ("embedding_small", pa.list_(pa.float32())),
     ("embedding_inserted_at", _TIMESTAMP),
     ("embedding_rendering", pa.string()),
@@ -549,6 +558,7 @@ _STATE_PASSTHROUGH_COLUMNS = (
     "actionability",
     "title_chars",
     "summary_chars",
+    *(name for name, _ in _REPORT_CONTENT_FIELDS),
 )
 
 
@@ -568,9 +578,30 @@ def _judgment_value(parsed: dict[str, Any], key: str) -> str | None:
     return value if isinstance(value, str) else None
 
 
-def _artefact_judgments(report_ids: list[str], snapshot_end: datetime.datetime) -> dict[str, dict[str, str | None]]:
+def _judgment_flag(parsed: dict[str, Any], key: str) -> bool | None:
+    value = parsed.get(key)
+    return value if isinstance(value, bool) else None
+
+
+def _json_array_length(field: str) -> Case:
+    """Length of a JSON list column, computed in Postgres so the list itself is never loaded.
+    `jsonb_array_length` raises on a value that is not an array, so any other stored value counts as 0."""
+    return Case(
+        When(
+            Exact(Func(F(field), function="jsonb_typeof", output_field=CharField()), Value("array")),
+            then=Func(F(field), function="jsonb_array_length", output_field=IntegerField()),
+        ),
+        default=Value(0),
+        output_field=IntegerField(),
+    )
+
+
+def _artefact_judgments(
+    report_ids: list[str], snapshot_end: datetime.datetime
+) -> dict[str, dict[str, str | bool | None]]:
     """Latest priority/actionability judgment per report as of the snapshot cutoff, parsed from
-    the artefact content JSON.
+    the artefact content JSON. `already_addressed` comes from the same actionability artefact, so
+    it follows the same cutoff rules rather than the current `SignalReport.latest_already_addressed`.
 
     Artefacts are appended in normal operation but the API permits editing one in place
     (`update_content` rewrites content and bumps updated_at, leaving created_at alone), so a row's
@@ -579,7 +610,7 @@ def _artefact_judgments(report_ids: list[str], snapshot_end: datetime.datetime) 
     selection instead would hand back the judgment they superseded, which was already stale at the
     cutoff — silently wrong where null is merely unknown. The genuinely immutable classification is
     status_event_priority/actionability, snapshotted onto each transition in the label stream."""
-    judgments: dict[str, dict[str, str | None]] = {}
+    judgments: dict[str, dict[str, str | bool | None]] = {}
     for chunk in _chunked(report_ids):
         artefacts = (
             SignalReportArtefact.objects.filter(
@@ -605,11 +636,14 @@ def _artefact_judgments(report_ids: list[str], snapshot_end: datetime.datetime) 
             # Legacy artefact rows can hold JSON that is not an object; readers tolerate them.
             if not isinstance(parsed, dict):
                 continue
-            entry = judgments.setdefault(str(report_id), {"priority": None, "actionability": None})
+            entry = judgments.setdefault(
+                str(report_id), {"priority": None, "actionability": None, "already_addressed": None}
+            )
             if artefact_type == SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT:
                 entry["priority"] = _judgment_value(parsed, "priority")
             else:
                 entry["actionability"] = _judgment_value(parsed, "actionability")
+                entry["already_addressed"] = _judgment_flag(parsed, "already_addressed")
     return judgments
 
 
@@ -870,6 +904,12 @@ def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
     for spine_chunk in _chunked(ordered_spine_ids):
         for report in (
             SignalReport.objects.filter(id__in=spine_chunk)
+            .annotate(
+                chart_count=_json_array_length("charts"),
+                metric_count=_json_array_length("metrics"),
+                suggested_prompt_count=_json_array_length("suggested_prompts"),
+                tag_count=Coalesce(Func(F("tags"), function="cardinality"), Value(0), output_field=IntegerField()),
+            )
             .values(
                 "id",
                 "team_id",
@@ -884,6 +924,13 @@ def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
                 "run_count",
                 "title",
                 "summary",
+                "chart_count",
+                "metric_count",
+                "suggested_prompt_count",
+                "tag_count",
+                "content_revision_count",
+                "corroboration_count",
+                "user_authored",
             )
             .iterator(chunk_size=2000)
         ):
@@ -914,6 +961,14 @@ def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
                     "actionability": judgment.get("actionability"),
                     "title_chars": len(report["title"] or ""),
                     "summary_chars": len(report["summary"] or ""),
+                    "chart_count": report["chart_count"],
+                    "metric_count": report["metric_count"],
+                    "suggested_prompt_count": report["suggested_prompt_count"],
+                    "tag_count": report["tag_count"],
+                    "content_revision_count": report["content_revision_count"] or 0,
+                    "corroboration_count": report["corroboration_count"] or 0,
+                    "user_authored": report["user_authored"],
+                    "already_addressed": judgment.get("already_addressed"),
                     "features_observed_at": features_observed_at,
                 }
             )
@@ -1594,9 +1649,12 @@ def inbox_user_vectors(context: dagster.AssetExecutionContext) -> None:
     )
 
 
-def activity_summary_vectors_table(partition_key: str, consent_team_ids: Collection[int]) -> tuple[pa.Table, int]:
-    """The activity summary vectors generated during dt=D for the teams in `consent_team_ids`, one row
-    per document, and the number of rows skipped because their document_id names no user."""
+def activity_summary_vectors_table(
+    partition_key: str, rendering: str, consent_team_ids: Collection[int]
+) -> tuple[pa.Table, int]:
+    """The activity summary vectors of one rendering generated during dt=D for the teams in
+    `consent_team_ids`, one row per document, and the number of rows skipped because their document_id
+    names no user."""
     window_start, window_end = snapshot_bounds(partition_key)
     results = (
         cast(
@@ -1606,7 +1664,7 @@ def activity_summary_vectors_table(partition_key: str, consent_team_ids: Collect
                 {
                     "product": EMBEDDING_PRODUCT,
                     "document_types": list(ACTIVITY_SUMMARY_DOCUMENT_TYPES),
-                    "rendering": ACTIVITY_SUMMARY_RENDERING,
+                    "rendering": rendering,
                     "window_start": window_start.replace(tzinfo=None),
                     "window_end": window_end.replace(tzinfo=None),
                     "team_ids": sorted(consent_team_ids),
@@ -1679,32 +1737,23 @@ def merge_activity_summary_vectors(existing: pa.Table, fresh: pa.Table, consent_
     return pa.concat_tables([fresh, existing.filter(keep)])
 
 
-@dagster.asset(name=ACTIVITY_SUMMARY_VECTORS_TABLE, **COMMON_ASSET_KWARGS)
-def inbox_activity_summary_vectors(context: dagster.AssetExecutionContext) -> None:
-    """One row per activity summary vector generated during dt=D, for user vectors in ranking training.
-
-    The source table drops a vector 3 months after its timestamp, and `UserActivitySummaryVersion`
-    keeps only the newest versions of a pair, so this partition is the durable history: a vector
-    that is not copied before it expires cannot be rebuilt. Partition D holds only the vectors
-    generated during D, not a cumulative snapshot. Training reads the union of partitions and takes
-    the vector a user had at a moment through `activity_vector_as_of`.
-
-    A leaf: nothing joins it, and it carries no summary text. A re-run replaces the rows the source
-    still returns and keeps the rest (`merge_activity_summary_vectors`).
-    """
+def _snapshot_activity_summary_vectors(
+    context: dagster.AssetExecutionContext, table_name: str, rendering: str, schema_version: int, query_type: str
+) -> None:
+    """Write one activity summary rendering's vectors of dt=D, shared by the two vector assets."""
     if skip_unconfigured(context):
         return
-    tag_dagster_queries(context, query_type="inbox_ranking_activity_summary_vectors")
+    tag_dagster_queries(context, query_type=query_type)
     partition_key = context.partition_key
     consent_team_ids = training_consent_team_ids()
-    fresh, malformed = activity_summary_vectors_table(partition_key, consent_team_ids)
+    fresh, malformed = activity_summary_vectors_table(partition_key, rendering, consent_team_ids)
 
     bucket = dataset_bucket()
-    key = partition_object_key(settings.INBOX_RANKING_DATASET_S3_PREFIX, ACTIVITY_SUMMARY_VECTORS_TABLE, partition_key)
+    key = partition_object_key(settings.INBOX_RANKING_DATASET_S3_PREFIX, table_name, partition_key)
     client = s3_client()
     existing = read_parquet_if_exists(client, bucket, key)
     table = fresh if existing is None else merge_activity_summary_vectors(existing, fresh, consent_team_ids)
-    write_parquet(client, bucket, key, table, schema_version=ACTIVITY_SUMMARY_VECTORS_SCHEMA_VERSION)
+    write_parquet(client, bucket, key, table, schema_version=schema_version)
 
     team_ids = table.column("team_id").to_pylist()
     user_ids = table.column("user_id").to_pylist()
@@ -1720,6 +1769,42 @@ def inbox_activity_summary_vectors(context: dagster.AssetExecutionContext) -> No
             "training_consent_teams": dagster.MetadataValue.int(len(consent_team_ids)),
             "s3_key": dagster.MetadataValue.text(f"s3://{bucket}/{key}"),
         }
+    )
+
+
+@dagster.asset(name=ACTIVITY_SUMMARY_VECTORS_TABLE, **COMMON_ASSET_KWARGS)
+def inbox_activity_summary_vectors(context: dagster.AssetExecutionContext) -> None:
+    """One row per activity summary vector generated during dt=D, for user vectors in ranking training.
+
+    The source table drops a vector 3 months after its timestamp, and `UserActivitySummaryVersion`
+    keeps only the newest versions of a pair, so this partition is the durable history: a vector
+    that is not copied before it expires cannot be rebuilt. Partition D holds only the vectors
+    generated during D, not a cumulative snapshot. Training reads the union of partitions and takes
+    the vector a user had at a moment through `activity_vector_as_of`.
+
+    A leaf: nothing joins it, and it carries no summary text. A re-run replaces the rows the source
+    still returns and keeps the rest (`merge_activity_summary_vectors`).
+    """
+    _snapshot_activity_summary_vectors(
+        context,
+        ACTIVITY_SUMMARY_VECTORS_TABLE,
+        ACTIVITY_SUMMARY_RENDERING,
+        ACTIVITY_SUMMARY_VECTORS_SCHEMA_VERSION,
+        query_type="inbox_ranking_activity_summary_vectors",
+    )
+
+
+@dagster.asset(name=ACTIVITY_SUMMARY_PROFILE_VECTORS_TABLE, **COMMON_ASSET_KWARGS)
+def inbox_activity_summary_profile_vectors(context: dagster.AssetExecutionContext) -> None:
+    """The same leaf as `inbox_activity_summary_vectors`, for the rendering with the profile, so a
+    backtest can compare the two user vectors on the same builds. The tick emits this rendering only
+    while `emit_profile_embeddings` is on, so a day without it writes an empty object."""
+    _snapshot_activity_summary_vectors(
+        context,
+        ACTIVITY_SUMMARY_PROFILE_VECTORS_TABLE,
+        ACTIVITY_SUMMARY_RENDERING_PROFILE,
+        ACTIVITY_SUMMARY_PROFILE_VECTORS_SCHEMA_VERSION,
+        query_type="inbox_ranking_activity_summary_profile_vectors",
     )
 
 
@@ -2019,6 +2104,7 @@ inbox_ranking_dataset_job = dagster.define_asset_job(
         USER_VECTORS_TABLE,
         ENGAGEMENT_EXPORT,
         ACTIVITY_SUMMARY_VECTORS_TABLE,
+        ACTIVITY_SUMMARY_PROFILE_VECTORS_TABLE,
     ],
     # The seven label streams run sequentially and each may take its full 600s query timeout, so an
     # hour left a slow-but-valid pass no room for the join, the S3 writes, or an asset retry — and

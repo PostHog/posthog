@@ -1,7 +1,6 @@
 import { type ReactElement, type ReactNode, useState } from 'react'
-import { type LayoutChangeEvent, Text, useWindowDimensions, View } from 'react-native'
+import { type LayoutChangeEvent, Text, View } from 'react-native'
 import { useSafeAreaFrame } from 'react-native-safe-area-context'
-
 import { placeContextMenu, type RowAnchor } from '@/features/inbox/contextMenuPlacement'
 import type { PinDisplayMode, PinView, ViewRef } from '@/model/views'
 import { FloatingCard } from '@/ui/FloatingCard'
@@ -12,6 +11,7 @@ import { PinIcon } from '@/ui/icons/PinIcon'
 import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles, useColors } from '@/ui/theme'
 import { layout, type } from '@/ui/tokens'
+import { useSceneDimensions } from '@/ui/useSceneDimensions'
 import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { TABS_HEADER_BOTTOM } from '../../tabs/TabsHeader'
@@ -42,7 +42,7 @@ export function MenuCard({
 }: MenuCardProps): ReactElement {
     const styles = useStyles()
     const insets = useScreenInsets()
-    const { width: windowWidth } = useWindowDimensions()
+    const { width: windowWidth } = useSceneDimensions()
     // The overlay covers the full screen, which on Android edge-to-edge includes the navigation bar.
     const { height: screenHeight } = useSafeAreaFrame()
     const [height, setHeight] = useState<number | null>(null)
@@ -141,7 +141,6 @@ interface PinMenuProps {
     visible: boolean
     anchor: RowAnchor
     pin: PinView
-    modes: readonly PinDisplayMode[]
     /** The pin's place in the list, for Move up and Move down. */
     position: { index: number; count: number }
     /** The name of the tile a dashboard pin shows, if known. */
@@ -158,7 +157,6 @@ export function PinMenu({
     visible,
     anchor,
     pin,
-    modes,
     position,
     tileName,
     onClose,
@@ -180,20 +178,17 @@ export function PinMenu({
             accessibilityLabel={`${pin.name} actions`}
             testID="pin-menu"
         >
-            {modes.length > 1 ? (
-                <View style={styles.section}>
-                    <Text style={styles.sectionLabel}>Show as</Text>
-                    <ModeSegment
-                        value={pin.display.mode}
-                        available={modes}
-                        onChange={onShowAs}
-                        variant="labels"
-                        name={pin.name}
-                        testIDFor={(mode) => `pin-menu-show-${mode}`}
-                    />
-                </View>
-            ) : null}
-            {pin.kind === 'dashboard' && pin.native ? (
+            <View style={styles.section}>
+                <Text style={styles.sectionLabel}>Show as</Text>
+                <ModeSegment
+                    value={pin.display.mode}
+                    onChange={onShowAs}
+                    variant="labels"
+                    name={pin.name}
+                    testIDFor={(mode) => `pin-menu-show-${mode}`}
+                />
+            </View>
+            {pin.kind === 'dashboard' ? (
                 <MenuItem label="Choose tile…" meta={tileName} onPress={onChooseTile} testID="pin-menu-choose-tile" />
             ) : null}
             <MenuItem

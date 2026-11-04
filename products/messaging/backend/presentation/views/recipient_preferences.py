@@ -134,6 +134,11 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
     is_one_click_unsubscribe = (
         request.GET.get("one_click_unsubscribe") == "1" or request.POST.get("one_click_unsubscribe") == "1"
     )
+    # Link scanners and prefetchers GET this URL without a person behind them, so only a POST
+    # unsubscribes, as RFC 8058 requires. A GET asks the person to confirm.
+    if is_one_click_unsubscribe and request.method == "GET":
+        return render(request, "message_preferences/one_click_unsubscribe_confirm.html", {"recipient": recipient})
+
     if is_one_click_unsubscribe:
 
         def opt_out_of_everything(stored: dict[str, Any]) -> dict[str, Any]:
@@ -164,7 +169,8 @@ def preferences_page(request: HttpRequest, token: str) -> HttpResponse:
             record_unsubscribe_metric(team_id, data, [ALL_MESSAGE_PREFERENCE_CATEGORY_ID])
             report_workflows_email_unsubscribed(team_id, identifier, [ALL_MESSAGE_PREFERENCE_CATEGORY_ID], "one_click")
 
-        if request.method == "POST":
+        # A mail client's unsubscribe button gets an empty 200. The confirm form gets the success page.
+        if request.POST.get("List-Unsubscribe") == "One-Click":
             return HttpResponse(status=200)
 
     # Only fetch active categories and their preferences

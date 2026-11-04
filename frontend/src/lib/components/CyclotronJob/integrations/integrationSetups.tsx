@@ -1,17 +1,52 @@
-import { AwsS3SetupModal } from 'scenes/integrations/aws-s3/AwsS3SetupModal'
-import { AzureBlobSetupModal } from 'scenes/integrations/azure-blob/AzureBlobSetupModal'
-import { DatabricksSetupModal } from 'scenes/integrations/databricks/DatabricksSetupModal'
-import { GitLabSetupModal } from 'scenes/integrations/gitlab/GitLabSetupModal'
-import { GoogleCloudServiceAccountSetupModal } from 'scenes/integrations/google-cloud-service-account/GoogleCloudServiceAccountSetupModal'
-import { PostgreSQLSetupModal } from 'scenes/integrations/postgresql/PostgreSQLSetupModal'
-import { RedshiftSetupModal } from 'scenes/integrations/redshift/RedshiftSetupModal'
-import { S3CompatibleSetupModal } from 'scenes/integrations/s3-compatible/S3CompatibleSetupModal'
-import { SnowflakeSetupModal } from 'scenes/integrations/snowflake/SnowflakeSetupModal'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { urls } from 'scenes/urls'
 
-import { ChannelSetupModal } from 'products/workflows/frontend/Channels/ChannelSetupModal'
-
 import { registerIntegrationSetup } from './integrationSetupRegistry'
+
+const AwsS3SetupModal = lazyWithRetry(() =>
+    import('scenes/integrations/aws-s3/AwsS3SetupModal').then((module) => ({ default: module.AwsS3SetupModal }))
+)
+const AzureBlobSetupModal = lazyWithRetry(() =>
+    import('scenes/integrations/azure-blob/AzureBlobSetupModal').then((module) => ({
+        default: module.AzureBlobSetupModal,
+    }))
+)
+const DatabricksSetupModal = lazyWithRetry(() =>
+    import('scenes/integrations/databricks/DatabricksSetupModal').then((module) => ({
+        default: module.DatabricksSetupModal,
+    }))
+)
+const GitLabSetupModal = lazyWithRetry(() =>
+    import('scenes/integrations/gitlab/GitLabSetupModal').then((module) => ({ default: module.GitLabSetupModal }))
+)
+const GoogleCloudServiceAccountSetupModal = lazyWithRetry(() =>
+    import('scenes/integrations/google-cloud-service-account/GoogleCloudServiceAccountSetupModal').then((module) => ({
+        default: module.GoogleCloudServiceAccountSetupModal,
+    }))
+)
+const PostgreSQLSetupModal = lazyWithRetry(() =>
+    import('scenes/integrations/postgresql/PostgreSQLSetupModal').then((module) => ({
+        default: module.PostgreSQLSetupModal,
+    }))
+)
+const RedshiftSetupModal = lazyWithRetry(() =>
+    import('scenes/integrations/redshift/RedshiftSetupModal').then((module) => ({ default: module.RedshiftSetupModal }))
+)
+const S3CompatibleSetupModal = lazyWithRetry(() =>
+    import('scenes/integrations/s3-compatible/S3CompatibleSetupModal').then((module) => ({
+        default: module.S3CompatibleSetupModal,
+    }))
+)
+const SnowflakeSetupModal = lazyWithRetry(() =>
+    import('scenes/integrations/snowflake/SnowflakeSetupModal').then((module) => ({
+        default: module.SnowflakeSetupModal,
+    }))
+)
+const ChannelSetupModal = lazyWithRetry(() =>
+    import('products/workflows/frontend/Channels/ChannelSetupModal').then((module) => ({
+        default: module.ChannelSetupModal,
+    }))
+)
 
 registerIntegrationSetup({
     kind: ['google-pubsub', 'google-cloud-storage', 'firebase'],

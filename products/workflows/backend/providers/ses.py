@@ -911,6 +911,18 @@ class SESProvider:
             logger.exception(f"SES API error deleting identity: {e}")
             raise
 
+    def list_bounce_suppressions(self) -> Iterator[list[str]]:
+        """Yield the email addresses on the account-level suppression list for a bounce, one page at a time."""
+        next_token: str | None = None
+        while True:
+            response = self.ses_v2_client.list_suppressed_destinations(
+                Reasons=["BOUNCE"], PageSize=1000, **({"NextToken": next_token} if next_token else {})
+            )
+            yield [entry["EmailAddress"] for entry in response.get("SuppressedDestinationSummaries", [])]
+            next_token = response.get("NextToken")
+            if not next_token:
+                return
+
     def _busiest_domains(
         self, domains: Sequence[str], *, start: datetime, end: datetime, limit: int, deadline: float
     ) -> list[str]:

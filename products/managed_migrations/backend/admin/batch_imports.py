@@ -56,7 +56,8 @@ class BatchImportAdminForm(forms.ModelForm):
         if self.resumes():
             # Django admin runs the whole POST in one transaction, so this lock holds until save_model
             # writes the resume. A refusal here re-renders the form with the error and saves nothing.
-            self.raise_if_resume_unsafe(BatchImport.objects.select_for_update().get(pk=self.instance.pk))
+            self.locked_row = BatchImport.objects.select_for_update().get(pk=self.instance.pk)
+            self.raise_if_resume_unsafe(self.locked_row)
         return cleaned_data
 
     def resumes(self) -> bool:
@@ -157,18 +158,23 @@ class BatchImportAdmin(admin.ModelAdmin):
                 ),
                 "description": (
                     "A running job with a future leased_until is actively claimed by a worker. "
+                    "Changing the status from running stops the worker before it sends another chunk. "
                     "Changing the status to running, or using a resume action, clears the lease, backoff "
                     "and pending commit so a worker can claim the job at once. A pending commit on "
                     "a job no worker holds means a worker stopped mid-commit: the chunk it names "
-                    "may or may not have reached the sink. Choosing a resume action: 'Resume (keep progress)' "
+                    "may or may not have reached the sink. When the saved offset still matches that chunk, "
+                    "a resume moves the part back to the start of the chunk, so nothing is lost. A chunk "
+                    "that had arrived is sent twice. "
+                    "Choosing a resume action: 'Resume (keep progress)' "
                     "continues from the saved byte offset - right for transient pauses and "
                     "for source data that has not changed. 'Resume + re-import in-flight part' "
                     "resets the current part to offset 0 first - right when the source bytes "
                     "changed underneath the saved offset (a re-downloaded nondeterministic "
                     "export, or a source file replaced after a data fix), which typically "
-                    "shows up as an 'Invalid JSON syntax' pause. The re-imported overlap "
-                    "dedupes for sources with deterministic event UUIDs (Mixpanel $insert_id, "
-                    "Amplitude uuid)."
+                    "shows up as an 'Invalid JSON syntax' pause. Re-imported events are "
+                    "deduplicated only when they carry a source ID (Mixpanel $insert_id, or an "
+                    "Amplitude or captured event uuid). Other events, including the identify "
+                    "events created for Amplitude imports, get a new ID and are not deduplicated."
                 ),
             },
         ),
@@ -201,7 +207,13 @@ class BatchImportAdmin(admin.ModelAdmin):
             update_fields.append("import_config")
         if form.resumes():
             message = obj.status_message if "status_message" in form.changed_data else "Resumed by admin"
-            update_fields.extend(obj.reset_for_resume(message))
+            # Take the reset fields from the row locked in clean(): obj was loaded before the lock, so its
+            # state and pending_commit can miss a worker write.
+            locked_row = form.locked_row
+            reset_fields = locked_row.rewind_and_reset_for_resume(message)
+            for name in reset_fields:
+                setattr(obj, name, getattr(locked_row, name))
+            update_fields.extend(reset_fields)
         if update_fields:
             obj.save(update_fields=list(dict.fromkeys([*update_fields, "updated_at"])))
 
@@ -235,8 +247,8 @@ class BatchImportAdmin(admin.ModelAdmin):
         permissions=["change"],
     )
     def resume(self, request, queryset):
-        """Resume paused jobs from their saved progress: for transient pauses and
-        unchanged source data. See the 'Worker state' section on the detail page
+        """Resume paused jobs from their saved progress, re-sending a chunk a worker left
+        mid-commit: for transient pauses and unchanged source data. See the 'Worker state' section on the detail page
         for how this differs from the reset variant."""
         for batch_import in queryset:
             try:
@@ -257,8 +269,8 @@ class BatchImportAdmin(admin.ModelAdmin):
     def resume_with_inflight_part_reset(self, request, queryset):
         """Recover a paused job whose committed byte offset no longer matches the
         source bytes (re-download of a nondeterministic export, or a source file
-        replaced after a data-error pause). Safe for sources with deterministic
-        event UUIDs, which dedupe the re-imported overlap."""
+        replaced after a data-error pause). The re-imported overlap dedupes only for
+        events with a source ID; see the 'Worker state' section."""
         for batch_import in queryset:
             try:
                 reset_key = batch_import.resume_with_inflight_part_reset()

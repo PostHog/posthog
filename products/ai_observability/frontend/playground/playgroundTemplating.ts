@@ -1,3 +1,6 @@
+import type { PromptConfig } from './llmPlaygroundPromptsLogic'
+import { isMessageSendable } from './playgroundMessageMapping'
+
 /**
  * Template variable syntax shared with the SDK `compile` helpers
  * (posthog-js `packages/ai/src/prompts.ts`, posthog-python `posthog/ai/prompts.py`).
@@ -77,4 +80,17 @@ export function getVariableValue(values: Record<string, string>, name: string): 
 export function substituteVariables(text: string, values: Record<string, string>): string {
     // Function replacer so values containing `$&`-style patterns substitute literally
     return text.replace(TEMPLATE_VARIABLE_REGEX, (match, name: string) => getVariableValue(values, name) || match)
+}
+
+/** The texts a run sends for a panel. A System One panel sends its input and questions, a chat panel its prompt and messages. */
+export function promptTemplateTexts(prompt: PromptConfig, isSystemOne: boolean): string[] {
+    if (isSystemOne) {
+        return [prompt.decisionInput, ...prompt.decisionQuestions.map((question) => question.instructions)]
+    }
+    const messages = prompt.messages.filter(isMessageSendable)
+    return [
+        prompt.systemPrompt,
+        ...messages.map((message) => message.content),
+        ...messages.flatMap((message) => message.toolCalls?.map((toolCall) => toolCall.arguments) ?? []),
+    ]
 }

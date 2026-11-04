@@ -1,9 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { type MouseEvent, useCallback } from 'react'
 
+import { type OpenTraceDialogOptions, traceDialogOpenLogic } from 'lib/components/ViewTraceButton/traceDialogOpenLogic'
 import type { TraceLinkParams } from 'lib/components/ViewTraceButton/traceUrl'
-
-import { type OpenTraceDialogOptions, traceDialogOpenLogic } from './traceDialogOpenLogic'
 
 export type OpenTraceDialogHandler = (
     event: MouseEvent | null,

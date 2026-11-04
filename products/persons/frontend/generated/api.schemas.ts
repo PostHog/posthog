@@ -4123,6 +4123,7 @@ export type PersonsListParams = {
     include_matched_fields?: boolean
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -4371,6 +4372,7 @@ export type PersonsDeletionStatusListParams = {
     format?: PersonsDeletionStatusListFormat
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -4428,18 +4430,6 @@ export type PersonsPropertiesAtTimeRetrieveFormat =
     (typeof PersonsPropertiesAtTimeRetrieveFormat)[keyof typeof PersonsPropertiesAtTimeRetrieveFormat]
 
 export const PersonsPropertiesAtTimeRetrieveFormat = {
-    Csv: 'csv',
-    Json: 'json',
-} as const
-
-export type PersonsResetPersonDistinctIdCreateParams = {
-    format?: PersonsResetPersonDistinctIdCreateFormat
-}
-
-export type PersonsResetPersonDistinctIdCreateFormat =
-    (typeof PersonsResetPersonDistinctIdCreateFormat)[keyof typeof PersonsResetPersonDistinctIdCreateFormat]
-
-export const PersonsResetPersonDistinctIdCreateFormat = {
     Csv: 'csv',
     Json: 'json',
 } as const

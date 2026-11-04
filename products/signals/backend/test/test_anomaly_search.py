@@ -120,12 +120,13 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
         interval: str = "day",
         insight: Insight | None = None,
         team: Team | None = None,
+        timestamp: datetime.datetime | None = None,
     ) -> None:
         _create_event(
             team=team or self.team,
             event="$anomaly_score",
             distinct_id=SCORER_DISTINCT_ID,
-            timestamp=bucket,
+            timestamp=timestamp or bucket,
             properties={
                 "$anomaly_score": score,
                 "$anomaly_flag": flag,
@@ -221,6 +222,24 @@ class TestAnomalySearchAPI(ClickhouseTestMixin, APIBaseTest):
             ("2026-10-22", True, 0.98, True),
         ]
         assert series["signups"]["buckets"][-1]["details"] == {"z": 3.1}
+
+    def test_insight_keys_buckets_on_the_declared_start_not_the_event_timestamp(self) -> None:
+        ms = datetime.timedelta(milliseconds=1)
+        self._score(_day(19), score=0.99, flag=1, scored_at=_day(20), timestamp=_day(19) - 5 * ms)
+        self._score(_day(19), score=0.40, flag=0, scored_at=_day(21), timestamp=_day(19) + 7 * ms)
+        self._score(_day(20), score=0.30, flag=0, timestamp=_day(20) + 41 * ms)
+        self._score(_day(22), score=0.98, flag=1, timestamp=_day(22) + 4 * ms)
+
+        body = self._get("insight", insight_id=self.insight.id, date_from="2026-10-19").json()
+
+        [series] = body["series"]
+        assert (series["scored_buckets"], series["expected_buckets"]) == (3, 4)
+        assert [(bucket["bucket_start"], bucket["scored"], bucket["score"]) for bucket in series["buckets"]] == [
+            ("2026-10-19T00:00:00+00:00", True, 0.40),
+            ("2026-10-20T00:00:00+00:00", True, 0.30),
+            ("2026-10-21T00:00:00+00:00", False, None),
+            ("2026-10-22T00:00:00+00:00", True, 0.98),
+        ]
 
     def test_insight_narrows_to_one_series_and_shows_warmup_on_request(self) -> None:
         self._score_history()

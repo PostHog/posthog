@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
 import { ReactNode, useEffect } from 'react'
 
-import { LemonBadge, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { Badge, Tabs, TabsList, TabsTrigger } from '@posthog/quill'
 
+import { ReplayCollectionsSegment } from './ReplayCollectionsSegment'
 import { ReplayListPicksMode, ReplayListSegment, replayListColumnLogic } from './replayListColumnLogic'
 
 export interface ReplayListColumnProps {
@@ -11,6 +12,7 @@ export interface ReplayListColumnProps {
     /** The Highlights list, when the picks experiment offers one. */
     picksList?: ReactNode
     picksMode: ReplayListPicksMode
+    collections?: boolean
     unwatchedPicksCount?: number
     onPicksSelected?: (selected: boolean) => void
 }
@@ -20,6 +22,7 @@ export function ReplayListColumn({
     recordingsList,
     picksList,
     picksMode,
+    collections = false,
     unwatchedPicksCount = 0,
     onPicksSelected,
 }: ReplayListColumnProps): JSX.Element {
@@ -32,48 +35,65 @@ export function ReplayListColumn({
         settleSegment(picksMode)
     }, [picksMode, settleSegment])
 
-    const options = [
+    const options: { value: ReplayListSegment; label: ReactNode; dataAttr: string }[] = [
         ...(picksList
             ? [
                   {
                       value: 'picks' as const,
                       label: (
-                          <span className="flex items-center gap-1">
-                              <span>Highlights</span>
-                              {unwatchedPicksCount > 0 && (
-                                  <LemonBadge.Number count={unwatchedPicksCount} size="small" status="muted" />
-                              )}
-                          </span>
+                          <>
+                              Highlights
+                              {unwatchedPicksCount > 0 && <Badge>{unwatchedPicksCount}</Badge>}
+                          </>
                       ),
-                      'data-attr': 'list-segment-picks',
+                      dataAttr: 'list-segment-picks',
                   },
               ]
             : []),
-        {
-            value: 'recordings' as const,
-            label: 'All recordings',
-            'data-attr': 'list-segment-recordings',
-        },
+        { value: 'recordings' as const, label: 'All recordings', dataAttr: 'list-segment-recordings' },
+        ...(collections
+            ? [{ value: 'collections' as const, label: 'Collections', dataAttr: 'list-segment-collections' }]
+            : []),
     ]
 
     return (
         <div className="flex flex-col h-full min-h-0">
             {options.length > 1 && (
-                <LemonSegmentedButton
-                    size="small"
-                    fullWidth
-                    className="mb-2"
+                <Tabs
+                    data-quill
                     value={segment}
-                    onChange={(next: ReplayListSegment) => {
+                    onValueChange={(value) => {
+                        const next = value as ReplayListSegment
                         setSegment(next)
                         if ((next === 'picks') !== (segment === 'picks')) {
                             onPicksSelected?.(next === 'picks')
                         }
                     }}
-                    options={options}
-                />
+                    className="mb-2 shrink-0"
+                >
+                    <TabsList className="w-full">
+                        {options.map((option) => (
+                            <TabsTrigger
+                                key={option.value}
+                                value={option.value}
+                                className="text-xs"
+                                data-attr={option.dataAttr}
+                            >
+                                {option.label}
+                            </TabsTrigger>
+                        ))}
+                    </TabsList>
+                </Tabs>
             )}
-            <div className="flex flex-col flex-1 min-h-0">{segment === 'picks' ? picksList : recordingsList}</div>
+            <div className="flex flex-col flex-1 min-h-0">
+                {segment === 'picks' ? (
+                    picksList
+                ) : segment === 'collections' ? (
+                    <ReplayCollectionsSegment logicKey={logicKey} />
+                ) : (
+                    recordingsList
+                )}
+            </div>
         </div>
     )
 }

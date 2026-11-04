@@ -48,7 +48,7 @@ from posthog.session_recordings.queries.utils import (
 from posthog.types import AnyPropertyFilter
 from posthog.utils import get_instance_region
 
-ENTITY_TYPES_ACCEPTED_BY_LEGACY_ENTITY = frozenset(
+ENTITY_TYPES_WITH_NODES = frozenset(
     {TREND_FILTER_TYPE_ACTIONS, TREND_FILTER_TYPE_DATA_WAREHOUSE, TREND_FILTER_TYPE_EVENTS}
 )
 
@@ -1317,17 +1317,15 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
 
     @staticmethod
     def _entity_node(raw_entity: dict[str, Any], default_type: str) -> EventsNode | ActionsNode | DataWarehouseNode:
-        # RecordingsQuery accepts untyped entity dicts, and Entity rejects any type it does not
-        # know, so fall back to the type the source list implies.
+        # RecordingsQuery accepts untyped entity dicts, and _node_from_entity rejects any type it
+        # does not know, so fall back to the type the source list implies.
         entity = (
-            raw_entity
-            if raw_entity.get("type") in ENTITY_TYPES_ACCEPTED_BY_LEGACY_ENTITY
-            else {**raw_entity, "type": default_type}
+            raw_entity if raw_entity.get("type") in ENTITY_TYPES_WITH_NODES else {**raw_entity, "type": default_type}
         )
         try:
             return _node_from_entity(entity)
         except ValueError as e:
-            # Entity and the node models raise plain ValueErrors for a dict they can't build from
+            # _node_from_entity and the node models raise plain ValueErrors for a dict they can't build from
             # (pydantic's ValidationError subclasses it), and those escape as a 500. The dict is
             # caller input, so report it as a bad request. DRF's ValidationError is not a
             # ValueError, so a field that already validates itself still reports its own message.

@@ -16,6 +16,8 @@ export const WarehouseSuggestionsListParams = () => zod.object({
         ),
 })
 
+export const warehouseSuggestionsListQueryLimitMax = 100
+
 export const WarehouseSuggestionsListQueryParams = () => zod.object({
     assignee_id: zod.number().optional().describe('Only return suggestions assigned to the user with this ID.'),
     kind: zod
@@ -24,7 +26,11 @@ export const WarehouseSuggestionsListQueryParams = () => zod.object({
         .describe(
             'Only return suggestions of this kind.\n\n\* `certify` - Certify\n\* `deprecate` - Deprecate\n\* `materialize` - Materialize\n\* `unmaterialize` - Unmaterialize'
         ),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(warehouseSuggestionsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     status: zod
         .enum(['proposed', 'accepted', 'dismissed', 'expired', 'auto_resolved'])
@@ -107,6 +113,12 @@ export const WarehouseSuggestionsAcceptCreateBody = () => zod.object({
         .optional()
         .describe(
             "Deprecate only: true to keep a materialized view refreshing after it is deprecated. By default, accepting a deprecate suggestion also stops the view's refreshes and deletes its stored table, unless other views or syncs depend on it."
+        ),
+    delete_view: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Deprecate only: true to delete the view instead of marking it deprecated. Deleting also drops its stored table and refreshes, and cannot be undone. Refused when another view now reads it, or when it feeds person properties, account properties, a destination or a workflow. Refused with a 400 when any day in the read window has no read data, because a view read only on those days would look unread.'
         ),
 })
 

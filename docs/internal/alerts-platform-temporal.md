@@ -211,7 +211,8 @@ Scheduled runs use `TemporalScheduledStartTime`; manual runs use the workflow st
 Activity retries retain the same cutoff rather than reading the activity's clock.
 The activity returns an `AlertDemand` containing configuration IDs grouped by the shared `SourceKind` enum (`logs` and `insight`).
 Only nonempty groups are returned. Discovery does not reserve or claim IDs.
-Each source is bounded to its binding's `discovery_limit`, or to `DISCOVERY_LIMIT_PER_SOURCE` (1,000) without a binding, so the manifest stays near 40 KB per source, under the repository's 256 KB rule for Temporal payload fields.
+Each source is bounded to its binding's `discovery_limit`, or to `DISCOVERY_LIMIT_PER_SOURCE` (1,000) without a binding, so the manifest stays near 55 KB per 1,000 keys, under the repository's 256 KB rule for Temporal payload fields.
+The insight binding allows up to 2,000 keys (`ALERTS_PLATFORM_INSIGHT_KEYS_PER_TICK`), about 110 KB.
 A source that admits fewer checks per tick sets a lower limit, because every key starts a workflow.
 `omitted_by_source` counts the due IDs left out. The tick adds that count to its `remaining` result, and the next tick discovers that work again.
 
@@ -420,6 +421,9 @@ The legacy logs stack's `incident_edge` wraps the same rule.
   `<configuration_id>:<grouping_key>:<episode_started_at>`, so a resolve closes the incident of its own
   firing episode. It names the platform in `source`, because a team on the pilot also gets the HogFunction
   path's incident.
+- An insight alert announces no resolve, but it still sends incident actions for an alert the platform owns.
+  A PagerDuty destination on `$insight_alert_incident_opened` and `$insight_alert_incident_closed` opens and resolves its incident.
+  One on `$insight_alert_firing` keeps its HogFunction, which only triggers.
 
 A fire a mute swallowed is still owed an announcement.
 `_firing_is_unannounced` in `facade/lifecycle.py` decides that, and its docstring holds the rule.
@@ -531,6 +535,7 @@ python manage.py backfill_platform_insight_alert_configurations
 It copies every insight alert, on every cadence.
 A real-time check gets production's real-time budget: a 7-minute evaluation with one retry inside it.
 An AI detector check runs on the AI queue, whose worker holds the model credentials, with production's retries: a check whose model call reaches no verdict is retried, and only its last attempt records the error.
+A paused AI detector check, refused for a withdrawn rollout or consent or for no AI credits left, is not retried. It records an errored check and leaves the alert enabled, as production does.
 Every other check gets one 12-minute attempt.
 An AI detector check calls the model on both stacks while both run, and each call is billed to the project, so the backfill leaves AI detector alerts out.
 Pass `--include-ai-detector` to copy them, with `--team-id` or `--ids-file` for an internal project, until the insight cutover.

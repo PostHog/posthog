@@ -30,6 +30,7 @@ from posthog.ph_client import ph_scoped_capture
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.temporal.common.utils import is_stale_connection_read_only_error
 
+from products.signals.backend import report_assignments
 from products.signals.backend.assignment_flags import assignment_side_effects_allowed
 from products.signals.backend.billing import current_billing_period_bounds
 from products.signals.backend.first_report_notification_tasks import (
@@ -54,6 +55,7 @@ from products.signals.backend.models import (
     SignalScoutRun,
     SignalScratchpad,
 )
+from products.signals.backend.personal_ranking_tasks import build_personal_inbox_ranking as build_personal_inbox_ranking
 from products.signals.backend.pr_origin import write_origin_section
 from products.signals.backend.pull_request_body import BodyEditOutcome
 from products.signals.backend.pull_request_label import apply_pull_request_label
@@ -64,6 +66,7 @@ from products.signals.backend.report_generation.repo_activity import (
     repository_activity_needs_rebuild,
 )
 from products.signals.backend.report_inbox_state import reconcile_report_inbox_state, teams_with_reports
+from products.signals.backend.report_monitoring_signals import emit_due_monitoring_research
 from products.signals.backend.reviewer_pr_assignment import deliver_pull_request_assignment
 from products.signals.backend.reviewer_pr_ready import open_pull_request_ready_for_review
 from products.signals.backend.scout_harness.background_bands import refresh_background_bands
@@ -117,10 +120,16 @@ def refresh_report_implementation_pr_cache(
     )
 
 
-@shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)
+@shared_task(bind=True, ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)
 @with_team_scope()
-def write_pull_request_to_support_tickets(team_id: int, report_id: str, pr_url: str, task_id: str) -> None:
+def write_pull_request_to_support_tickets(self: Task, team_id: int, report_id: str, pr_url: str, task_id: str) -> None:
     if not task_can_write_support_ticket_update(team_id=team_id, report_id=report_id, task_id=task_id, pr_url=pr_url):
+        return
+    try:
+        pr = report_assignments._pull_request_details(team_id, pr_url, raise_on_error=True)
+    except GitHubRateLimitError as error:
+        raise self.retry(exc=error, countdown=max(error.retry_after or 0, 60))
+    if pr.state not in {SignalReportPullRequest.State.DRAFT, SignalReportPullRequest.State.OPEN}:
         return
     team = Team.objects.filter(id=team_id).first()
     if team is None:
@@ -333,6 +342,12 @@ def close_report_tracker_issue(
 @skip_team_scope_audit
 def sweep_monitoring_tracker_issues() -> None:
     complete_monitoring_tracker_issues(deadline=time.monotonic() + 40)
+
+
+@shared_task(ignore_result=True, soft_time_limit=45, time_limit=60)
+@skip_team_scope_audit
+def sweep_monitoring_research_requests() -> None:
+    emit_due_monitoring_research(deadline=time.monotonic() + 40, limit=100)
 
 
 @shared_task(

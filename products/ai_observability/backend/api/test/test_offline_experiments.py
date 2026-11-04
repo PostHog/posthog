@@ -643,7 +643,9 @@ class TestOfflineExperimentActionSchemas(SimpleTestCase):
                 self.assertIn("$ref", response_schema)
                 page_schema = components[response_schema["$ref"].rsplit("/", 1)[-1]]
                 self.assertEqual(page_schema["type"], "object")
-                self.assertTrue({"count", "next_cursor", "results"} <= set(page_schema["properties"]))
+                self.assertTrue(
+                    {"count", "next", "previous", "next_cursor", "results"} <= set(page_schema["properties"])
+                )
                 self.assertEqual(page_schema["properties"]["results"]["type"], "array")
 
     @parameterized.expand(

@@ -35,6 +35,25 @@ import { humanizePathsEventTypes, hasUnsupportedBreakdownForDataWarehouseTrends 
 import { QUERY_TYPES_METADATA } from 'scenes/saved-insights/insightTypesMetadata'
 import { urls } from 'scenes/urls'
 
+import { getCompareFilter, getInterval } from '~/queries/schema/node-accessors'
+import {
+    isActionsNode,
+    isAnyDataWarehouseNode,
+    isDataTableNodeWithHogQLQuery,
+    isDataVisualizationNode,
+    isEventsNode,
+    isFunnelsQuery,
+    isHogQLQuery,
+    isInsightQueryWithBreakdown,
+    isInsightQueryWithSeries,
+    isInsightVizNode,
+    isLifecycleQuery,
+    isPathsQuery,
+    isPathsV2Query,
+    isRetentionQuery,
+    isTrendsQuery,
+    hasBreakdownFilter,
+} from '~/queries/schema/node-guards'
 import {
     AnyEntityNode,
     BreakdownFilter,
@@ -56,26 +75,6 @@ import {
     DashboardFilter,
     TileFilters,
 } from '~/queries/schema/schema-general'
-import {
-    getCompareFilter,
-    getInterval,
-    isActionsNode,
-    isAnyDataWarehouseNode,
-    isDataTableNodeWithHogQLQuery,
-    isDataVisualizationNode,
-    isEventsNode,
-    isFunnelsQuery,
-    isHogQLQuery,
-    isInsightQueryWithBreakdown,
-    isInsightQueryWithSeries,
-    isInsightVizNode,
-    isLifecycleQuery,
-    isPathsQuery,
-    isPathsV2Query,
-    isRetentionQuery,
-    isTrendsQuery,
-    hasBreakdownFilter,
-} from '~/queries/utils'
 import {
     AnyPropertyFilter,
     BaseMathType,

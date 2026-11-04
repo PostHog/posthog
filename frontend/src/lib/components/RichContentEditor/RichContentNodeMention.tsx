@@ -1,12 +1,8 @@
 import { Node, NodeViewProps, mergeAttributes } from '@tiptap/core'
 import { NodeViewWrapper, ReactNodeViewRenderer } from '@tiptap/react'
 import clsx from 'clsx'
-import { useValues } from 'kea'
 
-import { ProfilePicture, Tooltip } from '@posthog/lemon-ui'
-
-import { membersLogic } from '~/models/membersLogic'
-
+import { RichContentMention } from './RichContentMention'
 import { RichContentNodeType } from './types'
 
 export interface RichContentNodeMentionAttrs {
@@ -23,30 +19,6 @@ const Component = (props: NodeViewProps): JSX.Element => {
         >
             <RichContentMention id={id} />
         </NodeViewWrapper>
-    )
-}
-
-export const RichContentMention = ({ id }: { id?: number }): JSX.Element => {
-    const { meFirstMembers } = useValues(membersLogic)
-
-    const member = meFirstMembers.find((member) => member.user.id === id)
-
-    return (
-        <Tooltip
-            title={
-                <div className="p-2 flex items-center gap-2">
-                    <ProfilePicture user={member?.user} size="xl" />
-                    <div className="ph-no-capture">
-                        <div className="font-bold">{member?.user.first_name}</div>
-                        <div className="text-sm">{member?.user.email}</div>
-                    </div>
-                </div>
-            }
-        >
-            <span className="ph-no-capture bg-fill-highlight-100 px-1 rounded font-medium">
-                @{member?.user.first_name ?? '(Member)'}
-            </span>
-        </Tooltip>
     )
 }
 
