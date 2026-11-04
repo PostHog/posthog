@@ -152,7 +152,7 @@ function scanDeclarations(style: string): string[] {
             index = end + 1
         } else if (
             char === '(' &&
-            current.slice(-3).toLowerCase() === 'url' &&
+            style.slice(index - 3, index).toLowerCase() === 'url' &&
             !QUOTES.includes(style[skipSpaces(style, index + 1)])
         ) {
             // An unquoted url() is one token that ends at `)`. A quote, bracket, escape or inner space
@@ -189,7 +189,7 @@ function protectFooterAncestors(
 ): void {
     const root = document.childNodes.find(defaultTreeAdapter.isElementNode)!
     const visibleLayout =
-        'display:block!important;position:static!important;margin:0!important;overflow:visible!important;height:auto!important;max-height:none!important;clip:auto!important;clip-path:none!important;transform:none!important;opacity:1!important;visibility:visible!important;filter:none!important;contain:none!important;content-visibility:visible!important;zoom:1!important'
+        'display:block!important;position:static!important;margin:0!important;overflow:visible!important;height:auto!important;max-height:none!important;clip:auto!important;clip-path:none!important;transform:none!important;opacity:1!important;visibility:visible!important;filter:none!important;contain:none!important;content-visibility:visible!important;mask:none!important;-webkit-mask:none!important;zoom:1!important'
     for (const ancestor of [root, body]) {
         const style = ancestor.attrs.find((attribute) => attribute.name === 'style')
         if (style) {
@@ -222,6 +222,14 @@ function neutralizeRawTextElements(roots: DefaultTreeAdapterMap['childNode'][]):
     }
 }
 
+function leavesOutlookConditionalOpen(html: string): boolean {
+    let depth = 0
+    for (const match of html.matchAll(/<!(?:--)?\[(if\b|endif\])/gi)) {
+        depth = match[1].toLowerCase() === 'if' ? depth + 1 : Math.max(depth - 1, 0)
+    }
+    return depth > 0
+}
+
 function appendHtmlFooter(html: string, footer: string, preheader?: string): string {
     const preheaderText = parseFragment(preheader ?? '', { scriptingEnabled: false })
     neutralizeRawTextElements(preheaderText.childNodes)
@@ -237,12 +245,17 @@ function appendHtmlFooter(html: string, footer: string, preheader?: string): str
     const paragraph = defaultTreeAdapter.createElement('div', body.namespaceURI, [
         {
             name: 'style',
-            value: 'all:initial!important;display:block!important;visibility:visible!important;opacity:1!important;font:12px sans-serif!important;color:#525252!important;background:#fff!important;padding:16px 0!important',
+            value: 'all:initial!important;display:block!important;visibility:visible!important;opacity:1!important;position:static!important;float:none!important;width:auto!important;height:auto!important;max-height:none!important;overflow:visible!important;margin:0!important;transform:none!important;clip-path:none!important;filter:none!important;mask:none!important;-webkit-mask:none!important;text-indent:0!important;letter-spacing:normal!important;word-spacing:normal!important;text-transform:none!important;text-shadow:none!important;white-space:normal!important;font:12px sans-serif!important;color:#525252!important;background:#fff!important;padding:16px 0!important',
         },
     ])
     defaultTreeAdapter.insertText(paragraph, footer)
     defaultTreeAdapter.appendChild(body, paragraph)
     const serialized = serialize(document, { scriptingEnabled: false })
+    if (leavesOutlookConditionalOpen(serialized)) {
+        throw new Error(
+            'The sandbox email template could not retain its identification footer. Update the template and try again.'
+        )
+    }
     for (const scriptingEnabled of [false, true]) {
         const deliveredFooter = htmlBody(parse(serialized, { scriptingEnabled }))?.childNodes.at(-1)
         if (
