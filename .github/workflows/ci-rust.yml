@@ -572,6 +572,9 @@ jobs:
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+            # Not `localhost`: it also resolves to `::1`, where the broker refuses, and the
+            # writer's drain probe takes that refusal as final, so no generation ever retires.
+            KAFKA_HOSTS: kafka:9092
 
         defaults:
             run:
