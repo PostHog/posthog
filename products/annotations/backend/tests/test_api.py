@@ -106,10 +106,12 @@ class TestAnnotationWrites(BaseTest):
             "other_team_dashboard": Dashboard.objects.create(team=other_team).id,
             "deleted_insight": Insight.objects.create(team=self.team, deleted=True).id,
         }
+        parent_id = parents[parent] if parent else None
         write = AnnotationWrite(
             fields_set=frozenset({"scope", field}),
             scope=AnnotationScope.DASHBOARD if field == "dashboard_id" else AnnotationScope.INSIGHT,
-            **{field: parents[parent] if parent else None},
+            dashboard_id=parent_id if field == "dashboard_id" else None,
+            insight_id=parent_id if field == "insight_id" else None,
         )
 
         with self.assertRaises(AnnotationWriteRejectedError) as rejected:

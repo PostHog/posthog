@@ -15,7 +15,7 @@ from products.annotations.backend.facade import api
 from products.annotations.backend.facade.contracts import ChangeWindow, KindVisibility
 from products.annotations.backend.facade.enums import ChangeKind
 
-from .serializers import ChangeFeedQuerySerializer, ChangeFeedSerializer
+from ..serializers import ChangeFeedQuerySerializer, ChangeFeedSerializer
 
 KIND_RESOURCES: dict[ChangeKind, APIScopeObject] = {
     ChangeKind.FEATURE_FLAG: "feature_flag",

@@ -37,6 +37,55 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         assert len(response["results"]) == 1
         assert response["results"][0]["content"] == "hello world!"
 
+    def test_list_and_retrieve_render_every_field(self) -> None:
+        insight = Insight.objects.create(team=self.team, name="Signups", derived_name="Pageview count")
+        dashboard = Dashboard.objects.create(team=self.team, name="Launch")
+        annotation = Annotation.objects.create(
+            organization=self.organization,
+            team=self.team,
+            created_by=self.user,
+            content="Shipped v2",
+            date_marker=datetime(2024, 1, 2, 3, 4, 5, tzinfo=ZoneInfo("UTC")),
+            creation_type="GIT",
+            scope=AnnotationScope.PROJECT,
+            dashboard_item=insight,
+            dashboard=dashboard,
+            emoji="🚀",
+            hidden_in_user_interface=False,
+        )
+
+        listed = self.client.get(f"/api/projects/{self.team.id}/annotations/").json()["results"][0]
+        retrieved = self.client.get(f"/api/projects/{self.team.id}/annotations/{annotation.id}/").json()
+
+        assert listed == retrieved
+        assert {key: value for key, value in retrieved.items() if key not in ("created_at", "updated_at")} == {
+            "id": annotation.id,
+            "content": "Shipped v2",
+            "date_marker": "2024-01-02T03:04:05Z",
+            "creation_type": "GIT",
+            "dashboard_item": insight.id,
+            "dashboard_id": dashboard.id,
+            "dashboard_name": "Launch",
+            "insight_short_id": insight.short_id,
+            "insight_name": "Signups",
+            "insight_derived_name": "Pageview count",
+            "created_by": {
+                "id": self.user.id,
+                "uuid": str(self.user.uuid),
+                "distinct_id": self.user.distinct_id,
+                "first_name": self.user.first_name,
+                "last_name": self.user.last_name,
+                "email": self.user.email,
+                "is_email_verified": self.user.is_email_verified,
+                "hedgehog_config": None,
+                "role_at_organization": self.user.role_at_organization,
+            },
+            "deleted": False,
+            "scope": "project",
+            "emoji": "🚀",
+            "hidden_in_user_interface": False,
+        }
+
     def test_paginated_list_is_stable_when_annotations_share_a_date_marker(self) -> None:
         # Insertion order is the reverse of the order the endpoint must return, so a page walk that
         # falls back to row order returns a different sequence.
