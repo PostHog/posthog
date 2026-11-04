@@ -2,6 +2,7 @@ from typing import Optional, cast
 
 from products.warehouse_sources.sources.kandji._config import KandjiSourceConfig
 from products.warehouse_sources.sources.kandji.kandji import (
+    KandjiResumeConfig,
     kandji_source,
     validate_credentials as validate_kandji_credentials,
 )
@@ -12,7 +13,8 @@ from products.warehouse_sources.sources.sdk import (
     ExternalDataSourceType,
     FieldType,
     ReleaseStatus,
-    SimpleSource,
+    ResumableSource,
+    ResumableSourceManager,
     SourceConfig,
     SourceFieldInputConfig,
     SourceFieldInputConfigType,
@@ -27,7 +29,7 @@ from products.warehouse_sources.sources.sdk import (
 
 
 @SourceRegistry.register
-class KandjiSource(SimpleSource[KandjiSourceConfig]):
+class KandjiSource(ResumableSource[KandjiSourceConfig, KandjiResumeConfig]):
     codebase_detection = detect(env=("^KANDJI_",))
 
     # `get_schemas` iterates a static endpoint catalog with no I/O, so the table list is safe to
@@ -95,7 +97,15 @@ class KandjiSource(SimpleSource[KandjiSourceConfig]):
             schema_name=schema_name,
         )
 
-    def source_for_pipeline(self, config: KandjiSourceConfig, inputs: SourceInputs) -> SourceResponse:
+    def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[KandjiResumeConfig]:
+        return ResumableSourceManager[KandjiResumeConfig](inputs, KandjiResumeConfig)
+
+    def source_for_pipeline(
+        self,
+        config: KandjiSourceConfig,
+        resumable_source_manager: ResumableSourceManager[KandjiResumeConfig],
+        inputs: SourceInputs,
+    ) -> SourceResponse:
         return kandji_source(
             api_token=config.api_token,
             subdomain=config.subdomain,
@@ -103,6 +113,7 @@ class KandjiSource(SimpleSource[KandjiSourceConfig]):
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
             job_id=inputs.job_id,
+            resumable_source_manager=resumable_source_manager,
         )
 
     @property

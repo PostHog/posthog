@@ -302,7 +302,13 @@ type StoryCombinedEventRow = [
     exceptionIssueId: string | null,
 ]
 
-type StoryEventDetailsRow = [uuid: string, eventName: string, timestamp: string, properties: Record<string, unknown>]
+type StoryEventDetailsRow = [
+    uuid: string,
+    eventName: string,
+    timestamp: string,
+    properties: Record<string, unknown>,
+    distinctId: string,
+]
 type StoryExceptionRow = [uuid: string, timestamp: string, properties: string]
 type StoryPageRow = [uuid: string, timestamp: string, url: string, lib: string]
 type StoryCustomRow = [uuid: string, eventName: string, timestamp: string, lib: string]
@@ -381,7 +387,7 @@ function sessionTimelineParameters(event: ErrorEventType): Record<string, unknow
             }
 
             const properties = uuid === event.uuid ? event.properties : baseProperties
-            return [String(uuid), [uuid, eventName, ts, properties]]
+            return [String(uuid), [uuid, eventName, ts, properties, 'story-user-distinct-id']]
         }
     )
 

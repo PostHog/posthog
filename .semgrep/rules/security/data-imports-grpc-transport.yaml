@@ -104,7 +104,7 @@ rules:
               # google_ads.py constructs the client but the enforced invariant is
               # passing tracked_interceptors(...) to get_service, not avoiding the
               # constructor (google-ads exposes no other seam).
-              - '**/products/warehouse_sources/backend/temporal/data_imports/sources/google_ads/google_ads.py'
+              - '**/products/warehouse_sources/sources/google_ads/google_ads.py'
               - '**/test/**'
               - '**/tests/**'
               - '**/test_*.py'

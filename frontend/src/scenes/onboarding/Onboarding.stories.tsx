@@ -150,30 +150,6 @@ export const AIObservabilitySDKInstall: Story = {
     },
 }
 
-// The cloud-run experiment arm enabled: a dedicated wizard program must keep its own command
-// and never offer the cloud arm. (The active-run takeover scenario is pinned by
-// WizardInstallStep.test.tsx — staging a run here would write the persisted handle to
-// localStorage, which stories share, contaminating every story rendered after this one.)
-export const AIObservabilitySDKInstallWithCloudRunFlag: Story = {
-    render: () => {
-        useMountedLogic(onboardingLogic)
-        const { setProduct } = useActions(onboardingLogic)
-
-        useDelayedOnMountEffect(() => {
-            setProduct(availableOnboardingProducts[ProductKey.AI_OBSERVABILITY])
-            router.actions.push(
-                urls.onboarding({ productKey: ProductKey.AI_OBSERVABILITY, stepKey: OnboardingStepKey.INSTALL })
-            )
-        })
-
-        return <App />
-    },
-    parameters: {
-        featureFlags: { [FEATURE_FLAGS.ONBOARDING_WIZARD_CLOUD_RUN]: 'test' },
-        testOptions: { waitForSelector: '[data-attr="sdk-continue"]' },
-    },
-}
-
 // ==========================================
 // Product Configuration Steps
 // ==========================================
