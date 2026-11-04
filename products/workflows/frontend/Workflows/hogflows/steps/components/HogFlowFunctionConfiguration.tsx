@@ -196,7 +196,7 @@ export function allowsSandboxSender(
     actionType: HogFlowAction['type'],
     originProduct: string | null | undefined
 ): boolean {
-    return actionType === 'function_email' && originProduct !== 'broadcasts'
+    return actionType === 'function_email' && originProduct == null
 }
 
 export function HogFlowFunctionConfiguration({
