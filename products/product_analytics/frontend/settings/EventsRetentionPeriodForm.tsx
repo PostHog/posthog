@@ -51,12 +51,17 @@ function retentionChoiceOptions({
     defaultSource,
     minMonths,
     maxMonths,
+    planMonths,
     restrictionReason,
     dataAttr,
 }: EventsRetentionPeriodFormProps): LemonRadioOption<RetentionChoice>[] {
     const canLengthen = maxMonths > defaultMonths
     const range = canLengthen ? 'shorter or longer' : 'shorter'
     const defaultPeriod = pluralize(defaultMonths, 'month')
+    const longestPeriod =
+        maxMonths === planMonths
+            ? `your plan's limit of ${retentionPeriodLabel(maxMonths)}`
+            : retentionPeriodLabel(maxMonths)
     const disabledReason = restrictionReason ?? undefined
     return [
         {
@@ -82,8 +87,8 @@ function retentionChoiceOptions({
             value: 'custom',
             label: `Custom events retention (${minMonths} to ${maxMonths} months)`,
             description: canLengthen
-                ? `Set a shorter or longer period, up to ${retentionPeriodLabel(maxMonths)}, with a guaranteed deletion date.`
-                : 'Set a shorter period with a guaranteed deletion date.',
+                ? `Set a shorter or longer period up to ${longestPeriod}.`
+                : 'Set a shorter period.',
             disabledReason,
             'data-attr': `${dataAttr}-custom`,
         },

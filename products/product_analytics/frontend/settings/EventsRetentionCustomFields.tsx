@@ -61,7 +61,6 @@ export function EventsRetentionCustomFields({
                         Each monthly cleanup deletes the months whose events are all older than your period, so no event
                         is kept more than about a month past it.
                     </li>
-                    <li>Use this if you need a guaranteed deletion date, for example for compliance.</li>
                     <li>{overrideNote}</li>
                     {planMonths < LONGEST_PLAN_RETENTION_MONTHS && (
                         <li>
