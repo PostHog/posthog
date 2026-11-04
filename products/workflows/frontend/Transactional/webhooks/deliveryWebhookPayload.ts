@@ -43,7 +43,6 @@ const DELIVERY_WEBHOOK_BODY = {
         email_id: '{event.properties.$email_message_id}',
         to: ['{event.properties.$email_to}'],
         subject: '{event.properties.$email_subject}',
-        template_id: '{event.properties.$workflow_id}',
         distinct_id: '{event.distinct_id}',
         bounce: {
             type: "{event.properties.$bounce_type == 'hard' ? 'Permanent' : event.properties.$bounce_type == 'soft' ? 'Transient' : event.properties.$bounce_type == 'unknown' ? 'Undetermined' : null}",
@@ -59,9 +58,9 @@ export function generateSigningSecret(): string {
     return `whsec_${btoa(String.fromCharCode(...bytes))}`
 }
 
-export function isHttpUrl(value: string): boolean {
+export function isHttpsUrl(value: string): boolean {
     try {
-        return ['http:', 'https:'].includes(new URL(value).protocol)
+        return new URL(value).protocol === 'https:'
     } catch {
         return false
     }
