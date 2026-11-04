@@ -94,19 +94,6 @@ def date_windows(start: date, end: date) -> list[SyncWindow[date]]:
     return windows
 
 
-def report_params(report: TenjinReportConfig, window: SyncWindow[date]) -> dict[str, Any]:
-    return {
-        "start_date": window.start.isoformat(),
-        "end_date": window.end.isoformat(),
-        # Always daily: rows carry no `date` at totals-daily granularity, which
-        # would break both the primary key and the incremental cursor.
-        "granularity": "daily",
-        "group_by": report.group_by,
-        "metrics": report.metrics,
-        "per_page": PER_PAGE,
-    }
-
-
 def rejected_request_message(response: requests.Response, api_key: str) -> str:
     """The error for a 400, with Tenjin's reason from its documented `{"error": "..."}` body and the token removed."""
     try:
@@ -123,7 +110,7 @@ def _report_config(
     api_key: str,
     endpoint: str,
     report: TenjinReportConfig,
-    params: dict[str, Any],
+    dates: dict[str, str],
     should_use_incremental_field: bool,
 ) -> RESTAPIConfig:
     return {
@@ -139,6 +126,8 @@ def _report_config(
             # bearer token off-host.
             "allowed_hosts": [],
             "allow_redirects": False,
+            # The client ignores Tenjin's X-Retry-After, so the backoff must outlast its one-minute limit.
+            "max_retries": 7,
         },
         "resource_defaults": {
             "write_disposition": {
@@ -157,7 +146,15 @@ def _report_config(
                     # the attributes object is the flat row with dimensions and metrics.
                     "data_selector": "data[*].attributes",
                     "path": report.path,
-                    "params": params,
+                    "params": {
+                        **dates,
+                        # Always daily: rows carry no `date` at totals-daily granularity, which
+                        # would break both the primary key and the incremental cursor.
+                        "granularity": "daily",
+                        "group_by": report.group_by,
+                        "metrics": report.metrics,
+                        "per_page": PER_PAGE,
+                    },
                 },
                 "table_format": "delta",
             }
@@ -194,9 +191,9 @@ def tenjin_source(
                 TenjinResumeConfig(next_url=str(state["next_url"]), window_end=window_end.isoformat())
             )
 
-    def window_pages(window_end: date, params: dict[str, Any], next_url: Optional[str] = None) -> Iterator[Any]:
+    def window_pages(window_end: date, dates: dict[str, str], next_url: Optional[str] = None) -> Iterator[Any]:
         yield from rest_api_resource(
-            _report_config(api_key, endpoint, report, params, should_use_incremental_field),
+            _report_config(api_key, endpoint, report, dates, should_use_incremental_field),
             team_id,
             job_id,
             db_incremental_field_last_value,
@@ -210,10 +207,11 @@ def tenjin_source(
     def pages() -> Iterator[Any]:
         try:
             if resume is not None and resume.window_end and resume.next_url:
-                # The saved URL carries its own dates and page, so the paginator drops the params.
                 yield from window_pages(date.fromisoformat(resume.window_end), {}, resume.next_url)
             for window in date_windows(start, today):
-                yield from window_pages(window.end, report_params(report, window))
+                yield from window_pages(
+                    window.end, {"start_date": window.start.isoformat(), "end_date": window.end.isoformat()}
+                )
         except requests.HTTPError as e:
             if e.response is None or e.response.status_code != 400:
                 raise
@@ -237,18 +235,21 @@ def tenjin_source(
 
 
 def validate_credentials(api_key: str) -> bool:
-    """Confirm the access token works by sending the request a sync of `app_report` sends for one window.
-
-    A report request that Tenjin rejects then fails here, with Tenjin's reason, instead of at the first sync.
+    """Confirm the access token works with a one-day, one-row report probe.
 
     Returns ``True`` on success. Raises ``TenjinCredentialsError`` with a user-facing message when
     Tenjin rejects the token, ``TenjinRetryableError`` on rate-limit / 5xx responses, and lets
     transport errors propagate so a transient failure isn't mislabelled as a bad credential.
     Never returns ``False``.
     """
-    today = _today()
-    report = TENJIN_REPORTS["app_report"]
-    params = report_params(report, SyncWindow(start=today - timedelta(days=WINDOW_DAYS - 1), end=today))
+    today = _today().isoformat()
+    params = {
+        "start_date": today,
+        "end_date": today,
+        "group_by": "app",
+        "metrics": "spend",
+        "per_page": 1,
+    }
     session = make_tracked_session(
         headers={"Authorization": f"Bearer {api_key}", "Accept": "application/json"},
         redact_values=(api_key,),
@@ -257,7 +258,7 @@ def validate_credentials(api_key: str) -> bool:
         allow_redirects=False,
     )
     response = session.get(
-        f"{TENJIN_BASE_URL}{report.path}?{urlencode(params)}",
+        f"{TENJIN_BASE_URL}/reports/spend?{urlencode(params)}",
         timeout=VALIDATE_TIMEOUT_SECONDS,
     )
 
@@ -273,8 +274,6 @@ def validate_credentials(api_key: str) -> bool:
             "Automate > API Access Tokens in the Tenjin dashboard and that it has the "
             "Reporting Metrics API permission."
         )
-    if response.status_code == 400:
-        raise TenjinCredentialsError(rejected_request_message(response, api_key))
     raise TenjinCredentialsError(
         f"Tenjin returned an unexpected response (HTTP {response.status_code}) while validating "
         "credentials. If your access token looks correct, please try again shortly."

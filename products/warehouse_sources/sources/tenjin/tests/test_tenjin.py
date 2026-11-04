@@ -220,22 +220,16 @@ class TestValidateCredentials:
         with scripted_network([answer]), mock.patch.object(tenjin, "_today", return_value=TODAY):
             return validate_credentials("token")
 
-    def test_probe_sends_the_request_a_sync_sends_for_one_window(self) -> None:
+    def test_probe_is_one_day_and_one_row(self) -> None:
         with (
             scripted_network([ScriptedResponse(json={"data": []})]) as network,
             mock.patch.object(tenjin, "_today", return_value=TODAY),
         ):
-            validate_credentials("test-key")
-        sync = _drive(
-            [_report_page([])], should_use_incremental_field=True, db_incremental_field_last_value=TODAY.isoformat()
-        ).requests[0]
+            validate_credentials("token")
 
-        probe = network.requests_log[0]
-        assert probe.path == sync.path
-        assert dict(probe.query) == {
-            **sync.query,
-            "start_date": ((TODAY - timedelta(days=WINDOW_DAYS - 1)).isoformat(),),
-        }
+        request = network.requests_log[0]
+        assert request.param("start_date") == request.param("end_date") == TODAY.isoformat()
+        assert request.param("per_page") == "1"
 
     @parameterized.expand([(429,), (503,)])
     def test_throttle_and_5xx_are_retryable(self, status: int) -> None:
@@ -261,11 +255,6 @@ class TestValidateCredentials:
         with pytest.raises(TenjinCredentialsError) as exc:
             self._validate(ScriptedResponse(status=status, json=body))
         assert "Reporting Metrics API permission" in str(exc.value)
-
-    def test_rejected_probe_carries_tenjins_reason(self) -> None:
-        with pytest.raises(TenjinCredentialsError) as exc:
-            self._validate(ScriptedResponse(status=400, json={"error": "Invalid date range"}))
-        assert str(exc.value) == "Tenjin rejected the report request: Invalid date range"
 
     def test_unexpected_status_does_not_blame_the_token(self) -> None:
         with pytest.raises(TenjinCredentialsError) as exc:
