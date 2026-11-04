@@ -628,15 +628,7 @@ class DataWarehouseSavedQuerySerializer(
             if frequency_changed and previous_target != target:
                 # The cadence lives on the DAG node, so changes_between() sees nothing and
                 # log_activity would discard the whole updated entry as a no-op.
-                changes.append(
-                    Change(
-                        type="DataWarehouseSavedQuery",
-                        action="changed",
-                        field="sync_frequency_interval",
-                        before=str(previous_target) if previous_target is not None else None,
-                        after=str(target) if target is not None else None,
-                    )
-                )
+                changes.extend(modeling_api.cadence_changes((previous_target, target)))
             log_activity(
                 organization_id=team.organization_id,
                 team_id=team.id,

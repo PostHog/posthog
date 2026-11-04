@@ -46,6 +46,7 @@ export const ToolConfigSchema = z
          * Example: "Time series, aggregations, formulas, comparisons"
          */
         system_prompt_hint: z.string().optional(),
+        search_keywords: z.array(z.string().trim().min(1)).optional(),
         /**
          * Brief work-protocol guidance appended to the tool's *response* as `_agentNote`,
          * so the agent sees it at point of use instead of it growing the always-loaded tool
@@ -594,6 +595,7 @@ export const QueryWrapperToolConfigSchema = z
          * Example: "Time series, aggregations, formulas, comparisons"
          */
         system_prompt_hint: z.string().optional(),
+        search_keywords: z.array(z.string().trim().min(1)).optional(),
         ui_resource_uri: z.string().optional(),
         /** Properties to exclude from the generated Zod schema */
         exclude_properties: z.array(z.string()).optional(),

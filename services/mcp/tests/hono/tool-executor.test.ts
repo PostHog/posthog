@@ -667,6 +667,12 @@ describe('ToolExecutor', () => {
             expect(properties.context!.description).toBeTruthy()
             expect(properties.llm_model!.description).toBeTruthy()
             expect(renderUiEntry.inputSchema.required).toEqual(['tool_name', 'context', 'llm_model'])
+            expect(renderUiEntry.annotations).toEqual({
+                destructiveHint: false,
+                idempotentHint: true,
+                openWorldHint: false,
+                readOnlyHint: true,
+            })
 
             const restrictedResult = await executor.handleToolsList(
                 makeToolExecutorState([], { useSingleExec: true, renderUiEnabled: true })

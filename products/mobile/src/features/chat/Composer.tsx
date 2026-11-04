@@ -133,7 +133,6 @@ export const Composer = forwardRef<TextInput, ComposerProps>(function Composer(
                 placeholderTextColor={colors.tertiary}
                 keyboardAppearance={scheme}
                 style={[styles.input, compact && styles.inputCompact]}
-                autoFocus
                 multiline
                 disableFullscreenUI
                 returnKeyType="send"
