@@ -81,7 +81,6 @@ export interface workflowsSavedViewsLogicValues {
     defaultView: WorkflowViewApi | null
     enabled: boolean
     isModified: boolean
-    mutationFailure: unknown
     myWorkflowsDeleted: boolean
     pendingAction: SavedViewAction | null
     savedViews: WorkflowViewApi[] | null
@@ -165,10 +164,12 @@ export interface workflowsSavedViewsLogicActions {
     }
     renameView: (
         id: string,
-        name: string
+        name: string,
+        onFailure?: (failure: unknown) => void
     ) => {
         id: string
         name: string
+        onFailure: ((failure: unknown) => void) | undefined
     }
     resetView: (keepAddedFilters?: boolean) => {
         keepAddedFilters: boolean
@@ -176,8 +177,12 @@ export interface workflowsSavedViewsLogicActions {
     restoreMyWorkflows: () => {
         value: true
     }
-    saveViewAs: (name: string) => {
+    saveViewAs: (
+        name: string,
+        onFailure?: (failure: unknown) => void
+    ) => {
         name: string
+        onFailure: ((failure: unknown) => void) | undefined
     }
     setActiveViewId: (id: string) => {
         id: string
@@ -190,9 +195,6 @@ export interface workflowsSavedViewsLogicActions {
     }
     setDefaultView: (view: WorkflowViewApi | null) => {
         view: WorkflowViewApi | null
-    }
-    setMutationFailure: (failure: unknown) => {
-        failure: unknown
     }
     setPendingAction: (action: SavedViewAction | null) => {
         action: SavedViewAction | null
@@ -292,16 +294,16 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
         setActiveViewId: (id: string) => ({ id }),
         applyView: (view: WorkflowSavedView) => ({ view }),
         resetView: (keepAddedFilters: boolean = false) => ({ keepAddedFilters }),
-        saveViewAs: (name: string) => ({ name }),
+        // `onFailure` lets a dialog stay open on a failure the toast already explained.
+        saveViewAs: (name: string, onFailure?: (failure: unknown) => void) => ({ name, onFailure }),
         updateActiveView: true,
-        renameView: (id: string, name: string) => ({ id, name }),
+        renameView: (id: string, name: string, onFailure?: (failure: unknown) => void) => ({ id, name, onFailure }),
         deleteView: (id: string) => ({ id }),
         restoreMyWorkflows: true,
         upsertSavedView: (view: WorkflowViewApi) => ({ view }),
         removeSavedView: (id: string) => ({ id }),
         setDefaultView: (view: WorkflowViewApi | null) => ({ view }),
         setPendingAction: (action: SavedViewAction | null) => ({ action }),
-        setMutationFailure: (failure: unknown) => ({ failure }),
         setConflictedViewId: (id: string | null) => ({ id }),
         syncViewFromUrl: true,
         clearSavedViews: true,
@@ -391,19 +393,6 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
         pendingAction: [
             null as SavedViewAction | null,
             { setPendingAction: (_, { action }) => action, clearSavedViews: () => null },
-        ],
-        mutationFailure: [
-            null as unknown,
-            {
-                resetView: () => null,
-                saveViewAs: () => null,
-                updateActiveView: () => null,
-                renameView: () => null,
-                deleteView: () => null,
-                restoreMyWorkflows: () => null,
-                setMutationFailure: (_, { failure }) => failure,
-                clearSavedViews: () => null,
-            },
         ],
         conflictedViewId: [
             null as string | null,
@@ -599,7 +588,8 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
         const runMutation = async (
             action: SavedViewAction,
             run: (stillCurrent: () => boolean) => Promise<void>,
-            target?: WorkflowSavedView
+            target?: WorkflowSavedView,
+            onFailure?: (failure: unknown) => void
         ): Promise<void> => {
             const needsWriteAccess = action !== 'reset'
             if (!values.available || values.saving || (needsWriteAccess && values.writeDisabledReason)) {
@@ -616,7 +606,10 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                 await run(stillCurrent)
             } catch (error) {
                 if (stillCurrent()) {
-                    actions.setMutationFailure(handleFailure(action, error, target))
+                    const failure = handleFailure(action, error, target)
+                    if (failure) {
+                        onFailure?.(failure)
+                    }
                 }
             } finally {
                 if (stillCurrent()) {
@@ -788,23 +781,28 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                     }
                 }
             },
-            saveViewAs: async ({ name }) =>
-                await runMutation('save-as', async (stillCurrent) => {
-                    const sourceViewId = values.activeViewId
-                    const view = await api.workflowViewsCreate(String(values.currentTeamId), {
-                        name: name.trim(),
-                        state: workflowViewState(values.value, values.shownColumns),
-                    })
-                    if (!stillCurrent()) {
-                        return
-                    }
-                    actions.upsertSavedView(view)
-                    if (values.activeViewId === sourceViewId) {
-                        keepAdditionsMadeWhileSaving(view)
-                        actions.setActiveViewId(view.id)
-                    }
-                    lemonToast.success(`Saved ${view.name} as a new view`)
-                }),
+            saveViewAs: async ({ name, onFailure }) =>
+                await runMutation(
+                    'save-as',
+                    async (stillCurrent) => {
+                        const sourceViewId = values.activeViewId
+                        const view = await api.workflowViewsCreate(String(values.currentTeamId), {
+                            name: name.trim(),
+                            state: workflowViewState(values.value, values.shownColumns),
+                        })
+                        if (!stillCurrent()) {
+                            return
+                        }
+                        actions.upsertSavedView(view)
+                        if (values.activeViewId === sourceViewId) {
+                            keepAdditionsMadeWhileSaving(view)
+                            actions.setActiveViewId(view.id)
+                        }
+                        lemonToast.success(`Saved ${view.name} as a new view`)
+                    },
+                    undefined,
+                    onFailure
+                ),
             updateActiveView: async () => {
                 const current = values.activeView
                 if (current.builtIn || values.sharedSaveDisabledReason) {
@@ -830,7 +828,7 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                     current
                 )
             },
-            renameView: async ({ id, name }) => {
+            renameView: async ({ id, name, onFailure }) => {
                 const current = values.views.find((view) => view.id === id)
                 if (!current || current.builtIn) {
                     return
@@ -847,7 +845,8 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                         }
                         actions.upsertSavedView(updated)
                     },
-                    current
+                    current,
+                    onFailure
                 )
             },
             deleteView: async ({ id }) => {

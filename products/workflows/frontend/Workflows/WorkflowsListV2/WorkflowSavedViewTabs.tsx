@@ -7,9 +7,13 @@ import { WorkflowSavedViewActions } from './WorkflowSavedViewActions'
 import { WorkflowSavedViewTabsRow } from './WorkflowSavedViewTabsRow'
 import { workflowsSavedViewsLogic } from './workflowsSavedViewsLogic'
 
-async function keepDialogOpenOnFailure(mutation: Promise<void>): Promise<void> {
-    await mutation
-    const failure = workflowsSavedViewsLogic.values.mutationFailure
+async function keepDialogOpenOnFailure(
+    mutate: (onFailure: (failure: unknown) => void) => Promise<void>
+): Promise<void> {
+    let failure: unknown = null
+    await mutate((reported) => {
+        failure = reported
+    })
     if (failure) {
         throw failure
     }
@@ -78,15 +82,17 @@ export function WorkflowSavedViewTabs(): JSX.Element | null {
                     onReset={() => resetView()}
                     onSaveAs={() =>
                         openWorkflowSavedViewDialog((name) =>
-                            keepDialogOpenOnFailure(workflowsSavedViewsLogic.asyncActions.saveViewAs(name))
+                            keepDialogOpenOnFailure((onFailure) =>
+                                workflowsSavedViewsLogic.asyncActions.saveViewAs(name, onFailure)
+                            )
                         )
                     }
                     onSave={updateActiveView}
                     onRename={() =>
                         openWorkflowSavedViewDialog(
                             (name) =>
-                                keepDialogOpenOnFailure(
-                                    workflowsSavedViewsLogic.asyncActions.renameView(activeView.id, name)
+                                keepDialogOpenOnFailure((onFailure) =>
+                                    workflowsSavedViewsLogic.asyncActions.renameView(activeView.id, name, onFailure)
                                 ),
                             activeView.name
                         )

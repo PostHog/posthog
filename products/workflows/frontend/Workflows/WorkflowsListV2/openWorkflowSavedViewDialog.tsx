@@ -12,17 +12,13 @@ export function openWorkflowSavedViewDialog(onSubmit: (name: string) => Promise<
                 : undefined,
         initialValues: { name: currentName ?? '' },
         shouldAwaitSubmit: true,
+        primaryButtonProps: { children: currentName === undefined ? 'Save view' : 'Rename view' },
         content: (
             <LemonField name="name">
                 <LemonInput
                     maxLength={128}
                     placeholder={currentName === undefined ? 'For example: Webinar emails' : undefined}
                     autoFocus
-                    onKeyDown={(event) => {
-                        if (event.key === 'Enter' && event.nativeEvent.isComposing) {
-                            event.stopPropagation()
-                        }
-                    }}
                     data-attr={currentName === undefined ? 'workflows-combined-view-name' : undefined}
                 />
             </LemonField>

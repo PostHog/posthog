@@ -902,16 +902,21 @@ describe('workflowsSavedViewsLogic', () => {
     })
 
     type FailingAction = 'update' | 'save-as' | 'rename' | 'delete' | 'restore'
-    const runFailingAction = async (action: FailingAction): Promise<void> => {
+    const runFailingAction = async (action: FailingAction): Promise<unknown> => {
         workflowsListV2Logic.actions.setValue({ filters: [], text: 'mine' })
+        let reported: unknown = null
+        const onFailure = (failure: unknown): void => {
+            reported = failure
+        }
         const attempts: Record<FailingAction, () => Promise<unknown>> = {
             update: () => logic.asyncActions.updateActiveView(),
-            'save-as': () => logic.asyncActions.saveViewAs('Mine'),
-            rename: () => logic.asyncActions.renameView(VIEW_ID, 'Mine'),
+            'save-as': () => logic.asyncActions.saveViewAs('Mine', onFailure),
+            rename: () => logic.asyncActions.renameView(VIEW_ID, 'Mine', onFailure),
             delete: () => logic.asyncActions.deleteView(VIEW_ID),
             restore: () => logic.asyncActions.restoreMyWorkflows(),
         }
-        await attempts[action]().catch(() => {})
+        await attempts[action]()
+        return reported
     }
 
     it.each<[FailingAction, number, Record<string, string>, string]>([
@@ -945,26 +950,31 @@ describe('workflowsSavedViewsLogic', () => {
             { detail: 'Server error' },
             "Couldn't restore My workflows. Check your connection and try again.",
         ],
-    ])('explains a failed %s that returns %s', async (action, status, body, message) => {
-        const toastError = jest.spyOn(lemonToast, 'error')
-        const fail = (): [number, Record<string, string>] => [status, body]
-        useMocks({
-            patch: { '/api/projects/:team_id/workflow_views/:id/': fail },
-            delete: { '/api/projects/:team_id/workflow_views/:id/': fail },
-            post: {
-                '/api/projects/:team_id/workflow_views/': fail,
-                '/api/projects/:team_id/workflow_views/restore_default/': fail,
-            },
-        })
-        router.actions.push(urls.workflows(), { view: VIEW_ID })
-        logic = workflowsSavedViewsLogic()
-        logic.mount()
-        await expectLogic(logic).toDispatchActions(['loadSavedViewsSuccess'])
+    ])(
+        'explains a failed %s that returns %s, and hands a dialog its failure',
+        async (action, status, body, message) => {
+            const toastError = jest.spyOn(lemonToast, 'error')
+            const fail = (): [number, Record<string, string>] => [status, body]
+            useMocks({
+                patch: { '/api/projects/:team_id/workflow_views/:id/': fail },
+                delete: { '/api/projects/:team_id/workflow_views/:id/': fail },
+                post: {
+                    '/api/projects/:team_id/workflow_views/': fail,
+                    '/api/projects/:team_id/workflow_views/restore_default/': fail,
+                },
+            })
+            router.actions.push(urls.workflows(), { view: VIEW_ID })
+            logic = workflowsSavedViewsLogic()
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadSavedViewsSuccess'])
 
-        await runFailingAction(action)
+            const failure = await runFailingAction(action)
 
-        expect(toastError).toHaveBeenLastCalledWith(message)
-    })
+            expect(toastError).toHaveBeenLastCalledWith(message)
+            const fromDialog = action === 'save-as' || action === 'rename'
+            expect((failure as { status?: number } | null)?.status).toEqual(fromDialog ? status : undefined)
+        }
+    )
 
     it('keeps local edits on All when the view being updated was deleted by someone else', async () => {
         const toastError = jest.spyOn(lemonToast, 'error')
@@ -989,9 +999,11 @@ describe('workflowsSavedViewsLogic', () => {
         expect(workflowsListV2Logic.values.value.filters).toEqual([status('active'), eventTrigger])
 
         expect(logic.values.myWorkflowsDeleted).toBe(false)
-        await logic.asyncActions.renameView(myWorkflows.id, 'Mine')
+        const keepDialogOpen = jest.fn()
+        await logic.asyncActions.renameView(myWorkflows.id, 'Mine', keepDialogOpen)
         expect(logic.values.views.some((view) => view.id === myWorkflows.id)).toBe(false)
         expect(logic.values.myWorkflowsDeleted).toBe(true)
+        expect(keepDialogOpen).not.toHaveBeenCalled()
     })
 
     it('offers to restore My workflows when reset finds it deleted by someone else', async () => {
