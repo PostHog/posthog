@@ -2013,8 +2013,7 @@ def test_estimate_sccache_accepts_a_directory_of_its_own(monkeypatch: pytest.Mon
 def test_collect_rust_target_dirs_includes_the_shared_cargo_target_dir(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    # The Flox env points CARGO_TARGET_DIR outside the checkout, so a repo-only
-    # scan reports the Rust artifacts as empty while they hold tens of GB.
+    # A CARGO_TARGET_DIR outside the checkout holds the Rust artifacts, so a repo-only scan reports them as empty.
     repo = tmp_path / "repo"
     repo.mkdir()
     shared_target = tmp_path / "cargo-target"
