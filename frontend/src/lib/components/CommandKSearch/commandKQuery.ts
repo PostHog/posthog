@@ -418,12 +418,13 @@ const BACKEND_FILTER_FIELDS = new Set(['path', 'name', 'user', 'author', 'type',
 // List pages match one phrase, which cannot exclude, so excluded words and filters other than `name:` stay out.
 interface SearchTerms {
     words: string[]
+    freeWords: string[]
     name: string | null
     excludes: boolean
 }
 
 function searchTerms(backendSearch: string): SearchTerms {
-    const terms: SearchTerms = { words: [], name: null, excludes: false }
+    const terms: SearchTerms = { words: [], freeWords: [], name: null, excludes: false }
     for (const raw of tokenizeSearch(backendSearch)) {
         if (raw.startsWith('-') || raw.startsWith('!')) {
             terms.excludes ||= raw.length > 1
@@ -437,6 +438,7 @@ function searchTerms(backendSearch: string): SearchTerms {
             terms.words.push(terms.name)
         } else if (field === null || !BACKEND_FILTER_FIELDS.has(field)) {
             terms.words.push(token)
+            terms.freeWords.push(token)
         }
     }
     return terms
@@ -446,12 +448,21 @@ export function listSearchText({ backendSearch }: Pick<ResolvedQuery, 'backendSe
     return searchTerms(backendSearch).words.filter(Boolean).join(' ')
 }
 
-export function nameAndExclusions({ backendSearch }: Pick<ResolvedQuery, 'backendSearch'>): {
+export interface TypeSearchTerms {
+    text: string
     name: string | null
+    freeText: string
     excludes: boolean
-} {
-    const { name, excludes } = searchTerms(backendSearch)
-    return { name: name || null, excludes }
+}
+
+export function typeSearchTerms({ backendSearch }: Pick<ResolvedQuery, 'backendSearch'>): TypeSearchTerms {
+    const { words, freeWords, name, excludes } = searchTerms(backendSearch)
+    return {
+        text: words.filter(Boolean).join(' '),
+        name: name || null,
+        freeText: freeWords.filter(Boolean).join(' '),
+        excludes,
+    }
 }
 
 /** The raw query as a person would type it, chips included. Used when copying the input. */

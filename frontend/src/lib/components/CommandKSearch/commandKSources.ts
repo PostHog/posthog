@@ -11,7 +11,7 @@ import {
     ticketToSearchItem,
     unifiedSearchResultToSearchItem,
 } from 'lib/components/Search/searchItems'
-import { shouldSearchTickets } from 'lib/components/Search/utils'
+import { isTicketNumberQuery, shouldSearchTickets } from 'lib/components/Search/utils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
 import { mapGroupQueryResponse } from 'lib/utils/groups'
@@ -29,7 +29,7 @@ import { accountsList } from 'products/customer_analytics/frontend/generated/api
 import { personsList } from 'products/persons/frontend/generated/api'
 import { productToursList } from 'products/product_tours/frontend/generated/api'
 
-import { listSearchText, nameAndExclusions, parseToken, tokenize } from './commandKQuery'
+import { TypeSearchTerms, parseToken, tokenize, typeSearchTerms } from './commandKQuery'
 import { freeWords } from './commandKRanking'
 
 export const RESULTS_LIMIT = 20
@@ -180,13 +180,13 @@ const UNIFIED_TYPES: Record<string, RemoteSource> = {
     hog_flow: 'workflows',
 }
 
-type TypeSearch = (text: string, signal: AbortSignal, context: RemoteContext) => Promise<SearchItem[]>
+type TypeSearch = (terms: TypeSearchTerms, signal: AbortSignal, context: RemoteContext) => Promise<SearchItem[]>
 
 const unifiedTypeSearch =
     (entity: SearchableEntity, type: string): TypeSearch =>
-    async (q, signal) => {
+    async ({ text }, signal) => {
         const response = await api.search.list(
-            { q: q || undefined, entities: [entity], include_counts: false },
+            { q: text || undefined, entities: [entity], include_counts: false },
             { signal }
         )
         return response.results.map((result) => {
@@ -196,24 +196,25 @@ const unifiedTypeSearch =
     }
 
 const TYPE_SEARCHES: Record<string, TypeSearch> = {
-    alert: async (search, signal, context) => {
+    alert: async ({ text }, signal, context) => {
         const response = await alertsList(
             String(context.currentTeamId),
-            { search: search || undefined, limit: SECONDARY_LIMIT },
+            { search: text || undefined, limit: SECONDARY_LIMIT },
             { signal }
         )
         return response.results.map(alertToSearchItem)
     },
     endpoints: unifiedTypeSearch('endpoint', 'endpoints'),
-    product_tour: async (search, signal, context) => {
+    product_tour: async ({ text }, signal, context) => {
         const response = await productToursList(
             String(context.currentTeamId),
-            { search: search || undefined, limit: RESULTS_LIMIT },
+            { search: text || undefined, limit: RESULTS_LIMIT },
             { signal }
         )
         return response.results.map(productTourToSearchItem)
     },
-    ticket: async (search, signal, context) => {
+    ticket: async ({ text, name, freeText }, signal, context) => {
+        const search = name && isTicketNumberQuery(text) ? freeText : text
         if (search && !shouldSearchTickets(search)) {
             return []
         }
@@ -247,15 +248,16 @@ async function fetchTypeResults(
     if (!typeSearch) {
         return null
     }
-    const { name, excludes } = nameAndExclusions({ backendSearch: search })
+    const terms = typeSearchTerms({ backendSearch: search })
     const otherFilters = tokenize(search)
         .map((token) => parseToken(token.raw))
         .some((token) => token.filter && !PHRASE_FILTER_KEYS.has(token.filter.key))
-    if (excludes || otherFilters) {
+    if (terms.excludes || otherFilters) {
         return []
     }
-    const items = await typeSearch(listSearchText({ backendSearch: search }), signal, context)
-    return name ? items.filter((item) => nameOf(item).includes(name.toLowerCase())) : items
+    const items = await typeSearch(terms, signal, context)
+    const name = terms.name?.toLowerCase()
+    return name ? items.filter((item) => nameOf(item).includes(name)) : items
 }
 
 export function requestDebounceMs(request: RemoteRequest, query: string): number {

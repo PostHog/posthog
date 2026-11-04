@@ -236,6 +236,22 @@ describe('settleRequest', () => {
         })
 
         test.each([
+            ['type:ticket name:42', undefined],
+            ['type:ticket name:#42', undefined],
+        ])('searches subjects rather than ticket numbers for %s', async (query, search) => {
+            jest.mocked(conversationsTicketsList).mockResolvedValue({
+                count: 2,
+                results: [
+                    { id: 't-7', ticket_number: 7, email_subject: 'Refund for order #42' },
+                    { id: 't-42', ticket_number: 42, email_subject: 'Card declined' },
+                ],
+            } as any)
+            const result = await settleRequest(objects, query, new AbortController().signal, context)
+            expect(conversationsTicketsList).toHaveBeenCalledWith('1', { search, limit: 20 }, expect.anything())
+            expect(result?.results.results?.map((item) => item.href)).toEqual(['/support/tickets/7'])
+        })
+
+        test.each([
             [
                 'the identified person before older traits',
                 { properties: { name: 'Jane Smith', email: 'jane@example.com' } },
