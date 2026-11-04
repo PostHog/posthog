@@ -76,10 +76,9 @@ const TRIGGER_MISMATCH_EXITS: ReadonlySet<string> = new Set([
     'exit_on_trigger_not_matched_or_conversion',
 ])
 
-// The email service sets teamCapped and suppressionLookupAttempts when it delays one send, and that send reads
-// them from the job's stored metadata. The actions after it in the same dequeue start from this executor's result,
-// so both stay off them. Otherwise their queue waits would count as cap delays, and their first suppression hold
-// would start from the earlier send's backoff.
+// The email service sets teamCapped and suppressionLookupAttempts on one delayed send, which reads them from the
+// job's stored metadata. The actions after it in the same dequeue start from this executor's result, so neither
+// leaks into them as a cap delay or an inherited backoff.
 function withoutSendRetryState(
     metadata: CyclotronJobInvocationHogFlow['queueMetadata']
 ): CyclotronJobInvocationHogFlow['queueMetadata'] {

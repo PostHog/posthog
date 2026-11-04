@@ -234,7 +234,6 @@ const CAP_RETRY_MAX_MS = 60 * 60 * 1_000
 
 const SUPPRESSION_RETRY_MS = 30_000
 
-// The jitter spreads a held backlog, so it does not retry against the database in one burst.
 function suppressionRetryDelayMs(attempt: number): number {
     return Math.min(Math.floor(SUPPRESSION_RETRY_MS * 2 ** (attempt - 1) * (1 + Math.random())), CAP_RETRY_MAX_MS)
 }
