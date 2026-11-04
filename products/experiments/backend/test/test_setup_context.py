@@ -168,6 +168,7 @@ class TestClassifyLib(SimpleTestCase):
             ("posthog-node", "server"),
             ("posthog-python", "server"),
             ("posthog-rails", "server"),
+            ("posthog-laravel", "server"),
             ("posthog-ios", "mobile"),
             ("posthog-unity", "mobile"),
             ("posthog-something-new", "other"),
