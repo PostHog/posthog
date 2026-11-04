@@ -68,6 +68,12 @@ export const ExternalDataDestinationsCreateBody = () => zod.object({
         .describe(
             "Integration holding this destination's credentials. Required for every type except the PostHog warehouse."
         ),
+    migration_item_id: zod
+        .string()
+        .optional()
+        .describe(
+            'The warehouse migration item that planned this destination. The integration must keep every setting the connect page prefilled from it, or creation fails before PostHog connects anywhere.'
+        ),
 })
 
 /**

@@ -81,8 +81,9 @@ project yet. Tell the user that and stop.
    in the connection settings it supports from Fivetran, so the user types only the secret. For any setting the page
    leaves empty, tell the user the value from `proposal.destination`. The page does not set the schema. Then create
    the destination with `external-data-destinations-create`, and pass `posthog_<prefix>` as the schema in its target
-   config, with the other target values in the link's `suggested_config`. Pass the new destination's id as
-   `destination_ids` to apply.
+   config, with the other target values in the link's `suggested_config`, and the same `migration_item_id`. Creation
+   fails if the saved connection changed a prefilled setting. Pass the new destination's id as `destination_ids` to
+   apply.
    Attached at creation, the destination gets the full history in the first sync. If those tools are not available,
    the data lands in the PostHog warehouse only.
 5. **Move one connection at a time.** Ask which to start with; databases are a good first pick because the user

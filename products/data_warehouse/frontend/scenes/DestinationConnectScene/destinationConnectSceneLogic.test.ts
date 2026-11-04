@@ -12,6 +12,7 @@ import { destinationConnectSceneLogic } from './destinationConnectSceneLogic'
 const ITEMS: Record<string, Record<string, any>> = {
     'item-1': {
         id: 'item-1',
+        created_by: { first_name: 'Ana', email: 'ana@example.com' },
         proposal: {
             prefix: 'shop',
             destination: {
@@ -88,7 +89,16 @@ describe('destinationConnectSceneLogic', () => {
         expect(viewed).toHaveLength(1)
     })
 
-    it('prefills the setup form once from the migration item, leaving the password empty', async () => {
+    it('locks the prefilled server, opens the form only after the user confirms it, and saves the locked values', async () => {
+        const created: Record<string, any>[] = []
+        useMocks({
+            post: {
+                '/api/projects/:team_id/integrations': async ({ request }) => {
+                    created.push((await request.json()) as Record<string, any>)
+                    return [201, { id: 7, kind: 'postgresql' }]
+                },
+            },
+        })
         const searchParams = { kind: 'postgresql', migration_id: 'migration-1', migration_item_id: 'item-1' }
         await expectLogic(destinationConnectSceneLogic, () =>
             router.actions.push('/data-warehouse/connect-destination', searchParams)
@@ -97,9 +107,22 @@ describe('destinationConnectSceneLogic', () => {
         await expectLogic(destinationConnectSceneLogic).toFinishAllListeners()
 
         expect(itemRequests).toEqual(1)
+        expect(destinationConnectSceneLogic.values).toMatchObject({
+            migrationCreator: { first_name: 'Ana', email: 'ana@example.com' },
+            prefilledFieldRows: [
+                { label: 'Host', value: 'db.example.com' },
+                { label: 'Port', value: '6543' },
+                { label: 'User', value: 'loader' },
+            ],
+            setupModalOpen: false,
+            openSetupDisabledReason: 'Confirm the server above first',
+        })
+        destinationConnectSceneLogic.actions.setPrefillConfirmed(true)
+        expect(destinationConnectSceneLogic.values.setupModalOpen).toBe(true)
+
         const formLogic = postgreSQLSetupModalLogic({
             isOpen: true,
-            defaults: destinationConnectSceneLogic.values.setupDefaults,
+            locked: { values: destinationConnectSceneLogic.values.lockedSetupValues!, reason: 'Set by the migration.' },
             onComplete: () => {},
         })
         formLogic.mount()
@@ -110,6 +133,13 @@ describe('destinationConnectSceneLogic', () => {
             password: null,
         })
         expect(formLogic.values.postgreSQLIntegration).not.toHaveProperty('database')
+        formLogic.actions.setPostgreSQLIntegrationValues({
+            host: 'elsewhere.example.net',
+            password: 'not-a-real-secret',
+        })
+        await expectLogic(formLogic, () => formLogic.actions.submitPostgreSQLIntegration()).toFinishAllListeners()
+        expect(created).toHaveLength(1)
+        expect(created[0].config).toMatchObject({ host: 'db.example.com', port: 6543, user: 'loader' })
         formLogic.unmount()
     })
 
@@ -124,15 +154,17 @@ describe('destinationConnectSceneLogic', () => {
             open('item-1')
             open('item-2')
         }).toFinishAllListeners()
-        expect(destinationConnectSceneLogic.values.setupDefaults).toEqual({ host: 'billing.example.com' })
+        expect(destinationConnectSceneLogic.values.lockedSetupValues).toEqual({ host: 'billing.example.com' })
 
+        destinationConnectSceneLogic.actions.setPrefillConfirmed(true)
         destinationConnectSceneLogic.actions.setIntegrationId(42)
         await expectLogic(destinationConnectSceneLogic, () => open('item-1')).toFinishAllListeners()
 
         expect(destinationConnectSceneLogic.values).toMatchObject({
             integrationId: null,
+            prefillConfirmed: false,
             isModalOpen: true,
-            setupDefaults: { host: 'db.example.com', port: 6543, user: 'loader' },
+            lockedSetupValues: { host: 'db.example.com', port: 6543, user: 'loader' },
         })
     })
 
@@ -146,7 +178,10 @@ describe('destinationConnectSceneLogic', () => {
             open('item-1')
             open()
         }).toFinishAllListeners()
-        expect(destinationConnectSceneLogic.values).toMatchObject({ migrationItemId: null, setupDefaults: undefined })
+        expect(destinationConnectSceneLogic.values).toMatchObject({
+            migrationItemId: null,
+            lockedSetupValues: undefined,
+        })
 
         await expectLogic(destinationConnectSceneLogic, () => open('item-2')).toFinishAllListeners()
         destinationConnectSceneLogic.actions.completeSetup(42, 'item-1')

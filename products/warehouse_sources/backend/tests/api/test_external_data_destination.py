@@ -1311,18 +1311,8 @@ class TestDestinationConnectLink(DestinationAPITestBase):
         assert f"type='{destination_type}'" in data["instructions"]
         assert ("tests the connection" in data["instructions"]) == tested_on_create
 
-    @parameterized.expand(
-        [
-            ("planned_type", "own", "Postgres", status.HTTP_200_OK),
-            ("other_team", "other", "Postgres", status.HTTP_400_BAD_REQUEST),
-            ("type_mismatch", "own", "Snowflake", status.HTTP_400_BAD_REQUEST),
-        ]
-    )
-    def test_carries_a_migration_item_for_prefill(
-        self, _name: str, owner: str, destination_type: str, expected_status: int
-    ) -> None:
-        team = self.team if owner == "own" else self.create_team_with_organization(organization=self.organization)
-        item = WarehouseMigrationItem.objects.for_team(team.pk).create(
+    def _planned_item(self, team: Team) -> WarehouseMigrationItem:
+        return WarehouseMigrationItem.objects.for_team(team.pk).create(
             team_id=team.pk,
             migration=WarehouseMigration.objects.for_team(team.pk).create(team_id=team.pk, provider="fivetran"),
             vendor_connection_id="conn_shop",
@@ -1343,6 +1333,19 @@ class TestDestinationConnectLink(DestinationAPITestBase):
             ).to_json(),
         )
 
+    @parameterized.expand(
+        [
+            ("planned_type", "own", "Postgres", status.HTTP_200_OK),
+            ("other_team", "other", "Postgres", status.HTTP_400_BAD_REQUEST),
+            ("type_mismatch", "own", "Snowflake", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_carries_a_migration_item_for_prefill(
+        self, _name: str, owner: str, destination_type: str, expected_status: int
+    ) -> None:
+        team = self.team if owner == "own" else self.create_team_with_organization(organization=self.organization)
+        item = self._planned_item(team)
+
         response = self.client.get(
             f"{self.base}/connect_link",
             {"destination_type": destination_type, "migration_item_id": str(item.id)},
@@ -1355,6 +1358,48 @@ class TestDestinationConnectLink(DestinationAPITestBase):
             assert data["suggested_config"] == {"database": "analytics", "schema": "posthog_shop"}
             assert "suggested_config" in data["instructions"]
             assert "analytics" not in data["instructions"]
+
+    @parameterized.expand(
+        [
+            ("matching_settings", {"host": "db.example.com", "port": 5432, "user": "loader"}, status.HTTP_201_CREATED),
+            ("port_as_text", {"host": "db.example.com", "port": "5432", "user": "loader"}, status.HTTP_201_CREATED),
+            (
+                "changed_host",
+                {"host": "elsewhere.example.net", "port": 5432, "user": "loader"},
+                status.HTTP_400_BAD_REQUEST,
+            ),
+        ]
+    )
+    def test_create_rejects_an_integration_that_changes_the_migration_prefill(
+        self, _name: str, integration_config: dict, expected_status: int
+    ) -> None:
+        item = self._planned_item(self.team)
+        integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.POSTGRESQL,
+            integration_id="pg-shop",
+            config=integration_config,
+        )
+
+        response = self.client.post(
+            self.base,
+            {
+                "type": "Postgres",
+                "name": "shop",
+                "integration": integration.pk,
+                "config": {"database": "analytics", "schema": "posthog_shop"},
+                "migration_item_id": str(item.id),
+            },
+            format="json",
+        )
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == status.HTTP_201_CREATED:
+            self.check_connection.assert_called_once()
+        else:
+            assert response.json()["attr"] == "integration"
+            assert "host" in response.json()["detail"]
+            self.check_connection.assert_not_called()
 
     @time_machine.travel("2026-03-01T12:00:00Z", tick=False)
     def test_each_link_gets_its_own_token_that_expires_after_the_ttl(self) -> None:

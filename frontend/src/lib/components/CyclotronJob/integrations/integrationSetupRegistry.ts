@@ -15,12 +15,19 @@ export type IntegrationSetupContext = {
     uploadKey: (kind: string) => void
 }
 
+// Setup form values the user may not change. The form starts with them, shows them read-only, and saves them as
+// they are. The modal reads them once, when it mounts.
+export type LockedSetupValues = {
+    values: Record<string, any>
+    // Shown on each read-only field.
+    reason: string
+}
+
 type IntegrationSetupModalProps = {
     isOpen: boolean
     kind: string
     integration?: any
-    // Starting values for the setup form, read when the modal first mounts.
-    defaults?: Record<string, any>
+    locked?: LockedSetupValues
     onComplete: (id?: number) => void
     onClose: () => void
 }

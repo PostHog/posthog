@@ -84,6 +84,8 @@ export interface ExternalDataDestinationApi {
      * @nullable
      */
     integration?: number | null
+    /** The warehouse migration item that planned this destination. The integration must keep every setting the connect page prefilled from it, or creation fails before PostHog connects anywhere. */
+    migration_item_id?: string
     /** Whether this is the managed PostHog warehouse destination. */
     readonly is_posthog_warehouse: boolean
     readonly created_at: string
@@ -145,6 +147,8 @@ export interface PatchedExternalDataDestinationApi {
      * @nullable
      */
     integration?: number | null
+    /** The warehouse migration item that planned this destination. The integration must keep every setting the connect page prefilled from it, or creation fails before PostHog connects anywhere. */
+    migration_item_id?: string
     /** Whether this is the managed PostHog warehouse destination. */
     readonly is_posthog_warehouse?: boolean
     readonly created_at?: string

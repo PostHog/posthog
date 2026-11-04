@@ -14,6 +14,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { destinationTypeLabel } from '../../shared/components/DestinationIcon'
 import { destinationConnectSceneLogic } from './destinationConnectSceneLogic'
+import { MigrationPrefillConfirm } from './MigrationPrefillConfirm'
 
 export const scene: SceneExport = {
     component: DestinationConnectScene,
@@ -26,12 +27,14 @@ export function DestinationConnectScene(): JSX.Element {
         kind,
         destinationDefinition,
         integrationSetup,
-        isModalOpen,
+        setupModalOpen,
+        openSetupDisabledReason,
         integrationId,
         handBackStatus,
         migrationItemId,
         migrationPrefillLoading,
-        setupDefaults,
+        setupLock,
+        showPrefillConfirm,
     } = useValues(destinationConnectSceneLogic)
     const { setModalOpen, completeSetup } = useActions(destinationConnectSceneLogic)
 
@@ -78,6 +81,7 @@ export function DestinationConnectScene(): JSX.Element {
                 }
             />
             <div className="max-w-200">
+                {showPrefillConfirm && <MigrationPrefillConfirm kind={kind} />}
                 {integrationId !== null ? (
                     <LemonBanner type={handBackStatus === 'sending' ? 'info' : 'success'}>
                         <p className="font-semibold mb-1">{typeLabel} connection saved</p>
@@ -99,10 +103,11 @@ export function DestinationConnectScene(): JSX.Element {
                         )}
                     </LemonBanner>
                 ) : (
-                    !isModalOpen && (
+                    !setupModalOpen && (
                         <LemonButton
                             type="primary"
                             onClick={() => setModalOpen(true)}
+                            disabledReason={openSetupDisabledReason}
                             data-attr="warehouse-destination-connect-open"
                         >
                             Enter credentials
@@ -111,11 +116,11 @@ export function DestinationConnectScene(): JSX.Element {
                 )}
             </div>
             <SetupModal
-                // The form reads its defaults once, so another migration item gets a fresh form.
+                // The form reads its locked values once, so another migration item gets a fresh form.
                 key={String(migrationItemId)}
-                isOpen={isModalOpen && integrationId === null}
+                isOpen={setupModalOpen}
                 kind={kind}
-                defaults={setupDefaults}
+                locked={setupLock}
                 // The modals' close button calls onComplete with the click event, so only a number is a saved id.
                 onComplete={(id) => (typeof id === 'number' ? completeSetup(id, migrationItemId) : setModalOpen(false))}
                 onClose={() => setModalOpen(false)}
