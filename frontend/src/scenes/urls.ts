@@ -287,7 +287,6 @@ export const urls = {
         const queryString = params.toString()
         return `${base}${queryString ? `?${queryString}` : ''}`
     },
-    simpleOnboarding: (): string => '/onboarding/simple',
     onboardingWelcome: (): string => '/welcome',
     // Cloud only
     organizationBilling: (products?: ProductKey[]): string =>

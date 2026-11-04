@@ -36498,6 +36498,11 @@ export namespace Schemas {
          * @maxLength 500
          */
       reviewer_retry_reason?: string;
+      /**
+         * Why no suitable owner exists, with `reviewer_outcome: no_suitable_owner`. Required to clear a report that already has suggested reviewers: without it the current reviewers stay and the response carries a warning. The reason is recorded in the report's work log.
+         * @maxLength 500
+         */
+      reviewer_outcome_reason?: string;
       /** Id of the report to edit (must belong to this project). */
       report_id: string;
       /**
@@ -68912,18 +68917,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `legacy` - Default onboarding
-     * * `simple` - Simple onboarding
-     */
-    export type OnboardingFlowVariantEnum = typeof OnboardingFlowVariantEnum[keyof typeof OnboardingFlowVariantEnum];
-
-
-    export const OnboardingFlowVariantEnum = {
-      Legacy: 'legacy',
-      Simple: 'simple',
-    } as const;
-
-    /**
      * The first-run session that was started for the requester.
      */
     export interface OnboardingSession {
@@ -69015,11 +69008,6 @@ export namespace Schemas {
          * @maxLength 64
          */
       step_at_skip?: string;
-      /** Which onboarding flow the user skipped from, for analytics only.
-       *
-       * * `legacy` - Default onboarding
-       * * `simple` - Simple onboarding */
-      flow_variant?: OnboardingFlowVariantEnum;
     }
 
     /**
