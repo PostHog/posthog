@@ -202,9 +202,10 @@ export GOPATH="$HOME/.cache/posthog/go"
 export GOCACHE="$HOME/.cache/posthog/go-build"
 export GOMODCACHE="$GOPATH/pkg/mod"
 # Old per-checkout caches hold six-figure file counts, so delete them off the activation path.
+# A shell opened before this change may still build from them, so wait until no go runs.
 # Module caches made without -modcacherw are read-only.
 for old_go_cache in "$FLOX_ENV_CACHE/go" "$FLOX_ENV_CACHE/go-build"; do
-  if [[ -d "$old_go_cache" ]] && mv "$old_go_cache" "$old_go_cache.old" 2>/dev/null; then
+  if [[ -d "$old_go_cache" ]] && ! pgrep -x go >/dev/null 2>&1 && mv "$old_go_cache" "$old_go_cache.old" 2>/dev/null; then
     (chmod -R u+w "$old_go_cache.old"; rm -rf "$old_go_cache.old") >/dev/null 2>&1 &
     disown
   fi
