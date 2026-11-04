@@ -2,6 +2,7 @@
 import React, { useMemo } from 'react'
 
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
+import { useResolvedChartTheme } from '../../core/theme'
 import type {
     BarChartConfig,
     ChartTheme,
@@ -32,7 +33,8 @@ export interface StackedBarListProps<Meta = unknown> {
     labels: string[]
     /** Stacked segments: `data[i]` is the value in row `i`, and `trackData[i]` caps that row's track. */
     series: Series<Meta>[]
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
+    theme?: ChartTheme
     config?: StackedBarListConfig
     /** Wrap long text in a `truncate` element. */
     renderLabel: (rowIndex: number) => React.ReactNode
@@ -64,7 +66,7 @@ export function StackedBarList<Meta = unknown>({ onError, ...rest }: StackedBarL
 function StackedBarListInner<Meta = unknown>({
     labels,
     series,
-    theme,
+    theme: themeProp,
     config,
     renderLabel,
     renderValue,
@@ -74,6 +76,7 @@ function StackedBarListInner<Meta = unknown>({
     onError,
     children,
 }: StackedBarListProps<Meta>): React.ReactElement {
+    const theme = useResolvedChartTheme(themeProp)
     const labelPosition = config?.labelPosition ?? 'start'
     const {
         rowHeight = DEFAULT_ROW_HEIGHT[labelPosition],

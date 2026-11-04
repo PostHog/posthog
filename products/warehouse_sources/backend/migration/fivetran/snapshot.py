@@ -257,7 +257,9 @@ def _parse_schedule(raw: Mapping[str, Any], utc_offset_hours: int) -> VendorSche
     if schedule_type == "MANUAL":
         return VendorSchedule(kind=ScheduleKind.MANUAL)
     if schedule_type == "CRON":
-        return VendorSchedule(kind=ScheduleKind.CRON, cron=schedule.get("cron"))
+        # Without its own zone, Fivetran runs the expression in the destination's UTC offset.
+        time_zone = schedule.get("time_zone") or f"UTC{utc_offset_hours:+03d}:00"
+        return VendorSchedule(kind=ScheduleKind.CRON, cron=schedule.get("cron"), time_zone=time_zone)
     if schedule_type == "TIME_OF_DAY":
         # Fivetran reads this time in the destination's UTC offset.
         time_of_day_utc, day_shift = _shift_to_utc(schedule.get("time_of_day"), utc_offset_hours)

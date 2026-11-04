@@ -1,6 +1,7 @@
 """Batch audience sizing and paging: the preview counts the editor shows, and the pages the Node
 batch resolver walks when it sends."""
 
+from django.conf import settings
 from django.core.cache import cache
 
 from posthog.models.property import GroupTypeIndex
@@ -130,7 +131,10 @@ def get_audience_person_page(
     dedupe_key: str | None,
 ) -> AudiencePage:
     team = Team.objects.get(id=team_id)
-    enumeration_settings = bounded_memory_settings() if group_type_index is None else None
+    enumeration_settings = None
+    if group_type_index is None:
+        enumeration_settings = bounded_memory_settings()
+        enumeration_settings.max_execution_time = settings.WORKFLOWS_BATCH_AUDIENCE_QUERY_TIMEOUT_SECONDS
     ids = get_batch_audience_person_ids(
         team, filters, group_type_index, cursor, dedupe_key=dedupe_key, settings=enumeration_settings
     )

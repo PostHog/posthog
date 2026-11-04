@@ -7,6 +7,7 @@ from typing import Any
 # Keys are compared lowercased with `_` and `-` removed, so `apiKey` and `api_key` match alike.
 _SECRET_KEY_PARTS = (
     "password",
+    "passwd",
     "secret",
     "token",
     "passphrase",
@@ -16,16 +17,25 @@ _SECRET_KEY_PARTS = (
     "privatekey",
     "keystore",
     "truststore",
+    # DSV's `service_authentication` holds `username:password`.
+    "authentication",
 )
 # Secret fields whose names fit no rule above (GitHub personal access tokens, Alchemer's API key).
-_SECRET_KEYS = frozenset({"pat", "pats", "queryparamvalue"})
+_SECRET_KEYS = frozenset({"pat", "pats", "pwd", "queryparamvalue"})
 # Any key that ends in "key" or "keys", maybe with a number (`sasl_plain_key`, `api_keys`, `api_key_2`), is a
-# secret, except these.
+# secret, except these. A singular `primary_key` is a credential in some connectors (Care Quality Commission).
 _NON_SECRET_KEYS = frozenset(
-    {f"{name}{suffix}" for name in ("public", "primary", "partition", "sort") for suffix in ("key", "keys")}
+    {"publickey", "publickeys", "primarykeys", "partitionkey", "partitionkeys", "sortkey", "sortkeys"}
 )
 _KEY_SUFFIX = re.compile(r"keys?\d*$")
-_URL_TOKEN_PARAM = re.compile(r"[?&](sig|signature|token|access_token|api_key|apikey|key)=", re.IGNORECASE)
+# Client certificates authenticate the caller. CA certificates (`ca_cert`, `ssl_root_cert`) are public.
+_CA_TOKENS = frozenset({"ca", "root"})
+_KEY_TOKEN_SPLIT = re.compile(r"[_\-]|(?<=[a-z])(?=[A-Z])")
+# Signed-URL parameters: Azure SAS `sig`, AWS `X-Amz-Signature`, `SharedAccessSignature`.
+_SIGNATURE_PARAM = re.compile(r"(^|[_\-])sig$|signature", re.IGNORECASE)
+_URL_AUTHORITY = re.compile(r"[^/\s]*")
+_QUERY_SEPARATOR = re.compile(r"[?&]")
+_NOT_IN_PARAM_NAME = re.compile(r"[#\s]")
 
 
 def is_secret_key(key: str) -> bool:
@@ -34,35 +44,45 @@ def is_secret_key(key: str) -> bool:
         return True
     if _KEY_SUFFIX.search(normalized) and normalized not in _NON_SECRET_KEYS:
         return True
+    if "cert" in normalized and not _CA_TOKENS & {token.lower() for token in _KEY_TOKEN_SPLIT.split(key)}:
+        return True
     return any(part in normalized for part in _SECRET_KEY_PARTS)
 
 
 def _is_secret_value(value: Any) -> bool:
     if not isinstance(value, str):
         return False
-    return (len(value) > 0 and set(value) == {"*"}) or any(_is_secret_url(word) for word in value.split())
-
-
-def _is_secret_url(word: str) -> bool:
-    """A URL with a password in it (`scheme://user:password@host`), or a token in its query.
-
-    Linear in the word's length: an agent upload can carry any string, and a backtracking pattern stalls on one
-    like `https://::::…`.
-    """
-    start = word.find("://")
-    if start < 0:
-        return False
-    if _URL_TOKEN_PARAM.search(word, start):
+    if len(value) > 0 and set(value) == {"*"}:
         return True
+    if "://" not in value:
+        return False
+    return _has_url_password(value) or any(
+        is_secret_key(name) or _SIGNATURE_PARAM.search(name) for name in _query_param_names(value)
+    )
+
+
+# These scans are linear in the value's length, because an agent upload can carry any string, and a backtracking
+# pattern stalls on one like `https://::::…`.
+def _has_url_password(value: str) -> bool:
+    """`scheme://user:password@host`, also with an empty user."""
+    start = value.find("://")
     while start >= 0:
-        authority_start = start + 3
-        authority_end = word.find("/", authority_start)
-        userinfo, at, _host = word[authority_start : authority_end if authority_end >= 0 else len(word)].partition("@")
-        # A user and a password, both non-empty, on either side of a colon.
-        if at and ":" in userinfo[1:-1]:
+        authority = _URL_AUTHORITY.match(value, start + 3)
+        userinfo, at, _host = (authority.group() if authority else "").partition("@")
+        # A colon with a non-empty password after it.
+        if at and ":" in userinfo[:-1]:
             return True
-        start = word.find("://", authority_start)
+        start = value.find("://", start + 3)
     return False
+
+
+def _query_param_names(value: str) -> list[str]:
+    names = []
+    for piece in _QUERY_SEPARATOR.split(value)[1:]:
+        name, equals, _value = piece.partition("=")
+        if equals and name and not _NOT_IN_PARAM_NAME.search(name):
+            names.append(name)
+    return names
 
 
 def strip_secrets(config: Mapping[str, Any]) -> dict[str, Any]:

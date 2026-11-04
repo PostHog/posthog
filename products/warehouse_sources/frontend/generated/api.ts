@@ -52,6 +52,7 @@ import type {
     PaginatedExternalDataSchemaListApi,
     PaginatedExternalDataSourceSerializersListApi,
     PaginatedWarehouseColumnStatisticsListApi,
+    PaginatedWarehouseMigrationItemListApi,
     PaginatedWarehouseMigrationListApi,
     PatchedDestinationLinkApi,
     PatchedExternalDataDestinationApi,
@@ -71,7 +72,6 @@ import type {
     WarehouseAlertCreateDestinationApi,
     WarehouseAlertDeleteDestinationApi,
     WarehouseAlertDestinationApi,
-    WarehouseAlertDestinationCreatedApi,
     WarehouseColumnStatisticsApi,
     WarehouseColumnStatisticsListParams,
     WarehouseMigrationApi,
@@ -80,10 +80,8 @@ import type {
     WarehouseMigrationItemApi,
     WarehouseMigrationSkipItemsApi,
     WarehouseMigrationSkipItemsResponseApi,
-    WarehouseMigrationStartUploadApi,
-    WarehouseMigrationUploadConnectionsApi,
-    WarehouseMigrationUploadResponseApi,
     WarehouseMigrationsConnectLinkRetrieveParams,
+    WarehouseMigrationsItemsListParams,
     WarehouseMigrationsListParams,
     WebhookInfoResponseApi,
 } from './api.schemas'
@@ -1587,15 +1585,15 @@ export const getWarehouseAlertsDestinationsCreateUrl = (projectId: string, id: s
 }
 
 /**
- * Add a notification destination to a warehouse alert. One HogFunction is created per alert event kind (firing, resolved). A PagerDuty destination gets the incident opened and incident closed kinds instead, so each incident it opens is resolved.
+ * Add a notification destination to a warehouse alert.
  */
 export const warehouseAlertsDestinationsCreate = async (
     projectId: string,
     id: string,
     warehouseAlertCreateDestinationApi: WarehouseAlertCreateDestinationApi,
     options?: RequestInit
-): Promise<WarehouseAlertDestinationCreatedApi> => {
-    return apiMutator<WarehouseAlertDestinationCreatedApi>(getWarehouseAlertsDestinationsCreateUrl(projectId, id), {
+): Promise<WarehouseAlertDestinationApi> => {
+    return apiMutator<WarehouseAlertDestinationApi>(getWarehouseAlertsDestinationsCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -1608,7 +1606,7 @@ export const getWarehouseAlertsDestinationsDeleteCreateUrl = (projectId: string,
 }
 
 /**
- * Delete one notification destination of a warehouse alert, all its HogFunctions together.
+ * Delete notification destinations of a warehouse alert.
  */
 export const warehouseAlertsDestinationsDeleteCreate = async (
     projectId: string,
@@ -1772,29 +1770,24 @@ export const warehouseMigrationsDestroy = async (
     })
 }
 
-export const getWarehouseMigrationsConnectionsCreateUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/warehouse_migrations/${id}/connections/`
-}
-
-/**
- * Plan vendor connections an agent read, and add them to an uploaded migration.
- */
-export const warehouseMigrationsConnectionsCreate = async (
+export const getWarehouseMigrationsItemsListUrl = (
     projectId: string,
     id: string,
-    warehouseMigrationUploadConnectionsApi?: WarehouseMigrationUploadConnectionsApi,
-    options?: RequestInit
-): Promise<WarehouseMigrationUploadResponseApi> => {
-    return apiMutator<WarehouseMigrationUploadResponseApi>(getWarehouseMigrationsConnectionsCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(warehouseMigrationUploadConnectionsApi),
-    })
-}
+    params?: WarehouseMigrationsItemsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
 
-export const getWarehouseMigrationsItemsListUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/warehouse_migrations/${id}/items/`
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/warehouse_migrations/${id}/items/?${stringifiedParams}`
+        : `/api/projects/${projectId}/warehouse_migrations/${id}/items/`
 }
 
 /**
@@ -1803,12 +1796,16 @@ export const getWarehouseMigrationsItemsListUrl = (projectId: string, id: string
 export const warehouseMigrationsItemsList = async (
     projectId: string,
     id: string,
+    params?: WarehouseMigrationsItemsListParams,
     options?: RequestInit
-): Promise<WarehouseMigrationItemApi[]> => {
-    return apiMutator<WarehouseMigrationItemApi[]>(getWarehouseMigrationsItemsListUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
+): Promise<PaginatedWarehouseMigrationItemListApi> => {
+    return apiMutator<PaginatedWarehouseMigrationItemListApi>(
+        getWarehouseMigrationsItemsListUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getWarehouseMigrationsItemsRetrieveUrl = (projectId: string, id: string, itemId: string) => {
@@ -1925,24 +1922,4 @@ export const warehouseMigrationsConnectLinkRetrieve = async (
             method: 'GET',
         }
     )
-}
-
-export const getWarehouseMigrationsUploadCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/warehouse_migrations/upload/`
-}
-
-/**
- * Start a migration that an agent fills with what it reads from the vendor, without a vendor key.
- */
-export const warehouseMigrationsUploadCreate = async (
-    projectId: string,
-    warehouseMigrationStartUploadApi: WarehouseMigrationStartUploadApi,
-    options?: RequestInit
-): Promise<WarehouseMigrationApi> => {
-    return apiMutator<WarehouseMigrationApi>(getWarehouseMigrationsUploadCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(warehouseMigrationStartUploadApi),
-    })
 }

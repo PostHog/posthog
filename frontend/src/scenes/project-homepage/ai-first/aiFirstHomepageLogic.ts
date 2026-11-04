@@ -7,7 +7,7 @@ import type { DashboardBasicApi } from '@posthog/products-dashboards/frontend/ge
 
 import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
 import { navigateToHref } from 'lib/utils/navigateToHref'
-import { type PhaiViewMode, maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { maxLogic, parseCommandString } from 'scenes/max/maxLogic'
 import { HOMEPAGE_SUGGESTION_TOPICS } from 'scenes/max/suggestionTopics'
 import { nextTypingDelayMs } from 'scenes/max/utils/typing'
@@ -15,6 +15,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import type { PhaiViewMode } from '~/layout/ai/aiPanelIds'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
 import { pinnedDashboardsModel } from '~/models/pinnedDashboardsModel'

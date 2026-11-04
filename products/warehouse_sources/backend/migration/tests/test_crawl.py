@@ -51,14 +51,14 @@ def _ok(data: dict[str, Any]) -> dict[str, Any]:
     return {"json": {"code": "Success", "data": data}}
 
 
-def _mock_account(m: requests_mock.Mocker, connection_ids: list[str]) -> None:
+def _mock_account(m: requests_mock.Mocker, connection_ids: list[str], names: Mapping[str, str] | None = None) -> None:
     m.get(f"{FIVETRAN_API_URL}/account/info", **_ok({"account_id": "acct_example", "account_name": "Example Co"}))
     m.get(f"{FIVETRAN_API_URL}/groups", **_ok({"items": []}))
     m.get(f"{FIVETRAN_API_URL}/connections", **_ok({"items": [{"id": cid} for cid in connection_ids]}))
     for cid in connection_ids:
         m.get(
             f"{FIVETRAN_API_URL}/connections/{cid}",
-            **_ok({"id": cid, "service": "hubspot", "schema": cid, "sync_frequency": 360}),
+            **_ok({"id": cid, "service": "hubspot", "schema": (names or {}).get(cid, cid), "sync_frequency": 360}),
         )
         m.get(f"{FIVETRAN_API_URL}/connections/{cid}/schemas", status_code=404, json={"message": "Not found"})
 
@@ -95,10 +95,15 @@ class TestCrawlMigration(BaseTest):
         applied = items["conn_applied"]
         applied.status = kept_status
         applied.caveats = ["kept from the first crawl"]
-        applied.save()
+        applied.save(update_fields=["status", "caveats"])
 
         with requests_mock.Mocker() as m:
-            _mock_account(m, ["conn_applied", "conn_pending", "conn_new"])
+            # The kept connection was renamed in Fivetran, and the new one took its old name.
+            _mock_account(
+                m,
+                ["conn_applied", "conn_pending", "conn_new"],
+                names={"conn_applied": "renamed", "conn_new": "conn_applied"},
+            )
             crawl_migration(team_id=self.team.pk, migration_id=migration.id, catalog=_HubspotOnly())
 
         migration.refresh_from_db()
@@ -113,6 +118,7 @@ class TestCrawlMigration(BaseTest):
         assert items["conn_new"].verdict == Verdict.CAVEATS
         assert items["conn_new"].proposal is not None
         assert items["conn_new"].proposal["source_type"] == ExternalDataSourceType.HUBSPOT
+        assert items["conn_new"].proposal["prefix"] == "conn_applied_2"
 
     @parameterized.expand([("auth_failed", True, "rejected the API key"), ("other_failure", False, "Try again")])
     def test_failed_crawl_is_marked_failed_once_retries_run_out(

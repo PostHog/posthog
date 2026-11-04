@@ -10,7 +10,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from posthog.egress.limiter.policies import Priority
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.integrations import IntegrationManager, IntegrationNotFound
+from posthog.models.integration import GitHubIntegration
 from posthog.models.user import User
 
 from products.conversations.backend.permissions import IsConversationsAdmin
@@ -33,7 +34,10 @@ class GithubStatusView(APIView):
         integration_id = settings_dict.get("github_integration_id")
         integration_info = None
         if integration_id:
-            integration = Integration.objects.filter(id=integration_id, team=team, kind="github").first()
+            try:
+                integration = IntegrationManager.github.oauth.get(team.id, integration_id)
+            except IntegrationNotFound:
+                integration = None
             if integration:
                 account = integration.config.get("account", {})
                 integration_info = {
@@ -64,8 +68,8 @@ class GithubConnectView(APIView):
             return Response({"error": "integration_id is required"}, status=400)
 
         try:
-            integration = Integration.objects.get(id=integration_id, team=team, kind="github")
-        except Integration.DoesNotExist:
+            integration = IntegrationManager.github.oauth.get(team.id, integration_id)
+        except IntegrationNotFound:
             return Response({"error": "GitHub integration not found"}, status=404)
 
         settings_dict = team.conversations_settings or {}
@@ -113,8 +117,8 @@ class GithubReposView(APIView):
             return Response({"error": "GitHub not connected"}, status=400)
 
         try:
-            integration = Integration.objects.get(id=integration_id, team=team, kind="github")
-        except Integration.DoesNotExist:
+            integration = IntegrationManager.github.oauth.get(team.id, integration_id)
+        except IntegrationNotFound:
             return Response({"error": "GitHub integration not found"}, status=404)
 
         github = GitHubIntegration(integration, source="conversations", priority=Priority.CRITICAL)
