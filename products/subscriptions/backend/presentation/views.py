@@ -26,6 +26,7 @@ from rest_framework.views import APIView
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.ordering import StableOrderingFilter
+from posthog.api.ownership import TransferOwnershipSerializer
 from posthog.api.pagination import (
     FacadeCursorPagination,
     FacadeLimitOffsetPagination,
@@ -975,10 +976,10 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
 
     @extend_schema(
         extensions={"x-product": "subscriptions"},
-        request=None,
+        request=TransferOwnershipSerializer,
         responses={200: SubscriptionSerializer},
         description=(
-            "Make the requesting user the owner of this subscription and enable it. Deliveries run with "
+            "Transfer this subscription to yourself or, for organization admins, another member and enable it. Deliveries run with "
             "the owner's access, so this is how a subscription continues after its owner left."
         ),
     )
@@ -990,8 +991,12 @@ class SubscriptionViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
         subscription = self._get_subscription()
         if subscription.deleted:
             return Response(status=status.HTTP_404_NOT_FOUND)
+        serializer = TransferOwnershipSerializer(data=request.data, context=self.get_serializer_context())
+        serializer.is_valid(raise_exception=True)
+        owner = serializer.resolve_owner()
         updated = _raise_for_refusal(
             lambda: api.take_subscription_ownership(
+                owner=owner,
                 team=self.team,
                 organization=self.organization,
                 user=cast(User, request.user),

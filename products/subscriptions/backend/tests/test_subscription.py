@@ -1167,16 +1167,26 @@ class TestSubscriptionTemporal(APILicensedTest):
             "its creator, former-member@example.com, who is no longer in the organization" in response.json()["detail"]
         )
 
-    def test_take_ownership_enables_the_subscription_as_the_requester(self):
+    @parameterized.expand([(False,), (True,)])
+    def test_take_ownership_enables_the_subscription(self, another_member: bool) -> None:
         subscription = self._disabled_subscription_of_a_former_member()
+        owner = self.user
+        if another_member:
+            owner = User.objects.create_user(email="new-owner@example.com", first_name="New owner", password=None)
+            OrganizationMembership.objects.create(organization=self.organization, user=owner)
+            self.organization_membership.level = OrganizationMembership.Level.ADMIN
+            self.organization_membership.save()
 
-        response = self.client.post(f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/take_ownership/")
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/take_ownership/",
+            {"user_uuid": str(owner.uuid)} if another_member else {},
+        )
 
         assert response.status_code == status.HTTP_200_OK, response.content
         subscription.refresh_from_db()
-        assert subscription.created_by == self.user
+        assert subscription.created_by == owner
         assert subscription.enabled is True
-        assert response.json()["created_by"]["id"] == self.user.id
+        assert response.json()["created_by"]["id"] == owner.id
         # created_by is excluded from the save diff, so the takeover logs its own activity.
         takeover = ActivityLog.objects.get(
             scope="Subscription", item_id=str(subscription.id), activity="took_ownership"
@@ -1184,6 +1194,38 @@ class TestSubscriptionTemporal(APILicensedTest):
         assert takeover.detail is not None
         assert [change["field"] for change in takeover.detail["changes"]] == ["created_by"]
         assert takeover.user == self.user
+
+    @parameterized.expand([("non_admin", 403), ("non_member", 400), ("inactive", 400), ("no_project_access", 400)])
+    def test_transfer_ownership_rejects_ineligible_owner(self, reason: str, expected_status: int) -> None:
+        subscription = self._disabled_subscription_of_a_former_member()
+        previous_owner = subscription.created_by
+        owner = User.objects.create_user(
+            email="new-owner@example.com", first_name="New owner", password=None, is_active=reason != "inactive"
+        )
+        if reason != "non_member":
+            OrganizationMembership.objects.create(organization=self.organization, user=owner)
+        self.organization_membership.level = (
+            OrganizationMembership.Level.MEMBER if reason == "non_admin" else OrganizationMembership.Level.ADMIN
+        )
+        self.organization_membership.save()
+        if reason == "no_project_access":
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            self.organization.save()
+            AccessControl.objects.create(
+                team=self.team, resource="project", resource_id=str(self.team.id), access_level="none"
+            )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/subscriptions/{subscription.id}/take_ownership/",
+            {"user_uuid": str(owner.uuid)},
+        )
+
+        assert response.status_code == expected_status, response.content
+        subscription.refresh_from_db()
+        assert subscription.created_by == previous_owner
+        assert subscription.enabled is False
 
     def test_cannot_create_subscription_with_summary_enabled_without_ai_consent(self):
         self.organization.is_ai_data_processing_approved = False

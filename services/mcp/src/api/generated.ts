@@ -112833,6 +112833,11 @@ export namespace Schemas {
       runs: TrainingRunHistoryEntry[];
     }
 
+    export interface TransferOwnership {
+      /** New owner's user UUID. Defaults to yourself. Assigning another member requires organization admin access. */
+      user_uuid?: string;
+    }
+
     export interface TranslateRequest {
       /**
          * The text to translate

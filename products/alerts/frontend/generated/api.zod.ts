@@ -56,6 +56,18 @@ export const AlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Transfer this alert to yourself or, for organization admins, another member and enable it. Checks run with the owner's access, so this is how an alert continues after its owner left.
+ */
+export const AlertsTakeOwnershipCreateBody = /* @__PURE__ */ zod.object({
+    user_uuid: zod
+        .uuid()
+        .optional()
+        .describe(
+            "New owner's user UUID. Defaults to yourself. Assigning another member requires organization admin access."
+        ),
+})
+
+/**
  * Simulate a detector on an insight's historical data. No AlertCheck records are created. The AI detector makes a real model call, so that mode needs the 'alert:write' scope.
  */
 export const alertsSimulateCreateBodyEvaluationDelayIntervalsDefault = 0

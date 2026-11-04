@@ -23,6 +23,7 @@ import type {
     PaginatedThresholdWithAlertListApi,
     PatchedAlertApi,
     ThresholdWithAlertApi,
+    TransferOwnershipApi,
 } from './api.schemas'
 
 // https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
@@ -208,16 +209,19 @@ export const getAlertsTakeOwnershipCreateUrl = (projectId: string, id: string) =
 }
 
 /**
- * Make the requesting user the owner of this alert and enable it. Checks run with the owner's access, so this is how an alert continues after its owner left.
+ * Transfer this alert to yourself or, for organization admins, another member and enable it. Checks run with the owner's access, so this is how an alert continues after its owner left.
  */
 export const alertsTakeOwnershipCreate = async (
     projectId: string,
     id: string,
+    transferOwnershipApi?: TransferOwnershipApi,
     options?: RequestInit
 ): Promise<AlertApi> => {
     return apiMutator<AlertApi>(getAlertsTakeOwnershipCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(transferOwnershipApi),
     })
 }
 

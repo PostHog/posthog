@@ -37,6 +37,7 @@ from posthog.schema import (
 
 from posthog.api.documentation import extend_schema_field
 from posthog.api.fields import OptionalBooleanField
+from posthog.api.ownership import TransferOwnershipSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
@@ -271,16 +272,15 @@ def _enforce_llm_detector_rules(detector_config: Any) -> None:
             )
 
 
-def _enforce_llm_feature_access(context: dict[str, Any], detector_config: Any) -> None:
-    """Refuse an AI preview or takeover the person asking cannot use.
+def _enforce_llm_feature_access(context: dict[str, Any], detector_config: Any, *, owner: User | None = None) -> None:
+    """Refuse an AI preview or takeover the person running it cannot use.
 
     Saved alerts go through ``admit_llm_alert_write`` instead, which checks the alert's
-    creator. A preview has no alert, and a takeover makes the requester the creator, so
-    both check the requester.
+    creator. Transfers check the new owner; previews check the requester.
     """
     if DetectorType.LLM.value not in _detector_types(detector_config):
         return
-    user = context["request"].user
+    user = owner or context["request"].user
     try:
         error = llm_detector_access_error(distinct_id=str(user.distinct_id), organization=context["get_organization"]())
     except LLMDetectorUnavailableError as unavailable_error:
@@ -1853,24 +1853,26 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return Response(serializer.data)
 
     @extend_schema(
-        request=None,
+        request=TransferOwnershipSerializer,
         responses={200: AlertSerializer},
         description=(
-            "Make the requesting user the owner of this alert and enable it. Checks run with the owner's "
+            "Transfer this alert to yourself or, for organization admins, another member and enable it. Checks run with the owner's "
             "access, so this is how an alert continues after its owner left."
         ),
     )
     @action(detail=True, methods=["POST"], required_scopes=["alert:write"])
     def take_ownership(self, request, *args, **kwargs):
         alert = self.get_object()
-        user = cast(User, request.user)
+        ownership = TransferOwnershipSerializer(data=request.data, context=self.get_serializer_context())
+        ownership.is_valid(raise_exception=True)
+        user = ownership.resolve_owner()
         try:
             assert_creator_can_run(user, alert.team, alert.insight)
         except (CreatorLeftOrganizationError, UserAccessControlError):
-            raise ValidationError("Can't take ownership: you don't have access to this insight.") from None
-        # The scheduled checks run as the owner, so an AI alert needs the requester on the rollout.
+            raise ValidationError("Can't take ownership: the new owner doesn't have access to this insight.") from None
+        # The scheduled checks run as the owner, so an AI alert needs the new owner on the rollout.
         # An already enabled alert does not pass through the admission below, so it is checked here.
-        _enforce_llm_feature_access(self.get_serializer_context(), alert.detector_config)
+        _enforce_llm_feature_access(self.get_serializer_context(), alert.detector_config, owner=user)
         # One transaction, so a refused enable leaves the owner as it was. The enable below reloads
         # the row, so the owner is saved first.
         with transaction.atomic():
@@ -1878,7 +1880,11 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if not lock_insight_for_evaluation(team_id=alert.team_id, insight_id=alert.insight_id):
                 raise ValidationError({"insight": ["The insight no longer exists. Refresh the alert."]})
             assign_alert_owner(
-                team_id=alert.team_id, alert_id=alert.id, user=user, was_impersonated=get_was_impersonated()
+                team_id=alert.team_id,
+                alert_id=alert.id,
+                user=user,
+                actor=cast(User, request.user),
+                was_impersonated=get_was_impersonated(),
             )
             # The enable below saves this instance, so it must carry the new owner.
             alert.refresh_from_db(fields=["created_by"])
