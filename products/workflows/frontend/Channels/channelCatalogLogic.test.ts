@@ -164,13 +164,19 @@ describe('sandbox setup in the channel catalog', () => {
     })
 
     it.each([
-        { when: 'the flag is on at mount', flagAtMount: true },
-        { when: 'the flag arrives after mount', flagAtMount: false },
-    ])('sets up the sandbox sender once when $when and shows the new row', async ({ flagAtMount }) => {
+        { when: 'the flag is on at mount', flagAtMount: true, hasSender: false },
+        { when: 'the flag arrives after mount', flagAtMount: false, hasSender: false },
+        { when: 'the flag arrives after mount and the sender exists', flagAtMount: false, hasSender: true },
+    ])('sets up the sandbox sender once when $when and shows the row', async ({ flagAtMount, hasSender }) => {
         let requests = 0
         const sandbox = { id: 9, kind: 'email', config: { provider: 'sandbox', verified: true } }
         useMocks({
-            get: { '/api/projects/:team_id/integrations/': () => [200, { results: requests > 0 ? [sandbox] : [] }] },
+            get: {
+                '/api/projects/:team_id/integrations/': () => [
+                    200,
+                    { results: hasSender || requests > 0 ? [sandbox] : [] },
+                ],
+            },
             post: {
                 '/api/projects/:team_id/integrations/email_sandbox_sender/': () => {
                     requests++
@@ -203,23 +209,20 @@ describe('sandbox setup in the channel catalog', () => {
             level: OrganizationMembershipLevel.Member,
             existing: [],
             status: 200,
-            expected: 1,
         },
         {
             who: 'a project that already has the sender, so its name follows the organization',
             level: OrganizationMembershipLevel.Admin,
             existing: [9],
             status: 200,
-            expected: 1,
         },
         {
             who: 'a project whose sender refresh fails, without an error over the working row',
             level: OrganizationMembershipLevel.Admin,
             existing: [9],
             status: 500,
-            expected: 1,
         },
-    ])('sends $expected setup request on mount for $who', async ({ level, existing, status, expected }) => {
+    ])('sends one setup request on mount for $who', async ({ level, existing, status }) => {
         let requests = 0
         const results = existing.map((id) => ({ id, kind: 'email', config: { provider: 'sandbox', verified: true } }))
         useMocks({
@@ -244,7 +247,7 @@ describe('sandbox setup in the channel catalog', () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(requests).toBe(expected)
+        expect(requests).toBe(1)
         expect(logic.values.sandboxSetupError).toBeNull()
     })
 })
