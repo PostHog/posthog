@@ -1968,8 +1968,10 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
         showSavedDraftUrl: () => {
             // On /broadcasts/new a reload starts over and orphans the saved draft. The new URL remounts the
             // wizard from the saved copy, so an unsaved email edit moves it only once its autosave lands.
+            // A launch holds this logic mounted after the person leaves, so check they are still on the page.
             if (
                 props.id === 'new' &&
+                router.values.location.pathname.endsWith(urls.broadcast('new')) &&
                 !cache.handedOffToWorkflowEditor &&
                 !cache.emailEditPending &&
                 values.broadcastId &&
@@ -2247,12 +2249,6 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             // unmounted logic throws. Hold a mount until the launch ends, so the send still finishes.
             const releaseMount = broadcastWizardLogic(props).mount()
             const launchedFrom = router.values.location.pathname
-            const stillOnPage = (): boolean => router.values.location.pathname === launchedFrom
-            const showDraftUrlIfStillOnPage = (): void => {
-                if (stillOnPage()) {
-                    actions.showSavedDraftUrl()
-                }
-            }
             try {
                 // Launch sends the email as saved, so a brand that arrives after this click must not change the preview.
                 cache.brandClosed = true
@@ -2311,7 +2307,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                         captureLaunchFailed(broadcastId, 'audience_over_limit')
                         actions.launchBroadcastFinished()
                         actions.setStep('recipients')
-                        showDraftUrlIfStillOnPage()
+                        actions.showSavedDraftUrl()
                         lemonToast.error(
                             `This project can send a broadcast to up to ${humanFriendlyNumber(
                                 blastRadius.limit
@@ -2376,7 +2372,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                         lemonToast.info(
                             'This email changed while you were editing it. Review the latest version, then launch.'
                         )
-                        showDraftUrlIfStillOnPage()
+                        actions.showSavedDraftUrl()
                         return
                     }
                     if (activated && broadcastId) {
@@ -2396,7 +2392,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                         `Couldn't launch the broadcast: ${error?.detail || error?.message || 'unknown error'}`
                     )
                     // The launch saved the draft first, so a reload of /broadcasts/new would orphan it.
-                    showDraftUrlIfStillOnPage()
+                    actions.showSavedDraftUrl()
                     return
                 }
                 // The send is out from here on. Moving the broadcast back to draft now would cancel every
@@ -2435,7 +2431,7 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 })
                 actions.loadBatchJobs()
                 actions.launchBroadcastFinished()
-                if (stillOnPage()) {
+                if (router.values.location.pathname === launchedFrom) {
                     router.actions.push(urls.broadcast(broadcastId))
                 }
             } finally {
