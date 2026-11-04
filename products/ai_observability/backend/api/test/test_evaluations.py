@@ -210,7 +210,11 @@ class TestModelConfigurationSerializer(SimpleTestCase):
             instance=evaluation, data=data, partial=True, context={"get_team": lambda: Mock(id=1)}
         )
         # Avoid key resolution: this test checks the configuration boundary.
-        with patch.object(serializer, "_validate_re_enable"), patch.object(serializer, "_validate_can_run"):
+        with (
+            patch.object(serializer, "_validate_re_enable"),
+            patch.object(serializer, "_validate_can_run"),
+            patch.object(serializer, "_validate_model_on_key"),
+        ):
             valid = serializer.is_valid()
         if expected_level is None:
             self.assertFalse(valid)
@@ -1186,6 +1190,70 @@ class TestEvaluationConfigsApi(APIBaseTest):
         if expected_status == 400:
             self.assertEqual(response.data["attr"], "model_configuration")
             self.assertIn("Choose a chat model or a supported decision model.", response.data["detail"])
+
+    @parameterized.expand(
+        [
+            ("listed_model", "gpt-5-mini", ["gpt-5-mini"], 201),
+            ("unlisted_model", "gpt-4o", ["gpt-5-mini"], 400),
+            ("provider_call_failed", "gpt-4o", [], 201),
+        ]
+    )
+    def test_llm_judge_creation_checks_the_model_against_the_key(self, _name, model, key_models, expected_status):
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Prod key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-test"},
+            created_by=self.user,
+        )
+        with patch("products.ai_observability.backend.api.proxy.Client.list_models", return_value=key_models):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/evaluations/",
+                {
+                    "name": "Judge",
+                    "enabled": False,
+                    "evaluation_type": "llm_judge",
+                    "evaluation_config": {"prompt": "Test"},
+                    "output_type": "boolean",
+                    "model_configuration": {"provider": "openai", "model": model, "provider_key_id": str(key.id)},
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+        if expected_status == 400:
+            self.assertEqual(response.data["attr"], "model_configuration")
+            self.assertIn("'gpt-4o' isn't available with the 'Prod key' API key.", response.data["detail"])
+
+    def test_llm_judge_update_keeps_a_saved_model_the_key_no_longer_lists(self) -> None:
+        key = LLMProviderKey.objects.create(
+            team=self.team,
+            provider="openai",
+            name="Prod key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-test"},
+            created_by=self.user,
+        )
+        eval_obj, mc = self._create_configured_llm_judge()
+        mc.provider_key = key
+        mc.save()
+
+        with patch("products.ai_observability.backend.api.proxy.Client.list_models", return_value=["gpt-5.4"]):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
+                {
+                    "name": "Renamed",
+                    "model_configuration": {
+                        "provider": "openai",
+                        "model": "gpt-5-mini",
+                        "provider_key_id": str(key.id),
+                    },
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
 
     @parameterized.expand([("omitted", False), ("null", True)])
     def test_llm_judge_creation_requires_model_configuration(self, _name, include_null_configuration):

@@ -98,6 +98,7 @@ from ..models.provider_keys import LLMProvider, LLMProviderKey
 from ..presentation.query_concurrency import query_concurrency_slots
 from .condition_sets import ConditionSetSerializer
 from .metrics import llma_track_latency
+from .proxy import key_models
 
 if TYPE_CHECKING:
     from posthog.models import User
@@ -652,6 +653,7 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         ).get("judge_method")
         if data.get("model_configuration") or data.get("enabled") or method_changed:
             self._validate_chat_model(data, uses_decision_model=uses_decision_model)
+            self._validate_model_on_key(data, uses_decision_model=uses_decision_model)
         self._validate_reasoning_level(data, uses_decision_model=uses_decision_model)
 
         should_validate_configs = (
@@ -753,6 +755,27 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
                 {
                     "model_configuration": f"'{model}' is not supported as an evaluation judge. "
                     "Choose a chat model or a supported decision model."
+                }
+            )
+
+    def _validate_model_on_key(self, data: dict, *, uses_decision_model: bool) -> None:
+        """A model the key's provider doesn't list fails the first run, which then disables the evaluation."""
+        model_config = data.get("model_configuration")
+        if uses_decision_model or not model_config or model_config["provider"] == LLMProvider.SYSTEM_ONE:
+            return
+        saved = self.instance.model_configuration if self.instance is not None else None
+        if saved is not None and (saved.provider, saved.model) == (model_config["provider"], model_config["model"]):
+            return
+        provider_key = self._effective_provider_key(data)
+        if provider_key is None or provider_key.state != LLMProviderKey.State.OK:
+            return
+        models = key_models(provider_key)
+        # An empty list means the provider call failed, so a provider outage doesn't block saving.
+        if models and model_config["model"] not in models:
+            raise serializers.ValidationError(
+                {
+                    "model_configuration": f"'{model_config['model']}' isn't available with the "
+                    f"'{provider_key.name}' API key. Choose a model from the list."
                 }
             )
 
