@@ -181,6 +181,8 @@ export type CdpCoreServicesConfig = Pick<
         | 'SES_SANDBOX_TENANT_NAME'
         | 'SES_SANDBOX_CONFIGURATION_SET'
         | 'SES_SANDBOX_FROM_ADDRESS'
+        | 'WORKFLOWS_SANDBOX_DAILY_TEAM_CAP'
+        | 'WORKFLOWS_SANDBOX_DAILY_RECIPIENT_CAP'
         | 'EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD'
         | 'EMAIL_TEAM_SENDING_CAP_MODE'
         | 'EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER'
@@ -236,6 +238,12 @@ export interface CdpCoreServicesDeps {
      * `null` elsewhere, and when no host is configured, which turns the cap off.
      */
     frequencyCapValkey: RedisV2 | null
+    /**
+     * SES Valkey pool for the sandbox daily caps only. Sandbox-enabled cdp-api sets it for test
+     * sends, so its own-sender sends keep running without the SES Valkey. Unset falls back to
+     * `emailValidationValkey`, which the email workers have.
+     */
+    sandboxEmailCapValkey?: RedisV2 | null
 }
 
 /**
@@ -480,6 +488,10 @@ export function createCdpCoreServices(
     const teamEmailRateLimiter = deps.emailValidationValkey
         ? new RateLimiterService(deps.emailValidationValkey, { name: 'team-email' })
         : null
+    const sandboxEmailCapValkey = deps.sandboxEmailCapValkey ?? deps.emailValidationValkey
+    const sandboxEmailRateLimiter = sandboxEmailCapValkey
+        ? new RateLimiterService(sandboxEmailCapValkey, { name: 'sandbox-email' })
+        : null
     const emailService = new EmailService(
         {
             sesAccessKeyId: config.SES_ACCESS_KEY_ID,
@@ -511,9 +523,12 @@ export function createCdpCoreServices(
                 tenantName: config.SES_SANDBOX_TENANT_NAME,
                 configurationSetName: config.SES_SANDBOX_CONFIGURATION_SET,
                 fromAddress: config.SES_SANDBOX_FROM_ADDRESS,
+                dailyTeamCap: config.WORKFLOWS_SANDBOX_DAILY_TEAM_CAP,
+                dailyRecipientCap: config.WORKFLOWS_SANDBOX_DAILY_RECIPIENT_CAP,
             },
             deps.teamManager,
-            sandboxBlockedEventRedis
+            sandboxBlockedEventRedis,
+            sandboxEmailRateLimiter
         ),
         new OrganizationMembersService(deps.postgres)
     )

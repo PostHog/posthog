@@ -4,8 +4,10 @@ import { register } from 'prom-client'
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { closeHub, createHub } from '~/common/utils/db/hub'
+import { TeamManager } from '~/common/utils/team-manager'
 import { Hub } from '~/types'
 
+import { SandboxEmailSender } from '../messaging/sandbox-email-sender'
 import { createSesRateLimiterValkeyPool } from './rate-limiter-valkey-pool'
 import { ClaimRequest, IssuedClaim, RateLimiterService } from './rate-limiter.service'
 
@@ -413,6 +415,42 @@ describe('RateLimiterService', () => {
             // which is the caller's cue to spread its own wake.
             expect([first.reserved, second.reserved, third.reserved]).toEqual([true, false, false])
         })
+    })
+
+    it('shares recipient allowances across projects in an organization while keeping project allowances separate', async () => {
+        const organizations = { 1: randomUUID(), 3: randomUUID() }
+        const teamManager = {
+            getTeam: (id: number) =>
+                Promise.resolve({ organization_id: id === 3 ? organizations[3] : organizations[1] }),
+        } as unknown as TeamManager
+        const sender = new SandboxEmailSender(
+            {
+                enabled: true,
+                tenantName: 'sandbox',
+                configurationSetName: 'sandbox',
+                fromAddress: 'sender@example.com',
+                dailyTeamCap: '1',
+                dailyRecipientCap: '1',
+            },
+            teamManager,
+            redis,
+            limiter
+        )
+
+        try {
+            expect(await sender.claimDailyCaps(1, ['member@example.com'])).toMatchObject({ type: 'granted' })
+            expect(await sender.claimDailyCaps(2, ['member@example.com'])).toEqual({
+                type: 'recipient_cap_reached',
+                addresses: ['member@example.com'],
+            })
+            expect(await sender.claimDailyCaps(2, ['other@example.com'])).toMatchObject({ type: 'granted' })
+            expect(await sender.claimDailyCaps(3, ['member@example.com'])).toMatchObject({ type: 'granted' })
+            expect(await sender.claimDailyCaps(2, ['third@example.com'])).toEqual({ type: 'project_cap_reached' })
+        } finally {
+            for (const organizationId of Object.values(organizations)) {
+                await deleteKeysWithPrefix(redis, `@posthog/workflows-sandbox-daily/{${organizationId}}`)
+            }
+        }
     })
 
     describe('claimAllOrNothing', () => {
