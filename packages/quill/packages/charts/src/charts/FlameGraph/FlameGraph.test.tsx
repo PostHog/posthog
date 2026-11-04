@@ -1,7 +1,7 @@
 import { fireEvent } from '@testing-library/react'
 
 import type { ChartTheme } from '../../core/types'
-import { mockRect, renderChart, waitForChartTooltip } from '../../testing'
+import { getChartTooltip, mockRect, renderChart, waitForChartTooltip } from '../../testing'
 import { FlameGraph } from './FlameGraph'
 import type { FlameGraphProps, FlameNode } from './types'
 
@@ -88,18 +88,24 @@ describe('FlameGraph', () => {
         }
     })
 
-    it('zooms into a clicked node, reports it, and zooms back out with Escape and reset', () => {
+    it('zooms into a clicked node, drops the stale hover, reports it, and zooms back out with Escape and reset', async () => {
         const onNodeClick = jest.fn()
         const onFocusChange = jest.fn()
         const { chart, container } = renderFlame({ onNodeClick, onFocusChange })
         expect(chart.flame.breadcrumb()).toEqual(['All'])
 
+        fireEvent.mouseMove(chart.element, { clientX: 200, clientY: rowY(1) })
+        await waitForChartTooltip()
         fireEvent.click(chart.element, { clientX: 200, clientY: rowY(1) })
+        expect(getChartTooltip()).toBeNull()
         expect(chart.flame.breadcrumb()).toEqual(['All', 'root', 'a'])
         expect(onNodeClick).toHaveBeenCalledWith(
             expect.objectContaining({ id: 'root/a', value: 60, self: 30, fractionOfRoot: 0.6 })
         )
-        expect(onFocusChange).toHaveBeenLastCalledWith(expect.objectContaining({ id: 'root/a' }))
+        expect(onFocusChange).toHaveBeenLastCalledWith({
+            kind: 'node',
+            node: expect.objectContaining({ id: 'root/a' }),
+        })
 
         // Zoomed to `a`, its child `a1` now spans half the width instead of 30%.
         onNodeClick.mockClear()
@@ -115,10 +121,12 @@ describe('FlameGraph', () => {
         expect(onFocusChange).toHaveBeenLastCalledWith(null)
     })
 
-    it('zooms into a "+N more" bundle of small siblings without reporting a node click', () => {
+    it('zooms into a "+N more" bundle of small siblings and reports the bundle, not a node click', () => {
         const onNodeClick = jest.fn()
+        const onFocusChange = jest.fn()
         const { chart } = renderFlame({
             onNodeClick,
+            onFocusChange,
             data: {
                 name: 'p',
                 value: 1000,
@@ -133,6 +141,10 @@ describe('FlameGraph', () => {
         fireEvent.click(chart.element, { clientX: 722, clientY: rowY(1) })
         expect(chart.flame.breadcrumb()).toEqual(['All', 'p', '+3 more'])
         expect(onNodeClick).not.toHaveBeenCalled()
+        expect(onFocusChange).toHaveBeenLastCalledWith({
+            kind: 'bundle',
+            bundle: expect.objectContaining({ count: 3 }),
+        })
     })
 
     it('drops a hover from before a data update instead of reading the new tree with old indices', () => {

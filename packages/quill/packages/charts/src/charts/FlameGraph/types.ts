@@ -200,9 +200,9 @@ export interface FlameGraphProps<Meta = unknown> {
     tooltip?: (ctx: FlameTooltipContext<Meta>) => React.ReactNode
     /** Fires on a click on a node, after any zoom. Not fired for "+N more" cells, which zoom. */
     onNodeClick?: (node: FlameNodeDatum<Meta>) => void
-    /** Fires when the zoom changes through a click, the breadcrumb, the reset button or Escape.
-     *  `null` means the whole graph is in view. */
-    onFocusChange?: (node: FlameNodeDatum<Meta> | null) => void
+    /** Fires when the zoom changes through a click, the breadcrumb, the reset button or Escape, with
+     *  the focused node or "+N more" bundle. `null` means the whole graph is in view. */
+    onFocusChange?: (focus: FlameHit<Meta> | null) => void
     className?: string
     dataAttr?: string
     onError?: (error: Error, info: React.ErrorInfo) => void

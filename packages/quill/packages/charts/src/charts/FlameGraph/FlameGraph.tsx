@@ -353,7 +353,6 @@ function FlameGraphInner<Meta = unknown>({
             requestPaint()
             return
         }
-        setHover(null)
         const start = monotonicNow()
         const tick = (): void => {
             const t = Math.min(1, (monotonicNow() - start) / FOCUS_ANIMATION_MS)
@@ -417,14 +416,21 @@ function FlameGraphInner<Meta = unknown>({
 
     const changeFocus = useCallback(
         (next: FocusKey): void => {
+            // The cells move under the cursor, so the old hover no longer points at them.
+            setHover(null)
             setHeldRows(rowCount)
             setFocusKey(next)
             if (!onFocusChange) {
                 return
             }
             const resolved = keyToFocus(tree, next)
-            const index = resolved?.kind === 'node' ? resolved.index : resolved ? tree.parent[resolved.first] : -1
-            onFocusChange(index >= 0 ? nodeDatum(tree, index, diff) : null)
+            onFocusChange(
+                resolved?.kind === 'node'
+                    ? { kind: 'node', node: nodeDatum(tree, resolved.index, diff) }
+                    : resolved
+                      ? { kind: 'bundle', bundle: bundleDatum(tree, resolved.first, resolved.last, diff) }
+                      : null
+            )
         },
         [rowCount, onFocusChange, tree, diff]
     )
@@ -491,7 +497,7 @@ function FlameGraphInner<Meta = unknown>({
             el.scrollTop = el.scrollHeight
             scrollTopRef.current = el.scrollTop
         }
-    }, [direction, contentHeight, tree])
+    }, [direction, contentHeight, viewportHeight, tree])
 
     const onScroll = useCallback(
         (event: React.UIEvent<HTMLDivElement>): void => {
