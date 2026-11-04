@@ -1042,7 +1042,7 @@ describe('broadcastWizardLogic', () => {
         expect(checkedFilters).toHaveLength(requestsBefore)
     })
 
-    it('starts a new broadcast with the only verified sender without creating a draft', async () => {
+    it('starts a new broadcast with the only verified own sender, not the sandbox sender, without creating a draft', async () => {
         const createDraft = jest.fn()
         useMocks({ post: { '/api/projects/:team_id/hog_flows/': () => createDraft() } })
         integrationsLogic.mount()
