@@ -70,6 +70,9 @@ UNSESSIONED_EVENTS_FLAG = "replay-match-unsessioned-events"
 # The match reads the distinct id mapping of every recorded person and their events in range,
 # so a listing over a longer range does not use it.
 UNSESSIONED_EVENTS_MAX_RANGE_DAYS = 7
+# Explicit session ids bound the match to one page or one recording. A pinned playlist loads up to
+# 100 at once, and some callers, such as the comment search, pass every id they find.
+UNSESSIONED_EVENTS_MAX_SESSION_IDS = 100
 # The SDK caps a session at 24 hours, plus an hour for clock skew. A bad end time far in the
 # future would otherwise expand one recording into a row for each hour up to it.
 UNSESSIONED_RECORDING_MAX_HOURS = 25
@@ -219,8 +222,11 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             # Without an event or action filter there is no event to match by time.
             or not self.entities
             or all(isinstance(entity, DataWarehouseNode) for entity in self.entities)
-            # Explicit session ids keep the scope to one page or one recording.
             or (self._query.session_ids is None and self._date_range_days() > UNSESSIONED_EVENTS_MAX_RANGE_DAYS)
+            or (
+                self._query.session_ids is not None
+                and len(self._query.session_ids) > UNSESSIONED_EVENTS_MAX_SESSION_IDS
+            )
         ):
             return False
         return feature_enabled_or_false(

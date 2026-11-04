@@ -16,6 +16,7 @@ from posthog.models.group.util import create_group
 from posthog.models.person.util import create_person_distinct_id
 from posthog.session_recordings.queries.sub_queries.events_subquery import (
     UNSESSIONED_EVENTS_FLAG,
+    UNSESSIONED_EVENTS_MAX_SESSION_IDS,
     ReplayFiltersEventsSubQuery,
 )
 from posthog.session_recordings.queries.test.listing_recordings.test_utils import assert_query_matches_session_ids
@@ -287,12 +288,13 @@ class TestSessionRecordingsListByUnsessionedEvents(ClickhouseTestMixin, APIBaseT
 
     @parameterized.expand(
         [
-            ("inside_margin_before_the_recording", RECORDING_START - timedelta(seconds=30), True),
-            ("outside_margin_after_the_recording", RECORDING_END + timedelta(minutes=3), False),
+            ("inside_margin_before_the_recording", RECORDING_START - timedelta(seconds=30), 0, True),
+            ("outside_margin_after_the_recording", RECORDING_END + timedelta(minutes=3), 0, False),
+            ("more_ids_than_a_page", INSIDE_WINDOW, UNSESSIONED_EVENTS_MAX_SESSION_IDS, False),
         ]
     )
     def test_explicit_session_ids_without_date_from(
-        self, _name: str, event_time: datetime, expected_match: bool
+        self, _name: str, event_time: datetime, other_session_ids: int, expected_match: bool
     ) -> None:
         person = create_person(team=self.team, distinct_ids=["user-1"])
         self._produce_recording("recording-of-user-1", "user-1")
@@ -302,7 +304,10 @@ class TestSessionRecordingsListByUnsessionedEvents(ClickhouseTestMixin, APIBaseT
         self._assert_matches(
             [ORDER_PAID],
             ["recording-of-user-1"] if expected_match else [],
-            query_overrides={"date_from": None, "session_ids": ["recording-of-user-1"]},
+            query_overrides={
+                "date_from": None,
+                "session_ids": ["recording-of-user-1", *(f"other-{i}" for i in range(other_session_ids))],
+            },
         )
 
     @parameterized.expand(
