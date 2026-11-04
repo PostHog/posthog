@@ -47,9 +47,12 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
     ): Promise<CyclotronJobInvocationResult[]> {
         const { loadedInvocations, canceledResults } = await this.loadHogFlows(invocations)
         const executed = await Promise.all(loadedInvocations.map((item) => this.hogFlowExecutor.execute(item)))
-        const results = [...canceledResults, ...executed]
+        return [...canceledResults, ...executed]
+    }
+
+    protected override async queueInvocationResults(results: CyclotronJobInvocationResult[]): Promise<void> {
+        await super.queueInvocationResults(results)
         await this.deleteAttachmentsOfFinishedSends(results)
-        return results
     }
 
     private async deleteAttachmentsOfFinishedSends(results: CyclotronJobInvocationResult[]): Promise<void> {

@@ -711,11 +711,12 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             })
 
             it.each([
-                ['deletes the files of a run canceled before its email step', 'canceled', true, 0],
-                ['deletes the files of a run whose send finished', 'finished', true, 0],
-                ['keeps the files of a run rescheduled for a retry', 'rescheduled', true, 1],
-                ['leaves stored files alone for a run that lists none', 'finished', false, 1],
-            ] as const)('%s', async (_name, outcome, listsFiles, rowsLeft) => {
+                ['deletes the files of a run canceled before its email step', 'canceled', true, true, 0],
+                ['deletes the files of a run whose send finished', 'finished', true, true, 0],
+                ['keeps the files of a finished send whose result was not written', 'finished', true, false, 1],
+                ['keeps the files of a run rescheduled for a retry', 'rescheduled', true, true, 1],
+                ['leaves stored files alone for a run that lists none', 'finished', false, true, 1],
+            ] as const)('%s', async (_name, outcome, listsFiles, resultWritten, rowsLeft) => {
                 const invocation = createSerializedHogFlowInvocation(hogFlows[0], {
                     event: { distinct_id: 'distinct_person_1', properties: {} } as any,
                 })
@@ -731,8 +732,12 @@ describe('CdpCyclotronWorkerHogFlow', () => {
                     Promise.resolve(createInvocationResult(item, {}, { finished: outcome === 'finished' }))
                 )
                 await processor['emailAttachmentsService'].store(invocation.id, hogFlows[0].team_id, files)
+                if (!resultWritten) {
+                    jobQueue.queueInvocationResults.mockRejectedValueOnce(new Error('connection terminated'))
+                }
 
-                await processor.processInvocations([invocation])
+                const { backgroundTask } = await processor.processBatch([invocation])
+                await backgroundTask.catch(() => undefined)
 
                 const rows = await assertPool.query('SELECT id FROM cyclotron_email_attachments WHERE job_id = $1', [
                     invocation.id,
