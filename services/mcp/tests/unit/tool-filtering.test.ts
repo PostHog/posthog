@@ -1134,6 +1134,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'workflows-customerio-import',
             'mcp-session-recording-console-logs',
             'support-macros',
+            'posthog-agent-mcp',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and

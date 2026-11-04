@@ -138,3 +138,32 @@ describe.each(['2025-11-25', '2026-07-28'] as const)('MCP UI capability negotiat
         }
     })
 })
+
+describe('/agent endpoint', () => {
+    async function listToolNames(path: string): Promise<string[]> {
+        const res = await app.request(path, {
+            method: 'POST',
+            headers: {
+                Authorization: 'Bearer phx_integration_test_token',
+                'Content-Type': 'application/json',
+                Accept: 'application/json, text/event-stream',
+                'x-posthog-mcp-mode': 'tools',
+                'x-posthog-flag-overrides': JSON.stringify({ 'posthog-agent-mcp': true }),
+            },
+            body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list' }),
+        })
+        const body = (await res.json()) as { result: { tools: Array<{ name: string }> } }
+        return body.result.tools.map((tool) => tool.name)
+    }
+
+    it('serves exactly the PostHog Agent tools, and /mcp does not serve them', async () => {
+        const agentTools = await listToolNames('/agent')
+        const mainTools = await listToolNames('/mcp')
+
+        expect(agentTools.sort()).toEqual(
+            ['posthog-agent-cancel', 'posthog-agent-reply', 'posthog-agent-run', 'posthog-agent-status'].sort()
+        )
+        expect(mainTools.length).toBeGreaterThan(10)
+        expect(mainTools.filter((name) => name.startsWith('posthog-agent-'))).toEqual([])
+    })
+})

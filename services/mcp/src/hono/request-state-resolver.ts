@@ -45,6 +45,7 @@ import {
     type MCPSessionContext,
 } from './mcp-context'
 import { RequestContext } from './request-context'
+import { MAIN_SURFACE, type McpSurface } from './surfaces'
 import type { ToolCatalog } from './tool-catalog'
 
 // ─── Per-request resolved state ───
@@ -171,18 +172,24 @@ export class RequestStateResolver {
     private readonly catalog: ToolCatalog
     private readonly redis: RedisLike
     private readonly env: Env
+    private readonly surface: McpSurface
 
-    constructor(catalog: ToolCatalog, redis: RedisLike, env: Env) {
+    constructor(catalog: ToolCatalog, redis: RedisLike, env: Env, surface: McpSurface = MAIN_SURFACE) {
         this.catalog = catalog
         this.redis = redis
         this.env = env
+        this.surface = surface
     }
 
     async resolve(props: RequestProperties, lookups?: StateLookupCache): Promise<ResolvedState> {
         const requestContext = buildMCPRequestContext(props)
         const reqCtx = new RequestContext(this.redis, this.env, props, requestContext, lookups)
 
-        const { features, tools, organizationId, projectId, readOnly } = props
+        const { organizationId, projectId, readOnly } = props
+        const fixedTools = this.surface.fixedTools
+        // A fixed surface ignores client catalog filters, so `?features=` cannot hide its tools.
+        const features = fixedTools ? undefined : props.features
+        const tools = fixedTools ? undefined : props.tools
         const pinned = await this.resolvePinnedContext(reqCtx, { organizationId, projectId })
         reqCtx.setPinnedContext(pinned)
 
@@ -292,12 +299,11 @@ export class RequestStateResolver {
             uiSupported: requestContext.mcpUiSupported ?? sessionContext?.mcpUiSupported,
         })
 
-        const renderUiEnabled = clientProfile.isRenderUiHost()
+        const renderUiEnabled = !fixedTools && clientProfile.isRenderUiHost()
 
-        const { mode: resolvedMode, useSingleExec } = resolveMode({
-            mode: requestContext.mode,
-            clientProfile,
-        })
+        const { mode: resolvedMode, useSingleExec } = fixedTools
+            ? { mode: 'tools' as const, useSingleExec: false }
+            : resolveMode({ mode: requestContext.mode, clientProfile })
         requestContext.mode = resolvedMode
         reqCtx.setMcpContexts(requestContext, sessionContext)
         props.mode = resolvedMode
@@ -313,6 +319,7 @@ export class RequestStateResolver {
             ...tasksContextToolsToExclude(clientProfile, props.taskId),
             ...(apiKeyScopes.includes('internal_run:read') ? ['tasks-run-create', 'tasks-create-and-run'] : []),
             ...(props.excludeTools ?? []),
+            ...this.surface.excludedTools,
         ]
 
         const filterOptions = {
@@ -333,9 +340,10 @@ export class RequestStateResolver {
 
         // Staff-only tools (OAuth-hidden scopes) need the extra explicit-scope +
         // is_staff gate on top of the catalog's plain scope filter.
+        const catalogTools = this.catalog.getFilteredTools({ ...filterOptions, scopes: apiKeyScopes })
         const allTools = (
             await filterStaffOnlyTools(
-                this.catalog.getFilteredTools({ ...filterOptions, scopes: apiKeyScopes }),
+                fixedTools ? catalogTools.filter((tool) => fixedTools.includes(tool.name)) : catalogTools,
                 _apiKey ?? { scopes: [] },
                 () => context.stateManager.getUser()
             )
