@@ -1,7 +1,8 @@
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
+import time_machine
 from unittest.mock import patch
 
 from django.core.cache import cache
@@ -173,10 +174,95 @@ class TestPostHogAIAccessDecision(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("resolved_decision_is_reused", False, RULES, True, PostHogAIAccessDecision.ALLOWED, 1),
-            ("beta_without_rules_is_not_cached", False, None, True, PostHogAIAccessDecision.UNRESOLVED, 2),
-            ("failed_override_lookup_is_not_cached", None, RULES, True, PostHogAIAccessDecision.UNRESOLVED, 2),
-            ("failed_beta_lookup_is_not_cached", False, RULES, False, PostHogAIAccessDecision.UNRESOLVED, 2),
+            ("resolved_decision_is_reused", False, RULES, True, 30, None, True, PostHogAIAccessDecision.ALLOWED, 1),
+            (
+                "resolved_decision_expires",
+                False,
+                RULES,
+                True,
+                24 * 60 + 1,
+                None,
+                True,
+                PostHogAIAccessDecision.ALLOWED,
+                2,
+            ),
+            (
+                "deciding_flag_edit_busts_it",
+                False,
+                RULES,
+                True,
+                30,
+                "phai-2-beta",
+                True,
+                PostHogAIAccessDecision.ALLOWED,
+                2,
+            ),
+            (
+                "other_flag_edit_keeps_it",
+                False,
+                RULES,
+                True,
+                30,
+                "other-flag",
+                True,
+                PostHogAIAccessDecision.ALLOWED,
+                1,
+            ),
+            (
+                "unloaded_definitions_reused_briefly",
+                False,
+                RULES,
+                True,
+                0,
+                None,
+                False,
+                PostHogAIAccessDecision.ALLOWED,
+                1,
+            ),
+            (
+                "unloaded_definitions_expire_fast",
+                False,
+                RULES,
+                True,
+                2,
+                None,
+                False,
+                PostHogAIAccessDecision.ALLOWED,
+                2,
+            ),
+            (
+                "beta_without_rules_is_not_cached",
+                False,
+                None,
+                True,
+                30,
+                None,
+                True,
+                PostHogAIAccessDecision.UNRESOLVED,
+                2,
+            ),
+            (
+                "failed_override_lookup_not_cached",
+                None,
+                RULES,
+                True,
+                30,
+                None,
+                True,
+                PostHogAIAccessDecision.UNRESOLVED,
+                2,
+            ),
+            (
+                "failed_beta_lookup_not_cached",
+                False,
+                RULES,
+                False,
+                30,
+                None,
+                True,
+                PostHogAIAccessDecision.UNRESOLVED,
+                2,
+            ),
         ]
     )
     def test_cached_decision(
@@ -185,6 +271,9 @@ class TestPostHogAIAccessDecision(SimpleTestCase):
         override_value: bool | None,
         rules: dict[str, Any] | None,
         beta_resolves: bool,
+        minutes_between_loads: int,
+        edited_flag: str | None,
+        definitions_loaded: bool,
         expected: PostHogAIAccessDecision,
         expected_evaluations: int,
     ) -> None:
@@ -198,10 +287,18 @@ class TestPostHogAIAccessDecision(SimpleTestCase):
             if beta_resolves
             else None
         )
+        definitions = [
+            {"key": key, "active": True, "filters": {"groups": [{"properties": [], "rollout_percentage": 0}]}}
+            for key in ("phai-2-beta", "other-flag")
+        ]
 
         with (
             patch("products.tasks.backend.access.get_feature_flag_or_none", return_value=override_value),
             patch("products.tasks.backend.access.posthoganalytics.get_feature_flag_result", return_value=beta),
+            patch(
+                "products.tasks.backend.access.posthoganalytics.feature_flag_definitions",
+                return_value=definitions if definitions_loaded else None,
+            ),
             patch(
                 "products.tasks.backend.access._get_funding_status",
                 return_value=OrganizationFundingStatus(
@@ -211,8 +308,13 @@ class TestPostHogAIAccessDecision(SimpleTestCase):
             patch(
                 "products.tasks.backend.access.get_posthog_ai_access_decision", wraps=get_posthog_ai_access_decision
             ) as mock_decision,
+            time_machine.travel(datetime(2026, 11, 3, 12, 0, tzinfo=UTC), tick=False) as traveller,
         ):
             first = get_cached_posthog_ai_access_decision(user, organization)
+            traveller.shift(timedelta(minutes=minutes_between_loads))
+            for definition in definitions:
+                if definition["key"] == edited_flag:
+                    definition["filters"] = {"groups": [{"properties": [], "rollout_percentage": 100}]}
             second = get_cached_posthog_ai_access_decision(user, organization)
 
         self.assertEqual((first, second), (expected, expected))

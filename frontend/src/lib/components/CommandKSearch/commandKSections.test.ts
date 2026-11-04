@@ -33,7 +33,7 @@ const emptyLocal = (): LocalLists => ({
     'data-management': [],
     people: [],
     health: [],
-    misc: [],
+    actions: [],
     shortcuts: [],
     settings: [],
     create: [],
@@ -54,7 +54,6 @@ const input = (mode: CommandKMode, overrides: Partial<SectionsInput>): SectionsI
     viewAll: null,
     stale: false,
     personsFirst: false,
-    settingsInResults: false,
     unifiedRanking: false,
     searchCorrection: null,
     ...overrides,
@@ -396,10 +395,9 @@ describe('buildSections', () => {
     })
 
     test.each([
-        ['off', false, 'Personal API keys', ['best-matches', 'settings'], 'Ada board'],
-        ['on', true, 'Personal API keys', ['best-matches'], 'Personal API keys'],
-        ['on, but a product has its name', true, 'API keys', ['best-matches', 'settings'], 'API keys'],
-    ])('ranks an exact-match setting with the results: flag %s', (_, settingsInResults, settingName, keys, first) => {
+        ['no product shares its name', 'Personal API keys', ['best-matches'], 'Personal API keys'],
+        ['a product has its name', 'API keys', ['best-matches', 'settings'], 'API keys'],
+    ])('ranks an exact-match setting with the results when %s', (_, settingName, keys, first) => {
         const setting: SearchItem = {
             id: 'settings-api-keys',
             name: `User: ${settingName} (api keys)`,
@@ -420,7 +418,6 @@ describe('buildSections', () => {
                 remote,
                 remoteQueries: { results: 'api keys' },
                 localQuery: 'api keys',
-                settingsInResults,
             })
         )
 
@@ -447,7 +444,6 @@ describe('buildSections', () => {
                 remote,
                 remoteQueries: { results: 'personal_api_keys' },
                 localQuery: 'personal_api_keys',
-                settingsInResults: true,
                 unifiedRanking: true,
             })
         )

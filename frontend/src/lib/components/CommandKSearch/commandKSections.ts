@@ -19,7 +19,7 @@ const LOCAL_SOURCES = [
     'data-management',
     'people',
     'health',
-    'misc',
+    'actions',
     'shortcuts',
     'settings',
     'create',
@@ -98,7 +98,7 @@ const SECTION_LABELS: Record<Exclude<CommandKSectionKey, `group-${string}`>, str
     'data-management': 'Data management',
     people: 'People',
     health: 'Health',
-    misc: 'Misc',
+    actions: 'Actions',
     shortcuts: 'Shortcuts',
     settings: 'Settings',
     create: 'Create new',
@@ -235,7 +235,6 @@ export interface SectionsInput extends SectionsQuery {
     remote: RemoteSlots
     stale: boolean
     personsFirst: boolean
-    settingsInResults: boolean
     unifiedRanking: boolean
     searchCorrection: SearchCorrection | null
 }
@@ -323,7 +322,6 @@ function rankedResultsSections(
     state: CommandKSection['state'],
     persons: SearchItem[],
     accounts: SearchItem[],
-    settingsInResults: boolean,
     unifiedRanking: boolean
 ): CommandKSection[] {
     const words = freeWords(query)
@@ -332,7 +330,7 @@ function rankedResultsSections(
     return buildRankedResults({
         persons,
         accounts,
-        settings: settingsInResults ? rankableSettings(local, settingsQuery(localQuery, unifiedRanking)) : [],
+        settings: rankableSettings(local, settingsQuery(localQuery, unifiedRanking)),
         query: unifiedRanking ? freeText : words.join(' '),
         highlightWords: words,
         results,
@@ -490,7 +488,6 @@ function buildSectionsForQuery(input: SectionsInput): CommandKSection[] {
             state,
             leadingPersons,
             accountsQuery ? remote.accounts.cache[accountsQuery] : [],
-            input.settingsInResults,
             input.unifiedRanking
         )
         sections.push(

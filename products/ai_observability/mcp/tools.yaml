@@ -566,21 +566,22 @@ tools:
             idempotent: false
         title: Create evaluation
         description: >
-            Create an evaluation. 'llm_judge': set evaluation_config.prompt and model_configuration with provider and
-            model; provider_key_id may be null when no key is pinned. An llm_judge runs on one of the team's own AI
-            provider keys, and keys can't be added through MCP. Check llma-evaluation-config-get and
-            llma-provider-key-list first: pin an ok-state key with provider_key_id when one exists. With no usable key,
-            still create the judge with enabled=false, and tell the user it starts scoring once a project admin adds a
-            key in Settings > AI observability > Bring your own key (BYOK) and enables it. 'hog':
-            evaluation_config.source (Hog returning a boolean, a finite number, or category keys). For 'hog' and
-            'llm_judge', choose output_type='boolean', 'numeric', or 'categorical'; numeric output_config accepts min,
-            max, step, allows_na, and passing_rule; categorical output_config accepts options, selection_mode,
-            allows_na, and passing_rule. 'sentiment': output_type='sentiment', omit model_configuration, optional
-            evaluation_config.source='user_messages'. To tag or classify generations into labels (what taggers used to
-            do), use output_type='categorical' with selection_mode='multiple'. `target` accepts 'generation' (default),
-            'trace', or 'session'. A session target runs once per `$ai_session_id` and defaults to the 'inactivity'
-            settle strategy. Pass `enabled` as a boolean (true to start scoring new $ai_generation events immediately,
-            false to create it paused). To organize the evaluation, pass a `directory_id` returned by
+            Create an evaluation that scores live traffic. Don't use it to record evals that run elsewhere (CI, local
+            eval suites); those are offline experiments. 'llm_judge': set evaluation_config.prompt and
+            model_configuration with provider and model; provider_key_id may be null when no key is pinned. An llm_judge
+            runs on one of the team's own AI provider keys, and keys can't be added through MCP. Check
+            llma-evaluation-config-get and llma-provider-key-list first: pin an ok-state key with provider_key_id when
+            one exists. With no usable key, still create the judge with enabled=false, and tell the user it starts
+            scoring once a project admin adds a key in Settings > AI observability > Bring your own key (BYOK) and
+            enables it. 'hog': evaluation_config.source (Hog returning a boolean, a finite number, or category keys).
+            For 'hog' and 'llm_judge', choose output_type='boolean', 'numeric', or 'categorical'; numeric output_config
+            accepts min, max, step, allows_na, and passing_rule; categorical output_config accepts options,
+            selection_mode, allows_na, and passing_rule. 'sentiment': output_type='sentiment', omit model_configuration,
+            optional evaluation_config.source='user_messages'. To tag or classify generations into labels (what taggers
+            used to do), use output_type='categorical' with selection_mode='multiple'. `target` accepts 'generation'
+            (default), 'trace', or 'session'. A session target runs once per `$ai_session_id` and defaults to the
+            'inactivity' settle strategy. Pass `enabled` as a boolean (true to start scoring new $ai_generation events
+            immediately, false to create it paused). To organize the evaluation, pass a `directory_id` returned by
             llma-evaluation-directory-list. Omit `directory_id` or pass null to keep it at the top level. Results are
             '$ai_evaluation' events. An evaluation only scores data that arrives after it is enabled, so once it is
             enabled, offer the user a backfill over past data with llma-evaluation-backfill-estimate.

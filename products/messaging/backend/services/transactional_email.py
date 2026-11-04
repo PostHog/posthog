@@ -16,10 +16,7 @@ from prometheus_client import Counter, Histogram
 
 from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models.team import Team
-from posthog.plugins.plugin_server_api import (
-    reload_hog_flows_on_workers,
-    send_transactional_email as run_transactional_workflow,
-)
+from posthog.plugins.plugin_server_api import send_transactional_email as run_transactional_workflow
 
 from products.messaging.backend.facade.contracts import (
     DeliveryUnavailable,
@@ -308,15 +305,6 @@ def check_transactional_update(template_id: UUID, team_id: int, fields: dict[str
     )
 
 
-def _reload_workers(team_id: int, hog_flow_id: UUID) -> None:
-    # The edit is already committed, so a failed reload must not fail the request. Workers still pick up the
-    # new version when their cache expires.
-    try:
-        reload_hog_flows_on_workers(team_id=team_id, hog_flow_ids=[str(hog_flow_id)])
-    except Exception:
-        logger.exception("transactional_email_worker_reload_failed", team_id=team_id, hog_flow_id=str(hog_flow_id))
-
-
 def sync_transactional_workflow(team_id: int, template_id: UUID, *, user_id: int | None) -> None:
     """Write the template's current content as a new version of its workflow, if it has one."""
     template = MessageTemplate.objects.get(team_id=team_id, id=template_id)
@@ -334,9 +322,6 @@ def sync_transactional_workflow(team_id: int, template_id: UUID, *, user_id: int
             hog_flow_id=hog_flow_id,
             content=_content(template),
         )
-        # The save already told the workers to reload, but before the caller's transaction committed, so a
-        # worker can cache the old version. This reload runs once the new version is visible.
-        transaction.on_commit(lambda: _reload_workers(team_id, hog_flow_id))
     except WorkflowNotFound:
         # Deleted between the check above and the update.
         MessageTemplate.objects.filter(team_id=team_id, id=template_id).update(transactional_hog_flow_id=None)

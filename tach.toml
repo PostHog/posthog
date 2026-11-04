@@ -34,10 +34,10 @@ depends_on = ["products.warehouse_sources.sources.sdk", "products.warehouse_sour
 layer = "modules"
 
 # The explicit entry wins over the glob for `products.warehouse_sources.sources.sdk`. The SDK re-exports the shared source code
-# of warehouse_sources, which still lives in the product.
+# of warehouse_sources, which still lives in the product, and the webhook template types of cdp.
 [[modules]]
 path = "products.warehouse_sources.sources.sdk"
-depends_on = ["posthog", "products.warehouse_sources"]
+depends_on = ["posthog", "products.warehouse_sources", "products.cdp"]
 layer = "modules"
 
 # Re-exports from product modules that warehouse_sources does not expose (pipeline core, naming
@@ -1999,4 +1999,17 @@ expose = [
 ]
 from = [
     "products.authorization",
+]
+
+[[modules]]
+path = "products.knowledge_writer"
+depends_on = ["posthog", "products.tasks"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+]
+from = [
+    "products.knowledge_writer",
 ]

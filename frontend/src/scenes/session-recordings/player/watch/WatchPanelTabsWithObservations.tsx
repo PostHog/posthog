@@ -4,8 +4,8 @@ import { Skeleton } from '@posthog/quill'
 
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
+import { QuillRecordingObservationsEmptyState } from 'products/replay_vision/frontend/components/QuillRecordingObservationsEmptyState'
 import { RecordingMoments } from 'products/replay_vision/frontend/components/RecordingMoments'
-import { RecordingObservationsEmptyState } from 'products/replay_vision/frontend/components/RecordingObservationsEmptyState'
 import { observationsDockLogic } from 'products/replay_vision/frontend/logics/observationsDockLogic'
 import { momentCount } from 'products/replay_vision/frontend/utils/recordingTimeline'
 import { recordingScanBlock } from 'products/replay_vision/frontend/utils/scanEligibility'
@@ -25,10 +25,9 @@ export function WatchPanelTabsWithObservations({
     const content = !hasLoadedObservations ? (
         <Skeleton className="h-24 m-2" />
     ) : observations.length === 0 ? (
-        <RecordingObservationsEmptyState
+        <QuillRecordingObservationsEmptyState
             sessionId={sessionId}
             scanBlock={recordingScanBlock(sessionPlayerMetaData)}
-            surface="watch"
         />
     ) : (
         <div className="flex flex-col max-h-[60vh]">

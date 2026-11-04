@@ -281,8 +281,9 @@ class ResolvedAccess:
       without the entitlement, where rules are never consulted)
     - "org_admin": rules never consulted — the admin bypass
     - "creator": rules never consulted — the user created the object
-    - "org_membership": the object is the organization itself — organizations have no access
-      rules; the level comes from the user's OrganizationMembership.level (admin or member)
+    - "org_membership": the level comes from the user's OrganizationMembership.level (admin or
+      member) — the object is the organization itself, which has no access rules, or a project
+      in an organization without the entitlement, where rules are never consulted
     """
 
     access_level: AccessControlLevel
@@ -1685,6 +1686,16 @@ class UserAccessControl:
         if not self.access_controls_supported:
             if explicit:
                 return True, None
+            if resource == "project":
+                # Without the entitlement a project is reached through the organization membership
+                # alone (UserTeamPermissions.effective_membership_level). Admins returned above, so
+                # the user is a plain member, not the "admin" that default_access_level names.
+                return True, ResolvedAccess(
+                    access_level="member",
+                    source="org_membership",
+                    source_subject=None,
+                    source_resource=resource,
+                )
             return True, ResolvedAccess(
                 access_level=default_access_level(resource),
                 source="system_default",
