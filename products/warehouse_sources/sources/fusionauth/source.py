@@ -29,6 +29,7 @@ from products.warehouse_sources.sources.sdk import (
 
 _SEARCH_WINDOW_DESCRIPTION = "Full sync only; the search API's result window is capped at ~10,000 rows."
 _PER_USER_DESCRIPTION = "Full sync only; read for the first ~10,000 users the user search returns."
+_REPORT_DESCRIPTION = "Full sync only; covers all applications and needs an API key that is not scoped to a tenant."
 
 SCHEMA_DESCRIPTIONS: dict[str, str] = {
     "Users": _SEARCH_WINDOW_DESCRIPTION,
@@ -36,6 +37,10 @@ SCHEMA_DESCRIPTIONS: dict[str, str] = {
     "UserRegistrations": _PER_USER_DESCRIPTION,
     "UserConsents": _PER_USER_DESCRIPTION,
     "UserActionLogs": _PER_USER_DESCRIPTION,
+    "RefreshTokens": _PER_USER_DESCRIPTION,
+    "IdentityProviderLinks": _PER_USER_DESCRIPTION,
+    "DailyActiveUsers": _REPORT_DESCRIPTION,
+    "MonthlyActiveUsers": _REPORT_DESCRIPTION,
 }
 
 

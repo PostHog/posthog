@@ -210,4 +210,59 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "lastUpdateInstant": "The instant (epoch milliseconds) the reason was last updated.",
         },
     },
+    "UserComments": {
+        "description": "Comments that admins wrote on users, for example during support or moderation.",
+        "docs_url": "https://fusionauth.io/docs/apis/user-comments/search-for-user-comments",
+        "columns": {
+            "id": "Unique identifier for the user comment.",
+            "comment": "The text of the user comment.",
+            "commenterId": "The unique identifier of the user who wrote the comment.",
+            "userId": "The unique identifier of the user the comment was written for.",
+            "insertInstant": "The instant (epoch milliseconds) the comment was written.",
+        },
+    },
+    "RefreshTokens": {
+        "description": "Refresh tokens issued to users, which represent their active sessions. The token values are not synced.",
+        "docs_url": "https://fusionauth.io/docs/apis/jwt/retrieve-refresh-tokens",
+        "columns": {
+            "id": "Unique identifier for the refresh token.",
+            "userId": "The unique identifier of the user the token was issued to.",
+            "applicationId": "The unique identifier of the application the token was issued for.",
+            "tenantId": "The unique identifier of the tenant of the user.",
+            "insertInstant": "The instant (epoch milliseconds) the token was created.",
+            "startInstant": "The instant (epoch milliseconds) the session of the token started.",
+            "metaData": "Metadata about the token, such as the device it was issued to and its scopes.",
+        },
+    },
+    "IdentityProviderLinks": {
+        "description": "Links between users and their accounts at identity providers, such as social or SSO logins. The identity provider tokens are not synced.",
+        "docs_url": "https://fusionauth.io/docs/apis/identity-providers/links",
+        "columns": {
+            "userId": "The unique identifier of the linked user.",
+            "identityProviderId": "The unique identifier of the identity provider.",
+            "identityProviderName": "The name of the identity provider.",
+            "identityProviderType": "The type of the identity provider, for example Google or OpenIDConnect.",
+            "identityProviderUserId": "The unique identifier of the user at the identity provider.",
+            "displayName": "A display name for the linked account, for example an email address or username.",
+            "tenantId": "The unique identifier of the tenant of the user.",
+            "insertInstant": "The instant (epoch milliseconds) the link was created.",
+            "lastLoginInstant": "The instant (epoch milliseconds) the user last logged in through this link.",
+        },
+    },
+    "DailyActiveUsers": {
+        "description": "The number of daily active users across all applications, one row per day.",
+        "docs_url": "https://fusionauth.io/docs/apis/reports/retrieve-daily-active-users-report",
+        "columns": {
+            "interval": "The number of days since the epoch, in the report timezone of the instance.",
+            "count": "The number of daily active users for the day.",
+        },
+    },
+    "MonthlyActiveUsers": {
+        "description": "The number of monthly active users across all applications, one row per month.",
+        "docs_url": "https://fusionauth.io/docs/apis/reports/retrieve-monthly-active-users-report",
+        "columns": {
+            "interval": "The number of months since the epoch, in the report timezone of the instance.",
+            "count": "The number of monthly active users for the month.",
+        },
+    },
 }
