@@ -43,6 +43,22 @@ describe('CanvasAppWidget', () => {
         expect(container.querySelector('[data-attr="canvas-app-widget-empty-state-select"]')).toBeInTheDocument()
     })
 
+    it('offers to create a canvas when the viewer has none to pick', () => {
+        render(
+            <CanvasAppWidget
+                tileId={1}
+                config={{}}
+                loading={false}
+                result={{ ...noCanvasSelected, hasCanvases: false }}
+                onUpdateConfig={jest.fn()}
+            />
+        )
+
+        expect(screen.getByText('No canvases yet')).toBeInTheDocument()
+        expect(screen.getByText('New canvas')).toBeInTheDocument()
+        expect(screen.queryByText('No canvas selected')).not.toBeInTheDocument()
+    })
+
     it('does not expose the inline picker on a read-only (shared) tile', () => {
         const { container } = render(
             <CanvasAppWidget tileId={1} config={{}} loading={false} result={noCanvasSelected} />
