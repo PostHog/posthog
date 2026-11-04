@@ -668,6 +668,10 @@ def validate_declared_target(
     if option is None or option.allowed:
         return
 
+    # A cadence saved before the floor applied stays saveable, so re-sending a whole view edits it.
+    if option.blocked_by == "plan" and declared_targets.get(node_id) == target:
+        return
+
     # Nothing legal to fall back to, so no message here can end in "pick X instead"
     if not bounds.satisfiable:
         raise UnsatisfiableFrequencyError(_nothing_satisfiable_message(bounds, names, pinned))
@@ -681,9 +685,6 @@ def validate_declared_target(
             f" Pick {humanize_cadence(min(bounds.allowed))} instead."
         )
     if option.blocked_by == "plan":
-        # A cadence saved before the floor applied stays saveable, so re-sending a whole view edits it.
-        if declared_targets.get(node_id) == target:
-            return
         raise UnsatisfiableFrequencyError(
             f"Can't refresh every {humanize_cadence(target)} on your plan."
             f" Pick {humanize_cadence(min(bounds.allowed))} instead, or upgrade to refresh more often."

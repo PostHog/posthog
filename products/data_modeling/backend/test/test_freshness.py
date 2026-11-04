@@ -187,6 +187,17 @@ class TestValidateFrequencyTarget(TestCase):
                 frozenset(),
                 H6,
             ),
+            (
+                "stored_target_resaves_when_plan_and_consumer_leave_nothing_allowed",
+                "a",
+                H1,
+                [("src", "a"), ("a", "ep")],
+                {"a": H1, "ep": H1},
+                {"src": STREAMING},
+                True,
+                frozenset(),
+                H6,
+            ),
         ]
     )
     def test_validate(
