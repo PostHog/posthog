@@ -169,9 +169,7 @@ interface PerAxisOptions {
     yAxisHidden?: Record<string, boolean>
 }
 
-// With multiple y-axes the value-axis labels stack into several gutters per side; reserve the
-// cumulative width so the outer gutters aren't clipped. Mirrors AxisLabels' gutter layout.
-// Each titled axis also gets one rotated-title band on its side.
+// Mirrors AxisLabels' gutter layout.
 function perAxisReserves(options: PerAxisOptions): { gutters: SideReserve; titles: SideReserve } {
     const { rangeSeries, isPercent, yTickFormatter, yAxisFormatters, yAxisPositions, yAxisTitles, yAxisHidden } =
         options
@@ -226,8 +224,7 @@ export function useChartMargins({
     const isHorizontal = axisOrientation === 'horizontal'
     const rangeSeries = isPercent ? series : (valueRangeSeries ?? series)
     const tickLabelRotation = isHorizontal ? 0 : normalizeTickLabelRotation(xTickLabelRotation)
-    // Per-side gutter layout also applies to a single axis explicitly pinned right — the series-count
-    // check misses it, which would reserve the left margin while the gutter draws on the right.
+    // A single axis pinned right draws its gutter on the right, so it needs the per-side layout too.
     const usesPerSideGutters =
         orderedAxisPositions(series).length > 1 || Object.values(yAxisPositions ?? {}).includes('right')
     const perAxis = !hideYAxis && !isHorizontal && usesPerSideGutters
@@ -257,8 +254,6 @@ export function useChartMargins({
         [perAxis, rangeSeries, isPercent, yTickFormatter, yAxisFormatters, yAxisPositions, yAxisTitles, yAxisHidden]
     )
 
-    // Horizontal charts (category axis on the left) and single-value-axis charts only ever title the
-    // default left axis.
     const defaultTitle = !hideYAxis && yAxisTitles?.[DEFAULT_Y_AXIS_ID] ? Y_AXIS_TITLE_MARGIN : 0
     const titles = perAxisWidths?.titles ?? { left: defaultTitle, right: 0 }
 
@@ -279,8 +274,7 @@ export function useChartMargins({
 
     const yLabelWidth = isHorizontal ? categoryWidths.widest : widestValue
     const leftLabelReserve = perAxisWidths?.gutters.left ?? Math.ceil(yLabelWidth) + Y_LABEL_RIGHT_PADDING
-    // Even with the y-axis collapsed, the first x label still overhangs the plot's left edge,
-    // so its edge reserve keeps the floor (the right margin already does the same).
+    // The first x label overhangs the plot's left edge even with the y-axis hidden.
     const left = hideYAxis
         ? Math.max(COLLAPSED_AXIS_MARGIN, xLabelEdges.left + X_LABEL_EDGE_PADDING)
         : Math.max(MIN_LEFT_MARGIN, leftLabelReserve + Y_LABEL_LEFT_GUTTER, xLabelEdges.left + X_LABEL_EDGE_PADDING) +
@@ -290,7 +284,6 @@ export function useChartMargins({
     const right = Math.max(rightFloor, rightLabelReserve, xLabelEdges.right + X_LABEL_EDGE_PADDING)
 
     const margins = applyMarginOverride({ top: DEFAULT_MARGINS.top, right, bottom, left }, override ?? {})
-    // Callers key effects and memos on the margins object, so equal sides keep one identity.
     return useMemo(
         () => ({ top: margins.top, right: margins.right, bottom: margins.bottom, left: margins.left }),
         [margins.top, margins.right, margins.bottom, margins.left]
