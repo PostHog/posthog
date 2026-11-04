@@ -104,6 +104,42 @@ type Story = StoryObj
 
 export const Inbox: Story = {}
 
+export const GithubOptionalResearch: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/config': () => [
+                    200,
+                    {
+                        ...mockTeamConfig,
+                        github_optional_available: true,
+                        github_readiness: 'not_connected',
+                        research_access: { mode: 'data_only', blocker: null },
+                    },
+                ],
+            },
+        }),
+    ],
+}
+
+export const GithubConnectionRequired: Story = {
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/config': () => [
+                    200,
+                    {
+                        ...mockTeamConfig,
+                        github_optional_available: false,
+                        github_readiness: 'reconnect_required',
+                        research_access: { mode: 'blocked', blocker: 'reconnect_required' },
+                    },
+                ],
+            },
+        }),
+    ],
+}
+
 const valueSummaryMocks = mswDecorator({
     get: {
         '/api/projects/:team_id/signals/inbox_summary/': {

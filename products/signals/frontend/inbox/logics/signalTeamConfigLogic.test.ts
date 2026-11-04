@@ -38,6 +38,14 @@ describe('signalTeamConfigLogic', () => {
 
     afterEach(() => logic?.unmount())
 
+    it('does not turn a config loading failure into a GitHub connection verdict', async () => {
+        await mountWith({})
+        logic.actions.loadTeamConfigFailure('Connection failed')
+        expect(logic.values.teamConfigLoadFailed).toBe(true)
+        logic.actions.loadTeamConfigSuccess({ default_autostart_priority: 'P4' })
+        expect(logic.values.teamConfigLoadFailed).toBe(false)
+    })
+
     it('adds an override without clobbering existing repos, and clears the draft', async () => {
         await mountWith({ 'acme/web': 'staging' })
         logic.actions.setDraftBaseBranchRepo('Acme/API')

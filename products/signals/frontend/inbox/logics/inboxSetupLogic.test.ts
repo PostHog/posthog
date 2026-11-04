@@ -6,6 +6,7 @@ import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -46,6 +47,7 @@ describe('Inbox setup', () => {
     let enabledScouts: string[]
     let hasErrorTrackingData: boolean
     let githubOptional: boolean
+    let githubReadiness: InboxOnboardingStateApi['github_readiness']
     let hasEvents: boolean
     let completedAt: string | null
     let scanners: { id: string; enabled: boolean; emits_signals: boolean }[]
@@ -90,6 +92,7 @@ describe('Inbox setup', () => {
         enabledScouts = []
         hasErrorTrackingData = false
         githubOptional = false
+        githubReadiness = undefined
         hasEvents = false
         failCompletion = true
         completedAt = null
@@ -103,6 +106,7 @@ describe('Inbox setup', () => {
                     draft: savedDraft,
                     completed_at: completedAt,
                     github_optional_available: githubOptional,
+                    ...(githubReadiness ? { github_readiness: githubReadiness } : {}),
                 }),
                 '/api/projects/:id/signals/source_configs/': () => {
                     inventoryRequests++
@@ -408,6 +412,18 @@ describe('Inbox setup', () => {
         expect(activationRequests(capture)).toEqual([
             ['self-driving onboarding activation requested', expect.objectContaining({ activation_source: 'retry' })],
         ])
+    })
+
+    it('asks the server again when GitHub connects after the onboarding state loaded', async () => {
+        githubReadiness = 'not_connected'
+        await expectLogic(logic, () => logic.actions.loadSetup()).toFinishAllListeners()
+        await waitFor(() => expect(logic.values.integrationsLoading).toBe(false))
+        expect(logic.values.hasGithubIntegration).toBe(false)
+
+        githubReadiness = 'ready'
+        integrationsLogic.actions.loadIntegrations()
+
+        await waitFor(() => expect(logic.values.hasGithubIntegration).toBe(true))
     })
 
     it('activates when the integration refresh fails after the inventory loaded', async () => {

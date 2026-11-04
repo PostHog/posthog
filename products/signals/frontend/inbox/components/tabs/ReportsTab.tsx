@@ -12,6 +12,7 @@ import { inboxFiltersLogic, isDefaultStateFilter } from '../../logics/inboxFilte
 import type { InboxRankingSortField } from '../../logics/inboxFiltersLogic'
 import { inboxSetupLogic } from '../../logics/inboxSetupLogic'
 import { reportListLogic, sectionListLogicProps } from '../../logics/reportListLogic'
+import { signalTeamConfigLogic } from '../../logics/signalTeamConfigLogic'
 import {
     INBOX_SCOPE_ENTIRE_PROJECT,
     INBOX_SCOPE_CLAIMED_BY_YOU,
@@ -29,6 +30,7 @@ import { FirstReportProgress } from '../emptyState/FirstReportProgress'
 import { InboxWaitingForWork } from '../emptyState/InboxWaitingForWork'
 import { InboxMcpBanner } from '../InboxMcpBanner'
 import { InboxActivationPanel } from '../onboarding/InboxActivationPanel'
+import { GitHubConnectionNotice } from '../shell/GitHubConnectionNotice'
 import { InboxBulkSelectionBar } from '../shell/InboxBulkSelectionBar'
 import { InboxFiltersPanel } from '../shell/InboxFiltersPanel'
 import { InboxReportFilters } from '../shell/InboxReportFilters'
@@ -220,7 +222,13 @@ function emptyListCopy(scope: InboxScope, narrowed: boolean): string {
  * selection are shared across all of them.
  */
 export function ReportsTab(): JSX.Element {
-    const { showActivationPanel: showActivation } = useValues(inboxActivationVisibilityLogic)
+    const { showActivationPanel } = useValues(inboxActivationVisibilityLogic)
+    const { githubAccessBlocker, githubAccessSettled } = useValues(signalTeamConfigLogic)
+    // A GitHub block is the one thing the user must act on, so it replaces every other card in the feed.
+    // The other cards wait for the GitHub verdict, so they never flash before it.
+    const githubBlocked = githubAccessBlocker !== null
+    const showFeedCards = githubAccessSettled && !githubBlocked
+    const showActivation = showActivationPanel && showFeedCards
     const { savedState, firstReportProgress } = useValues(inboxSetupLogic)
     const { isStaff } = useValues(inboxSceneLogic)
     // The row context menus dispatch to this logic and unmount when a menu closes; pinning it here
@@ -378,7 +386,10 @@ export function ReportsTab(): JSX.Element {
                 </div>
             </div>
             <InboxBulkSelectionBar reports={rows.map(({ report }) => report)} />
-            <InboxMcpBanner />
+            {showFeedCards && <InboxMcpBanner />}
+            {githubBlocked && (
+                <GitHubConnectionNotice hasReports={rows.length > 0 ? true : inboxIsEmpty ? false : null} />
+            )}
             {showActivation && <InboxActivationPanel hasReports={!inboxIsEmpty && rows.length > 0} />}
             {showActivation && firstReportProgress && !firstLoadPending && rows.length === 0 && (
                 <div className="min-w-0" data-attr="inbox-first-report-progress">
@@ -390,7 +401,7 @@ export function ReportsTab(): JSX.Element {
             )}
 
             {inboxIsEmpty && !anyLoadFailed ? (
-                showActivation ? null : (
+                showActivation || !showFeedCards ? null : (
                     <InboxWaitingForWork />
                 )
             ) : showFirstLoadSkeleton ? (
