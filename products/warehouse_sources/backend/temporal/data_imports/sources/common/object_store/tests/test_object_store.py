@@ -7,7 +7,7 @@ import tempfile
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest.mock import MagicMock, call, patch
@@ -23,6 +23,7 @@ from botocore.stub import Stubber
 from deltalake import DeltaTable, WriterProperties, write_deltalake
 from deltalake.exceptions import DeltaError, TableNotFoundError
 from fsspec.implementations.local import LocalFileSystem
+from fsspec.spec import AbstractBufferedFile
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store import (
@@ -1090,6 +1091,15 @@ class TestFileSelection:
         assert len(tables) == 2
         assert [number for table in tables for number in table["_file_row_number"].to_pylist()] == list(range(rows))
 
+    @parameterized.expand([("data.csv", "csv"), ("data.jsonl", "jsonl")])
+    def test_reads_an_uncompressed_file_from_an_fsspec_buffered_file(self, path: str, file_format: str) -> None:
+        content = b"id\n1\n2\n" if file_format == "csv" else b'{"id": "1"}\n{"id": "2"}\n'
+        stream = _BytesBufferedFile(content)
+
+        tables = list(iter_file_tables(cast(Any, stream), stored(path), cast(Any, file_format), CsvOptions()))
+
+        assert [row["id"] for table in tables for row in table.to_pylist()] == ["1", "2"]
+
     def test_row_numbers_continue_across_the_batches_of_a_gzipped_parquet_file(self) -> None:
         rows = PARQUET_BATCH_ROWS + 3
         buffer = io.BytesIO()
@@ -1100,6 +1110,15 @@ class TestFileSelection:
 
         assert len(tables) == 2
         assert [number for table in tables for number in table["_file_row_number"].to_pylist()] == list(range(rows))
+
+
+class _BytesBufferedFile(AbstractBufferedFile):
+    def __init__(self, content: bytes) -> None:
+        self._content = content
+        super().__init__(LocalFileSystem(), "memory", mode="rb", block_size=4, size=len(content), cache_type="none")
+
+    def _fetch_range(self, start: int, end: int) -> bytes:
+        return self._content[start:end]
 
 
 class TestLocationAndErrors:
