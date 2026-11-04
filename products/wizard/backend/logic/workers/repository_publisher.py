@@ -81,7 +81,10 @@ def create_signed_commit(
         branch_tip = head_sha
     else:
         branch_existed = True
-        _fetch_branch(sandbox, repository_path, branch)
+        # A retry after branch creation finds the tip at the local HEAD. Origin has no credentials
+        # by then, so a fetch would fail for a private repository.
+        if existing_tip != head_sha:
+            _fetch_branch(sandbox, repository_path, branch)
         branch_tip = existing_tip
 
     changes = _staged_changes(sandbox, repository_path, branch_tip)

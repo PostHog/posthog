@@ -47,7 +47,6 @@ def create_run_artifacts(input: PreparedGitRepositoryWorkspace) -> None:
             retryable=error.retryable,
             stage=error.stage,
             exit_code=error.exit_code,
-            detail=error.detail if error.stage == "publishing" else None,
         )
         raise ApplicationError(
             str(error),

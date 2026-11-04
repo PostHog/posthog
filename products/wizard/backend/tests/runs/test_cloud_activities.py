@@ -426,19 +426,19 @@ def test_execute_wizard_preserves_cancellation() -> None:
             ),
             WIZARD_WORKER_EXECUTION_ERROR_TYPE,
             False,
-            {"stage": "publishing", "detail": "GitHub signed commit failed with status code 502."},
+            {"stage": "publishing", "exit_code": 1},
         ),
         (
-            WizardWorkerExecutionError("publishing", 1, "GitHub integration does not own the repository."),
+            WizardWorkerExecutionError("publishing", 1, "Could not read staged file 'fake-wizard-api-key-for-test'."),
             WIZARD_WORKER_EXECUTION_ERROR_TYPE,
             True,
-            {"stage": "publishing", "detail": "GitHub integration does not own the repository."},
+            {"stage": "publishing", "exit_code": 1},
         ),
         (
             WizardWorkerExecutionError("diff capture", 1, detail="fake-wizard-api-key-for-test"),
             WIZARD_WORKER_EXECUTION_ERROR_TYPE,
             True,
-            {"stage": "diff capture", "detail": None},
+            {"stage": "diff capture", "exit_code": 1},
         ),
         (
             GitHubIntegrationError("fake-wizard-api-key-for-test", status_code=503),

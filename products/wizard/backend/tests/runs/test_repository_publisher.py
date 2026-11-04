@@ -147,17 +147,26 @@ def test_stage_publishable_changes_replaces_existing_staging(tmp_path: Path) -> 
     assert _git(repository, "diff", "--cached", "--name-only").splitlines() == ["src/component's name.tsx"]
 
 
+@pytest.mark.parametrize("branch_created_by_earlier_attempt", [False, True])
 @patch("products.wizard.backend.logic.workers.repository_publisher.GitHubIntegration")
 @patch("products.wizard.backend.logic.workers.repository_publisher.IntegrationManager")
 def test_create_signed_commit_strips_head_sha_and_supports_binary_files(
     integration_manager: MagicMock,
     github_integration_class: MagicMock,
+    branch_created_by_earlier_attempt: bool,
 ) -> None:
     integration_manager.github.oauth.get_many.return_value = {13: MagicMock()}
     github = github_integration_class.return_value
+    existing_ref = {"target": {"oid": "7a6e71985f4e0058f10517fc662813a39818f805"}}
     github.api_request.side_effect = [
-        _graphql_response({"data": {"repository": {"id": "R_1", "ref": None}}}),
-        _graphql_response({"data": {"createRef": {"ref": {"name": "refs/heads/posthog/wizard-123"}}}}),
+        _graphql_response(
+            {"data": {"repository": {"id": "R_1", "ref": existing_ref if branch_created_by_earlier_attempt else None}}}
+        ),
+        *(
+            []
+            if branch_created_by_earlier_attempt
+            else [_graphql_response({"data": {"createRef": {"ref": {"name": "refs/heads/posthog/wizard-123"}}}})]
+        ),
         _graphql_response({"data": {"createCommitOnBranch": {"commit": {"oid": "newsha456"}}}}),
     ]
 
@@ -179,10 +188,12 @@ def test_create_signed_commit_strips_head_sha_and_supports_binary_files(
         source="wizard",
     )
 
-    create_ref_input = github.api_request.call_args_list[1].kwargs["json_body"]["variables"]["input"]
-    commit_input = github.api_request.call_args_list[2].kwargs["json_body"]["variables"]["input"]
-    assert create_ref_input["oid"] == "7a6e71985f4e0058f10517fc662813a39818f805"
+    if not branch_created_by_earlier_attempt:
+        create_ref_input = github.api_request.call_args_list[1].kwargs["json_body"]["variables"]["input"]
+        assert create_ref_input["oid"] == "7a6e71985f4e0058f10517fc662813a39818f805"
+    commit_input = github.api_request.call_args_list[-1].kwargs["json_body"]["variables"]["input"]
     assert commit_input["expectedHeadOid"] == "7a6e71985f4e0058f10517fc662813a39818f805"
+    assert not any("fetch" in call.args[0] for call in sandbox.execute.call_args_list)
     assert result.commit_shas == ("newsha456",)
 
 

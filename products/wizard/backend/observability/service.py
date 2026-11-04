@@ -166,7 +166,6 @@ class WizardObservability:
         retryable: bool,
         stage: str | None = None,
         exit_code: int | None = None,
-        detail: str | None = None,
         status_code: int | None = None,
     ) -> None:
         self._observe(
@@ -178,7 +177,6 @@ class WizardObservability:
                 "retryable": retryable,
                 "stage": stage,
                 "exit_code": exit_code,
-                "detail": detail,
                 "status_code": status_code,
             },
             level=logging.WARNING,
