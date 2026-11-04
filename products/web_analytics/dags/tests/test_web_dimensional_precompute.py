@@ -396,6 +396,21 @@ class TestCheckWebDimensionalPrecomputeCoverageOp(APIBaseTest):
         with time_machine.travel(_NOW, tick=False), pytest.raises(dagster.Failure, match=BOUNCES_TABLE):
             check_web_dimensional_precompute_coverage_op(dagster.build_op_context(), run)
 
+    def test_team_without_sessions_history_in_the_window_is_not_checked(self):
+        # The writer builds nothing for a sessions v3 team in a region the v3 backfill has not reached, so the
+        # check must not report its empty window as missing days on every run.
+        self.team.modifiers = {"sessionTableVersion": "v3"}
+        self.team.save()
+
+        with (
+            time_machine.travel(_NOW, tick=False),
+            patch(
+                "products.web_analytics.backend.hogql_queries.web_dimensional_precompute.is_cloud", return_value=True
+            ),
+            override_settings(CLOUD_DEPLOYMENT="EU"),
+        ):
+            check_web_dimensional_precompute_coverage_op(dagster.build_op_context(), self._run({}))
+
     @patch(_SINGLE_CHUNK, PRECOMPUTE_WINDOW_DAYS)
     def test_run_crossing_utc_midnight_checks_the_writers_day(self):
         # The writers finish before midnight and the check runs after it. The new UTC day has no job

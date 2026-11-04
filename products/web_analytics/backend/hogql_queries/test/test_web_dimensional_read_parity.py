@@ -328,6 +328,46 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
         assert opted_in == live
         assert self._counts(opted_in) == expected_counts
 
+    @parameterized.expand(
+        [
+            ("stats_table", "DimensionalStatsTableQueryBuilder"),
+            ("overview", "DimensionalWebOverviewQueryBuilder"),
+        ]
+    )
+    def test_failed_dimensional_read_falls_back_to_live(self, _name, builder_name):
+        def run(web_query_modifiers):
+            if builder_name == "DimensionalStatsTableQueryBuilder":
+                runner = WebStatsTableQueryRunner(
+                    team=self.team,
+                    query=WebStatsTableQuery(
+                        dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
+                        properties=[],
+                        breakdownBy=WebStatsBreakdown.DEVICE_TYPE,
+                        limit=100,
+                        webQueryModifiers=web_query_modifiers,
+                    ),
+                )
+                return self._sort_results(runner.calculate().results)
+            runner = WebOverviewQueryRunner(
+                team=self.team,
+                query=WebOverviewQuery(
+                    dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
+                    properties=[],
+                    webQueryModifiers=web_query_modifiers,
+                ),
+            )
+            return [(item.key, item.value) for item in runner.calculate().results]
+
+        live = run(None)
+        with patch(
+            f"products.web_analytics.backend.hogql_queries.web_dimensional_read.{builder_name}.get_query",
+            side_effect=RuntimeError("dimensional read failed"),
+        ) as failing_query:
+            opted_in = run(OPT_IN)
+
+        assert failing_query.called
+        assert opted_in == live
+
     def test_overview_dimensional_matches_v2(self):
         def run(modifiers, web_query_modifiers):
             runner = WebOverviewQueryRunner(
