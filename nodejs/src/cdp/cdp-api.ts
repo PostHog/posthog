@@ -54,6 +54,7 @@ import { matchesWaitUntilCondition } from './services/hogflows/hogflow-utils'
 import { IdempotencyKeys } from './services/hogflows/idempotency-keys'
 import { WorkflowStepResumeSchema } from './services/hogflows/step-resume.service'
 import {
+    AcceptedSend,
     AcceptedSendRequestSchema,
     CODE_SEND_TOKEN_CLAIMS,
     QueuedSend,
@@ -186,8 +187,25 @@ const transactionalEmailFingerprint = (
 ): string => {
     const templateRequest = [hogFlowId, to, distinct_id, variables]
     return IdempotencyKeys.fingerprint(
-        send ? [...templateRequest, ACCEPTED_SEND_FINGERPRINT_MARKER, send] : templateRequest
+        send ? [...templateRequest, ACCEPTED_SEND_FINGERPRINT_MARKER, withSenderTheCallerChose(send)] : templateRequest
     )
+}
+
+type CallerChosenSender = Partial<NonNullable<AcceptedSend['from']>>
+
+const withSenderTheCallerChose = ({
+    from,
+    ...send
+}: AcceptedSend): Omit<AcceptedSend, 'from'> & { from?: CallerChosenSender } => ({
+    ...send,
+    from: senderTheCallerChose(from),
+})
+
+const senderTheCallerChose = (from: AcceptedSend['from']): CallerChosenSender | undefined => {
+    if (!from) {
+        return undefined
+    }
+    return from.email ? { email: from.email, name: from.name } : { integrationId: from.integrationId, name: from.name }
 }
 
 export class CdpApi {

@@ -150,6 +150,35 @@ class ObjectAccessControlRule:
 
 
 @frozen
+class AccessRule:
+    """One stored rule, object-level or resource-level, as resolution reads it.
+
+    `applies` is False for a rule that resolution never uses: it names a member or a role of
+    another organization, or it names both a member and a role.
+    """
+
+    resource: str
+    resource_id: str | None
+    access_level: str
+    organization_member_id: UUID | None
+    role_id: UUID | None
+    applies: bool
+
+
+@frozen
+class ObjectAccessRuleInput:
+    """One rule to keep on an object. With no member and no role, it is the object's default rule."""
+
+    access_level: str
+    organization_member_id: UUID | None = None
+    role_id: UUID | None = None
+
+    def __post_init__(self) -> None:
+        if self.organization_member_id is not None and self.role_id is not None:
+            raise ValueError("Set at most one of organization_member_id or role_id.")
+
+
+@frozen
 class TerraformLock:
     """The state of the Terraform lock of one project. has_terraform_account is true when Terraform
     wrote access rules to the project at least once. An enabled lock with no account refuses all
