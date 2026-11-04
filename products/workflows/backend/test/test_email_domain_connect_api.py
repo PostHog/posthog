@@ -12,6 +12,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.integration import EmailIntegration, Integration
+from posthog.models.integration.email import VERIFICATION_REQUESTED_AT
 from posthog.models.team import Team
 
 from products.workflows.backend.test.email_domain_api_test_case import (
@@ -238,6 +239,9 @@ class TestOneClickEmailDomainSetup(EmailDomainConnectTestCase):
 
 
 class TestDomainConnectChaos(EmailDomainConnectTestCase):
+    def config_ignoring_the_restamped_request_time(self, sender: int) -> dict[str, Any]:
+        return {key: value for key, value in self.config(sender).items() if key != VERIFICATION_REQUESTED_AT}
+
     @parameterized.expand(
         [
             ("discovery_lookup_times_out", dns_operation(DISCOVERY_RECORD, "TXT"), DnsFault.TIMEOUT),
@@ -252,14 +256,14 @@ class TestDomainConnectChaos(EmailDomainConnectTestCase):
         self, _name: str, operation: str, fault: DnsFault | HttpFault
     ) -> None:
         sender = self.create_sender(f"hello@{DOMAIN}")
-        config_before = self.config(sender)
+        config_before = self.config_ignoring_the_restamped_request_time(sender)
         self.world.faults.inject(operation, fault)
 
         assert self.check()["supported"] is False
         response = self.apply_url(sender)
 
         assert (response.status_code, response.json()["detail"]) == (status.HTTP_400_BAD_REQUEST, APPLY_URL_FAILED)
-        assert self.config(sender) == config_before
+        assert self.config_ignoring_the_restamped_request_time(sender) == config_before
 
         self.world.faults.clear()
         assert self.check()["supported"] is True
@@ -307,7 +311,7 @@ class TestDomainConnectChaos(EmailDomainConnectTestCase):
         self, _name: str, arrange: Callable[[EmailDomainConnectTestCase], object], supported: bool, detail: str
     ) -> None:
         sender = self.create_sender(f"hello@{DOMAIN}")
-        config_before = self.config(sender)
+        config_before = self.config_ignoring_the_restamped_request_time(sender)
         arrange(self)
 
         check = self.check()
@@ -315,7 +319,7 @@ class TestDomainConnectChaos(EmailDomainConnectTestCase):
 
         assert (check["supported"], bool(check["available_providers"])) == (supported, not supported)
         assert (response.status_code, response.json()["detail"]) == (status.HTTP_400_BAD_REQUEST, detail)
-        assert self.config(sender) == config_before
+        assert self.config_ignoring_the_restamped_request_time(sender) == config_before
 
 
 @override_settings(SES_REGION="us-east-1")

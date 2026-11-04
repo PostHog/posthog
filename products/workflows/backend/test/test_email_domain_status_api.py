@@ -111,6 +111,15 @@ class TestEmailDomainVerification(EmailDomainApiTestCase):
 
         assert self.world.ses.writes == writes_after_create
 
+    def test_status_matches_a_mail_from_domain_that_differs_in_case(self) -> None:
+        sender = self.create_sender(f"hello@{DOMAIN}")
+        self.publish(self.records_to_publish(sender), *ALL_KINDS)
+        identity = self.world.ses.identities[DOMAIN]
+        assert identity.mail_from_domain is not None
+        identity.mail_from_domain = f"{identity.mail_from_domain.upper()}."
+
+        assert self.status_body(sender)["status"] == "verified"
+
     def test_status_is_cached_until_refresh(self) -> None:
         sender = self.create_sender(f"hello@{DOMAIN}")
         records = self.records_to_publish(sender)
