@@ -36,10 +36,8 @@ Pick the role by **which cluster owns the object**, not by its type alone:
   `DATA` keeps a full copy on every main-cluster node, so it is the wrong home for a product rollup or
   pre-aggregate (see below).
 - `[NodeRole.INGESTION_SMALL]`, `[NodeRole.INGESTION_MEDIUM]`, `[NodeRole.INGESTION_EVENTS]`: writable tables, Kafka tables, materialized views on the ingestion layer.
-  `INGESTION_EVENTS` is for consumers of all of `clickhouse_events_json`, `INGESTION_MEDIUM` is for high-volume topics such as `clickhouse_flag_evaluations`, and `INGESTION_SMALL` is for lower-volume topics.
-  Choose by message rate, compared with topics that run on each role.
-  For an existing topic, measure the rate in each environment. The topic is live before your consumer exists.
-  For a new topic, estimate the rate from what will produce to it.
+  `INGESTION_EVENTS` is for consumers of all of `clickhouse_events_json`.
+  For other topics, check where comparable consumers run in each environment, and use `INGESTION_SMALL` or `INGESTION_MEDIUM` to match.
   Use `INGESTION_SMALL` when you can't tell.
 - `[NodeRole.APM]`: the `ingestion-apm` nodes, the metrics ingestion layer. Kafka tables, `Null` input
   tables, materialized views and writable `Distributed` tables that write into storage on `LOGS`.
