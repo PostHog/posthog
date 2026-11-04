@@ -352,14 +352,19 @@ def _frecent_metric(
 
 
 def dashboard_tile_metric(
-    context: Context, dashboard_id: int, short_id: str, *, blocking: bool = False
+    context: Context,
+    dashboard_id: int,
+    short_id: str,
+    *,
+    blocking: bool = False,
+    wait_until: float | None = None,
 ) -> contracts.HighlightMetric | None:
     dashboard = dashboard_insight_tile(
         team=context.team, user=context.user, dashboard_id=dashboard_id, short_id=short_id
     )
     if dashboard is None:
         return None
-    return _tile_metric(context, dashboard, dashboard.tiles[0], blocking=blocking)
+    return _tile_metric(context, dashboard, dashboard.tiles[0], blocking=blocking, wait_until=wait_until)
 
 
 def _tile_metric(

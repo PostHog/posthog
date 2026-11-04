@@ -90,7 +90,7 @@ It replaced the Products slot, which opened the web app's product library. `mobi
 
 The screen is one `SectionList`: a search field, Pinned, Recent and Browse.
 The screen publishes its header state to the shared tabs header (`useTabHeader('views', …)`, see DESIGN.md, "Tabs header"): the refresh hint from `useViewsList().refresh` and the "Edit pins" row of the More menu.
-Loading, the pin list error and the sign-in state are separate screens. The pin list error sends `mobile_views_error_shown` (`screen: list`, `kind: failed`). The sign-in state (`views-reauth`) shows when `useViewsAccess()` is not `ok`. When the last sign-in asked for a Views scope and the server still left it out, it shows "Views isn't available yet" (`views-unavailable`) without a sign-in button, because a new sign-in gets the same grant ([AUTH.md](AUTH.md), "Server-side ceiling").
+Loading, the pin list error and the sign-in state are separate screens. The pin list error sends `mobile_views_error_shown` (`screen: list`, `kind: failed`). The sign-in state (`views-reauth`) shows when `useViewsAccess()` is not `ok`. When the last sign-in asked for a Views scope and the server still left it out, it shows "Views isn't available yet" (`views-unavailable`) without a sign-in button, because a new sign-in gets the same grant.
 
 ### Pins
 
@@ -263,6 +263,9 @@ A SQL insight is a `DataVisualizationNode` with a `HogQLQuery` source. Its respo
 - `key` is the JSON cache key of the snapshot that opened the screen. Full screen therefore shows the same session range, compare and tile layers as the tile or insight. While a new range loads on the insight screen, `key` names the previous range's entry, which is the one on screen (`InsightScreenState.queryKey`). Without `key`, it reads the insight's own entry.
 - It reads the cache only and never sends a request. A key without a cached snapshot (the app restarted, or a deep link to an insight not opened yet) shows "This chart isn't loaded" with "Go back" (`chart-fullscreen-missing`).
 - A line or bar chart fills the space, scrubs on a drag in any direction, shows every tooltip row, and lists every series as a 44 pt legend row that scrolls. Funnels, retention (all periods), bar lists (all rows) and SQL tables (up to 500 rows) show in a card.
+- Saved stacked bar charts keep their stacks in pins, tiles, insights and full screen. The value axis fits the full stack; zero values leave no bar. Full screen offers a small layout icon beside Back for multi-series bar charts. Tap it to switch between grouped and stacked bars. The choice persists on this device across visits and applies to all bar charts, including pins and dashboard tiles. Until a choice is made, each chart uses its saved layout.
+- When time-series bars would become too thin, inline and full-screen charts show a readable window of dates, starting with the most recent. The date arrows page through every bucket without changing the saved interval; tooltips and screen reader selection follow the visible dates. Compact pins retain the whole range.
+- Date controls fit within the chart's reserved height, so dashboard tiles keep their height when a canvas replaces its placeholder. Hourly page labels include the calendar date and time at both ends of the window.
 - Charts on this screen send the usual chart events with `context: fullscreen`.
 - Portrait only: the app has no `expo-screen-orientation`, and landscape needs that native module in a new binary. There is no "Zoom to range" or "Show as table" yet.
 
