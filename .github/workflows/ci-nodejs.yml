@@ -180,6 +180,8 @@ jobs:
                         - '.github/scripts/jest-retries.cjs'
                         - 'patches/jest-junit@16.0.0.patch'
                         - 'nodejs/jest*.config.js'
+                        - 'nodejs/jest.serial.sequencer.js'
+                        - 'nodejs/jest.serial.durations.json'
                         - 'nodejs/package.json'
                         - 'nodejs/tsconfig*.json'
                         - 'pnpm-lock.yaml'
@@ -620,10 +622,11 @@ jobs:
                   SECRET_KEY: 'abcdef' # unsafe - for testing only
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
                   BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
-              run: |
-                  pnpm --filter=@posthog/nodejs setup:test
-                  # Create dedicated persons database for postgres-parity tests
-                  cd nodejs && pnpm run setup:test:persons-parity
+              run: pnpm --filter=@posthog/nodejs setup:test
+
+            - name: Set up postgres-parity database
+              if: matrix.lane == 'serial' && matrix.shard == 1
+              run: cd nodejs && pnpm run setup:test:persons-parity
 
             # Build workspace deps (Rust addons + TS) up front so the Jest step times only tests, not the addon compile.
             - name: Prepare Node.js workspace

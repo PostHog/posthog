@@ -4,7 +4,12 @@ export interface PersonalAPIKeySecret {
     apiKey: string
 }
 
-export type StoredSecret = PersonalAPIKeySecret
+export interface OAuthSecret {
+    accessToken: string
+    refreshToken: string
+}
+
+export type StoredSecret = PersonalAPIKeySecret | OAuthSecret
 
 export type StoreKind = 'keychain' | 'file' | 'memory'
 
