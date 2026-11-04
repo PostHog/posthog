@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 
-from products.warehouse_sources.sources.sdk import IncrementalField
+from products.warehouse_sources.sources.sdk import IncrementalField, IncrementalFieldType
 
 
 @dataclass(frozen=False)
@@ -11,9 +11,7 @@ class RuddrEndpointConfig:
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
 
 
-# Ruddr workspace API list endpoints. All are full-refresh only: Ruddr exposes no documented
-# monotonic `updatedAt`/`modifiedSince` cursor, so there is no reliable incremental cursor to
-# advance (its Airbyte connector is likewise full-refresh only).
+# Ruddr workspace API list endpoints. Endpoints missing from INCREMENTAL_FIELDS are full refresh only.
 RUDDR_ENDPOINTS: dict[str, RuddrEndpointConfig] = {
     "clients": RuddrEndpointConfig(name="clients", path="/clients"),
     "projects": RuddrEndpointConfig(name="projects", path="/projects"),
@@ -24,8 +22,29 @@ RUDDR_ENDPOINTS: dict[str, RuddrEndpointConfig] = {
     "timesheet_attestations": RuddrEndpointConfig(name="timesheet_attestations", path="/timesheet-attestations"),
     "task_categories": RuddrEndpointConfig(name="task_categories", path="/task-categories"),
     "pipeline_activities": RuddrEndpointConfig(name="pipeline_activities", path="/pipeline-activities"),
+    "project_roles": RuddrEndpointConfig(name="project_roles", path="/project-roles"),
+    "invoices": RuddrEndpointConfig(name="invoices", path="/invoices"),
+    "invoice_items": RuddrEndpointConfig(name="invoice_items", path="/invoice-items"),
+    "allocations": RuddrEndpointConfig(name="allocations", path="/allocations"),
 }
 
 ENDPOINTS = tuple(RUDDR_ENDPOINTS.keys())
 
-INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {}
+# `allocations` also filters on `modifiedAt`, but the field is null on allocations derived from time
+# entries and holidays, so a `modifiedAt` filter would never return new derived rows.
+INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
+    "invoices": [
+        IncrementalField(
+            label="modifiedAt",
+            type=IncrementalFieldType.DateTime,
+            field="modifiedAt",
+            field_type=IncrementalFieldType.DateTime,
+        )
+    ],
+}
+
+# Server-side filter for each incremental field. `OnAfter` is inclusive (`>=`), so a row that shares
+# the watermark timestamp is read again and merge dedupes it on `id`.
+INCREMENTAL_FILTER_PARAMS: dict[str, str] = {
+    "modifiedAt": "modifiedAtOnAfter",
+}
