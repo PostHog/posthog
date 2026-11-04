@@ -26,7 +26,7 @@ class TestWarehouseMigrationAPI(APIBaseTest):
         flag = patch(f"{_FACADE}.is_migration_import_enabled", return_value=True)
         self.flag = flag.start()
         self.addCleanup(flag.stop)
-        start = patch(f"{_SERVICE}.start_crawl", return_value="warehouse-migration-crawl-test")
+        start = patch(f"{_SERVICE}.start_crawl")
         self.start_crawl: MagicMock = start.start()
         self.addCleanup(start.stop)
         self.url = f"/api/projects/{self.team.pk}/warehouse_migrations/"
@@ -78,11 +78,11 @@ class TestWarehouseMigrationAPI(APIBaseTest):
         self.start_crawl.assert_not_called()
 
     def test_create_stores_the_key_and_starts_the_crawl(self) -> None:
-        def worker_starts_at_once(*, team_id: int, migration_id: Any) -> str:
-            WarehouseMigration.objects.for_team(team_id).filter(id=migration_id).update(
+        def worker_starts_at_once(*, team_id: int, migration_id: Any, workflow_id: str) -> None:
+            # A crawl writes only when the migration already names it.
+            WarehouseMigration.objects.for_team(team_id).filter(id=migration_id, workflow_id=workflow_id).update(
                 status=WarehouseMigration.Status.CRAWLING
             )
-            return "warehouse-migration-crawl-test"
 
         self.start_crawl.side_effect = worker_starts_at_once
         response = self._create(json={"code": "Success", "data": {"account_id": "acct_example"}})
@@ -91,10 +91,11 @@ class TestWarehouseMigrationAPI(APIBaseTest):
         assert "fake-secret" not in response.content.decode()
         migration = WarehouseMigration.objects.for_team(self.team.pk).get()
         assert migration.credentials == {"api_key": "fake-key", "api_secret": "fake-secret"}
-        assert migration.workflow_id == "warehouse-migration-crawl-test"
         # The API must not write `pending` back over a crawl that already started.
         assert migration.status == WarehouseMigration.Status.CRAWLING
-        self.start_crawl.assert_called_once_with(team_id=self.team.pk, migration_id=migration.id)
+        self.start_crawl.assert_called_once_with(
+            team_id=self.team.pk, migration_id=migration.id, workflow_id=migration.workflow_id
+        )
 
     def test_items_and_counts_follow_skips(self) -> None:
         migration = self._migration()
