@@ -8,7 +8,6 @@ import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
 import type { WarehouseSuggestionApi } from '../generated/api.schemas'
-import { countOf } from '../suggestionCopy'
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
 import { CertificationSuggestionRow } from './CertificationSuggestionRow'
 import { DeprecateSuggestionModal } from './DeprecateSuggestionModal'
@@ -95,15 +94,8 @@ export function SuggestedModelsStripContent(): JSX.Element | null {
         return null
     }
 
-    const summary =
-        savingsSummary.views > 0 ? (
-            <SavingsBannerMessage summary={savingsSummary} />
-        ) : (
-            <span translate="no">
-                <strong>{countOf(surfaceSuggestions.length, 'unused view', 'unused views')}</strong>
-                <span> to mark deprecated</span>
-            </span>
-        )
+    const unusedViews = surfaceSuggestions.filter((suggestion) => suggestion.kind === 'deprecate').length
+    const summary = <SavingsBannerMessage summary={savingsSummary} unusedViews={unusedViews} />
 
     return (
         <>

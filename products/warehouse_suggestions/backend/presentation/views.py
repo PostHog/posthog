@@ -44,11 +44,17 @@ from ..facade.contracts import (
     SuggestionOutdatedError,
     SuggestionSubjectGoneError,
 )
-from ..facade.enums import WarehouseSuggestionKind, WarehouseSuggestionStatus, WarehouseSuggestionSubjectKind
+from ..facade.enums import (
+    WarehouseSuggestionKind,
+    WarehouseSuggestionStatus,
+    WarehouseSuggestionSubjectKind,
+    WarehouseSuggestionSurface,
+)
 from .serializers import (
     AcceptWarehouseSuggestionSerializer,
     AssignWarehouseSuggestionSerializer,
     DismissWarehouseSuggestionSerializer,
+    WarehouseSuggestionDecisionQuerySerializer,
     WarehouseSuggestionListQuerySerializer,
     WarehouseSuggestionSerializer,
     WarehouseSuggestionStatusSerializer,
@@ -77,6 +83,11 @@ ASSIGNEE_CANNOT_ACT = (
 ONLY_OPEN_ASSIGNABLE = "Only open suggestions can be assigned."
 ACCEPT_SCOPES = ["data_catalog_approval:write", "warehouse_view:write"]
 ScopeLevel = Literal["read", "write"]
+
+
+def _surface(request: ValidatedRequest) -> WarehouseSuggestionSurface | None:
+    surface = request.validated_query_data.get("surface")
+    return WarehouseSuggestionSurface(surface) if surface else None
 
 
 class SuggestionPagination(FacadeLimitOffsetPagination):
@@ -172,6 +183,7 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
 
     @validated_request(
         request_serializer=DismissWarehouseSuggestionSerializer,
+        query_serializer=WarehouseSuggestionDecisionQuerySerializer,
         responses={200: OpenApiResponse(response=WarehouseSuggestionSerializer)},
     )
     @action(detail=True, methods=["post"])
@@ -185,11 +197,13 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                 reason=request.validated_data["reason"],
                 note=request.validated_data.get("note") or None,
                 subject_kinds=self._subject_kinds,
+                surface=_surface(request),
             )
         )
 
     @validated_request(
         request_serializer=AcceptWarehouseSuggestionSerializer,
+        query_serializer=WarehouseSuggestionDecisionQuerySerializer,
         responses={200: OpenApiResponse(response=WarehouseSuggestionSerializer)},
     )
     @action(detail=True, methods=["post"])
@@ -203,6 +217,7 @@ class WarehouseSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
                 options=request.validated_data,
                 was_impersonated=is_impersonated(request),
                 subject_kinds=self._subject_kinds,
+                surface=_surface(request),
             )
         )
 

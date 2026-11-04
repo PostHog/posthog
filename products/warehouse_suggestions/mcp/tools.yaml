@@ -51,6 +51,8 @@ tools:
                 is an unmaterialize suggestion, the view's refreshes stop, its stored table is deleted, and each read
                 computes the view instead. Reply 'confirm' to proceed.
             action_label: accept warehouse suggestion
+        exclude_params:
+            - surface
     warehouse-suggestions-assign:
         operation: warehouse_suggestions_assign_create
         enabled: true
@@ -77,6 +79,8 @@ tools:
         description: >
             Dismiss a proposed warehouse suggestion with a reason: not_useful, not_now or other, plus an optional note.
             Nothing changes on the view or table. warehouse-suggestions-resume brings it back.
+        exclude_params:
+            - surface
     warehouse-suggestions-get:
         operation: warehouse_suggestions_retrieve
         enabled: true

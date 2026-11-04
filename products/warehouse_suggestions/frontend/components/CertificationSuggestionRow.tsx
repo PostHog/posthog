@@ -3,21 +3,17 @@ import { useActions, useValues } from 'kea'
 import { IconCheckCircle, IconWarning } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
-import { userHasAccess } from 'lib/utils/accessControlUtils'
-
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { WarehouseSuggestionApi } from '../generated/api.schemas'
 import { daysReadLabel, isDeprecatePayload, noReadsLabel, readSummary, refreshCostLabel } from '../suggestionCopy'
-import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
+import { CATALOG_EDIT_ACCESS_REASON, canEditDataCatalog, warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
 import { DismissSuggestionButtons } from './DismissSuggestionButtons'
 import { SuggestionRow } from './SuggestionRow'
 import { SuggestionSubjectLink } from './SuggestionSubjectLink'
 import { WhyThisSuggestion } from './WhyThisSuggestion'
 
 const EDIT_ACCESS_REASON = 'You need edit access to this view or table'
-const CATALOG_EDIT_ACCESS_REASON = 'You need edit access to the data catalog'
 
 export interface CertificationSuggestionRowProps {
     suggestion: WarehouseSuggestionApi
@@ -32,14 +28,11 @@ export function CertificationSuggestionRow({ suggestion, windowDays }: Certifica
     const leaving = leavingSuggestionIds.includes(suggestion.id)
     const inFlight = !!actionsInFlight[suggestion.id]
     const blockedReason = !suggestion.can_act ? EDIT_ACCESS_REASON : leaving ? 'Working' : undefined
-    const acceptBlockedReason =
-        blockedReason ??
-        (userHasAccess(AccessControlResourceType.DataCatalog, AccessControlLevel.Editor)
-            ? undefined
-            : CATALOG_EDIT_ACCESS_REASON)
     const deprecating = isDeprecatePayload(payload)
     const refreshes = deprecating && payload.materialized !== false
     const confirmsFirst = deprecating && !isTable
+    const acceptBlockedReason =
+        blockedReason ?? (confirmsFirst || canEditDataCatalog() ? undefined : CATALOG_EDIT_ACCESS_REASON)
 
     return (
         <SuggestionRow

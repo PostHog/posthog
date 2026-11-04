@@ -135035,6 +135035,44 @@ export namespace Schemas {
       AutoResolved: 'auto_resolved',
     } as const;
 
+    export type WarehouseSuggestionsAcceptCreateParams = {
+    /**
+     * Page the decision was made on. Only recorded on the analytics event.
+     *
+     * * `models` - Models
+     * * `catalog` - Data catalog
+     * @minLength 1
+     */
+    surface?: WarehouseSuggestionsAcceptCreateSurface;
+    };
+
+    export type WarehouseSuggestionsAcceptCreateSurface = typeof WarehouseSuggestionsAcceptCreateSurface[keyof typeof WarehouseSuggestionsAcceptCreateSurface];
+
+
+    export const WarehouseSuggestionsAcceptCreateSurface = {
+      Models: 'models',
+      Catalog: 'catalog',
+    } as const;
+
+    export type WarehouseSuggestionsDismissCreateParams = {
+    /**
+     * Page the decision was made on. Only recorded on the analytics event.
+     *
+     * * `models` - Models
+     * * `catalog` - Data catalog
+     * @minLength 1
+     */
+    surface?: WarehouseSuggestionsDismissCreateSurface;
+    };
+
+    export type WarehouseSuggestionsDismissCreateSurface = typeof WarehouseSuggestionsDismissCreateSurface[keyof typeof WarehouseSuggestionsDismissCreateSurface];
+
+
+    export const WarehouseSuggestionsDismissCreateSurface = {
+      Models: 'models',
+      Catalog: 'catalog',
+    } as const;
+
     export type WarehouseTablesListParams = {
     /**
      * Include table columns. Disable for lightweight table existence or name lookups.
