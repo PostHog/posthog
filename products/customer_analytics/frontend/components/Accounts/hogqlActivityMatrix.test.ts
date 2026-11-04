@@ -3,6 +3,7 @@ import { getDotMatrixCellCount, normalizeDotMatrixData } from 'lib/components/Do
 import { NodeKind } from '~/queries/schema/schema-general'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
+import { getDotMatrixTileConfig } from './dotMatrixTileConfig'
 import { getDotMatrixTilePresentation } from './dotMatrixTilePresentation'
 import { createMatrixHogQLQuery } from './dotMatrixTileQuery'
 import {
@@ -129,6 +130,47 @@ describe('HogQL activity matrix', () => {
                 `Showing ${DOT_MATRIX_MAX_ROWS} of ${DOT_MATRIX_MAX_ROWS + 1} rows. Narrow the query to see the rest.`,
                 'Showing a limited result. Narrow the date range or query to include all activity.',
             ])
+        })
+    })
+
+    describe('long series values', () => {
+        const LONG_A = `${'x'.repeat(200)}a`
+        const LONG_B = `${'x'.repeat(200)}b`
+        const mapping = { row: 'r', column: 'c', series: 's', value: 'v' }
+        const response = {
+            columns: ['r', 'c', 's', 'v'],
+            results: [
+                ['person', 'week', LONG_A, 1],
+                ['person', 'week', LONG_B, 2],
+                ['person', 'week', 'short', 3],
+            ],
+        }
+
+        it('encodes keys the saved selection accepts, keeps them distinct and labels the original value', () => {
+            const { props } = getHogQLActivityMatrix(response, mapping)
+            const [first, second, short] = props!.series!
+
+            expect(first.key).not.toEqual(second.key)
+            expect(first.key.length).toBeLessThanOrEqual(128)
+            expect(second.key.length).toBeLessThanOrEqual(128)
+            expect(first.label?.startsWith('xxx')).toBe(true)
+            expect(short).toEqual({ key: 'short' })
+            expect(normalizeDotMatrixData(props!).getCell('person', 'week').values).toEqual({
+                [first.key]: 1,
+                [second.key]: 2,
+                short: 3,
+            })
+            expect(getDotMatrixTileConfig({ selectedSeries: [first.key, second.key] }).selectedSeries).toEqual([
+                first.key,
+                second.key,
+            ])
+        })
+
+        it('gives the same value the same key on every run, so a saved selection still applies', () => {
+            const firstRun = getHogQLActivityMatrix(response, mapping).props!.series!
+            const secondRun = getHogQLActivityMatrix({ ...response, results: [...response.results].reverse() }, mapping)
+                .props!.series!
+            expect(secondRun.map(({ key }) => key).sort()).toEqual(firstRun.map(({ key }) => key).sort())
         })
     })
 })

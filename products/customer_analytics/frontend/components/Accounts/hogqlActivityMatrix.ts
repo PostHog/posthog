@@ -1,3 +1,5 @@
+import { hashCodeForString } from 'lib/utils/strings'
+
 import type { HogQLQueryResponse } from '~/queries/schema/schema-general'
 
 import type { AccountActivityMatrixDatum, AccountActivityMatrixProps } from './accountActivityMatrix'
@@ -44,6 +46,19 @@ export function getHogQLMappingError(response: HogQLQueryResponse, mapping: DotM
     return null
 }
 
+const SERIES_KEY_MAX_LENGTH = 128
+
+// Saved selections reject keys over 128 characters. Keys must stay stable across runs for a selection to keep applying.
+function getSeriesAxisItem(value: string): { key: string; label?: string } {
+    if (value.length <= SERIES_KEY_MAX_LENGTH) {
+        return { key: value }
+    }
+    return {
+        key: `${value.slice(0, 100)}~${value.length.toString(36)}~${hashCodeForString(value).toString(36)}`,
+        label: `${value.slice(0, SERIES_KEY_MAX_LENGTH - 1)}…`,
+    }
+}
+
 function getBoundNotice(axes: { noun: string; shown: number; total: number }[]): string | null {
     const parts = axes
         .filter(({ shown, total }) => shown < total)
@@ -73,16 +88,16 @@ export function getHogQLActivityMatrix(
     const cells = new Map<string, AccountActivityMatrixDatum>()
     const rowKeys = new Set<string>()
     const columnKeys = new Set<string>()
-    const seriesKeys = new Set<string>()
+    const seriesItems = new Map<string, { key: string; label?: string }>()
     for (const record of response.results) {
         const row = axisKey(record[index(mapping.row)])
         const column = axisKey(record[index(mapping.column)])
-        const series = mapping.series ? axisKey(record[index(mapping.series)]) : 'value'
+        const seriesValue = mapping.series ? axisKey(record[index(mapping.series)]) : 'value'
         const value = mapping.value ? record[index(mapping.value)] : 1
         if (
             row === null ||
             column === null ||
-            series === null ||
+            seriesValue === null ||
             typeof value !== 'number' ||
             !Number.isFinite(value) ||
             value < 0
@@ -95,24 +110,26 @@ export function getHogQLActivityMatrix(
         }
         rowKeys.add(row)
         columnKeys.add(column)
-        seriesKeys.add(series)
+        const seriesItem = getSeriesAxisItem(seriesValue)
+        const series = seriesItem.key
+        seriesItems.set(series, seriesItem)
         const key = JSON.stringify([row, column, series])
         const previous = cells.get(key)
         cells.set(key, { row, column, series, value: (previous?.value ?? 0) + value })
     }
     const rows = [...rowKeys].slice(0, DOT_MATRIX_MAX_ROWS)
     const columns = [...columnKeys].slice(0, DOT_MATRIX_MAX_COLUMNS)
-    const series = [...seriesKeys].slice(0, DOT_MATRIX_MAX_SERIES)
+    const series = [...seriesItems.values()].slice(0, DOT_MATRIX_MAX_SERIES)
     const shownRows = new Set(rows)
     const shownColumns = new Set(columns)
-    const shownSeries = new Set(series)
+    const shownSeries = new Set(series.map(({ key }) => key))
     const data = [...cells.values()].filter(
         (cell) => shownRows.has(cell.row) && shownColumns.has(cell.column) && shownSeries.has(cell.series)
     )
     const boundNotice = getBoundNotice([
         { noun: 'rows', shown: rows.length, total: rowKeys.size },
         { noun: 'columns', shown: columns.length, total: columnKeys.size },
-        { noun: 'series', shown: series.length, total: seriesKeys.size },
+        { noun: 'series', shown: series.length, total: seriesItems.size },
     ])
     return {
         error: null,
@@ -121,7 +138,7 @@ export function getHogQLActivityMatrix(
             data,
             rows: rows.map((key) => ({ key })),
             columns: columns.map((key) => ({ key })),
-            series: series.map((key) => ({ key })),
+            series,
             fields: { row: 'row', column: 'column', series: 'series', value: 'value' },
             rowHeader: { title: mapping.row },
             sizeThresholds: [data.reduce((min, { value }) => (value > 0 ? Math.min(min, value) : min), 1), 5, 10],
