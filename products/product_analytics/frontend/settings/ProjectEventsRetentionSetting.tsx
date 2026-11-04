@@ -51,11 +51,11 @@ export function ProjectEventsRetentionSetting(): JSX.Element | null {
                 note={
                     projectRetention.project_retention_months === null ? (
                         <>
-                            This project uses the organization's events retention. You can change it in{' '}
+                            <span>{`This project uses the organization's events retention. You can change it in `}</span>
                             <Link to={urls.settings('organization-details', 'organization-events-retention')}>
                                 organization settings
                             </Link>
-                            .
+                            <span>.</span>
                         </>
                     ) : (
                         `This overrides the organization default of ${retentionPeriodLabel(defaultMonths)}.`
