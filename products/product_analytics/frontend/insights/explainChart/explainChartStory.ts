@@ -33,7 +33,7 @@ export function withEvidenceLinks(story: ExplainChartData): ExplainChartData {
             ...chapter,
             evidence: chapter.evidence.map((item) => ({
                 ...item,
-                url: item.query ? evidenceInsightUrl(item.query) : null,
+                url: item.query ? evidenceInsightUrl(item.query) : (item.url ?? null),
             })),
         })),
     }
