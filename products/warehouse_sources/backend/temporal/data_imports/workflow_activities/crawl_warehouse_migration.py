@@ -35,11 +35,18 @@ class CrawlWarehouseMigrationInputs:
     migration_id: uuid.UUID
 
 
+def _crawl_workflow_id() -> str:
+    workflow_id = activity.info().workflow_id
+    if workflow_id is None:
+        raise RuntimeError("Crawl activities run only inside the crawl workflow.")
+    return workflow_id
+
+
 @activity.defn
 async def crawl_warehouse_migration_activity(inputs: CrawlWarehouseMigrationInputs) -> int:
     async with Heartbeater():
         return await database_sync_to_async(crawl_migration, thread_sensitive=False)(
-            team_id=inputs.team_id, migration_id=inputs.migration_id
+            team_id=inputs.team_id, migration_id=inputs.migration_id, workflow_id=_crawl_workflow_id()
         )
 
 
@@ -53,7 +60,10 @@ class MarkWarehouseMigrationFailedInputs:
 @activity.defn
 async def mark_warehouse_migration_failed_activity(inputs: MarkWarehouseMigrationFailedInputs) -> None:
     await database_sync_to_async(mark_migration_failed, thread_sensitive=False)(
-        team_id=inputs.team_id, migration_id=inputs.migration_id, auth_failed=inputs.auth_failed
+        team_id=inputs.team_id,
+        migration_id=inputs.migration_id,
+        workflow_id=_crawl_workflow_id(),
+        auth_failed=inputs.auth_failed,
     )
 
 
@@ -92,18 +102,20 @@ class CrawlWarehouseMigrationWorkflow(PostHogWorkflow):
             raise
 
 
+def new_crawl_workflow_id(migration_id: uuid.UUID) -> str:
+    """A new id for each crawl. The migration stores it before the crawl starts, so only that crawl writes."""
+    return f"{WORKFLOW_NAME}-{migration_id}-{uuid.uuid4().hex}"
+
+
 @async_to_sync
-async def start_crawl(*, team_id: int, migration_id: uuid.UUID) -> str:
-    workflow_id = f"{WORKFLOW_NAME}-{migration_id}"
+async def start_crawl(*, team_id: int, migration_id: uuid.UUID, workflow_id: str) -> None:
     client: Client = await async_connect()
     await client.start_workflow(
         WORKFLOW_NAME,
         CrawlWarehouseMigrationInputs(team_id=team_id, migration_id=migration_id),
         id=workflow_id,
         task_queue=settings.DATA_WAREHOUSE_METADATA_TASK_QUEUE,
-        # Callers start a crawl only when none should be running, so a run still open is stale. Attaching to
-        # it would leave the migration `pending` once that run ends.
+        # A retried start replaces the run it started before.
         id_conflict_policy=WorkflowIDConflictPolicy.TERMINATE_EXISTING,
         id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
     )
-    return workflow_id

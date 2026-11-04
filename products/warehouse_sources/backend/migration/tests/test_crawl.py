@@ -64,6 +64,9 @@ def _mock_account(m: requests_mock.Mocker, connection_ids: list[str], names: Map
         m.get(f"{FIVETRAN_API_URL}/connections/{cid}/schemas", status_code=404, json={"message": "Not found"})
 
 
+_CRAWL = "warehouse-migration-crawl-test"
+
+
 class TestCrawlMigration(BaseTest):
     def _migration(self) -> WarehouseMigration:
         return WarehouseMigration.objects.for_team(self.team.pk).create(
@@ -71,6 +74,7 @@ class TestCrawlMigration(BaseTest):
             created_by=self.user,
             provider=WarehouseMigration.Provider.FIVETRAN,
             credentials={"api_key": "fake-key", "api_secret": "fake-secret"},
+            workflow_id=_CRAWL,
         )
 
     def _items(self, migration: WarehouseMigration) -> dict[str, WarehouseMigrationItem]:
@@ -93,7 +97,12 @@ class TestCrawlMigration(BaseTest):
         migration = self._migration()
         with requests_mock.Mocker() as m:
             _mock_account(m, ["conn_applied", "conn_pending", "conn_removed"])
-            assert crawl_migration(team_id=self.team.pk, migration_id=migration.id, catalog=_HubspotOnly()) == 3
+            assert (
+                crawl_migration(
+                    team_id=self.team.pk, migration_id=migration.id, workflow_id=_CRAWL, catalog=_HubspotOnly()
+                )
+                == 3
+            )
 
         items = self._items(migration)
         applied = items["conn_applied"]
@@ -108,7 +117,7 @@ class TestCrawlMigration(BaseTest):
                 ["conn_applied", "conn_pending", "conn_new"],
                 names={"conn_applied": "renamed", "conn_new": "conn_applied"},
             )
-            crawl_migration(team_id=self.team.pk, migration_id=migration.id, catalog=_HubspotOnly())
+            crawl_migration(team_id=self.team.pk, migration_id=migration.id, workflow_id=_CRAWL, catalog=_HubspotOnly())
 
         migration.refresh_from_db()
         items = self._items(migration)
@@ -165,16 +174,57 @@ class TestCrawlMigration(BaseTest):
         with requests_mock.Mocker() as m:
             m.get(f"{FIVETRAN_API_URL}/account/info", status_code=401, json={"message": "Unauthorized"})
             with pytest.raises(FivetranAuthError):
-                crawl_migration(team_id=self.team.pk, migration_id=migration.id, catalog=_HubspotOnly())
+                crawl_migration(
+                    team_id=self.team.pk, migration_id=migration.id, workflow_id=_CRAWL, catalog=_HubspotOnly()
+                )
         migration.refresh_from_db()
         # Temporal may still retry, so the attempt itself does not mark the migration failed.
         assert migration.status == WarehouseMigration.Status.CRAWLING
 
-        mark_migration_failed(team_id=self.team.pk, migration_id=migration.id, auth_failed=auth_failed)
+        mark_migration_failed(
+            team_id=self.team.pk, migration_id=migration.id, workflow_id=_CRAWL, auth_failed=auth_failed
+        )
 
         migration.refresh_from_db()
         assert migration.status == WarehouseMigration.Status.FAILED
         assert expected_error in migration.latest_error
+
+    def test_the_default_catalog_plans_known_connectors(self) -> None:
+        migration = self._migration()
+        with requests_mock.Mocker() as m:
+            _mock_account(m, ["conn_hubspot"])
+            crawl_migration(team_id=self.team.pk, migration_id=migration.id, workflow_id=_CRAWL)
+
+        item = self._items(migration)["conn_hubspot"]
+        assert item.proposal is not None
+        assert item.proposal["source_type"] == ExternalDataSourceType.HUBSPOT
+
+    def test_a_replaced_crawl_changes_nothing(self) -> None:
+        migration = self._migration()
+        with requests_mock.Mocker() as m:
+            m.get(f"{FIVETRAN_API_URL}/account/info", status_code=401, json={"message": "Unauthorized"})
+            with pytest.raises(FivetranAuthError):
+                crawl_migration(
+                    team_id=self.team.pk, migration_id=migration.id, workflow_id=_CRAWL, catalog=_HubspotOnly()
+                )
+        # A refresh hands the migration to a new crawl while the old one's failure mark is still in flight.
+        WarehouseMigration.objects.for_team(self.team.pk).filter(id=migration.id).update(
+            workflow_id="crawl-2", status=WarehouseMigration.Status.CRAWLING
+        )
+
+        mark_migration_failed(team_id=self.team.pk, migration_id=migration.id, workflow_id=_CRAWL, auth_failed=True)
+        with requests_mock.Mocker() as m:
+            _mock_account(m, ["conn_old"])
+            assert (
+                crawl_migration(
+                    team_id=self.team.pk, migration_id=migration.id, workflow_id=_CRAWL, catalog=_HubspotOnly()
+                )
+                == 0
+            )
+
+        migration.refresh_from_db()
+        assert (migration.status, migration.latest_error) == (WarehouseMigration.Status.CRAWLING, "")
+        assert self._items(migration) == {}
 
 
 @pytest.mark.asyncio

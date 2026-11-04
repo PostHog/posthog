@@ -31,6 +31,7 @@ from products.warehouse_sources.backend.migration.fivetran.snapshot import merge
 from products.warehouse_sources.backend.migration.types import VendorSnapshot
 from products.warehouse_sources.backend.models.warehouse_migration import WarehouseMigration, WarehouseMigrationItem
 from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.crawl_warehouse_migration import (
+    new_crawl_workflow_id,
     start_crawl,
 )
 
@@ -167,8 +168,11 @@ def item_counts(migration: WarehouseMigration) -> dict[str, int]:
 
 def _start_crawl(migration: WarehouseMigration) -> None:
     rows = WarehouseMigration.objects.for_team(migration.team_id).filter(id=migration.id)
+    # Stored before the start, so the crawl finds its own id however fast it runs, and an older crawl stops writing.
+    migration.workflow_id = new_crawl_workflow_id(migration.id)
+    rows.update(workflow_id=migration.workflow_id, updated_at=timezone.now())
     try:
-        migration.workflow_id = start_crawl(team_id=migration.team_id, migration_id=migration.id)
+        start_crawl(team_id=migration.team_id, migration_id=migration.id, workflow_id=migration.workflow_id)
     except Exception as error:
         # Otherwise the migration stays `pending` and a refresh refuses to start it again.
         capture_exception(error)
@@ -179,5 +183,3 @@ def _start_crawl(migration: WarehouseMigration) -> None:
             status=migration.status, latest_error=migration.latest_error, updated_at=timezone.now()
         )
         return
-    # Only the workflow id: the crawl can set `crawling` before this line runs.
-    rows.update(workflow_id=migration.workflow_id, updated_at=timezone.now())
