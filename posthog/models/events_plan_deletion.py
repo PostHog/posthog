@@ -1,4 +1,4 @@
-from collections.abc import Collection, Sequence
+from collections.abc import Sequence
 from dataclasses import replace
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
@@ -87,9 +87,7 @@ def deletion_months(setting: TeamEventsRetention | None, due_pass_months: int | 
     return min(periods) if periods else None
 
 
-def reschedule_plan_deletions(
-    plans: Sequence[TeamPlan], today: date, *, admit: Collection[int]
-) -> dict[int, PlanDeletionState]:
+def reschedule_plan_deletions(plans: Sequence[TeamPlan], today: date) -> dict[int, PlanDeletionState]:
     team_ids = [plan.team_id for plan in plans]
     rows = {
         row.team_id: row.state
@@ -98,10 +96,10 @@ def reschedule_plan_deletions(
     periods = retention_periods(plans)
     states: dict[int, PlanDeletionState] = {}
     for team_id in team_ids:
-        if (state := rows.get(team_id)) is not None:
-            states[team_id] = with_period(state, periods[team_id], today)
-        elif team_id in admit:
-            states[team_id] = admitted(periods[team_id], today)
+        state = rows.get(team_id)
+        states[team_id] = (
+            with_period(state, periods[team_id], today) if state is not None else admitted(periods[team_id], today)
+        )
 
     TeamEventsPlanDeletion.objects.bulk_create(
         [_row(team_id, state) for team_id, state in states.items() if team_id in rows and state != rows[team_id]],

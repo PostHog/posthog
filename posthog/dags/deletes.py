@@ -2,7 +2,7 @@ import abc
 import time
 import uuid
 from collections import defaultdict
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from functools import partial
@@ -65,7 +65,6 @@ from posthog.models.events_plan_deletion import (
     cleanup_date,
     cleanup_timezone,
     deletion_months,
-    next_pass_on,
     reschedule_plan_deletions,
 )
 from posthog.models.events_retention_config import effective_events_retention, whole_month_cutoff
@@ -86,7 +85,7 @@ from posthog.models.sessions.sql import (
     TABLE_BASE_NAME as SESSIONS_TABLE_BASE_NAME,
 )
 from posthog.models.team import Team
-from posthog.models.team.event_retention import TeamPlan, retention_periods, should_enforce_events_retention, team_plan
+from posthog.models.team.event_retention import retention_periods, should_delete_past_default_period, team_plan
 from posthog.run_mode import run_mode
 
 from products.error_tracking.backend.facade.api import (
@@ -183,7 +182,6 @@ class MonthlyCleanupConfig(dagster.Config):
     )
 
 
-PLAN_DELETION_TEAMS_PER_RUN = 0
 _TEAM_CHUNK_SIZE = 1000
 
 
@@ -192,24 +190,12 @@ class PlanDeletionConfig(dagster.Config):
         default_factory=list,
         description="Only admit, update and pass these teams. Empty means every team.",
     )
-    max_new_plan_deletion_teams: int = pydantic.Field(
-        default=0,
-        description="The most teams to admit this run whose first pass deletes events. Teams whose first pass "
-        "deletes nothing are admitted without counting. Pass 0 to a manual rerun in the same month, so it "
-        "admits no team the scheduled run did not.",
-    )
 
 
 @frozen
 class PlanDeletionPasses:
     run_on: date
     due_team_ids: list[int]
-
-
-@frozen
-class _Admissions:
-    losing_events: list[int]
-    losing_nothing: list[int]
 
 
 @frozen
@@ -1616,96 +1602,39 @@ def delete_team_product_documents_job():
     delete_team_product_documents()
 
 
-def teams_losing_events_at_first_pass(
-    cluster: ClickhouseCluster, period_months_by_team: dict[int, int], first_pass_on: date
-) -> set[int]:
-    first_pass = datetime.combine(first_pass_on, datetime.min.time())
-    teams_by_cutoff: dict[datetime, list[int]] = defaultdict(list)
-    for team_id, months in sorted(period_months_by_team.items()):
-        teams_by_cutoff[whole_month_cutoff(first_pass, months)].append(team_id)
-    losing: set[int] = set()
-    for placement in resolve_placements(cluster, EVENTS_TARGETS):
-        for cutoff, team_ids in teams_by_cutoff.items():
-            for since in (cutoff - relativedelta(months=1), None):
-                unresolved = [team_id for team_id in team_ids if team_id not in losing]
-                losing |= _teams_with_events(placement, unresolved, since=since, before=cutoff)
-    return losing
-
-
-def _teams_with_events(
-    placement: TargetPlacement, team_ids: list[int], *, since: datetime | None, before: datetime
-) -> set[int]:
-    if not team_ids:
-        return set()
-    since_clause = "AND timestamp >= %(since)s" if since is not None else ""
-    query = f"""
-        SELECT DISTINCT team_id
-        FROM {placement.target.data_table}
-        WHERE team_id IN %(team_ids)s
-        AND timestamp < %(before)s
-        {since_clause}
-    """
-    parameters = {"team_ids": team_ids, "since": since, "before": before}
-    results = placement.cluster.map_one_host_per_shard(Query(query, parameters=parameters)).result()
-    return {team_id for rows in results.values() for (team_id,) in rows}
-
-
-def _enforced_plans(teams: QuerySet[Team]) -> list[TeamPlan]:
-    return [
-        team_plan(team)
-        for team in teams.order_by("organization_id", "id")
+def _plan_teams(teams: QuerySet[Team]) -> Iterator[Team]:
+    return (
+        teams.order_by("organization_id", "id")
         .only("id", "organization_id", "event_retention_months")
         .iterator(chunk_size=_TEAM_CHUNK_SIZE)
-        if should_enforce_events_retention(team.id)
-    ]
-
-
-def _admit(cluster: ClickhouseCluster, queue: list[TeamPlan], cap: int, today: date) -> _Admissions:
-    admissions = _Admissions(losing_events=[], losing_nothing=[])
-    if cap <= 0:
-        return admissions
-    for chunk in chunked(queue, _TEAM_CHUNK_SIZE):
-        periods = retention_periods(chunk)
-        losing = teams_losing_events_at_first_pass(cluster, periods, next_pass_on(today))
-        for team_id in periods:
-            if team_id not in losing:
-                admissions.losing_nothing.append(team_id)
-            elif len(admissions.losing_events) < cap:
-                admissions.losing_events.append(team_id)
-        if len(admissions.losing_events) >= cap:
-            break
-    return admissions
+    )
 
 
 @dagster.op(ins={"start_after": dagster.In(dagster.Nothing)})
-def update_plan_deletions(
-    context: dagster.OpExecutionContext,
-    config: PlanDeletionConfig,
-    cluster: dagster.ResourceParam[ClickhouseCluster],
-) -> PlanDeletionPasses:
-    """Admit teams to period deletion, follow their period changes, and find the passes due."""
+def update_plan_deletions(context: dagster.OpExecutionContext, config: PlanDeletionConfig) -> PlanDeletionPasses:
+    """Give a pass to each team that deletes past its default period, remove the others', and find the passes due."""
     today = cleanup_date()
-    plans = _enforced_plans(Team.objects.filter(id__in=config.team_ids) if config.team_ids else Team.objects.all())
-    admitted_team_ids = set(
-        TeamEventsPlanDeletion.objects.filter(team_id__in=[plan.team_id for plan in plans]).values_list(
-            "team_id", flat=True
-        )
+    teams = Team.objects.filter(id__in=config.team_ids) if config.team_ids else Team.objects.all()
+    plans = [team_plan(team) for team in _plan_teams(teams) if should_delete_past_default_period(team)]
+    rows = (
+        TeamEventsPlanDeletion.objects.filter(team_id__in=config.team_ids)
+        if config.team_ids
+        else TeamEventsPlanDeletion.objects.all()
     )
-    queue = [plan for plan in plans if plan.team_id not in admitted_team_ids]
-    admissions = _admit(cluster, queue, config.max_new_plan_deletion_teams, today)
+    removed = sorted(set(rows.values_list("team_id", flat=True)) - {plan.team_id for plan in plans})
+    for team_ids in chunked(removed, _TEAM_CHUNK_SIZE):
+        TeamEventsPlanDeletion.objects.filter(team_id__in=team_ids).delete()
 
-    admitted = {*admissions.losing_events, *admissions.losing_nothing}
     states: dict[int, PlanDeletionState] = {}
     for chunk in chunked(plans, _TEAM_CHUNK_SIZE):
         with transaction.atomic():
-            states.update(reschedule_plan_deletions(chunk, today, admit=admitted))
+            states.update(reschedule_plan_deletions(chunk, today))
     due_team_ids = sorted(team_id for team_id, state in states.items() if state.next_deletion_on <= today)
 
     context.add_output_metadata(
         {
-            "enforced_teams": dagster.MetadataValue.int(len(plans)),
-            "admitted_losing_events": dagster.MetadataValue.int(len(admissions.losing_events)),
-            "admitted_losing_nothing": dagster.MetadataValue.int(len(admissions.losing_nothing)),
+            "deleting_teams": dagster.MetadataValue.int(len(plans)),
+            "removed_passes": dagster.MetadataValue.int(len(removed)),
             "passes_due": dagster.MetadataValue.int(len(due_team_ids)),
         }
     )
@@ -1715,8 +1644,8 @@ def update_plan_deletions(
 def _still_due_pass_months(passes: PlanDeletionPasses) -> dict[int, int]:
     rows = TeamEventsPlanDeletion.objects.filter(team_id__in=passes.due_team_ids, next_deletion_on__lte=passes.run_on)
     pass_months = dict(rows.values_list("team_id", "months"))
-    periods = retention_periods(_enforced_plans(Team.objects.filter(id__in=pass_months)))
-    return {team_id: max(pass_months[team_id], period) for team_id, period in periods.items()}
+    periods = retention_periods([team_plan(team) for team in _plan_teams(Team.objects.filter(id__in=pass_months))])
+    return {team_id: max(months, periods.get(team_id, months)) for team_id, months in pass_months.items()}
 
 
 def _planned_partitions(
@@ -1986,18 +1915,5 @@ def monthly_retention_events_cleanup_job():
     execution_timezone=cleanup_timezone(),
     default_status=dagster.DefaultScheduleStatus.STOPPED,
 )
-def monthly_retention_events_cleanup_schedule(
-    context: dagster.ScheduleEvaluationContext,
-) -> dagster.RunRequest | dagster.SkipReason:
-    if (
-        not effective_events_retention()
-        and not TeamEventsPlanDeletion.objects.exists()
-        and PLAN_DELETION_TEAMS_PER_RUN == 0
-    ):
-        return dagster.SkipReason("No team has an events retention set or a pass to run")
-    return dagster.RunRequest(
-        run_key=f"{context.scheduled_execution_time:%Y%m}",
-        run_config={
-            "ops": {"update_plan_deletions": {"config": {"max_new_plan_deletion_teams": PLAN_DELETION_TEAMS_PER_RUN}}}
-        },
-    )
+def monthly_retention_events_cleanup_schedule(context: dagster.ScheduleEvaluationContext) -> dagster.RunRequest:
+    return dagster.RunRequest(run_key=f"{context.scheduled_execution_time:%Y%m}")

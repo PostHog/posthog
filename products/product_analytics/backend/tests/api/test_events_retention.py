@@ -15,6 +15,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.events_plan_deletion import TeamEventsPlanDeletion
 from posthog.models.events_retention_config import OrganizationEventsRetentionConfig, TeamEventsRetentionConfig
 from posthog.models.organization import OrganizationMembership
+from posthog.models.team.event_retention import EVENTS_DATA_RETENTION_FLAG
 
 from products.access_control.backend.facade.testing import create_access_control
 from products.product_analytics.backend.facade.events_retention import (
@@ -173,6 +174,24 @@ class TestEventsRetentionAPI(APIBaseTest):
         assert response.json()["retained_from"] is None
         assert response.json()["next_deletion_on"] is None
         assert response.json()["default_period_deletes"] is False
+
+    @override_settings(EVENTS_DATA_RETENTION_ENFORCED=None)
+    @time_machine.travel("2026-09-22T20:00:00Z", tick=False)
+    def test_reports_no_pass_while_deletion_is_off(self) -> None:
+        TeamEventsPlanDeletion.objects.create(team=self.team, months=24, next_deletion_on=date(2026, 11, 3))
+
+        with (
+            patch("posthog.models.team.event_retention.is_cloud", return_value=True),
+            patch(
+                "posthoganalytics.feature_enabled",
+                side_effect=lambda flag, *args, **kwargs: flag == EVENTS_DATA_RETENTION_FLAG,
+            ),
+        ):
+            response = self.client.get(self.url())
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["retention_months"] is not None
+        assert (response.json()["next_deletion_on"], response.json()["default_period_deletes"]) == (None, False)
 
     @time_machine.travel("2026-09-22T20:00:00Z", tick=False)
     def test_organization_admin_sets_and_clears_the_project_window(self) -> None:
