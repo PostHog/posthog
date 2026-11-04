@@ -74,8 +74,9 @@ const loaders: Preview['loaders'] = [
     },
     // MSW 2 does not hold requests back while its worker registers. Without this wait, the first story
     // on a fresh page can send its API calls to the real server and render their failure instead.
+    // A failed start rejects here, so the story reports it rather than rendering without mocks.
     async () => {
-        await mswStarted.catch(() => undefined)
+        await mswStarted
         return {}
     },
 ]
