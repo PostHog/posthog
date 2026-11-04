@@ -245,6 +245,11 @@ describe('sandbox email content', () => {
             '<!--[if !mso]><!--><p>Hello</p><!--<![endif]-->',
             null,
         ],
+        [
+            '<body><!--[if !mso]><!-- --><p>Hello</p><!--<![endif]--></body>',
+            '<!--[if !mso]><!-- --><p>Hello</p><!--<![endif]-->',
+            null,
+        ],
         ['<body><p title="&lt;!--[if mso]&gt;">Hello</p></body>', '<p title="<!--[if mso]>">Hello</p>', null],
         [
             '<body><style>/* <![if !mso]> */ p {color:blue}</style><p>Hello</p></body>',
