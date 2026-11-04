@@ -248,7 +248,7 @@ export class TransactionalSends {
 
 export type ScheduledTransactionalSendsDeps = {
     jobs: Pick<CyclotronV2JobProducer, 'cancelUnclaimed' | 'rescheduleUnclaimed'>
-    hogFlows: Pick<HogFlowManagerService, 'getHogFlow'>
+    hogFlows: Pick<HogFlowManagerService, 'getHogFlowCheckingPrimaryOnMiss'>
     invocationResults: Pick<InvocationResultsService, 'monitoringService' | 'invocationResultsRowsService'>
     emailStatus: EmailStatusService
 }
@@ -300,7 +300,7 @@ export class ScheduledTransactionalSends {
     private async recordCanceledRun(job: CyclotronJobInvocation): Promise<void> {
         const { monitoringService, invocationResultsRowsService } = this.deps.invocationResults
         // The loaded flow gives the metrics their version. A flow that is gone still cancels.
-        const hogFlow = await this.deps.hogFlows.getHogFlow(job.functionId).catch(() => null)
+        const hogFlow = await this.deps.hogFlows.getHogFlowCheckingPrimaryOnMiss(job.functionId).catch(() => null)
         const result = createCanceledInvocationResult(job, 'Run canceled before it was sent', hogFlow ?? undefined)
         if ((job.state as CyclotronJobInvocationHogFlow['state'] | null)?.triggerMetricPending) {
             result.metrics.push({

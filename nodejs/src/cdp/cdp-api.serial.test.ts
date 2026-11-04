@@ -2937,69 +2937,84 @@ describe('CDP API', () => {
                 api['batchResolverProducer'] = null
             })
 
-            it('cancels a scheduled send before a worker claims it, and counts the run once', async () => {
-                const invocation = await scheduleSend()
-                cancelUnclaimed
-                    .mockResolvedValueOnce({
-                        outcome: 'canceled',
-                        job: {
-                            id: invocation.id,
-                            teamId: team.id,
-                            functionId: hogFlow.id,
-                            queueName: 'email',
-                            priority: 0,
-                            scheduled: invocation.queueScheduledAt,
-                            created: DateTime.now(),
-                            parentRunId: null,
-                            state: encodeStateColumns(invocation).state,
-                            cancelRequestedAt: null,
-                        },
-                    })
-                    .mockResolvedValueOnce({ outcome: 'already_canceled' })
-                const queueAppMetric = jest.spyOn(api['invocationResultsService'].monitoringService, 'queueAppMetric')
-                const resultsOutputs = api['invocationResultsService'].invocationResultsRowsService['outputs']
-                const produceResultRow = jest.spyOn(resultsOutputs, 'produce').mockResolvedValue(undefined)
-                const resultsEnabled = hub.HOG_INVOCATION_RESULTS_ENABLED
-                hub.HOG_INVOCATION_RESULTS_ENABLED = true
+            it.each([
+                ['loads', true],
+                ['fails to load', false],
+            ])(
+                'cancels a scheduled send before a worker claims it, and counts the run once, when its workflow %s',
+                async (_desc, flowLoads) => {
+                    const invocation = await scheduleSend()
+                    if (!flowLoads) {
+                        jest.spyOn(api['hogFlowManager'], 'getHogFlowCheckingPrimaryOnMiss').mockRejectedValue(
+                            new Error('database unavailable')
+                        )
+                    }
+                    const version = { id: hogFlow.id, version: flowLoads ? hogFlow.version : undefined }
+                    cancelUnclaimed
+                        .mockResolvedValueOnce({
+                            outcome: 'canceled',
+                            job: {
+                                id: invocation.id,
+                                teamId: team.id,
+                                functionId: hogFlow.id,
+                                queueName: 'email',
+                                priority: 0,
+                                scheduled: invocation.queueScheduledAt,
+                                created: DateTime.now(),
+                                parentRunId: null,
+                                state: encodeStateColumns(invocation).state,
+                                cancelRequestedAt: null,
+                            },
+                        })
+                        .mockResolvedValueOnce({ outcome: 'already_canceled' })
+                    const queueAppMetric = jest.spyOn(
+                        api['invocationResultsService'].monitoringService,
+                        'queueAppMetric'
+                    )
+                    const resultsOutputs = api['invocationResultsService'].invocationResultsRowsService['outputs']
+                    const produceResultRow = jest.spyOn(resultsOutputs, 'produce').mockResolvedValue(undefined)
+                    const resultsEnabled = hub.HOG_INVOCATION_RESULTS_ENABLED
+                    hub.HOG_INVOCATION_RESULTS_ENABLED = true
 
-                try {
-                    const first = await manage('cancel', invocation.id)
-                    const repeat = await manage('cancel', invocation.id)
+                    try {
+                        const first = await manage('cancel', invocation.id)
+                        const repeat = await manage('cancel', invocation.id)
 
-                    expect(first.status).toEqual(200)
-                    expect(first.body).toEqual({ id: invocation.id, status: 'canceled' })
-                    expect(repeat.status).toEqual(200)
-                    expect(repeat.body).toEqual(first.body)
-                    expect(cancelUnclaimed).toHaveBeenCalledWith(team.id, invocation.id)
-                    expect(
-                        queueAppMetric.mock.calls.map(([metric]) => [
-                            metric.metric_name,
-                            metric.app_source_id,
-                            metric.app_source_version,
+                        expect(first.status).toEqual(200)
+                        expect(first.body).toEqual({ id: invocation.id, status: 'canceled' })
+                        expect(repeat.status).toEqual(200)
+                        expect(repeat.body).toEqual(first.body)
+                        expect(cancelUnclaimed).toHaveBeenCalledWith(team.id, invocation.id)
+                        expect(
+                            queueAppMetric.mock.calls.map(([metric]) => [
+                                metric.metric_name,
+                                metric.app_source_id,
+                                metric.app_source_version,
+                            ])
+                        ).toEqual([
+                            ['canceled', hogFlow.id, version],
+                            ['triggered', hogFlow.id, version],
                         ])
-                    ).toEqual([
-                        ['canceled', hogFlow.id, { id: hogFlow.id, version: hogFlow.version }],
-                        ['triggered', hogFlow.id, { id: hogFlow.id, version: hogFlow.version }],
-                    ])
-                    const lifecycleRows = produceResultRow.mock.calls
-                        .filter(([output]) => output === 'hog_invocation_results')
-                        .map(([, message]) => parseJSON(message.value!.toString()))
-                    expect(lifecycleRows).toEqual([
-                        expect.objectContaining({
-                            invocation_id: invocation.id,
-                            function_kind: 'hog_flow',
-                            function_id: hogFlow.id,
-                            status: 'canceled',
-                        }),
-                    ])
-                    expect(emailStatusRows()).toEqual([
-                        expect.objectContaining({ message_id: invocation.id, status: 'scheduled' }),
-                        expect.objectContaining({ message_id: invocation.id, status: 'canceled' }),
-                    ])
-                } finally {
-                    hub.HOG_INVOCATION_RESULTS_ENABLED = resultsEnabled
+                        const lifecycleRows = produceResultRow.mock.calls
+                            .filter(([output]) => output === 'hog_invocation_results')
+                            .map(([, message]) => parseJSON(message.value!.toString()))
+                        expect(lifecycleRows).toEqual([
+                            expect.objectContaining({
+                                invocation_id: invocation.id,
+                                function_kind: 'hog_flow',
+                                function_id: hogFlow.id,
+                                status: 'canceled',
+                            }),
+                        ])
+                        expect(emailStatusRows()).toEqual([
+                            expect.objectContaining({ message_id: invocation.id, status: 'scheduled' }),
+                            expect.objectContaining({ message_id: invocation.id, status: 'canceled' }),
+                        ])
+                    } finally {
+                        hub.HOG_INVOCATION_RESULTS_ENABLED = resultsEnabled
+                    }
                 }
-            })
+            )
 
             it.each([
                 ['an unknown message', 'not_found', 404, { error: 'not_found' }],
