@@ -121,17 +121,12 @@ const SesBounceEventSchema = SesCommonEventBase.extend({
     }),
 })
 
-// SMTP status codes that say the mailbox does not exist: 5.1.1 (unknown user) and 5.1.10 (null MX). Match the
-// status field exactly, and in the diagnostic only the code right after the reply code. Free text in the
-// diagnostic can quote sender-chosen values, such as a domain named 5.1.1.example.com.
+// 5.1.1 (unknown user) and 5.1.10 (null MX). The diagnostic match is anchored after the reply code, because its
+// free text can quote sender-chosen values such as a domain named 5.1.1.example.com.
 const ADDRESS_DOES_NOT_EXIST_STATUS = /^5\.1\.(1|10)$/
 const ADDRESS_DOES_NOT_EXIST_DIAGNOSTIC = /^(smtp;\s*)?5\d\d[\s-]+5\.1\.(1|10)(\s|$)/i
 
-/**
- * The recipients of a permanent bounce that the bounce proves do not exist. SES also files a sender-side
- * rejection, such as a blocked domain or a failed DMARC check, under Permanent/General, so a General bounce
- * counts only with an unknown-user status. A sender cannot fake that status for an address that exists.
- */
+// SES files sender-side rejections such as DMARC failures under Permanent/General too, so General needs the status.
 export function nonexistentRecipients(bounce: z.infer<typeof SesBounceEventSchema>['bounce']): string[] {
     if (bounce.bounceType !== 'Permanent') {
         return []
@@ -691,10 +686,8 @@ export class SesWebhookHandler {
             teamId?: string
             emailAddresses: string[]
             diagnostic?: string
-            // The bounced addresses that the bounce proves do not exist. These go on the global hard-bounce
-            // list. Absent when there are none.
+            // Addresses the bounce proves do not exist, for the global hard-bounce list.
             nonexistentAddresses?: string[]
-            // When SES saw the bounce.
             bounceTimestamp?: string
         }[]
         // Spam complaints — recorded in the suppression list so future sends to the address are

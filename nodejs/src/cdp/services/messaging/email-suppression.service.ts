@@ -20,7 +20,6 @@ const toKey = (teamId: number, identifier: string): string => `${teamId}:${ident
 export type EmailSuppressionConfig = {
     // Consecutive soft bounces before auto-suppression.
     transientBounceThreshold: number
-    // Whether the global hard-bounce list blocks sends. When false, a send it would block is only counted.
     globalHardBounceEnforce?: boolean
 }
 
@@ -40,11 +39,9 @@ export type SuppressionCheckOptions = {
     transactional?: boolean
 }
 
-// An address the global hard-bounce list can still block. `listed` marks an active row on the team's own list.
-type GlobalCandidate = { key: string; teamId: number; identifier: string; listed: boolean }
+type GlobalCandidate = { key: string; teamId: number; identifier: string; hasActiveTeamRow: boolean }
 
-// An active suppression. It blocks transactional email only when the address hard-bounced. `global` marks
-// an entry that only the global hard-bounce list holds.
+// An active suppression. It blocks transactional email only when the address hard-bounced.
 type SuppressionEntry = { blocksTransactional: boolean; global?: 'shadow' | 'enforce' }
 
 const HARD_BOUNCE_REASON = 'Auto-suppressed after a hard bounce'
@@ -295,18 +292,13 @@ export class EmailSuppressionService {
         await this.postgres.query(PostgresUse.COMMON_WRITE, query, params, 'recordHardBounces')
     }
 
-    /**
-     * Add addresses to the global hard-bounce list. Call this only for a bounce that proves the address does
-     * not exist. A bounce caused by the sender, such as a failed DMARC check, must stay on the team's own
-     * list. Otherwise one team could block valid addresses for every team.
-     */
+    /** Only for a bounce that proves the address does not exist, or one team could block valid addresses for all. */
     public async recordGlobalHardBounces(emails: string[], bounceTimestamp?: string): Promise<void> {
         const identifiers = Array.from(new Set(emails.map(normalizeIdentifier).filter(Boolean)))
         if (identifiers.length === 0) {
             return
         }
-        // Store when SES saw the bounce, not when we processed it. A delivery's timestamp is compared
-        // against it, and the two webhooks can arrive in either order.
+        // Store when SES saw the bounce, because the bounce and delivery webhooks can arrive in either order.
         const valueClauses = identifiers.map(
             (_, i) => `($${i + 2}, COALESCE($1::timestamptz, NOW()), COALESCE($1::timestamptz, NOW()))`
         )
@@ -443,8 +435,8 @@ export class EmailSuppressionService {
             logger.error('[EmailSuppression] Failed to reset bounce counts on delivery', { teamId, error })
         }
 
-        // A delivery proves the address exists, so it leaves the global list for every team. The same
-        // timestamp guard applies: a late delivery for an older send must not clear a fresh bounce.
+        // A delivery proves the address exists. The timestamp guard stops a late, older delivery from
+        // clearing a fresh bounce.
         try {
             const result = await this.postgres.query(
                 PostgresUse.COMMON_WRITE,
@@ -487,13 +479,10 @@ export class EmailSuppressionService {
         }
 
         const entries = new Map<string, SuppressionEntry>()
-        // Keys the global list can still affect: no row on the team's list, or an active row that lets
-        // transactional email through. A removed row is the team's override, so it is never a candidate.
+        // A removed row is the team's override of the global list, so it is never a candidate.
         const candidates: GlobalCandidate[] = []
         for (const [teamId, identifiers] of byTeam) {
-            // A removed row (deleted = true) is the team's choice to email the address again, so it also
-            // overrides the global list. The reason check covers rows that hard-bounced before
-            // `hard_bounced_at` existed.
+            // The reason check covers rows that hard-bounced before `hard_bounced_at` existed.
             const result = await this.postgres.query<{
                 identifier: string
                 deleted: boolean
@@ -522,12 +511,12 @@ export class EmailSuppressionService {
                 const key = toKey(teamId, row.identifier)
                 entries.set(key, { blocksTransactional: row.blocks_transactional })
                 if (!row.blocks_transactional) {
-                    candidates.push({ key, teamId, identifier: row.identifier, listed: true })
+                    candidates.push({ key, teamId, identifier: row.identifier, hasActiveTeamRow: true })
                 }
             }
             for (const identifier of identifiers) {
                 if (!listed.has(identifier)) {
-                    candidates.push({ key: toKey(teamId, identifier), teamId, identifier, listed: false })
+                    candidates.push({ key: toKey(teamId, identifier), teamId, identifier, hasActiveTeamRow: false })
                 }
             }
         }
@@ -560,11 +549,11 @@ export class EmailSuppressionService {
         }
 
         const hitsByTeam = new Map<number, string[]>()
-        for (const { key, teamId, identifier, listed } of candidates) {
+        for (const { key, teamId, identifier, hasActiveTeamRow } of candidates) {
             if (!bounced.has(identifier)) {
                 continue
             }
-            if (listed) {
+            if (hasActiveTeamRow) {
                 // The team's own list already blocks other email, so only transactional email changes.
                 if (this.globalHardBounceEnforce) {
                     entries.set(key, { blocksTransactional: true })
@@ -579,9 +568,8 @@ export class EmailSuppressionService {
             hitsByTeam.set(teamId, [...(hitsByTeam.get(teamId) ?? []), identifier])
         }
 
-        // Copy each hit to the team's own list as a hard bounce. The team then sees the address there and can
-        // remove it, which overrides the global list for that team. The read can come from a lagging replica,
-        // so the copy never touches a row the team removed meanwhile.
+        // The copy lets the team see and remove the address. The read can lag the primary, so it never
+        // touches a row the team removed meanwhile.
         for (const [teamId, identifiers] of hitsByTeam) {
             try {
                 await this.upsertHardBounces(teamId, identifiers, GLOBAL_HARD_BOUNCE_DIAGNOSTIC, { keepRemoved: true })

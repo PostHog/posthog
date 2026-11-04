@@ -180,8 +180,7 @@ export type CdpConfig = ClickhouseConfig & {
     // Consecutive soft bounces before an address is auto-suppressed. Tunable without a deploy.
     EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: number
 
-    // Whether the global hard-bounce list blocks sends. The list is always written. When false, a send
-    // it would block goes out and is counted as `global_hard_bounce_shadow_hit`.
+    // When false, the global hard-bounce list only counts the sends it would block.
     EMAIL_SUPPRESSION_GLOBAL_HARD_BOUNCE_ENFORCE: boolean
 
     // Trust-tiered per-team workflow email caps ("team warming"). A team's tier, stored by the

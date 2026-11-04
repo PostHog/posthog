@@ -1218,8 +1218,7 @@ describe('SesWebhookHandler', () => {
         })
     })
     describe('nonexistentRecipients', () => {
-        // A sender-side rejection must stay on the sending team's own list. Otherwise one team's broken
-        // DNS or blocked domain would block valid addresses for every team.
+        // A sender-side rejection going global would let one team's broken DNS block valid addresses for all.
         it.each([
             ['Permanent', 'NoEmail', undefined, undefined, true],
             ['Permanent', 'General', '5.1.1', 'smtp; 550 5.1.1 user unknown', true],

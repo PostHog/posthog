@@ -394,7 +394,6 @@ describe('EmailSuppressionService', () => {
             const otherTeamId = await bounceForAnotherTeam(email)
 
             if (step === 'removed') {
-                // The row that Django's remove_suppression leaves behind.
                 await hub.postgres.query(
                     PostgresUse.COMMON_WRITE,
                     `INSERT INTO posthog_messagesuppression
@@ -449,7 +448,6 @@ describe('EmailSuppressionService', () => {
                 'test-insert-removed-suppression'
             )
 
-            // The copy a read runs when a replica does not show the removal yet.
             await (newService(true) as any).upsertHardBounces(team.id, [email], 'copied', { keepRemoved: true })
 
             expect(await readRow(email)).toMatchObject({ suppressed: false, deleted: true })
