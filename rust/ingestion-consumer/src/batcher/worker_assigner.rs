@@ -52,12 +52,6 @@ impl WorkerAssigner {
             .collect()
     }
 
-    pub fn slots(&self, pool: &[Candidate]) -> usize {
-        pool.iter()
-            .map(|candidate| candidate.slots(self.max_requests_per_worker))
-            .sum()
-    }
-
     pub fn free_slots(&self, pool: &[Candidate]) -> usize {
         pool.iter()
             .map(|candidate| {
@@ -156,7 +150,7 @@ mod tests {
         let pool = vec![quarters("whole", 4), quarters("half", 2)];
         let mut assigner =
             WorkerAssigner::new(Router::with_seed(RoutingStrategy::P2c, 0), 4).unwrap();
-        assert_eq!((assigner.slots(&pool), assigner.free_slots(&pool)), (6, 6));
+        assert_eq!(assigner.free_slots(&pool), 6);
 
         let mut sent = HashMap::new();
         while let Some(worker) = assigner.assign(&pool, 1) {

@@ -11,6 +11,8 @@
 use std::str::FromStr;
 use std::time::{Duration, Instant};
 
+use crate::routing::Candidate;
+
 const RTT_TIME_CONSTANT: Duration = Duration::from_secs(10);
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -211,12 +213,18 @@ impl Governor {
         }
     }
 
-    /// `slots` caps the ceiling, and the floor never passes the ceiling.
-    /// `in_flight` counts the requests on those workers only: a
-    /// request on a worker that left the pool holds none of the pool's permits.
-    pub fn set_pool(&mut self, workers: usize, slots: usize, in_flight: usize) {
-        self.ceiling = slots.min(self.max_permits_per_worker * workers);
-        self.floor = (self.settings.min_permits_per_worker * workers).min(self.ceiling);
+    /// Each bound is the sum of the candidates' slots at its per-worker
+    /// permits, so a candidate that covers part of a worker adds that part.
+    /// `in_flight` counts the requests on `pool` only: a request on a worker
+    /// that left the pool holds none of the pool's permits.
+    pub fn set_pool(&mut self, pool: &[Candidate], in_flight: usize) {
+        let slots = |per_worker: usize| -> usize {
+            pool.iter()
+                .map(|candidate| candidate.slots(per_worker))
+                .sum()
+        };
+        self.ceiling = slots(self.max_permits_per_worker);
+        self.floor = slots(self.settings.min_permits_per_worker).min(self.ceiling);
         self.in_flight = in_flight;
     }
 
@@ -265,6 +273,8 @@ mod tests {
     use rstest::rstest;
 
     use super::*;
+    use crate::aperture::{ring_slice, sorted_ring};
+    use crate::worker_registry::WorkerId;
 
     const STEP: Duration = Duration::from_secs(1);
     const BUDGET: Duration = Duration::from_secs(1);
@@ -281,10 +291,16 @@ mod tests {
         }
     }
 
+    fn workers(count: usize) -> Vec<Candidate> {
+        (0..count)
+            .map(|n| Candidate::uniform(WorkerId::from(format!("w{n}").as_str())))
+            .collect()
+    }
+
     /// Two workers: a ceiling of 8 and a floor of 2.
     fn governor(adaptation: Adaptation) -> Governor {
         let mut governor = Governor::new(settings(adaptation), MAX_PER_WORKER).expect("valid");
-        governor.set_pool(2, 2 * MAX_PER_WORKER, 0);
+        governor.set_pool(&workers(2), 0);
         governor
     }
 
@@ -388,11 +404,11 @@ mod tests {
         assert_eq!(governor.observe(SLOW, now), applied(Direction::Shrink));
         assert_eq!(governor.permits(), 7);
 
-        governor.set_pool(1, MAX_PER_WORKER, 0);
+        governor.set_pool(&workers(1), 0);
         assert_eq!(governor.ceiling(), 4);
         assert_eq!(governor.permits(), 3, "the ceiling dropped by one worker");
 
-        governor.set_pool(3, 3 * MAX_PER_WORKER, 0);
+        governor.set_pool(&workers(3), 0);
         assert_eq!(governor.ceiling(), 12);
         assert_eq!(
             governor.permits(),
@@ -404,28 +420,35 @@ mod tests {
             governor.observe(SLOW, now + STEP * step);
         }
         assert_eq!(governor.permits(), 3, "at the floor of one per worker");
-        governor.set_pool(1, MAX_PER_WORKER, 0);
+        governor.set_pool(&workers(1), 0);
         assert_eq!(governor.permits(), 1, "the floor dropped with the pool");
     }
 
     #[test]
-    fn the_ceiling_is_the_slots_of_the_pool_and_the_floor_stays_below_it() {
+    fn a_slice_with_partly_covered_workers_shrinks_to_its_weighted_floor() {
+        let ring = sorted_ring(
+            (1..=6)
+                .map(|n| WorkerId::from(format!("w{n}").as_str()))
+                .collect(),
+        );
+        let slice = ring_slice(&ring, &ring, Some(1), 4, 3).unwrap();
+        assert_eq!(slice.len(), 4, "two whole workers and two halves");
         let settings = GovernorSettings {
-            min_permits_per_worker: 2,
+            min_permits_per_worker: 3,
             ..settings(Adaptation::On)
         };
         let mut governor = Governor::new(settings, MAX_PER_WORKER).expect("valid");
-        governor.set_pool(3, 6, 0);
-        assert_eq!((governor.ceiling(), governor.permits()), (6, 6));
+        governor.set_pool(&slice, 0);
+        assert_eq!(governor.ceiling(), 12);
 
         let now = Instant::now();
-        for step in 0..4 {
-            governor.observe(SLOW, now + STEP * step);
-        }
-        assert_eq!(governor.permits(), 6, "the floor of 2 x 3 is the ceiling");
-
-        governor.set_pool(3, 20, 0);
-        assert_eq!(governor.ceiling(), 12, "at most the per-worker cap");
+        assert_eq!(governor.observe(SLOW, now), applied(Direction::Shrink));
+        assert_eq!(
+            governor.observe(SLOW, now + STEP),
+            applied(Direction::Shrink)
+        );
+        assert_eq!(governor.observe(SLOW, now + STEP * 2), None);
+        assert_eq!(governor.permits(), 10, "2 + 3 + 3 + 2");
     }
 
     #[test]
@@ -439,7 +462,7 @@ mod tests {
         );
         assert_eq!(governor.permits(), 6);
 
-        governor.set_pool(0, 0, 0);
+        governor.set_pool(&workers(0), 0);
         assert_eq!((governor.permits(), governor.free()), (0, 0));
         assert_eq!(
             governor.observe(SLOW, now + STEP * 2),
@@ -447,7 +470,7 @@ mod tests {
             "nothing to govern"
         );
 
-        governor.set_pool(2, 2 * MAX_PER_WORKER, 0);
+        governor.set_pool(&workers(2), 0);
         assert_eq!(governor.permits(), 6);
     }
 
@@ -455,12 +478,12 @@ mod tests {
     fn with_adaptation_off_steps_are_unapplied_and_the_shadow_pool_still_moves() {
         let now = Instant::now();
         let mut shadow = governor(Adaptation::Off);
-        shadow.set_pool(2, 2 * MAX_PER_WORKER, 8);
+        shadow.set_pool(&workers(2), 8);
         assert_eq!(shadow.free(), 0);
 
         assert_eq!(shadow.observe(SLOW, now), unapplied(Direction::Shrink));
         assert_eq!(shadow.permits(), 7);
-        shadow.set_pool(2, 2 * MAX_PER_WORKER, 7);
+        shadow.set_pool(&workers(2), 7);
         assert_eq!(
             shadow.free(),
             0,

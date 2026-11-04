@@ -608,8 +608,7 @@ impl ActiveState {
             .iter()
             .map(|candidate| self.assigner.requests_on(&candidate.worker))
             .sum();
-        self.governor
-            .set_pool(workers.len(), self.assigner.slots(workers), in_flight);
+        self.governor.set_pool(workers, in_flight);
         self.reconnecting
             .retain(|worker, _| workers.iter().any(|candidate| candidate.worker == *worker));
     }
