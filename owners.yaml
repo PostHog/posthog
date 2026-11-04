@@ -44,6 +44,10 @@ teams:
     team-replay:
         notifications:
             stamphog: false
+    # The entry exists only to drop the daily stamphog digest from the team channel.
+    team-warehouse-sources:
+        notifications:
+            stamphog: false
 rules:
     - match: Dockerfile.llm-analytics
       owners: team-ai-observability
@@ -96,6 +100,17 @@ rules:
           - '/frontend/src/lib/lemon-ui/'
           - '/frontend/src/lib/ui/'
       owners: platform-ux
+    # Platform UX owns the nav rail and the UI rules file, so every change to them goes to that team, however small.
+    - match:
+          - '/frontend/src/platform-ux.md'
+          - '/frontend/src/layout/today/TodayRail.tsx'
+          - '/frontend/src/layout/today/TodayRailTile.tsx'
+          - '/frontend/src/layout/today/todayRailItems.tsx'
+          - '/frontend/src/layout/today/TodayMoreMenu.tsx'
+          - '/frontend/src/layout/today/todayRailSeverity.ts'
+          - '/frontend/src/layout/today/todayRailStatusLogic.ts'
+      owners: platform-ux
+      sensitive: true
     - match: '/hog/'
       owners: team-growth
     - match: '/nodejs/tests/'

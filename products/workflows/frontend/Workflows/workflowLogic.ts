@@ -65,12 +65,7 @@ import {
 } from './hogflows/steps/components/rrule-helpers'
 import type { ScheduleState } from './hogflows/steps/components/rrule-helpers'
 import { getTemplatingError } from './hogflows/steps/templatingError'
-import {
-    HogFlowActionSchema,
-    SCHEDULED_TRIGGER_TYPES,
-    isFunctionAction,
-    isTriggerFunction,
-} from './hogflows/steps/types'
+import { HogFlowActionSchema, isFunctionAction, isTriggerFunction } from './hogflows/steps/types'
 import {
     type HogFlow,
     type HogFlowAction,
@@ -80,6 +75,7 @@ import {
 } from './hogflows/types'
 import { openPublishConfirmDialog } from './PublishImpactDialog'
 import { ResourceSaveQueue } from './resourceSaveQueue'
+import { workflowStartPath } from './workflowBuilderProgress'
 import { prepareWorkflowDuplicate } from './workflowDuplication'
 import {
     prefilledEmailContent,
@@ -100,6 +96,10 @@ export interface WorkflowLogicProps {
     emailPrefill?: string
     draftSource?: string
     entrySource?: string
+}
+
+export function workflowLogicKey(props: WorkflowLogicProps): string {
+    return `workflow-${props.id || 'new'}-${props.templateId || 'default'}-${props.editTemplateId || 'default'}-${props.triggerPrefill || 'default'}-${props.emailPrefill || 'default'}`
 }
 
 export const TRIGGER_NODE_ID = 'trigger_node'
@@ -408,7 +408,13 @@ export interface workflowLogicActions {
     duplicate: () => {
         value: true
     }
+    enableBlocked: () => {
+        value: true
+    }
     keepMyWorkflowVersion: () => {
+        value: true
+    }
+    leaveConfirmed: () => {
         value: true
     }
     loadAiEmailDraft: (request: EmailDraftRequestApi) => EmailDraftRequestApi
@@ -645,6 +651,7 @@ export interface workflowLogicActions {
                                                         | 'number'
                                                         | 'posthog_assignee'
                                                         | 'posthog_business_hours'
+                                                        | 'posthog_survey'
                                                         | 'posthog_ticket_tags'
                                                         | 'replay_vision_scan'
                                                         | 'signals_scout'
@@ -1322,6 +1329,7 @@ export interface workflowLogicActions {
                                 | 'number'
                                 | 'posthog_assignee'
                                 | 'posthog_business_hours'
+                                | 'posthog_survey'
                                 | 'posthog_ticket_tags'
                                 | 'replay_vision_scan'
                                 | 'signals_scout'
@@ -1532,6 +1540,7 @@ export interface workflowLogicActions {
                                                         | 'number'
                                                         | 'posthog_assignee'
                                                         | 'posthog_business_hours'
+                                                        | 'posthog_survey'
                                                         | 'posthog_ticket_tags'
                                                         | 'replay_vision_scan'
                                                         | 'signals_scout'
@@ -2209,6 +2218,7 @@ export interface workflowLogicActions {
                                 | 'number'
                                 | 'posthog_assignee'
                                 | 'posthog_business_hours'
+                                | 'posthog_survey'
                                 | 'posthog_ticket_tags'
                                 | 'replay_vision_scan'
                                 | 'signals_scout'
@@ -2404,6 +2414,7 @@ export interface workflowLogicActions {
                                           | 'number'
                                           | 'posthog_assignee'
                                           | 'posthog_business_hours'
+                                          | 'posthog_survey'
                                           | 'posthog_ticket_tags'
                                           | 'replay_vision_scan'
                                           | 'signals_scout'
@@ -2815,6 +2826,7 @@ export interface workflowLogicActions {
                                           | 'number'
                                           | 'posthog_assignee'
                                           | 'posthog_business_hours'
+                                          | 'posthog_survey'
                                           | 'posthog_ticket_tags'
                                           | 'replay_vision_scan'
                                           | 'signals_scout'
@@ -3032,6 +3044,9 @@ export interface workflowLogicActions {
     }
     triggerManualWorkflow: (variables: Record<string, any>) => {
         variables: Record<string, any>
+    }
+    workflowCreated: (workflowId: string) => {
+        workflowId: string
     }
 }
 
@@ -3288,10 +3303,7 @@ function getSaveQueue(
 export const workflowLogic = kea<workflowLogicType>([
     path((key) => ['products', 'workflows', 'frontend', 'Workflows', 'workflowLogic', key]),
     props({ id: 'new' } as WorkflowLogicProps),
-    key(
-        (props) =>
-            `workflow-${props.id || 'new'}-${props.templateId || 'default'}-${props.editTemplateId || 'default'}-${props.triggerPrefill || 'default'}-${props.emailPrefill || 'default'}`
-    ),
+    key(workflowLogicKey),
     connect(() => ({
         values: [
             userLogic,
@@ -3355,6 +3367,9 @@ export const workflowLogic = kea<workflowLogicType>([
         publishDraft: true,
         confirmPublishDraft: (confirmToken: string) => ({ confirmToken }),
         discardDraft: true,
+        enableBlocked: true,
+        workflowCreated: (workflowId: string) => ({ workflowId }),
+        leaveConfirmed: true,
         confirmDiscardDraft: true,
         setDraftActionPending: (pending: 'publish' | 'discard' | null) => ({ pending }),
         replayDeferredResourceEdited: true,
@@ -3469,6 +3484,7 @@ export const workflowLogic = kea<workflowLogicType>([
                                 ...updates,
                                 ...(createsBroadcast ? { origin_product: 'broadcasts' } : {}),
                             } as unknown as Parameters<typeof hogFlowsCreate>[1])) as unknown as HogFlow
+                            actions.workflowCreated(result.id)
 
                             if (props.templateId) {
                                 posthog.capture('hog_flow_created_from_template', {
@@ -3503,6 +3519,8 @@ export const workflowLogic = kea<workflowLogicType>([
                                 posthog.capture('workflow draft created', {
                                     workflow_id: result.id,
                                     entry_source: props.entrySource ?? null,
+                                    start_path: workflowStartPath(props),
+                                    template_id: props.templateId ?? null,
                                 })
                             }
                             return result
@@ -4504,6 +4522,7 @@ export const workflowLogic = kea<workflowLogicType>([
             const merged = { ...(keepsFormEdits && stored ? withStagedDraft(stored) : values.workflow), ...workflow }
             if (merged.status === 'active' && values.workflowHasActionErrors) {
                 lemonToast.error('Fix all errors before enabling')
+                actions.enableBlocked()
                 return
             }
             // This is the one path that means to change the lifecycle. The loader reads the flag
@@ -4530,8 +4549,9 @@ export const workflowLogic = kea<workflowLogicType>([
             // The form edits the staged draft when one exists; the live config keeps running underneath.
             actions.resetWorkflow(withStagedDraft(originalWorkflow))
             actions.replayDeferredResourceEdited()
-            const triggerType = originalWorkflow.trigger?.type
-            if (originalWorkflow.id && SCHEDULED_TRIGGER_TYPES.includes(triggerType ?? '')) {
+            // Load schedules whatever the trigger is. A schedule outlives a switch to another trigger,
+            // and a save that cannot see it creates a second one that fires next to it.
+            if (originalWorkflow.id) {
                 try {
                     const schedules = await api.hogFlows.getHogFlowSchedules(originalWorkflow.id)
                     actions.setSchedules(schedules)
@@ -5017,6 +5037,7 @@ export const workflowLogic = kea<workflowLogicType>([
         },
         message: 'Leave workflow?\nChanges you made will be discarded.',
         onConfirm: () => {
+            logic.actions.leaveConfirmed()
             if (logic.values.originalWorkflow) {
                 logic.actions.resetWorkflow(logic.values.originalWorkflow)
             }

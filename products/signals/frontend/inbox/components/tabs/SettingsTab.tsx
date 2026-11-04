@@ -1,5 +1,6 @@
 import { useMountedLogic, useValues } from 'kea'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { GithubIntegration } from 'scenes/integrations/components/GithubIntegration'
 import { urls } from 'scenes/urls'
@@ -10,10 +11,11 @@ import { RepoRoutingRules } from '../config/RepoRoutingRules'
 import { SelfDrivingSection } from '../config/SelfDrivingSection'
 import { SlackNotificationsSection } from '../config/SlackNotificationsSection'
 import { InboxUsageWidget } from '../shell/InboxUsageWidget'
-import { InstallationSetupSection } from '../shell/InstallationSetupSection'
+import { UsageOverview } from '../spend/UsageOverview'
 import { SettingsSection } from './SettingsSection'
 
 export function SettingsTab(): JSX.Element {
+    const usageEnabled = useFeatureFlag('SELF_DRIVING_USAGE_DISPLAY')
     useMountedLogic(integrationsLogic)
     // The usage widget renders nothing without the billing product, so the section title
     // must hide with it rather than sit over an empty area.
@@ -21,13 +23,20 @@ export function SettingsTab(): JSX.Element {
 
     return (
         <div className="mx-auto flex w-full max-w-4xl flex-col gap-8 px-6 py-6">
-            <InstallationSetupSection />
             <SettingsSection
                 title="Autonomy"
                 description="How much agents do on their own: opening pull requests, and how many reports arrive each day."
             >
                 <SelfDrivingSection />
             </SettingsSection>
+            {usageEnabled && (
+                <SettingsSection
+                    title="Usage"
+                    description="Recorded usage for scout runs started and signals received in the last 30 days."
+                >
+                    <UsageOverview />
+                </SettingsSection>
+            )}
             <AgentSteeringSection />
             <SettingsSection
                 title="Code access"
@@ -44,7 +53,10 @@ export function SettingsTab(): JSX.Element {
                 <SlackNotificationsSection />
             </SettingsSection>
             {(inboxUsageProduct != null || inboxUsageLoading) && (
-                <SettingsSection title="Usage" description="Pull requests agents opened this billing period.">
+                <SettingsSection
+                    title={usageEnabled ? 'Pull request usage' : 'Usage'}
+                    description="Pull requests agents opened this billing period."
+                >
                     <InboxUsageWidget />
                 </SettingsSection>
             )}

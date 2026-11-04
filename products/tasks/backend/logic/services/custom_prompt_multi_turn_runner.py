@@ -172,9 +172,9 @@ class MultiTurnSession:
                     e,
                 )
                 salvageable = False
-                retry_message = await session.send_followup_raw(json_retry_prompt, label="initial turn json retry")
+                last_message = await session.send_followup_raw(json_retry_prompt, label="initial turn json retry")
                 salvageable = True
-                parsed = cls._parse_and_validate(retry_message, model, label="initial turn json retry")
+                parsed = cls._parse_and_validate(last_message, model, label="initial turn json retry")
         except (Exception, asyncio.CancelledError) as e:
             # Salvage path: the agent produced text but it didn't parse/validate. Rather
             # than discarding the whole run, build the model from the raw text so the caller

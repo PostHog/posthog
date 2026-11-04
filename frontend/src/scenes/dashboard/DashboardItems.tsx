@@ -121,7 +121,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         copyGroupToDashboardLoading,
         widgetResultsByTileId,
         widgetRefreshStatus,
-        widgetEditorTileId,
         scrollToBottomSignal,
         sizeKey,
         tileGroupSectionsEnabled,
@@ -155,12 +154,12 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         copyToDashboard,
         copyGroupToDashboard,
         changeTileGroupDisplay,
+        renameTileGroup,
         setDashboardEditing,
         toggleTileGroup,
         selectTileGroupTab,
         updateTileGroupSectionLayout,
         moveTileToSection,
-        setWidgetEditorTileId,
     } = useActions(dashboardLogic)
     const { updateWidgetTile } = useAsyncActions(dashboardLogic)
     // dashboard_tiles is empty because this selector covers a whole group, not one tile; the
@@ -280,6 +279,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
 
     const onCopyGroupToDashboard = canEditDashboard && isEditablePlacement ? copyGroupToDashboard : undefined
     const onChangeGroupDisplay = canEditDashboard && isEditablePlacement ? changeTileGroupDisplay : undefined
+    const onRenameTileGroup = canEditDashboard && isEditablePlacement ? renameTileGroup : undefined
 
     const isLayoutZoomToggled = layoutEditMode && layoutZoom !== 1
 
@@ -758,8 +758,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                     error={getDashboardWidgetFetchDisplayError(runResult?.error ?? refreshState?.error)}
                     loading={!!refreshState?.loading}
                     lastFetchedAt={refreshState?.fetchedAt}
-                    openEditorOnMount={widgetEditorTileId === tile.id}
-                    onEditorClose={widgetEditorTileId === tile.id ? () => setWidgetEditorTileId(null) : undefined}
                     onRefresh={tileActions.refreshWidget}
                     onRefreshWidgetData={scheduleRefreshDashboardWidgets}
                     onApplyWidgetIssueMetadataChange={onWidgetIssueMetadataChange}
@@ -848,6 +846,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             isDropTarget={dropTargetKey === section.key}
             collapsedTileGroupKeys={collapsedTileGroupKeys}
             onToggleTileGroup={toggleTileGroup}
+            onRenameTileGroup={onRenameTileGroup}
             copyToDestinations={copyToDestinations}
             onCopyGroupToDashboard={onCopyGroupToDashboard}
             copyLoading={copyGroupToDashboardLoading}
@@ -871,6 +870,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                         sections={tileGroupSections}
                         activeSectionKey={tileGroupSections[activeTabIndex].key}
                         onSelect={selectTileGroupTab}
+                        onRenameGroup={onRenameTileGroup}
                         copyToDestinations={copyToDestinations}
                         onCopyGroupToDashboard={onCopyGroupToDashboard}
                         copyLoading={copyGroupToDashboardLoading}

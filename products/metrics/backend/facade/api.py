@@ -18,13 +18,7 @@ from django.db import connection
 
 import structlog
 
-from posthog.schema import (
-    DateRange,
-    MetricsDashboardVariable,
-    MetricsDashboardVariableSource,
-    MetricsHistogramQuery,
-    MetricsQuery,
-)
+from posthog.schema import DateRange, MetricsDashboardVariable, MetricsDashboardVariableSource
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
@@ -36,7 +30,7 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.hogql_queries.utils.parallel import run_in_parallel_threads
 from posthog.models import Team, User
 
-from products.error_tracking.backend.facade.api import list_spike_events
+from products.error_tracking.backend.facade.api import list_latest_spike_events
 from products.metrics.backend.anomaly import characterize_anomaly as _characterize_anomaly
 from products.metrics.backend.date_range import metrics_query_date_range
 from products.metrics.backend.facade.contracts import (
@@ -68,7 +62,6 @@ from products.metrics.backend.facade.enums import (
 )
 from products.metrics.backend.formula import evaluate, parse_formula
 from products.metrics.backend.has_metrics_query_runner import team_has_metrics as _team_has_metrics
-from products.metrics.backend.heatmap import metrics_histogram_query_for as _metrics_histogram_query_for
 from products.metrics.backend.investigation import investigate as _investigate
 from products.metrics.backend.metric_attributes_query_runner import (
     MetricAttributeKeysQueryRunner,
@@ -76,9 +69,15 @@ from products.metrics.backend.metric_attributes_query_runner import (
 )
 from products.metrics.backend.metric_event_samples_query_runner import MetricEventSamplesQueryRunner
 from products.metrics.backend.metric_names_query_runner import MetricNamesQueryRunner, cached_metric_names
-from products.metrics.backend.metric_query_runner import MAX_RAW_SERIES, MetricQueryRunner, _pick_interval
+from products.metrics.backend.metric_query_runner import (
+    MAX_QUERY_SPAN,
+    MAX_RAW_SERIES,
+    MetricQueryRunner,
+    _pick_interval,
+)
 from products.metrics.backend.metric_samples_query_runner import build_metric_query_runner
 from products.metrics.backend.metrics_overview_query_runner import MetricsOverviewQueryRunner
+from products.metrics.backend.promql import run_promql_range
 from products.metrics.backend.query_concurrency import query_concurrency_slots
 from products.metrics.backend.variable_options import check_options_window, compile_regex, list_variable_options
 from products.metrics.backend.variables import from_dashboard, with_values
@@ -97,14 +96,6 @@ _RUNNER_AGGREGATIONS: dict[MetricAggregation, str] = {
     MetricAggregation.RATE: "rate",
     MetricAggregation.INCREASE: "increase",
 }
-
-
-def metrics_histogram_query_for(query: MetricsQuery) -> MetricsHistogramQuery:
-    """The histogram query that draws a metrics query with the heatmap display.
-
-    Raises `MetricsHeatmapIneligibleError` when the query can't draw one.
-    """
-    return _metrics_histogram_query_for(query)
 
 
 def team_has_metrics(team: Team) -> bool:
@@ -454,6 +445,21 @@ def run_metric_query(*, team: Team, request: MetricQueryRequest) -> list[MetricS
     ]
 
 
+def run_promql_query(
+    *, team: Team, expr: str, date_from: dt.datetime, date_to: dt.datetime, interval: str | None
+) -> list[MetricSeries]:
+    """Run a PromQL range query on Snuffle. The caller checks the Snuffle feature flag. `date_to` is exclusive."""
+    if date_to <= date_from:
+        raise ValueError("date_to must be after date_from")
+    if date_to - date_from > MAX_QUERY_SPAN:
+        raise ValueError(f"date range too wide; the maximum span is {MAX_QUERY_SPAN.days} days")
+    with query_concurrency_slots(team):
+        series = run_promql_range(team, expr, date_from, date_to, interval)
+    return [
+        replace(s, points=tuple(p for p in s.points if dt.datetime.fromisoformat(p.time) < date_to)) for s in series
+    ]
+
+
 def metric_query_concurrency_slots(team: Team) -> AbstractContextManager[None]:
     """Hold the concurrency slots of a metrics query runner around `run_metric_query`.
 
@@ -677,12 +683,11 @@ def list_metric_error_spikes(*, team: Team, date_from: dt.datetime, date_to: dt.
     Team-wide: Error Tracking issues carry no service attribution today, so
     this cannot be scoped to the metric's own service yet.
     """
-    events, _total = list_spike_events(
+    events = list_latest_spike_events(
         team_id=team.id,
         date_from=date_from.isoformat(),
         date_to=date_to.isoformat(),
         limit=_ERROR_SPIKES_LIMIT,
-        include_total_count=False,
     )
     return [
         MetricErrorSpike(

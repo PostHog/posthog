@@ -245,6 +245,15 @@ const DashboardGetSchema = () => {
                     'Object (or pre-encoded JSON string) to override dashboard variables for this request only (not persisted). Format: {"<variable_id>": {"code_name": "<code_name>", "variableId": "<variable_id>", "value": <new_value>}}. Each entry must include `code_name` — partial entries are silently dropped. The simplest workflow is to call `dashboard-get` first, copy the matching entry from the response, and mutate `value`. Top-level keys replace; nested values are not deep-merged. Ignored when accessed via a sharing token.'
                 ),
         })
+        .extend({
+            expand: z
+                .array(z.enum(['tiles.*.insight.query']))
+                .min(1)
+                .optional()
+                .describe(
+                    'Optional list of response fields to include that the response omits by default, each a dot-path. Omit to keep the response small.'
+                ),
+        })
 }
 
 const dashboardGet = (): ToolBase<
@@ -327,6 +336,7 @@ const dashboardGet = (): ToolBase<
                 'tiles.*.widget.last_modified_by.distinct_id',
                 'tiles.*.widget.last_modified_by.is_email_verified',
                 'tiles.*.widget.last_modified_by.hedgehog_config',
+                ...(['tiles.*.insight.query'] as const).filter((path) => !params.expand?.includes(path)),
             ])
         ) as typeof result
         return withInformationalResponse(
@@ -850,14 +860,6 @@ const DashboardWidgetsRunSchema = () => {
     return DashboardsRunWidgetsRetrieveParams.omit({ project_id: true })
         .extend(DashboardsRunWidgetsRetrieveQueryParams.omit({ format: true }).shape)
         .extend({ id: z.preprocess(castStringToInt, DashboardsRunWidgetsRetrieveParams.shape['id']) })
-        .extend({
-            filters_override: z
-                .union([z.string(), z.record(z.string(), z.unknown())])
-                .optional()
-                .describe(
-                    'Object (or pre-encoded JSON string) to override dashboard filters for this request only (not persisted). Top-level keys replace; nested values are not deep-merged — pass the complete value for any key you override. Accepts the same keys as the dashboard filters schema (e.g., `date_from`, `date_to`, `properties`). Ignored when accessed via a sharing token.'
-                ),
-        })
 }
 
 const dashboardWidgetsRun = (): ToolBase<
@@ -872,8 +874,6 @@ const dashboardWidgetsRun = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/dashboards/${encodeURIComponent(String(params.id))}/run_widgets/`,
             query: {
-                filters_override: params.filters_override,
-                refresh: params.refresh,
                 tile_ids: params.tile_ids,
             },
         })

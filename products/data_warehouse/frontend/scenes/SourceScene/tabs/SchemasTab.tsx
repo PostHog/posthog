@@ -52,6 +52,7 @@ import {
     SchemaEditorAction,
     SourceEditorAction,
 } from 'products/data_warehouse/frontend/shared/components/SourceEditorAction'
+import { confirmPendingSelfManagedSync } from 'products/data_warehouse/frontend/shared/confirmPendingSelfManagedSync'
 import { isFileUploadSource } from 'products/data_warehouse/frontend/shared/fileUploadSources'
 import { destinationLookupLogic } from 'products/data_warehouse/frontend/shared/logics/destinationLookupLogic'
 import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
@@ -624,16 +625,41 @@ function ManagedSchemaTable({
                     key: 'sync_type',
                     className: dimWhenNotSyncing,
                     render: (_, schema) => {
-                        if (!schema.sync_type) {
-                            return <span className="text-muted">Not set up</span>
-                        }
                         const blockedReason = schema.incremental_sync_blocked
-                        if (!blockedReason) {
-                            return <LemonTag type="primary">{SyncTypeLabelMap[schema.sync_type]}</LemonTag>
+                        const syncMethod = schema.sync_type ? (
+                            <LemonTag type={blockedReason ? 'warning' : 'primary'}>
+                                {SyncTypeLabelMap[schema.sync_type]}
+                            </LemonTag>
+                        ) : (
+                            <span className="text-muted">Not set up</span>
+                        )
+                        // The schema scene hides the sync method section for a file upload, so no link here.
+                        if (isFileUpload) {
+                            return syncMethod
                         }
                         return (
-                            <Tooltip title={IncrementalSyncBlockedMessageMap[blockedReason]} interactive>
-                                <LemonTag type="warning">{SyncTypeLabelMap[schema.sync_type]}</LemonTag>
+                            <Tooltip
+                                title={
+                                    blockedReason
+                                        ? IncrementalSyncBlockedMessageMap[blockedReason]
+                                        : schema.sync_type
+                                          ? 'Change the sync method for this table'
+                                          : 'Set up the sync method for this table'
+                                }
+                                interactive={!!blockedReason}
+                            >
+                                <Link
+                                    to={urls.dataWarehouseSourceSchema(
+                                        prefixedSourceId,
+                                        schema.id,
+                                        'configuration',
+                                        'sync-method'
+                                    )}
+                                    subtle
+                                    data-attr="schemas-tab-sync-method"
+                                >
+                                    {syncMethod}
+                                </Link>
                             </Tooltip>
                         )
                     },
@@ -870,6 +896,17 @@ function SchemaBulkActions({
     const frequencyOptions = allowedSyncFrequencies()
 
     const onEnable = (): void => {
+        const pendingCount = selected.filter(
+            (schema) => !schema.should_sync && schema.pending_self_managed_table
+        ).length
+        if (pendingCount > 0) {
+            confirmPendingSelfManagedSync(pendingCount, enableWithDefaults, 'bulk')
+            return
+        }
+        enableWithDefaults()
+    }
+
+    const enableWithDefaults = (): void => {
         const needingDefaults = selected.filter((schema) => !schema.should_sync && !schema.sync_type)
         if (needingDefaults.length === 0) {
             run(() => bulkEnable(selected))

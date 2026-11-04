@@ -179,6 +179,7 @@ jobs:
                         - 'products/notebooks/**'
                         - 'products/product_analytics/frontend/insights/**'
                         - 'products/*/frontend/generated/**'
+                        - 'products/webmcp/frontend/**'
                         - 'frontend/src/mocks/fixtures/**'
     build:
         name: Build Package
@@ -394,11 +395,6 @@ jobs:
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  # Deep clone so we can compute the merge-base with the PR base ref
-                  # for the schema cache key (matches ci-backend.yml's turbo-discover).
-                  fetch-depth: 1000
-                  filter: blob:none
 
             - name: Clean up data directories with container permissions
               run: |
@@ -519,11 +515,13 @@ jobs:
                   COMPOSE_PROFILES: temporal
               run: bin/ci-wait-for-docker wait temporal
 
-            - name: Fetch current PR base for merge-base
+            - name: Fetch PR history and current base for merge-base
               if: github.event_name == 'pull_request'
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
-              run: git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+              run: |
+                  git fetch --no-tags --depth=1000 --filter=blob:none origin "$GITHUB_SHA"
+                  git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
 
             - name: Compute schema cache key
               id: schema-key
@@ -532,7 +530,7 @@ jobs:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
               run: |
                   # HEAD is the synthetic merge commit; HEAD^2 is the PR branch tip.
-                  # The fetch-depth:1000 checkout + base-ref fetch above ensure the
+                  # The history fetch + base-ref fetch above ensure the
                   # full ancestry needed to find the divergence point is available.
                   if [ "$GITHUB_EVENT_NAME" = "schedule" ]; then
                       # Only restore an exact migration/routing match on the hourly lane.

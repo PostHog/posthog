@@ -39,7 +39,8 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField, MapStringDatabaseField, StringJSONDatabaseField
 from posthog.hogql.database.schema.util.null_sentinels import MAT_COL_NULL_SENTINELS, null_if_sentinels
 from posthog.hogql.errors import QueryError
-from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING, find_hogql_aggregation
+from posthog.hogql.functions.clickhouse.json import JSON_KEY_PATH_FUNCTIONS
+from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING
 from posthog.hogql.printer.base import resolve_field_type
 from posthog.hogql.printer.clickhouse import AI_BLOOM_FILTER_PROPERTIES, COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING
 from posthog.hogql.restricted_properties import (
@@ -48,6 +49,12 @@ from posthog.hogql.restricted_properties import (
     restricted_feature_flag_names,
     restricted_key_path,
     restricted_property_keys_for_table_type,
+)
+from posthog.hogql.transforms.grouped_clauses import (
+    GroupedClauseTracker,
+    before_grouping,
+    is_grouped,
+    visit_after_grouping,
 )
 from posthog.hogql.type_system import (
     ComparisonCompatibility,
@@ -215,6 +222,21 @@ def resolve_json_subcolumn_source(
     )
 
 
+def stored_key_json_text(field_type: ast.FieldType, key: str, context: HogQLContext) -> ast.Expr | None:
+    """The JSON text of `<blob>.<key>` on the JSON events table, read from the key's own stored column and serialized as
+    `JSONExtractRaw(document, key)` returns it from the rebuilt document. None when no single column holds what the
+    document shows: the document leaves `$feature_flags` out in favour of its `$feature/<key>` pairs, and a key that a
+    restriction touches reads the masked document as text. The read is the `PropertyAccess` that lowering builds, so
+    it gets no property type and the value pass resolves it like any other key read.
+    """
+    if key == "$feature_flags" or property_path_overlaps_restriction(key, field_type.table_type, context):
+        return None
+    read = ast.PropertyAccess(
+        expr=ast.Field(chain=[field_type.name], type=field_type), keys=[key], type=ast.StringType(nullable=True)
+    )
+    return ast.Call(name="toJSONString", args=[read], type=ast.StringType(nullable=True))
+
+
 def resolve_property_group_source(
     field_type: ast.FieldType, property_name: str, context: HogQLContext
 ) -> MaterializedPropertySource | None:
@@ -260,6 +282,15 @@ def _blob_field_type_of(node: ast.PropertyAccess) -> ast.FieldType | None:
     """The source blob column's `FieldType` (`node.expr.type`), the input to `resolve_materialized_property_source`."""
     expr_type = node.expr.type
     return expr_type if isinstance(expr_type, ast.FieldType) else None
+
+
+def _exported_json_text_read(expr: ast.Expr) -> ast.Field | None:
+    """The field behind `expr` if it reads a column the wrapper around a joined table filled with a property's JSON text."""
+    while isinstance(expr, ast.Alias):
+        expr = expr.expr
+    if isinstance(expr, ast.Field) and isinstance(expr.type, ast.PropertyType) and expr.type.joined_subquery_json_text:
+        return expr
+    return None
 
 
 # --- value substitution: rebuild the printer's materialized-column read as AST ----------------------------------------
@@ -647,31 +678,6 @@ def _is_moved_events_property(field_type: ast.FieldType, key: str, context: HogQ
         and is_temporary_event_property(key)
         and _is_events_properties(field_type, context)
     )
-
-
-# JSON functions that take a key path and that nothing earlier rewrites to read one property. The printer passes them
-# the serialized `properties` document, which never holds a key the native cleaner moves to `temporary_properties`.
-_TEMPORARY_PROPERTY_JSON_PATH_FUNCTIONS = frozenset(
-    {
-        "JSONExtractArrayRaw",
-        "JSONExtractKeys",
-        "JSONExtractKeysAndValues",
-        "JSONExtractKeysAndValuesRaw",
-        "JSONLength",
-        "JSONType",
-    }
-)
-
-_JSON_KEY_PATH_FUNCTIONS = _TEMPORARY_PROPERTY_JSON_PATH_FUNCTIONS | {
-    "JSONExtract",
-    "JSONExtractBool",
-    "JSONExtractFloat",
-    "JSONExtractInt",
-    "JSONExtractRaw",
-    "JSONExtractString",
-    "JSONExtractUInt",
-    "JSONHas",
-}
 
 
 def _names_temporary_event_property(key: ast.Expr) -> ast.Expr:
@@ -1164,7 +1170,7 @@ class _OptimizableProperty:
         return ast.ArrayAccess(array=self.bare_column(), property=_const(self.key), type=ast.StringType(nullable=False))
 
 
-class ClickHousePropertyResolver(CloningVisitor):
+class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
     """Rewrites lowered `PropertyAccess` reads (and comparisons over them) to read backing columns where they exist.
 
     After this pass, a backed property is an ordinary column expression; an unbacked (or restricted) one stays a
@@ -1183,7 +1189,6 @@ class ClickHousePropertyResolver(CloningVisitor):
         # Depth of `indexHint(...)` calls above the node being visited. A hint is an optimizer directive only, so a
         # comparison inside one must not grow a second, nested hint.
         self._index_hint_depth = 0
-        self._in_grouped_clause = False
 
     def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         scope: set[int] = set()
@@ -1195,40 +1200,16 @@ class ClickHousePropertyResolver(CloningVisitor):
                 table_type = getattr(table_type, "table_type", None)
             join = join.next_join
         self._tables_in_scope.append(scope)
-        was_in_grouped_clause = self._in_grouped_clause
-        self._in_grouped_clause = False
         try:
-            if not node.group_by and node.group_by_mode != "all":
-                return super().visit_select_query(node)
-            result = super().visit_select_query(
-                replace(
-                    node,
-                    select=[],
-                    group_by=None,
-                    having=None,
-                    order_by=None,
-                    qualify=None,
-                    window_exprs=None,
-                    limit_by=None,
-                    interpolate=None,
-                )
-            )
-            self._in_grouped_clause = True
-            result.select = [self.visit(expr) for expr in node.select]
-            result.group_by = [self.visit(expr) for expr in node.group_by] if node.group_by else None
-            result.having = self.visit(node.having)
-            result.order_by = [self.visit(expr) for expr in node.order_by] if node.order_by else None
-            result.qualify = self.visit(node.qualify)
-            result.window_exprs = (
-                {name: self.visit(expr) for name, expr in node.window_exprs.items()} if node.window_exprs else None
-            )
-            result.limit_by = self.visit(node.limit_by)
-            result.interpolate = (
-                [self.visit(expr) for expr in node.interpolate] if node.interpolate is not None else None
-            )
+            with self._grouped_clause(False):
+                if not is_grouped(node):
+                    return super().visit_select_query(node)
+                result = super().visit_select_query(before_grouping(node))
+            with self._grouped_clause(True):
+                for clause, value in visit_after_grouping(node, self.visit).items():
+                    setattr(result, clause, value)
             return result
         finally:
-            self._in_grouped_clause = was_in_grouped_clause
             self._tables_in_scope.pop()
 
     def _property_table_in_scope(self, field_type: ast.FieldType) -> bool:
@@ -1346,17 +1327,136 @@ class ClickHousePropertyResolver(CloningVisitor):
 
     # --- comparison / call rewrites ---
 
+    def _rewrite_scalar_json_extract(self, node: ast.Call) -> ast.Expr | None:
+        """String, float or Bool extraction of one native property, or its JSON type, computed from its subcolumn.
+
+        Covers `JSONExtractString`, `JSONExtractFloat`, `JSONExtractBool`, `JSONExtract` to String or Float64, and
+        `JSONType`. The property pass has replaced the document with `ifNull(toJSONString(<subcolumn>), '')`, so the
+        function would serialize one value and parse it back. This reads the `Dynamic` value instead and reproduces
+        the function's result per stored type: a string passes through, a number or Bool becomes its text for a string
+        target, an integer becomes a number for a float target, a Bool does so only for typed `JSONExtract`, and a
+        missing key gives '' or 0 unless the target is Nullable. A stored Float64 keeps the function for a string
+        target, because JSON number formatting (an integer token for 2.0, exponent notation) decides the result. It
+        reads as false for a Bool target and as `Double` for `JSONType`, which the integer token of an integral float
+        would hide.
+
+        Integer extraction keeps ClickHouse's JSON parser: its coercion rules (fractional and exponent strings truncate,
+        Bool reads as 0, overflow reads as 0) take more SQL to emulate than the parse of one serialized value costs.
+        """
+        scalar_types = {
+            "JSONExtractString": "String",
+            "JSONExtractFloat": "Float64",
+            "JSONExtractBool": "Bool",
+            "JSONType": "String",
+        }
+        target = scalar_types.get(node.name)
+        nullable = False
+        path_args = node.args[1:]
+        if node.name == "JSONExtract" and len(node.args) >= 2:
+            type_arg = node.args[-1]
+            if not isinstance(type_arg, ast.Constant) or not isinstance(type_arg.value, str):
+                return None
+            target = type_arg.value
+            nullable = target.startswith("Nullable(") and target.endswith(")")
+            if nullable:
+                target = target[len("Nullable(") : -1]
+            if target not in ("String", "Float64"):
+                return None
+            path_args = node.args[1:-1]
+        if target is None or not node.args:
+            return None
+        document = node.args[0]
+        if not (
+            isinstance(document, ast.Call)
+            and document.name == "ifNull"
+            and len(document.args) == 2
+            and isinstance(document.args[1], ast.Constant)
+            and document.args[1].value == ""
+            and isinstance(document.args[0], ast.Call)
+            and document.args[0].name == "toJSONString"
+            and len(document.args[0].args) == 1
+        ):
+            return None
+        access = self._lowered_property_operand(document.args[0].args[0])
+        if access is None or not all(isinstance(key, str) for key in access.keys):
+            return None
+        if not all(isinstance(arg, ast.Constant) and isinstance(arg.value, str) for arg in path_args):
+            return None
+        field_type = _blob_field_type_of(access)
+        assert field_type is not None
+        keys = cast(list[str], access.keys) + [cast(ast.Constant, arg).value for arg in path_args]
+        if self._is_virtual_feature_flag_property(field_type, keys[0]):
+            return None
+        source = resolve_materialized_property_source(field_type, keys[0], self.context)
+        if source is None or source.kind != "json_subcolumn":
+            return None
+        value = _call(
+            "accurateCast",
+            [_json_subcolumn_access(field_type, keys, source=source, is_nullable=True), _const("Dynamic")],
+        )
+        value_type = _call("dynamicType", [clone_expr(value)])
+        if node.name == "JSONType":
+            json_text = _json_subcolumn_value_expr(field_type, keys, source=source, as_json=True)
+            json_type = _call(
+                "if",
+                [
+                    _call("equals", [value_type, _const("Float64")]),
+                    _const("Double"),
+                    _call("JSONType", [_call("ifNull", [json_text, _const("")])]),
+                ],
+            )
+            json_type.type = node.type
+            return json_type
+        if target == "String":
+            result = _json_subcolumn_value_expr(field_type, keys, source=source)
+        elif node.name == "JSONExtractBool":
+            result = _call(
+                "and",
+                [
+                    _call("in", [value_type, ast.Tuple(exprs=[_const(t) for t in ("Bool", "Int64", "UInt64")])]),
+                    _call("notIn", [_call("toString", [value]), ast.Tuple(exprs=[_const("0"), _const("false")])]),
+                ],
+            )
+        else:
+            result = _call("toFloat64OrNull", [_call("toString", [clone_expr(value)])])
+            if node.name == "JSONExtract":
+                result = _call(
+                    "if",
+                    [
+                        _call("equals", [value_type, _const("Bool")]),
+                        _call("accurateCastOrNull", [value, _const(target)]),
+                        result,
+                    ],
+                )
+        if target == "String":
+            # Float serialization can become an integer token or overflow JSON's integer parser. Keep its defaults.
+            float_extract = replace(
+                node,
+                args=[
+                    _call("toJSONString", [clone_expr(value)]),
+                    *([node.args[-1]] if node.name == "JSONExtract" else []),
+                ],
+            )
+            result = _call("if", [_call("equals", [value_type, _const("Float64")]), float_extract, result])
+        if not nullable:
+            default = _const("") if target == "String" else _call("accurateCast", [_const(0), _const(target)])
+            result = _call("ifNull", [result, default])
+        result.type = node.type
+        return result
+
     def visit_call(self, node: ast.Call) -> ast.Expr:
+        if node.name == "toJSONString" and len(node.args) == 1:
+            exported_json_text = _exported_json_text_read(node.args[0])
+            if exported_json_text is not None:
+                # The column already holds the JSON text, so serializing it again would quote it. The read is a plain
+                # column either way, so the drop stays safe after grouping and runs before the grouped shortcut below.
+                return self.visit(exported_json_text)
+
         if self._in_grouped_clause:
-            if find_hogql_aggregation(node.name):
-                self._in_grouped_clause = False
-                try:
-                    return super().visit_call(node)
-                finally:
-                    self._in_grouped_clause = True
             # Shortcuts can introduce raw columns unavailable after grouping. WindowFunction is a separate node,
             # so its inputs keep the grouped context while ordinary aggregates above read original rows.
-            return super().visit_call(node)
+            with self._call_arguments(node):
+                return super().visit_call(node)
 
         if node.name == "indexHint":
             self._index_hint_depth += 1
@@ -1387,13 +1487,13 @@ class ClickHousePropertyResolver(CloningVisitor):
         if boolean_conversion is not None:
             return boolean_conversion
 
+        scalar_json_extract = self._rewrite_scalar_json_extract(node)
+        if scalar_json_extract is not None:
+            return scalar_json_extract
+
         json_string_on_events_json = self._rewrite_to_json_string_on_events_json_subcolumn(node)
         if json_string_on_events_json is not None:
             return json_string_on_events_json
-
-        temporary_property_json_function = self._rewrite_json_function_on_temporary_property(node)
-        if temporary_property_json_function is not None:
-            return temporary_property_json_function
 
         runtime_key_json_function = self._rewrite_json_function_with_runtime_key(node)
         if runtime_key_json_function is not None:
@@ -1520,50 +1620,6 @@ class ClickHousePropertyResolver(CloningVisitor):
             args=[ast.Call(name="ifNull", args=[value, _sentinel("")]), *[self.visit(arg) for arg in node.args[2:]]],
         )
 
-    def _rewrite_json_function_on_temporary_property(self, node: ast.Call) -> ast.Expr | None:
-        """`f(properties, '$set', ...)` on native events, applied to the JSON of `$set` from `temporary_properties`."""
-        if (
-            not self.context.uses_new_events_schema()
-            or node.name not in _TEMPORARY_PROPERTY_JSON_PATH_FUNCTIONS
-            or len(node.args) < 2
-        ):
-            return None
-        field_type = resolve_field_type(node.args[0])
-        if not isinstance(field_type, ast.FieldType) or not _is_events_properties(field_type, self.context):
-            return None
-        if not isinstance(node.args[1], ast.Constant):
-            return None
-        first_key = node.args[1].value
-        if not isinstance(first_key, str) or not is_temporary_event_property(first_key):
-            return None
-        source = resolve_json_subcolumn_source(
-            field_type, DISTRIBUTED_EVENTS_JSON_TABLE, "properties", first_key, self.context
-        )
-        if source is None:
-            # A restriction on the key or on one of its children leaves no source.
-            args: list[ast.Expr] = [
-                _temporary_properties_document(field_type),
-                *[self.visit(arg) for arg in node.args[1:]],
-            ]
-        else:
-            json_value = _json_subcolumn_value_expr(field_type, [first_key], source=source, as_json=True)
-            args = [
-                ast.Call(name="ifNull", args=[json_value, _sentinel("")], type=ast.StringType(nullable=False)),
-                *[self.visit(arg) for arg in node.args[2:]],
-            ]
-        return ast.Call(
-            start=node.start,
-            end=node.end,
-            type=node.type,
-            name=node.name,
-            args=args,
-            params=node.params,
-            distinct=node.distinct,
-            within_group=node.within_group,
-            order_by=node.order_by,
-            filter_expr=node.filter_expr,
-        )
-
     def _rewrite_json_function_with_runtime_key(self, node: ast.Call) -> ast.Expr | None:
         """`f(properties, <key computed per row>, ...)` on native events, reading the document that holds the key.
 
@@ -1573,7 +1629,7 @@ class ClickHousePropertyResolver(CloningVisitor):
         """
         if (
             not self.context.uses_new_events_schema()
-            or node.name not in _JSON_KEY_PATH_FUNCTIONS
+            or node.name not in JSON_KEY_PATH_FUNCTIONS
             or len(node.args) < 2
             or isinstance(node.args[1], ast.Constant)
         ):
