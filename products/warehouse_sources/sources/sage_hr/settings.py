@@ -1,6 +1,14 @@
 from dataclasses import dataclass, field
 
 
+@dataclass(frozen=True)
+class SageHRFanOut:
+    # Paginated parent collection whose rows' `id` fills the `{id}` placeholder of the child path.
+    parent_path: str
+    # Column added to every child row so rows from different parents stay distinct.
+    parent_key: str
+
+
 @dataclass
 class SageHREndpointConfig:
     name: str
@@ -13,6 +21,13 @@ class SageHREndpointConfig:
     requires_date_window: bool = False
     # Sage HR resource identifiers are account-unique integers, so `id` is a safe primary key.
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
+    fan_out: SageHRFanOut | None = None
+    # Compensation rows carry no identifier, so the source derives `id` from the row content.
+    derive_row_id: bool = False
+
+
+_PER_EMPLOYEE = SageHRFanOut(parent_path="/employees", parent_key="employee_id")
+_PER_RECRUITMENT_POSITION = SageHRFanOut(parent_path="/recruitment/positions", parent_key="position_id")
 
 
 # Sage HR API collection endpoints (https://sagehr.docs.apiary.io). All are full-refresh only:
@@ -38,6 +53,27 @@ SAGE_HR_ENDPOINTS: dict[str, SageHREndpointConfig] = {
     ),
     "onboarding_categories": SageHREndpointConfig(name="onboarding_categories", path="/onboarding/categories"),
     "offboarding_categories": SageHREndpointConfig(name="offboarding_categories", path="/offboarding/categories"),
+    "compensations": SageHREndpointConfig(
+        name="compensations",
+        path="/employees/{id}/compensations",
+        primary_keys=["employee_id", "id"],
+        fan_out=_PER_EMPLOYEE,
+        derive_row_id=True,
+    ),
+    "leave_balances": SageHREndpointConfig(
+        name="leave_balances",
+        path="/employees/{id}/leave-management/balances",
+        paginated=False,
+        primary_keys=["employee_id", "policy_id"],
+        fan_out=_PER_EMPLOYEE,
+    ),
+    # The docs don't say whether applicant ids are unique across positions, so key on both.
+    "recruitment_applicants": SageHREndpointConfig(
+        name="recruitment_applicants",
+        path="/recruitment/positions/{id}/applicants",
+        primary_keys=["position_id", "id"],
+        fan_out=_PER_RECRUITMENT_POSITION,
+    ),
 }
 
 ENDPOINTS = tuple(SAGE_HR_ENDPOINTS.keys())

@@ -10544,10 +10544,10 @@ Today (12): `document_categories`, `documents`, `employees`, `individual_allowan
 
 Diffed against: <https://jsapi.apiary.io/apis/sagehr.apib>
 
-- [ ] `timesheets/workdays (GET /timesheets/workdays/)` — actual hours worked per employee per day — the core time-tracking fact table (high)
-- [ ] `employees/{id}/compensations` — salary/compensation history per employee, needed for any pay or cost analysis (high)
-- [ ] `employees/{id}/leave-management/balances` — remaining leave per employee per policy; leave_requests alone can't answer balance questions (high)
-- [ ] `recruitment/positions/{id}/applicants` — hiring funnel — applicants per open role (high)
+- [ ] `timesheets/workdays (GET /timesheets/workdays/)` — actual hours worked per employee per day — the core time-tracking fact table (high) — skipped for now: the spec documents no success response for the GET, and spells its required employee filter `employe_id`
+- [x] `employees/{id}/compensations` — salary/compensation history per employee, needed for any pay or cost analysis (high)
+- [x] `employees/{id}/leave-management/balances` — remaining leave per employee per policy; leave_requests alone can't answer balance questions (high)
+- [x] `recruitment/positions/{id}/applicants` — hiring funnel — applicants per open role (high)
 - [ ] `recruitment/positions` — open job requisitions; also the lookup that resolves position ids on applicants (medium)
 - [ ] `timesheets/projects` — lookup resolving the project ids carried on workdays (medium)
 - [ ] `timesheets/working_packages` — lookup resolving work package ids on timesheet entries (medium)
