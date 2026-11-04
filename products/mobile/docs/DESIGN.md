@@ -222,7 +222,7 @@ Optional recovery actions sit below the message and wrap on narrow screens.
   task: the agent's thread, its PR card, and a pending decision above the composer. The nav pill
   shows Chats selected. Loading, error, empty and "No matches" are separate screens.
 - **Nav menu** (More in the tabs header): project name (opens the Project card), then on Views a section with
-  Edit pins, then Settings and Sign out.
+  Edit pins, then Settings, Send feedback and Sign out. Send feedback opens a message sheet and confirms sending with a toast.
 - **Report**: top chrome, headline, the byline with the Owner and Priority chips (`ReportMeta`), lede,
   "Read the full report" (only when there is a summary or a signal), evidence (trace, quotes, replay), facts,
   the observation card, impact tiles, charts, activity, and the action bar.

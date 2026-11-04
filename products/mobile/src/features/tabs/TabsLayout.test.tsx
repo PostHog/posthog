@@ -2,6 +2,8 @@ import { act, fireEvent, renderRouter, screen, within } from 'expo-router/testin
 import { type ReactElement, useState } from 'react'
 import { Button, Dimensions, Text, View } from 'react-native'
 
+import { useAuthStore } from '@/auth/authStore'
+import { useDemoMode } from '@/demo/demoMode'
 import { setAnalyticsClient } from '@/lib/analytics'
 import { FEATURE_FLAGS, setFeatureFlags } from '@/lib/featureFlags'
 import { OverlayPortal } from '@/ui/OverlayPortal'
@@ -113,11 +115,65 @@ describe('TabsLayout', () => {
         setFeatureFlags({ [FEATURE_FLAGS.errorTracking]: true, [FEATURE_FLAGS.sessionReplay]: true })
     })
 
+    const originalAuth = useAuthStore.getState()
+    const originalDemo = useDemoMode.getState()
+
     afterEach(() => {
-        act(() => Dimensions.set({ window: ORIGINAL_WINDOW }))
+        act(() => {
+            useAuthStore.setState(originalAuth)
+            useDemoMode.setState(originalDemo)
+            Dimensions.set({ window: ORIGINAL_WINDOW })
+            setFeatureFlags({})
+        })
         setAnalyticsClient(null)
-        setFeatureFlags({})
     })
+
+    test.each([true, undefined, false])(
+        'shares feedback email only with explicit permission (%s)',
+        async (anonymizeData) => {
+            const capture = jest.fn()
+            setAnalyticsClient({ capture, flush: async () => undefined, identify: jest.fn(), reset: jest.fn() })
+            useAuthStore.setState({
+                signedIn: true,
+                status: 'signed_in',
+                user: {
+                    uuid: 'example-user',
+                    distinctId: 'example-user',
+                    name: 'Example',
+                    email: 'person@example.com',
+                    anonymizeData,
+                },
+            })
+            useDemoMode.setState({ enabled: false })
+            renderRouter(
+                {
+                    '(tabs)/_layout': TabsLayout,
+                    '(tabs)/inbox': InboxStub,
+                    '(tabs)/chats': ChatsStub,
+                    '(tabs)/views': ViewsStub,
+                    ...LIST_TABS,
+                },
+                { initialUrl: '/inbox' }
+            )
+            fireEvent.press(screen.getByTestId('tabs-more'))
+            fireEvent.press(screen.getByText('Send feedback'))
+            if (anonymizeData === false) {
+                expect(screen.getByTestId('feedback-description')).toHaveTextContent(/person@example\.com/)
+            } else {
+                expect(screen.getByTestId('feedback-description')).toHaveTextContent(/Your email won't be included/)
+                expect(screen.getByTestId('feedback-description')).not.toHaveTextContent(/person@example\.com/)
+            }
+            fireEvent.changeText(screen.getByTestId('feedback-message'), 'A feedback message.')
+            await act(async () => fireEvent.press(screen.getByTestId('feedback-send')))
+            const submission = capture.mock.calls.find(([event]) => event === 'survey sent')?.[1]
+            expect(submission).toMatchObject({ $survey_response: 'A feedback message.' })
+            if (anonymizeData === false) {
+                expect(submission).toHaveProperty('email', 'person@example.com')
+            } else {
+                expect(submission).not.toHaveProperty('email')
+            }
+        }
+    )
 
     test('exposes the regional status update from the main menu', () => {
         renderRouter(

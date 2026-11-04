@@ -8,7 +8,7 @@ export function FeedbackIcon({ size = 22, color, strokeWidth = 2 }: IconProps): 
     return (
         <StrokeIcon size={size} color={color} strokeWidth={strokeWidth}>
             <Path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1.1-4.4A8 8 0 1 1 21 12z" />
-            <Path d="M12 8v4M12 15h.01" />
+            <Path d="M13 8v4M13 15h.01" />
         </StrokeIcon>
     )
 }

@@ -175,8 +175,16 @@ export type AnalyticsEvent =
 
 export type AnalyticsProperties = Record<string, string | number | boolean | null | undefined>
 
+/**
+ * PostHog's own survey events. They stay out of `AnalyticsEvent` because `survey sent` carries the text a person
+ * typed, and `track()` properties are ids, enums and counts only.
+ */
+export type SurveyEvent = 'survey shown' | 'survey dismissed' | 'survey sent'
+
 export interface AnalyticsClient {
-    capture: (event: AnalyticsEvent, properties?: AnalyticsProperties) => void
+    capture: (event: AnalyticsEvent | SurveyEvent, properties?: AnalyticsProperties) => void
+    /** Uploads the queued events now instead of on the SDK's timer. */
+    flush?: () => Promise<void>
     /** Sends a `$screen` event. Optional, so a test double needs only `capture`. */
     screen?: (name: string, properties?: AnalyticsProperties) => void
     captureError?: (error: Error) => void
@@ -217,6 +225,19 @@ export function trackWhenReady(event: AnalyticsEvent, properties?: AnalyticsProp
     } else if (pending.length < MAX_PENDING) {
         pending.push({ event, properties })
     }
+}
+
+/** False in a build without a project key, where every capture is dropped. */
+export function analyticsEnabled(): boolean {
+    return client !== null
+}
+
+export async function captureSurveyEvent(event: SurveyEvent, properties: AnalyticsProperties): Promise<void> {
+    if (!client?.flush) {
+        throw new Error('Survey delivery is unavailable')
+    }
+    client.capture(event, properties)
+    await client.flush()
 }
 
 export function trackScreen(name: string, properties?: AnalyticsProperties): void {
