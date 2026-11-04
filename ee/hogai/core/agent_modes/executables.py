@@ -3,8 +3,6 @@ from collections.abc import Mapping, Sequence
 from typing import Any, Literal, TypeVar, cast
 from uuid import uuid4
 
-from django.conf import settings
-
 import structlog
 import posthoganalytics
 from langchain_core.messages import (
@@ -50,7 +48,6 @@ from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolError
 from ee.hogai.utils.anthropic import add_cache_control, convert_to_anthropic_messages
 from ee.hogai.utils.conversation_summarizer import AnthropicConversationSummarizer
-from ee.hogai.utils.feature_flags import get_llm_gateway_variant
 from ee.hogai.utils.helpers import convert_tool_messages_to_dict, normalize_ai_message
 from ee.hogai.utils.types import (
     AssistantMessageUnion,
@@ -227,37 +224,6 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
             for tool_call in last_message.tool_calls
         ]
 
-    def _get_llm_gateway_product(self) -> str:
-        return "django"
-
-    def _get_gateway_kwargs(self) -> dict[str, Any]:
-        variant = get_llm_gateway_variant(self._team, self._user)
-        if variant == "control":
-            return {}
-        if not settings.LLM_GATEWAY_URL or not settings.LLM_GATEWAY_API_KEY:
-            logger.warning(
-                "llm_gateway settings are not configured",
-                product=self._get_llm_gateway_product(),
-                team_id=self._team.id,
-                variant=variant,
-            )
-            return {}
-
-        headers: dict[str, str] = {
-            "X-POSTHOG-FLAG-phai-llm-gateway": variant,
-        }
-
-        if variant == "gateway-bedrock":
-            headers["X-PostHog-Provider"] = "bedrock"
-        elif variant == "gateway-anthropic":
-            headers["X-PostHog-Use-Bedrock-Fallback"] = "true"
-
-        return {
-            "anthropic_api_url": f"{settings.LLM_GATEWAY_URL.rstrip('/')}/{self._get_llm_gateway_product()}",
-            "anthropic_api_key": settings.LLM_GATEWAY_API_KEY,
-            "default_headers": headers,
-        }
-
     def _get_agent_mode_posthog_properties(self, state: AssistantState) -> dict[str, Any]:
         """Telemetry props so $ai_generation events can be scoped to a specific agent mode."""
         supermode = state.supermode
@@ -297,8 +263,7 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
         if ai_gateway := resolve_ai_gateway_config():
             base_model = MaxChatAnthropic.via_ai_gateway(ai_gateway, **model_kwargs)
         else:
-            gateway_kwargs = self._get_gateway_kwargs()
-            base_model = MaxChatAnthropic(**model_kwargs, bypass_proxy=bool(gateway_kwargs), **gateway_kwargs)
+            base_model = MaxChatAnthropic(**model_kwargs)
 
         # The agent can operate in loops. Since insight building is an expensive operation, we want to limit a recursion depth.
         # This will remove the functions, so the agent doesn't have any other option but to exit.
