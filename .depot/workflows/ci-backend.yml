@@ -596,10 +596,8 @@ jobs:
                         - 'products/*/mcp/**/*.yaml'
                         - 'products/*/mcp/prompts/**/*.md'
                         - 'services/mcp/schema/tool-definitions.json'
-                        - 'services/mcp/schema/tool-definitions-v2.json'
                         - 'services/mcp/src/tools/generated/**/*'
                         - 'services/mcp/schema/generated-tool-definitions.json'
-                        - 'services/mcp/schema/tool-definitions-all.json'
                         # Exec command reference templates - feed generate-exec-docs.ts
                         - 'services/mcp/src/templates/sections/**/*'
                         - 'services/mcp/schema/exec-command-reference.md'
