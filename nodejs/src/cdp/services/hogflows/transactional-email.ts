@@ -139,9 +139,6 @@ const BASE64_RE = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=
 const MIME_TYPE_RE = /^[a-z0-9][a-z0-9!#$&^_.+-]{0,126}\/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}$/i
 const CONTROL_CHARACTER_RE = /[\x00-\x1F\x7F]/
 
-const base64DecodedBytes = (content: string): number =>
-    (content.length / 4) * 3 - (content.endsWith('==') ? 2 : content.endsWith('=') ? 1 : 0)
-
 const AttachmentSchema = z
     .object({
         filename: z
@@ -180,7 +177,8 @@ const AttachmentsSchema = z
     .max(MAX_EMAIL_ATTACHMENTS)
     .refine(
         (files) =>
-            files.reduce((total, file) => total + base64DecodedBytes(file.content), 0) <= MAX_EMAIL_ATTACHMENTS_BYTES,
+            files.reduce((total, file) => total + Buffer.byteLength(file.content, 'base64'), 0) <=
+            MAX_EMAIL_ATTACHMENTS_BYTES,
         { message: 'attachments must be 512 KB or less in total' }
     )
     .readonly()
