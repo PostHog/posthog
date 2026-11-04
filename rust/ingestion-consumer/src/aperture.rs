@@ -54,25 +54,13 @@ pub fn ring_slice(
     let arc = Arc::new(ring.len(), peer_count, index, min_width);
     let healthy: HashSet<&WorkerId> = healthy.iter().collect();
 
-    let mut weights: Vec<(usize, u64)> = Vec::new();
-    let mut units_left = arc.len;
-    for (position, span) in arc.spans(ring.len()) {
-        if units_left == 0 {
-            break;
-        }
-        if !healthy.contains(&ring[position]) {
-            continue;
-        }
-        let units = span.min(units_left);
-        units_left -= units;
-        match weights.first_mut() {
-            Some((first, first_units)) if *first == position => *first_units += units,
-            _ => weights.push((position, units)),
-        }
-    }
+    let healthy_spans = arc
+        .spans(ring.len())
+        .filter(|(position, _)| healthy.contains(&ring[*position]));
+    let covered = take_units(healthy_spans, arc.len);
 
     let full_weight = NonZeroU64::new(arc.units_per_worker)?;
-    let candidates: Vec<Candidate> = weights
+    let candidates: Vec<Candidate> = sum_by_position(covered)
         .into_iter()
         .filter_map(|(position, units)| {
             let weight = NonZeroU64::new(units)?;
@@ -80,6 +68,30 @@ pub fn ring_slice(
         })
         .collect();
     (!candidates.is_empty()).then_some(candidates)
+}
+
+/// The spans in order, cut so that their units add up to at most `units`.
+fn take_units(
+    spans: impl Iterator<Item = (usize, u64)>,
+    mut units: u64,
+) -> impl Iterator<Item = (usize, u64)> {
+    spans.map_while(move |(position, span)| {
+        let taken = span.min(units);
+        units -= taken;
+        (taken > 0).then_some((position, taken))
+    })
+}
+
+/// The units of each position, in the order of each position's first span.
+fn sum_by_position(spans: impl Iterator<Item = (usize, u64)>) -> Vec<(usize, u64)> {
+    let mut sums: Vec<(usize, u64)> = Vec::new();
+    for (position, units) in spans {
+        match sums.iter_mut().find(|(seen, _)| *seen == position) {
+            Some((_, sum)) => *sum += units,
+            None => sums.push((position, units)),
+        }
+    }
+    sums
 }
 
 /// One peer's arc of the ring, in units.
