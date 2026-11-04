@@ -307,7 +307,6 @@ export interface marketingAnalyticsLogicValues {
     _drillDownLevel: MarketingAnalyticsDrillDownLevel
     _integrationFilter: IntegrationFilter
     activeTab: MarketingAnalyticsTab
-    showConversionGoals: boolean
     allAvailableSources: {
         id: string
         name: string
@@ -345,7 +344,6 @@ export interface marketingAnalyticsLogicValues {
         url_pattern: string
     }[]
     canToggleConversionGoals: boolean
-    setupWarningCount: number
     chartBreakdown: MarketingChartBreakdown
     chartDisplayType: ChartDisplayType
     columnConfigModalVisible: boolean
@@ -380,7 +378,9 @@ export interface marketingAnalyticsLogicValues {
     overviewQuery: MarketingAnalyticsAggregatedQuery
     setupEnabled: boolean
     setupSection: SetupSection
+    setupWarningCount: number
     shouldFilterTestAccounts: boolean
+    showConversionGoals: boolean
     sourceValidation: SourceValidationApi
     sourceValidationError: string | null
     sourceValidationErrors: SourceValidationApi['errors_by_source']
@@ -516,9 +516,6 @@ export interface marketingAnalyticsLogicActions {
     setActiveTab: (tab: MarketingAnalyticsTab) => {
         tab: MarketingAnalyticsTab
     }
-    setShowConversionGoals: (include: boolean) => {
-        include: boolean
-    }
     setChartBreakdown: (chartBreakdown: MarketingChartBreakdown) => {
         chartBreakdown: MarketingChartBreakdown
     }
@@ -568,6 +565,9 @@ export interface marketingAnalyticsLogicActions {
     setSetupSection: (section: SetupSection) => {
         section: SetupSection
     }
+    setShowConversionGoals: (include: boolean) => {
+        include: boolean
+    }
     setTileColumnSelection: (column: validColumnsForTiles) => {
         column: validColumnsForTiles
     }
@@ -616,7 +616,15 @@ export interface marketingAnalyticsLogicMeta {
             draftConversionGoal: ConversionGoalFilter | null
         ) => boolean
         setupWarningCount: (
-            allAvailableSourcesWithStatus: { status: SourceStatus }[],
+            allAvailableSourcesWithStatus: {
+                id: string
+                name: string
+                prefix: string | undefined
+                source_type: string
+                status: SourceStatus
+                statusMessage: string
+                type: DataWarehouseSettingsTab | 'native'
+            }[],
             sourceValidationError: string | null,
             conversion_goals: ConversionGoalFilter[]
         ) => number
