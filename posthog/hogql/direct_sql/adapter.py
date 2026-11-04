@@ -39,6 +39,8 @@ def parse_direct_source_config(source_impl: _ParseableSource[_ConfigT_co], sourc
 @frozen
 class DirectQueryPrincipal:
     value: str
+    # The query runner decides once per query, so the adapter never evaluates the canary flag itself.
+    trino_canary: bool = False
 
 
 @dataclasses.dataclass(frozen=False)

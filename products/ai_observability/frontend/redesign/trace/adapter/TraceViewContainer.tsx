@@ -4,8 +4,17 @@ import { memo } from 'react'
 import { SaveToDatasetButton } from '../../../datasets/SaveToDatasetButton'
 import { TraceView, TraceViewProps, TraceViewReadyProps } from '../components/TraceView'
 import { traceExportLogic } from '../traceExportLogic'
+import { traceMessagesOpeningLogic } from '../traceMessagesOpeningLogic'
 import { traceViewModelLogic, traceViewModelLogicValues } from '../traceViewModelLogic'
-import { FeedbackEntry, LabeledLink, MatchDirection, NodeDetailTab, SummaryItemKind, TraceMode } from '../types'
+import {
+    FeedbackEntry,
+    LabeledLink,
+    MatchDirection,
+    MessagesOpening,
+    NodeDetailTab,
+    SummaryItemKind,
+    TraceMode,
+} from '../types'
 
 export interface TraceViewContainerProps {
     hostId: string
@@ -44,7 +53,12 @@ type ReadyValues = Pick<
     | 'feedbackCountByNodeId'
     | 'feedbackMode'
     | 'selectedStepFeedback'
-> & { traceExportLoading: boolean; backLink: LabeledLink | null }
+> & {
+    traceExportLoading: boolean
+    traceCopying: boolean
+    backLink: LabeledLink | null
+    messagesOpening: MessagesOpening
+}
 
 interface ReadyActions {
     setMode: (mode: TraceMode) => void
@@ -54,6 +68,7 @@ interface ReadyActions {
     viewInThread: () => void
     prefetchNode: (id: string) => void
     exportTrace: () => void
+    copyTrace: () => void
     showFailingEvals: () => void
     setQuery: (query: string) => void
     stepMatch: (direction: MatchDirection) => void
@@ -63,6 +78,7 @@ interface ReadyActions {
     summaryStepClicked: (nodeId: string, kind: SummaryItemKind) => void
     showFeedback: (nodeId: string | null, entry: FeedbackEntry) => void
     retryTraceFeedback: () => void
+    setMessagesOpening: (opening: MessagesOpening) => void
 }
 
 function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewReadyProps | null {
@@ -73,6 +89,7 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
         header: {
             ...values.header,
             backLink: values.backLink,
+            copyAction: { loading: values.traceCopying, onCopy: actions.copyTrace },
             exportAction: { loading: values.traceExportLoading, onExport: actions.exportTrace },
         },
         summary: {
@@ -97,6 +114,8 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
                   tab: values.detailTab,
                   onTabChange: actions.setDetailTab,
                   onViewInThread: values.canViewInThread ? actions.viewInThread : null,
+                  messagesOpening: values.messagesOpening,
+                  onMessagesOpeningChange: actions.setMessagesOpening,
                   actions: values.datasetItemSource ? <SaveToDatasetButton {...values.datasetItemSource} /> : null,
                   stepFeedback: values.selectedStepFeedback
                       ? {
@@ -172,8 +191,10 @@ export const TraceViewContainer = memo(function TraceViewContainer({
     } = useValues(logic)
     const actions = useActions(logic)
     const exportLogic = traceExportLogic({ traceId, timestampHint })
-    const { traceExportLoading } = useValues(exportLogic)
-    const { exportTrace } = useActions(exportLogic)
+    const { traceExportLoading, traceCopying } = useValues(exportLogic)
+    const { exportTrace, copyTrace } = useActions(exportLogic)
+    const { messagesOpening } = useValues(traceMessagesOpeningLogic)
+    const { setMessagesOpening } = useActions(traceMessagesOpeningLogic)
 
     const readyProps =
         status === 'ready'
@@ -208,9 +229,11 @@ export const TraceViewContainer = memo(function TraceViewContainer({
                       feedbackMode,
                       selectedStepFeedback,
                       traceExportLoading,
+                      traceCopying,
                       backLink,
+                      messagesOpening,
                   },
-                  { ...actions, exportTrace }
+                  { ...actions, exportTrace, copyTrace, setMessagesOpening }
               )
             : null
 
