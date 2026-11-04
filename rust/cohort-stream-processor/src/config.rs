@@ -27,6 +27,16 @@ const POOL_NAME: &str = "posthog_cohort";
 /// loses its replay dedup, so a non-zero TTL below this floor warns at startup.
 const MIN_SAFE_PERSON_RECORD_TTL_DAYS: u32 = 30;
 
+/// `message.max.bytes` on every consumer, although the key reads as a producer setting. A consumer
+/// uses it to cap its first LZ4 decompression buffer for a fetched batch, and as the floor of
+/// `fetch.max.bytes`, whose default is larger. WarpStream's LZ4 frames carry no content size, so
+/// librdkafka allocates `min(4 * compressed size, cap)` and then grows the buffer with `realloc`,
+/// one copy per growth, until the batch fits. librdkafka's 1 MB default caps that first buffer
+/// below a decompressed fetch batch. Every cap above 4 times the largest compressed batch gives the
+/// same allocation, and a cap that is too low costs only copies, so the value is a constant rather
+/// than an env knob.
+const CONSUMER_MESSAGE_MAX_BYTES: u32 = 8 * 1024 * 1024;
+
 #[derive(Envconfig, Clone, Debug)]
 pub struct Config {
     /// Host for the observability HTTP server (`/_health`, `/_ready`, `/metrics`).
@@ -1193,7 +1203,8 @@ impl Config {
             .set("enable.auto.commit", "false")
             .set("enable.auto.offset.store", "false")
             .set("auto.offset.reset", "earliest")
-            .set("socket.timeout.ms", "10000");
+            .set("socket.timeout.ms", "10000")
+            .set("message.max.bytes", CONSUMER_MESSAGE_MAX_BYTES.to_string());
 
         if let Some(id) = self.pod_identity() {
             config.set("client.id", id);
@@ -1645,6 +1656,13 @@ mod tests {
         let client = config.consumer_client_config();
         assert_eq!(client.get("queued.max.messages.kbytes"), Some("131072"));
         assert_eq!(client.get("queued.min.messages"), Some("2000"));
+        assert_eq!(client.get("message.max.bytes"), Some("8388608"));
+        assert_eq!(
+            config
+                .follower_client_config("cohort-stream-seeds")
+                .get("message.max.bytes"),
+            Some("8388608"),
+        );
     }
 
     #[test]

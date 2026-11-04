@@ -377,8 +377,12 @@ async fn shuffler_forwards_only_gated_events_with_stable_partitioning() {
     assert_eq!(first.person_id, "pA");
     assert_eq!(first.event, "$pageview");
     assert_eq!(first.distinct_id, "did-pA");
+    let properties: Option<String> = first
+        .properties
+        .as_ref()
+        .map(|raw| serde_json::from_str(raw.get()).unwrap());
     assert_eq!(
-        first.properties.as_deref(),
+        properties.as_deref(),
         Some(r#"{"$current_url":"/pricing"}"#)
     );
     assert_eq!(first.source_partition, 1_000_000);
