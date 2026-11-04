@@ -53,6 +53,7 @@ export interface snapshotDataLogicValues {
     getWindowId: (uuid: string | undefined) => number | undefined // windowIdRegistryLogic
     uuidToIndex: Record<string, number> // windowIdRegistryLogic
     allSourcesLoaded: boolean
+    blockToken: string | null
     isLoadingSnapshots: boolean
     isPolling: boolean
     isRecordingDeleted: boolean
@@ -161,6 +162,9 @@ export interface snapshotDataLogicActions {
     retrySnapshotLoading: () => {
         value: true
     }
+    setBlockToken: (token: string | null) => {
+        token: string | null
+    }
     setPlayerActive: (active: boolean) => {
         active: boolean
     }
@@ -248,6 +252,47 @@ export type snapshotDataLogicType = MakeLogicType<
     snapshotDataLogicMeta
 >
 
+// Reads a batch straight from recording-api when the listing gave every block a url, so the browser caches each
+// block. Returns null to use the snapshots endpoint instead, which serves every recording.
+async function loadBlocksDirectly(
+    sources: Pick<SessionRecordingSnapshotSource, 'source' | 'blob_key'>[],
+    listedSources: SessionRecordingSnapshotSource[] | null,
+    token: string | null,
+    direct: { unauthorizedCount: number },
+    onTokenExpired: () => void
+): Promise<Uint8Array | null> {
+    const urlsByKey = new Map((listedSources ?? []).map((s) => [s.blob_key, s.url]))
+    const urls = sources.map((s) => urlsByKey.get(s.blob_key))
+    // A second 401 after a fresh token means the token can never work here, so stop paying for a failed batch.
+    if (!token || direct.unauthorizedCount > 1 || urls.some((url) => !url)) {
+        return null
+    }
+    try {
+        // nosemgrep: prefer-codegen-api-namespaced-replay -- fetches recording-api block urls, not a Django endpoint
+        const blocks = await api.recordings.getBlocksDirectly(urls as string[], token)
+        direct.unauthorizedCount = 0
+        return blocks
+    } catch (e) {
+        // The snapshots endpoint reads the same blocks, so falling back would get round the rate limit.
+        if (e instanceof RecordingDeletedError || (e instanceof ApiError && e.status === 429)) {
+            throw e
+        }
+        const status = e instanceof ApiError ? e.status : undefined
+        if (status === 401) {
+            direct.unauthorizedCount += 1
+            // Listing the sources again gets a new token for the next batch.
+            onTokenExpired()
+        }
+        // Without this, a broken rollout looks healthy while every batch pays for a failed download.
+        posthog.capture('replay direct block fetch fell back', {
+            status: status ?? null,
+            reason: e instanceof Error ? e.name : 'unknown',
+            block_count: urls.length,
+        })
+        return null
+    }
+}
+
 // Reactivity note (#53893): `cache.store` (SnapshotStore) lives outside Kea, so any listener that mutates it (markFetched, setSources) MUST dispatch `storeUpdated()` afterwards, and any selector reading it MUST depend on `storeVersion`.
 export const snapshotDataLogic = kea<snapshotDataLogicType>([
     path((key) => ['scenes', 'session-recordings', 'snapshotLogic', key]),
@@ -287,12 +332,19 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         // dispatch after any mutation to cache.store — it lives outside Kea's reactivity and needs explicit invalidation
         storeUpdated: true,
         setReplayProxyToken: (token: string | null) => ({ token }),
+        setBlockToken: (token: string | null) => ({ token }),
     }),
     reducers(() => ({
         replayProxyToken: [
             null as string | null,
             {
                 setReplayProxyToken: (_, { token }) => token,
+            },
+        ],
+        blockToken: [
+            null as string | null,
+            {
+                setBlockToken: (_, { token }) => token,
             },
         ],
         storeUpdateCount: [
@@ -376,6 +428,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                     }
                     // Each listing mints a new token, so polling the sources keeps the proxy token fresh.
                     actions.setReplayProxyToken(response.replay_proxy_token ?? null)
+                    actions.setBlockToken(response.block_token ?? null)
                     const anyBlobV2 = response.sources.some((s) => s.source === SnapshotSourceType.blob_v2)
 
                     if (anyBlobV2) {
@@ -418,11 +471,20 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                         headers.Authorization = `Bearer ${props.accessToken}`
                     }
 
-                    const response = await api.recordings.getSnapshots(
-                        props.sessionRecordingId,
-                        { decompress: false, ...params },
-                        headers
-                    )
+                    const response =
+                        (await loadBlocksDirectly(
+                            sources,
+                            values.snapshotSources,
+                            values.blockToken,
+                            (cache.directBlocks ??= { unauthorizedCount: 0 }),
+                            () => actions.loadSnapshotSources()
+                        )) ??
+                        // nosemgrep: prefer-codegen-api-namespaced-replay -- binary length-prefixed body the generated client does not decode
+                        (await api.recordings.getSnapshots(
+                            props.sessionRecordingId,
+                            { decompress: false, ...params },
+                            headers
+                        ))
 
                     breakpoint()
 
