@@ -843,7 +843,8 @@ class OrganizationAdmin(admin.ModelAdmin):
 
     @method_decorator(require_http_methods(["GET", "POST"]))
     def dataset_retention_view(self, request: HttpRequest) -> HttpResponse:
-        if not request.user.has_perm("posthog.change_instancesetting"):
+        user_id = request.user.pk
+        if user_id is None or not request.user.has_perm("posthog.change_instancesetting"):
             raise PermissionDenied
         enabled = dataset_retention_enabled()
         form = DatasetRetentionForm(
@@ -852,7 +853,7 @@ class OrganizationAdmin(admin.ModelAdmin):
         )
         if request.method == "POST" and form.is_valid():
             new_enabled = form.cleaned_data["enabled"]
-            set_dataset_retention_enabled(enabled=new_enabled, user_id=request.user.pk)
+            set_dataset_retention_enabled(enabled=new_enabled, user_id=user_id)
             messages.success(
                 request, f"Dataset cleanup is now {'enabled' if new_enabled else 'disabled'} in this region."
             )
