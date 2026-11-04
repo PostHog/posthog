@@ -252,7 +252,7 @@ class TestEventsRetentionAPI(APIBaseTest):
 
         self.client.credentials(**headers)
         with patch("posthoganalytics.capture") as capture:
-            for before, after in [(None, 6), (6, 12), (12, None)]:
+            for before, after in [(None, 3), (3, 12), (12, None)]:
                 capture.reset_mock()
                 with self.captureOnCommitCallbacks(execute=True):
                     response = self.client.post(url, {"retention_months": after}, format="json")
@@ -291,10 +291,10 @@ class TestEventsRetentionAPI(APIBaseTest):
         url = self.url() if scope == "project" else self.organization_url()
 
         with patch("posthoganalytics.capture"), self.captureOnCommitCallbacks(execute=True):
-            response = self.client.post(url, {"retention_months": 6}, format="json", HTTP_REFERER="https://[")
+            response = self.client.post(url, {"retention_months": 3}, format="json", HTTP_REFERER="https://[")
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()[f"{scope}_retention_months"] == 6
+        assert response.json()[f"{scope}_retention_months"] == 3
 
     @parameterized.expand([("project",), ("organization",)])
     def test_does_not_track_rolled_back_retention_changes(self, scope: str) -> None:
@@ -303,7 +303,7 @@ class TestEventsRetentionAPI(APIBaseTest):
 
         with patch("posthoganalytics.capture") as capture, self.captureOnCommitCallbacks(execute=True):
             with transaction.atomic():
-                response = self.client.post(url, {"retention_months": 6}, format="json")
+                response = self.client.post(url, {"retention_months": 3}, format="json")
                 assert response.status_code == status.HTTP_200_OK
                 assert not any(call.kwargs.get("event") == "events retention set" for call in capture.call_args_list)
                 transaction.set_rollback(True)
@@ -334,11 +334,11 @@ class TestEventsRetentionAPI(APIBaseTest):
         with patch("posthoganalytics.capture") as capture, self.captureOnCommitCallbacks(execute=True):
             if scope == "project":
                 set_project_events_retention(
-                    self.team, 6, user=self.user, was_impersonated=False, analytics_properties=properties
+                    self.team, 3, user=self.user, was_impersonated=False, analytics_properties=properties
                 )
             else:
                 set_organization_events_retention(
-                    self.organization, 6, user=self.user, was_impersonated=False, analytics_properties=properties
+                    self.organization, 3, user=self.user, was_impersonated=False, analytics_properties=properties
                 )
             properties["$ai_trace_id"] = "changed after save"
 
@@ -351,7 +351,7 @@ class TestEventsRetentionAPI(APIBaseTest):
         assert captured["mcp_client_name"] == "client"
         assert captured["scope"] == scope
         assert captured["organization_id"] == str(self.organization.id)
-        assert captured["retention_months"] == 6
+        assert captured["retention_months"] == 3
         assert captured["previous_retention_months"] is None
         assert captured["was_impersonated"] is False
         assert "$mcp_conversation_id" not in captured
