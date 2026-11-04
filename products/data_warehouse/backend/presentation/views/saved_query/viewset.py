@@ -47,7 +47,7 @@ from products.data_modeling.backend.facade.models import (
     Node,
     NodeType,
 )
-from products.managed_warehouse.backend.facade.sql_editor import managed_warehouse_sql_editor_uses_trino
+from products.managed_warehouse.backend.facade.sql_editor import managed_trino_query_flag_enabled
 from products.warehouse_sources.backend.facade.models import sync_frequency_to_sync_frequency_interval
 
 from . import editing, incremental_config, lifecycle, lineage, sync_cadence, view_state
@@ -251,7 +251,8 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
                 "query", "external_tables", "incremental_state"
             )
             # Reading the two keys still detoasts `query`, so only orgs that can save raw Trino views pay for it.
-            if managed_warehouse_sql_editor_uses_trino(self.team.organization_id):
+            # The flag check is read-only. The editor's access check can promote the warehouse lifecycle, which a list must not do.
+            if managed_trino_query_flag_enabled(self.team.organization_id):
                 raw_managed_trino: Expression = ExpressionWrapper(
                     Q(query__executionTarget="managed_trino", query__sendRawQuery=True),
                     output_field=BooleanField(),
