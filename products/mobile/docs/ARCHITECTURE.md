@@ -88,7 +88,7 @@ products/mobile/
                           chatGroups (day labels, grouping, search), sessionStatus, hooks
       notifications/      pushSupport, pushStore, pushRegistration, usePushRegistration,
                           notificationRouting, taskLookup, useNotificationRouting
-      feedback/           FeedbackSheet (Send feedback in the More menu), feedbackSurvey (the survey events)
+      feedback/           FeedbackSheet, feedbackSurvey (Send feedback in the More menu)
       settings/           SettingsScreen, ProjectSwitcher, PushStatusGroup, SignOutSection, appInfo,
                           EnvironmentGroup (internal builds), LegalGroup, SettingsLinkRow, SettingsRadioRow,
                           DefaultPageGroup, defaultPageStore (the tab the app opens on)
