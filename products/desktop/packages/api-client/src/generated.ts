@@ -11156,6 +11156,10 @@ export namespace Schemas {
         /**
          * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
          */
+        masked_columns?: (Array<string> | null) | undefined;
+        /**
+         * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
+         */
         row_filters?:
             | (Array<{
                   column: string;
@@ -11238,6 +11242,7 @@ export namespace Schemas {
         primary_key_columns?: (Array<string> | null) | undefined;
         cdc_table_mode?: (CdcTableModeEnum | NullEnum) | undefined;
         enabled_columns?: (Array<string> | null) | undefined;
+        masked_columns?: (Array<string> | null) | undefined;
         row_filters?:
             | (Array<{
                   column: string;
@@ -16150,6 +16155,10 @@ export namespace Schemas {
     export type ProjectBackwardCompat = {
         id: number;
         organization: string;
+        /**
+         * Whether the project's organization approved AI data processing. AI features need this approval.
+         */
+        is_ai_data_processing_approved: boolean | null;
         /**
          * A project and its settings, including the settings that live on its passthrough Team.
          *

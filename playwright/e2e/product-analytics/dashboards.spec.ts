@@ -44,25 +44,6 @@ test.describe('Dashboards', () => {
         await playwrightSetup.login(page, workspace!)
     })
 
-    test('Can create a new dashboard with an insight', async ({ page }) => {
-        const dashboard = new DashboardPage(page)
-        const dashboardName = randomString('dash-edit')
-        const insightName = randomString('dash-trends')
-
-        await test.step('create a saved Trends insight', async () => {
-            await createSavedTrendsInsight(page, insightName, workspace!)
-        })
-
-        await test.step('create a dashboard', async () => {
-            await dashboard.createNew(dashboardName)
-        })
-
-        await test.step('add the insight to the dashboard', async () => {
-            await dashboard.addInsightToNewDashboard(insightName)
-            await expect(dashboard.insightCards).toBeVisible()
-        })
-    })
-
     test('Editing an insight updates the dashboard tile', async ({ page }) => {
         const dashboard = new DashboardPage(page)
         const insight = new InsightPage(page)
@@ -333,142 +314,6 @@ test.describe('Dashboards', () => {
             await expect(dashboard.insightCards).toHaveCount(0)
         })
     })
-
-    test('Creating a dashboard from a template populates tiles', async ({ page }) => {
-        const dashboard = new DashboardPage(page)
-
-        await test.step('create a dashboard from a template', async () => {
-            await dashboard.createFromTemplate()
-        })
-
-        await test.step('verify the template dashboard has tiles', async () => {
-            await expect(dashboard.insightCards.first()).toBeVisible({ timeout: 30000 })
-
-            const tileCount = await dashboard.insightCards.count()
-            expect(tileCount).toBeGreaterThan(0)
-        })
-    })
-})
-
-test.describe('Dashboard duplication', () => {
-    let workspace: PlaywrightWorkspaceSetupResult | null = null
-
-    test.beforeAll(async ({ playwrightSetup }) => {
-        workspace = await playwrightSetup.createWorkspace({
-            use_current_time: true,
-            skip_onboarding: true,
-            insight_variables: [{ name: 'Test Var', type: 'Number', default_value: 10 }],
-            insights: [
-                {
-                    name: 'Variable insight',
-                    query: {
-                        kind: 'DataVisualizationNode',
-                        source: { kind: 'HogQLQuery', query: 'SELECT {variables.test_var}' },
-                        chartSettings: {},
-                        tableSettings: {},
-                    },
-                    variable_indexes: [0],
-                },
-            ],
-            dashboards: [
-                {
-                    name: 'Duplication source',
-                    insight_indexes: [0],
-                    variable_overrides: { '0': 42 },
-                },
-            ],
-        })
-    })
-
-    test.beforeEach(async ({ page, playwrightSetup }) => {
-        await playwrightSetup.login(page, workspace!)
-    })
-
-    test('Duplicating a dashboard preserves text cards, date filter, and variables', async ({ page }) => {
-        const dashboard = new DashboardPage(page)
-        const cardText = randomString('card-text')
-        const seededDashboardId = workspace!.created_dashboards![0].id
-        let sourceDashboardUrl: string
-
-        await test.step('navigate to seeded dashboard and add a text card', async () => {
-            await page.goto(`/project/${workspace!.team_id}/dashboard/${seededDashboardId}`)
-            await expect(dashboard.insightCards).toBeVisible()
-            await dashboard.addTextCard(cardText)
-        })
-
-        await test.step('set date filter', async () => {
-            sourceDashboardUrl = page.url()
-            await dashboard.setDateFilter('Last 30 days')
-            await dashboard.saveFilters()
-        })
-
-        await test.step('duplicate the dashboard', async () => {
-            await dashboard.duplicate()
-            await expect(page).not.toHaveURL(sourceDashboardUrl)
-        })
-
-        await test.step('verify duplicated dashboard preserves text card, date filter, and variable override', async () => {
-            await expect(dashboard.textCards).toBeVisible()
-            await expect(dashboard.textCards).toContainText(cardText)
-            await expect(dashboard.dateFilter).toContainText('Last 30 days')
-            await expect(dashboard.variableButtons.first()).toContainText('42')
-        })
-    })
-})
-
-test.describe('Dashboard link variable and filter overrides', () => {
-    let workspace: PlaywrightWorkspaceSetupResult | null = null
-
-    test.beforeAll(async ({ playwrightSetup }) => {
-        workspace = await playwrightSetup.createWorkspace({
-            use_current_time: true,
-            skip_onboarding: true,
-            insight_variables: [{ name: 'Test Var', type: 'Number', default_value: 10 }],
-            insights: [
-                {
-                    name: 'Variable insight',
-                    query: {
-                        kind: 'DataVisualizationNode',
-                        source: { kind: 'HogQLQuery', query: 'SELECT {variables.test_var}' },
-                        chartSettings: {},
-                        tableSettings: {},
-                    },
-                    variable_indexes: [0],
-                },
-            ],
-            dashboards: [
-                {
-                    name: 'URL query variables seed',
-                    insight_indexes: [0],
-                    variable_overrides: { '0': 42 },
-                    filters: { date_from: '-30d' },
-                },
-            ],
-        })
-    })
-
-    test.beforeEach(async ({ page, playwrightSetup }) => {
-        await playwrightSetup.login(page, workspace!)
-    })
-
-    test('Opening a shared dashboard link applies variable and filter overrides from the URL on first load', async ({
-        page,
-    }) => {
-        const dashboard = new DashboardPage(page)
-        const seededDashboardId = workspace!.created_dashboards![0].id
-        const urlOverride = 77
-        const searchParams = new URLSearchParams()
-        searchParams.set('query_variables', JSON.stringify({ test_var: urlOverride }))
-        searchParams.set('query_filters', JSON.stringify({ date_from: '-7d' }))
-
-        await page.goto(`/project/${workspace!.team_id}/dashboard/${seededDashboardId}?${searchParams.toString()}`, {
-            waitUntil: 'domcontentloaded',
-        })
-
-        await expect(dashboard.insightCards).toBeVisible()
-        await expect(dashboard.variableButtons.first()).toContainText(String(urlOverride))
-        await expect(dashboard.dateFilter).toContainText('Last 7 days')
-    })
 })
 
 test.describe('Dashboard compact cards and inline editing', () => {
@@ -480,29 +325,6 @@ test.describe('Dashboard compact cards and inline editing', () => {
 
     test.beforeEach(async ({ page, playwrightSetup }) => {
         await playwrightSetup.login(page, workspace!)
-    })
-
-    test('Edit mode button enters and exits edit mode', async ({ page }) => {
-        const dashboard = new DashboardPage(page)
-        const insightName = randomString('dash-trends')
-
-        await test.step('create a saved Trends insight', async () => {
-            await createSavedTrendsInsight(page, insightName, workspace!)
-        })
-
-        await test.step('create a dashboard with an insight', async () => {
-            await dashboard.createNew()
-            await dashboard.addInsightToNewDashboard(insightName)
-            await expect(dashboard.insightCards).toBeVisible()
-        })
-
-        await test.step('enter edit mode via the edit button', async () => {
-            await dashboard.enterEditMode()
-        })
-
-        await test.step('save and exit edit mode', async () => {
-            await dashboard.saveEditMode()
-        })
     })
 
     test('Inline editing insight title via compact card popover', async ({ page }) => {

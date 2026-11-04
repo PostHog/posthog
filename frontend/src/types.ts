@@ -3668,6 +3668,8 @@ export interface InsightLogicProps<Q extends QuerySchema = QuerySchema> {
     dashboardItemId?: InsightShortId | 'new' | `new-${string}` | null
     /** id of the dashboard the insight is on (when the insight is being displayed on a dashboard) **/
     dashboardId?: DashboardType['id']
+    /** render a static picture of the insight, hiding interactive controls such as filter bars (e.g. in exports) */
+    presentationOnly?: boolean
     /** cached insight */
     cachedInsight?: Partial<InsightModel> | null
     /** Reuse recent completed responses when this embedded insight remounts. */
@@ -6269,6 +6271,7 @@ export interface DataModelingNode {
     last_run_status?: DataModelingJobStatus
     last_run_error?: string | null
     sync_interval?: DataModelingSyncInterval
+    effective_sync_interval?: DataModelingSyncInterval | null
     pinned?: boolean
     suspended?: NodeApiSuspended
     /** Set on endpoint nodes stamped at materialization enable; older nodes carry only the name */
@@ -6637,6 +6640,8 @@ export interface ExternalDataSourceSyncSchema {
      * PK columns and the active incremental field are always retained server-side.
      */
     enabled_columns?: string[] | null
+    /** Source columns whose values are replaced with a one-way hash at sync time. */
+    masked_columns?: string[] | null
     /**
      * Predicates ANDed onto the source query so only matching rows sync.
      * `null`/undefined/empty = sync all rows.
@@ -6680,6 +6685,8 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
      * Primary-key + active incremental columns are always retained even if not listed.
      */
     enabled_columns?: string[] | null
+    /** Source columns whose values are replaced with a one-way hash at sync time. */
+    masked_columns?: string[] | null
     available_columns?: { name: string; data_type?: string; is_nullable?: boolean }[]
     /** Exact source identifiers are available for sources that project columns upstream. */
     source_column_metadata_available?: boolean
