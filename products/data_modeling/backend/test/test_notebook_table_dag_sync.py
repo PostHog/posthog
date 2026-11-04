@@ -18,8 +18,8 @@ class TestSyncNotebookTableToDag(BaseTest):
         super().setUp()
         self.table = DataWarehouseTable.objects.create(team=self.team, name="scores", format="Parquet")
 
-    def _sync(self, *queries: str) -> None:
-        sync_notebook_table_to_dag(self.team.id, "scores", str(self.table.id), list(queries), "nb123", "cell-1")
+    def _sync(self, *queries: str) -> list[str]:
+        return sync_notebook_table_to_dag(self.team.id, "scores", str(self.table.id), list(queries), "nb123", "cell-1")
 
     def _node(self) -> Node:
         return Node.objects.get(team=self.team, name="scores", type=NodeType.TABLE)
@@ -77,3 +77,11 @@ class TestSyncNotebookTableToDag(BaseTest):
             self.assertNotIn(NOTEBOOK_SOURCE_KEY, node.properties)
             self.assertFalse(Edge.objects.filter(target=node).exists())
             self.assertTrue(Edge.objects.filter(source=node, target__saved_query=reader).exists())
+
+    def test_sync_after_the_table_is_deleted_adds_nothing(self):
+        self.table.soft_delete()
+
+        unresolved = self._sync("SELECT event FROM events")
+
+        self.assertEqual(unresolved, [])
+        self.assertFalse(Node.objects.filter(team=self.team).exists())
