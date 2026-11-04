@@ -266,6 +266,7 @@ class TestCollectLearningEvidence(BaseTest):
 
         assert self._backfill_state()[0] is not None
 
+    @patch(f"{COLLECT_MODULE}.LEARNING_BACKFILL_REWIND_ROWS", 1)
     @patch(f"{COLLECT_MODULE}.LEARNING_PROVIDER_MAX_SCAN_LIMIT", 2)
     @patch(f"{COLLECT_MODULE}.LEARNING_PROVIDER_SCAN_LIMIT", 2)
     @patch(f"{COLLECT_MODULE}.logic.has_feature_flag", return_value=True)
@@ -282,6 +283,23 @@ class TestCollectLearningEvidence(BaseTest):
         assert first.items == []
         assert self._backfill_state()[0] is not None
         assert [item.evidence for item in second.items] == [unread_ref]
+
+    @patch(f"{COLLECT_MODULE}.LEARNING_BACKFILL_REWIND_ROWS", 2)
+    @patch(f"{COLLECT_MODULE}.LEARNING_PROVIDER_MAX_SCAN_LIMIT", 2)
+    @patch(f"{COLLECT_MODULE}.LEARNING_PROVIDER_SCAN_LIMIT", 2)
+    @patch(f"{COLLECT_MODULE}.logic.has_feature_flag", return_value=True)
+    def test_backfill_does_not_skip_a_ticket_when_an_earlier_one_is_reopened(self, _feature_flag) -> None:
+        first_ref, second_ref, unread_ref = (self._old_evidence(seed) for seed in (11, 12, 13))
+        self.provider.refs_by_team[self.team.id] = [first_ref, second_ref, unread_ref]
+        self._run_for(first_ref, LearningRunStatus.COMPLETED)
+        self._run_for(second_ref, LearningRunStatus.COMPLETED)
+        learning_settings.start_learning_backfill(self.team)
+
+        assert collect_learning_evidence(LearningCoordinatorInput()).items == []
+        self.provider.refs_by_team[self.team.id] = [second_ref, unread_ref]
+        resumed = collect_learning_evidence(LearningCoordinatorInput())
+
+        assert [item.evidence for item in resumed.items] == [unread_ref]
 
     @patch(f"{COLLECT_MODULE}.timezone.now", return_value=datetime(2026, 9, 12, tzinfo=UTC))
     @patch(f"{COLLECT_MODULE}.logic.has_feature_flag", return_value=True)

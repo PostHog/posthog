@@ -29,6 +29,7 @@ from products.business_knowledge.backend.models import (
 from ..constants import (
     ANALYSIS_VERSION,
     LEARNING_BACKFILL_RETRY_HOURS,
+    LEARNING_BACKFILL_REWIND_ROWS,
     LEARNING_COORDINATOR_INTERVAL_MINUTES,
     LEARNING_MAX_ITEMS_PER_TEAM,
     LEARNING_MAX_ITEMS_PER_TICK,
@@ -387,6 +388,9 @@ def _collect_backfill_refs(
         for provider in get_learning_providers():
             key = f"{source_team_id}:{provider.name}"
             offset = stored_cursor.get(key, 0)
+            # Offsets shift when a ticket ahead of the cursor leaves the resolved list, for example when
+            # it is reopened. Settled rows are cheap to read again, so start one margin early.
+            offset = max(offset - LEARNING_BACKFILL_REWIND_ROWS, 0) if isinstance(offset, int) else 0
             scan = _scan_backfill(
                 canonical_team,
                 source_team_id=source_team_id,
@@ -396,7 +400,7 @@ def _collect_backfill_refs(
                 now=now,
                 selected=selected,
                 limit=max(limit - len(refs), 0),
-                offset=offset if isinstance(offset, int) and offset >= 0 else 0,
+                offset=offset,
             )
             refs.extend(scan.refs)
             cursor[key] = scan.cursor
