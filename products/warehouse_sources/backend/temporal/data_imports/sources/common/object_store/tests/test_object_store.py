@@ -1407,7 +1407,13 @@ class TestDescribePinnedSchema:
 
     def test_a_delta_table_is_described_from_its_log(self, tmp_path: Path) -> None:
         write_deltalake(str(tmp_path / "tables" / "events"), pa.table({"id": [1]}))
-        metadata = {"kind": "delta", "path": "tables/events", "format": "delta", "pattern": None, "csv": {}}
+        metadata: dict[str, Any] = {
+            "kind": "delta",
+            "path": "tables/events",
+            "format": "delta",
+            "pattern": None,
+            "csv": {},
+        }
         source = _source_with_store(local_store(tmp_path))
 
         schema = source.describe_pinned_schema(BUCKET_ROOT_CONFIG, 1, "events", metadata)
@@ -1427,7 +1433,7 @@ class TestDescribePinnedSchema:
     ) -> None:
         if raised is not None:
             monkeypatch.setattr(delta, "DeltaTable", MagicMock(side_effect=raised))
-        metadata = {"kind": "delta", "path": "events", "format": "delta", "pattern": None, "csv": {}}
+        metadata: dict[str, Any] = {"kind": "delta", "path": "events", "format": "delta", "pattern": None, "csv": {}}
         source = _source_with_store(local_store(tmp_path))
 
         with pytest.raises(ObjectStorageError, match=f"^{error_prefix}"):

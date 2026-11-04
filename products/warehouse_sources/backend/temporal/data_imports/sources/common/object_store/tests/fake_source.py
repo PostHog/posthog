@@ -1,7 +1,7 @@
 import dataclasses
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from botocore.exceptions import ClientError
 from fsspec.implementations.local import LocalFileSystem
@@ -120,10 +120,13 @@ class PrefixScopedS3Client:
         self.listed_prefixes.append(Prefix)
         if not Prefix.startswith(self.allowed_prefix):
             raise ClientError(
-                {
-                    "Error": {"Code": "AccessDenied", "Message": "Access Denied"},
-                    "ResponseMetadata": {"HTTPStatusCode": 403},
-                },
+                cast(
+                    Any,
+                    {
+                        "Error": {"Code": "AccessDenied", "Message": "Access Denied"},
+                        "ResponseMetadata": {"HTTPStatusCode": 403},
+                    },
+                ),
                 "ListObjectsV2",
             )
         modified_at = datetime(2024, 5, 1, 12, 0, tzinfo=UTC)
