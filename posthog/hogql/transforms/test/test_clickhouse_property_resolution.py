@@ -138,6 +138,7 @@ class TestNativeJSONPropertyComparisons(SimpleTestCase):
         assert isinstance(prepared, ast.SelectQuery)
         printed = print_prepared_ast(prepared.select[0], context, "clickhouse")
         values = ["true", "false", "variant", "TRUE", ""]
+        documents: list[dict[str, str | dict[str, str]]]
         if name == "feature_flag":
             documents = [{"$feature_flags": {"example-flag": value}} for value in [*values, "$true", "$false"]]
             values.extend(["true", "false"])
