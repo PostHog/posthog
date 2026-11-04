@@ -20,6 +20,7 @@ from structlog.testing import capture_logs
 from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
 from posthog.models import OrganizationMembership, ProjectSecretAPIKey, Team, User
+from posthog.models.file_system.file_system import FileSystem
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.utils import generate_random_token_personal, generate_random_token_secret
@@ -1373,6 +1374,15 @@ class TestTransactionalEmailWorkflowAccess(APIBaseTest):
         assert HogFlow.objects.filter(team=self.team).count() == workflows_before
         assert not TransactionalEmailKey.objects.for_team(self.team.id, canonical=True).exists()
         mock_post.assert_not_called()
+
+    def test_a_member_denied_the_workflow_cannot_delete_it_through_project_files(self, mock_post, _flag):
+        entry = FileSystem.objects.get(team=self.team, type="message_template", ref=str(self.template.id))
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{entry.id}/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        self.template.refresh_from_db()
+        assert not self.template.deleted
 
     @parameterized.expand([("unlinked", None), ("linked_to_a_deleted_workflow", uuid4())])
     def test_editor_access_to_one_workflow_cannot_create_another(self, mock_post, _flag, _name, linked_hog_flow_id):

@@ -4,7 +4,7 @@ from contextlib import AbstractContextManager, nullcontext
 from dataclasses import fields as dataclass_fields
 from email.utils import parseaddr
 from types import SimpleNamespace
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import validate_email
@@ -86,6 +86,9 @@ from products.notifications.backend.facade.api import publish_resource_edited
 from products.workflows.backend.facade.api import WorkflowAccessDenied, WorkflowNotFound
 from products.workflows.backend.facade.transactional_emails import EMAIL_FROM_CODE_FLAG
 from products.workflows.backend.facade.workflows import get_workflow
+
+if TYPE_CHECKING:
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 logger = structlog.get_logger(__name__)
 
@@ -729,6 +732,23 @@ SEND_RESPONSES: dict[int, ResponseDeclaration] = {
 }
 
 
+def require_workflow_editor(team_id: int, hog_flow_id: Any, user_access_control: "UserAccessControl") -> None:
+    # The template's own access rules don't cover the workflow it sends through, which can carry its own.
+    try:
+        get_workflow(
+            team_id=team_id,
+            workflow_id=str(hog_flow_id),
+            user_access_control=user_access_control,
+            required_level="editor",
+        )
+    except WorkflowAccessDenied:
+        raise exceptions.PermissionDenied(
+            "You need editor access to this template's transactional email workflow."
+        ) from None
+    except WorkflowNotFound:
+        return
+
+
 # The send path shared by the template-scoped route and the single send route. A comment, not a docstring:
 # drf-spectacular would publish a docstring as the description of every operation on both viewsets.
 class TransactionalEmailSendMixin:
@@ -836,24 +856,11 @@ class TransactionalEmailSendMixin:
         )
 
     def _require_workflow_editor(self, hog_flow_id: Any) -> None:
-        # The template's own access rules don't cover the workflow it sends through, which can carry its own.
         # A project secret API key has no user to check. Its scope limits it to sending and to setting recipient
         # topic preferences.
         if is_authenticated_via_project_secret_api_key(self.request):
             return
-        try:
-            get_workflow(
-                team_id=self.team_id,
-                workflow_id=str(hog_flow_id),
-                user_access_control=self.user_access_control,
-                required_level="editor",
-            )
-        except WorkflowAccessDenied:
-            raise exceptions.PermissionDenied(
-                "You need editor access to this template's transactional email workflow."
-            ) from None
-        except WorkflowNotFound:
-            return
+        require_workflow_editor(self.team_id, hog_flow_id, self.user_access_control)
 
     def _require_workflow_create(self) -> None:
         if is_authenticated_via_project_secret_api_key(self.request):
