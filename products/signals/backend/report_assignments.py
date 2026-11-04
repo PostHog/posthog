@@ -194,19 +194,6 @@ def release_claim(claim: ReportClaim, actor: ArtefactAttribution, *, takeover: b
     )
 
 
-def _held_by_another_person(claim: ReportClaim, user: User) -> bool:
-    # Task claims are left out: auto-start runs tasks as a suggested reviewer who never took the work on.
-    return claim.actor_kind in ("user", "agent") and claim.actor_user_id not in (None, user.id)
-
-
-def _claim_holder(claim: ReportClaim) -> ArtefactAttribution:
-    if claim.actor_kind == "agent" and claim.actor_user_id is not None:
-        return ArtefactAttribution.from_agent(claim.actor_user_id, claim.actor_agent or "")
-    if claim.actor_user_id is not None:
-        return ArtefactAttribution.from_user(claim.actor_user_id)
-    return ArtefactAttribution.system()
-
-
 def claim_report_for_task(*, team_id: int, report_id: str, task_id: str) -> ReportClaim:
     with transaction.atomic():
         report = SignalReport.objects.select_for_update().get(id=report_id, team_id=team_id)
@@ -417,6 +404,19 @@ def _apply_pr_report_state(report: SignalReport, pr_state: str | None, *, merged
                 content=Dismissal(state="suppressed"),
                 attribution=ArtefactAttribution.system(),
             )
+
+
+def _held_by_another_person(claim: ReportClaim, user: User) -> bool:
+    # Task claims are left out: auto-start runs tasks as a suggested reviewer who never took the work on.
+    return claim.actor_kind in ("user", "agent") and claim.actor_user_id not in (None, user.id)
+
+
+def _claim_holder(claim: ReportClaim) -> ArtefactAttribution:
+    if claim.actor_kind == "agent" and claim.actor_user_id is not None:
+        return ArtefactAttribution.from_agent(claim.actor_user_id, claim.actor_agent or "")
+    if claim.actor_user_id is not None:
+        return ArtefactAttribution.from_user(claim.actor_user_id)
+    return ArtefactAttribution.system()
 
 
 def claim_report(
