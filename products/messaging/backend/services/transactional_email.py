@@ -358,8 +358,26 @@ def sync_transactional_workflow(team_id: int, template_id: UUID, *, user_id: int
         raise SenderUnavailable("No verified email sender. Verify a sending domain first.") from e
 
 
-def _transactional_workflow_id(team_id: int, template_id: UUID) -> UUID:
-    template = MessageTemplate.objects.get(team_id=team_id, id=template_id, deleted=False)
+class TransactionalTemplate(Protocol):
+    """The template fields a send reads. A caller that already loaded the template passes it in."""
+
+    @property
+    def id(self) -> UUID: ...
+
+    @property
+    def type(self) -> str: ...
+
+    @property
+    def content(self) -> dict[str, Any]: ...
+
+    @property
+    def message_category_id(self) -> UUID | None: ...
+
+    @property
+    def transactional_hog_flow_id(self) -> UUID | None: ...
+
+
+def _transactional_workflow_id(team_id: int, template: TransactionalTemplate) -> UUID:
     if not template.transactional_hog_flow_id:
         raise TemplateNotTransactional("The template isn't transactional. Make it transactional to send it.")
     # A category's type can change after the template was made transactional.
@@ -383,16 +401,16 @@ def _require_active(team_id: int, hog_flow_id: UUID) -> None:
 
 
 def _code_email_workflow_id(team_id: int, key: str) -> UUID:
-    template_id = _template_id_for_key(team_id, key)
-    if template_id is not None:
-        return _transactional_workflow_id(team_id, template_id)
+    template = _template_for_key(team_id, key)
+    if template is not None:
+        return _transactional_workflow_id(team_id, template)
     hog_flow_id = _key_workflow_id(team_id, key)
     _require_active(team_id, hog_flow_id)
     return hog_flow_id
 
 
-def _template_id_for_key(team_id: int, key: str) -> UUID | None:
-    return MessageTemplate.objects.filter(team_id=team_id, key=key, deleted=False).values_list("id", flat=True).first()
+def _template_for_key(team_id: int, key: str) -> MessageTemplate | None:
+    return MessageTemplate.objects.filter(team_id=team_id, key=key, deleted=False).first()
 
 
 def known_key(team_id: int, key: str) -> TransactionalEmailKey | None:
@@ -455,7 +473,7 @@ def require_code_email_access(
 
 def send_transactional_email(
     team: Team,
-    template_id: UUID,
+    template: UUID | TransactionalTemplate,
     *,
     to: str,
     distinct_id: str | None,
@@ -465,7 +483,10 @@ def send_transactional_email(
 ) -> QueuedEmail:
     _check_send_request(to, idempotency_key)
     with transactional_email_stage("workflow_lookup"):
-        hog_flow_id = _transactional_workflow_id(team.id, template_id)
+        # A template passed in must be one of the team's templates that is not deleted, as this lookup returns.
+        if isinstance(template, UUID):
+            template = MessageTemplate.objects.get(team_id=team.id, id=template, deleted=False)
+        hog_flow_id = _transactional_workflow_id(team.id, template)
     payload = _send_payload(to, distinct_id, message_data, idempotency_key)
     return _queue(team.id, hog_flow_id, payload, run_transactional_workflow, timeout=timeout)
 
