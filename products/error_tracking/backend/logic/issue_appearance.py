@@ -1,15 +1,14 @@
-"""New and reopened issues, as appearance alerts on the alerts platform.
+"""New issues, as appearance alerts on the alerts platform.
 
-Error tracking already decides when an issue is new or back, and records it in the issue change
-outbox in the transaction that changes the issue. So this store reads the outbox, and the platform
-keeps no registry for error tracking.
+Ingestion creates an issue row the moment it sees a new exception, so this store reads the issue table,
+and the platform keeps no registry for error tracking.
 """
 
 import datetime as dt
-from collections.abc import Mapping
+from collections.abc import Sequence
 from typing import Any, Final
 
-from django.db.models import Q
+from posthog.utils import absolute_uri
 
 from products.alerts_platform.backend.facade.appearance import appearance_source_config
 from products.alerts_platform.backend.facade.contracts import (
@@ -23,16 +22,16 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceConfigSpec,
     SourceDescription,
 )
-from products.error_tracking.backend.logic import get_issue_permalink_by_fingerprint
-from products.error_tracking.backend.logic.issue_changes import AssigneeRef
-from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueChange
+from products.error_tracking.backend.logic import build_issue_permalink_path
+from products.error_tracking.backend.models import (
+    ErrorTrackingIssue,
+    ErrorTrackingIssueAssignment,
+    ErrorTrackingIssueFingerprintV2,
+)
 
-# An outbox row's `created_at` is set before its transaction commits, so a row can become visible
+# An issue row's `created_at` is set before its transaction commits, so a row can become visible
 # after a read past its time. Reading only up to this long ago leaves the transaction time to commit.
 COMMIT_ALLOWANCE: Final = dt.timedelta(seconds=30)
-# Only an exception reopening a resolved issue counts as a reappearance. A person reopening an
-# issue, or one coming out of suppression, is not the error coming back.
-REAPPEARS_FROM: Final = frozenset({ErrorTrackingIssue.Status.RESOLVED, ErrorTrackingIssue.Status.PENDING_RELEASE})
 FILTER_KEYS: Final = ("severity", "assignee", "name")
 ROLLOUT_FLAG: Final = "platform-alerts-source-error-tracking"
 ISSUE_CREATED_EVENT: Final = "$error_tracking_issue_created"
@@ -43,39 +42,56 @@ class IssueOccurrenceStore:
         return now - COMMIT_ALLOWANCE
 
     def appeared(self, *, team_id: int, since: dt.datetime, until: dt.datetime, limit: int) -> OccurrenceWindow:
-        reappeared = Q(
-            kind=ErrorTrackingIssueChange.Kind.STATUS_CHANGED,
-            actor_type=ErrorTrackingIssueChange.ActorType.INGESTION,
-            snapshot__status=ErrorTrackingIssue.Status.ACTIVE,
-            data__previous__in=list(REAPPEARS_FROM),
-        )
-        rows = list(
-            ErrorTrackingIssueChange.objects.for_team(team_id)
-            .filter(created_at__gte=since, created_at__lt=until)
-            .filter(Q(kind=ErrorTrackingIssueChange.Kind.CREATED) | reappeared)
+        # Active, because ingestion creates an issue active, and the per-team created index covers only those.
+        # An issue resolved within a check of its creation is not announced.
+        issues = list(
+            ErrorTrackingIssue.objects.with_first_seen()
+            .filter(
+                team_id=team_id, status=ErrorTrackingIssue.Status.ACTIVE, created_at__gte=since, created_at__lt=until
+            )
             .order_by("created_at", "id")
-            .values("issue_id", "kind", "snapshot", "created_at")[: limit + 1]
+            .values("id", "name", "severity", "created_at", "first_seen")[: limit + 1]
         )
+        shown = issues[:limit]
+        ids = [issue["id"] for issue in shown]
+        assignees = {
+            assignment.issue_id: f"user:{assignment.user_id}" if assignment.user_id else f"role:{assignment.role_id}"
+            for assignment in ErrorTrackingIssueAssignment.objects.filter(issue_id__in=ids)
+        }
+        fingerprints = _first_fingerprints(ids)
         return OccurrenceWindow(
-            occurrences=tuple(_occurrence(row) for row in rows[:limit]), truncated=len(rows) > limit
+            occurrences=tuple(_occurrence(issue, assignees, fingerprints) for issue in shown),
+            truncated=len(issues) > limit,
         )
 
 
-def _occurrence(row: Mapping[str, Any]) -> Occurrence:
-    snapshot = row["snapshot"]
-    assignee = AssigneeRef.from_json(snapshot.get("assignee"))
-    issue_id = str(row["issue_id"])
+def _first_fingerprints(issue_ids: Sequence[Any]) -> dict[Any, str]:
+    """Each issue's oldest fingerprint, which a merge keeps, so a link by it outlives the issue row."""
+    rows = (
+        ErrorTrackingIssueFingerprintV2.objects.filter(issue_id__in=issue_ids)
+        .order_by("issue_id", "created_at")
+        .distinct("issue_id")
+        .values_list("issue_id", "fingerprint")
+    )
+    return dict(rows)
+
+
+def _occurrence(issue: dict[str, Any], assignees: dict[Any, str], fingerprints: dict[Any, str]) -> Occurrence:
+    issue_id = str(issue["id"])
+    detail: dict[str, Any] = {"issue_id": issue_id}
+    if fingerprint := fingerprints.get(issue["id"]):
+        detail["fingerprint"] = fingerprint
     return Occurrence(
         identity_key=issue_id,
-        kind=OccurrenceKind.NEW if row["kind"] == ErrorTrackingIssueChange.Kind.CREATED else OccurrenceKind.REAPPEARED,
-        first_seen_at=dt.datetime.fromisoformat(snapshot["first_seen"]),
-        occurred_at=row["created_at"],
+        kind=OccurrenceKind.NEW,
+        first_seen_at=issue["first_seen"] or issue["created_at"],
+        occurred_at=issue["created_at"],
         labels={
-            "severity": snapshot.get("severity") or "",
-            "assignee": f"{assignee.type}:{assignee.id}" if assignee else "",
-            "name": snapshot.get("name") or "",
+            "severity": issue["severity"] or "",
+            "assignee": assignees.get(issue["id"], ""),
+            "name": issue["name"] or "",
         },
-        detail={"issue_id": issue_id},
+        detail=detail,
     )
 
 
@@ -118,5 +134,14 @@ def describe_issue_appearance(*, project_id: int, transition: AnnouncedTransitio
         headline=f"{'Resolved issue is back' if back else 'New issue'}: {name}",
         details=tuple(details),
         # A link by fingerprint survives a merge, and an issue's thread outlives many of them.
-        data_link=MessageLink(label="View issue", url=get_issue_permalink_by_fingerprint(project_id, issue_id)),
+        data_link=MessageLink(
+            label="View issue",
+            url=absolute_uri(
+                build_issue_permalink_path(
+                    project_id=project_id,
+                    issue_id=issue_id,
+                    fingerprint=transition.source_detail.get("fingerprint"),
+                )
+            ),
+        ),
     )

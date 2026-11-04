@@ -8,7 +8,7 @@ text, so a known pattern at a new severity is a new identity.
 import json
 import hashlib
 import datetime as dt
-from typing import Final
+from typing import Any, Final
 
 from posthog.utils import absolute_uri
 
@@ -27,6 +27,11 @@ from products.alerts_platform.backend.facade.contracts import (
 from products.logs.backend.logs_url_params import build_logs_url_params
 
 SEED_LOOKBACK: Final = dt.timedelta(days=14)
+# The rollup's grid. A sighting is dated at the end of its bucket, the earliest time it is known to have
+# happened by, so an alert created inside a bucket still announces a pattern first logged later in it.
+BUCKET: Final = dt.timedelta(minutes=5)
+# A link opens the logs from this long before the first sighting, so the first lines are in view.
+LINK_LEAD: Final = dt.timedelta(minutes=10)
 FILTER_KEYS: Final = ("service_name", "severity_text", "environment", "namespace", "pattern")
 MAX_PATTERN_DETAIL: Final = 2000
 ROLLOUT_FLAG: Final = "platform-alerts-source-logs-patterns"
@@ -55,11 +60,13 @@ def _identity(
     environment: str,
     namespace: str,
     first_bucket: dt.datetime,
+    last_bucket: dt.datetime,
 ) -> SeenIdentity:
     digest = hashlib.sha256(json.dumps([version, service, severity, pattern]).encode()).hexdigest()[:32]
     return SeenIdentity(
         identity_key=f"pattern:{digest}",
-        seen_at=first_bucket if first_bucket.tzinfo else first_bucket.replace(tzinfo=dt.UTC),
+        seen_at=_utc(first_bucket) + BUCKET,
+        last_seen_at=_utc(last_bucket) + BUCKET,
         labels={
             "service_name": service,
             "severity_text": severity,
@@ -69,6 +76,10 @@ def _identity(
         },
         detail={"pattern": pattern[:MAX_PATTERN_DETAIL], "pattern_version": version},
     )
+
+
+def _utc(moment: dt.datetime) -> dt.datetime:
+    return moment if moment.tzinfo else moment.replace(tzinfo=dt.UTC)
 
 
 LOGS_PATTERN_FEED: Final = OccurrenceFeed(ready_until=_ready_until, seen=_seen, seed_lookback=SEED_LOOKBACK)
@@ -93,15 +104,38 @@ def describe_logs_pattern(*, project_id: int, transition: AnnouncedTransition) -
     return SourceDescription(
         headline=f"{'Resolved log pattern is back' if back else 'New log pattern'} in {service}",
         details=tuple(details),
-        data_link=MessageLink(label="View logs", url=_logs_url(project_id, labels)),
+        data_link=MessageLink(label="View logs", url=_logs_url(project_id, labels, transition.source_detail)),
     )
 
 
-def _logs_url(project_id: int, labels: dict[str, str]) -> str:
-    filters = {
+def _logs_url(project_id: int, labels: dict[str, str], detail: dict[str, Any]) -> str:
+    """The announced pattern's logs, from just before its first sighting."""
+    filters: dict[str, Any] = {
         "serviceNames": [labels["service_name"]] if labels.get("service_name") else [],
         "severityLevels": [labels["severity_text"]] if labels.get("severity_text") else [],
     }
-    params = build_logs_url_params(filters)
+    pattern = detail.get("pattern")
+    # A pattern cut to fit the detail would match nothing, so the link then filters by service and severity only.
+    if isinstance(pattern, str) and len(pattern) < MAX_PATTERN_DETAIL and detail.get("pattern_version"):
+        filters["filterGroup"] = {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "AND",
+                    "values": [
+                        {"key": "pattern", "value": [pattern], "operator": "exact", "type": "log"},
+                        {
+                            "key": "pattern_version",
+                            "value": detail["pattern_version"],
+                            "operator": "exact",
+                            "type": "log",
+                        },
+                    ],
+                }
+            ],
+        }
+    first_seen = detail.get("first_seen_at")
+    date_from = dt.datetime.fromisoformat(first_seen) - LINK_LEAD if isinstance(first_seen, str) else None
+    params = build_logs_url_params(filters, date_from=date_from)
     # The query goes on after `absolute_uri`, which refuses a URL that holds an encoded backslash.
     return absolute_uri(f"/project/{project_id}/logs") + (f"?{params}" if params else "")

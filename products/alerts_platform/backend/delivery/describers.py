@@ -33,6 +33,8 @@ MAX_DATA_LINK_URL_CHARS: Final = 2000
 MAX_IMAGE_URL_CHARS: Final = 3000
 MAX_IMAGE_ALT_TEXT_CHARS: Final = 2000
 MAX_SLACK_ELEMENTS: Final = 3
+# A headline is the message title, and a source can build it from ingested text such as a pattern.
+MAX_HEADLINE_CHARS: Final = 150
 
 logger = structlog.get_logger(__name__)
 
@@ -92,6 +94,7 @@ def _bounded(source: SourceKind, description: SourceDescription) -> SourceDescri
         data_link=data_link,
         # The buttons share the actions block, which Slack caps at 25 elements.
         slack_elements=description.slack_elements[:MAX_SLACK_ELEMENTS],
+        headline=clip_text(description.headline, MAX_HEADLINE_CHARS) if description.headline else None,
     )
 
 

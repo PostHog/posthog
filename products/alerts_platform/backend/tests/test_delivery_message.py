@@ -171,6 +171,14 @@ class TestAlertMessage:
             LOGS_DESCRIPTION.data_link,
         )
 
+    def test_an_appearance_takes_the_headline_its_source_words(self) -> None:
+        description = SourceDescription(headline="New log pattern in api")
+
+        with patch.dict(describers._appearance_describers, {SourceKind.LOGS: lambda **_: description}):
+            message = _build(_announcement(), _transition(AlertEventKind.APPEARED, value=None))
+
+        assert (message.headline, message.symbol) == ("New log pattern in api", "🆕")
+
     def test_a_failed_check_keeps_the_platform_failure_details_under_a_source_description(self) -> None:
         with _described_by(lambda **_: LOGS_DESCRIPTION):
             message = _build(
