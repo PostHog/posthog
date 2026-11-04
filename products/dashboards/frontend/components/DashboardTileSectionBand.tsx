@@ -14,6 +14,7 @@ interface DashboardTileSectionBandProps {
     isDropTarget: boolean
     collapsedTileGroupKeys: string[]
     onToggleTileGroup: (groupKey: string) => void
+    onRenameTileGroup?: (groupKey: string, title: string) => void
     copyToDestinations?: DashboardWidgetPlacementDestination[]
     onCopyGroupToDashboard?: (groupKey: string, dashboardId: number, dashboardName: string) => void
     copyLoading?: boolean
@@ -27,6 +28,7 @@ export function DashboardTileSectionBand({
     isDropTarget,
     collapsedTileGroupKeys,
     onToggleTileGroup,
+    onRenameTileGroup,
     copyToDestinations,
     onCopyGroupToDashboard,
     copyLoading,
@@ -47,6 +49,7 @@ export function DashboardTileSectionBand({
                     tileCount={section.tiles.length}
                     collapsed={collapsedTileGroupKeys.includes(section.groupKey)}
                     onToggle={() => onToggleTileGroup(section.groupKey)}
+                    onRename={onRenameTileGroup ? (title) => onRenameTileGroup(section.groupKey, title) : undefined}
                     copyToDestinations={copyToDestinations}
                     onCopyToDashboard={
                         onCopyGroupToDashboard

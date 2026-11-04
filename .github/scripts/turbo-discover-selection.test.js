@@ -11,6 +11,7 @@ const {
     decideSelection,
     isDagsterOnlyLegacyEdit,
     narrowedProducts,
+    productsWithUndeclaredInputChanges,
     selectedShards,
 } = require('./turbo-discover')
 
@@ -172,6 +173,26 @@ test('only Dagster Python that still exists counts as a Dagster-only legacy edit
     ]
     for (const [changedFiles, expected] of cases) {
         assert.equal(isDagsterOnlyLegacyEdit(changedFiles, exists), expected, JSON.stringify(changedFiles))
+    }
+})
+
+test('a changed non-Python test input selects its own product', () => {
+    const allProducts = new Set(['access-control', 'signals'])
+    const cases = [
+        [['products/access_control/backend/tests/__snapshots__/test_access_control.ambr'], ['access-control']],
+        [['products/signals/skills/authoring-scouts/SKILL.md'], ['signals']],
+        [['products/signals/backend/AGENTS.md'], []],
+        [['products/signals/frontend/Scouts.tsx'], []],
+        [['products/signals/backend/__pycache__/models.cpython-312.pyc'], []],
+        [['products/unregistered/backend/fixtures/rows.json'], []],
+        [['posthog/test/__snapshots__/test_team.ambr'], []],
+    ]
+    for (const [changedFiles, expected] of cases) {
+        assert.deepEqual(
+            productsWithUndeclaredInputChanges(changedFiles, allProducts),
+            expected,
+            JSON.stringify(changedFiles)
+        )
     }
 })
 
