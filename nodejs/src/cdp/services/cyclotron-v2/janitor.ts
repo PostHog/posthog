@@ -8,12 +8,7 @@ import { captureException } from '~/common/utils/posthog'
 import { CYCLOTRON_INVOCATION_JOB_QUEUES, CyclotronJobInvocationHogFlow } from '../../types'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
 import { v2JobToInvocation } from './job-codec'
-import {
-    CYCLOTRON_COUNTER_MAX,
-    CyclotronV2CleanupResult,
-    CyclotronV2DequeuedJob,
-    CyclotronV2JanitorConfig,
-} from './types'
+import { CYCLOTRON_COUNTER_MAX, CyclotronV2CleanupResult, CyclotronV2JanitorConfig } from './types'
 
 // Stable, low-cardinality `error_kind` stamped on the failed invocation result
 // the janitor writes when it gives up on a poison pill. Lets operators target
@@ -420,7 +415,7 @@ export class CyclotronV2Janitor {
     // `hogFlow` carries only the id the lifecycle row needs (function_id), while
     // the rerun path rebuilds the full flow from the function id on replay.
     private poisonRowToInvocation(row: PoisonRow): CyclotronJobInvocationHogFlow {
-        const job: CyclotronV2DequeuedJob = {
+        const invocation = v2JobToInvocation({
             id: row.id,
             teamId: row.team_id,
             functionId: row.function_id,
@@ -429,20 +424,9 @@ export class CyclotronV2Janitor {
             scheduled: DateTime.fromISO(row.scheduled, { zone: 'utc' }),
             created: DateTime.fromISO(row.created, { zone: 'utc' }),
             parentRunId: row.parent_run_id,
-            transitionCount: row.transition_count,
             state: row.state,
-            distinctId: row.distinct_id,
-            personId: row.person_id,
-            actionId: row.action_id,
             cancelRequestedAt: null,
-            ack: () => Promise.resolve(),
-            fail: () => Promise.resolve(),
-            reschedule: () => Promise.resolve(),
-            cancel: () => Promise.resolve(),
-            heartbeat: () => Promise.resolve(),
-            bulkCreateAndCheckIn: () => Promise.resolve({ newJobIds: [] }),
-        }
-        const invocation = v2JobToInvocation(job)
+        })
         return { ...invocation, hogFlow: { id: invocation.functionId } } as CyclotronJobInvocationHogFlow
     }
 

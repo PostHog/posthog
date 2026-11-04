@@ -73,7 +73,21 @@ export function decodeJobState(row: Pick<CyclotronV2DequeuedJob, 'id' | 'state'>
     }
 }
 
-export function v2JobToInvocation(job: CyclotronV2DequeuedJob): CyclotronJobInvocation {
+export type JobRow = Pick<
+    CyclotronV2DequeuedJob,
+    | 'id'
+    | 'teamId'
+    | 'functionId'
+    | 'queueName'
+    | 'priority'
+    | 'scheduled'
+    | 'created'
+    | 'parentRunId'
+    | 'state'
+    | 'cancelRequestedAt'
+>
+
+export function v2JobToInvocation(job: JobRow): CyclotronJobInvocation {
     const parsed = decodeJobState(job)
 
     const invocation: CyclotronJobInvocation = {

@@ -1,8 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { CyclotronJobInvocation } from '../../types'
-import { encodeJob, v2JobToInvocation } from './job-codec'
-import { CyclotronV2DequeuedJob } from './types'
+import { JobRow, encodeJob, v2JobToInvocation } from './job-codec'
 
 // The golden `state` strings are what the Postgres-v2 adapter wrote before the codec existed. Workers of both
 // versions read the same rows during a deploy, so the bytes must not change.
@@ -85,7 +84,7 @@ describe('job codec', () => {
         expect({ ...init, state: undefined }).toEqual({ ...columns, state: undefined })
 
         const dequeuedAt = DateTime.fromISO('2026-11-04T08:00:00.000Z', { zone: 'utc' })
-        const row = {
+        const row: JobRow = {
             id: invocation.id,
             teamId: invocation.teamId,
             functionId: invocation.functionId,
@@ -94,13 +93,9 @@ describe('job codec', () => {
             scheduled: dequeuedAt,
             created: dequeuedAt,
             parentRunId: invocation.parentRunId ?? null,
-            transitionCount: 1,
             state: Buffer.from(golden, 'utf-8'),
-            distinctId: null,
-            personId: null,
-            actionId: null,
             cancelRequestedAt: null,
-        } as unknown as CyclotronV2DequeuedJob
+        }
 
         expect(v2JobToInvocation(row)).toEqual({
             ...invocation,
