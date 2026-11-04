@@ -27,7 +27,7 @@
                     "type": "null"
                 }
             ],
-            "description": "Optional id of the inbox report this note is about. The note then names the report so a scout can fetch it, and the report's activity log records that the note was left. Requires read access to inbox reports, and the report must belong to this project."
+            "description": "Optional id of the inbox report this note is about. The note then names the report so a scout can fetch it, and the report's activity log records that the note was left. Requires edit access to inbox reports, and the report must belong to this project. The report reference shares the note's character budget, so `content` is capped at 9938 characters when this is set."
         },
         "skill_name": {
             "description": "Address the note to one scout by its skill name (exact match against a configured scout on the project — check `scout-config-list` for the roster), or to one stage of the report pipeline by its reserved audience (`pipeline:report-research`). Use a pipeline audience for guidance about how reports get researched rather than about what the scouts watch, so it reaches that stage and no scout. Omit or leave blank for a general note every scout sees.",
