@@ -38,7 +38,7 @@ export const messagingSendEmailCreateBodyReplyToMax = 10
 
 export const messagingSendEmailCreateBodyFromMax = 1024
 
-export const MessagingSendEmailCreateBody = () => zod.object({
+export const MessagingSendEmailCreateBody = () => zod.strictObject({
     to: zod.email().describe('Email address of the recipient.'),
     template_key: zod
         .string()
@@ -115,7 +115,7 @@ export const messagingTemplatesCreateBodyContentOneEmailOneFromOneEmailMax = 254
 
 export const messagingTemplatesCreateBodyTypeMax = 24
 
-export const MessagingTemplatesCreateBody = () => zod.object({
+export const MessagingTemplatesCreateBody = () => zod.strictObject({
     name: zod
         .string()
         .max(messagingTemplatesCreateBodyNameMax)
@@ -129,7 +129,7 @@ export const MessagingTemplatesCreateBody = () => zod.object({
             'Tags for organizing templates, for example by team or use case. Tags are shared with the rest of the project. Omit to keep the current tags, send an empty list to remove them all.'
         ),
     content: zod
-        .object({
+        .strictObject({
             templating: zod
                 .enum(['liquid'])
                 .describe('\* `liquid` - liquid')
@@ -139,7 +139,7 @@ export const MessagingTemplatesCreateBody = () => zod.object({
                 ),
             email: zod
                 .union([
-                    zod.object({
+                    zod.strictObject({
                         subject: zod
                             .string()
                             .optional()
@@ -157,7 +157,7 @@ export const MessagingTemplatesCreateBody = () => zod.object({
                                 'Preview text that most inboxes show after the subject. Supports Liquid templating.'
                             ),
                         design: zod
-                            .object({
+                            .looseObject({
                                 counters: zod
                                     .looseObject({})
                                     .optional()
@@ -165,7 +165,7 @@ export const MessagingTemplatesCreateBody = () => zod.object({
                                         'Highest htmlID suffix per element type, e.g. {\"u_row\": 1, \"u_content_text\": 2}.'
                                     ),
                                 schemaVersion: zod.number().describe('Design schema version, e.g. 16.'),
-                                body: zod.object({
+                                body: zod.looseObject({
                                     id: zod.string().optional().describe('Any unique string.'),
                                     rows: zod
                                         .array(zod.looseObject({}))
@@ -187,7 +187,7 @@ export const MessagingTemplatesCreateBody = () => zod.object({
                                 "Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill."
                             ),
                         from: zod
-                            .object({
+                            .strictObject({
                                 email: zod
                                     .string()
                                     .max(messagingTemplatesCreateBodyContentOneEmailOneFromOneEmailMax)
@@ -272,7 +272,7 @@ export const messagingTemplatesPartialUpdateBodyContentOneEmailOneFromOneEmailMa
 
 export const messagingTemplatesPartialUpdateBodyTypeMax = 24
 
-export const MessagingTemplatesPartialUpdateBody = () => zod.object({
+export const MessagingTemplatesPartialUpdateBody = () => zod.strictObject({
     name: zod
         .string()
         .max(messagingTemplatesPartialUpdateBodyNameMax)
@@ -287,7 +287,7 @@ export const MessagingTemplatesPartialUpdateBody = () => zod.object({
             'Tags for organizing templates, for example by team or use case. Tags are shared with the rest of the project. Omit to keep the current tags, send an empty list to remove them all.'
         ),
     content: zod
-        .object({
+        .strictObject({
             templating: zod
                 .enum(['liquid'])
                 .describe('\* `liquid` - liquid')
@@ -297,7 +297,7 @@ export const MessagingTemplatesPartialUpdateBody = () => zod.object({
                 ),
             email: zod
                 .union([
-                    zod.object({
+                    zod.strictObject({
                         subject: zod
                             .string()
                             .optional()
@@ -315,7 +315,7 @@ export const MessagingTemplatesPartialUpdateBody = () => zod.object({
                                 'Preview text that most inboxes show after the subject. Supports Liquid templating.'
                             ),
                         design: zod
-                            .object({
+                            .looseObject({
                                 counters: zod
                                     .looseObject({})
                                     .optional()
@@ -323,7 +323,7 @@ export const MessagingTemplatesPartialUpdateBody = () => zod.object({
                                         'Highest htmlID suffix per element type, e.g. {\"u_row\": 1, \"u_content_text\": 2}.'
                                     ),
                                 schemaVersion: zod.number().describe('Design schema version, e.g. 16.'),
-                                body: zod.object({
+                                body: zod.looseObject({
                                     id: zod.string().optional().describe('Any unique string.'),
                                     rows: zod
                                         .array(zod.looseObject({}))
@@ -345,7 +345,7 @@ export const MessagingTemplatesPartialUpdateBody = () => zod.object({
                                 "Design JSON for PostHog's visual email editor — the authoring surface and source of truth. The server renders the sent email from it, and it opens as editable blocks in the editor. Full schema in the designing-email-templates skill."
                             ),
                         from: zod
-                            .object({
+                            .strictObject({
                                 email: zod
                                     .string()
                                     .max(messagingTemplatesPartialUpdateBodyContentOneEmailOneFromOneEmailMax)
@@ -410,10 +410,10 @@ export const MessagingTemplatesDesignPartialUpdateParams = () => zod.object({
         ),
 })
 
-export const MessagingTemplatesDesignPartialUpdateBody = () => zod.object({
+export const MessagingTemplatesDesignPartialUpdateBody = () => zod.strictObject({
     operations: zod
         .array(
-            zod.object({
+            zod.strictObject({
                 op: zod
                     .enum([
                         'update_content',
@@ -485,7 +485,7 @@ export const MessagingTemplatesMakeTransactionalCreateParams = () => zod.object(
         ),
 })
 
-export const MessagingTemplatesMakeTransactionalCreateBody = () => zod.object({
+export const MessagingTemplatesMakeTransactionalCreateBody = () => zod.strictObject({
     from_integration_id: zod
         .number()
         .nullish()

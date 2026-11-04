@@ -50,8 +50,8 @@ tools:
         description: >
             Get an email template by ID, including content.email (subject, text, design). Use this to fetch before
             updating — content is replaced as a whole and humans may have edited the design in the visual editor since
-            you last saw it, so build your update payload from this response. To display a template to the user, use
-            workflows-show-email-template instead.
+            you last saw it, so build the content of your update from this response. To display a template to the user,
+            use workflows-show-email-template instead.
         response:
             exclude:
                 - content.email.html
@@ -227,9 +227,10 @@ tools:
             button color, one paragraph), prefer workflows-patch-email-template — it sends just the changed fields
             instead of the entire design JSON. Use this tool to set content from scratch or replace it wholesale: call
             workflows-get-email-template first (the design may carry fresh human edits from the visual editor) and send
-            back the complete content.email with your edited design. The server re-renders the sent email from the
-            design on save. After updating, call workflows-show-email-template so the user sees the result, and share
-            the returned _posthogUrl edit link.
+            back the complete content with your edited design, plus only the other writable fields you change. The tool
+            refuses the read-only fields of a fetched template: created_at, updated_at, transactional_hog_flow_id and
+            _posthogUrl. The server re-renders the sent email from the design on save. After updating, call
+            workflows-show-email-template so the user sees the result, and share the returned _posthogUrl edit link.
         exclude_params:
             - content.email.html
             - draft_content
