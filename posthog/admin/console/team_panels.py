@@ -1,8 +1,11 @@
+from decimal import Decimal
+
+from django import forms
 from django.db.models import Model
 
 from posthog.admin.admins.team_admin import TeamAdmin
 from posthog.admin.console.bridge import AdminViewBridge
-from posthog.admin.console.panels import Fact, Operation, OperationField, Owner, Panel, Tone
+from posthog.admin.console.panels import Fact, Operation, Owner, Panel, ReasonForm, Tone
 from posthog.admin.console.registry import console
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.team.team import Team
@@ -56,6 +59,18 @@ class RemoteConfigPanel(Panel):
 
 
 AI_GATEWAY = Owner(name="AI gateway", crest="ai-gateway")
+
+
+class AddCreditForm(forms.Form):
+    amount_usd = forms.DecimalField(label="Amount (USD)", min_value=Decimal("0.01"), decimal_places=2)
+    reason = forms.CharField(widget=forms.Textarea(attrs={"rows": 3}), help_text="Shown in the top-up history.")
+
+
+class SetApiTokenForm(forms.Form):
+    new_token = forms.CharField(label="New API token")
+    reason = forms.CharField(widget=forms.Textarea(attrs={"rows": 3}), help_text="Goes into the audit log.")
+
+
 RECENT_TOP_UPS = 3
 
 
@@ -102,12 +117,7 @@ class AIGatewayPanel(Panel):
                 label="Add credit",
                 handler=AdminViewBridge(Team, TeamAdmin.add_ai_gateway_credit_view),
                 description="Adds USD credit to the team's gateway wallet.",
-                fields=(
-                    OperationField(name="amount_usd", label="Amount (USD)"),
-                    OperationField(
-                        name="reason", label="Reason", help_text="Shown in the top-up history.", multiline=True
-                    ),
-                ),
+                form_class=AddCreditForm,
             )
         ]
         if obj.llm_gateway_enabled_at is None:
@@ -126,6 +136,7 @@ class AIGatewayPanel(Panel):
                     handler=AdminViewBridge(Team, TeamAdmin.revoke_ai_gateway_view),
                     danger=True,
                     description="Blocks the team's gateway requests until the revoke is cleared.",
+                    form_class=ReasonForm,
                 )
             )
         else:
@@ -159,6 +170,6 @@ class ApiTokenPanel(Panel):
                 handler=AdminViewBridge(Team, TeamAdmin.set_api_token_view),
                 danger=True,
                 description="SDKs that still send the old token stop reaching this team.",
-                fields=(OperationField(name="new_token", label="New API token"),),
+                form_class=SetApiTokenForm,
             )
         ]
