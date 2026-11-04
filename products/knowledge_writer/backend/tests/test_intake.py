@@ -1,0 +1,138 @@
+import os
+import dataclasses
+
+import pytest
+from unittest.mock import patch
+
+from posthog.models.integration import Integration
+
+from products.knowledge_writer.backend.adapters.registry import REGISTRY
+from products.knowledge_writer.backend.facade.contracts import DocsCommandRequest
+from products.knowledge_writer.backend.facade.enums import DocsRequestSource
+from products.knowledge_writer.backend.feature_flags import AGENT_LAUNCH_FLAG
+from products.knowledge_writer.backend.logic import intake
+from products.knowledge_writer.backend.logic.launch import REQUEST_STATE_KEY
+from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.models import Task, TaskRun
+
+FLAG_CHECK = "products.knowledge_writer.backend.feature_flags.posthoganalytics.feature_enabled"
+START_WORKFLOW = "products.tasks.backend.logic.services.workflow_dispatch.enqueue_or_start_workflow"
+CAPTURE_VERDICT = "products.knowledge_writer.backend.logic.intake.capture_verdict"
+
+COMMAND = DocsCommandRequest(
+    repository="PostHog/posthog",
+    pull_request_number=123,
+    pull_request_url="https://github.com/PostHog/posthog/pull/123",
+    head_sha="abc123",
+    note="Document the new retention option.",
+    requested_by="@octo",
+    requested_by_user_id=42,
+)
+
+
+@pytest.fixture
+def writer_env(team, user):
+    Integration.objects.create(team=team, kind="github", integration_id="31337", config={})
+    with patch.dict(
+        os.environ,
+        {
+            "KNOWLEDGE_WRITER_TEAM_ID": str(team.id),
+            "KNOWLEDGE_WRITER_USER_ID": str(user.id),
+            "KNOWLEDGE_WRITER_DOCS_REPOSITORY": "PostHog/posthog.com",
+        },
+    ):
+        yield
+
+
+def _verdict():
+    return REGISTRY[DocsRequestSource.COMMAND_TAG].assess(COMMAND)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("has_writer_settings", [False, True])
+def test_nothing_runs_or_is_captured_while_the_writer_is_unconfigured_or_flagged_off(
+    request, team, has_writer_settings: bool
+) -> None:
+    if has_writer_settings:
+        request.getfixturevalue("writer_env")
+    with (
+        patch(FLAG_CHECK, return_value=False),
+        patch(CAPTURE_VERDICT) as capture_verdict,
+        patch(START_WORKFLOW) as start_workflow,
+    ):
+        outcome = intake.submit(_verdict(), team_id=team.id)
+
+    assert outcome.status == "unconfigured"
+    capture_verdict.assert_not_called()
+    start_workflow.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_no_agent_starts_while_the_launch_flag_is_off(team, writer_env) -> None:
+    with (
+        patch(FLAG_CHECK, side_effect=lambda flag, *args, **kwargs: flag != AGENT_LAUNCH_FLAG),
+        patch(START_WORKFLOW) as start_workflow,
+    ):
+        outcome = intake.submit(_verdict(), team_id=team.id)
+
+    assert outcome.status == "shadow"
+    start_workflow.assert_not_called()
+
+
+@pytest.mark.django_db
+def test_a_request_starts_one_internal_writer_task_and_a_repeat_is_a_duplicate(team, user, writer_env) -> None:
+    verdict = _verdict()
+    assert verdict.request is not None
+
+    with patch(FLAG_CHECK, return_value=True), patch(START_WORKFLOW):
+        started = intake.submit(verdict, team_id=team.id)
+        repeated = intake.submit(verdict, team_id=team.id)
+
+    assert started.status == "started"
+    assert repeated.status == "duplicate"
+    assert repeated.task_id == started.task_id
+    task = tasks_facade.get_task_by_origin_key(team.id, verdict.request.dedupe_id)
+    assert task is not None
+    assert task.origin_product == tasks_facade.TaskOriginProduct.KNOWLEDGE_WRITER
+    assert task.repository == "posthog/posthog.com"
+    stored_request = tasks_facade.read_task_state_entry(task.id, team.id, REQUEST_STATE_KEY)
+    assert isinstance(stored_request, dict)
+    assert stored_request["dedupe_id"] == verdict.request.dedupe_id
+    Task.objects.get(id=task.id).create_run()
+    run_states = TaskRun.objects.filter(task_id=task.id).values_list("state", flat=True)
+    assert len(run_states) == 2
+    assert all(state["config_snapshot"]["connectors"]["mcp_installation_ids"] == [] for state in run_states)
+    assert all(state["include_live_context"] is False for state in run_states)
+
+
+@pytest.mark.django_db
+def test_a_repeat_after_a_failed_run_starts_a_new_run_on_the_same_task(team, user, writer_env) -> None:
+    verdict = _verdict()
+    renewed_verdict = REGISTRY[DocsRequestSource.COMMAND_TAG].assess(
+        dataclasses.replace(COMMAND, head_sha="fff999", note="Only touch the API reference.")
+    )
+
+    with patch(FLAG_CHECK, return_value=True), patch(START_WORKFLOW) as start_workflow:
+        started = intake.submit(verdict, team_id=team.id)
+        assert started.task_id is not None
+        TaskRun.objects.filter(task_id=started.task_id).update(status=TaskRun.Status.FAILED)
+        rerun = intake.submit(renewed_verdict, team_id=team.id)
+        repeated = intake.submit(renewed_verdict, team_id=team.id)
+
+    assert (rerun.status, rerun.task_id) == ("started", started.task_id)
+    assert repeated.status == "duplicate"
+    assert start_workflow.call_count == 2
+    new_run = TaskRun.objects.filter(task_id=started.task_id).order_by("-created_at").first()
+    assert new_run is not None
+    assert new_run.state["pending_dispatch"]["create_pr"] is False
+    assert new_run.state["pending_dispatch"]["posthog_mcp_scopes"] == []
+    assert new_run.state["config_snapshot"] == {"connectors": {"mcp_installation_ids": []}}
+    assert new_run.state["include_live_context"] is False
+    task = Task.objects.get(id=started.task_id)
+    assert "fff999" in task.description and "Only touch the API reference." in task.description
+    stored_request = tasks_facade.read_task_state_entry(task.id, team.id, REQUEST_STATE_KEY)
+    assert (
+        isinstance(stored_request, dict) and stored_request["trigger_instructions"] == "Only touch the API reference."
+    )
+    dispatch_options = start_workflow.call_args.kwargs["options"]
+    assert (dispatch_options.create_pr, dispatch_options.posthog_mcp_scopes) == (False, [])

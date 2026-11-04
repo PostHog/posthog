@@ -23,7 +23,7 @@ import re
 import types
 import dataclasses
 import unicodedata
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from typing import Any, Literal, Union, get_args, get_origin, get_type_hints
 
 from posthog.dataclasses import frozen
@@ -94,6 +94,11 @@ class ReviewArgs:
 @frozen
 class QaArgs:
     focus: str = text("What to focus on. The agent gets it as your instruction.")
+
+
+@frozen
+class DocsArgs:
+    note: str = text("What should change in the docs. The writer gets it as your instruction.")
 
 
 @frozen
@@ -254,6 +259,7 @@ class CommandDeclaration[A]:
     # A fork's head is code nobody with write access has vetted. Commands that run or approve it
     # must refuse forks; only a command that reads nothing from the head may allow them.
     allows_forks: bool = False
+    pull_request_states: tuple[str, ...] = ("open",)
 
     def __post_init__(self) -> None:
         for verb in (self.verb, *self.aliases):
@@ -307,6 +313,14 @@ ASSIGN = CommandDeclaration(
     access=ResourceAccess(resource="error_tracking", level="editor"),
     subject_kinds=("error_tracking_issue",),
 )
+DOCS = CommandDeclaration(
+    verb="docs",
+    summary="Ask the knowledge writer to open a posthog.com docs pull request for this change.",
+    args=DocsArgs,
+    dispatches_to="Knowledge writer",
+    access=ResourceAccess(resource="task", level="editor"),
+    pull_request_states=("merged",),
+)
 # Answered by dispatch itself: it needs no PostHog account, project or pull request state.
 HELP = CommandDeclaration(
     verb=HELP_VERB,
@@ -317,7 +331,7 @@ HELP = CommandDeclaration(
     subject_kinds=get_args(SubjectKind),
 )
 
-COMMAND_DECLARATIONS: tuple[CommandDeclaration[Any], ...] = (REVIEW, STAMP, QA, LOOP, RESOLVE, ASSIGN)
+COMMAND_DECLARATIONS: tuple[CommandDeclaration[Any], ...] = (REVIEW, STAMP, QA, DOCS, LOOP, RESOLVE, ASSIGN)
 
 
 def _canonical_verbs(declarations: tuple[CommandDeclaration[Any], ...]) -> Mapping[str, str]:
@@ -473,7 +487,7 @@ def _what_it_does(declaration: CommandDeclaration[Any]) -> str:
     return " ".join(parts)
 
 
-def help_table(subject_kind: SubjectKind | None = None) -> str:
+def help_table(subject_kind: SubjectKind | None = None, hidden_verbs: Collection[str] = ()) -> str:
     """The command table for the help reply and `COMMANDS.generated.md`.
 
     With a kind, it lists only the commands that act on it. Without one, it lists every command
@@ -482,7 +496,7 @@ def help_table(subject_kind: SubjectKind | None = None) -> str:
     declarations = [
         declaration
         for declaration in (*COMMAND_DECLARATIONS, HELP)
-        if subject_kind is None or subject_kind in declaration.subject_kinds
+        if (subject_kind is None or subject_kind in declaration.subject_kinds) and declaration.verb not in hidden_verbs
     ]
     if subject_kind is not None:
         rows = ["| Command | Also | What it does |", "| --- | --- | --- |"]
