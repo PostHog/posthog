@@ -9,6 +9,7 @@ from posthog.hogql.direct_connection import (
 )
 from posthog.hogql.direct_sql.capability import bigquery_direct_query_enabled
 
+from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -21,6 +22,12 @@ from products.warehouse_sources.backend.facade.types import ExternalDataSourceTy
 
 WAREHOUSE_NATIVE_NODE_KIND = "ExperimentWarehouseNativeNode"
 WAREHOUSE_NATIVE_EXPOSURE_KIND = "ExperimentWarehouseNativeExposureConfig"
+
+
+@frozen
+class UnitBinding:
+    unit_type: str
+    id_namespace: str
 
 
 def warehouse_native_exposure_config(exposure_criteria: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -84,7 +91,7 @@ def warehouse_native_sources_agree(sources: list[dict[str, Any]]) -> str | None:
     connection_ids = {str(source.get("connection_id") or "") for source in sources}
     if len(connection_ids) > 1:
         raise ValidationError("All warehouse-native sources on an experiment must use the same connection.")
-    unit_bindings = {_unit_binding_key(source) for source in sources}
+    unit_bindings = {_unit_binding(source) for source in sources}
     if len(unit_bindings) > 1:
         raise ValidationError(
             "All warehouse-native sources on an experiment must use the same unit binding (unit_type and id_namespace)."
@@ -166,8 +173,8 @@ def _metric_source_nodes(metrics: list[dict[str, Any]]) -> list[dict[str, Any]]:
     ]
 
 
-def _unit_binding_key(source: dict[str, Any]) -> tuple[str, str]:
+def _unit_binding(source: dict[str, Any]) -> UnitBinding:
     unit = source.get("unit")
     if not isinstance(unit, dict):
-        return ("", "")
-    return (str(unit.get("unit_type") or ""), str(unit.get("id_namespace") or ""))
+        return UnitBinding(unit_type="", id_namespace="")
+    return UnitBinding(unit_type=str(unit.get("unit_type") or ""), id_namespace=str(unit.get("id_namespace") or ""))
