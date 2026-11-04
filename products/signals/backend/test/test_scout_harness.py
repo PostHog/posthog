@@ -77,6 +77,7 @@ from products.signals.backend.scout_harness.runner import (
     SIGNALS_SCOUT_FULL_NETWORK_ENV_NAME,
     SIGNALS_SCOUT_SANDBOX_ENV_NAME,
     RunResult,
+    _activity_summary_search_available,
     _ai_stage,
     _background_backoff_props,
     _create_run_row,
@@ -516,6 +517,79 @@ class TestPromptCacheablePrefix(SimpleTestCase):
             '"verdict"',
         ):
             assert value not in head, f"{value} interpolated above the per-run block"
+
+    @parameterized.expand(
+        [
+            ("signal_channel", [], True, False),
+            ("report_emit_only", ["emit_report"], True, True),
+            ("report_both", ["emit_report", "edit_report"], True, True),
+            ("report_edit_only", ["edit_report"], True, True),
+            ("report_both_unavailable", ["emit_report", "edit_report"], False, False),
+        ]
+    )
+    def test_activity_summary_search_nudge_renders_after_the_shared_prefix_only_when_available(
+        self, _name: str, allowed_tools: list[str], available: bool, rendered: bool
+    ) -> None:
+        prompt = build_run_prompt(
+            LoadedSkill(
+                name="signals-scout-reviewer-search",
+                version=1,
+                body="watch",
+                description="d",
+                allowed_tools=allowed_tools,
+                files=[],
+                skill_id="skill-1",
+                origin="custom",
+                authors=[],
+            ),
+            run_id="00000000-0000-0000-0000-000000000abc",
+            team_id=1,
+            started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+            activity_summary_search_available=available,
+        )
+
+        assert ("activity-summary-search" in prompt) is rendered
+        if rendered:
+            assert prompt.index("# Find people who read the work") > prompt.index("# Output format")
+
+
+class TestActivitySummarySearchAvailability(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("unnarrowed", None, True, True, True),
+            ("allowlist_holds_tool", ["activity-summary-search"], True, True, True),
+            ("allowlist_omits_tool", ["insight-get"], True, True, False),
+            ("search_flag_off", None, True, False, False),
+            ("not_enrolled_for_reads", None, False, True, False),
+        ]
+    )
+    def test_resolves_from_the_search_gate_and_the_run_allowlist(
+        self,
+        _name: str,
+        allowlist: list[str] | None,
+        enrolled: bool,
+        flag_on: bool,
+        expected: bool,
+    ) -> None:
+        with (
+            patch(
+                "products.signals.backend.activity_summary.search.readable_config",
+                return_value=MagicMock() if enrolled else None,
+            ),
+            patch("products.signals.backend.activity_summary.search.search_enabled", return_value=flag_on),
+        ):
+            assert _activity_summary_search_available(MagicMock(), allowlist) is expected
+
+    def test_a_failed_gate_check_resolves_false(self) -> None:
+        with (
+            patch(
+                "products.signals.backend.activity_summary.search.readable_config",
+                side_effect=RuntimeError("flag payload unavailable"),
+            ),
+            patch("products.signals.backend.scout_harness.runner.capture_exception") as capture,
+        ):
+            assert _activity_summary_search_available(MagicMock(), None) is False
+        capture.assert_called_once()
 
 
 class TestCheckoutSection(SimpleTestCase):
