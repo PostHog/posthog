@@ -83,6 +83,10 @@ describe('todayHighlightsLogic', () => {
         expect(shown()).toEqual(['insight:a', 'insight:e', 'insight:c', 'insight:f'])
         expect(capture).toHaveBeenCalledWith('today pulse metric hidden', expect.objectContaining({ position: 1 }))
 
+        logic.actions.loadHighlightsSuccess(makeHighlights({ pulse: pulse.filter((metric) => metric !== pulse[1]) }))
+        expect(shown()).toEqual(['insight:a', 'insight:e', 'insight:c', 'insight:f'])
+
+        logic.actions.loadHighlightsSuccess(makeHighlights({ pulse }))
         logic.actions.unhidePulseMetric(pulse[1], 1)
         expect(shown()).toEqual(['insight:a', 'insight:b', 'insight:c', 'insight:f'])
     })

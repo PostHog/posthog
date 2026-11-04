@@ -147,7 +147,8 @@ export function placePulseSlots(
     const shown: PulseSlotApi[] = []
     const nextPlaces: PulsePlace[] = []
     for (const place of kept) {
-        if (byKey.has(place.key) && isHidden(place.key)) {
+        const original = byKey.has(place.key)
+        if ((original && isHidden(place.key)) || (!original && place.standIn !== null)) {
             const standIn = take(place.standIn)
             if (standIn) {
                 shown.push(standIn)
