@@ -1539,6 +1539,13 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                     )
 
         masked_columns_changed = _validate_masked_columns(instance, validated_data, data)
+        # A reset keeps an incremental history table, the only copy of past versions, so the rebuild a mask
+        # change starts would leave the earlier values readable there.
+        if masked_columns_changed and instance.is_incremental and history_mode_before is not None:
+            raise ValidationError(
+                "This table keeps a history table, and masking can't change the values it already holds. "
+                "To mask a column, choose the consolidated table only first."
+            )
 
         # Validate against the schema's columns; raw filters are persisted as-is and re-coerced at sync time.
         if "row_filters" in validated_data and validated_data["row_filters"] is not None:

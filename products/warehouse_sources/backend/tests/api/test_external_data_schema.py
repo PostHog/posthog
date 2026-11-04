@@ -4943,6 +4943,29 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
         assert INCREMENTAL_HISTORY_KEY not in self.schema.sync_type_config
 
     @parameterized.expand([("both",), ("cdc_only",)])
+    def test_masking_a_column_of_a_table_that_keeps_incremental_history_is_refused(self, mode: str):
+        self.schema.sync_type = ExternalDataSchema.SyncType.INCREMENTAL
+        self.schema.sync_type_config = {
+            "incremental_field": "updated_at",
+            "incremental_field_type": "datetime",
+            "primary_key_columns": ["id"],
+            "cdc_table_mode": mode,
+            INCREMENTAL_HISTORY_KEY: True,
+            "schema_metadata": {
+                "columns": [
+                    {"name": name, "data_type": "text", "is_nullable": True} for name in ("id", "email", "updated_at")
+                ]
+            },
+        }
+        self.schema.save()
+
+        with pytest.raises(ValidationError, match="history table"):
+            self._save_through_serializer(self.schema, {"masked_columns": ["email"]})
+
+        self.schema.refresh_from_db()
+        assert not self.schema.masked_columns
+
+    @parameterized.expand([("both",), ("cdc_only",)])
     def test_unselecting_a_column_hides_it_from_the_incremental_history_table(self, mode: str):
         from products.warehouse_sources.backend.facade.source_management import history_table_name
 
