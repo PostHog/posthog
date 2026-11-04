@@ -120,6 +120,8 @@ describe('searchLogic', () => {
         ['semantic-layer', 'productsItems', 'Data catalog'],
         ['featureflags', 'productsItems', 'Feature flags'],
         ['Feature Flags', 'productsItems', 'Feature flags'],
+        ['replay', 'productsItems', 'Session replay'],
+        ['replays', 'productsItems', 'Session replay'],
     ] as const)('finds an item by a manifest search keyword: %s', (search, selector, itemName) => {
         const matches = filterSearchItems(logic.values[selector], search)
         expect(matches.map((item) => item.name)).toContain(itemName)

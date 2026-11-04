@@ -3236,7 +3236,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         intents: [ProductKey.SESSION_REPLAY, ProductKey.MOBILE_REPLAY],
         category: ProductItemCategory.PRODUCT_ENGINEERING,
         href: urls.replay(ReplayTabs.Home),
-        searchKeywords: ['replay', 'sessions', 'recordings', 'session recording'],
+        searchKeywords: ['replay', 'replays', 'sessions', 'recordings', 'session recording'],
         searchTabs: [{ name: 'Collections', href: urls.replay(ReplayTabs.Playlists), searchKeywords: ['playlists'] }],
         type: 'session_recording_playlist',
         iconType: 'session_replay',
