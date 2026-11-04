@@ -1324,8 +1324,11 @@ const LlmaEvaluationReportRunListSchema = () => {
     const LlmAnalyticsEvaluationReportsRunsListParams = orvalSchemas.LlmAnalyticsEvaluationReportsRunsListParams()
     const LlmAnalyticsEvaluationReportsRunsListQueryParams =
         orvalSchemas.LlmAnalyticsEvaluationReportsRunsListQueryParams()
-    return LlmAnalyticsEvaluationReportsRunsListParams.omit({ project_id: true }).extend(
-        LlmAnalyticsEvaluationReportsRunsListQueryParams.shape
+    return z.preprocess(
+        normalizeParamAliases({ id: ['report_id', 'reportId'] }),
+        LlmAnalyticsEvaluationReportsRunsListParams.omit({ project_id: true }).extend(
+            LlmAnalyticsEvaluationReportsRunsListQueryParams.shape
+        )
     )
 }
 

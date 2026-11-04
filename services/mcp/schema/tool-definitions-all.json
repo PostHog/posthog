@@ -9564,7 +9564,7 @@
         }
     },
     "llma-evaluation-report-run-list": {
-        "description": "List the run history for a specific evaluation report config. Each run record includes the generated report content, the evaluation period covered, delivery status ('pending', 'delivered', 'failed'), and any delivery error details.",
+        "description": "List the run history for a specific evaluation report config. `id` is the report config's UUID, not the evaluation's: to find it from an evaluation, call llma-evaluation-report-list with the evaluation's UUID in `evaluation`. Each run record includes the generated report content, the evaluation period covered, delivery status ('pending', 'delivered', 'failed'), and any delivery error details.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List evaluation report runs",
