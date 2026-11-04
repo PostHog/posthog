@@ -31,7 +31,6 @@ Be honest about the limits, because they decide whether it fits:
 
 - One recipient for each call.
 - Transactional emails are in beta, and they are billed and quota limited like other workflow emails.
-- Sending email from code is rolling out. A project that can't do it yet uses a PostHog template; see **When code sends aren't on yet** below.
 
 ## Code or template
 
@@ -79,17 +78,6 @@ Get these right in the code you write:
 - **Local evaluation:** The posthog-node client starts polling feature flag definitions with the secret key when it starts, and a send-only key can't do that. Set `enableLocalEvaluation: false` on a Node.js client that only sends email, or give the key the feature flag read scope too. The Python client loads flag definitions only when it evaluates a flag.
 - **Errors:** Let the SDK's error reach the caller, or branch on its `code`, such as `recipient_suppressed` or `quota_limited`. Don't wrap it in a generic error or match on the message. The docs list every code.
 - **Uncertain outcomes:** After a `network_error` or a `503`, PostHog might have queued the email. Retry with the same idempotency key. Never send that email again some other way, such as through another email service, because the recipient can get it twice.
-
-## When code sends aren't on yet
-
-Sending from code is rolling out. A project without it answers a code send, one with `template_key`, with `404` and the code `not_found`; a code send has no other reason to answer that. When the test send answers it:
-
-1. Tell the user in one line: "This project can't send email from code yet, so the email goes in a PostHog template instead."
-2. Move the email's content into a PostHog template with **Design it in PostHog**. Keep the code send until the template is transactional. If those steps stop on a missing tool, leave the code as it is, tell the user, and stop.
-3. Change the send to the template form: pass `templateId` and `templateData` (`template_id` and `template_data` in Python, `template_id` and `message_data` over HTTP) in place of `templateKey`, `subject`, `html` and `text`. Keep the distinct ID and the idempotency key, and remove the code version of the email.
-4. Send the test again.
-
-Don't retry the code send.
 
 ## Check what happened to an email
 
