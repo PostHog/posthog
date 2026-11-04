@@ -183,6 +183,19 @@ def prefill_config(
     provider: str, source_type: ExternalDataSourceType, vendor_config: Mapping[str, Any]
 ) -> dict[str, Any]:
     """Non-secret source settings keyed by PostHog payload path. A dot is a nested field."""
+    return {
+        posthog_key: vendor_config[vendor_key]
+        for vendor_key, posthog_key in _prefill_key_map(provider, source_type).items()
+        if vendor_config.get(vendor_key) not in (None, "")
+    }
+
+
+def prefill_vendor_keys(provider: str, source_type: ExternalDataSourceType) -> frozenset[str]:
+    """The vendor config keys `prefill_config` reads for this source."""
+    return frozenset(_prefill_key_map(provider, source_type))
+
+
+def _prefill_key_map(provider: str, source_type: ExternalDataSourceType) -> dict[str, str]:
     rules = _PROVIDERS[provider]
     fields = SourceRegistry.get_source(source_type).get_source_config.fields
     key_map = {
@@ -191,8 +204,4 @@ def prefill_config(
     if any(isinstance(field, SourceFieldSSHTunnelConfig) for field in fields):
         key_map.update(rules.tunnel_config_keys)
     key_map.update(rules.config_key_overrides.get(source_type, {}))
-    return {
-        posthog_key: vendor_config[vendor_key]
-        for vendor_key, posthog_key in key_map.items()
-        if vendor_config.get(vendor_key) not in (None, "")
-    }
+    return key_map
