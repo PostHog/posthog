@@ -48,7 +48,7 @@ import { integer, positive_integer } from './type-utils'
 /**
  * This filter only works with absolute dates. A bound without a UTC offset is read in the project timezone.
  */
-export interface AssistantDateRange {
+export interface AssistantBasicDateRange {
     /**
      * ISO8601 date string.
      */
@@ -57,6 +57,25 @@ export interface AssistantDateRange {
      * ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.
      */
     date_to?: string | null
+}
+
+/**
+ * This filter only works with durations.
+ */
+export interface AssistantBasicDurationRange {
+    /**
+     * Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary.
+     * Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start.
+     */
+    date_from: string
+}
+
+export type AssistantBasicDateRangeFilter = AssistantBasicDateRange | AssistantBasicDurationRange
+
+/**
+ * This filter only works with absolute dates. A bound without a UTC offset is read in the project timezone.
+ */
+export interface AssistantDateRange extends AssistantBasicDateRange {
     /**
      * Exclude the current, still-collecting interval from the result.
      * @default false
@@ -67,12 +86,7 @@ export interface AssistantDateRange {
 /**
  * This filter only works with durations.
  */
-export interface AssistantDurationRange {
-    /**
-     * Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary.
-     * Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start.
-     */
-    date_from: string
+export interface AssistantDurationRange extends AssistantBasicDurationRange {
     /**
      * Exclude the current, still-collecting interval from the result.
      * @default false
@@ -1687,7 +1701,7 @@ export interface AssistantTracesQuery {
     /**
      * Date range for the query.
      */
-    dateRange?: AssistantDateRangeFilter
+    dateRange?: AssistantBasicDateRangeFilter
 
     /**
      * Maximum number of traces to return.
@@ -1759,7 +1773,7 @@ export interface AssistantTraceQuery {
     /**
      * Date range for the query.
      */
-    dateRange?: AssistantDateRangeFilter
+    dateRange?: AssistantBasicDateRangeFilter
 
     /**
      * Property filters to narrow events within the trace.

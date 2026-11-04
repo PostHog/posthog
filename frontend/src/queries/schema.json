@@ -2484,6 +2484,44 @@
                 }
             ]
         },
+        "AssistantBasicDateRange": {
+            "additionalProperties": false,
+            "description": "This filter only works with absolute dates. A bound without a UTC offset is read in the project timezone.",
+            "properties": {
+                "date_from": {
+                    "description": "ISO8601 date string.",
+                    "type": "string"
+                },
+                "date_to": {
+                    "description": "ISO8601 date string. A calendar day without a time (`2026-09-01`) is inclusive to the last moment of that day.",
+                    "type": ["string", "null"]
+                }
+            },
+            "required": ["date_from"],
+            "type": "object"
+        },
+        "AssistantBasicDateRangeFilter": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/AssistantBasicDateRange"
+                },
+                {
+                    "$ref": "#/definitions/AssistantBasicDurationRange"
+                }
+            ]
+        },
+        "AssistantBasicDurationRange": {
+            "additionalProperties": false,
+            "description": "This filter only works with durations.",
+            "properties": {
+                "date_from": {
+                    "description": "Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start.",
+                    "type": "string"
+                }
+            },
+            "required": ["date_from"],
+            "type": "object"
+        },
         "AssistantBehavioralPropertyFilter": {
             "additionalProperties": false,
             "properties": {
@@ -5565,7 +5603,7 @@
             "description": "Fetch a single LLM trace by ID. Returns the full trace with all child events and their complete properties — use for deep inspection of a specific trace found via `query-llm-traces-list`.",
             "properties": {
                 "dateRange": {
-                    "$ref": "#/definitions/AssistantDateRangeFilter",
+                    "$ref": "#/definitions/AssistantBasicDateRangeFilter",
                     "description": "Date range for the query."
                 },
                 "kind": {
@@ -5593,7 +5631,7 @@
             "description": "Query LLM traces to inspect AI/LLM usage. Returns a list of traces with latency, token usage, costs, errors, and other metadata. Use for AI observability — debugging slow generations, investigating errors, analyzing token spend, and auditing LLM behavior.\n\nThis is a listing tool, not a visualization/insight tool. It does not support series, breakdowns, or math aggregations. Use property filters and dateRange to narrow results.",
             "properties": {
                 "dateRange": {
-                    "$ref": "#/definitions/AssistantDateRangeFilter",
+                    "$ref": "#/definitions/AssistantBasicDateRangeFilter",
                     "description": "Date range for the query."
                 },
                 "filterSupportTraces": {
@@ -6153,7 +6191,7 @@
                     "description": "Conversion goal — pass an `actionId` (must belong to the current project) or a `customEventName`. Adds conversion columns to the response. Disables the pre-aggregated fast path — only set when the user explicitly asks about a conversion."
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/AssistantDateRangeFilter",
+                    "$ref": "#/definitions/AssistantBasicDateRangeFilter",
                     "description": "Date range for the query. Defaults to the last 7 days when omitted. Keep ranges short — the backend has no upper bound and large windows on the slow path (e.g. with `conversionGoal` or `includeAvgTimeOnPage`) can be expensive."
                 },
                 "doPathCleaning": {
@@ -6194,7 +6232,7 @@
                     "description": "Conversion goal — pass an `actionId` (must belong to the current project) or a `customEventName`. Adds conversion columns to the response. Disables the pre-aggregated fast path — only set when the user explicitly asks about a conversion."
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/AssistantDateRangeFilter",
+                    "$ref": "#/definitions/AssistantBasicDateRangeFilter",
                     "description": "Date range for the query. Defaults to the last 7 days when omitted. Keep ranges short — the backend has no upper bound and large windows on the slow path (e.g. with `conversionGoal` or `includeAvgTimeOnPage`) can be expensive."
                 },
                 "doPathCleaning": {
@@ -6244,7 +6282,7 @@
                     "description": "Conversion goal — pass an `actionId` (must belong to the current project) or a `customEventName`. Adds conversion columns to the response. Disables the pre-aggregated fast path — only set when the user explicitly asks about a conversion."
                 },
                 "dateRange": {
-                    "$ref": "#/definitions/AssistantDateRangeFilter",
+                    "$ref": "#/definitions/AssistantBasicDateRangeFilter",
                     "description": "Date range for the query. Defaults to the last 7 days when omitted. Keep ranges short — the backend has no upper bound and large windows on the slow path (e.g. with `conversionGoal` or `includeAvgTimeOnPage`) can be expensive."
                 },
                 "doPathCleaning": {
@@ -6299,7 +6337,7 @@
             "description": "Per-page Core Web Vitals breakdown for one metric at one percentile. Returns the pages bucketed into `good` / `needs_improvements` / `poor` bands, with each page's value — mirrors the in-product **Web vitals** tab.\n\nUse this when the user asks \"which pages are slow?\", \"where is our LCP/INP/ CLS/FCP bad?\", or wants a page-level performance audit. Run it once per metric. For a site-wide trend of a vitals metric over time, use `query-trends` on the `$web_vitals` event instead.",
             "properties": {
                 "dateRange": {
-                    "$ref": "#/definitions/AssistantDateRangeFilter",
+                    "$ref": "#/definitions/AssistantBasicDateRangeFilter",
                     "description": "Date range for the query. Defaults to the last 7 days when omitted — a good window for a stable percentile."
                 },
                 "doPathCleaning": {
