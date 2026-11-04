@@ -2549,7 +2549,9 @@ def send_personal_api_keys_changed_by_org_admin(
             "organization_id": organization_id,
         },
     )
-    subject = f"An admin of {organization_name} changed your personal API keys"
+    one_change = len(changes) == 1
+    keys_noun = "personal API key" if one_change else "personal API keys"
+    subject = f"An admin of {organization_name} changed your {keys_noun}"
     message = EmailMessage(
         use_http=True,
         campaign_key=f"personal-api-keys-changed-by-org-admin-{user.uuid}-{timezone.now().timestamp()}",
@@ -2557,6 +2559,8 @@ def send_personal_api_keys_changed_by_org_admin(
         template_name="personal_api_key_changed_by_org_admin",
         template_context={
             "preheader": subject,
+            "heading": f"An admin changed your {keys_noun}",
+            "changes_intro": f"made {'this change' if one_change else 'these changes'} to your {keys_noun}",
             "organization_name": organization_name,
             "acting_user_email": acting_user_email,
             "changes": changes,

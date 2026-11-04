@@ -34,6 +34,8 @@ import type {
     OrganizationDataFreshnessApi,
     OrganizationMemberApi,
     OrganizationMemberGithubLoginApi,
+    OrganizationPersonalAPIKeyActionResultApi,
+    OrganizationPersonalAPIKeyBulkActionResultApi,
     OrganizationRemoveBlockedMembersResponseApi,
     PaginatedActivityLogListApi,
     PaginatedApprovalPolicyListApi,
@@ -419,6 +421,76 @@ export const personalApiKeysList = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getOrganizationPersonalApiKeysRevokeUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/personal_api_keys/${id}/revoke/`
+}
+
+export const organizationPersonalApiKeysRevoke = async (
+    organizationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<OrganizationPersonalAPIKeyActionResultApi> => {
+    return apiMutator<OrganizationPersonalAPIKeyActionResultApi>(
+        getOrganizationPersonalApiKeysRevokeUrl(organizationId, id),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
+}
+
+export const getOrganizationPersonalApiKeysRollUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/personal_api_keys/${id}/roll/`
+}
+
+export const organizationPersonalApiKeysRoll = async (
+    organizationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<OrganizationPersonalAPIKeyActionResultApi> => {
+    return apiMutator<OrganizationPersonalAPIKeyActionResultApi>(
+        getOrganizationPersonalApiKeysRollUrl(organizationId, id),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
+}
+
+export const getOrganizationPersonalApiKeysRevokeAllUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/personal_api_keys/revoke_all/`
+}
+
+export const organizationPersonalApiKeysRevokeAll = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<OrganizationPersonalAPIKeyBulkActionResultApi> => {
+    return apiMutator<OrganizationPersonalAPIKeyBulkActionResultApi>(
+        getOrganizationPersonalApiKeysRevokeAllUrl(organizationId),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
+}
+
+export const getOrganizationPersonalApiKeysRollAllUrl = (organizationId: string) => {
+    return `/api/organizations/${organizationId}/personal_api_keys/roll_all/`
+}
+
+export const organizationPersonalApiKeysRollAll = async (
+    organizationId: string,
+    options?: RequestInit
+): Promise<OrganizationPersonalAPIKeyBulkActionResultApi> => {
+    return apiMutator<OrganizationPersonalAPIKeyBulkActionResultApi>(
+        getOrganizationPersonalApiKeysRollAllUrl(organizationId),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
 }
 
 export const getProxyRecordsListUrl = (organizationId: string) => {

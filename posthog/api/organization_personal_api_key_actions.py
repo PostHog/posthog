@@ -1,5 +1,5 @@
-from collections import defaultdict
-from collections.abc import Mapping, Sequence
+from collections import Counter, defaultdict
+from collections.abc import Callable, Mapping, Sequence
 
 from django.db import transaction
 
@@ -9,7 +9,7 @@ from posthog.enums import LabeledStrEnum
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.activity_logging.model_activity import ActingUserContext
 from posthog.models.activity_logging.personal_api_key_utils import OrganizationAdminKeyActionContext
-from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.personal_api_key import PersonalAPIKey, get_organization_personal_api_keys
 
 
 @frozen
@@ -88,6 +88,22 @@ class KeyActionResult:
 
 
 @frozen
+class KeyActionCounts:
+    rolled: int
+    deleted: int
+    access_removed: int
+
+    @classmethod
+    def of(cls, results: Sequence[KeyActionResult]) -> "KeyActionCounts":
+        outcomes = Counter(result.outcome for result in results)
+        return cls(
+            rolled=outcomes[KeyActionOutcome.ROLLED],
+            deleted=outcomes[KeyActionOutcome.DELETED],
+            access_removed=outcomes[KeyActionOutcome.ACCESS_REMOVED],
+        )
+
+
+@frozen
 class _KeyScopes:
     scoped_teams: list[int] | None
     scoped_organizations: list[str] | None
@@ -101,6 +117,7 @@ class OrganizationPersonalAPIKeyActions:
     """
 
     def __init__(self, organization: Organization, acting_user: User) -> None:
+        self._organization = organization
         self._organization_id = str(organization.id)
         self._acting_user = acting_user
 
@@ -136,6 +153,21 @@ class OrganizationPersonalAPIKeyActions:
                     key.scoped_organizations = scopes.scoped_organizations
                     key.save(update_fields=["scoped_teams", "scoped_organizations"])
             return result
+
+    def roll_all(self) -> tuple[KeyActionCounts, list[KeyActionResult]]:
+        return self._act_on_all(self.roll)
+
+    def revoke_all(self) -> tuple[KeyActionCounts, list[KeyActionResult]]:
+        return self._act_on_all(self.revoke)
+
+    def _act_on_all(
+        self, act: Callable[[str], KeyActionResult | None]
+    ) -> tuple[KeyActionCounts, list[KeyActionResult]]:
+        key_ids = list(
+            get_organization_personal_api_keys(self._organization).order_by("pk").values_list("id", flat=True)
+        )
+        results = [result for key_id in key_ids if (result := act(key_id)) is not None]
+        return KeyActionCounts.of(results), results
 
     @staticmethod
     def _lock(key_id: str) -> PersonalAPIKey | None:

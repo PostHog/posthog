@@ -10,6 +10,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.api.organization_personal_api_key_actions import OrganizationPersonalAPIKeyActions
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -45,6 +46,19 @@ class TestOrganizationPersonalAPIKeyAPI(APIBaseTest):
 
     def _action_url(self, key: PersonalAPIKey, action: str) -> str:
         return f"{self._url()}{key.id}/{action}/"
+
+    def _bulk_action_url(self, action: str) -> str:
+        return f"{self._url()}{action}/"
+
+    def _key_state(self, key: PersonalAPIKey) -> str:
+        current = PersonalAPIKey.objects.filter(pk=key.pk).first()
+        if current is None:
+            return "deleted"
+        if current.secure_value != key.secure_value:
+            return "rolled"
+        if (current.scoped_teams, current.scoped_organizations) != (key.scoped_teams, key.scoped_organizations):
+            return "access_removed"
+        return "untouched"
 
     def _create_owner_in_other_orgs(self, *, owner_joins_b: bool = True) -> User:
         self.org_b = Organization.objects.create(name="action-probe-org-b-2c9e4a")
@@ -353,28 +367,32 @@ class TestOrganizationPersonalAPIKeyAPI(APIBaseTest):
             secure_values
         )
 
-    @parameterized.expand([("roll",), ("revoke",)])
-    def test_actions_require_recent_authentication(self, action: str) -> None:
+    @parameterized.expand([("roll", True), ("revoke", True), ("roll_all", False), ("revoke_all", False)])
+    def test_actions_require_recent_authentication(self, action: str, detail: bool) -> None:
         self._set_level(OrganizationMembership.Level.ADMIN)
         key = self._create_key(User.objects.create_and_join(self.organization, "member@example.com", None))
+        url = self._action_url(key, action) if detail else self._bulk_action_url(action)
 
         with time_machine.travel(
             datetime.now() + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10), tick=False
         ):
-            response = self.client.post(self._action_url(key, action))
+            response = self.client.post(url)
+            list_response = self.client.get(self._url())
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
         assert response.json()["code"] == "sensitive_action_required_reauth"
+        assert list_response.status_code == status.HTTP_200_OK, list_response.content
 
-    @parameterized.expand([("roll",), ("revoke",)])
-    def test_actions_reject_personal_api_key_auth(self, action: str) -> None:
+    @parameterized.expand([("roll", True), ("revoke", True), ("roll_all", False), ("revoke_all", False)])
+    def test_actions_reject_personal_api_key_auth(self, action: str, detail: bool) -> None:
         self._set_level(OrganizationMembership.Level.ADMIN)
         admin_value = generate_random_token_personal()
         self._create_key(self.user, value=admin_value, scopes=["*"])
         key = self._create_key(User.objects.create_and_join(self.organization, "member@example.com", None))
+        url = self._action_url(key, action) if detail else self._bulk_action_url(action)
         self.client.logout()
 
-        response = self.client.post(self._action_url(key, action), HTTP_AUTHORIZATION=f"Bearer {admin_value}")
+        response = self.client.post(url, HTTP_AUTHORIZATION=f"Bearer {admin_value}")
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
         assert PersonalAPIKey.objects.get(pk=key.pk).secure_value == key.secure_value
@@ -394,4 +412,123 @@ class TestOrganizationPersonalAPIKeyAPI(APIBaseTest):
             organization_id=str(self.organization.id),
             acting_user_email=self.user.email,
             changes=[{"label": "ci-key", "mask_value": key.mask_value, "outcome": "deleted"}],
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "roll_all",
+                {"rolled": 4, "deleted": 0, "access_removed": 0},
+                {
+                    "single_org": "rolled",
+                    "multi_org": "rolled",
+                    "admin_org_scoped": "rolled",
+                    "teams_o_b": "rolled",
+                    "outsider": "untouched",
+                },
+            ),
+            (
+                "revoke_all",
+                {"rolled": 0, "deleted": 2, "access_removed": 2},
+                {
+                    "single_org": "deleted",
+                    "multi_org": "access_removed",
+                    "admin_org_scoped": "deleted",
+                    "teams_o_b": "access_removed",
+                    "outsider": "untouched",
+                },
+            ),
+        ]
+    )
+    def test_bulk_actions_cover_every_key(
+        self, action: str, expected_counts: dict[str, int], expected_states: dict[str, str]
+    ) -> None:
+        self._set_level(OrganizationMembership.Level.ADMIN)
+        owner = self._create_owner_in_other_orgs()
+        single_org_member = User.objects.create_and_join(self.organization, "single-org@example.com", None)
+        outsider_org = Organization.objects.create(name="bulk-outsider-org-5d1f7b")
+        outsider = User.objects.create_and_join(outsider_org, "bulk-outsider@example.com", None)
+        keys = {
+            "single_org": self._create_key(single_org_member),
+            "multi_org": self._create_scoped_key(owner, (), ()),
+            "admin_org_scoped": self._create_scoped_key(self.user, (), ("O",)),
+            "teams_o_b": self._create_scoped_key(owner, ("O", "B"), ()),
+            "outsider": self._create_key(outsider),
+        }
+
+        response = self.client.post(self._bulk_action_url(action))
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json() == expected_counts
+        assert {name: self._key_state(key) for name, key in keys.items()} == expected_states
+
+    @patch.object(send_personal_api_keys_changed_by_org_admin, "delay")
+    def test_bulk_action_sends_one_email_per_owner(self, mock_delay: MagicMock) -> None:
+        self._set_level(OrganizationMembership.Level.ADMIN)
+        owner = User.objects.create_and_join(self.organization, "two-keys@example.com", None)
+        other_owner = User.objects.create_and_join(self.organization, "one-key@example.com", None)
+        first_key = self._create_key(owner, label="first-key")
+        second_key = self._create_key(owner, label="second-key")
+        other_key = self._create_key(other_owner, label="other-key")
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(self._bulk_action_url("roll_all"))
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert len(mock_delay.call_args_list) == 2
+        calls_by_owner = {
+            call.kwargs["user_id"]: {
+                **call.kwargs,
+                "changes": sorted(call.kwargs["changes"], key=lambda change: change["label"]),
+            }
+            for call in mock_delay.call_args_list
+        }
+        common = {"organization_id": str(self.organization.id), "acting_user_email": self.user.email}
+        assert calls_by_owner == {
+            owner.id: {
+                **common,
+                "user_id": owner.id,
+                "changes": [
+                    {"label": "first-key", "mask_value": first_key.mask_value, "outcome": "rolled"},
+                    {"label": "second-key", "mask_value": second_key.mask_value, "outcome": "rolled"},
+                ],
+            },
+            other_owner.id: {
+                **common,
+                "user_id": other_owner.id,
+                "changes": [{"label": "other-key", "mask_value": other_key.mask_value, "outcome": "rolled"}],
+            },
+        }
+
+    @parameterized.expand(
+        [
+            ("roll_all", {"rolled": 1, "deleted": 0, "access_removed": 0}),
+            ("revoke_all", {"rolled": 0, "deleted": 1, "access_removed": 0}),
+        ]
+    )
+    def test_bulk_action_skips_key_that_left_org(self, action: str, expected_counts: dict[str, int]) -> None:
+        self._set_level(OrganizationMembership.Level.ADMIN)
+        owner = self._create_owner_in_other_orgs()
+        self._create_key(User.objects.create_and_join(self.organization, "single-org@example.com", None))
+        leaving_key = self._create_scoped_key(owner, (), ("O", "B"))
+        real_lock = OrganizationPersonalAPIKeyActions._lock
+        locked_key_ids: list[str] = []
+
+        def rescope_then_lock(key_id: str) -> PersonalAPIKey | None:
+            locked_key_ids.append(key_id)
+            if key_id == leaving_key.id:
+                PersonalAPIKey.objects.filter(pk=key_id).update(scoped_organizations=[self.org_refs["B"]])
+            return real_lock(key_id)
+
+        with patch.object(OrganizationPersonalAPIKeyActions, "_lock", side_effect=rescope_then_lock):
+            response = self.client.post(self._bulk_action_url(action))
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json() == expected_counts
+        assert leaving_key.id in locked_key_ids
+        after = PersonalAPIKey.objects.get(pk=leaving_key.pk)
+        assert (after.secure_value, after.scoped_teams, after.scoped_organizations) == (
+            leaving_key.secure_value,
+            None,
+            [self.org_refs["B"]],
         )

@@ -564,6 +564,8 @@ export interface OrganizationPersonalAPIKeyAccessScopeApi {
 }
 
 export interface OrganizationPersonalAPIKeyApi {
+    /** Unique ID of the key. */
+    readonly id: string
     /** The organization member who owns this key. */
     readonly owner: OrganizationPersonalAPIKeyOwnerApi
     /** Masked, display-safe hint of the key value (e.g. 'phx_***1234'). Not the secret. The owner sees the same masked value in their own settings, so it can be used to identify a key. */
@@ -572,6 +574,8 @@ export interface OrganizationPersonalAPIKeyApi {
     readonly scopes: readonly string[]
     /** Where the key's scopes apply within this organization. */
     readonly access_scope: OrganizationPersonalAPIKeyAccessScopeApi
+    /** Whether the key also works in at least one other organization its owner belongs to. */
+    readonly reaches_other_organizations: boolean
     /**
      * When the key was last used to authenticate, if ever.
      * @nullable
@@ -588,6 +592,37 @@ export interface PaginatedOrganizationPersonalAPIKeyListApi {
     /** @nullable */
     previous?: string | null
     results: OrganizationPersonalAPIKeyApi[]
+}
+
+/**
+ * * `rolled` - Rolled
+ * * `deleted` - Deleted
+ * * `access_removed` - Access Removed
+ */
+export type KeyActionOutcomeEnumApi = (typeof KeyActionOutcomeEnumApi)[keyof typeof KeyActionOutcomeEnumApi]
+
+export const KeyActionOutcomeEnumApi = {
+    Rolled: 'rolled',
+    Deleted: 'deleted',
+    AccessRemoved: 'access_removed',
+} as const
+
+export interface OrganizationPersonalAPIKeyActionResultApi {
+    /** What happened to the key. 'rolled': the key has a new secret that nobody sees, and the old secret no longer works anywhere. 'deleted': the key no longer exists. 'access_removed': the key no longer works in this organization and keeps working in the owner's other organizations.
+     *
+     * * `rolled` - Rolled
+     * * `deleted` - Deleted
+     * * `access_removed` - Access Removed */
+    outcome: KeyActionOutcomeEnumApi
+}
+
+export interface OrganizationPersonalAPIKeyBulkActionResultApi {
+    /** Number of keys that got a new secret that nobody sees. Their old secrets no longer work anywhere. */
+    rolled: number
+    /** Number of keys that no longer exist. */
+    deleted: number
+    /** Number of keys that no longer work in this organization and keep working in the owner's other organizations. */
+    access_removed: number
 }
 
 /**

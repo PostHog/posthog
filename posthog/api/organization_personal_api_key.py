@@ -1,3 +1,6 @@
+from collections import defaultdict
+from collections.abc import Sequence
+from functools import partial
 from typing import Any, cast
 
 from django.db import transaction
@@ -10,6 +13,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.organization_personal_api_key_actions import (
+    KeyActionCounts,
     KeyActionOutcome,
     KeyActionResult,
     KeyReachResolver,
@@ -121,6 +125,17 @@ class OrganizationPersonalAPIKeyActionResultSerializer(serializers.Serializer):
     )
 
 
+class OrganizationPersonalAPIKeyBulkActionResultSerializer(serializers.Serializer):
+    rolled = serializers.IntegerField(
+        help_text="Number of keys that got a new secret that nobody sees. Their old secrets no longer work anywhere."
+    )
+    deleted = serializers.IntegerField(help_text="Number of keys that no longer exist.")
+    access_removed = serializers.IntegerField(
+        help_text="Number of keys that no longer work in this organization and keep working in the owner's "
+        "other organizations."
+    )
+
+
 @extend_schema(extensions={"x-product": "platform_features"})
 class OrganizationPersonalAPIKeyViewSet(
     TeamAndOrgViewSetMixin,
@@ -148,6 +163,10 @@ class OrganizationPersonalAPIKeyViewSet(
         return key
 
     def get_serializer(self, *args: Any, **kwargs: Any) -> serializers.BaseSerializer:
+        # drf-spectacular calls this with no authenticated user, so `self.organization` fails. Build the serializer
+        # the way drf-spectacular does for a view that keeps the default `get_serializer`.
+        if getattr(self, "swagger_fake_view", False):
+            return self.get_serializer_class()(*args, **kwargs)
         context = kwargs.setdefault("context", self.get_serializer_context())
         if kwargs.get("many") and args:
             context["reach_resolver"] = KeyReachResolver.for_keys(list(args[0]))
@@ -178,21 +197,54 @@ class OrganizationPersonalAPIKeyViewSet(
         key = self.get_object()
         return self._action_response(self._key_actions().revoke(key.id))
 
+    @extend_schema(
+        operation_id="organization_personal_api_keys_roll_all",
+        request=None,
+        responses={200: OrganizationPersonalAPIKeyBulkActionResultSerializer},
+    )
+    @action(methods=["POST"], detail=False)
+    def roll_all(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        counts, results = self._key_actions().roll_all()
+        return self._bulk_action_response(counts, results)
+
+    @extend_schema(
+        operation_id="organization_personal_api_keys_revoke_all",
+        request=None,
+        responses={200: OrganizationPersonalAPIKeyBulkActionResultSerializer},
+    )
+    @action(methods=["POST"], detail=False)
+    def revoke_all(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        counts, results = self._key_actions().revoke_all()
+        return self._bulk_action_response(counts, results)
+
     def _key_actions(self) -> OrganizationPersonalAPIKeyActions:
         return OrganizationPersonalAPIKeyActions(self.organization, cast(User, self.request.user))
 
     def _action_response(self, result: KeyActionResult | None) -> Response:
         if result is None:
             raise NotFound()
+        self._queue_owner_emails([result])
+        return Response(OrganizationPersonalAPIKeyActionResultSerializer({"outcome": result.outcome}).data)
+
+    def _bulk_action_response(self, counts: KeyActionCounts, results: Sequence[KeyActionResult]) -> Response:
+        self._queue_owner_emails(results)
+        return Response(OrganizationPersonalAPIKeyBulkActionResultSerializer(counts).data)
+
+    def _queue_owner_emails(self, results: Sequence[KeyActionResult]) -> None:
+        changes_by_owner: defaultdict[int, list[dict[str, str]]] = defaultdict(list)
+        for result in results:
+            changes_by_owner[result.owner_id].append(
+                {"label": result.label, "mask_value": result.mask_value, "outcome": str(result.outcome)}
+            )
         organization_id = str(self.organization.id)
         acting_user_email = cast(User, self.request.user).email
-        changes = [{"label": result.label, "mask_value": result.mask_value, "outcome": str(result.outcome)}]
-        transaction.on_commit(
-            lambda: send_personal_api_keys_changed_by_org_admin.delay(
-                user_id=result.owner_id,
-                organization_id=organization_id,
-                acting_user_email=acting_user_email,
-                changes=changes,
+        for owner_id, changes in changes_by_owner.items():
+            transaction.on_commit(
+                partial(
+                    send_personal_api_keys_changed_by_org_admin.delay,
+                    user_id=owner_id,
+                    organization_id=organization_id,
+                    acting_user_email=acting_user_email,
+                    changes=changes,
+                )
             )
-        )
-        return Response(OrganizationPersonalAPIKeyActionResultSerializer({"outcome": result.outcome}).data)
