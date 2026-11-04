@@ -200,6 +200,27 @@ describe('LemonTable', () => {
         }
     )
 
+    it('reports the rows in sorted order, and again only when they change', () => {
+        const onSortedRowsChange = jest.fn()
+        const table = (dataSource: Row[]): JSX.Element => (
+            <LemonTable
+                rowKey="id"
+                dataSource={dataSource}
+                columns={[...COLUMNS]}
+                defaultSorting={{ columnKey: 'value', order: 1 }}
+                onSortedRowsChange={onSortedRowsChange}
+            />
+        )
+        const { rerender } = render(table(DATA))
+        expect(onSortedRowsChange.mock.calls).toEqual([[[DATA[1], DATA[2], DATA[0]]]])
+
+        rerender(table(DATA))
+        expect(onSortedRowsChange).toHaveBeenCalledTimes(1)
+
+        rerender(table([DATA[0]]))
+        expect(onSortedRowsChange).toHaveBeenLastCalledWith([DATA[0]])
+    })
+
     it('does not rerender retained virtualized cells when scrolling', () => {
         const height = jest
             .spyOn(HTMLElement.prototype, 'offsetHeight', 'get')

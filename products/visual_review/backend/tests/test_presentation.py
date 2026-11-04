@@ -1063,11 +1063,11 @@ class TestMalformedUuid(VisualReviewTeamScopedTestMixin, APIBaseTest):
             ("repo_retrieve", "get", "repos/{bad}/", status.HTTP_404_NOT_FOUND),
             # A second path capture, declared in path_parameters next to pk.
             ("cancel_lift", "post", "runs/{run}/quarantine_lifts/{bad}/cancel/", status.HTTP_404_NOT_FOUND),
-            # Parent path segment (parents_query_dict), which path_parameters does not parse.
-            ("repo_nested_runs", "get", "repos/{bad}/runs/", status.HTTP_400_BAD_REQUEST),
+            # A parent path segment, declared in path_parameters by its bare name.
+            ("repo_nested_runs", "get", "repos/{bad}/runs/", status.HTTP_404_NOT_FOUND),
         ]
     )
-    def test_malformed_uuid_is_not_a_500(self, _name: str, method: str, path: str, expected_status: int) -> None:
+    def test_malformed_uuid_is_a_404(self, _name: str, method: str, path: str, expected_status: int) -> None:
         suffix = path.format(bad=self.BAD_UUID, run=self.RUN_ID)
         response = getattr(self.client, method)(f"/api/projects/{self.team.id}/visual_review/{suffix}")
 

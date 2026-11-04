@@ -22,6 +22,7 @@ import type {
     ComposeTicketApi,
     ComposeTicketResponseApi,
     ConversationsMacrosListParams,
+    ConversationsTicketsAttachmentsCreateBody,
     ConversationsTicketsListParams,
     ConversationsTicketsMessagesListParams,
     ConversationsViewsListParams,
@@ -35,6 +36,7 @@ import type {
     PatchedTicketViewApi,
     SigningSecretApi,
     TicketApi,
+    TicketAttachmentApi,
     TicketFullEmailApi,
     TicketMacroApi,
     TicketMessageApi,
@@ -400,6 +402,34 @@ export const conversationsTicketsAiHumanOutcomeCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(aiHumanOutcomeRequestApi),
+    })
+}
+
+export const getConversationsTicketsAttachmentsCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/conversations/tickets/${id}/attachments/`
+}
+
+/**
+ * Upload a file to put in a reply to this ticket.
+ *
+ * Images are validated and shown inline. Other files are stored as they are and
+ * served as a download. Widget tickets do not accept file attachments yet.
+ */
+export const conversationsTicketsAttachmentsCreate = async (
+    projectId: string,
+    id: string,
+    conversationsTicketsAttachmentsCreateBody?: ConversationsTicketsAttachmentsCreateBody,
+    options?: RequestInit
+): Promise<TicketAttachmentApi> => {
+    const formData = new FormData()
+    if (conversationsTicketsAttachmentsCreateBody?.file !== undefined) {
+        formData.append(`file`, conversationsTicketsAttachmentsCreateBody.file)
+    }
+
+    return apiMutator<TicketAttachmentApi>(getConversationsTicketsAttachmentsCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        body: formData,
     })
 }
 

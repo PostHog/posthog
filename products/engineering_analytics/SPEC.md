@@ -211,6 +211,7 @@ Warehouse table (Depot source):
     Failed, canceled, and unsettled relays and waits stay visible, and a recovered relay retains its earlier failure history.
     Suppression applies to runs and jobs; raw source rows remain available for full runner-cost accounting.
     Curated cost estimates cover visible execution jobs and exclude suppressed hand-off and relay overhead, so they cannot establish total runner spend or reconcile an invoice.
+    `depot_ci_usage` sums the raw attempts of every Depot source and prices them at the Depot CI rate in `logic/cost.py`.
 
 The Depot source is attempt-grained. A terminal run with no executed job attempts has no row here, so
 the normalized run inventory cannot establish total run completeness. Vendor pagination can omit runs

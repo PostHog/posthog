@@ -1,4 +1,3 @@
-import { LogicWrapper } from 'kea'
 import type { PostHog, PropertyMatchType, SupportedWebVitalsMetrics } from 'posthog-js'
 import { LogLevel } from 'posthog-js/rrweb-plugin-console-record'
 import { eventWithTime } from 'posthog-js/rrweb-types'
@@ -113,7 +112,6 @@ import type { InsightFilterOverrideContextApi } from 'products/product_analytics
 import type { AIPromptConfigApi, DeliveryConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
 import type { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 import type {
-    ExternalDataSourceTypeEnumApi,
     IncrementalSyncBlockedReasonEnumApi,
     RowFilterColumnApi,
 } from 'products/warehouse_sources/frontend/generated/api.schemas'
@@ -424,9 +422,11 @@ export interface UserType extends UserBaseType {
     realm?: Realm
     is_email_verified?: boolean | null
     pending_email?: string | null
-    is_2fa_enabled: boolean
+    /** Absent until the app context's full stage arrives. */
+    is_2fa_enabled?: boolean
     has_social_auth: boolean
-    has_sso_enforcement: boolean
+    /** Absent until the app context's full stage arrives. */
+    has_sso_enforcement?: boolean
     shortcut_position: UserShortcutPosition
     has_seen_product_intro_for?: Record<string, boolean>
     hide_mcp_hints?: boolean
@@ -952,6 +952,8 @@ export interface WorkflowsConfig {
     // Null on either disables the marketing frequency cap.
     marketing_frequency_cap_max_messages?: number | null
     marketing_frequency_cap_window_days?: number | null
+    // Null skips a capped marketing message at once instead of holding it for a free slot.
+    marketing_frequency_cap_hold_hours?: number | null
 }
 
 export interface ProductIntentType {
@@ -1529,6 +1531,8 @@ export interface SessionRecordingSnapshotResponse {
     sources?: SessionRecordingSnapshotSource[]
     snapshots?: EncodedRecordingSnapshot[]
     replay_proxy_token?: string | null
+    block_token?: string | null
+    block_token_expires_at?: string | null
 }
 
 export interface SessionPlayerSnapshotData {
@@ -2963,27 +2967,6 @@ export interface PluginType {
 }
 
 export type AppType = PluginType
-
-/** Config passed to app component and logic as props. Sent in Django's app context */
-export interface FrontendAppConfig {
-    pluginId: number
-    pluginConfigId: number
-    pluginType: PluginInstallationType | null
-    name: string
-    url: string
-    config: Record<string, any>
-}
-
-/** Frontend app created after receiving a bundle via import('').getFrontendApp() */
-export interface FrontendApp {
-    id: number
-    pluginId: number
-    error?: any
-    title?: string
-    logic?: LogicWrapper
-    component?: (props: FrontendAppConfig) => JSX.Element
-    onInit?: (props: FrontendAppConfig) => void
-}
 
 export interface JobPayloadFieldOptions {
     type: 'string' | 'boolean' | 'json' | 'number' | 'date' | 'daterange'
@@ -5288,7 +5271,8 @@ export interface AppContext {
     default_event_name: string | null
     has_pageview: boolean
     has_screen: boolean
-    has_person_email: boolean
+    /** Absent until the app context's full stage arrives. */
+    has_person_email?: boolean
     /**
      * Flags the server bootstraps as enabled (a list of keys). Storybook may instead pass a
      * record to pin specific multivariate variants (e.g. an experiment arm) for a story.
@@ -5297,7 +5281,6 @@ export interface AppContext {
     /** Whether the server's access gate gives this user PostHog AI 2.0. Absent when no user is signed in. */
     posthog_ai_access?: boolean
     anonymous: boolean
-    frontend_apps?: Record<number, FrontendAppConfig>
     effective_resource_access_control: Record<AccessControlResourceType, AccessControlLevel>
     resource_access_control: Record<AccessControlResourceType, AccessControlLevel>
     commit_sha?: string
@@ -5733,13 +5716,21 @@ export enum SlackIntegrationScope {
 
 export const SLACK_INTEGRATION_SCOPES = Object.values(SlackIntegrationScope)
 
-// Nothing is pending Slack app-directory review right now, so there is no in-review list.
-// To stage a scope that Slack hasn't approved yet, reintroduce a `SlackIntegrationScopeInReview`
-// enum here holding only the pending entries, re-export it from schema-general.ts, and have
-// `POSTHOG_SLACK_SCOPE` (posthog/models/integration/oauth.py) and `useSlackRequiredScopes` append it on
-// DEV/local only — requesting an unapproved scope anywhere else fails with `invalid_scope`.
-// The enum cannot be left empty between rounds: JSON Schema rejects a zero-length `enum`, so
-// `hogli build:schema` fails on it.
+// Scopes that wait on Slack app review. Only DEV and local development request them, because the
+// US and EU apps reject them with `invalid_scope`. Move a scope to SlackIntegrationScope when Slack approves it.
+/** @schemaEnum */
+export enum SlackIntegrationScopeInReview {
+    CANVASES_READ = 'canvases:read',
+    CHANNELS_JOIN = 'channels:join',
+}
+
+export const SLACK_INTEGRATION_SCOPES_IN_REVIEW = Object.values(SlackIntegrationScopeInReview)
+
+export function slackRequestedScopes(includeInReview: boolean): string[] {
+    return includeInReview
+        ? [...SLACK_INTEGRATION_SCOPES, ...SLACK_INTEGRATION_SCOPES_IN_REVIEW]
+        : [...SLACK_INTEGRATION_SCOPES]
+}
 
 export interface IntegrationType {
     id: number
@@ -5755,6 +5746,8 @@ export interface IntegrationType {
     installation_shared?: IntegrationConfigApi['installation_shared']
     /** GitHub only. `unavailable` once the App was removed or suspended on GitHub. */
     installation_status?: IntegrationConfigApi['installation_status']
+    /** Linear only. True when the workspace last authorized PostHog before the app had webhooks. */
+    needs_webhook_reconnect?: IntegrationConfigApi['needs_webhook_reconnect']
 }
 
 export interface EmailIntegrationDomainGroupedType {
@@ -6151,6 +6144,7 @@ export enum ActivityScope {
     ORGANIZATION_INVITE = 'OrganizationInvite',
     ORGANIZATION_DOMAIN = 'OrganizationDomain',
     OAUTH_APPLICATION = 'OAuthApplication',
+    WORKLOAD_TRUST_POLICY = 'WorkloadTrustPolicy',
     LEGAL_DOCUMENT = 'LegalDocument',
     ERROR_TRACKING_ISSUE = 'ErrorTrackingIssue',
     DATA_WAREHOUSE_EXPRESSION = 'DataWarehouseExpression',
@@ -6275,6 +6269,7 @@ export interface DataModelingNode {
     last_run_status?: DataModelingJobStatus
     last_run_error?: string | null
     sync_interval?: DataModelingSyncInterval
+    pinned?: boolean
     suspended?: NodeApiSuspended
     /** Set on endpoint nodes stamped at materialization enable; older nodes carry only the name */
     endpoint?: NodeEndpointApi | null
@@ -6310,6 +6305,8 @@ export interface DataWarehouseSavedQuery {
     /** Whether the view is set up to update incrementally. A run can still rebuild the whole table,
      * for example on its first run or after the query changes. */
     is_incremental?: boolean
+    /** The view stores raw Trino SQL. Only hosted Trino can run it, and HogQL cannot reference it. */
+    is_raw_managed_trino?: boolean
     /** Engine → suspension details */
     suspended?: DataWarehouseSavedQueryApiSuspended
     created_by?: UserBasicType | null
@@ -6408,13 +6405,19 @@ export const manualLinkSources = ['aws', 'google-cloud', 'cloudflare-r2', 'azure
 
 export type ManualLinkSourceType = (typeof manualLinkSources)[number]
 
+/**
+ * A warehouse source's catalog key, e.g. 'Stripe'. A source plugin can name itself with any key, so this
+ * is a plain string and not a union of the known keys. The wizard endpoint lists the keys that exist.
+ */
+export type ExternalDataSourceType = string
+
 export interface ExternalDataSourceRevenueAnalyticsConfig {
     enabled: boolean
     include_invoiceless_charges: boolean
 }
 
 export interface ExternalDataSourceCreatePayload {
-    source_type: ExternalDataSourceTypeEnumApi
+    source_type: ExternalDataSourceType
     prefix?: string
     description?: string
     access_method?: 'warehouse' | 'direct'
@@ -6446,7 +6449,7 @@ export interface ExternalDataSource {
     source_id: string
     connection_id: string
     status: ExternalDataJobStatus
-    source_type: ExternalDataSourceTypeEnumApi
+    source_type: ExternalDataSourceType
     prefix: string | null
     description: string | null
     created_by?: string | null
@@ -6698,7 +6701,7 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
 /** Lightweight parent-source summary embedded in the single-schema retrieve endpoint. */
 export interface ExternalDataSchemaSourceSummary {
     id: string
-    source_type: ExternalDataSourceTypeEnumApi
+    source_type: ExternalDataSourceType
     access_method?: ExternalDataSource['access_method']
     supports_column_selection?: boolean
     supports_row_filters?: boolean
@@ -7338,6 +7341,7 @@ export type CyclotronJobInputSchemaType = {
         | 'task_repository'
         | 'task_mcp_installations'
         | 'signals_scout'
+        | 'posthog_survey'
         | 'replay_vision_scan'
         | 'task_skills'
     key: string
@@ -7939,6 +7943,10 @@ export type OAuthScopeResolution = {
     scopes: string[]
     /** Whether the client sent no usable `scope` (omitted, or cut off mid-token), so the server picked the set. */
     was_defaulted: boolean
+    /** Scopes of `scopes` the user granted this app before, which a step-up keeps. Shown as granted and not removable. */
+    already_granted_scopes?: string[]
+    /** Where the newest earlier grant applies. A step-up pre-selects it, so the token keeps its projects. Both lists empty means all of them. */
+    earlier_access?: { scoped_teams: number[]; scoped_organizations: string[] }
 }
 
 export type OAuthApplicationPublicMetadata = {

@@ -59,6 +59,25 @@ export function rankingPrediction(
     return ranking?.predictions.find((prediction) => prediction.outcome === outcome)
 }
 
+export interface RankingPillLifts {
+    open: number | null
+    action: number | null
+    fix: number | null
+}
+
+/** The lifts the Recommended pill shows, or null when the report has no current score to show. */
+export function rankingPillLifts(report: SignalReport): RankingPillLifts | null {
+    if (report.ranking?.status !== 'scored') {
+        return null
+    }
+    const lift = (outcome: string): number | null => {
+        const value = rankingPrediction(report.ranking, outcome)?.lift
+        return typeof value === 'number' && Number.isFinite(value) ? value : null
+    }
+    const lifts = { open: lift('open'), action: lift('action'), fix: lift('fix') }
+    return lifts.open === null && lifts.action === null && lifts.fix === null ? null : lifts
+}
+
 /** The served probability a model sort orders by, or null when the report has no score for that outcome or the score is stale. */
 export function rankingSortScore(report: SignalReport, field: InboxRankingSortField): number | null {
     if (report.ranking?.status !== 'scored') {
