@@ -308,6 +308,9 @@ export class SandboxEmailSender {
         }
         const { team: dailyTeamCap, recipient: dailyRecipientCap } = this.dailyCaps
         const addresses = distinctAddresses(recipients)
+        // Members may store one address in two cases, and a mail server can treat each case as its own
+        // mailbox, so the project allowance counts each distinct spelling as one email.
+        const emails = new Set(recipients.map((recipient) => recipient.trim())).size
         let claim: Awaited<ReturnType<RateLimiterService['claimAllOrNothing']>>
         try {
             const team = await this.teamManager.getTeam(teamId)
@@ -316,7 +319,7 @@ export class SandboxEmailSender {
             }
             const prefix = dailyCapKeyPrefix(team.organization_id)
             claim = await this.dailyCapLimiter.claimAllOrNothing([
-                dailyBucket(`${prefix}/project/${teamId}`, addresses.length, dailyTeamCap),
+                dailyBucket(`${prefix}/project/${teamId}`, emails, dailyTeamCap),
                 ...addresses.map((address) =>
                     dailyBucket(`${prefix}/recipient/${addressDigest(address)}`, 1, dailyRecipientCap)
                 ),
