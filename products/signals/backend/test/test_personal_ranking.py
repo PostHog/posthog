@@ -62,19 +62,34 @@ MODEL_REASONS = {ref: f"model {ref}" for ref in REFS}
 LIMITS = ReasonLimits(top=40, worth_a_look=30, later=20)
 
 
-def _entry(ref: str, rank: Any, tier: str = "worth_a_look", reason: str = "matches", next_step: str | None = None):
-    return {"ref": ref, "rank": rank, "tier": tier, "reason": reason, "matched": None, "next_step": next_step}
+def _entry(
+    ref: str,
+    rank: Any,
+    tier: str = "worth_a_look",
+    reason: str = "matches",
+    next_step: str | None = None,
+    matched: dict | None = None,
+):
+    return {"ref": ref, "rank": rank, "tier": tier, "reason": reason, "matched": matched, "next_step": next_step}
 
 
 def _answer(ranked: list[dict], folded: list[dict] | None = None) -> str:
     return json.dumps({"ranked": ranked, "folded": folded or []})
 
 
-def _validate(content: str | None, limit: int = 2, rank_top: int = 10, top_max: int = 5, worth_a_look_max: int = 10):
+def _validate(
+    content: str | None,
+    limit: int = 2,
+    rank_top: int = 10,
+    top_max: int = 5,
+    worth_a_look_max: int = 10,
+    needs_you: dict[str, tuple] | None = None,
+):
     return validate_ranking(
         content,
         refs=REFS,
         model_reasons=MODEL_REASONS,
+        needs_you=needs_you or {},
         limit=limit,
         rank_top=rank_top,
         top_max=top_max,
@@ -231,6 +246,62 @@ class TestValidateRanking(SimpleTestCase):
 
     @parameterized.expand(
         [
+            (
+                "status_read_as_a_personal_claim_falls_back_to_the_theme",
+                {"theme": "Checkout", "needs_you": ["waiting_on_input"]},
+                (),
+                {"theme": "Checkout", "needs_you": ()},
+                "Matches your recent work: Checkout.",
+                1,
+            ),
+            (
+                "false_claim_with_no_theme_gets_the_model_reason",
+                {"theme": None, "needs_you": ["suggested_reviewer"]},
+                (),
+                {"theme": None, "needs_you": ()},
+                "model c1",
+                1,
+            ),
+            (
+                "only_the_false_kind_drops_and_the_real_fact_wins_over_the_theme",
+                {"theme": "Checkout", "needs_you": ["waiting_on_input", "claimed"]},
+                ("claimed",),
+                {"theme": "Checkout", "needs_you": ("claimed",)},
+                "model c1",
+                1,
+            ),
+            (
+                "true_claim_keeps_the_model_reason",
+                {"theme": None, "needs_you": ["claimed"]},
+                ("claimed",),
+                {"theme": None, "needs_you": ("claimed",)},
+                "Waiting on you",
+                0,
+            ),
+        ]
+    )
+    def test_needs_you_claims_must_match_the_facts(
+        self,
+        _name: str,
+        matched: dict,
+        facts: tuple,
+        expected_matched: dict,
+        expected_reason: str,
+        expected_false: int,
+    ) -> None:
+        result = _validate(
+            _answer([_entry("c1", 1, tier="top", reason="Waiting on you", matched=matched)]),
+            needs_you={"c1": facts},
+        )
+
+        entry = result.entries[0]
+        assert (entry.rank, entry.tier) == (1, "top")
+        assert dataclasses.asdict(entry.matched) == expected_matched
+        assert entry.reason == expected_reason
+        assert result.counts.false_needs_you == expected_false
+
+    @parameterized.expand(
+        [
             ("empty", None),
             ("not_json", "Here is your ranking: c1, c2"),
             ("no_ranked_list", json.dumps({"order": ["c1"]})),
@@ -287,7 +358,7 @@ class TestInputParts(SimpleTestCase):
 
         assert (
             input_hash(candidates, activity_summary_version=7, focus="checkout")
-            == "8b3bc5b28875163b6769d657f08d4351f846fbd0293ca46563bd930743ed5958"
+            == "f942040677219aed0d042d2e28ac23bb82ae2e26e40fe21eb10d7d2b17466fdd"
         )
 
     @parameterized.expand(
