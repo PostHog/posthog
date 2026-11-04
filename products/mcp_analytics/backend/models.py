@@ -134,8 +134,15 @@ class MCPSession(UUIDModel, TeamScopedRootMixin):
 
 
 class ActiveTopicManager(TeamScopedManager["MCPIntentTopic"]):
+    # The base for_team() and unscoped() build a fresh queryset without get_queryset(), so each one repeats the filter.
     def get_queryset(self) -> TeamScopedQuerySet["MCPIntentTopic"]:
         return super().get_queryset().filter(status=MCPIntentTopic.Status.ACTIVE)
+
+    def for_team(self, team_id: int, *, canonical: bool = False) -> TeamScopedQuerySet["MCPIntentTopic"]:
+        return super().for_team(team_id, canonical=canonical).filter(status=MCPIntentTopic.Status.ACTIVE)
+
+    def unscoped(self) -> TeamScopedQuerySet["MCPIntentTopic"]:
+        return super().unscoped().filter(status=MCPIntentTopic.Status.ACTIVE)
 
 
 class MCPIntentTopic(UUIDModel, TeamScopedRootMixin):
