@@ -10,6 +10,7 @@ from products.warehouse_sources.sources.aws_iam_access_analyzer.canonical_descri
 from products.warehouse_sources.sources.aws_iam_access_analyzer.settings import (
     API_DOCS_URL,
     API_VERSION,
+    AWS_SESSION_ACTIONS,
     DEFAULT_REGION,
     ENDPOINTS,
     ERROR_MESSAGES,
@@ -57,6 +58,7 @@ class AwsIamAccessAnalyzerSource(ResumableSource[AwsIamAccessAnalyzerSourceConfi
     api_docs_url = API_DOCS_URL
 
     flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    aws_session_actions = AWS_SESSION_ACTIONS
     credential_kind = "aws-iam-access-analyzer"
 
     @property
@@ -93,7 +95,7 @@ class AwsIamAccessAnalyzerSource(ResumableSource[AwsIamAccessAnalyzerSourceConfi
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
-            credentials = resolve_aws_credentials(config.aws_auth, team_id)
+            credentials = resolve_aws_credentials(config.aws_auth, team_id, AWS_SESSION_ACTIONS)
         except AwsAuthError as error:
             return False, str(error)
         return validate_credentials(config, credentials, schema_name, self.resolve_api_version(api_version))
@@ -106,7 +108,7 @@ class AwsIamAccessAnalyzerSource(ResumableSource[AwsIamAccessAnalyzerSourceConfi
         api_version: str | None = None,
     ) -> dict[str, str | None]:
         try:
-            credentials = resolve_aws_credentials(config.aws_auth, team_id)
+            credentials = resolve_aws_credentials(config.aws_auth, team_id, AWS_SESSION_ACTIONS)
         except AwsAuthError as error:
             return aws_auth_endpoint_reasons(error, endpoints)
         return {
@@ -127,7 +129,7 @@ class AwsIamAccessAnalyzerSource(ResumableSource[AwsIamAccessAnalyzerSourceConfi
     ) -> SourceResponse:
         return aws_iam_access_analyzer_source(
             config,
-            resolve_aws_credentials(config.aws_auth, inputs.team_id),
+            resolve_aws_credentials(config.aws_auth, inputs.team_id, AWS_SESSION_ACTIONS),
             inputs.schema_name,
             resumable_source_manager,
             self.resolve_api_version(inputs.api_version),

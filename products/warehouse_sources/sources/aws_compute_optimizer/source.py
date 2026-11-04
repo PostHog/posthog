@@ -10,6 +10,7 @@ from products.warehouse_sources.sources.aws_compute_optimizer.canonical_descript
 from products.warehouse_sources.sources.aws_compute_optimizer.settings import (
     API_DOCS_URL,
     API_VERSION,
+    AWS_SESSION_ACTIONS,
     ENDPOINTS,
     ERROR_MESSAGES,
 )
@@ -59,6 +60,7 @@ class AwsComputeOptimizerSource(ResumableSource[AwsComputeOptimizerSourceConfig,
     api_docs_url = API_DOCS_URL
 
     flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    aws_session_actions = AWS_SESSION_ACTIONS
     credential_kind = "aws-compute-optimizer"
 
     @property
@@ -95,7 +97,7 @@ class AwsComputeOptimizerSource(ResumableSource[AwsComputeOptimizerSourceConfig,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
-            credentials = resolve_aws_credentials(config.aws_auth, team_id)
+            credentials = resolve_aws_credentials(config.aws_auth, team_id, AWS_SESSION_ACTIONS)
         except AwsAuthError as error:
             return False, str(error)
         return validate_credentials(config, credentials, schema_name, self.resolve_api_version(api_version))
@@ -113,7 +115,7 @@ class AwsComputeOptimizerSource(ResumableSource[AwsComputeOptimizerSourceConfig,
     ) -> SourceResponse:
         return aws_compute_optimizer_source(
             config,
-            resolve_aws_credentials(config.aws_auth, inputs.team_id),
+            resolve_aws_credentials(config.aws_auth, inputs.team_id, AWS_SESSION_ACTIONS),
             inputs.schema_name,
             resumable_source_manager,
             self.resolve_api_version(inputs.api_version),

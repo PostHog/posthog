@@ -170,3 +170,11 @@ BODY_RETRY_CODES = frozenset(
         "FederationSourceRetryableException",
     }
 )
+
+
+# The IAM actions this source calls. A role session can use only these.
+AWS_SESSION_ACTIONS = (
+    "glue:BatchGet*",
+    "glue:Get*",
+    "glue:List*",
+)

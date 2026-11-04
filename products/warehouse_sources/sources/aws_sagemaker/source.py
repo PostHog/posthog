@@ -9,6 +9,7 @@ from products.warehouse_sources.sources.aws_sagemaker.aws_sagemaker import (
 )
 from products.warehouse_sources.sources.aws_sagemaker.canonical_descriptions import CANONICAL_DESCRIPTIONS
 from products.warehouse_sources.sources.aws_sagemaker.settings import (
+    AWS_SESSION_ACTIONS,
     ENDPOINT_DESCRIPTIONS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -75,6 +76,7 @@ class AwsSagemakerSource(ResumableSource[AwsSagemakerSourceConfig, AwsSagemakerR
     api_docs_url = "https://docs.aws.amazon.com/sagemaker/latest/APIReference/API_Operations.html"
 
     flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    aws_session_actions = AWS_SESSION_ACTIONS
     credential_kind = "aws-sagemaker"
 
     @property
@@ -109,7 +111,7 @@ class AwsSagemakerSource(ResumableSource[AwsSagemakerSourceConfig, AwsSagemakerR
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
-            credentials = resolve_aws_credentials(config.aws_auth, team_id)
+            credentials = resolve_aws_credentials(config.aws_auth, team_id, AWS_SESSION_ACTIONS)
         except AwsAuthError as error:
             return False, str(error)
         return validate_credentials(config, credentials, schema_name, self.resolve_api_version(api_version))
@@ -125,7 +127,7 @@ class AwsSagemakerSource(ResumableSource[AwsSagemakerSourceConfig, AwsSagemakerR
     ) -> SourceResponse:
         return aws_sagemaker_source(
             config,
-            resolve_aws_credentials(config.aws_auth, inputs.team_id),
+            resolve_aws_credentials(config.aws_auth, inputs.team_id, AWS_SESSION_ACTIONS),
             inputs.schema_name,
             self.resolve_api_version(inputs.api_version),
             resumable_source_manager,

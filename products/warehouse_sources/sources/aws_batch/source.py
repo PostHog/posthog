@@ -8,6 +8,7 @@ from products.warehouse_sources.sources.aws_batch.aws_batch import (
 )
 from products.warehouse_sources.sources.aws_batch.canonical_descriptions import CANONICAL_DESCRIPTIONS
 from products.warehouse_sources.sources.aws_batch.settings import (
+    AWS_SESSION_ACTIONS,
     BATCH_API_VERSION,
     ENDPOINT_DESCRIPTIONS,
     ENDPOINTS,
@@ -56,6 +57,7 @@ class AwsBatchSource(ResumableSource[AwsBatchSourceConfig, AwsBatchResumeConfig]
     api_docs_url = "https://docs.aws.amazon.com/batch/latest/APIReference/Welcome.html"
 
     flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    aws_session_actions = AWS_SESSION_ACTIONS
     credential_kind = "aws-batch"
 
     @property
@@ -87,7 +89,7 @@ class AwsBatchSource(ResumableSource[AwsBatchSourceConfig, AwsBatchResumeConfig]
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
-            credentials = resolve_aws_credentials(config.aws_auth, team_id)
+            credentials = resolve_aws_credentials(config.aws_auth, team_id, AWS_SESSION_ACTIONS)
         except AwsAuthError as error:
             return False, str(error)
         return validate_credentials(config, credentials, schema_name, self.resolve_api_version(api_version))
@@ -103,7 +105,7 @@ class AwsBatchSource(ResumableSource[AwsBatchSourceConfig, AwsBatchResumeConfig]
     ) -> SourceResponse:
         return aws_batch_source(
             config,
-            resolve_aws_credentials(config.aws_auth, inputs.team_id),
+            resolve_aws_credentials(config.aws_auth, inputs.team_id, AWS_SESSION_ACTIONS),
             inputs.schema_name,
             resumable_source_manager,
             self.resolve_api_version(inputs.api_version),
