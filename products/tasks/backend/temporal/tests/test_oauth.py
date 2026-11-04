@@ -541,6 +541,33 @@ def test_workflow_run_scopes_never_exceed_request_or_snapshot(
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("requested", [None, "signals_assessment"])
+def test_assessment_runtime_token_cannot_regain_general_writes(
+    test_task: Task, requested: PosthogMcpScopes | None
+) -> None:
+    test_task.origin_product = Task.OriginProduct.SIGNAL_REPORT
+    test_task.internal = True
+    test_task.save(update_fields=["origin_product", "internal"])
+    run = TaskRun.objects.create(
+        task=test_task,
+        team=test_task.team,
+        state={"pending_dispatch": {"posthog_mcp_scopes": "signals_assessment"}},
+    )
+
+    raw = create_oauth_access_token_for_run(test_task, run.state, scopes=requested, run_id=run.id)
+
+    token = OAuthAccessToken.objects.get(token=raw)
+    scopes = set(token.scope.split())
+    assert not scopes & RESEARCH_WITHHELD_SCOPES
+    assert ("internal_run:write" in scopes) is (requested is None)
+    assert "task:read" in scopes
+    assert "query:read" in scopes
+    assert token.sandbox_task_id == test_task.id
+    run.refresh_from_db()
+    assert str(token.id) in run.state["sandbox_oauth_token_ids"]
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize(
     ("origin_product", "state", "requested", "granted"),
     [
@@ -598,6 +625,18 @@ def test_workflow_run_scopes_never_exceed_request_or_snapshot(
             {"pending_dispatch": {"posthog_mcp_scopes": "feature_flag_rollout"}},
             "feature_flag_rollout",
             "feature_flag_rollout",
+        ),
+        (
+            Task.OriginProduct.SIGNAL_REPORT,
+            {"pending_dispatch": {"posthog_mcp_scopes": "signals_assessment"}},
+            None,
+            [*resolve_scopes("signals_assessment"), "internal_run:write"],
+        ),
+        (
+            Task.OriginProduct.SIGNAL_REPORT,
+            {"pending_dispatch": {"posthog_mcp_scopes": "signals_assessment"}},
+            "signals_assessment",
+            "signals_assessment",
         ),
     ],
 )

@@ -44,7 +44,14 @@ from products.signals.backend.personal_ranking.config import (
     ReasonLimits,
     parse_config,
 )
-from products.signals.backend.personal_ranking.logic import BUILT_EVENT, build_personal_ranking
+from products.signals.backend.personal_ranking.logic import (
+    BUILT_EVENT,
+    InputChanges,
+    build_personal_ranking,
+    compare_inputs,
+    input_hash,
+    input_parts,
+)
 from products.signals.backend.personal_ranking.prompt import render_person, system_prompt, user_message
 from products.signals.backend.personal_ranking.validation import MalformedRankingError, validate_ranking
 from products.signals.backend.personal_ranking_tasks import build_lock_key, build_personal_inbox_ranking
@@ -55,19 +62,34 @@ MODEL_REASONS = {ref: f"model {ref}" for ref in REFS}
 LIMITS = ReasonLimits(top=40, worth_a_look=30, later=20)
 
 
-def _entry(ref: str, rank: Any, tier: str = "worth_a_look", reason: str = "matches", next_step: str | None = None):
-    return {"ref": ref, "rank": rank, "tier": tier, "reason": reason, "matched": None, "next_step": next_step}
+def _entry(
+    ref: str,
+    rank: Any,
+    tier: str = "worth_a_look",
+    reason: str = "matches",
+    next_step: str | None = None,
+    matched: dict | None = None,
+):
+    return {"ref": ref, "rank": rank, "tier": tier, "reason": reason, "matched": matched, "next_step": next_step}
 
 
 def _answer(ranked: list[dict], folded: list[dict] | None = None) -> str:
     return json.dumps({"ranked": ranked, "folded": folded or []})
 
 
-def _validate(content: str | None, limit: int = 2, rank_top: int = 10, top_max: int = 5, worth_a_look_max: int = 10):
+def _validate(
+    content: str | None,
+    limit: int = 2,
+    rank_top: int = 10,
+    top_max: int = 5,
+    worth_a_look_max: int = 10,
+    needs_you: dict[str, tuple] | None = None,
+):
     return validate_ranking(
         content,
         refs=REFS,
         model_reasons=MODEL_REASONS,
+        needs_you=needs_you or {},
         limit=limit,
         rank_top=rank_top,
         top_max=top_max,
@@ -224,6 +246,62 @@ class TestValidateRanking(SimpleTestCase):
 
     @parameterized.expand(
         [
+            (
+                "status_read_as_a_personal_claim_falls_back_to_the_theme",
+                {"theme": "Checkout", "needs_you": ["waiting_on_input"]},
+                (),
+                {"theme": "Checkout", "needs_you": ()},
+                "Matches your recent work: Checkout.",
+                1,
+            ),
+            (
+                "false_claim_with_no_theme_gets_the_model_reason",
+                {"theme": None, "needs_you": ["suggested_reviewer"]},
+                (),
+                {"theme": None, "needs_you": ()},
+                "model c1",
+                1,
+            ),
+            (
+                "only_the_false_kind_drops_and_the_real_fact_wins_over_the_theme",
+                {"theme": "Checkout", "needs_you": ["waiting_on_input", "claimed"]},
+                ("claimed",),
+                {"theme": "Checkout", "needs_you": ("claimed",)},
+                "model c1",
+                1,
+            ),
+            (
+                "true_claim_keeps_the_model_reason",
+                {"theme": None, "needs_you": ["claimed"]},
+                ("claimed",),
+                {"theme": None, "needs_you": ("claimed",)},
+                "Waiting on you",
+                0,
+            ),
+        ]
+    )
+    def test_needs_you_claims_must_match_the_facts(
+        self,
+        _name: str,
+        matched: dict,
+        facts: tuple,
+        expected_matched: dict,
+        expected_reason: str,
+        expected_false: int,
+    ) -> None:
+        result = _validate(
+            _answer([_entry("c1", 1, tier="top", reason="Waiting on you", matched=matched)]),
+            needs_you={"c1": facts},
+        )
+
+        entry = result.entries[0]
+        assert (entry.rank, entry.tier) == (1, "top")
+        assert dataclasses.asdict(entry.matched) == expected_matched
+        assert entry.reason == expected_reason
+        assert result.counts.false_needs_you == expected_false
+
+    @parameterized.expand(
+        [
             ("empty", None),
             ("not_json", "Here is your ranking: c1, c2"),
             ("no_ranked_list", json.dumps({"order": ["c1"]})),
@@ -261,6 +339,103 @@ def _candidate(index: int, report_id: str, **overrides: Any) -> Candidate:
         "pools": ("for_you_recommended",),
     }
     return Candidate(**{**fields, **overrides})
+
+
+_IDS = ["018f3d0e-0000-7000-8000-000000000001", "018f3d0e-0000-7000-8000-000000000002"]
+
+
+def _scored(probability: float) -> ReportPredictions:
+    return ReportPredictions(
+        status="scored",
+        model="m@1",
+        predictions=(OutcomePrediction(outcome="action", probability=probability, lift=None, readable=True),),
+    )
+
+
+class TestInputParts(SimpleTestCase):
+    def test_input_hash_keeps_its_value(self) -> None:
+        candidates = [_candidate(1, _IDS[0]), _candidate(2, _IDS[1], predictions=None, needs_you=())]
+
+        assert (
+            input_hash(candidates, activity_summary_version=7, focus="checkout")
+            == "f942040677219aed0d042d2e28ac23bb82ae2e26e40fe21eb10d7d2b17466fdd"
+        )
+
+    @parameterized.expand(
+        [
+            ("nothing", {}, 7, InputChanges(changed_parts=(), changed_report_count=0, max_score_move=0.0)),
+            (
+                "score_jitter_under_the_rounding",
+                {"predictions": _scored(0.421)},
+                7,
+                InputChanges(changed_parts=(), changed_report_count=0, max_score_move=0.001),
+            ),
+            (
+                "score",
+                {"predictions": _scored(0.5)},
+                7,
+                InputChanges(changed_parts=("scores",), changed_report_count=1, max_score_move=0.08),
+            ),
+            (
+                "summary_version",
+                {},
+                8,
+                InputChanges(changed_parts=("activity_summary_version",), changed_report_count=0, max_score_move=0.0),
+            ),
+            (
+                "text_and_needs_you",
+                {"title": "Renamed", "needs_you": ("claimed",)},
+                7,
+                InputChanges(changed_parts=("text", "needs_you"), changed_report_count=1, max_score_move=0.0),
+            ),
+        ]
+    )
+    def test_names_the_changed_parts(
+        self, _name: str, overrides: dict[str, Any], summary_version: int, expected: InputChanges
+    ) -> None:
+        stored = PersonalInboxRanking(
+            input_parts=input_parts([_candidate(1, _IDS[0])], activity_summary_version=7, focus=None)
+        )
+        current = input_parts(
+            [_candidate(1, _IDS[0], **overrides)], activity_summary_version=summary_version, focus=None
+        )
+
+        assert compare_inputs(stored, current, rank_top=10) == dataclasses.replace(
+            expected, joined_count=0, left_count=0, left_top_count=0
+        )
+
+    def test_counts_the_reports_that_joined_and_left_the_stored_top(self) -> None:
+        ids = [f"018f3d0e-0000-7000-8000-00000000000{index}" for index in range(1, 5)]
+        stored = PersonalInboxRanking(
+            input_parts=input_parts(
+                [_candidate(index, ids[index - 1]) for index in (1, 2, 3)], activity_summary_version=7, focus=None
+            ),
+            result={"ranked": [{"report_id": ids[1]}, {"report_id": ids[0]}, {"report_id": ids[2]}]},
+        )
+        current = input_parts([_candidate(1, ids[0]), _candidate(4, ids[3])], activity_summary_version=7, focus=None)
+
+        changes = compare_inputs(stored, current, rank_top=2)
+
+        assert (changes.changed_parts, changes.joined_count, changes.left_count, changes.left_top_count) == (
+            ("candidate_set",),
+            1,
+            2,
+            1,
+        )
+
+    @parameterized.expand(
+        [
+            ("no_previous_list", None, ("no_previous_list",)),
+            ("row_from_before_the_parts", PersonalInboxRanking(input_parts=None), ("unknown",)),
+            ("unreadable_parts", PersonalInboxRanking(input_parts={"parts": []}), ("unknown",)),
+        ]
+    )
+    def test_a_previous_list_without_parts_reports_why(
+        self, _name: str, previous: PersonalInboxRanking | None, expected: tuple[str, ...]
+    ) -> None:
+        current = input_parts([_candidate(1, _IDS[0])], activity_summary_version=7, focus=None)
+
+        assert compare_inputs(previous, current, rank_top=10) == InputChanges(changed_parts=expected)
 
 
 class TestPrompt(SimpleTestCase):

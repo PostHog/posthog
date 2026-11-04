@@ -28,6 +28,7 @@ import {
     MarketingAnalyticsOrderBy,
     MarketingAnalyticsBaseColumns,
     MarketingAnalyticsColumnsSchemaNames,
+    MarketingAnalyticsDrillDownLevel,
     NodeKind,
     SourceMap,
 } from '~/queries/schema/schema-general'
@@ -55,6 +56,7 @@ import {
     MARKETING_ANALYTICS_DATA_COLLECTION_NODE_ID,
     marketingAnalyticsTilesLogic,
 } from './marketingAnalyticsTilesLogic'
+import { activeColumnView, columnsForView, marketingTableDimensionColumns } from './marketingTableColumnViews'
 
 jest.mock('posthog-js')
 
@@ -355,10 +357,66 @@ describe('marketingAnalyticsLogic', () => {
         tiles.mount()
         try {
             await expectLogic(logic).toFinishAllListeners()
+            const select = columnsForView('default', marketingAnalyticsTableLogic.values.defaultColumns)
             expect(tiles.values.campaignCostsBreakdown).toMatchObject({
-                pinnedColumns: [],
-                source: { select: marketingAnalyticsTableLogic.values.defaultColumns, orderBy: [] },
+                pinnedColumns: marketingTableDimensionColumns(select),
+                source: {
+                    select,
+                    orderBy: [],
+                },
             })
+        } finally {
+            tiles.unmount()
+        }
+    })
+
+    it.each([
+        ['at the ad level', 'clicks', MarketingAnalyticsDrillDownLevel.Ad, false],
+        ['with conversion goals hidden', 'conversions', MarketingAnalyticsDrillDownLevel.Campaign, true],
+    ] as const)('keeps the chosen column view %s', async (_, view, level, hideGoals) => {
+        logic = marketingAnalyticsLogic()
+        logic.mount()
+        const tiles = marketingAnalyticsTilesLogic()
+        tiles.mount()
+        try {
+            await expectLogic(logic).toFinishAllListeners()
+            await expectLogic(logic, () =>
+                teamLogic.actions.loadCurrentTeamSuccess({
+                    ...teamLogic.values.currentTeam!,
+                    marketing_analytics_config: {
+                        conversion_goals: [
+                            {
+                                kind: NodeKind.EventsNode,
+                                event: 'purchase',
+                                conversion_goal_id: 'purchase-goal',
+                                conversion_goal_name: 'Purchases',
+                                schema_map: {},
+                            },
+                        ],
+                    },
+                })
+            ).toFinishAllListeners()
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS]: true,
+                [FEATURE_FLAGS.MARKETING_ANALYTICS_EXTENDED_DRILL_DOWN]: true,
+            })
+            if (hideGoals) {
+                logic.actions.setActiveTab(MarketingAnalyticsTab.AD_PERFORMANCE)
+                logic.actions.setAdPerformanceConversionGoals(false)
+            }
+            logic.actions.setDrillDownLevel(level)
+            expect(logic.values.drillDownLevel).toBe(level)
+            const breakdown = tiles.values.campaignCostsBreakdown!
+            marketingAnalyticsTableLogic.actions.setQuery({
+                ...breakdown,
+                source: {
+                    ...(breakdown.source as MarketingAnalyticsTableQuery),
+                    select: columnsForView(view, tiles.values.tableColumns),
+                },
+            })
+            await expectLogic(logic).toFinishAllListeners()
+            const select = (tiles.values.campaignCostsBreakdown!.source as MarketingAnalyticsTableQuery).select
+            expect(activeColumnView(select, tiles.values.tableColumns)).toBe(view)
         } finally {
             tiles.unmount()
         }

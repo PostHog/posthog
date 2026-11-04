@@ -229,8 +229,12 @@ def create_oauth_access_token(
         token_options["include_interactive_run_scope"] = True
     if task.origin_product == Task.OriginProduct.SLACK:
         token_options["include_slack_run_scope"] = True
-    if run_uses_own_subscription(run_state):
-        token_options["withhold_scopes"] = sorted(SUBSCRIPTION_RUN_WITHHELD_SCOPES)
+    withheld = set(SUBSCRIPTION_RUN_WITHHELD_SCOPES) if run_uses_own_subscription(run_state) else set()
+    if "internal_run:write" in resolve_scopes(scopes):
+        # Flat scopes regain shared internal grants when resolved again during minting.
+        withheld.update(RESEARCH_WITHHELD_SCOPES)
+    if withheld:
+        token_options["withhold_scopes"] = sorted(withheld)
     if task.origin_product == Task.OriginProduct.SIGNALS_SCOUT and run_id is not None:
         from products.signals.backend.facade.monitoring import (  # noqa: PLC0415 -- avoids loading Signals during Tasks startup
             monitoring_scout_can_submit,
@@ -273,6 +277,9 @@ def create_oauth_access_token_for_run(
         # `start_agent_server` mints its token with explicit scopes.
         if scopes in ("signals_research", "feature_flag_rollout"):
             scopes = [*resolve_scopes(scopes), *RESEARCH_WITHHELD_SCOPES]
+        elif scopes == "signals_assessment":
+            # Runtime uploads are bound to this run; the separately minted MCP token stays read-only.
+            scopes = [*resolve_scopes(scopes), "internal_run:write"]
     with transaction.atomic():
         locked_task = (
             Task.objects.select_for_update(of=("self",))
