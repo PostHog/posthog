@@ -10798,6 +10798,7 @@
         "summary": "Logs around a log line, trace or run",
         "title": "Logs around a log line, trace or run",
         "required_scopes": ["logs:read"],
+        "api_operations": ["POST /api/projects/{project_id}/logs/context/"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
