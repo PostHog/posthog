@@ -62,6 +62,8 @@ chart.sankey.columnLabels() // ['Step 1', 'Step 2', …] Sankey column headers, 
 chart.pie.sliceLabels() // [{ text, lines }, …] on-slice labels, one entry per slice
 chart.gauge.text() // { value, label, min, max } text a Gauge shows, null for other charts
 chart.gauge.valueColor() // CSS color of the Gauge value text, null for other charts
+chart.flame.breadcrumb() // ['All', 'main', 'parse'] FlameGraph zoom path as shown; a deep path collapses its middle into an unlisted …
+chart.flame.searchSummary() // '3 matches · 12% of total', or null without a search
 ```
 
 Gestures work under any wrapper, because the chart records its label count on its root:
