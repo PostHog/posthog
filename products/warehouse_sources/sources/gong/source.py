@@ -63,6 +63,10 @@ To also sync the `calls_extensive` table (call participants and CRM associations
 To also sync the `transcripts` table (what was said on each call), additionally grant:
 - `api:calls:read:transcript`
 
+To also sync the `calls_media` table (audio and video download URLs for each call, which Gong keeps valid for 8 hours), additionally grant:
+- `api:calls:read:extensive`
+- `api:calls:read:media-url`
+
 To also sync these tables, additionally grant the scope listed next to each:
 - `trackers` (keyword tracker definitions): `api:settings:trackers:read`
 - `answered_scorecards` (scorecard reviews of calls): `api:stats:scorecards`

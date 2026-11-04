@@ -259,6 +259,32 @@ class TestExtensiveCalls:
                 },
                 {"content": {"brief": "Buyer wants SSO.", "keyPoints": [{"text": "Asked about SSO"}]}},
             ),
+            (
+                "calls_media_keeps_media_type_and_stores_urls_in_their_own_column",
+                "calls_media",
+                {
+                    # `metaData` also has a `media` key, so the URLs must not land on it.
+                    "metaData": {
+                        "id": "c1",
+                        "title": "Discovery",
+                        "started": "2026-03-01T00:00:00Z",
+                        "media": "Video",
+                    },
+                    "media": {
+                        "audioUrl": "https://media.example.com/c1/audio.mp3",
+                        "videoUrl": "https://media.example.com/c1/video.mp4",
+                    },
+                    "parties": [{"emailAddress": "buyer@example.com"}],
+                },
+                {"context": "None", "exposedFields": {"media": True}},
+                {
+                    "media": "Video",
+                    "mediaUrls": {
+                        "audioUrl": "https://media.example.com/c1/audio.mp3",
+                        "videoUrl": "https://media.example.com/c1/video.mp4",
+                    },
+                },
+            ),
         ]
     )
     def test_posts_selector_and_flattens_metadata(
