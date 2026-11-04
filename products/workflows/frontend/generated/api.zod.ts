@@ -3247,12 +3247,12 @@ export const WorkflowViewsCreateBody = /* @__PURE__ */ zod.object({
                 .array(
                     zod.object({
                         facet: zod
-                            .enum(['status', 'kind', 'trigger', 'owner', 'health', 'createdBy'])
+                            .enum(['status', 'kind', 'trigger', 'owner', 'health', 'createdBy', 'tag'])
                             .describe(
-                                '\* `status` - Status\n\* `kind` - Kind\n\* `trigger` - Trigger\n\* `owner` - Owner\n\* `health` - Health\n\* `createdBy` - Created By'
+                                '\* `status` - Status\n\* `kind` - Kind\n\* `trigger` - Trigger\n\* `owner` - Owner\n\* `health` - Health\n\* `createdBy` - Created By\n\* `tag` - Tag'
                             )
                             .describe(
-                                'Supported workflow list facet.\n\n\* `status` - Status\n\* `kind` - Kind\n\* `trigger` - Trigger\n\* `owner` - Owner\n\* `health` - Health\n\* `createdBy` - Created By'
+                                'Supported workflow list facet.\n\n\* `status` - Status\n\* `kind` - Kind\n\* `trigger` - Trigger\n\* `owner` - Owner\n\* `health` - Health\n\* `createdBy` - Created By\n\* `tag` - Tag'
                             ),
                         value: zod
                             .string()
@@ -3308,12 +3308,12 @@ export const WorkflowViewsPartialUpdateBody = /* @__PURE__ */ zod.object({
                 .array(
                     zod.object({
                         facet: zod
-                            .enum(['status', 'kind', 'trigger', 'owner', 'health', 'createdBy'])
+                            .enum(['status', 'kind', 'trigger', 'owner', 'health', 'createdBy', 'tag'])
                             .describe(
-                                '\* `status` - Status\n\* `kind` - Kind\n\* `trigger` - Trigger\n\* `owner` - Owner\n\* `health` - Health\n\* `createdBy` - Created By'
+                                '\* `status` - Status\n\* `kind` - Kind\n\* `trigger` - Trigger\n\* `owner` - Owner\n\* `health` - Health\n\* `createdBy` - Created By\n\* `tag` - Tag'
                             )
                             .describe(
-                                'Supported workflow list facet.\n\n\* `status` - Status\n\* `kind` - Kind\n\* `trigger` - Trigger\n\* `owner` - Owner\n\* `health` - Health\n\* `createdBy` - Created By'
+                                'Supported workflow list facet.\n\n\* `status` - Status\n\* `kind` - Kind\n\* `trigger` - Trigger\n\* `owner` - Owner\n\* `health` - Health\n\* `createdBy` - Created By\n\* `tag` - Tag'
                             ),
                         value: zod
                             .string()

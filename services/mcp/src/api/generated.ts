@@ -78520,6 +78520,7 @@ export namespace Schemas {
      * * `owner` - Owner
      * * `health` - Health
      * * `createdBy` - Created By
+     * * `tag` - Tag
      */
     export type WorkflowViewFacetEnum = typeof WorkflowViewFacetEnum[keyof typeof WorkflowViewFacetEnum];
 
@@ -78531,6 +78532,7 @@ export namespace Schemas {
       Owner: 'owner',
       Health: 'health',
       CreatedBy: 'createdBy',
+      Tag: 'tag',
     } as const;
 
     export interface WorkflowViewFilter {
@@ -78541,7 +78543,8 @@ export namespace Schemas {
        * * `trigger` - Trigger
        * * `owner` - Owner
        * * `health` - Health
-       * * `createdBy` - Created By */
+       * * `createdBy` - Created By
+       * * `tag` - Tag */
       facet: WorkflowViewFacetEnum;
       /**
          * Facet value; createdBy accepts me for the current viewer.

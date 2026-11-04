@@ -56,6 +56,7 @@ class TestWorkflowViewAPI(APIBaseTest):
             "filters": [
                 {"facet": "createdBy", "value": "me", "negated": False},
                 {"facet": "kind", "value": "messaging", "negated": True},
+                {"facet": "tag", "value": "growth", "negated": False},
             ],
             "text": "welcome",
             "columns": ["created_by", "health", "owner"],

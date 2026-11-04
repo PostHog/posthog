@@ -3281,6 +3281,7 @@ export interface WorkflowSetupStatusApi {
  * * `owner` - Owner
  * * `health` - Health
  * * `createdBy` - Created By
+ * * `tag` - Tag
  */
 export type WorkflowViewFacetEnumApi = (typeof WorkflowViewFacetEnumApi)[keyof typeof WorkflowViewFacetEnumApi]
 
@@ -3291,6 +3292,7 @@ export const WorkflowViewFacetEnumApi = {
     Owner: 'owner',
     Health: 'health',
     CreatedBy: 'createdBy',
+    Tag: 'tag',
 } as const
 
 export interface WorkflowViewFilterApi {
@@ -3301,7 +3303,8 @@ export interface WorkflowViewFilterApi {
      * * `trigger` - Trigger
      * * `owner` - Owner
      * * `health` - Health
-     * * `createdBy` - Created By */
+     * * `createdBy` - Created By
+     * * `tag` - Tag */
     facet: WorkflowViewFacetEnumApi
     /**
      * Facet value; createdBy accepts me for the current viewer.
