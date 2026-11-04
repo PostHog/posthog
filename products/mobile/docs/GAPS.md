@@ -203,8 +203,10 @@ by the mobile footer change:
 
 ## Session replay
 
-- **No player.** The phone shows the summary, chapter frames and the event timeline. Watching the recording is
-  "Open full replay", the web player in the browser. No inspector, console or network panes.
+- **Embedded playback.** "Watch full replay" opens a player inside the app using the existing app login.
+  Web and mobile recordings use the shared replay renderer. Play, pause, seek and speed controls are available;
+  closing the player stops playback, and backgrounding the app pauses it. No AI summary is required.
+  Recordings over 60 storage blocks or 24 MiB of decoded snapshot text must be watched on the web.
 - **No clip video.** Replay Vision renders an MP4 with idle time cut, but playing it needs `expo-video`, a native
   module the app does not ship. Adding it needs a new native build, not an over-the-air update.
 - **No push when a summary is ready.** The screen polls for two minutes while it is open. Backend ask: a hook on scan

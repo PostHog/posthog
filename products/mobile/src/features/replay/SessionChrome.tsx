@@ -1,7 +1,7 @@
 import type { ReactElement } from 'react'
 import { View } from 'react-native'
-import { ExternalLinkIcon } from '@/ui/icons/ExternalLinkIcon'
 import { MoreIcon } from '@/ui/icons/MoreIcon'
+import { PlayIcon } from '@/ui/icons/PlayIcon'
 import { PillControl } from '@/ui/PillControl'
 import { Pressable44 } from '@/ui/Pressable44'
 import { ScreenChrome } from '@/ui/ScreenChrome'
@@ -33,16 +33,13 @@ export function SessionChrome({ onBack, onOpenFull, onMore, title }: SessionChro
                             <Pressable44
                                 onPress={() => onOpenFull?.()}
                                 disabled={!onOpenFull}
-                                accessibilityRole="link"
-                                accessibilityLabel="Open full replay"
+                                accessibilityRole="button"
+                                accessibilityLabel="Watch full replay"
                                 pressedBackground={colors.background}
                                 style={styles.full}
                                 testID="session-open-full"
                             >
-                                <ExternalLinkIcon
-                                    size={iconSizes.control}
-                                    color={onOpenFull ? colors.ink : colors.disabled}
-                                />
+                                <PlayIcon size={iconSizes.control} color={onOpenFull ? colors.ink : colors.disabled} />
                             </Pressable44>
                             <View style={styles.divider} />
                         </>

@@ -459,7 +459,12 @@ Argent's `argent-create-flow` skill describes the rules. Replay the whole flow b
   The screen under a sheet stays in the accessibility tree. Check that the sheet is `hidden` first, as the flow does.
 - **iOS asks "Open in PostHog?"** after `xcrun simctl openurl`. Tap Open. The question does not come every time.
 
-## Embedded replay renderer
+## Embedded session replay
+
+Use an authenticated project with a web recording and a mobile recording. Open each from Sessions, tap
+"Watch full replay", and verify play/pause, seeking, speed, closing, reopening and pausing when backgrounded.
+No second sign-in or AI summary should be needed. Repeat with a recording from another project after switching
+projects, an expired recording, a failed snapshot request and a recording with no full snapshot.
 
 The embedded renderer reuses `common/replay-headless` and `common/replay-shared`. After changing those sources
 or `src/features/replay/player/player.browser.js` or `playerRuntime.ts`, run `node scripts/build-replay-player.mjs` from this directory.

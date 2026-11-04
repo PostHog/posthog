@@ -1,7 +1,7 @@
 import * as Clipboard from 'expo-clipboard'
 import { useRouter } from 'expo-router'
 import { type ReactElement, useEffect, useRef, useState } from 'react'
-import { Linking, Platform, ScrollView, Share, Text, View } from 'react-native'
+import { Platform, ScrollView, Share, Text, View } from 'react-native'
 import { useViewer } from '@/auth/useViewer'
 import { RECORDING_OBJECT_TYPE } from '@/features/chat/objectContext'
 import { HeaderMenu } from '@/features/views/screen/HeaderMenu'
@@ -28,6 +28,7 @@ import { bottomOffset, topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 import { type ScrollTitleState, useScrollTitle } from '@/ui/useScrollTitle'
 
 import { ChapterList } from './ChapterList'
+import { EmbeddedReplayPlayer } from './EmbeddedReplayPlayer'
 import { FrameSheet } from './FrameSheet'
 import {
     isNotFound,
@@ -40,7 +41,6 @@ import {
 } from './hooks'
 import {
     trackChapterOpened,
-    trackFullReplayOpened,
     trackReplayErrorShown,
     trackSessionChatOpened,
     trackSessionIdCopied,
@@ -55,6 +55,8 @@ import { SessionSkeleton } from './SessionSkeleton'
 import { SessionTimelineSection } from './SessionTimelineSection'
 import { SummaryCard } from './SummaryCard'
 import { fallbackTitle, formatDuration, formatOffset } from './sessionAdapters'
+import { useReplayPlayback } from './useReplayPlayback'
+import { WatchReplayCard } from './WatchReplayCard'
 
 interface SessionScreenProps {
     sessionId: string
@@ -195,13 +197,7 @@ function SessionBody({ recording, t, source, onBack }: SessionBodyProps): ReactE
 
     useOpenedEvent(sessionId, source, flow)
 
-    const openFull = (): void => {
-        if (!safeWebUrl) {
-            return
-        }
-        trackFullReplayOpened(sessionId)
-        Linking.openURL(safeWebUrl).catch(() => undefined)
-    }
+    const playback = useReplayPlayback(sessionId)
     const share = (): void => {
         if (!safeWebUrl) {
             return
@@ -269,6 +265,7 @@ function SessionBody({ recording, t, source, onBack }: SessionBodyProps): ReactE
                     keyMomentMs={summary?.keyMomentMs ?? null}
                     onKeyMoment={keyChapter >= 0 ? () => openChapter(keyChapter) : null}
                 />
+                <WatchReplayCard onWatch={playback.open} disabled={playback.visible} />
                 <SummaryCard
                     card={flow.card}
                     aiStatus={aiStatus}
@@ -292,7 +289,7 @@ function SessionBody({ recording, t, source, onBack }: SessionBodyProps): ReactE
             <SessionChrome
                 title={scrollTitle.title}
                 onBack={onBack}
-                onOpenFull={safeWebUrl ? openFull : null}
+                onOpenFull={playback.visible ? null : playback.open}
                 onMore={() => setMenuOpen(true)}
             />
             <Pressable44
@@ -320,6 +317,15 @@ function SessionBody({ recording, t, source, onBack }: SessionBodyProps): ReactE
                     { key: 'copy', label: 'Copy session ID', Icon: CopyIcon, onPress: copyId },
                 ]}
             />
+            {playback.visible ? (
+                <EmbeddedReplayPlayer
+                    key={sessionId}
+                    sessionId={sessionId}
+                    seconds={seconds}
+                    startedAt={recording.startedAt}
+                    onClose={playback.close}
+                />
+            ) : null}
             {summary ? (
                 <FrameSheet
                     observationId={summary.observationId}
