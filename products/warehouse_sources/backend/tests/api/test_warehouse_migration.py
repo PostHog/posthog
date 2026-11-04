@@ -293,6 +293,14 @@ class TestWarehouseMigrationAPI(APIBaseTest):
         assert self.client.post(f"{self.url}{migration.id}/refresh/").status_code == 200
         assert self._create(status_code=200, json={"code": "Success", "data": {}}).status_code == 429
 
+    @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
+    @patch("posthog.rate_limit.WarehouseMigrationUploadStartThrottle.rate", new="1/hour")
+    def test_session_callers_cannot_start_unlimited_uploads(self, _rate_limit_enabled: MagicMock) -> None:
+        cache.clear()
+        self.addCleanup(cache.clear)
+        assert self.client.post(f"{self.url}upload/", {"provider": "fivetran"}).status_code == 201
+        assert self.client.post(f"{self.url}upload/", {"provider": "fivetran"}).status_code == 429
+
     def test_a_crawl_that_cannot_start_fails_so_it_can_be_refreshed(self) -> None:
         migration = self._migration()
         self.start_crawl.side_effect = RuntimeError("temporal is down")
