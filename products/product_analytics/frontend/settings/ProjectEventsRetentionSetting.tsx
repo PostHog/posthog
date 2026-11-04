@@ -4,10 +4,12 @@ import { Link } from '@posthog/lemon-ui'
 
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { urls } from 'scenes/urls'
 
-import { EventsRetentionPeriodForm } from './EventsRetentionPeriodForm'
+import { EventsRetentionPeriodSelect } from './EventsRetentionPeriodSelect'
 import { EventsRetentionPlanNote } from './EventsRetentionPlanNote'
 import { eventsRetentionSettingsLogic } from './eventsRetentionSettingsLogic'
+import { retentionPeriodLabel } from './retentionPeriodLabel'
 
 export function ProjectEventsRetentionSetting(): JSX.Element | null {
     const { projectRetention, projectRetentionLoading } = useValues(eventsRetentionSettingsLogic)
@@ -22,6 +24,7 @@ export function ProjectEventsRetentionSetting(): JSX.Element | null {
         projectRetention.organization_retention_months === null
             ? null
             : Math.min(projectRetention.organization_retention_months, projectRetention.plan_retention_months)
+    const defaultMonths = organizationMonths ?? projectRetention.default_retention_months
 
     return (
         <div>
@@ -32,18 +35,32 @@ export function ProjectEventsRetentionSetting(): JSX.Element | null {
                 </Link>
             </p>
             <EventsRetentionPlanNote plan={projectRetention} />
-            <EventsRetentionPeriodForm
+            <EventsRetentionPeriodSelect
                 retentionMonths={projectRetention.project_retention_months}
-                defaultMonths={organizationMonths ?? projectRetention.default_retention_months}
-                defaultSource="organization"
+                defaultLabel="Organization default"
+                defaultMonths={defaultMonths}
                 monthlyDefaultMonths={projectRetention.organization_retention_months}
+                choices={projectRetention.retention_months_choices}
                 minMonths={projectRetention.min_retention_months}
                 maxMonths={projectRetention.max_retention_months}
                 planMonths={projectRetention.plan_retention_months}
-                scope="Events in this project"
-                overrideNote="This project's custom events retention replaces the organization's events retention."
                 nextMonthlyCleanupOn={projectRetention.next_monthly_cleanup_on}
                 passSchedule={projectRetention}
+                scope="Events in this project"
+                owner="this project"
+                note={
+                    projectRetention.project_retention_months === null ? (
+                        <>
+                            This project uses the organization's events retention. You can change it in{' '}
+                            <Link to={urls.settings('organization-details', 'organization-events-retention')}>
+                                organization settings
+                            </Link>
+                            .
+                        </>
+                    ) : (
+                        `This overrides the organization default of ${retentionPeriodLabel(defaultMonths)}.`
+                    )
+                }
                 saving={projectRetentionLoading}
                 restrictionReason={restrictionReason}
                 onSave={updateProjectRetention}

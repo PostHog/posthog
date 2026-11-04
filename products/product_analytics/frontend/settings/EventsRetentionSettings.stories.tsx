@@ -68,12 +68,12 @@ const retentionMocks = ({
     })
 }
 
-export const OrganizationWithoutWindow: Story = {
+export const OrganizationWithoutPeriod: Story = {
     render: () => <OrganizationEventsRetentionSetting />,
     decorators: [retentionMocks({})],
 }
 
-export const OrganizationWithWindow: Story = {
+export const OrganizationWithPeriod: Story = {
     render: () => <OrganizationEventsRetentionSetting />,
     decorators: [retentionMocks({ organizationMonths: 12 })],
 }
@@ -88,12 +88,12 @@ export const OrganizationOnFreePlan: Story = {
     decorators: [retentionMocks({ planMonths: 12, billingPlan: BillingPlan.Free })],
 }
 
-export const ProjectUsingOrganizationWindow: Story = {
+export const ProjectUsingOrganizationPeriod: Story = {
     render: () => <ProjectEventsRetentionSetting />,
     decorators: [retentionMocks({ organizationMonths: 12 })],
 }
 
-export const ProjectWithOwnWindow: Story = {
+export const ProjectWithOwnPeriod: Story = {
     render: () => <ProjectEventsRetentionSetting />,
     decorators: [retentionMocks({ organizationMonths: 24, projectMonths: 12 })],
 }
@@ -101,5 +101,11 @@ export const ProjectWithOwnWindow: Story = {
 export const ProjectWithOwnPeriodAbovePlan: Story = {
     render: () => <ProjectEventsRetentionSetting />,
     decorators: [retentionMocks({ planMonths: 24, projectMonths: 36, billingPlan: BillingPlan.Paid })],
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+}
+
+export const ProjectWithSupportPeriod: Story = {
+    render: () => <ProjectEventsRetentionSetting />,
+    decorators: [retentionMocks({ organizationMonths: 24, projectMonths: 18 })],
     parameters: { testOptions: { snapshotBrowsers: [] } },
 }
