@@ -32,6 +32,7 @@ export const INBOX_EVENTS = {
     VIEWED: 'Inbox viewed',
     WELCOME_VIEWED: 'Inbox welcome viewed',
     WELCOME_MANUAL_SETUP_CLICKED: 'Inbox welcome manual setup clicked',
+    GITHUB_NOTICE_VIEWED: 'Inbox GitHub notice viewed',
     INTRO_MODAL_VIEWED: 'Inbox intro modal viewed',
     PANEL_VIEWED: 'Inbox panel viewed',
     VALUE_SUMMARY_VIEWED: 'Inbox value summary viewed',
@@ -411,6 +412,18 @@ function actionabilityBreakdown(reports: SignalReport[]): Record<string, number>
  */
 export function captureInboxWelcomeViewed(): void {
     captureInboxEvent(INBOX_EVENTS.WELCOME_VIEWED, {})
+}
+
+/**
+ * The Reports feed showed the notice that GitHub blocks research. Pairs with the button's
+ * `self-driving-github-notice-connect` autocapture: `can_manage_integrations` false means the viewer
+ * saw the ask-an-admin line and had no button to press.
+ */
+export function captureInboxGithubNoticeViewed(params: { blocker: string; canManageIntegrations: boolean }): void {
+    captureInboxEvent(INBOX_EVENTS.GITHUB_NOTICE_VIEWED, {
+        blocker: params.blocker,
+        can_manage_integrations: params.canManageIntegrations,
+    })
 }
 
 /**

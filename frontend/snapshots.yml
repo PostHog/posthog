@@ -12646,6 +12646,14 @@ snapshots:
         hash: v1.k794b7964.2690912ad936f842014696af2970d9042fec68fd99181b67bb56ab5d3a67ef38.2A-ywutAlYFfXUv0k4rb-D68jakztZ669a2Y3nWR5rQ
     scenes-app-inbox-scene--empty-with-many-scouts--light:
         hash: v1.k794b7964.49f146b6f7d911ede15b4132858c7fadee216ba3356602fbbaf22435bc617c61.8uW9y03sO0KCYQr6pAkIkBJuqAnnvIylezQVOXg8oOI
+    scenes-app-inbox-scene--github-connection-required--dark:
+        hash: v1.k794b7964.6f1f985bc5857e7abd4c5c9652f1409de4e0b3654b9bd8f8ba24e485d5f43f2b.GgzB49Cu30SbX9n4tIV9rzKINGoUvnE8aAbcdDJH-Q8
+    scenes-app-inbox-scene--github-connection-required--light:
+        hash: v1.k794b7964.8ca31a0512a8350d5a8a92b7b54f8b212cd915cf3b3ec4c37d156635391f7cbf.zs4kPQYryi7amkvt3xntAVUwtCLmMvHWsHbyfdrhe38
+    scenes-app-inbox-scene--github-optional-research--dark:
+        hash: v1.k794b7964.86f8a9321f3aca536d2cf7ebd9e8f35028b6d3d3bbb0001f78591fbddc6f1474.a3wuIuOmruKBat1wGzw99EugTtMJODuqpX6ATRryTDk
+    scenes-app-inbox-scene--github-optional-research--light:
+        hash: v1.k794b7964.ffcab9eaeea7803795403fe03274d920f0582bff1fd4e6c982569d00cfe734fd.3vlzwQOeq1DBdhI3qIaSL_WtFYKYT4-XY8XalO6NqYM
     scenes-app-inbox-scene--guided-onboarding-complete--dark:
         hash: v1.k794b7964.80a3d8bbd386091f6c17d3de0178ac2bb00c9368a54550ab6d845a37f2417bc3.-LKfuV7PTEBcFCmmHUnfL-Y_IIsCOhofsFlnFzqLUdU
     scenes-app-inbox-scene--guided-onboarding-complete--light:
