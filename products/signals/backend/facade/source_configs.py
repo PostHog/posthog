@@ -64,17 +64,19 @@ def latest_enabled_source_config(
     return _to_snapshot(row)
 
 
+def _enabled_analytics_source_configs() -> QuerySet[SignalSourceConfig]:
+    source_product, source_type = ALERT_SCOPE_SOURCE
+    return SignalSourceConfig.objects.filter(source_product=source_product, source_type=source_type, enabled=True)
+
+
 def analytics_source_enabled(team_id: int) -> bool:
     """Whether the team turned on the Product analytics source, which also controls anomaly scoring."""
-    return team_ids_with_analytics_source().filter(team_id=team_id).exists()
+    return _enabled_analytics_source_configs().filter(team_id=team_id).exists()
 
 
-def team_ids_with_analytics_source() -> "QuerySet[SignalSourceConfig, int]":
-    """Every team that `analytics_source_enabled` is true for, as a subquery."""
-    source_product, source_type = ALERT_SCOPE_SOURCE
-    return SignalSourceConfig.objects.filter(
-        source_product=source_product, source_type=source_type, enabled=True
-    ).values_list("team_id", flat=True)
+def team_ids_with_analytics_source() -> set[int]:
+    """Every team that `analytics_source_enabled` is true for."""
+    return set(_enabled_analytics_source_configs().values_list("team_id", flat=True))
 
 
 def get_analytics_alert_scope(*, team_id: int) -> AlertScope:
