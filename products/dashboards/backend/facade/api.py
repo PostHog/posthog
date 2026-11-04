@@ -218,12 +218,27 @@ def live_dashboard_ids(*, team_id: int, dashboard_ids: Collection[int]) -> set[i
     )
 
 
+def _filter_viewable(dashboards: QuerySet[Dashboard], user_access_control: UserAccessControl) -> QuerySet[Dashboard]:
+    """Keep the dashboards the user may view, judged by the rules of the team that stores them.
+
+    `_team_dashboards` finds an environment's dashboards on its project's root team, and access
+    rules are per team, so the check has to read the root team's rules, not the environment's.
+    """
+    owner_team_id = dashboards.order_by().values_list("team_id", flat=True).first()
+    if owner_team_id is None:
+        return dashboards
+    owner_access = user_access_control.for_team_ids([owner_team_id]).get(owner_team_id)
+    if owner_access is None:
+        return dashboards.none()
+    return owner_access.filter_queryset_by_access_level(dashboards)
+
+
 def viewable_dashboard_ids(
     *, team_id: int, dashboard_ids: Collection[int], user_access_control: UserAccessControl
 ) -> set[int]:
     """Which of these ids are a live dashboard of this team that the user may view."""
     dashboards = _team_dashboards(team_id, include_deleted=False).filter(id__in=dashboard_ids)
-    return set(user_access_control.filter_queryset_by_access_level(dashboards).values_list("id", flat=True))
+    return set(_filter_viewable(dashboards, user_access_control).values_list("id", flat=True))
 
 
 def recently_accessed_dashboards(
@@ -235,7 +250,7 @@ def recently_accessed_dashboards(
     """
     dashboards = _team_dashboards(team_id, include_deleted=False).filter(last_accessed_at__isnull=False)
     if user_access_control is not None:
-        dashboards = user_access_control.filter_queryset_by_access_level(dashboards)
+        dashboards = _filter_viewable(dashboards, user_access_control)
     return [_to_summary(dashboard) for dashboard in dashboards.order_by("-last_accessed_at")[:limit]]
 
 
@@ -286,21 +301,6 @@ def insight_tiles(*, dashboard_id: int) -> list[DashboardInsightTileSummary]:
         for tile in tiles
         if tile.insight_id is not None
     ]
-
-
-def insight_ids_ever_on_dashboards(dashboard_ids: Collection[int]) -> set[int]:
-    """Ids of the insights that have a tile on any of these dashboards, removed tiles and deleted insights included.
-
-    This is the `Insight.dashboards` relation: it ignores the tile's soft-delete flag, so the caller
-    filters the insights it reads by their own state.
-    """
-    # The caller resolved these ids through a team-scoped dashboard lookup first.
-    # nosemgrep: idor-lookup-without-team
-    return set(
-        DashboardTile.objects_including_soft_deleted.filter(
-            dashboard_id__in=dashboard_ids, insight_id__isnull=False
-        ).values_list("insight_id", flat=True)
-    )
 
 
 def tile_filters_overrides(*, dashboard_id: int, insight_id: int) -> dict[str, Any] | None:
@@ -438,11 +438,15 @@ def insight_has_listed_tile() -> Exists:
     return Exists(DashboardTile.objects.filter(insight=OuterRef("pk")).exclude(dashboard__creation_mode="unlisted"))
 
 
-def insight_ids_on_dashboard(dashboard_id: int) -> QuerySet:
-    """Ids of the insights with a tile on this dashboard, as a subquery for `id__in`."""
+def insight_ids_on_dashboard(dashboard_id: int, *, include_removed_tiles: bool = False) -> QuerySet:
+    """Ids of the insights with a tile on this dashboard, as a subquery for `id__in`.
+
+    With `include_removed_tiles`, a soft-deleted tile counts too, as it does in the `Insight.dashboards` relation.
+    """
+    manager = DashboardTile.objects_including_soft_deleted if include_removed_tiles else DashboardTile.objects
     # Filtering a list the caller has already scoped to its own team.
     # nosemgrep: idor-lookup-without-team
-    return DashboardTile.objects.filter(dashboard__id=dashboard_id).values_list("insight__id", flat=True).all()
+    return manager.filter(dashboard__id=dashboard_id).values_list("insight__id", flat=True).all()
 
 
 def tile_for_insight_on_dashboard(*, insight_id: int, dashboard_id: int | str) -> DashboardTile | None:
@@ -801,7 +805,6 @@ __all__ = [
     "hide_tiles_for_insights",
     "home_dashboard_insights",
     "insight_has_listed_tile",
-    "insight_ids_ever_on_dashboards",
     "insight_ids_on_dashboard",
     "insight_ids_on_dashboards_accessed_since",
     "insight_tiles",

@@ -115,12 +115,18 @@ class TestDashboardReadsUnderAccessControl(APIBaseTest):
         )
         self.access = UserAccessControl(user=self.user, team=self.team)
 
-    def test_listing_leaves_out_a_dashboard_the_user_may_not_view(self) -> None:
+    @parameterized.expand([("project_team", False), ("environment", True)])
+    def test_listing_leaves_out_a_dashboard_the_user_may_not_view(self, _name: str, via_environment: bool) -> None:
+        team = (
+            Team.objects.create(organization=self.organization, parent_team=self.team) if via_environment else self.team
+        )
+        access = UserAccessControl(user=self.user, team=team)
+
         assert api.viewable_dashboard_ids(
-            team_id=self.team.id, dashboard_ids=[self.visible, self.hidden], user_access_control=self.access
+            team_id=team.id, dashboard_ids=[self.visible, self.hidden], user_access_control=access
         ) == {self.visible}
         # The hidden dashboard was opened last, so it would take the only slot if it were counted.
-        recent = api.recently_accessed_dashboards(team_id=self.team.id, limit=1, user_access_control=self.access)
+        recent = api.recently_accessed_dashboards(team_id=team.id, limit=1, user_access_control=access)
         assert [d.id for d in recent] == [self.visible]
 
     def test_access_checks_resolve_like_the_dashboard_row(self) -> None:
@@ -183,16 +189,14 @@ class TestInsightTileReads(APIBaseTest):
 
         assert api.insight_tiles(dashboard_id=self.dashboard) == []
 
-    def test_insight_ids_ever_on_dashboards_matches_the_insight_dashboards_relation(self) -> None:
+    def test_insight_ids_on_dashboard_with_removed_tiles_matches_the_insight_dashboards_relation(self) -> None:
         relation = Insight.objects_including_soft_deleted.filter(dashboards__in=[self.dashboard])
+        on_dashboard = Insight.objects_including_soft_deleted.filter(
+            id__in=api.insight_ids_on_dashboard(self.dashboard, include_removed_tiles=True)
+        )
 
-        assert api.insight_ids_ever_on_dashboards([self.dashboard]) == set(relation.values_list("id", flat=True))
-        assert api.insight_ids_ever_on_dashboards([self.dashboard]) == {
-            self.first.id,
-            self.second.id,
-            self.removed.id,
-            self.deleted.id,
-        }
+        assert set(on_dashboard.values_list("id", flat=True)) == set(relation.values_list("id", flat=True))
+        assert self.removed.id in set(on_dashboard.values_list("id", flat=True))
 
     @parameterized.expand([("live_tile", "first", {"date_from": "-30d"}), ("removed_tile", "removed", None)])
     def test_tile_filters_overrides_reads_only_a_live_tile(
