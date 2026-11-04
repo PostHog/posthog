@@ -246,6 +246,29 @@ def record_check(
     )
 
 
+def released_hold(
+    configuration_id: UUID,
+    *,
+    team_id: int,
+    at: datetime,
+    action: HoldRelease,
+    released_by: HoldReleasedBy,
+) -> None:
+    """Write a hold on the check `record_check` wrote at `at`, already released."""
+    PlatformAlertDeliveryHold.objects.for_team(team_id).create(
+        team_id=team_id,
+        configuration_id=configuration_id,
+        evaluation_key=f"slot:{at.isoformat()}",
+        reason="test",
+        request={},
+        held_at=at,
+        release_after=at,
+        released_at=at,
+        release_action=action,
+        released_by=released_by,
+    )
+
+
 def alert_for(configuration_id: UUID, *, grouping_key: str = "") -> PlatformAlertSnapshot | None:
     """The instance row a check wrote, or None when no check has written one."""
     row = (

@@ -305,9 +305,6 @@ jobs:
             full_run_reason_detail: ${{ steps.classify.outputs.full_run_reason_detail }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  fetch-depth: 1000
-                  filter: blob:none
 
             - name: Compute changed files
               id: diff
@@ -316,6 +313,7 @@ jobs:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
               run: |
                   set -euo pipefail
+                  git fetch --no-tags --depth=1000 --filter=blob:none origin "$GITHUB_SHA"
                   git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
                   # `...` resolves against the merge-base so files merged in from base
                   # don't inflate the diff (mirrors find-affected-stories / snob).
@@ -452,8 +450,6 @@ jobs:
         timeout-minutes: 15
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  filter: blob:none
 
             # The bundle-size build below git-resets to the base branch mid-job, which
             # removes this repo's local actions from the workspace — a local
@@ -582,7 +578,7 @@ jobs:
               env:
                   BASE_SHA: ${{ github.event.pull_request.base.sha }}
               run: |
-                  git fetch -n origin "$BASE_SHA"
+                  git fetch -n --depth=1 --filter=blob:none origin "$BASE_SHA"
                   git reset --hard "$BASE_SHA"
                   # dist/ is untracked so it survives the reset. Without a clean, the base
                   # build layers differently-hashed chunks on top of the PR's, inflating the
