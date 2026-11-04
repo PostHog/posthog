@@ -121,13 +121,19 @@ def _validated(
 def hold_admission_lock(team_id: int, source_kind: SourceKind) -> None:
     """Serializes a team's admissions for a kind until the caller's transaction ends. A source that
     also creates alerts outside the platform takes it too, so its count and the platform's agree."""
+    # In autocommit the lock ends with its own statement, so it would serialize nothing.
+    if not connection.in_atomic_block:
+        raise RuntimeError("The admission lock must be taken inside a transaction.")
     # A transaction-scoped advisory lock per team and kind, rather than a lock on the Team row, which
     # foreign-key checks from every child write also take.
     with connection.cursor() as cursor:
-        cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", [f"alerts_platform:{team_id}:{source_kind.value}"])
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"alerts_platform:{team_id}:{source_kind.value}"]
+        )
 
 
 def _admit(
+    *,
     team_id: int,
     source_kind: SourceKind,
     current: PlatformAlertConfigurationEdit | None,
@@ -199,7 +205,13 @@ def create_configuration(
     validated = _validated(source_kind, None, edit, team_id=team_id)
     if spec.native is not None:
         with transaction.atomic():
-            _admit(team_id, source_kind, None, validated, spec.native.check_interval_minutes)
+            _admit(
+                team_id=team_id,
+                source_kind=source_kind,
+                current=None,
+                edit=validated,
+                check_interval_minutes=spec.native.check_interval_minutes,
+            )
             configuration = platform_lifecycle.create_native_configuration(
                 team_id=team_id,
                 source_kind=source_kind,
@@ -229,7 +241,7 @@ def _create_through_source(
     created_by_id: int | None,
 ) -> PlatformAlertConfiguration:
     with transaction.atomic():
-        _admit(team_id, source_kind, None, validated, None)
+        _admit(team_id=team_id, source_kind=source_kind, current=None, edit=validated, check_interval_minutes=None)
         legacy_configuration_id = create(team_id=team_id, edit=validated, created_by_id=created_by_id)
         configuration = _locked_owned_copy(team_id, legacy_configuration_id)
         if configuration is None:
@@ -459,7 +471,13 @@ def _apply(
     current = edit_of(configuration)
     edit = _validated(source_kind, current, change(current), team_id=configuration.team_id)
     if admit:
-        _admit(configuration.team_id, source_kind, current, edit, configuration.check_interval_minutes)
+        _admit(
+            team_id=configuration.team_id,
+            source_kind=source_kind,
+            current=current,
+            edit=edit,
+            check_interval_minutes=configuration.check_interval_minutes,
+        )
 
     regrouped = not edit.grouping.splits_like(current.grouping)
     ending = control_plane.ending_reason(current, edit, regrouped=regrouped, snoozing=snoozing)
