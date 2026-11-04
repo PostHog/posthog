@@ -308,7 +308,7 @@ def plan_migration_schemas(
         unavailable=list(planned.unavailable),
         webhook_only=list(planned.webhook_only),
         planned=list(planned.planned),
-        no_columns=list(planned.no_columns),
+        kept_off=list(planned.kept_off),
     )
 
 
