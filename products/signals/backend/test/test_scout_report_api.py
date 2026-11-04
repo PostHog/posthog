@@ -3232,6 +3232,21 @@ class TestUserReportCreateAPI(APIBaseTest):
         assert (report.user_authored, report.created_by_id) == (True, self.user.id)
         assert {call.kwargs["metadata"]["source_product"] for call in embed.call_args_list} == {"user_authored"}
 
+    def test_reviewer_named_in_a_filed_report_reads_as_added_by_teammate(self) -> None:
+        payload = self._payload(
+            suggested_reviewers=[{"user_uuid": str(self.user.uuid), "reason": "Owns the checkout handler."}]
+        )
+        with _safe_judge(), patch(EMBED_PATH):
+            response = self.client.post(self._url(), payload, format="json")
+        assert response.status_code == status.HTTP_201_CREATED, response.content
+
+        artefacts = self.client.get(f"{self._url()}{response.json()['report_id']}/artefacts/")
+        assert artefacts.status_code == status.HTTP_200_OK, artefacts.content
+        reviewers = next(a["content"] for a in artefacts.json()["results"] if a["type"] == "suggested_reviewers")
+        assert [(r["source_label"], r["explanation"]) for r in reviewers] == [
+            ("Added by teammate", "Owns the checkout handler.")
+        ]
+
     @parameterized.expand(
         [
             ("inbox_write", ["inbox:write"], status.HTTP_201_CREATED),
