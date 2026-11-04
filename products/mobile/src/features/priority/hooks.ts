@@ -2,6 +2,7 @@ import { useQueryClient } from '@tanstack/react-query'
 
 import { NotSignedInError } from '@/api/client'
 import { postPriorityJudgment, reportKeys } from '@/api/reports'
+import { sessionGeneration } from '@/auth/tokens'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { useDemoMode } from '@/demo/demoMode'
 import { reportScopeError } from '@/features/views/useViewsAccess'
@@ -22,10 +23,13 @@ export function useSetPriorityAction(reportId: string): AsyncAction<[ReportPrior
         if (!scope) {
             throw new NotSignedInError()
         }
+        const session = sessionGeneration()
         try {
             await postPriorityJudgment(reportId, priority)
         } catch (error) {
-            reportScopeError(error, 'inbox')
+            if (sessionGeneration() === session) {
+                reportScopeError(error, 'inbox')
+            }
             throw error
         }
         track('mobile_report_priority_changed', { report_id: reportId, priority })

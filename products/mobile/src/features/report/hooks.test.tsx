@@ -60,10 +60,12 @@ describe('useReport', () => {
         ['priority', (actions) => actions.setPriority('P0')],
     ])('%s access', (_name, run) => {
         test.each([
-            ["API key missing required scope 'inbox:write'", 'reauth'],
-            ['You do not have permission to perform this action.', 'ok'],
-            ["API key missing required scope 'task:write'", 'ok'],
-        ])('handles a rejected write: %s', async (detail, state) => {
+            ["API key missing required scope 'inbox:write'", 'reauth', 'current'],
+            ['You do not have permission to perform this action.', 'ok', 'current'],
+            ["API key missing required scope 'task:write'", 'ok', 'current'],
+            ["API key missing required scope 'inbox:write'", 'ok', 'signed-out'],
+            ["API key missing required scope 'inbox:write'", 'ok', 'replacement'],
+        ])('handles a rejected write: %s (%s, %s session)', async (detail, state, session) => {
             const previousAuth = useAuthStore.getState()
             useAuthStore.setState({ method: 'oauth' })
             setSessionTokens({
@@ -74,7 +76,18 @@ describe('useReport', () => {
                 grantedScopes: ['inbox:read'],
                 requestedScopes: ['inbox:read'],
             })
-            globalThis.fetch = jest.fn(async () => new Response(JSON.stringify({ detail }), { status: 403 }))
+            let requestStarted!: () => void
+            const started = new Promise<void>((resolve) => {
+                requestStarted = resolve
+            })
+            let completeRequest!: (response: Response) => void
+            const response = new Promise<Response>((resolve) => {
+                completeRequest = resolve
+            })
+            globalThis.fetch = jest.fn(() => {
+                requestStarted()
+                return response
+            })
             const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })
             const wrapper = ({ children }: { children: ReactNode }): ReactElement => (
                 <QueryClientProvider client={client}>{children}</QueryClientProvider>
@@ -86,7 +99,25 @@ describe('useReport', () => {
             try {
                 expect(result.current.access.state).toBe('ok')
                 await act(async () => {
-                    await expect(run(result.current.actions)).rejects.toThrow(detail)
+                    const rejected = expect(run(result.current.actions)).rejects.toThrow(detail)
+                    await started
+                    if (session !== 'current') {
+                        setSessionTokens(null)
+                        useScopeErrorStore.getState().clear()
+                        client.clear()
+                        if (session === 'replacement') {
+                            setSessionTokens({
+                                kind: 'oauth',
+                                accessToken: 'replacement-test-token',
+                                refreshToken: null,
+                                expiresAt: null,
+                                grantedScopes: ['inbox:read', 'inbox:write'],
+                                requestedScopes: ['inbox:read', 'inbox:write'],
+                            })
+                        }
+                    }
+                    completeRequest(new Response(JSON.stringify({ detail }), { status: 403 }))
+                    await rejected
                 })
                 expect(result.current.access.state).toBe(state)
                 expect(result.current.access.missingScope).toBe(state === 'reauth' ? 'inbox:write' : null)

@@ -120,6 +120,7 @@ They wait for an API scope rejection before asking for a new sign-in, because th
 When that fallback is removed, a missing inbox scope shows the sign-in prompt, including for a failed background refresh of a cached report.
 A refresh cannot add scopes to an existing grant. OAuth users must sign in again to receive the inbox scopes; personal API keys need those scopes added to the key.
 Resolve, dismiss, and priority changes also report missing inbox scopes to this gate, so a read-only grant shows the access prompt after a rejected write.
+Only rejections from the session that started the action update the gate; late failures after sign-out or another sign-in remain action errors.
 
 ### Server-side ceiling
 
