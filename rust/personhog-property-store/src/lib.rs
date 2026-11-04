@@ -57,7 +57,6 @@ fn shard_path(prefix: &str, shard: u32) -> String {
     format!("{prefix}/shard-{shard:05}")
 }
 
-/// The S3 Standard store of record.
 pub fn object_store(
     config: &PropertyStoreConfig,
 ) -> Result<Arc<dyn ObjectStore>, PropertyStoreError> {
@@ -68,7 +67,6 @@ pub fn object_store(
     build_s3(s3_builder(config).with_url(url))
 }
 
-/// The writer's store: Standard, with every SST also copied into each configured directory bucket.
 pub fn writer_object_store(
     config: &PropertyStoreConfig,
 ) -> Result<Arc<dyn ObjectStore>, PropertyStoreError> {
@@ -84,7 +82,6 @@ pub fn writer_object_store(
     )))
 }
 
-/// The directory buckets the writer copies SSTs into, in configuration order.
 pub fn express_buckets(
     config: &PropertyStoreConfig,
 ) -> Result<Vec<express::Bucket>, PropertyStoreError> {
@@ -95,7 +92,6 @@ pub fn express_buckets(
         .collect()
 }
 
-/// The leader's store: SST reads try the configured directory bucket before Standard.
 pub fn reader_object_store(
     config: &PropertyStoreConfig,
 ) -> Result<Arc<dyn ObjectStore>, PropertyStoreError> {

@@ -65,7 +65,6 @@ struct BackfillArgs {
 struct ExpressRepairArgs {
     #[arg(long, default_value_t = 3600)]
     orphan_min_age_secs: u64,
-    /// Each in-flight copy holds one whole SST in memory.
     #[arg(long, default_value_t = 4)]
     concurrency: usize,
     #[arg(long)]

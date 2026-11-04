@@ -114,11 +114,9 @@ pub struct PropertyStoreConfig {
     #[envconfig(from = "PROPERTY_STORE_MAX_FRESH_READS", default = "8")]
     pub max_fresh_reads: usize,
 
-    /// Comma-separated directory buckets the writer copies SSTs into. Empty disables the copies.
     #[envconfig(from = "PROPERTY_STORE_EXPRESS_BUCKETS", default = "")]
     pub express_buckets: String,
 
-    /// The directory bucket a leader reads SSTs from. Empty reads Standard only.
     #[envconfig(from = "PROPERTY_STORE_EXPRESS_READ_BUCKET", default = "")]
     pub express_read_bucket: String,
 
@@ -126,7 +124,6 @@ pub struct PropertyStoreConfig {
     #[envconfig(from = "PROPERTY_STORE_EXPRESS_COPY_TIMEOUT_MS", default = "5000")]
     pub express_copy_timeout_ms: u64,
 
-    /// Bounds how long a read waits on its copy before it reads Standard.
     #[envconfig(from = "PROPERTY_STORE_EXPRESS_READ_TIMEOUT_MS", default = "100")]
     pub express_read_timeout_ms: u64,
 }

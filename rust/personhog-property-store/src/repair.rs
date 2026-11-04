@@ -1,6 +1,3 @@
-//! Brings a directory bucket's SST copies in line with Standard: copies what is missing
-//! (a failed tee write, or a newly added bucket) and removes copies Standard no longer has.
-
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;

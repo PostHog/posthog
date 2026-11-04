@@ -1,10 +1,6 @@
-//! Same-key copies of SSTs in S3 Express One Zone directory buckets.
-//!
-//! S3 Standard stays the store of record. The writer copies every SST into each directory
-//! bucket before its upload returns, so a manifest never names an SST that lacks its copies.
-//! A leader reads SSTs from its directory bucket and falls back to Standard on any miss.
-//! SSTs never change after they are written, so a copy holds the same bytes or nothing.
-//! Manifests, WAL files and every conditional write stay on Standard only.
+//! S3 Standard stays the store of record. SSTs never change once written, so a same-key copy
+//! in a directory bucket holds the same bytes or nothing, and a read can fall back on any miss.
+//! Copies finish before the upload returns, so a manifest never names an SST without its copies.
 
 use std::fmt;
 use std::ops::Range;
@@ -75,7 +71,6 @@ async fn bounded<T>(
     }
 }
 
-/// The writer's store: Standard plus a best-effort copy of each SST in every directory bucket.
 #[derive(Debug)]
 pub struct TeeStore {
     primary: Arc<dyn ObjectStore>,
@@ -320,7 +315,6 @@ async fn abort_copy(copy: &mut CopyUpload, copy_timeout: Duration) {
     }
 }
 
-/// The leader's store: SST reads try the directory bucket and fall back to Standard.
 #[derive(Debug)]
 pub struct ReadThroughStore {
     primary: Arc<dyn ObjectStore>,
@@ -509,7 +503,6 @@ mod tests {
 
     const SST: &str = "props/shard-00000/compacted/01J000000000000000000000AA.sst";
 
-    /// A copy target that refuses every request, or answers only after `delay`.
     #[derive(Debug)]
     struct Faulty {
         inner: InMemory,
