@@ -382,7 +382,7 @@ def create_scout_report(
                         report_id=report_id,
                         github_logins=[entry.github_login for entry in stored if entry.github_login],
                         user_uuids=[entry.user_uuid for entry in stored if entry.user_uuid and not entry.github_login],
-                        source="scout",
+                        source="user_authored" if created_by_id is not None else "scout",
                         proposed_count=proposed_reviewer_count,
                         reviewer_outcome=reviewer_outcome,
                         report_status=str(status),

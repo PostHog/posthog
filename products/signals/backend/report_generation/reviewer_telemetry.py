@@ -22,7 +22,9 @@ logger = logging.getLogger(__name__)
 # model-proposed and unbounded, so cap what reaches event properties.
 _MAX_LOGINS_PER_EVENT = 10
 
-ReviewerSuggestionSource = Literal["pipeline", "scout", "scout_edit", "custom_agent", "user_edit", "api"]
+ReviewerSuggestionSource = Literal[
+    "pipeline", "scout", "scout_edit", "custom_agent", "user_edit", "api", "user_authored"
+]
 
 
 @frozen

@@ -330,6 +330,7 @@ class TestScoutReportPersistence(BaseTest):
             ("omitted_writer_off", False, None, "omitted", SignalReport.Status.READY, []),
             ("omitted_writer_on", True, None, "omitted", SignalReport.Status.READY, []),
             ("suppressed_writer_off", False, None, "omitted", SignalReport.Status.SUPPRESSED, None),
+            ("hand_filed_writer_off", False, None, "omitted", SignalReport.Status.READY, [], True),
         ]
     )
     def test_create_fires_reviewer_telemetry_for_every_surfaced_report(
@@ -340,6 +341,7 @@ class TestScoutReportPersistence(BaseTest):
         outcome: str,
         status: SignalReport.Status,
         expected_logins: list[str] | None,
+        hand_filed: bool = False,
     ) -> None:
         # Scout-authored reports persist reviewers here, not through the custom-agent path. A surfaced
         # report with no reviewers must still count, or the routed share loses its denominator.
@@ -363,6 +365,7 @@ class TestScoutReportPersistence(BaseTest):
                 suggested_reviewers=reviewers,
                 proposed_reviewer_count=len(logins or []),
                 reviewer_outcome=outcome,
+                created_by_id=self.user.id if hand_filed else None,
             )
 
         if expected_logins is None:
@@ -370,7 +373,7 @@ class TestScoutReportPersistence(BaseTest):
             return
         assert mock_capture.call_count == 1
         kwargs = mock_capture.call_args.kwargs
-        assert kwargs["source"] == "scout"
+        assert kwargs["source"] == ("user_authored" if hand_filed else "scout")
         assert kwargs["github_logins"] == expected_logins
         assert kwargs["proposed_count"] == len(logins or [])
         assert kwargs["reviewer_outcome"] == outcome
