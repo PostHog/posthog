@@ -4,10 +4,12 @@ import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
+
 from posthog.models import Team
 
 from products.metrics.backend.models import MetricDailyQueryCount
-from products.metrics.backend.query_counts import list_metric_query_counts, record_metric_queries
+from products.metrics.backend.query_counts import list_metric_query_counts, record_metric_queries, record_promql_query
 
 NOW = dt.datetime(2026, 10, 20, 12, 0, tzinfo=dt.UTC)
 
@@ -35,3 +37,20 @@ class TestMetricQueryCounts(BaseTest):
         record_metric_queries(self.team, ["cpu"])
 
         assert [(count.metric_name, count.query_count) for count in list_metric_query_counts(self.team)] == [("cpu", 1)]
+
+    @parameterized.expand(
+        [
+            ("histogram_buckets_count_as_the_stored_histogram", "rate(latency_bucket[5m]) / up", ["latency", "up"]),
+            ("expression_over_the_api_limit", "up or " * 2000 + "up", []),
+            (
+                "names_past_the_per_query_cap",
+                " or ".join(f"m{i:02}" for i in range(60)),
+                [f"m{i:02}" for i in range(50)],
+            ),
+        ]
+    )
+    def test_promql_query_counts_bounded_stored_metric_names(self, _name: str, expr: str, expected: list[str]) -> None:
+        record_promql_query(self.team, expr)
+
+        counts = list_metric_query_counts(self.team, limit=1000)
+        assert sorted(count.metric_name for count in counts) == expected

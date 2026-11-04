@@ -40,6 +40,7 @@ class Migration(migrations.Migration):
                 ),
             ],
             options={
+                "indexes": [models.Index(fields=["team", "date"], name="metrics_dqc_team_date_idx")],
                 "constraints": [
                     models.UniqueConstraint(
                         fields=("team", "metric_name", "date"),

@@ -44,6 +44,7 @@ from .enums import (
 MAX_CLAUSES_PER_QUERY = 10
 DEFAULT_QUERY_COUNT_DAYS = 30
 MAX_QUERY_COUNT_DAYS = 90
+MAX_PROMQL_LENGTH = 8192
 MAX_SPARKLINE_BATCH_SIZE = 20
 
 
@@ -417,7 +418,9 @@ class MetricQueryCount:
     """How often queries read one metric of a team inside a window of days.
 
     A query counts once for each metric that it selects, whatever the number of clauses or selectors that name it.
-    Builder and PromQL queries count, from the app, alerts and the Prometheus API. SQL mode queries do not count.
+    Builder, heatmap and PromQL queries count, from the app, alerts and the Prometheus API.
+    SQL mode queries do not count.
+    A PromQL selector that names no metric, such as `{__name__=~"http_.*"}`, counts nothing.
     """
 
     metric_name: str

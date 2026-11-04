@@ -13,18 +13,24 @@ import structlog
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 
-from products.metrics.backend.facade.contracts import DEFAULT_QUERY_COUNT_DAYS, MetricQueryCount
+from products.metrics.backend.facade.contracts import DEFAULT_QUERY_COUNT_DAYS, MAX_PROMQL_LENGTH, MetricQueryCount
 from products.metrics.backend.models import MetricDailyQueryCount
 
 logger = structlog.get_logger(__name__)
 
 _MAX_METRIC_NAME_LENGTH = MetricDailyQueryCount._meta.get_field("metric_name").max_length or 0
+# One query writes at most this many rows, whatever the number of names in it.
+_MAX_METRICS_PER_QUERY = 50
+# Snuffle serves the buckets of a stored histogram `<name>` as the virtual series `<name>_bucket`.
+_HISTOGRAM_BUCKET_SUFFIX = "_bucket"
 
 
 def record_metric_queries(team: Team, metric_names: Iterable[str]) -> None:
     """Count one query for each distinct metric name. A failure is logged and never reaches the query."""
     # Sorted, so that two concurrent upserts lock the rows of a team in the same order and cannot deadlock.
-    names = sorted({name for name in metric_names if name and len(name) <= _MAX_METRIC_NAME_LENGTH})
+    names = sorted({name for name in metric_names if name and len(name) <= _MAX_METRIC_NAME_LENGTH})[
+        :_MAX_METRICS_PER_QUERY
+    ]
     if not names:
         return
     # The model is scoped to the root team, so the rows of an environment belong to its parent team.
@@ -44,9 +50,14 @@ def record_metric_queries(team: Team, metric_names: Iterable[str]) -> None:
             last_queried_at = GREATEST({table}.last_queried_at, EXCLUDED.last_queried_at)
     """
     using = router.db_for_write(MetricDailyQueryCount)
+    # SET LOCAL lasts until the outermost transaction ends, so it must not run inside a transaction of the caller.
+    owns_transaction = not connections[using].in_atomic_block
     try:
         # The savepoint keeps a failed write from breaking a transaction that the caller holds open.
         with transaction.atomic(using=using), connections[using].cursor() as cursor:
+            if owns_transaction:
+                # A row that another transaction holds fails the write fast, so the query goes uncounted, not slow.
+                cursor.execute("SET LOCAL lock_timeout = '100ms'")
             cursor.execute(sql, params)
     except DatabaseError as error:
         logger.warning("metric_query_count_write_failed", team_id=team_id, metric_count=len(names))
@@ -54,11 +65,16 @@ def record_metric_queries(team: Team, metric_names: Iterable[str]) -> None:
 
 
 def record_promql_query(team: Team, expr: str) -> None:
-    """Count one query for each metric that a PromQL expression selects."""
+    """Count one query for each metric that a PromQL expression selects.
+
+    An expression longer than the API accepts does not count, so that tokenizing it stays cheap.
+    """
+    if len(expr) > MAX_PROMQL_LENGTH:
+        return
     # promql_text imports the promql module, which imports this module, so a module-level import is circular.
     from products.metrics.backend.dashboard_import.promql_text import metric_names  # noqa: PLC0415
 
-    record_metric_queries(team, metric_names(expr))
+    record_metric_queries(team, (name.removesuffix(_HISTOGRAM_BUCKET_SUFFIX) or name for name in metric_names(expr)))
 
 
 def list_metric_query_counts(

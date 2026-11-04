@@ -55,6 +55,7 @@ from products.metrics.backend.facade.api import (
 from products.metrics.backend.facade.contracts import (
     DEFAULT_QUERY_COUNT_DAYS,
     MAX_CLAUSES_PER_QUERY,
+    MAX_PROMQL_LENGTH,
     MAX_QUERY_COUNT_DAYS,
     MAX_SPARKLINE_BATCH_SIZE,
     METRICS_ERROR_OVERLAYS_FEATURE_FLAG,
@@ -294,7 +295,7 @@ class _MetricQueryBodySerializer(serializers.Serializer):
     promql = serializers.CharField(
         required=False,
         allow_null=True,
-        max_length=8192,
+        max_length=MAX_PROMQL_LENGTH,
         help_text="PromQL expression, run as a range query over the request's time grid, e.g. 'sum by (job) (rate(http_requests_total[5m]))'. Use it to run an alert or runbook expression as written. Mutually exclusive with 'metricName' and 'clauses'; put label selectors and grouping in the expression instead of 'filters' and 'groupBy'. In PromQL, service.name is service_name and other label names with dots need quotes. A bucket that a series did not report is null, not zero.",
     )
     dateFrom = _RelativeOrIsoDateTimeField(
