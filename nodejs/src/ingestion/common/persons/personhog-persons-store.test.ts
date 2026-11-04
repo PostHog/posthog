@@ -2446,8 +2446,6 @@ describe('PersonhogPersonsStore', () => {
 
     describe('convergence closures', () => {
         it('a fence bounce waits for the fence to clear and then writes the lane', async () => {
-            // A fenced write that failed the flush would crash the consumer for
-            // a fence that clears within seconds.
             personhogStoreFlushCounter.reset()
             personhogStoreFlushErrorCounter.reset()
             jest.useFakeTimers()
@@ -2474,8 +2472,6 @@ describe('PersonhogPersonsStore', () => {
         })
 
         it('a fence that outlasts the merge timeout fails the flush with the lane kept', async () => {
-            // Waiting only the transport budget would fail flushes behind
-            // fences a running merge still holds; acking would lose the ops.
             personhogStoreFlushCounter.reset()
             jest.useFakeTimers()
             try {

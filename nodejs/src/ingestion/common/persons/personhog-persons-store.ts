@@ -102,7 +102,6 @@ export interface PersonhogPersonsStoreOptions {
     syncMergeMoveLimit: number
     /** The injected repository's per-request timeout; the flush's lane wait derives from it. */
     requestTimeoutMs: number
-    /** The merge call's timeout; the flush's wait on a fenced lane derives from it. */
     mergeTimeoutMs: number
 }
 
@@ -268,7 +267,6 @@ export class PersonhogPersonsStore implements PersonsStore {
     private flushChain: Promise<void> = Promise.resolve()
     /** Total lane wait per flush, derived in the constructor from the transport retry budget. */
     private flushWaitBudgetMs: number
-    /** Total lane wait per flush once a lane meets a lifecycle fence, derived from the merge timeout. */
     private fenceWaitBudgetMs: number
 
     constructor(
@@ -1277,8 +1275,6 @@ export class PersonhogPersonsStore implements PersonsStore {
             const budgetMs = fenceSeen ? this.fenceWaitBudgetMs : this.flushWaitBudgetMs
             if (round * FLUSH_WAIT_ROUND_MS >= budgetMs) {
                 if (pass.fenced > 0) {
-                    // A fence that outlasts a merge call usually belongs to a
-                    // parked lifecycle op, which only an operator re-drive clears.
                     personhogStoreFlushCounter.inc({ outcome: 'fence_exhausted' })
                     throw new Error(
                         `flush cannot complete: ${pass.fenced} lanes still fenced by a lifecycle op after ${budgetMs}ms`
@@ -1340,8 +1336,6 @@ export class PersonhogPersonsStore implements PersonsStore {
             if (outcome.status !== 'rejected') {
                 continue
             }
-            // The fence clears when its saga completes, and the lane keeps its
-            // segments, so the round loop retries it as a deferral.
             if (outcome.reason instanceof PersonhogFencedError) {
                 pass.deferrals += 1
                 pass.fenced += 1
