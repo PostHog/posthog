@@ -457,12 +457,16 @@ describe('EmailTrackingService', () => {
                 parentRunId,
                 workflowVersion,
                 transactionalMessageId,
+                actionId,
+                distinctId,
             }: {
                 functionId: string
                 parentRunId?: string
                 workflowVersion?: number
                 // Sends the bounce as SES reports it for a transactional email with this message id.
                 transactionalMessageId?: string
+                actionId?: string
+                distinctId?: string
             }): Promise<supertest.Response> => {
                 // Third arg opts into the versioned payload, which `generate` won't emit by default
                 // until phase two of the rollout — see EMIT_VERSIONED_PAYLOAD in tracking-code.ts.
@@ -473,6 +477,8 @@ describe('EmailTrackingService', () => {
                         teamId: team.id,
                         parentRunId,
                         workflowVersion,
+                        distinctId,
+                        ...(actionId ? { state: { actionId } } : {}),
                     },
                     false,
                     workflowVersion !== undefined
@@ -568,6 +574,53 @@ describe('EmailTrackingService', () => {
                         }),
                     }),
                 ])
+            })
+
+            it.each<[string, Record<string, unknown>, boolean, Record<string, string>]>([
+                ['a template send', { template_uuid: 'template-1' }, true, { $email_template_id: 'template-1' }],
+                ['a code send by key', { template_key: 'welcome' }, true, { $email_template_key: 'welcome' }],
+                ['a transactional workflow saved without a name', {}, true, {}],
+                ['a workflow email made from a template', { template_uuid: 'template-1' }, false, {}],
+            ])('names the email on the bounced event of %s', async (_name, emailConfig, transactional, identity) => {
+                const hogFlow = await insertHogFlow(
+                    hub.postgres,
+                    new FixtureHogFlowBuilder()
+                        .withTeamId(team.id)
+                        .withWorkflow({
+                            actions: {
+                                trigger: { type: 'trigger', config: { type: 'event', filters: {} } },
+                                email: {
+                                    type: 'function_email',
+                                    config: { template_id: 'template-email', inputs: {}, ...emailConfig },
+                                },
+                            },
+                            edges: [{ from: 'trigger', to: 'email', type: 'continue' }],
+                        })
+                        .build()
+                )
+                const trackingService = (api as any).emailTrackingService
+                jest.spyOn(
+                    trackingService.teamWorkflowsConfigService,
+                    'shouldCaptureEngagementEvents'
+                ).mockResolvedValue(true)
+                const queueEvent = jest.spyOn(trackingService.capturedEventsService, 'queueEvent')
+
+                const res = await postBounce({
+                    functionId: hogFlow.id,
+                    actionId: 'email',
+                    distinctId: 'distinct-id',
+                    transactionalMessageId: transactional ? new UUIDT().toString() : undefined,
+                })
+                expect(res.status).toBe(200)
+
+                const bounced = queueEvent.mock.calls
+                    .map(([event]) => event as { event: string; properties: Record<string, unknown> })
+                    .find(({ event }) => event === '$workflows_email_bounced')
+                expect(
+                    Object.fromEntries(
+                        Object.entries(bounced!.properties).filter(([key]) => key.startsWith('$email_template_'))
+                    )
+                ).toStrictEqual(identity)
             })
 
             it('records the metric but writes no log entry when the bounce resolves to a hog_function', async () => {

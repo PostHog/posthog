@@ -2103,13 +2103,28 @@ describe('EmailService', () => {
             expect(result.emailSendResult).toEqual({ status: 'failed', reason: result.error })
         })
 
-        it.each([
-            ['an ordinary template', {}, 'Test Subject', false],
-            ['a sensitive template', { sensitive: true }, undefined, false],
-            ['a transactional email', {}, 'Test Subject', true],
+        it.each<[string, Record<string, unknown>, string | undefined, boolean, Record<string, string>]>([
+            ['an ordinary template', {}, 'Test Subject', false, {}],
+            ['a sensitive template', { sensitive: true }, undefined, false, {}],
+            ['a workflow email made from a template', { template_uuid: 'template-1' }, 'Test Subject', false, {}],
+            ['a transactional email saved without a name', {}, 'Test Subject', true, {}],
+            [
+                'a transactional email from a template',
+                { template_uuid: 'template-1' },
+                'Test Subject',
+                true,
+                { $email_template_id: 'template-1' },
+            ],
+            [
+                'a code send by key',
+                { template_key: 'welcome' },
+                'Test Subject',
+                true,
+                { $email_template_key: 'welcome' },
+            ],
         ])(
             'should capture a $workflows_email_sent PostHog event on success, for %s',
-            async (_name, extraMetadata, subject, transactional) => {
+            async (_name, extraMetadata, subject, transactional, identity) => {
                 // Engagement capture is team-opt-in; enable it for this team so the captured event is emitted.
                 jest.spyOn(
                     (service as any).teamWorkflowsConfigService,
@@ -2138,6 +2153,13 @@ describe('EmailService', () => {
                     },
                 })
                 expect(result.capturedPostHogEvents[0].properties.$email_subject).toEqual(subject)
+                expect(
+                    Object.fromEntries(
+                        Object.entries(result.capturedPostHogEvents[0].properties).filter(([key]) =>
+                            key.startsWith('$email_template_')
+                        )
+                    )
+                ).toStrictEqual(identity)
             }
         )
 

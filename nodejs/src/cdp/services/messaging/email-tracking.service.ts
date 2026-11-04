@@ -25,6 +25,7 @@ import { EmailSuppressionService } from './email-suppression.service'
 import { escapeHtml } from './helpers/escape-html'
 import { SES_LINK_INDEX_TAG, SesWebhookHandler } from './helpers/ses'
 import { EmailTrackingCodeSigner, trackingCodeFormatCounter } from './helpers/tracking-code'
+import { transactionalEmailIdentity } from './helpers/transactional-email-identity'
 
 export const PIXEL_GIF = Buffer.from('R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==', 'base64')
 const LINK_REGEX =
@@ -403,6 +404,10 @@ export class EmailTrackingService {
                     $workflow_action_id: actionId,
                     ...(workflowVersion !== undefined ? { $workflow_version: workflowVersion } : {}),
                     ...properties,
+                    // Only a transactional send carries a message id, and only a transactional send has these names.
+                    ...(properties?.$email_message_id
+                        ? transactionalEmailIdentity(hogFlow?.actions.find((action) => action.id === actionId)?.config)
+                        : {}),
                 },
             })
             await this.capturedEventsService.flush()

@@ -35,6 +35,7 @@ import { maybeAddPreheaderToEmail } from './helpers/preheader'
 import { SES_EMAIL_STATUS_TAG, SES_SENSITIVE_TAG } from './helpers/ses'
 import { quoteMailbox, removeSuppressedRecipients, unquoteMailbox } from './helpers/suppressed-recipients'
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME } from './helpers/tracking-code'
+import { transactionalEmailIdentity } from './helpers/transactional-email-identity'
 import { addUtmTagsToEmail, renderUtmOverrides, resolveUtmTags } from './helpers/utm'
 import { MessageAssetsService } from './message-assets.service'
 import {
@@ -848,7 +849,12 @@ export class EmailService {
                 properties: {
                     $workflow_id: invocation.functionId,
                     $workflow_action_id: invocation.state.actionId,
-                    ...(isTransactionalEmailSend(invocation) ? { $email_message_id: invocation.id } : {}),
+                    ...(isTransactionalEmailSend(invocation)
+                        ? {
+                              $email_message_id: invocation.id,
+                              ...transactionalEmailIdentity(invocation.hogFunction?.metadata),
+                          }
+                        : {}),
                     $email_to: params.to.email,
                     // A sensitive template's subject can carry a login code, so its events leave it out.
                     ...(invocation.hogFunction?.metadata?.sensitive === true ? {} : { $email_subject: params.subject }),
