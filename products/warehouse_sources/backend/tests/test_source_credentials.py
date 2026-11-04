@@ -257,7 +257,6 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
         assert not Integration.objects._with_auth(AuthTypeSelector.ANY).filter(team_id=self.team.pk).exists()
         source.credentials_integration_id = "1"
         assert WarehouseSourceCredentialsStore.get(source) is None
-        assert WarehouseSourceCredentialsStore.release(source) is False
 
     @parameterized.expand(
         [
@@ -293,7 +292,6 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
 
         assert WarehouseSourceCredentialsStore.get(source) is None
         assert WarehouseSourceCredentialsStore.get_many([source]) == {}
-        assert WarehouseSourceCredentialsStore.release(source) is False
         with self.assertRaises(CredentialsNotFoundError):
             WarehouseSourceCredentialsStore.update(source, {**PG_FIELDS, "password": "new"})
         assert self._fields_of_row(store_pk) == PG_FIELDS
@@ -579,29 +577,17 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
             WarehouseSourceCredentialsStore.update(postgres, PG_FIELDS)
         assert WarehouseSourceCredentialsStore.get(stripe) == STRIPE_FIELDS
 
-    @parameterized.expand(
-        [
-            ("orphan", False, True),
-            ("still_used_by_another_source", True, False),
-        ]
-    )
-    def test_release_never_deletes_the_row(self, _name: str, shared: bool, orphaned: bool) -> None:
+    def test_soft_delete_keeps_the_row_and_looks_up_no_usages(self) -> None:
         source = self._source()
-        pk = self._create(source, PG_FIELDS)
-        if shared:
-            self._referencing(pk)
+        self._create(source, PG_FIELDS)
 
-        assert WarehouseSourceCredentialsStore.release(source) is orphaned
-        assert IntegrationManager.source("postgresql").credentials.get(self.team.id, pk).id == pk
+        with patch("products.warehouse_sources.backend.integration_usages.list_sources_using_integration") as usages:
+            source.soft_delete()
 
-    def test_release_of_a_reference_the_source_cannot_use_is_a_no_op(self) -> None:
-        source = self._source()
-        oauth_row = IntegrationManager.hubspot.oauth.create(self.team.id, external_id="H1", config={})
-
-        source.credentials_integration_id = str(oauth_row.id)
-        assert WarehouseSourceCredentialsStore.release(source) is False
-        source.credentials_integration_id = None
-        assert WarehouseSourceCredentialsStore.release(source) is False
+        usages.assert_not_called()
+        source.refresh_from_db()
+        assert source.deleted is True
+        assert len(IntegrationManager.source("postgresql").any.list(self.team.id)) == 1
 
     @parameterized.expand(
         [
@@ -632,26 +618,6 @@ class TestWarehouseSourceCredentialsStore(BaseTest):
         SourceInputsStore.discard_created(source)
 
         assert IntegrationManager.hubspot.oauth.get(self.team.id, oauth_row.id).id == oauth_row.id
-
-    @patch("products.warehouse_sources.backend.models.external_data_source.capture_exception")
-    def test_soft_delete_keeps_the_row_and_survives_store_failure(self, capture: Any) -> None:
-        deleted, failing, without_row = self._source(), self._source(), self._source()
-        for source in (deleted, failing):
-            self._create(source, PG_FIELDS)
-
-        with patch.object(
-            WarehouseSourceCredentialsStore, "release", wraps=WarehouseSourceCredentialsStore.release
-        ) as release:
-            deleted.soft_delete()
-            without_row.soft_delete()
-        release.assert_called_once_with(deleted)
-        assert len(IntegrationManager.source("postgresql").any.list(self.team.id)) == 2
-
-        with patch.object(WarehouseSourceCredentialsStore, "release", side_effect=RuntimeError("boom")):
-            failing.soft_delete()
-        failing.refresh_from_db()
-        assert failing.deleted is True
-        capture.assert_called_once()
 
     @parameterized.expand(
         [

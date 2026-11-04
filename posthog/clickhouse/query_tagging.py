@@ -118,6 +118,7 @@ class Feature(StrEnum):
     PREAGGREGATION = "preaggregation"
     DATA_DELETION = "data_deletion"
     DATA_QUALITY_CHECK = "data_quality_check"  # one data quality check assertion against its subject
+    BATCH_RUN_OUTCOME = "batch_run_outcome"  # a workflow batch run checks whether its sends errored
     ENRICHMENT = "enrichment"  # background tasks that derive/sync data (not customer-facing)
     EVENT_FILTERS = "event_filters"
     SCHEMA_INTROSPECTION = "schema_introspection"

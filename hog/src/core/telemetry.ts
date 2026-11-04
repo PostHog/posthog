@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 
+import type { AccessKey } from '@/posthog/access-key'
 import { posthogFile, type Credentials } from '@/posthog/credentials'
 import { VERSION } from '@/version'
 
@@ -139,8 +140,8 @@ export class Telemetry {
         if (!this.enabled || this.queue.length === 0) {
             return
         }
-        const credentials = await this.credentials?.().catch(() => undefined)
-        const identity = credentials ? await this.identity(credentials) : undefined
+        const key = (await this.credentials?.().catch(() => undefined))?.key
+        const identity = key ? await this.identity(key) : undefined
         const installId = await this.installId()
         const distinctId = identity?.distinctId ?? installId
         const groups = Object.fromEntries(
@@ -152,7 +153,7 @@ export class Telemetry {
             ...this.commonProperties(),
             install_id: installId,
             // A self-hosted project ID means nothing in PostHog Cloud and would tie the install to that instance.
-            env_id: credentials && isCloudHost(credentials.host) ? credentials.projectId : null,
+            env_id: key && isCloudHost(key.host) ? key.projectId : null,
             ...(identity?.distinctId ? {} : { $process_person_profile: false }),
             ...(Object.keys(groups).length > 0 ? { $groups: groups } : {}),
         }
@@ -205,8 +206,8 @@ export class Telemetry {
 
     // Looks the user up once per key and keeps the answer for 30 days, or a day when PostHog had
     // none, so most runs send no extra request. A key without the scopes stays anonymous.
-    private async identity(credentials: Credentials): Promise<Identity | undefined> {
-        if (!isCloudHost(credentials.host)) {
+    private async identity(key: AccessKey): Promise<Identity | undefined> {
+        if (!isCloudHost(key.host)) {
             return undefined
         }
         let path: string
@@ -215,9 +216,7 @@ export class Telemetry {
         } catch {
             return undefined
         }
-        const key = createHash('sha256')
-            .update(`${credentials.host}\n${credentials.projectId}\n${credentials.apiKey}`)
-            .digest('hex')
+        const cacheKey = createHash('sha256').update(`${key.host}\n${key.projectId}\n${key.token}`).digest('hex')
         let cache: Record<string, CachedIdentity> = {}
         try {
             const parsed: unknown = JSON.parse(await this.runtime.readFile(path))
@@ -228,13 +227,13 @@ export class Telemetry {
         } catch {
             // No cache yet.
         }
-        const cached = cache[key]
+        const cached = cache[cacheKey]
         const now = this.runtime.now()
         if (cached && now - cached.checkedAt < (cached.distinctId ? 30 : 1) * DAY_MS) {
             return cached
         }
-        const identity = await this.lookup(credentials)
-        cache[key] = { ...identity, checkedAt: now }
+        const identity = await this.lookup(key)
+        cache[cacheKey] = { ...identity, checkedAt: now }
         try {
             await this.runtime.writePrivateFile(path, JSON.stringify(cache))
         } catch {
@@ -243,11 +242,11 @@ export class Telemetry {
         return identity
     }
 
-    private async lookup(credentials: Credentials): Promise<Identity> {
+    private async lookup(key: AccessKey): Promise<Identity> {
         const get = async (path: string): Promise<Record<string, any> | undefined> => {
             try {
-                const response = await this.runtime.fetch(new URL(path, credentials.host), {
-                    headers: { Authorization: `Bearer ${credentials.apiKey}` },
+                const response = await this.runtime.fetch(new URL(path, key.host), {
+                    headers: { Authorization: `Bearer ${key.token}` },
                     signal: AbortSignal.timeout(LOOKUP_TIMEOUT_MS),
                 })
                 return response.ok ? ((await response.json()) as Record<string, any>) : undefined
@@ -255,10 +254,7 @@ export class Telemetry {
                 return undefined
             }
         }
-        const [user, project] = await Promise.all([
-            get('/api/users/@me/'),
-            get(`/api/projects/${credentials.projectId}/`),
-        ])
+        const [user, project] = await Promise.all([get('/api/users/@me/'), get(`/api/projects/${key.projectId}/`)])
         return {
             distinctId: text(user?.distinct_id),
             organization: text(project?.organization) ?? text(user?.organization?.id),
