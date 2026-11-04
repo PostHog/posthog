@@ -900,6 +900,29 @@ describe('EmailService', () => {
                 )
             })
 
+            it('counts nothing for two steps of one flow job', async () => {
+                invocation.state.globals.event.event = '$pageview'
+                const observed = observedService(poolWith(valkey as unknown as RedisClient))
+                const duplicates = { source: 'workflow' }
+                const firsts = { source: 'workflow', result: 'first' }
+                const duplicatesBefore = await metricValue('cdp_email_duplicate_handoff_total', duplicates)
+                const firstsBefore = await metricValue('cdp_email_handoff_observations_total', firsts)
+
+                for (const [actionId, actionStepCount] of [
+                    ['email_1', 1],
+                    ['email_2', 2],
+                ] as const) {
+                    invocation.state.actionId = actionId
+                    invocation.state.actionStepCount = actionStepCount
+                    await observed.executeSendEmail(invocation)
+                }
+
+                await waitForExpect(async () =>
+                    expect(await metricValue('cdp_email_handoff_observations_total', firsts)).toBe(firstsBefore + 2)
+                )
+                expect(await metricValue('cdp_email_duplicate_handoff_total', duplicates)).toBe(duplicatesBefore)
+            })
+
             it('counts nothing when Valkey replays the write of one send', async () => {
                 const replayingClient = {
                     set: (_key: string, value: string) => Promise.resolve(value),
@@ -923,7 +946,9 @@ describe('EmailService', () => {
                 } as unknown as RedisClient
                 const observed = observedService(poolWith(failingClient))
                 const labels = { source: 'workflow' }
+                const errors = { source: 'workflow', result: 'error' }
                 const before = await metricValue('cdp_email_duplicate_handoff_total', labels)
+                const errorsBefore = await metricValue('cdp_email_handoff_observations_total', errors)
 
                 const first = await observed.executeSendEmail(invocation)
                 const second = await observed.executeSendEmail(invocation)
@@ -936,6 +961,7 @@ describe('EmailService', () => {
                     ).toHaveLength(2)
                 )
                 expect(await metricValue('cdp_email_duplicate_handoff_total', labels)).toBe(before)
+                expect(await metricValue('cdp_email_handoff_observations_total', errors)).toBe(errorsBefore + 2)
             })
         })
 
