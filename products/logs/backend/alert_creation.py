@@ -38,15 +38,13 @@ def check_alert_slot(team_id: int) -> None:
     """Raises `AlertLimitReached` when the team is at its cap. The caller holds the cap lock."""
     if team_id in UNCAPPED_ALERT_TEAM_IDS:
         return
-    if _alerts_of(team_id) >= MAX_ALERTS_PER_TEAM:
-        raise AlertLimitReached()
-
-
-def _alerts_of(team_id: int) -> int:
-    """Every logs alert of the team: each logs row, and each platform alert with no logs row."""
-    return LogsAlertConfiguration.objects.filter(team_id=team_id).count() + count_configurations(
+    # Every logs row, and every platform alert with no logs row. A copy outlives its logs row when the
+    # alert is deleted while logs owns it, so copies are not counted.
+    alerts = LogsAlertConfiguration.objects.filter(team_id=team_id).count() + count_configurations(
         team_id=team_id, source_kind=SourceKind.LOGS, native_only=True
     )
+    if alerts >= MAX_ALERTS_PER_TEAM:
+        raise AlertLimitReached()
 
 
 def first_check_at(team_id: int, schedule_restriction: dict[str, Any]) -> datetime:
