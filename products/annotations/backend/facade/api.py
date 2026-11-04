@@ -73,15 +73,21 @@ def _to_annotation(annotation: Annotation) -> contracts.Annotation:
 
 
 def list_annotations(
-    *, team_id: int, organization_id: UUID, filters: contracts.AnnotationFilters, page: PageRequest
+    *,
+    team_id: int,
+    organization_id: UUID,
+    filters: contracts.AnnotationFilters,
+    page: PageRequest,
+    access: contracts.AnnotationAccess | None = None,
 ) -> Page[contracts.Annotation]:
     """One page of the live annotations the team can see, newest `date_marker` first.
 
     The team sees its own annotations and the organization-scoped ones of its organization. An
-    annotation scoped to a soft-deleted insight or dashboard is left out.
+    annotation scoped to a soft-deleted insight or dashboard is left out. `access` narrows the page
+    and its count to what the viewer's access control rules allow.
     """
     return annotations.list_annotations(
-        team_id=team_id, organization_id=organization_id, filters=filters, page=page
+        team_id=team_id, organization_id=organization_id, filters=filters, page=page, access=access
     ).map(_to_annotation)
 
 

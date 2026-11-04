@@ -14,6 +14,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.pagination import FacadeLimitOffsetPagination, facade_page_response
 from posthog.api.routing import PathParameter, TeamAndOrgViewSetMixin
 from posthog.models.user import User
+from posthog.permissions import is_service_auth
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.annotations.backend.facade import api, contracts
@@ -87,6 +88,22 @@ class AnnotationsViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Ge
             search_terms=tuple(filters.SearchFilter().get_search_terms(self.request)),
         )
 
+    def _list_access(self) -> contracts.AnnotationAccess | None:
+        """The access control narrowing a queryset list gets from TeamAndOrgViewSetMixin, with the same gates."""
+        if is_service_auth(self.request):
+            return None
+        access = self.user_access_control.list_access_filter(
+            "annotation", include_all_if_admin=self.request.GET.get("admin_include_all") == "true"
+        )
+        if access is None:
+            return None
+        return contracts.AnnotationAccess(
+            viewer_id=cast(User, self.request.user).id,
+            only_allowed=access.only_allowed,
+            allowed_ids=access.allowed_ids,
+            blocked_ids=access.blocked_ids,
+        )
+
     def _get_annotation(self, *, include_deleted: bool) -> contracts.Annotation:
         try:
             annotation = api.get_annotation(
@@ -114,6 +131,7 @@ class AnnotationsViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Ge
     @extend_schema(responses={200: AnnotationSerializer(many=True)})
     def list(self, request: Request, **kwargs) -> Response:
         annotation_filters = self._filters()
+        access = self._list_access()
         return facade_page_response(
             self,
             lambda page: api.list_annotations(
@@ -121,6 +139,7 @@ class AnnotationsViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Ge
                 organization_id=self.team.organization_id,
                 filters=annotation_filters,
                 page=page,
+                access=access,
             ),
         )
 

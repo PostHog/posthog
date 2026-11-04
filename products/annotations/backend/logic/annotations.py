@@ -14,6 +14,7 @@ from posthog.paging import Page, PageRequest
 from posthog.queryset_paging import select_page
 
 from products.annotations.backend.facade.contracts import (
+    AnnotationAccess,
     AnnotationFilters,
     AnnotationNotFoundError,
     AnnotationParent,
@@ -39,6 +40,7 @@ def _visible(
     organization_id: UUID,
     filters: AnnotationFilters,
     include_deleted: bool,
+    access: AnnotationAccess | None = None,
 ) -> QuerySet[Annotation]:
     """The annotations a team can see: its own, and the organization-scoped ones of its organization."""
     if not include_deleted:
@@ -63,18 +65,33 @@ def _visible(
     queryset = queryset.filter(
         Q(scope=AnnotationScope.ORGANIZATION, organization_id=organization_id) | Q(team_id=team_id)
     )
+    if access is not None:
+        if access.only_allowed:
+            queryset = queryset.filter(Q(id__in=access.allowed_ids) | Q(created_by_id=access.viewer_id))
+        elif access.blocked_ids:
+            queryset = queryset.exclude(Q(id__in=access.blocked_ids) & ~Q(created_by_id=access.viewer_id))
     if filters.search_terms:
         queryset = queryset.filter(Q(*(Q(content__icontains=term) for term in filters.search_terms)))
     return queryset
 
 
 def list_annotations(
-    *, team_id: int, organization_id: UUID, filters: AnnotationFilters, page: PageRequest
+    *,
+    team_id: int,
+    organization_id: UUID,
+    filters: AnnotationFilters,
+    page: PageRequest,
+    access: AnnotationAccess | None = None,
 ) -> Page[Annotation]:
     # `date_marker` alone is not a total order, so limit-offset pages could repeat or drop rows.
     queryset = strict_fetch(_with_relations().order_by("-date_marker", "-id"))
     queryset = _visible(
-        queryset, team_id=team_id, organization_id=organization_id, filters=filters, include_deleted=False
+        queryset,
+        team_id=team_id,
+        organization_id=organization_id,
+        filters=filters,
+        include_deleted=False,
+        access=access,
     )
     return select_page(queryset, page)
 

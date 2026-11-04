@@ -432,6 +432,19 @@ class ObjectAccessDecision:
     allowed_ids: frozenset[str]
 
 
+@frozen
+class ListAccessFilter:
+    """Which objects of a resource a list may show the user.
+
+    With `only_allowed`, the user has no resource-level access: the list keeps the allowed ids and
+    the user's own objects. Otherwise it drops the blocked ids, except the user's own objects.
+    """
+
+    only_allowed: bool
+    allowed_ids: frozenset[str]
+    blocked_ids: frozenset[str]
+
+
 class UserAccessControl:
     """
     UserAccessControl provides functions for checking unified access to all resources and objects from a Project level downwards.
@@ -1354,33 +1367,51 @@ class UserAccessControl:
         if not resource:
             return queryset
 
-        if include_all_if_admin and self.is_organization_admin:
+        model_has_creator = hasattr(model, "created_by")
+
+        access = self.list_access_filter(resource, include_all_if_admin=include_all_if_admin)
+        if access is None:
             return queryset
 
-        model_has_creator = hasattr(model, "created_by")
+        # Apply filtering logic based on resource-level access
+        if access.only_allowed:
+            # Resource-level "none": show only granted objects and the user's own objects, also
+            # when there are no grants at all. Logic-layer and background callers reach this
+            # filter with no permission layer above it, so it must fail closed on its own.
+            if model_has_creator:
+                queryset = queryset.filter(Q(id__in=access.allowed_ids) | Q(created_by=self._user))
+            else:
+                queryset = queryset.filter(id__in=access.allowed_ids)
+        elif access.blocked_ids:
+            # Standard case: exclude explicitly blocked objects
+            if model_has_creator:
+                queryset = queryset.exclude(Q(id__in=access.blocked_ids) & ~Q(created_by=self._user))
+            else:
+                queryset = queryset.exclude(id__in=access.blocked_ids)
+
+        return queryset
+
+    def list_access_filter(
+        self, resource: APIScopeObject, include_all_if_admin: bool = False
+    ) -> Optional[ListAccessFilter]:
+        """The rows of `resource` a list may show this user, as `filter_queryset_by_access_level` applies them.
+
+        A list that pages through a facade has no queryset to hand to that method, so it reads the
+        decision here and applies it in its own query. None means the list is not filtered.
+        """
+        if include_all_if_admin and self.is_organization_admin:
+            return None
 
         filters = self._access_controls_filters_for_queryset(resource)
         access_controls = self._get_access_controls(filters)
 
         decision = self._blocked_and_allowed_object_ids(resource, access_controls)
 
-        # Apply filtering logic based on resource-level access
-        if not self.has_resource_access(resource):
-            # Resource-level "none": show only granted objects and the user's own objects, also
-            # when there are no grants at all. Logic-layer and background callers reach this
-            # filter with no permission layer above it, so it must fail closed on its own.
-            if model_has_creator:
-                queryset = queryset.filter(Q(id__in=decision.allowed_ids) | Q(created_by=self._user))
-            else:
-                queryset = queryset.filter(id__in=decision.allowed_ids)
-        elif decision.blocked_ids:
-            # Standard case: exclude explicitly blocked objects
-            if model_has_creator:
-                queryset = queryset.exclude(Q(id__in=decision.blocked_ids) & ~Q(created_by=self._user))
-            else:
-                queryset = queryset.exclude(id__in=decision.blocked_ids)
-
-        return queryset
+        return ListAccessFilter(
+            only_allowed=not self.has_resource_access(resource),
+            allowed_ids=decision.allowed_ids,
+            blocked_ids=decision.blocked_ids,
+        )
 
     def _blocked_and_allowed_object_ids(
         self, resource: APIScopeObject, access_controls: list[_AccessControl]

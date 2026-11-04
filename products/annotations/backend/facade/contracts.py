@@ -109,6 +109,20 @@ class AnnotationFilters:
     search_terms: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True)
+class AnnotationAccess:
+    """Which annotations the access control rules let a list show the viewer.
+
+    With `only_allowed`, the viewer has no resource-level access: the list keeps the allowed ids and
+    the viewer's own annotations. Otherwise it drops the blocked ids, except the viewer's own annotations.
+    """
+
+    viewer_id: int
+    only_allowed: bool
+    allowed_ids: frozenset[str]
+    blocked_ids: frozenset[str]
+
+
 ANNOTATION_WRITE_FIELDS = frozenset(
     {
         "content",

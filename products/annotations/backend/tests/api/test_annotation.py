@@ -11,7 +11,7 @@ from django.utils.timezone import now
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.models import Organization, Team, User
+from posthog.models import Organization, OrganizationMembership, Team, User
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.annotations.backend.facade.enums import AnnotationScope
@@ -559,6 +559,41 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         )
         assert response.status_code == 400
         assert response.json()["detail"] == f"Invalid date range: {error_message}"
+
+    @parameterized.expand([("resource_level_none", True), ("object_level_none", False)])
+    @patch(
+        "products.access_control.backend.facade.user_access_control.UserAccessControl.access_controls_supported", True
+    )
+    def test_list_leaves_out_annotations_the_member_may_not_view(self, _name: str, deny_resource: bool) -> None:
+        member = self._create_user("annotation-viewer@example.com")
+        granted, denied = (
+            Annotation.objects.create(
+                organization=self.organization, team=self.team, created_by=self.user, scope=AnnotationScope.PROJECT
+            )
+            for _ in range(2)
+        )
+        own = Annotation.objects.create(
+            organization=self.organization, team=self.team, created_by=member, scope=AnnotationScope.PROJECT
+        )
+        if deny_resource:
+            AccessControl.objects.create(team=self.team, resource="annotation", access_level="none")
+            AccessControl.objects.create(
+                team=self.team,
+                resource="annotation",
+                resource_id=str(granted.id),
+                access_level="viewer",
+                organization_member=OrganizationMembership.objects.get(user=member, organization=self.organization),
+            )
+        else:
+            AccessControl.objects.create(
+                team=self.team, resource="annotation", resource_id=str(denied.id), access_level="none"
+            )
+        self.client.force_login(member)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/annotations/").json()
+
+        assert {result["id"] for result in response["results"]} == {granted.id, own.id}
+        assert response["count"] == 2
 
     @parameterized.expand([("dashboard", "dashboard_id"), ("dashboard_item", "dashboard_item")])
     @patch(
