@@ -135,24 +135,17 @@ impl FingerprintVersion {
         if *self != Self::V2
             || lib != Some("posthog-elixir")
             || !exception_list.iter().any(|exception| {
-                exception.exception_type.starts_with("** (exit) ")
-                    && exception.exception_type.contains("#PID<")
+                exception.exception_type.contains("#PID<")
+                    || exception
+                        .exception_type
+                        .contains("dropped from queue after ")
             })
         {
             return self.compute(exception_list);
         }
 
-        let pid = ELIXIR_PID
-            .get_or_init(|| Regex::new(r"#PID<\d+\.\d+\.\d+>").expect("valid Elixir PID regex"));
-        let mut normalized = exception_list.clone();
-        for exception in normalized.iter_mut() {
-            if exception.exception_type.starts_with("** (exit) ") {
-                exception.exception_type = pid
-                    .replace_all(&exception.exception_type, "#PID<*>")
-                    .into_owned();
-            }
-        }
-        self.compute(&normalized)
+        self.strategy()
+            .fingerprint_with_type_normalization(exception_list, true)
     }
 
     pub fn strategy(&self) -> FingerprintStrategy {
@@ -220,6 +213,7 @@ pub struct Normalization {
 
 static HASHED_CHUNK_TOKEN: OnceLock<Regex> = OnceLock::new();
 static ELIXIR_PID: OnceLock<Regex> = OnceLock::new();
+static ELIXIR_QUEUE_WAIT: OnceLock<Regex> = OnceLock::new();
 
 impl Normalization {
     fn is_noop(&self) -> bool {
@@ -368,21 +362,60 @@ impl Default for FingerprintStrategy {
 
 impl FingerprintStrategy {
     pub fn from_exception_list(&self, exception_list: &ExceptionList) -> Fingerprint {
+        self.fingerprint_with_type_normalization(exception_list, false)
+    }
+
+    fn fingerprint_with_type_normalization(
+        &self,
+        exception_list: &ExceptionList,
+        normalize_elixir_type: bool,
+    ) -> Fingerprint {
         let mut fingerprint = FingerprintBuilder::default();
 
         let selected: Vec<&Exception> = match self.chain_selection {
             ChainSelection::All => exception_list.iter().collect(),
             ChainSelection::Last => exception_list.iter().last().into_iter().collect(),
         };
+        let normalizers = normalize_elixir_type.then(|| {
+            (
+                ELIXIR_PID.get_or_init(|| {
+                    Regex::new(r"#PID<\d+\.\d+\.\d+>").expect("valid Elixir PID regex")
+                }),
+                ELIXIR_QUEUE_WAIT.get_or_init(|| {
+                    Regex::new(r"dropped from queue after \d+ms")
+                        .expect("valid Elixir queue wait regex")
+                }),
+            )
+        });
         for exc in selected {
-            self.include_exception(exc, &mut fingerprint);
+            let normalized_type = normalizers
+                .filter(|_| {
+                    exc.exception_type.contains("#PID<")
+                        || exc.exception_type.contains("dropped from queue after ")
+                })
+                .map(|(pid, queue_wait)| {
+                    let without_pid = pid.replace_all(&exc.exception_type, "#PID<*>");
+                    queue_wait
+                        .replace_all(&without_pid, "dropped from queue after *ms")
+                        .into_owned()
+                });
+            self.include_exception(
+                exc,
+                normalized_type.as_deref().unwrap_or(&exc.exception_type),
+                &mut fingerprint,
+            );
         }
 
         fingerprint.finalize()
     }
 
-    fn include_exception(&self, exc: &Exception, fp: &mut FingerprintBuilder) {
-        self.update_exception(exc, fp);
+    fn include_exception(
+        &self,
+        exc: &Exception,
+        exception_type: &str,
+        fp: &mut FingerprintBuilder,
+    ) {
+        self.update_exception(exc, exception_type, fp);
 
         let Some(Stacktrace::Resolved { frames }) = &exc.stack else {
             return;
@@ -393,9 +426,9 @@ impl FingerprintStrategy {
         }
     }
 
-    fn update_exception(&self, exc: &Exception, fp: &mut FingerprintBuilder) {
+    fn update_exception(&self, exc: &Exception, exception_type: &str, fp: &mut FingerprintBuilder) {
         let mut pieces = vec![];
-        fp.update(exc.exception_type.as_bytes());
+        fp.update(exception_type.as_bytes());
         pieces.push("Exception Type".to_string());
         if !matches!(exc.stack, Some(Stacktrace::Resolved { frames: _ })) {
             fp.update(
@@ -548,56 +581,107 @@ mod test {
     }
 
     #[test]
-    fn v2_groups_elixir_exits_with_different_pids() {
-        let exit =
-            |first_pid: &str, second_pid: &str, reason: &str, function: &str| -> ExceptionList {
-                vec![exception(
-                    &format!(
-                        "** (exit) {reason}: worker #PID<{first_pid}> called #PID<{second_pid}>"
-                    ),
-                    "details",
-                    resolved_stack(vec![frame(
-                        function,
-                        Some("worker.ex"),
-                        Some(function),
-                        true,
-                        true,
-                        None,
-                    )]),
-                )]
-                .into()
-            };
-        let original = exit("0.1.0", "0.2.0", "timeout", "run");
-        let other_pids = exit("0.3.0", "0.4.0", "timeout", "run");
-        let other_reason = exit("0.3.0", "0.4.0", "rejected", "run");
-        let other_frame = exit("0.3.0", "0.4.0", "timeout", "retry");
+    fn v2_normalizes_volatile_elixir_types() {
+        let event = |exc_type: &str, function: &str| -> ExceptionList {
+            vec![exception(
+                exc_type,
+                "details",
+                resolved_stack(vec![frame(
+                    function,
+                    Some("worker.ex"),
+                    Some(function),
+                    true,
+                    true,
+                    None,
+                )]),
+            )]
+            .into()
+        };
         let fingerprint = |version: FingerprintVersion, lib: &str, list: &ExceptionList| {
             version.compute_for_lib(list, Some(lib)).value
         };
-
-        assert_eq!(
-            fingerprint(FingerprintVersion::V2, "posthog-elixir", &original),
-            fingerprint(FingerprintVersion::V2, "posthog-elixir", &other_pids),
-        );
-        assert_ne!(
-            fingerprint(FingerprintVersion::V2, "posthog-elixir", &original),
-            fingerprint(FingerprintVersion::V2, "posthog-elixir", &other_reason),
-        );
-        assert_ne!(
-            fingerprint(FingerprintVersion::V2, "posthog-elixir", &original),
-            fingerprint(FingerprintVersion::V2, "posthog-elixir", &other_frame),
-        );
-        for version in [FingerprintVersion::V1, FingerprintVersion::V2Legacy] {
+        let same_failure = [
+            (
+                "** (exit) worker #PID<0.1.0> called #PID<0.2.0>",
+                "** (exit) worker #PID<0.3.0> called #PID<0.4.0>",
+            ),
+            (
+                "Postgrex.Protocol (#PID<0.1.0>) disconnected",
+                "Postgrex.Protocol (#PID<0.3.0>) disconnected",
+            ),
+            (
+                "** (DBConnection.ConnectionError) [Example.Repo] request dropped from queue after 12ms",
+                "** (DBConnection.ConnectionError) [Example.Repo] request dropped from queue after 78ms",
+            ),
+            (
+                "[message: test job failed, reason: dropped from queue after 12ms]",
+                "[message: test job failed, reason: dropped from queue after 78ms]",
+            ),
+        ];
+        for (first_type, second_type) in same_failure {
+            let first = event(first_type, "run");
+            let second = event(second_type, "run");
+            assert_eq!(
+                fingerprint(FingerprintVersion::V2, "posthog-elixir", &first),
+                fingerprint(FingerprintVersion::V2, "posthog-elixir", &second),
+            );
+            for version in [FingerprintVersion::V1, FingerprintVersion::V2Legacy] {
+                assert_ne!(
+                    fingerprint(version, "posthog-elixir", &first),
+                    fingerprint(version, "posthog-elixir", &second),
+                );
+            }
             assert_ne!(
-                fingerprint(version, "posthog-elixir", &original),
-                fingerprint(version, "posthog-elixir", &other_pids),
+                fingerprint(FingerprintVersion::V2, "posthog-python", &first),
+                fingerprint(FingerprintVersion::V2, "posthog-python", &second),
+            );
+            assert_eq!(first[0].exception_type, first_type);
+        }
+
+        let protocol = event("Postgrex.Protocol (#PID<0.1.0>) disconnected", "run");
+        let other_failure = event("Postgrex.Protocol (#PID<0.2.0>) failed to connect", "run");
+        let other_frame = event("Postgrex.Protocol (#PID<0.2.0>) disconnected", "retry");
+        let wait = event(
+            "** (DBConnection.ConnectionError) [Example.Repo] request dropped from queue after 12ms",
+            "run",
+        );
+        let other_pool = event(
+            "** (DBConnection.ConnectionError) [Other.Repo] request dropped from queue after 78ms",
+            "run",
+        );
+        for (first, second) in [
+            (&protocol, &other_failure),
+            (&protocol, &other_frame),
+            (&wait, &other_pool),
+        ] {
+            assert_ne!(
+                fingerprint(FingerprintVersion::V2, "posthog-elixir", first),
+                fingerprint(FingerprintVersion::V2, "posthog-elixir", second),
             );
         }
+
+        let handshake = event("Postgrex.Protocol handshake exceeded 12ms", "run");
+        let other_handshake = event("Postgrex.Protocol handshake exceeded 78ms", "run");
         assert_ne!(
-            fingerprint(FingerprintVersion::V2, "posthog-python", &original),
-            fingerprint(FingerprintVersion::V2, "posthog-python", &other_pids),
+            fingerprint(FingerprintVersion::V2, "posthog-elixir", &handshake),
+            fingerprint(FingerprintVersion::V2, "posthog-elixir", &other_handshake),
         );
-        assert!(original[0].exception_type.contains("#PID<0.1.0>"));
+
+        let wrapped = |pid: &str| -> ExceptionList {
+            vec![
+                exception("Wrapper", "details", None),
+                event(
+                    &format!("Postgrex.Protocol (#PID<{pid}>) disconnected"),
+                    "run",
+                )[0]
+                .clone(),
+            ]
+            .into()
+        };
+        assert_eq!(
+            fingerprint(FingerprintVersion::V2, "posthog-elixir", &wrapped("0.1.0")),
+            fingerprint(FingerprintVersion::V2, "posthog-elixir", &wrapped("0.2.0")),
+        );
     }
 
     // ---- V1 invariants (preserved from the original implementation) ----
