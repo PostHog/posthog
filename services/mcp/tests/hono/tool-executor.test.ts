@@ -391,9 +391,6 @@ describe('ToolExecutor', () => {
             ])
         })
 
-        // The flag decides skill exposure per client; guides reach every client; plugin
-        // and sandbox consumers get neither because they carry their own skills.
-        // A regression in any row silently changes what an agent is told.
         it.each([
             {
                 label: 'Claude web/desktop with flag off',
