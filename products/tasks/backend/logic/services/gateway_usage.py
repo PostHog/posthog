@@ -3,7 +3,7 @@ import time
 import asyncio
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import ROUND_HALF_EVEN, Decimal
 from functools import lru_cache
 from typing import TYPE_CHECKING, Any
@@ -280,17 +280,17 @@ def _compute_cost_source(run: TaskRun, *, sessions: list[SandboxSession] | None 
         return None
     now = timezone.now()
     try:
-        return sum(
-            (
-                calculate_sandbox_compute_cost(
-                    session, COMPUTE_RATE_CARDS[0].effective_at, now, calculated_at=now, rate_cards=COMPUTE_RATE_CARDS
-                ).total_cost_usd
-                for session in sessions
-            ),
-            Decimal(0),
-        )
+        return sum((_session_compute_cost(session, now) for session in sessions), Decimal(0))
     except ValueError:
         return None
+
+
+def _session_compute_cost(session: SandboxSession, now: datetime) -> Decimal:
+    if session.compute_settled_at is not None and session.compute_settled_usd is not None:
+        return session.compute_settled_usd
+    return calculate_sandbox_compute_cost(
+        session, COMPUTE_RATE_CARDS[0].effective_at, now, calculated_at=now, rate_cards=COMPUTE_RATE_CARDS
+    ).total_cost_usd
 
 
 def _cents(value: Decimal) -> int:
