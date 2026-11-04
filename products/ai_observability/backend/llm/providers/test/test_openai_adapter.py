@@ -46,16 +46,11 @@ class TestOpenAIListModels:
     def test_list_models_without_key_returns_supported_models(self):
         assert OpenAIAdapter.list_models() == OpenAIConfig.SUPPORTED_MODELS
 
-    def test_list_models_excludes_models_that_dont_serve_chat_completions(self):
+    def test_list_models_excludes_responses_only_models_from_api_discovery(self):
         api_models = [
             _api_model("o3-pro", 300),
             _api_model("gpt-5-pro", 200),
             _api_model("gpt-6-future", 100),
-            _api_model("gpt-audio-mini", 90),
-            _api_model("gpt-image-1", 80),
-            _api_model("gpt-4o-mini-tts", 70),
-            _api_model("gpt-4o-transcribe", 60),
-            _api_model("gpt-realtime", 50),
         ]
         mock_client = MagicMock()
         mock_client.models.list.return_value = api_models
@@ -64,9 +59,7 @@ class TestOpenAIListModels:
             result = OpenAIAdapter.list_models(api_key="sk-test")
 
         assert "gpt-6-future" in result
-        assert "gpt-audio-mini" in result
         assert OpenAIConfig.RESPONSES_ONLY_MODELS.isdisjoint(result)
-        assert {"gpt-image-1", "gpt-4o-mini-tts", "gpt-4o-transcribe", "gpt-realtime"}.isdisjoint(result)
 
 
 class TestBuildAnalyticsKwargs:

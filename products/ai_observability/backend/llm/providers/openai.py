@@ -53,10 +53,6 @@ logger = logging.getLogger(__name__)
 OPENAI_DECISIONS_BASE_URL = "https://api.openai.com/v1"
 
 
-# Image, speech and realtime models share the chat model prefixes but don't serve chat completions.
-_NON_CHAT_MODEL_KINDS = ("image", "tts", "transcribe", "realtime")
-
-
 class OpenAIConfig:
     REASONING_EFFORT: ReasoningEffort = "medium"
     TEMPERATURE: float = 0
@@ -498,7 +494,6 @@ Return ONLY the JSON object, no other text or markdown formatting."""
                 if m.id not in supported
                 and m.id not in OpenAIConfig.RESPONSES_ONLY_MODELS
                 and m.id.startswith(("gpt-", "o1", "o3", "o4", "chatgpt-"))
-                and not any(kind in m.id for kind in _NON_CHAT_MODEL_KINDS)
             ]
             filtered.sort(key=lambda m: m.created, reverse=True)
             other = [m.id for m in filtered]

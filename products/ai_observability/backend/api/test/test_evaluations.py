@@ -27,6 +27,11 @@ from products.ai_observability.backend.api.evaluations import (
     TestHogRequestSerializer as HogRequestSerializer,
     _TargetConfigField,
 )
+from products.ai_observability.backend.llm.errors import (
+    ModelNotFoundError,
+    ModelPermissionError,
+    ProviderConnectionError,
+)
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluation_configs import validate_target_config
 from products.ai_observability.backend.models.evaluation_reports import EvaluationReport
@@ -483,6 +488,13 @@ class TestTargetConfigFieldSchema(SimpleTestCase):
 
 
 class TestEvaluationConfigsApi(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # Saving a judge tries its model with the key; tests must not reach the real provider.
+        model_check = patch("products.ai_observability.backend.llm.client.Client.complete")
+        model_check.start()
+        self.addCleanup(model_check.stop)
+
     @parameterized.expand(
         [
             (output_type, enabled, frequency)
@@ -1193,12 +1205,14 @@ class TestEvaluationConfigsApi(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("listed_model", "gpt-5-mini", ["gpt-5-mini"], 201),
-            ("unlisted_model", "gpt-4o", ["gpt-5-mini"], 400),
-            ("provider_call_failed", "gpt-4o", [], 201),
+            ("model_answers", None, 201, None),
+            ("model_not_found", ModelNotFoundError("gpt-4o"), 400, "Model 'gpt-4o' is not available."),
+            ("key_lacks_access", ModelPermissionError("gpt-4o"), 400, "does not have access to 'gpt-4o'"),
+            ("provider_unreachable", ProviderConnectionError("down"), 201, None),
+            ("check_times_out", TimeoutError(), 201, None),
         ]
     )
-    def test_llm_judge_creation_checks_the_model_against_the_key(self, _name, model, key_models, expected_status):
+    def test_llm_judge_creation_tries_the_model_with_the_key(self, _name, error, expected_status, message):
         key = LLMProviderKey.objects.create(
             team=self.team,
             provider="openai",
@@ -1207,7 +1221,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
             encrypted_config={"api_key": "sk-test"},
             created_by=self.user,
         )
-        with patch("products.ai_observability.backend.api.proxy.Client.list_models", return_value=key_models):
+        with patch("products.ai_observability.backend.llm.client.Client.complete", side_effect=error) as call:
             response = self.client.post(
                 f"/api/environments/{self.team.id}/evaluations/",
                 {
@@ -1216,17 +1230,18 @@ class TestEvaluationConfigsApi(APIBaseTest):
                     "evaluation_type": "llm_judge",
                     "evaluation_config": {"prompt": "Test"},
                     "output_type": "boolean",
-                    "model_configuration": {"provider": "openai", "model": model, "provider_key_id": str(key.id)},
+                    "model_configuration": {"provider": "openai", "model": "gpt-4o", "provider_key_id": str(key.id)},
                 },
                 format="json",
             )
 
         self.assertEqual(response.status_code, expected_status, response.json())
-        if expected_status == 400:
+        self.assertEqual(call.call_args.args[0].model, "gpt-4o")
+        if message:
             self.assertEqual(response.data["attr"], "model_configuration")
-            self.assertIn("'gpt-4o' isn't available with the 'Prod key' API key.", response.data["detail"])
+            self.assertIn(message, response.data["detail"])
 
-    def test_llm_judge_update_keeps_a_saved_model_the_key_no_longer_lists(self) -> None:
+    def test_llm_judge_update_does_not_retry_an_unchanged_model(self) -> None:
         key = LLMProviderKey.objects.create(
             team=self.team,
             provider="openai",
@@ -1239,7 +1254,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
         mc.provider_key = key
         mc.save()
 
-        with patch("products.ai_observability.backend.api.proxy.Client.list_models", return_value=["gpt-5.4"]):
+        with patch("products.ai_observability.backend.llm.client.Client.complete") as call:
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/evaluations/{eval_obj.id}/",
                 {
@@ -1254,6 +1269,7 @@ class TestEvaluationConfigsApi(APIBaseTest):
             )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        call.assert_not_called()
 
     @parameterized.expand([("omitted", False), ("null", True)])
     def test_llm_judge_creation_requires_model_configuration(self, _name, include_null_configuration):
@@ -2421,6 +2437,13 @@ class TestReEnableValidatesRootCauseResolved(APIBaseTest):
     """When an eval is in the error state, flipping enabled=True must fail unless the condition
     that put it there is resolved — otherwise the next workflow run just re-disables it for the
     same reason. Matters for agent callers who can't see a red banner."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        # Saving a judge tries its model with the key; tests must not reach the real provider.
+        model_check = patch("products.ai_observability.backend.llm.client.Client.complete")
+        model_check.start()
+        self.addCleanup(model_check.stop)
 
     def _create_errored_eval(self, status_reason, model="gpt-5-mini", provider_key=None, provider="openai"):
         mc = LLMModelConfiguration.objects.create(

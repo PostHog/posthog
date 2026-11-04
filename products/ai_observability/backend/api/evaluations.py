@@ -1,6 +1,7 @@
 import hashlib
 from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, Any, cast
 
@@ -59,10 +60,19 @@ from ..facade import (
 from ..facade.contracts import Contract
 from ..hog import compile_ai_observability_hog
 from ..llm import DEFAULT_MODEL_BY_PROVIDER, supports_reasoning_level
+from ..llm.client import Client
 from ..llm.decisions import is_decision_model
-from ..llm.errors import ProviderConnectionError
+from ..llm.errors import (
+    LLMError,
+    ModelNotFoundError,
+    ModelPermissionError,
+    ProviderConnectionError,
+    UnsupportedModelError,
+    user_facing_error_message,
+)
 from ..llm.providers.openai import OpenAIConfig
 from ..llm.providers.openrouter import is_non_chat_model
+from ..llm.types import CompletionRequest
 from ..models.evaluation_config import EvaluationConfig
 from ..models.evaluation_configs import (
     EVALUATION_TEST_LOOKBACK_DAYS,
@@ -98,7 +108,6 @@ from ..models.provider_keys import LLMProvider, LLMProviderKey
 from ..presentation.query_concurrency import query_concurrency_slots
 from .condition_sets import ConditionSetSerializer
 from .metrics import llma_track_latency
-from .proxy import key_models
 
 if TYPE_CHECKING:
     from posthog.models import User
@@ -358,6 +367,29 @@ class _OutputConfigField(serializers.DictField):
 )
 class _TargetConfigField(serializers.JSONField):
     pass
+
+
+# ponytail: a stalled provider keeps its thread after the save stops waiting; a few workers cap that.
+_MODEL_CHECKS = ThreadPoolExecutor(max_workers=4, thread_name_prefix="eval-model-check")
+_MODEL_CHECK_SECONDS = 10
+
+
+def _model_error(provider_key: LLMProviderKey, provider: str, model: str) -> LLMError | None:
+    """The error a one-token call to the model raises when the key can't use it.
+
+    Any other outcome, including a timeout or a provider outage, returns None so a save is never blocked.
+    """
+    request = CompletionRequest(
+        model=model, messages=[{"role": "user", "content": "Hi"}], provider=provider, max_tokens=16
+    )
+    call = _MODEL_CHECKS.submit(Client(provider_key=provider_key, capture_analytics=False).complete, request)
+    try:
+        call.result(timeout=_MODEL_CHECK_SECONDS)
+    except (ModelNotFoundError, ModelPermissionError, UnsupportedModelError) as error:
+        return error
+    except Exception:
+        logger.info("evaluation_model_check_skipped", provider=provider, model=model, exc_info=True)
+    return None
 
 
 class ModelConfigurationSerializer(serializers.Serializer):
@@ -759,7 +791,7 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
             )
 
     def _validate_model_on_key(self, data: dict, *, uses_decision_model: bool) -> None:
-        """A model the key's provider doesn't list fails the first run, which then disables the evaluation."""
+        """A model the key can't use fails the first run, which then disables the evaluation."""
         model_config = data.get("model_configuration")
         if uses_decision_model or not model_config or model_config["provider"] == LLMProvider.SYSTEM_ONE:
             return
@@ -769,15 +801,8 @@ class EvaluationSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         provider_key = self._effective_provider_key(data)
         if provider_key is None or provider_key.state != LLMProviderKey.State.OK:
             return
-        models = key_models(provider_key)
-        # An empty list means the provider call failed, so a provider outage doesn't block saving.
-        if models and model_config["model"] not in models:
-            raise serializers.ValidationError(
-                {
-                    "model_configuration": f"'{model_config['model']}' isn't available with the "
-                    f"'{provider_key.name}' API key. Choose a model from the list."
-                }
-            )
+        if (error := _model_error(provider_key, model_config["provider"], model_config["model"])) is not None:
+            raise serializers.ValidationError({"model_configuration": user_facing_error_message(error)})
 
     def _validate_reasoning_level(self, data: dict, *, uses_decision_model: bool) -> None:
         evaluation_type = data.get("evaluation_type") or getattr(self.instance, "evaluation_type", None)

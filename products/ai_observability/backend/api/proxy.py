@@ -98,31 +98,6 @@ def models_cache_key(provider_key_id: str | uuid.UUID) -> str:
     return f"llma:proxy:models:{provider_key_id}"
 
 
-def key_models(provider_key: LLMProviderKey) -> list[str]:
-    """The models the key's provider lists for it, or [] when the provider call failed."""
-    # Cache per provider key — list_models hits the provider's API, and the model picker
-    # can open many times per session. TTL is short enough that newly-added deployments
-    # surface within a minute.
-    cache_key = models_cache_key(provider_key.id)
-    models = cache.get(cache_key)
-    if models is None:
-        api_key = provider_key.encrypted_config.get("api_key")
-        models = Client.list_models(provider_key.provider, api_key, **provider_key.provider_extra_kwargs())
-        # Only cache non-empty results — `list_models` swallows transient errors and returns
-        # [], so caching that would persist a failure for the full TTL.
-        if models:
-            cache.set(cache_key, models, timeout=MODELS_CACHE_TIMEOUT_SECONDS)
-        else:
-            LLMA_PROXY_BYOK_EMPTY_MODEL_LISTS.labels(provider=provider_key.provider).inc()
-            logger.info(
-                "llma_proxy_byok_empty_model_list",
-                provider=provider_key.provider,
-                team_id=provider_key.team_id,
-                provider_key_id=str(provider_key.id),
-            )
-    return models
-
-
 PROVIDER_DISPLAY_NAMES: dict[str, str] = {
     "system_one": "System One",
     "openai": "OpenAI",
@@ -740,7 +715,26 @@ class LLMProxyViewSet(viewsets.ViewSet):
                 return Response({"error": "Invalid provider key configuration"}, status=400)
 
             if provider_key:
-                models = key_models(provider_key)
+                api_key = provider_key.encrypted_config.get("api_key")
+                # Cache per provider key — list_models hits the provider's API, and the model picker
+                # can open many times per session. TTL is short enough that newly-added deployments
+                # surface within a minute.
+                cache_key = models_cache_key(provider_key.id)
+                models = cache.get(cache_key)
+                if models is None:
+                    models = Client.list_models(provider_key.provider, api_key, **provider_key.provider_extra_kwargs())
+                    # Only cache non-empty results — `list_models` swallows transient errors and returns
+                    # [], so caching that would persist a failure for the full TTL.
+                    if models:
+                        cache.set(cache_key, models, timeout=MODELS_CACHE_TIMEOUT_SECONDS)
+                    else:
+                        LLMA_PROXY_BYOK_EMPTY_MODEL_LISTS.labels(provider=provider_key.provider).inc()
+                        logger.info(
+                            "llma_proxy_byok_empty_model_list",
+                            provider=provider_key.provider,
+                            team_id=provider_key.team_id,
+                            provider_key_id=str(provider_key.id),
+                        )
                 recommended = Client.recommended_models(provider_key.provider)
                 provider_display = PROVIDER_DISPLAY_NAMES.get(provider_key.provider, provider_key.provider.title())
                 decision_models: frozenset[str] = frozenset()
