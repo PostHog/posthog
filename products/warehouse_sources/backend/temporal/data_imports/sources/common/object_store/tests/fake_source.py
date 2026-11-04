@@ -1,6 +1,10 @@
 import dataclasses
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from datetime import UTC, datetime
 from typing import Any
+
+from botocore.exceptions import ClientError
+from fsspec.implementations.local import LocalFileSystem
 
 from products.warehouse_sources.backend.facade.source_config import SourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.config import Config
@@ -10,6 +14,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     ObjectStoreConfig,
     ObjectStoreProvider,
     StoreConfig,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.filesystem import (
+    S3ObjectStore,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.locations import (
     parse_azure_url,
@@ -95,3 +102,43 @@ class FakeObjectStorageSource(ObjectStorageSource[FakeObjectStorageConfig]):
         self, location: SelfManagedLocation, credential: SelfManagedCredential
     ) -> dict[str, Any]:
         return self._connection_inputs
+
+
+class PrefixScopedS3Client:
+    """A boto3 S3 client for a key that may list only keys under one prefix, as a prefix-scoped IAM policy allows."""
+
+    def __init__(self, keys: list[str], allowed_prefix: str) -> None:
+        self.keys = keys
+        self.allowed_prefix = allowed_prefix
+        self.listed_prefixes: list[str] = []
+
+    def get_paginator(self, operation: str) -> "PrefixScopedS3Client":
+        assert operation == "list_objects_v2"
+        return self
+
+    def paginate(self, Bucket: str, Prefix: str, PaginationConfig: dict[str, Any]) -> Iterator[dict[str, Any]]:
+        self.listed_prefixes.append(Prefix)
+        if not Prefix.startswith(self.allowed_prefix):
+            raise ClientError(
+                {
+                    "Error": {"Code": "AccessDenied", "Message": "Access Denied"},
+                    "ResponseMetadata": {"HTTPStatusCode": 403},
+                },
+                "ListObjectsV2",
+            )
+        modified_at = datetime(2024, 5, 1, 12, 0, tzinfo=UTC)
+        contents = [{"Key": key, "Size": 5, "LastModified": modified_at} for key in self.keys if key.startswith(Prefix)]
+        yield {"Contents": contents, "IsTruncated": False}
+
+
+def bucket_root_store(client: PrefixScopedS3Client, bucket: str = "example-bucket") -> S3ObjectStore:
+    """A store rooted at the bucket, as for a source that holds the migrated tables of one bucket."""
+    return S3ObjectStore(
+        fs=LocalFileSystem(),
+        root=bucket,
+        delta_uri_prefix="s3://",
+        delta_storage_options={},
+        client=client,
+        bucket=bucket,
+        prefix="",
+    )

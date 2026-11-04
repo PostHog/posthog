@@ -75,6 +75,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     listing_digest,
     plan_mirror,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.self_managed import (
+    parse_self_managed_url,
+    table_definition_for,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.settings import (
     JSONL_CHUNK_ROWS,
     MAX_TABLES,
@@ -83,6 +87,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.source_base import (
     iter_table,
     validate_store_location,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.tests.fake_source import (
+    FakeObjectStorageConfig,
+    FakeObjectStorageSource,
+    PrefixScopedS3Client,
+    bucket_root_store,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import ReplaceScope
 
@@ -1320,3 +1330,105 @@ class TestS3BucketRegion:
 
         with pytest.raises(ObjectStorageError, match=INVALID_CONFIG_ERROR):
             lookup_s3_bucket_region("Not_A_Bucket")
+
+
+def _source_with_store(store: ObjectStore) -> FakeObjectStorageSource:
+    source = FakeObjectStorageSource()
+    source.open_store = MagicMock(return_value=store)  # type: ignore[method-assign]
+    return source
+
+
+BUCKET_ROOT_CONFIG = FakeObjectStorageConfig(
+    values={
+        "url_pattern": "https://s3.us-east-1.amazonaws.com/example-bucket/",
+        "access_key_id": "AKIAEXAMPLE",
+        "secret_access_key": "c2VjcmV0",
+    }
+)
+ORDERS_KEYS = ["tables/orders/2024-01.csv", "tables/orders/2024-02.csv", "tables/other/x.csv"]
+MIGRATED_ORDERS = table_definition_for(
+    "orders",
+    parse_self_managed_url("https://example-bucket.s3.us-east-1.amazonaws.com/tables/orders/*.csv"),
+    "CSVWithNames",
+    {},
+    None,
+)
+DISCOVERED_ORDERS = TableDefinition(
+    name="orders",
+    kind="files",
+    path="tables/orders",
+    scope="folder",
+    file_format="csv",
+    csv=CsvOptions(),
+    pattern=None,
+    source_format="infer",
+)
+
+
+class TestDescribePinnedSchema:
+    @parameterized.expand([("migrated_glob", MIGRATED_ORDERS), ("folder", DISCOVERED_ORDERS)])
+    def test_a_key_scoped_to_the_table_prefix_reads_the_table_without_listing_the_bucket_root(
+        self, _name: str, table: TableDefinition
+    ) -> None:
+        client = PrefixScopedS3Client(ORDERS_KEYS, allowed_prefix="tables/orders/")
+        source = _source_with_store(bucket_root_store(client))
+
+        schema = source.describe_pinned_schema(BUCKET_ROOT_CONFIG, 1, "orders", table.schema_metadata())
+
+        assert schema is not None
+        assert (schema.name, schema.schema_metadata) == ("orders", table.schema_metadata())
+        assert client.listed_prefixes == ["tables/orders/"]
+        # Discovery lists the bucket root, which the same key can't do.
+        valid, message = source.validate_credentials(BUCKET_ROOT_CONFIG, 1)
+        assert not valid and message is not None and message.startswith(ACCESS_DENIED_ERROR)
+
+    @parameterized.expand(
+        [
+            ("denied", ORDERS_KEYS, "tables/other/", f"{ACCESS_DENIED_ERROR} 'example-bucket/tables/orders'"),
+            ("no_files", ["tables/other/x.csv"], "tables/", f"{NO_TABLE_FILES_ERROR} 'orders'"),
+        ]
+    )
+    def test_a_table_the_key_can_not_read_fails_with_the_sync_error(
+        self, _name: str, keys: list[str], allowed_prefix: str, expected_start: str
+    ) -> None:
+        source = _source_with_store(bucket_root_store(PrefixScopedS3Client(keys, allowed_prefix)))
+
+        with pytest.raises(ObjectStorageError) as error:
+            source.describe_pinned_schema(BUCKET_ROOT_CONFIG, 1, "orders", MIGRATED_ORDERS.schema_metadata())
+
+        assert str(error.value).startswith(expected_start)
+
+    @parameterized.expand([("empty", {}), ("unknown_kind", {"kind": "iceberg", "path": "x"})])
+    def test_metadata_without_a_table_definition_is_not_described(self, _name: str, metadata: dict) -> None:
+        source = _source_with_store(MagicMock())
+
+        assert source.describe_pinned_schema(BUCKET_ROOT_CONFIG, 1, "orders", metadata) is None
+        source.open_store.assert_not_called()  # type: ignore[attr-defined]
+
+    def test_a_delta_table_is_described_from_its_log(self, tmp_path: Path) -> None:
+        write_deltalake(str(tmp_path / "tables" / "events"), pa.table({"id": [1]}))
+        metadata = {"kind": "delta", "path": "tables/events", "format": "delta", "pattern": None, "csv": {}}
+        source = _source_with_store(local_store(tmp_path))
+
+        schema = source.describe_pinned_schema(BUCKET_ROOT_CONFIG, 1, "events", metadata)
+
+        assert schema is not None
+        assert [field["field"] for field in schema.incremental_fields] == ["_delta_version"]
+
+    @pytest.mark.parametrize(
+        "raised, error_prefix",
+        [
+            pytest.param(None, NO_TABLE_FILES_ERROR, id="missing"),
+            pytest.param(OSError("Generic S3 error: 403 Forbidden"), ACCESS_DENIED_ERROR, id="denied"),
+        ],
+    )
+    def test_an_unreadable_delta_log_fails_with_the_sync_error(
+        self, raised: Exception | None, error_prefix: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        if raised is not None:
+            monkeypatch.setattr(delta, "DeltaTable", MagicMock(side_effect=raised))
+        metadata = {"kind": "delta", "path": "events", "format": "delta", "pattern": None, "csv": {}}
+        source = _source_with_store(local_store(tmp_path))
+
+        with pytest.raises(ObjectStorageError, match=f"^{error_prefix}"):
+            source.describe_pinned_schema(BUCKET_ROOT_CONFIG, 1, "events", metadata)
