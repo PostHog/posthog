@@ -1592,6 +1592,8 @@ export interface ChartSettings {
     showYAxisBorder?: boolean
     showLegend?: boolean
     showAnnotations?: boolean
+    /** Shows only the annotations saved at this level. Unset shows every level. */
+    annotationsScope?: AnnotationScope
     /** Where the legend sits relative to the chart. Unset falls back per chart type: right for pie and donut, bottom for proportion bar, top for the rest. */
     legendPosition?: 'top' | 'bottom' | 'left' | 'right'
     showValuesOnSeries?: boolean
@@ -4172,6 +4174,8 @@ export interface MCPMissingCapabilitiesQueryResponse extends AnalyticsQueryRespo
 export interface MCPMissingCapabilitiesQuery extends DataNode<MCPMissingCapabilitiesQueryResponse> {
     kind: NodeKind.MCPMissingCapabilitiesQuery
     dateRange?: DateRange
+    /** Exclude reports from the project's internal and test users. */
+    filterTestAccounts?: boolean
     /** Case-insensitive substring match over the report text. */
     search?: string
     /** Page size; defaults to 100, capped at 500. */

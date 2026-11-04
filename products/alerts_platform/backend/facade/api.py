@@ -34,6 +34,7 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformOwnershipHandover,
     SourceKind,
     StoredAlertDestination,
+    VerdictChange,
 )
 from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy
 from products.alerts_platform.backend.logic import (
@@ -43,6 +44,7 @@ from products.alerts_platform.backend.logic import (
     platform_lifecycle,
     platform_reads,
     platform_writes,
+    verdict_changes,
 )
 
 
@@ -84,6 +86,25 @@ def reschedule_hold(address: HeldDeliveryAddress, *, release_after: datetime) ->
     return delivery_holds.reschedule_hold(address, release_after=release_after)
 
 
+def source_suppressed_holds_by_legacy_id(
+    *, team_id: int, legacy_configuration_id: UUID, evaluation_keys: Collection[str]
+) -> frozenset[str]:
+    """The named evaluations of an alert the platform owns whose held delivery its source released
+    with a suppress. A suppress by the safety net, for a configuration turned off, is left out."""
+    return delivery_holds.source_suppressed_holds_by_legacy_id(team_id, legacy_configuration_id, evaluation_keys)
+
+
+def record_verdict_change(change: VerdictChange, *, now: datetime) -> AlertDeliveryRequest | None:
+    """Records one follow-up about a firing that already went out, and returns the delivery to start
+    with `start_deliveries`, or None when there is nothing to send.
+
+    Writes only the follow-up's history row, so it leaves state, schedule and holds alone. A second
+    call for the same firing starts the same delivery, whose id and threads send it once. Raises
+    `VerdictChangeNotRecorded` when the row could not be written, which a retry can recover.
+    """
+    return verdict_changes.record_verdict_change(change, now=now)
+
+
 def delivery_held_back(address: HeldDeliveryAddress) -> bool:
     """Whether an evaluation's delivery is held and not released with a send, so it has not gone out."""
     return delivery_holds.blocks_delivery(address.team_id, address.configuration_id, address.evaluation_key)
@@ -95,7 +116,8 @@ def record_verdict_changed(
     """Announces that a source's later verdict contradicts the one a delivered firing carried, in
     that firing's thread. Returns the request the caller starts, or None when nothing is to be sent.
 
-    The platform has no verdict-changed kind to record it under, so this records nothing and returns None.
+    Records nothing and returns None until the source can word a follow-up, which
+    `record_verdict_change` then records and delivers.
     """
     return None
 

@@ -17498,6 +17498,10 @@ class ChartSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    annotationsScope: AnnotationScope | None = Field(
+        default=None,
+        description=("Shows only the annotations saved at this level. Unset shows every level."),
+    )
     barGap: float | None = None
     boxPlot: BoxPlotSettings | None = None
     chartStyle: ChartStyle | None = Field(
@@ -29768,6 +29772,10 @@ class MCPMissingCapabilitiesQuery(BaseModel):
         extra="forbid",
     )
     dateRange: DateRange | None = None
+    filterTestAccounts: bool | None = Field(
+        default=None,
+        description="Exclude reports from the project's internal and test users.",
+    )
     kind: Literal["MCPMissingCapabilitiesQuery"] = "MCPMissingCapabilitiesQuery"
     limit: int | None = Field(default=None, description="Page size; defaults to 100, capped at 500.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")

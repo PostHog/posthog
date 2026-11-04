@@ -18143,6 +18143,10 @@
         "ChartSettings": {
             "additionalProperties": false,
             "properties": {
+                "annotationsScope": {
+                    "$ref": "#/definitions/AnnotationScope",
+                    "description": "Shows only the annotations saved at this level. Unset shows every level."
+                },
                 "barGap": {
                     "type": "number"
                 },
@@ -32953,6 +32957,10 @@
             "properties": {
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "filterTestAccounts": {
+                    "description": "Exclude reports from the project's internal and test users.",
+                    "type": "boolean"
                 },
                 "kind": {
                     "const": "MCPMissingCapabilitiesQuery",

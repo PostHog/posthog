@@ -18,8 +18,10 @@ from products.ai_observability.backend.llm.errors import (
     ContextWindowExceededError,
     OutputTokenLimitError,
     QuotaExceededError,
+    RetryableRateLimitError,
     StructuredOutputParseError,
 )
+from products.ai_observability.backend.llm.providers.azure_openai import AzureOpenAIAdapter
 from products.ai_observability.backend.llm.providers.openai import OpenAIAdapter, OpenAIConfig
 from products.ai_observability.backend.llm.providers.openrouter import OpenRouterAdapter
 from products.ai_observability.backend.llm.types import AnalyticsContext, CompletionRequest, OutputSchema
@@ -303,6 +305,37 @@ class TestOpenAIAdapterErrorMapping:
                 adapter.complete(
                     request_no_structured_output, api_key="sk-test", analytics=AnalyticsContext(capture=False)
                 )
+
+    @parameterized.expand(
+        [
+            ("openai", OpenAIAdapter(), "products.ai_observability.backend.llm.providers.openai.openai.OpenAI"),
+            (
+                "azure_openai",
+                AzureOpenAIAdapter(azure_endpoint="https://example-resource.openai.azure.com/"),
+                "products.ai_observability.backend.llm.providers.azure_openai.openai.AzureOpenAI",
+            ),
+        ]
+    )
+    def test_429_is_retryable_after_the_providers_delay(self, provider: str, adapter: OpenAIAdapter, client_path: str):
+        mock_client = MagicMock()
+        mock_client.chat.completions.create.side_effect = openai.RateLimitError(
+            "Too many requests",
+            response=httpx.Response(
+                status_code=429,
+                request=httpx.Request("POST", "https://example.invalid/v1/chat/completions"),
+                headers={"Retry-After": "20"},
+            ),
+            body={"error": {"message": "Too many requests", "code": "rate_limit_exceeded"}},
+        )
+        request = CompletionRequest(
+            model="gpt-4.1", system="s", messages=[{"role": "user", "content": "hi"}], provider=provider
+        )
+
+        with patch(client_path, return_value=mock_client):
+            with pytest.raises(RetryableRateLimitError) as error:
+                adapter.complete(request, api_key="sk-test", analytics=AnalyticsContext(capture=False))
+
+        assert error.value.retry_after == 20
 
     @parameterized.expand([("server_error", 500), ("precondition_failed", 412)])
     def test_non_quota_status_error_is_not_swallowed(self, _name: str, status_code: int):
