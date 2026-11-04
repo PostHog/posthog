@@ -745,6 +745,14 @@ class BillingManager:
             )
             return organization
 
+        billing_status_stamps = (
+            {
+                "billing_status_computed_at": computed_at.isoformat(),
+                "billing_latest_usage_report_date": billing_status.get("latest_usage_report_date"),
+            }
+            if computed_at is not None
+            else None
+        )
         org_modified = False
 
         data = billing_status["customer"]
@@ -788,7 +796,9 @@ class BillingManager:
             )
 
             had_quota_limiting_markers = _has_quota_limiting_markers(organization.usage)
-            usage_changed = set_org_usage_summary(organization, new_usage=usage_info)
+            usage_changed = set_org_usage_summary(
+                organization, new_usage=usage_info, billing_status_stamps=billing_status_stamps
+            )
 
             if usage_changed:
                 org_modified = True
@@ -856,9 +866,8 @@ class BillingManager:
         # The stamp goes out only with a save that a change already needs. A save for the stamp
         # alone writes this in-memory copy back over counters and quota markers that the quota
         # run wrote in the meantime.
-        if org_modified and computed_at is not None and organization.usage is not None:
-            organization.usage["billing_status_computed_at"] = computed_at.isoformat()
-            organization.usage["billing_latest_usage_report_date"] = billing_status.get("latest_usage_report_date")
+        if org_modified and billing_status_stamps is not None and organization.usage is not None:
+            cast(dict, organization.usage).update(billing_status_stamps)
 
         if org_modified:
             organization.save()

@@ -968,7 +968,9 @@ class TestBillingManager(BaseTest):
         organization.refresh_from_db()
         assert organization.has_active_subscription is expected
 
-    def _billing_status(self, computed_at: str | None, events_usage: int) -> BillingStatus:
+    def _billing_status(
+        self, computed_at: str | None, events_usage: int, latest_usage_report_date: str | None = "2026-08-02"
+    ) -> BillingStatus:
         billing_status: dict[str, Any] = {
             "customer": {
                 "usage_summary": {
@@ -983,7 +985,7 @@ class TestBillingManager(BaseTest):
         }
         if computed_at:
             billing_status["computed_at"] = computed_at
-            billing_status["latest_usage_report_date"] = "2026-08-02"
+            billing_status["latest_usage_report_date"] = latest_usage_report_date
         return cast(BillingStatus, billing_status)
 
     @parameterized.expand(
@@ -1015,6 +1017,41 @@ class TestBillingManager(BaseTest):
         assert organization.usage["events"]["usage"] == expected_events_usage
         assert organization.usage["billing_status_computed_at"] == expected_computed_at
         assert organization.usage.get("billing_latest_usage_report_date") == expected_report_date
+
+    @parameterized.expand(
+        [
+            ("total_lacks_the_counted_day", "2026-08-03T04:00:00Z", "2026-08-02", "2026-08-03", 25),
+            ("total_has_the_counted_day", "2026-08-03T04:00:00Z", "2026-08-03", "2026-08-03", 0),
+            ("status_without_stamp", None, None, "2026-08-03", 0),
+            ("todays_usage_without_date", "2026-08-03T04:00:00Z", "2026-08-02", None, 0),
+        ]
+    )
+    def test_update_org_details_keeps_todays_usage_that_billings_new_total_lacks(
+        self, _name, status_computed_at, latest_usage_report_date, todays_usage_date, expected_todays_usage
+    ):
+        events: dict[str, Any] = {"usage": 500, "limit": None, "todays_usage": 25}
+        if todays_usage_date:
+            events["todays_usage_date"] = todays_usage_date
+        self.organization.usage = {
+            "events": events,
+            "recordings": {"usage": 0, "limit": None, "todays_usage": 0},
+            "period": ["2026-08-01T00:00:00Z", "2026-09-01T00:00:00Z"],
+            "billing_status_computed_at": "2026-08-02T00:00:00+00:00",
+        }
+        self.organization.save()
+
+        with patch("ee.billing.billing_manager.update_org_billing_quotas"):
+            BillingManager(license=None).update_org_details(
+                self.organization,
+                self._billing_status(
+                    status_computed_at, events_usage=1000, latest_usage_report_date=latest_usage_report_date
+                ),
+            )
+
+        self.organization.refresh_from_db()
+        assert self.organization.usage is not None
+        assert self.organization.usage["events"]["usage"] == 1000
+        assert self.organization.usage["events"]["todays_usage"] == expected_todays_usage
 
     def test_update_org_details_writes_nothing_for_a_status_that_changes_only_the_stamp(self):
         manager = BillingManager(license=None)

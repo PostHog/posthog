@@ -168,6 +168,8 @@ INFORMATIONAL_USAGE_RESOURCES = (
     "sandbox_compute_memory_mib_seconds",
 )
 BILLING_STATUS_STAMP_KEYS = ("billing_status_computed_at", "billing_latest_usage_report_date")
+# Stored in each resource next to todays_usage: the day that todays_usage counts.
+TODAYS_USAGE_DATE_FIELD = "todays_usage_date"
 YESTERDAYS_COUNTS_KEY_PREFIX = "@posthog/quota-limits-yesterdays-counts/"
 # A quota run sets this field after it stores the counts for every organization that needs them.
 YESTERDAYS_COUNTS_COMPLETE_FIELD = "complete"
@@ -1017,10 +1019,34 @@ def refresh_org_self_driving_quota(organization_id: str) -> None:
     update_org_billing_quotas(organization)
 
 
+def _carry_over_todays_usage(
+    original_field_usage: Mapping[str, Any] | None,
+    resource_usage: dict[str, Any],
+    billing_usage: Mapping[str, Any] | None,
+) -> None:
+    stored = original_field_usage or {}
+    todays_usage_date = stored.get(TODAYS_USAGE_DATE_FIELD)
+    # A changed total can include the day that todays_usage counts. The count resets unless
+    # the billing status shows that the new total lacks that day.
+    billing_total_lacks_todays_usage = (
+        billing_usage is not None
+        and isinstance(todays_usage_date, str)
+        and _billing_total_lacks_day(billing_usage, date.fromisoformat(todays_usage_date))
+    )
+    if stored.get("usage") != resource_usage.get("usage") and not billing_total_lacks_todays_usage:
+        resource_usage["todays_usage"] = 0
+        return
+    resource_usage["todays_usage"] = stored.get("todays_usage", 0)
+    if todays_usage_date:
+        resource_usage[TODAYS_USAGE_DATE_FIELD] = todays_usage_date
+
+
 def set_org_usage_summary(
     organization: Organization,
     new_usage: Optional[OrganizationUsageInfo] = None,
     todays_usage: Optional[UsageCounters] = None,
+    *,
+    billing_status_stamps: Mapping[str, str | None] | None = None,
 ) -> bool:
     # TRICKY: We don't want to overwrite the "todays_usage" value unless the usage from the billing service is different than what we have locally.
     # Also we want to return if anything changed so that the caller can update redis
@@ -1034,6 +1060,7 @@ def set_org_usage_summary(
         return False
 
     new_usage = copy.deepcopy(new_usage)
+    billing_usage = {**cast(dict, new_usage), **billing_status_stamps} if billing_status_stamps is not None else None
 
     for resource in QuotaResource:
         field = resource.value
@@ -1060,15 +1087,9 @@ def set_org_usage_summary(
         if todays_usage:
             resource_usage["todays_usage"] = todays_usage.get(field, 0)
         else:
-            # TRICKY: If we are not explicitly setting todays_usage, we want to reset it to 0 IF the incoming new_usage is different
-            original_usage_value = original_field_usage.get("usage") if original_field_usage else None
-            if original_usage_value != resource_usage.get("usage"):
-                resource_usage["todays_usage"] = 0
-            else:
-                todays_usage_value = original_field_usage.get("todays_usage", 0) if original_field_usage else 0
-                resource_usage["todays_usage"] = todays_usage_value
+            _carry_over_todays_usage(original_field_usage, resource_usage, billing_usage)
 
-    _merge_informational_usage_summary(cast(dict, new_usage), original_usage, todays_usage)
+    _merge_informational_usage_summary(cast(dict, new_usage), original_usage, todays_usage, billing_usage)
 
     # update_org_details writes these after this comparison, so keep the stored values here.
     for key in BILLING_STATUS_STAMP_KEYS:
@@ -1082,7 +1103,10 @@ def set_org_usage_summary(
 
 
 def _merge_informational_usage_summary(
-    new_usage: dict[str, Any], original_usage: dict[str, Any], todays_usage: Optional[UsageCounters]
+    new_usage: dict[str, Any],
+    original_usage: dict[str, Any],
+    todays_usage: Optional[UsageCounters],
+    billing_usage: Mapping[str, Any] | None,
 ) -> None:
     for field in INFORMATIONAL_USAGE_RESOURCES:
         original_field_usage = original_usage.get(field, {})
@@ -1100,10 +1124,8 @@ def _merge_informational_usage_summary(
 
         if todays_usage:
             resource_usage["todays_usage"] = todays_usage.get(field, 0)
-        elif original_field_usage.get("usage") != resource_usage.get("usage"):
-            resource_usage["todays_usage"] = 0
         else:
-            resource_usage["todays_usage"] = original_field_usage.get("todays_usage", 0)
+            _carry_over_todays_usage(original_field_usage, resource_usage, billing_usage)
 
 
 def _patch_organization_usage_jsonb(
@@ -1144,7 +1166,11 @@ def _patch_organization_usage_jsonb(
 
 
 def _patch_todays_usage(
-    organization: Organization, todays_report: "UsageCounters", *, batch: QuotaUsageBatch | None = None
+    organization: Organization,
+    todays_report: "UsageCounters",
+    *,
+    day: date,
+    batch: QuotaUsageBatch | None = None,
 ) -> bool:
     """
     Cron-only: patches `usage[resource].todays_usage` for each current usage resource where the
@@ -1152,6 +1178,9 @@ def _patch_todays_usage(
     single targeted UPDATE via `_patch_organization_usage_jsonb` so billing-owned fields
     (`usage`, `limit`, `period`) are not clobbered by stale snapshots. Returns True if
     any value changed.
+
+    Each patched resource also stores `day`, the day that `todays_report` counts. A billing
+    sync reads it to decide whether billing's new total already includes `todays_usage`.
     """
     if not organization.usage:
         return False
@@ -1159,9 +1188,9 @@ def _patch_todays_usage(
     ops: list[tuple[list[str], Any]] = []
 
     for resource in QuotaResource:
-        _append_todays_usage_patch(organization, todays_report, resource.value, ops)
+        _append_todays_usage_patch(organization, todays_report, resource.value, ops, day.isoformat())
     for field in INFORMATIONAL_USAGE_RESOURCES:
-        _append_todays_usage_patch(organization, todays_report, field, ops)
+        _append_todays_usage_patch(organization, todays_report, field, ops, day.isoformat())
 
     if not ops:
         return False
@@ -1175,6 +1204,7 @@ def _append_todays_usage_patch(
     todays_report: UsageCounters,
     field: str,
     ops: list[tuple[list[str], Any]],
+    day: str,
 ) -> None:
     existing_resource = organization.usage.get(field) if organization.usage else None
     if not existing_resource:
@@ -1186,6 +1216,9 @@ def _append_todays_usage_patch(
 
     existing_resource["todays_usage"] = new_todays_usage
     ops.append(([field, "todays_usage"], new_todays_usage))
+    if existing_resource.get(TODAYS_USAGE_DATE_FIELD) != day:
+        existing_resource[TODAYS_USAGE_DATE_FIELD] = day
+        ops.append(([field, TODAYS_USAGE_DATE_FIELD], day))
 
 
 def _identify_refresh_candidates(
@@ -1710,7 +1743,7 @@ def update_all_orgs_billing_quotas(
                         if (org.usage or {}).get(QuotaResource.SIGNALS_CREDITS.value):
                             # Push refreshes can raise signals usage after the source snapshot. Recount before writing it.
                             todays_report["signals_credits"] = signals_recounts.get(org_id, 0)
-                    _patch_todays_usage(org, todays_report, batch=usage_batch)
+                    _patch_todays_usage(org, todays_report, day=period.start.date(), batch=usage_batch)
                     org_yesterdays_counts = (
                         yesterdays_counts_by_org.get(org_id, {})
                         if _billing_total_lacks_day(org.usage, yesterdays_counts.day)

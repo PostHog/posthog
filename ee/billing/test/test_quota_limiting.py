@@ -177,6 +177,7 @@ class TestQuotaLimiting(BaseTest):
 
         self.organization.refresh_from_db()
         assert self.organization.usage["events"]["todays_usage"] == 1
+        assert self.organization.usage["events"]["todays_usage_date"] == "2026-11-01"
         update_org_billing_quotas(self.organization)
         assert self.redis_client.zrange("@posthog/quota-limits/events", 0, -1) == ([token] if expect_limited else [])
         today, yesterday = datetime.date(2026, 11, 1), datetime.date(2026, 10, 31)
@@ -530,7 +531,13 @@ class TestQuotaLimiting(BaseTest):
 
             self.organization.refresh_from_db()
             assert self.organization.usage == create_usage_summary(
-                events={"usage": 99, "limit": 100, "todays_usage": 10, "quota_limited_until": 1612137599}
+                events={
+                    "usage": 99,
+                    "limit": 100,
+                    "todays_usage": 10,
+                    "todays_usage_date": "2021-01-25",
+                    "quota_limited_until": 1612137599,
+                }
             )
 
             # # Increase the trust score. They are already being limited, so we will not suspend their limiting.
@@ -583,7 +590,13 @@ class TestQuotaLimiting(BaseTest):
 
             self.organization.refresh_from_db()
             assert self.organization.usage == create_usage_summary(
-                events={"usage": 99, "limit": 100, "todays_usage": 10, "quota_limiting_suspended_until": 1611705600}
+                events={
+                    "usage": 99,
+                    "limit": 100,
+                    "todays_usage": 10,
+                    "todays_usage_date": "2021-01-25",
+                    "quota_limiting_suspended_until": 1611705600,
+                }
             )
 
         # Check that org is being limited after suspension expired
@@ -600,7 +613,13 @@ class TestQuotaLimiting(BaseTest):
             assert_other_resources_not_limited(result.quota_limited_orgs, result.quota_limiting_suspended_orgs)
 
             assert self.organization.usage == create_usage_summary(
-                events={"usage": 109, "limit": 100, "todays_usage": 0, "quota_limited_until": 1612137599}
+                events={
+                    "usage": 109,
+                    "limit": 100,
+                    "todays_usage": 0,
+                    "todays_usage_date": "2021-01-27",
+                    "quota_limited_until": 1612137599,
+                }
             )
 
             assert self.redis_client.zrange(f"@posthog/quota-limiting-suspended/events", 0, -1) == []
@@ -2606,6 +2625,7 @@ def _fake_org(usage: dict | None) -> Any:
 
 
 _PERIOD = ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"]
+_PATCH_DAY = datetime.date(2021, 1, 15)
 
 
 @override_settings(CLOUD_DEPLOYMENT="US")
@@ -2913,7 +2933,7 @@ class TestPatchTodaysUsage(BaseTest):
         self.organization.usage = None
         self.organization.save()
 
-        changed = _patch_todays_usage(self.organization, _full_usage_counters(events=42))
+        changed = _patch_todays_usage(self.organization, _full_usage_counters(events=42), day=_PATCH_DAY)
 
         assert changed is False
 
@@ -2943,8 +2963,8 @@ class TestPatchTodaysUsage(BaseTest):
             sandbox_compute_memory_mib_seconds=7_654_321_098,
         )
 
-        assert _patch_todays_usage(self.organization, todays_usage) is True
-        assert _patch_todays_usage(self.organization, todays_usage) is False
+        assert _patch_todays_usage(self.organization, todays_usage, day=_PATCH_DAY) is True
+        assert _patch_todays_usage(self.organization, todays_usage, day=_PATCH_DAY) is False
 
         self.organization.refresh_from_db()
         assert self.organization.usage["posthog_code_credits"]["todays_usage"] == 15
@@ -3016,7 +3036,7 @@ class TestPatchTodaysUsage(BaseTest):
         self.organization.usage = {"period": ["2021-01-01T00:00:00Z", "2021-01-31T23:59:59Z"]}
         self.organization.save()
 
-        changed = _patch_todays_usage(self.organization, _full_usage_counters(events=42))
+        changed = _patch_todays_usage(self.organization, _full_usage_counters(events=42), day=_PATCH_DAY)
 
         assert changed is False
 
@@ -3028,7 +3048,7 @@ class TestPatchTodaysUsage(BaseTest):
         self.organization.save()
         before_updated_at = self.organization.updated_at
 
-        changed = _patch_todays_usage(self.organization, _full_usage_counters(events=7))
+        changed = _patch_todays_usage(self.organization, _full_usage_counters(events=7), day=_PATCH_DAY)
 
         assert changed is False
         # No SQL UPDATE means `updated_at` should not move.
@@ -3046,7 +3066,7 @@ class TestPatchTodaysUsage(BaseTest):
         }
         self.organization.save()
 
-        changed = _patch_todays_usage(self.organization, _full_usage_counters(events=0))
+        changed = _patch_todays_usage(self.organization, _full_usage_counters(events=0), day=_PATCH_DAY)
 
         assert changed is True
         self.organization.refresh_from_db()
@@ -3065,7 +3085,7 @@ class TestPatchTodaysUsage(BaseTest):
         before_updated_at = self.organization.updated_at
 
         # Only `events` changes; `recordings` stays identical.
-        changed = _patch_todays_usage(self.organization, _full_usage_counters(events=42, recordings=5))
+        changed = _patch_todays_usage(self.organization, _full_usage_counters(events=42, recordings=5), day=_PATCH_DAY)
 
         assert changed is True
         # In-memory mirror reflects the change.
@@ -3104,7 +3124,7 @@ class TestPatchTodaysUsage(BaseTest):
 
         # The stale in-memory org still believes limit=1000; the targeted patch must
         # only touch `usage[events][todays_usage]` and leave billing-owned fields alone.
-        changed = _patch_todays_usage(self.organization, _full_usage_counters(events=99), batch=batch)
+        changed = _patch_todays_usage(self.organization, _full_usage_counters(events=99), day=_PATCH_DAY, batch=batch)
         if batch is not None:
             batch.write()
 
