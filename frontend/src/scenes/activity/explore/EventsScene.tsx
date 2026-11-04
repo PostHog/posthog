@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LiveUserCount } from 'lib/components/LiveUserCount'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ActivitySceneHeader } from 'scenes/activity/ActivitySceneHeader'
 import { FLAG_EVALUATIONS_RETENTION_DAYS } from 'scenes/feature-flags/flagEvaluationsTable'
@@ -13,12 +14,13 @@ import { LiveRecordingsCount } from 'scenes/session-recordings/components/LiveRe
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { QueryFeature } from '~/queries/nodes/DataTable/queryFeatures'
 import { Query } from '~/queries/Query/Query'
-import { ProductKey } from '~/queries/schema/schema-general'
+import { NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { ActivityTab } from '~/types'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { buildExploreAgentContext } from '../activityAgentContext'
+import { widerActivityRange } from './defaults'
 import { eventsSceneLogic } from './eventsSceneLogic'
 import { SAMPLE_EVENTS_SOURCE } from './sampleEventRows'
 
@@ -26,6 +28,9 @@ export function EventsScene(): JSX.Element {
     const { query, flagCallsNote } = useValues(eventsSceneLogic())
     const { setQuery } = useActions(eventsSceneLogic())
     const { featureFlags } = useValues(featureFlagLogic)
+
+    const eventsSource = query.source.kind === NodeKind.EventsQuery ? query.source : null
+    const widerRange = eventsSource ? widerActivityRange(eventsSource.after, eventsSource.before) : null
 
     useAttachedContext(buildExploreAgentContext(ActivityTab.ExploreEvents, query))
 
@@ -66,6 +71,24 @@ export function EventsScene(): JSX.Element {
                     // A live-data explorer over captured events, so it keeps the hidden ones selectable.
                     includeHiddenEvents: true,
                     dataTableSampleRows: SAMPLE_EVENTS_SOURCE,
+                    // The scene defaults to the last hour, so an empty list is often a narrow window,
+                    // not missing data. Offer the next wider range in one click.
+                    emptyStateDetail:
+                        eventsSource && widerRange ? (
+                            <div className="flex flex-col items-center gap-2">
+                                <span>Try changing the date range, or pick another action, event or breakdown.</span>
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    data-attr="events-empty-widen-date-range"
+                                    onClick={() =>
+                                        setQuery({ ...query, source: { ...eventsSource, after: widerRange.after } })
+                                    }
+                                >
+                                    {widerRange.label}
+                                </LemonButton>
+                            </div>
+                        ) : undefined,
                 }}
             />
         </SceneContent>
