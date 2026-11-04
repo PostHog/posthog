@@ -3,7 +3,7 @@ import datetime as dt
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
@@ -16,7 +16,7 @@ from posthog.models import Team
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.metrics.backend.derived import DerivedMetricQueryRunner
+from products.metrics.backend.derived import DerivedMetricQueryRunner, derived_metrics_enabled
 from products.metrics.backend.facade.api import list_metric_names, list_metric_picker_names, run_metric_query
 from products.metrics.backend.facade.contracts import (
     METRICS_DERIVED_SERIES_FEATURE_FLAG,
@@ -63,8 +63,12 @@ SPANS = [
 LOGS = [("web", "info"), ("web", "info"), ("web", "error"), ("worker", "warn")]
 
 
-def _flags(*enabled: str):
-    return patch("posthoganalytics.feature_enabled", side_effect=lambda flag, *_, **__: flag in enabled)
+def _flags(*enabled: str, derived_variant: str | bool | None = "test"):
+    return patch.multiple(
+        "posthoganalytics",
+        feature_enabled=MagicMock(side_effect=lambda flag, *_, **__: flag in enabled),
+        get_feature_flag=MagicMock(side_effect=lambda flag, *_, **__: derived_variant if flag in enabled else None),
+    )
 
 
 def _insert_spans(team_id: int) -> None:
@@ -331,6 +335,15 @@ class TestDerivedMetricsQuery(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == expected_status, response.json()
 
+    @parameterized.expand([("test_variant", "test", True), ("control_variant", "control", False)])
+    @time_machine.travel(DATE_TO, tick=False)
+    def test_has_metrics_reports_derived_sources_and_series(self, _name: str, variant: str, derived_on: bool) -> None:
+        with _flags("metrics", METRICS_DERIVED_SERIES_FEATURE_FLAG, derived_variant=variant):
+            response = self.client.get(f"/api/projects/{self.team.id}/metrics/has_metrics/")
+
+        assert response.status_code == 200, response.json()
+        assert response.json() == {"hasMetrics": False, "hasDerivedSources": True, "hasDerivedMetrics": derived_on}
+
     def test_query_event_marks_derived_queries(self) -> None:
         with (
             _flags("metrics", METRICS_DERIVED_SERIES_FEATURE_FLAG),
@@ -390,3 +403,17 @@ class TestDerivedMetricQueryCaps(SimpleTestCase):
                 date_to=DATE_TO,
                 interval=None,
             )
+
+
+class TestDerivedSeriesVariant(SimpleTestCase):
+    # The experiment flag is multivariate, so the control variant is a truthy string that must not turn series on.
+    @parameterized.expand(
+        [("control", "control", False), ("test", "test", True), ("boolean", True, True), ("off", None, False)]
+    )
+    def test_only_the_test_variant_turns_derived_series_on(
+        self, _name: str, variant: str | bool | None, expected: bool
+    ) -> None:
+        team = Team(id=1, organization_id="01a1a8b0-0000-0000-0000-000000000000")
+
+        with patch("posthoganalytics.get_feature_flag", return_value=variant):
+            assert derived_metrics_enabled(team) is expected

@@ -42,12 +42,14 @@ from products.metrics.backend.derived import (
     get_derived_metric,
     is_derived_metric_name as _is_derived_metric_name,
     list_derived_metric_names,
+    team_has_derived_sources,
 )
 from products.metrics.backend.facade.contracts import (
     CompanionMetric,
     DashboardImportRequest,
     DashboardImportStatus,
     DashboardTemplateSummary,
+    DerivedSeriesStatus,
     IncidentContext,
     InvestigationResult,
     MetricAnomalyReport,
@@ -575,6 +577,12 @@ def list_metric_picker_names(
 def is_derived_metric_name(name: str) -> bool:
     """True for a name that the query computes from spans and logs instead of reading ingested samples."""
     return _is_derived_metric_name(name)
+
+
+def get_derived_series_status(team: Team) -> DerivedSeriesStatus:
+    """Whether the team has spans or logs to derive series from, and whether derived series are on for it."""
+    has_sources = team_has_derived_sources(team)
+    return DerivedSeriesStatus(has_sources=has_sources, enabled=has_sources and derived_metrics_enabled(team))
 
 
 def derived_metric_resources(names: Iterable[str]) -> list[APIScopeObject]:

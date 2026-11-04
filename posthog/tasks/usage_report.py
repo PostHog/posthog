@@ -3042,17 +3042,21 @@ def capture_report(
         )
 
     # Update organization group properties so they can be used for email campaigns
+    group_properties: dict[str, Any] = {
+        "member_count": full_report_dict.get("organization_user_count", 0),
+        "project_count": full_report_dict.get("team_count", 0),
+        "dashboard_count": full_report_dict.get("dashboard_count", 0),
+        "ff_count": full_report_dict.get("ff_count", 0),
+        "survey_count": full_report_dict.get("survey_count", 0),
+    }
+    # Flags target orgs that send logs or traces. Set only when true, so a quiet day keeps the org targeted.
+    if full_report_dict.get("logs_records_in_period", 0) or full_report_dict.get("apm_tracing_spans_in_period", 0):
+        group_properties["sends_logs_or_traces"] = True
     try:
         pha_client.group_identify(
             group_type="organization",
             group_key=organization_id,
-            properties={
-                "member_count": full_report_dict.get("organization_user_count", 0),
-                "project_count": full_report_dict.get("team_count", 0),
-                "dashboard_count": full_report_dict.get("dashboard_count", 0),
-                "ff_count": full_report_dict.get("ff_count", 0),
-                "survey_count": full_report_dict.get("survey_count", 0),
-            },
+            properties=group_properties,
         )
     except Exception as err:
         logger.exception(

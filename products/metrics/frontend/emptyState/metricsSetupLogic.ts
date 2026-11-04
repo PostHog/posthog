@@ -1,5 +1,8 @@
+import posthog from 'posthog-js'
+
 import { isFeatureFlagGatedError } from 'lib/api-error'
 import { createSetupDetectionLogic } from 'lib/components/ProductEmptyState/setupDetectionLogic'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { retryWithBackoff } from 'lib/utils/async'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { teamLogic } from 'scenes/teamLogic'
@@ -14,6 +17,8 @@ import { canViewMetrics } from '../metricsAccess'
 // returns true (or was cached true) just has pre-existing metrics.
 let sawNoMetrics = false
 let firstIngestIntentFired = false
+// Derived series also report `has-data`, but only ingested metrics count as first ingestion.
+let hasIngestedMetrics = false
 
 /**
  * Setup detection for the metrics empty state. Binary: the team has ingested at
@@ -36,7 +41,17 @@ export const metricsSetupLogic = createSetupDetectionLogic({
             const response = await retryWithBackoff(() => metricsHasMetricsRetrieve(String(teamId)), {
                 maxAttempts: 3,
             })
-            return response.hasMetrics ? 'has-data' : 'needs-setup'
+            if (response.hasDerivedSources) {
+                // Exposure for the derived series experiment: both variants reach this point only when the
+                // team has spans or logs to derive series from. posthog-js reports each flag value once per session.
+                posthog.getFeatureFlag(FEATURE_FLAGS.METRICS_DERIVED_SERIES)
+            }
+            if (response.hasMetrics) {
+                hasIngestedMetrics = true
+                return 'has-data'
+            }
+            // The test variant charts derived series, so it skips the setup screen.
+            return response.hasDerivedMetrics ? 'has-data' : 'needs-setup'
         } catch (error) {
             // The alpha enrollment has not reached the server yet: it arrives as an ingested
             // person property, so a user who just turned the feature preview on is still denied
@@ -52,7 +67,7 @@ export const metricsSetupLogic = createSetupDetectionLogic({
         if (status === 'needs-setup') {
             sawNoMetrics = true
         }
-        if (status === 'has-data' && sawNoMetrics && !firstIngestIntentFired) {
+        if (status === 'has-data' && hasIngestedMetrics && sawNoMetrics && !firstIngestIntentFired) {
             firstIngestIntentFired = true
             void addProductIntent({
                 product_type: ProductKey.METRICS,

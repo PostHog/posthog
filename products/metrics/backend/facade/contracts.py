@@ -74,6 +74,20 @@ METRICS_DERIVED_SERIES_FEATURE_FLAG = "metrics-derived-series"
 DERIVED_METRIC_PREFIX = "posthog.derived."
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class DerivedSeriesStatus:
+    """Whether a team can see series derived from its spans and logs."""
+
+    # The team sent spans or logs in the last day.
+    has_sources: bool
+    # Derived series are on for the team, which needs sources.
+    enabled: bool
+
+    def __post_init__(self) -> None:
+        if self.enabled and not self.has_sources:
+            raise ValueError("derived series need spans or logs")
+
+
 @dataclass(frozen=True, slots=True)
 class MetricFilter:
     """A single label predicate on a clause."""

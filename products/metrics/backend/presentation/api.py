@@ -42,6 +42,7 @@ from products.metrics.backend.facade.api import (
     characterize_metric_anomaly,
     check_metric_variable_regex,
     derived_metric_resources,
+    get_derived_series_status,
     get_metrics_overview,
     is_derived_metric_name,
     list_metric_attribute_keys,
@@ -539,6 +540,12 @@ class _MetricAnomalyReportSerializer(serializers.Serializer):
 
 class _HasMetricsResponseSerializer(serializers.Serializer):
     hasMetrics = serializers.BooleanField(help_text="Whether the team has ingested any metrics.")
+    hasDerivedSources = serializers.BooleanField(
+        help_text="Whether the team sent spans or logs in the last day, so series could be derived from them."
+    )
+    hasDerivedMetrics = serializers.BooleanField(
+        help_text="Whether series derived from the team's spans and logs are available to chart."
+    )
 
 
 class _MetricsOverviewServiceSerializer(serializers.Serializer):
@@ -1001,16 +1008,24 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     def has_metrics(self, request: Request, *args, **kwargs) -> Response:
         tag_queries(product=Product.METRICS, feature=Feature.QUERY)
         has_metrics = team_has_metrics(self.team)
+        derived = get_derived_series_status(self.team)
 
         report_user_action(
             request.user,
             "metrics has_metrics checked",
-            {"has_metrics": has_metrics},
+            {
+                "has_metrics": has_metrics,
+                "has_derived_sources": derived.has_sources,
+                "has_derived_metrics": derived.enabled,
+            },
             team=self.team,
             request=request,
         )
 
-        return Response({"hasMetrics": has_metrics}, status=status.HTTP_200_OK)
+        return Response(
+            {"hasMetrics": has_metrics, "hasDerivedSources": derived.has_sources, "hasDerivedMetrics": derived.enabled},
+            status=status.HTTP_200_OK,
+        )
 
     @extend_schema(responses={200: _MetricsOverviewResponseSerializer})
     @action(
