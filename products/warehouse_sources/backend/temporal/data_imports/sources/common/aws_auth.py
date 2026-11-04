@@ -1,15 +1,18 @@
+import json
 import time
+import secrets
 import datetime as dt
-import functools
-from typing import Protocol
+from collections.abc import Sequence
+from typing import Any, Protocol
 
-from asgiref.sync import async_to_sync
 from botocore.auth import SigV4Auth
 from botocore.awsrequest import AWSRequest
+from botocore.config import Config
 from botocore.credentials import Credentials, RefreshableCredentials
 from botocore.exceptions import BotoCoreError, ClientError
 
-from posthog.models.integration import AWSS3Integration, AWSS3RoleBasedIntegration, IntegrationError
+from posthog.integrations import IntegrationKind, IntegrationManager, IntegrationNotFound
+from posthog.models.integration import AWSWarehouseSourcesRoleBasedIntegration, IntegrationError
 from posthog.models.team import Team
 
 from products.warehouse_sources.backend.facade.source_config import (
@@ -28,9 +31,6 @@ MISSING_ACCESS_KEYS_ERROR = "Enter both an AWS access key ID and a secret access
 UNKNOWN_AUTH_ERROR = "Choose how PostHog connects to AWS: with access keys or with an IAM role."
 MISSING_ROLE_ERROR = "Select an AWS connection that holds your IAM role."
 ROLE_NOT_FOUND_ERROR = "The AWS connection for this source no longer exists. Select another one."
-KEY_CONNECTION_FOR_ROLE_ERROR = (
-    "This AWS connection holds access keys, not an IAM role. Select a role connection, or choose Access keys."
-)
 ROLE_UNAVAILABLE_ERROR = (
     "Connecting with an IAM role is not available on this PostHog instance. Connect with access keys instead."
 )
@@ -49,7 +49,6 @@ AWS_AUTH_NON_RETRYABLE_ERRORS: dict[str, str | None] = {
     UNKNOWN_AUTH_ERROR: None,
     MISSING_ROLE_ERROR: None,
     ROLE_NOT_FOUND_ERROR: None,
-    KEY_CONNECTION_FOR_ROLE_ERROR: None,
     ROLE_ACCESS_DENIED_ERROR: None,
     ROLE_EXTERNAL_ID_NOT_ENFORCED_ERROR: None,
 }
@@ -58,6 +57,8 @@ AWS_AUTH_NON_RETRYABLE_ERRORS: dict[str, str | None] = {
 # botocore's mandatory refresh window. Inside it the credentials are about to expire, so always call STS.
 _MANDATORY_REFRESH_WINDOW = dt.timedelta(minutes=10)
 _REFRESH_BACKOFF_SECONDS = 60
+# One retry absorbs an STS hiccup. A denial is not retried, so a role that refuses PostHog fails fast.
+_STS_CONFIG = Config(connect_timeout=5, read_timeout=10, retries={"max_attempts": 2, "mode": "standard"})
 
 
 class AwsAuthError(Exception):
@@ -84,15 +85,15 @@ class AwsAuth(Protocol):
 
 
 def aws_auth_field() -> SourceFieldSelectConfig:
-    """The choice between typed-in access keys and an IAM role from an `aws-s3` integration.
+    """The choice between typed-in access keys and an IAM role from an `aws-warehouse-sources` integration.
 
     The key fields are optional in the config so that a role config parses. `resolve_aws_credentials`
     enforces them for the access keys branch. Configs saved before this field existed hold the keys
     at the top level, and they parse into the access keys branch, which is the default.
 
-    The IAM role picker names batch exports' `aws-s3` connections, so the default `credential_kind`
-    would be `aws-s3` for every source with this field. A source sets its own `credential_kind`, so
-    that its typed-in keys keep a kind of their own.
+    The IAM role picker names the `aws-warehouse-sources` kind, so the default `credential_kind` would
+    be that kind for every source with this field. A source sets its own `credential_kind`, so that its
+    typed-in keys keep a kind of their own.
     """
     return SourceFieldSelectConfig(
         name=AWS_AUTH_FIELD_NAME,
@@ -138,7 +139,7 @@ def aws_auth_field() -> SourceFieldSelectConfig:
                     SourceFieldOauthConfig(
                         name="aws_integration_id",
                         label="Role connection",
-                        kind="aws-s3",
+                        kind="aws-warehouse-sources",
                         required=False,
                     ),
                 ],
@@ -148,8 +149,10 @@ def aws_auth_field() -> SourceFieldSelectConfig:
     )
 
 
-def resolve_aws_credentials(auth: AwsAuth, team_id: int) -> Credentials:
+def resolve_aws_credentials(auth: AwsAuth, team_id: int, session_actions: Sequence[str]) -> Credentials:
     """The credentials to sign the source's AWS requests with.
+
+    `session_actions` are the IAM actions the source calls. A role session can use only those.
 
     A role gives refreshable credentials. The second hop of the role chain caps a session at one
     hour, so botocore assumes the role again when the credentials are about to expire.
@@ -163,47 +166,83 @@ def resolve_aws_credentials(auth: AwsAuth, team_id: int) -> Credentials:
         raise AwsAuthError(UNKNOWN_AUTH_ERROR)
     if not auth.aws_integration_id:
         raise AwsAuthError(MISSING_ROLE_ERROR)
-    return _integration_credentials(auth.aws_integration_id, team_id)
+    return _integration_credentials(auth.aws_integration_id, team_id, session_actions)
 
 
-def _integration_credentials(integration_id: int, team_id: int) -> Credentials:
-    # Importing the batch exports facade loads aioboto3, so it stays off the source registry's import path.
-    from products.batch_exports.backend.facade.destinations.s3 import (  # noqa: PLC0415
-        ExternalRoleArnNotConfiguredError,
-        InvalidCredentialsError,
-        PolicyStatement,
-        S3IntegrationNotFoundError,
-        get_credentials_using_user_aws_role,
-        get_s3_integration,
-    )
-
+def _integration_credentials(integration_id: int, team_id: int, session_actions: Sequence[str]) -> Credentials:
     try:
-        integration = async_to_sync(get_s3_integration)(integration_id, team_id)
-    except (S3IntegrationNotFoundError, IntegrationError):
+        integration = IntegrationManager.any.get(team_id, integration_id)
+    except IntegrationNotFound:
         raise AwsAuthError(ROLE_NOT_FOUND_ERROR) from None
-
-    if isinstance(integration, AWSS3Integration):
-        raise AwsAuthError(KEY_CONNECTION_FOR_ROLE_ERROR)
-    # An S3-compatible connection holds keys for another provider, which AWS does not accept.
-    if not isinstance(integration, AWSS3RoleBasedIntegration):
+    aws_role_arn = integration.config.get("aws_role_arn")
+    if integration.kind != IntegrationKind.AWS_WAREHOUSE_SOURCES or not aws_role_arn:
         raise AwsAuthError(ROLE_NOT_FOUND_ERROR)
 
     # The external ID is derived from the source's organization on every call, never read from
     # config, so one organization cannot use a role that trusts another organization.
     organization_id = Team.objects.only("organization_id").get(id=team_id).organization_id
     external_id = f"posthog-{organization_id}"
-    assume_role = functools.partial(
-        get_credentials_using_user_aws_role,
-        integration.aws_role_arn,
-        external_id,
-        session_name=f"PostHog-warehouse-source-{team_id}",
-        # The customer's role decides what PostHog can read. A source calls several services, so a
-        # narrower session policy per source would only break reads that the role allows.
-        policy_statements=[PolicyStatement(Effect="Allow", Action=["*"], Resource="*")],
-        # Without a retry an STS hiccup fails the sync. With the default five attempts, a role that
-        # denies PostHog keeps the credential check waiting for half a minute.
-        max_attempts=2,
+    session_name = f"PostHog-warehouse-source-{team_id}"
+    session_policy = json.dumps(
+        {"Version": "2012-10-17", "Statement": [{"Effect": "Allow", "Action": list(session_actions), "Resource": "*"}]}
     )
+
+    def assume_customer_role() -> dict[str, Any]:
+        import boto3  # noqa: PLC0415 — keeps boto3 off the source registry's import path
+
+        try:
+            our_role_arn = AWSWarehouseSourcesRoleBasedIntegration.our_aws_role_arn()
+        except IntegrationError:
+            raise AwsAuthError(ROLE_UNAVAILABLE_ERROR) from None
+        try:
+            ours = boto3.client("sts", config=_STS_CONFIG).assume_role(
+                RoleArn=our_role_arn,
+                RoleSessionName=session_name,
+                # This session can do nothing but assume the customer's role.
+                Policy=json.dumps(
+                    {
+                        "Version": "2012-10-17",
+                        "Statement": [{"Effect": "Allow", "Action": ["sts:AssumeRole"], "Resource": aws_role_arn}],
+                    }
+                ),
+            )["Credentials"]
+        except (BotoCoreError, ClientError) as e:
+            # A failure of PostHog's own role is a deployment problem, so it retries.
+            raise AwsAuthError(ROLE_CREDENTIALS_RETRY_ERROR) from e
+
+        sts = boto3.client(
+            "sts",
+            config=_STS_CONFIG,
+            aws_access_key_id=ours["AccessKeyId"],
+            aws_secret_access_key=ours["SecretAccessKey"],
+            aws_session_token=ours["SessionToken"],
+        )
+        try:
+            # A role that accepts a random external ID would let any PostHog organization use it.
+            sts.assume_role(
+                RoleArn=aws_role_arn, RoleSessionName=session_name, ExternalId=f"posthog-{secrets.token_hex(16)}"
+            )
+        except ClientError:
+            pass
+        except BotoCoreError as e:
+            raise AwsAuthError(ROLE_CREDENTIALS_RETRY_ERROR) from e
+        else:
+            raise AwsAuthError(
+                f"{ROLE_EXTERNAL_ID_NOT_ENFORCED_ERROR}. Add a condition to its trust policy that requires the external ID {external_id}."
+            )
+
+        try:
+            return sts.assume_role(
+                RoleArn=aws_role_arn, RoleSessionName=session_name, ExternalId=external_id, Policy=session_policy
+            )["Credentials"]
+        except ClientError as e:
+            if e.response.get("Error", {}).get("Code") != "AccessDenied":
+                raise AwsAuthError(ROLE_CREDENTIALS_RETRY_ERROR) from e
+            raise AwsAuthError(
+                f"{ROLE_ACCESS_DENIED_ERROR}. Check that its trust policy allows PostHog's role and requires the external ID {external_id}."
+            ) from None
+        except BotoCoreError as e:
+            raise AwsAuthError(ROLE_CREDENTIALS_RETRY_ERROR) from e
 
     expires_at: dt.datetime | None = None
     current: dict[str, str] | None = None
@@ -211,34 +250,13 @@ def _integration_credentials(integration_id: int, team_id: int) -> Credentials:
 
     def assume() -> dict[str, str]:
         nonlocal expires_at
-        try:
-            assumed = async_to_sync(assume_role)()
-        except ExternalRoleArnNotConfiguredError:
-            raise AwsAuthError(ROLE_UNAVAILABLE_ERROR) from None
-        except InvalidCredentialsError:
-            raise AwsAuthError(
-                f"{ROLE_EXTERNAL_ID_NOT_ENFORCED_ERROR}. Add a condition to its trust policy that requires the external ID {external_id}."
-            ) from None
-        except ClientError as e:
-            # Both hops of the chain are AssumeRole calls. Only a denial that names the customer's role
-            # is theirs to fix. A denial of PostHog's own role is a deployment problem, so it retries.
-            error = e.response.get("Error", {})
-            if error.get("Code") != "AccessDenied" or integration.aws_role_arn not in (error.get("Message") or ""):
-                raise AwsAuthError(ROLE_CREDENTIALS_RETRY_ERROR) from e
-            raise AwsAuthError(
-                f"{ROLE_ACCESS_DENIED_ERROR}. Check that its trust policy allows PostHog's role and requires the external ID {external_id}."
-            ) from None
-        except BotoCoreError as e:
-            # A connection error or a timeout before STS answered.
-            raise AwsAuthError(ROLE_CREDENTIALS_RETRY_ERROR) from e
-
-        assert assumed.aws_session_token and assumed.expiration
-        expires_at = assumed.expiration
+        assumed = assume_customer_role()
+        expires_at = assumed["Expiration"]
         return {
-            "access_key": assumed.aws_access_key_id,
-            "secret_key": assumed.aws_secret_access_key,
-            "token": assumed.aws_session_token,
-            "expiry_time": assumed.expiration.isoformat(),
+            "access_key": assumed["AccessKeyId"],
+            "secret_key": assumed["SecretAccessKey"],
+            "token": assumed["SessionToken"],
+            "expiry_time": assumed["Expiration"].isoformat(),
         }
 
     def fetch() -> dict[str, str]:

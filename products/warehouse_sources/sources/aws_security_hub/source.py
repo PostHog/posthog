@@ -10,6 +10,7 @@ from products.warehouse_sources.sources.aws_security_hub.aws_security_hub import
 from products.warehouse_sources.sources.aws_security_hub.canonical_descriptions import CANONICAL_DESCRIPTIONS
 from products.warehouse_sources.sources.aws_security_hub.settings import (
     API_DOCS_URL,
+    AWS_SESSION_ACTIONS,
     ENDPOINT_DESCRIPTIONS,
     ENDPOINTS,
     ERROR_MESSAGES,
@@ -59,6 +60,7 @@ class AwsSecurityHubSource(ResumableSource[AwsSecurityHubSourceConfig, AwsSecuri
     api_docs_url = API_DOCS_URL
 
     flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    aws_session_actions = AWS_SESSION_ACTIONS
     credential_kind = "aws-security-hub"
 
     @property
@@ -103,7 +105,7 @@ class AwsSecurityHubSource(ResumableSource[AwsSecurityHubSourceConfig, AwsSecuri
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
-            credentials = resolve_aws_credentials(config.aws_auth, team_id)
+            credentials = resolve_aws_credentials(config.aws_auth, team_id, AWS_SESSION_ACTIONS)
         except AwsAuthError as error:
             return False, str(error)
         return validate_credentials(config, credentials, self.resolve_api_version(api_version), schema_name)
@@ -119,7 +121,7 @@ class AwsSecurityHubSource(ResumableSource[AwsSecurityHubSourceConfig, AwsSecuri
         api_version: str | None = None,
     ) -> dict[str, str | None]:
         try:
-            credentials = resolve_aws_credentials(config.aws_auth, team_id)
+            credentials = resolve_aws_credentials(config.aws_auth, team_id, AWS_SESSION_ACTIONS)
         except AwsAuthError as error:
             return aws_auth_endpoint_reasons(error, endpoints)
         return probe_endpoint_permissions(config, credentials, self.resolve_api_version(api_version), endpoints)
@@ -132,7 +134,7 @@ class AwsSecurityHubSource(ResumableSource[AwsSecurityHubSourceConfig, AwsSecuri
     ) -> SourceResponse:
         return aws_security_hub_source(
             config=config,
-            credentials=resolve_aws_credentials(config.aws_auth, inputs.team_id),
+            credentials=resolve_aws_credentials(config.aws_auth, inputs.team_id, AWS_SESSION_ACTIONS),
             endpoint=inputs.schema_name,
             api_version=self.resolve_api_version(inputs.api_version),
             manager=resumable_source_manager,

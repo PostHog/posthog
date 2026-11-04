@@ -210,3 +210,7 @@ ENDPOINT_DESCRIPTIONS: dict[str, str] = {
     "reservation_coverage_daily": "Daily share of eligible EC2, RDS, ElastiCache and Redshift usage covered by reservations.",
     "savings_plans_coverage_daily": "Daily share of eligible spend covered by Savings Plans, and the remaining On-Demand cost.",
 }
+
+
+# The IAM actions this source calls. A role session can use only these.
+AWS_SESSION_ACTIONS = ("ce:Get*",)

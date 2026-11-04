@@ -8,6 +8,7 @@ from products.warehouse_sources.sources.aws_glue_data_catalog.aws_glue_data_cata
     validate_credentials,
 )
 from products.warehouse_sources.sources.aws_glue_data_catalog.settings import (
+    AWS_SESSION_ACTIONS,
     ENDPOINT_DESCRIPTIONS,
     ENDPOINTS,
     ERROR_MESSAGES,
@@ -56,6 +57,7 @@ class AwsGlueDataCatalogSource(ResumableSource[AwsGlueDataCatalogSourceConfig, A
     api_docs_url = "https://docs.aws.amazon.com/glue/latest/webapi/API_Operations.html"
 
     flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    aws_session_actions = AWS_SESSION_ACTIONS
     credential_kind = "aws-glue-data-catalog"
 
     @property
@@ -94,7 +96,7 @@ class AwsGlueDataCatalogSource(ResumableSource[AwsGlueDataCatalogSourceConfig, A
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
-            credentials = resolve_aws_credentials(config.aws_auth, team_id)
+            credentials = resolve_aws_credentials(config.aws_auth, team_id, AWS_SESSION_ACTIONS)
         except AwsAuthError as error:
             return False, str(error)
         return validate_credentials(config, credentials, self.resolve_api_version(api_version), schema_name)
@@ -107,7 +109,7 @@ class AwsGlueDataCatalogSource(ResumableSource[AwsGlueDataCatalogSourceConfig, A
         api_version: str | None = None,
     ) -> dict[str, str | None]:
         try:
-            credentials = resolve_aws_credentials(config.aws_auth, team_id)
+            credentials = resolve_aws_credentials(config.aws_auth, team_id, AWS_SESSION_ACTIONS)
         except AwsAuthError as error:
             return aws_auth_endpoint_reasons(error, endpoints)
         return probe_endpoint_permissions(config, credentials, self.resolve_api_version(api_version), endpoints)
@@ -125,7 +127,7 @@ class AwsGlueDataCatalogSource(ResumableSource[AwsGlueDataCatalogSourceConfig, A
     ) -> SourceResponse:
         return aws_glue_data_catalog_source(
             config,
-            resolve_aws_credentials(config.aws_auth, inputs.team_id),
+            resolve_aws_credentials(config.aws_auth, inputs.team_id, AWS_SESSION_ACTIONS),
             inputs.schema_name,
             self.resolve_api_version(inputs.api_version),
             resumable_source_manager,

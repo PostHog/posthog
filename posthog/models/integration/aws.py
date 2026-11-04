@@ -6,6 +6,7 @@ import secrets
 from collections.abc import Mapping
 from typing import Any, ClassVar, Literal
 
+from django.conf import settings
 from django.db import transaction
 
 import structlog
@@ -21,7 +22,11 @@ from posthog.security.url_validation import is_url_allowed
 
 from . import common, model
 
-_AWSKindType = Literal[model.Integration.IntegrationKind.AWS_REDSHIFT, model.Integration.IntegrationKind.AWS_S3]
+_AWSKindType = Literal[
+    model.Integration.IntegrationKind.AWS_REDSHIFT,
+    model.Integration.IntegrationKind.AWS_S3,
+    model.Integration.IntegrationKind.AWS_WAREHOUSE_SOURCES,
+]
 
 LOGGER = structlog.get_logger(__name__)
 
@@ -110,7 +115,11 @@ def is_unique_aws_role_by_organization_id(aws_role_arn: str, organization_id: st
     has_same_aws_role_integrations = (
         model.Integration.objects.select_related("team__organization")
         .filter(
-            kind__in=(model.Integration.IntegrationKind.AWS_S3, model.Integration.IntegrationKind.AWS_REDSHIFT),
+            kind__in=(
+                model.Integration.IntegrationKind.AWS_S3,
+                model.Integration.IntegrationKind.AWS_REDSHIFT,
+                model.Integration.IntegrationKind.AWS_WAREHOUSE_SOURCES,
+            ),
             config__aws_role_arn=aws_role_arn,
         )
         .exclude(team__organization_id=organization_id)
@@ -292,12 +301,9 @@ class AWSRoleBasedIntegration:
 
         extra = cls.read_extra_configuration_parameters(**config)
 
-        # Currently, only batch exports uses this integration.
-        # If you are using this integration outside batch exports, then you should make the our_aws_role_arn and external_id configurable.
-        # TODO: Make our_aws_role_arn external_id configurable.
         validate_aws_role_arn(
             aws_role_arn=aws_role_arn,
-            our_aws_role_arn=get_or_settings("BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN", CredentialsCaller.INTEGRATIONS),
+            our_aws_role_arn=cls.our_aws_role_arn(),
             external_id=f"posthog-{organization_id}",
         )
 
@@ -309,6 +315,11 @@ class AWSRoleBasedIntegration:
             sensitive_config={},
             created_by=created_by,
         )
+
+    @classmethod
+    def our_aws_role_arn(cls) -> str:
+        """The PostHog role that assumes the customer's role."""
+        return get_or_settings("BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN", CredentialsCaller.INTEGRATIONS)
 
     @staticmethod
     def read_extra_configuration_parameters(**config) -> dict[str, Any]:
@@ -322,6 +333,20 @@ class AWSS3RoleBasedIntegration(AWSRoleBasedIntegration):
     integration_kind: ClassVar[Literal[model.Integration.IntegrationKind.AWS_S3]] = (
         model.Integration.IntegrationKind.AWS_S3
     )
+
+
+class AWSWarehouseSourcesRoleBasedIntegration(AWSRoleBasedIntegration):
+    """A customer's AWS role that data warehouse sources read with, through the warehouse sources PostHog role."""
+
+    integration_kind: ClassVar[Literal[model.Integration.IntegrationKind.AWS_WAREHOUSE_SOURCES]] = (
+        model.Integration.IntegrationKind.AWS_WAREHOUSE_SOURCES
+    )
+
+    @classmethod
+    def our_aws_role_arn(cls) -> str:
+        if not settings.WAREHOUSE_SOURCES_AWS_ROLE_ARN:
+            raise common.IntegrationError("Connecting with an AWS role is not available on this PostHog instance.")
+        return settings.WAREHOUSE_SOURCES_AWS_ROLE_ARN
 
 
 def _return_redshift_groups(**config) -> list[str] | None:

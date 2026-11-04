@@ -103,3 +103,11 @@ ERROR_MESSAGES = {
     "not subscribed": "Enable Amazon Macie in the selected AWS account and region.",
     "not enabled": "Enable Amazon Macie in the selected AWS account and region.",
 }
+
+
+# The IAM actions this source calls. A role session can use only these.
+AWS_SESSION_ACTIONS = (
+    "macie2:Describe*",
+    "macie2:Get*",
+    "macie2:List*",
+)

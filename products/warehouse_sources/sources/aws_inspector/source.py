@@ -8,6 +8,7 @@ from products.warehouse_sources.sources.aws_inspector.aws_inspector import (
 )
 from products.warehouse_sources.sources.aws_inspector.canonical_descriptions import CANONICAL_DESCRIPTIONS
 from products.warehouse_sources.sources.aws_inspector.settings import (
+    AWS_SESSION_ACTIONS,
     DEFAULT_REGION,
     ENDPOINT_DESCRIPTIONS,
     ENDPOINTS,
@@ -64,6 +65,7 @@ class AwsInspectorSource(ResumableSource[AwsInspectorSourceConfig, AwsInspectorR
     api_docs_url = "https://docs.aws.amazon.com/inspector/v2/APIReference/Welcome.html"
 
     flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    aws_session_actions = AWS_SESSION_ACTIONS
     credential_kind = "aws-inspector"
 
     @property
@@ -106,7 +108,7 @@ class AwsInspectorSource(ResumableSource[AwsInspectorSourceConfig, AwsInspectorR
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
-            credentials = resolve_aws_credentials(config.aws_auth, team_id)
+            credentials = resolve_aws_credentials(config.aws_auth, team_id, AWS_SESSION_ACTIONS)
         except AwsAuthError as error:
             return False, str(error)
         return validate_aws_inspector_credentials(
@@ -124,7 +126,7 @@ class AwsInspectorSource(ResumableSource[AwsInspectorSourceConfig, AwsInspectorR
     ) -> SourceResponse:
         return aws_inspector_source(
             config=config,
-            credentials=resolve_aws_credentials(config.aws_auth, inputs.team_id),
+            credentials=resolve_aws_credentials(config.aws_auth, inputs.team_id, AWS_SESSION_ACTIONS),
             endpoint=inputs.schema_name,
             manager=resumable_source_manager,
             should_use_incremental_field=inputs.should_use_incremental_field,

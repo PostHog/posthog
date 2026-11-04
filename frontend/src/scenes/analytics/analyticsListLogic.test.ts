@@ -99,6 +99,20 @@ describe('analyticsListLogic', () => {
         ])
     })
 
+    it('lets a sort chosen in the menu replace a header click', async () => {
+        const logic = analyticsListLogic()
+        logic.mount()
+        await expectLogic(logic, () => router.actions.push(urls.analyticsList())).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.setFilters({ orderBy: 'created_at' })).toFinishAllListeners()
+        expect(logic.values.feedQuery.orderBy).toBe('created_at')
+
+        await expectLogic(logic, () => logic.actions.setDefaultSort('-last_viewed_at')).toFinishAllListeners()
+
+        expect(logic.values.filters.orderBy).toBeUndefined()
+        expect(logic.values.feedQuery.orderBy).toBe('-last_viewed_at')
+        expect(router.values.searchParams.orderBy).toBeUndefined()
+    })
+
     it('opens each list on the Display default sort, and a header click sorts only that visit', async () => {
         userLogic.actions.loadUserSuccess({
             ...userLogic.values.user!,
@@ -143,10 +157,10 @@ describe('analyticsListLogic', () => {
             folder: false,
         })
 
-        await expectLogic(logic, () => logic.actions.setFilters({ type: 'insight' })).toFinishAllListeners()
+        await expectLogic(logic, () => logic.actions.setFilters({ types: ['insight'] })).toFinishAllListeners()
         expect(logic.values.items.map((item) => item.type)).toContain('insight')
         await expectLogic(logic, () => logic.actions.setInsightsHidden(true)).toFinishAllListeners()
-        expect(logic.values.filters.type).toBe('all')
+        expect(logic.values.filters.types).toEqual([])
 
         await expectLogic(logic, () => router.actions.push(urls.analyticsMine())).toFinishAllListeners()
         expect(logic.values.feedQuery.hideInsights).toBe(true)
@@ -171,6 +185,44 @@ describe('analyticsListLogic', () => {
         expect(logic.values.insightsHidden).toBe(false)
         expect(logic.values.currentFeed.initialized).toBe(true)
         expect(logic.values.items.map((item) => item.type)).toContain('insight')
+    })
+
+    it.each([
+        ['one type as plain text', { type: 'canvas' }, ['canvas']],
+        ['several types', { type: ['canvas', 'notebook'] }, ['canvas', 'notebook']],
+        ['no type', {}, []],
+        ['an unknown type', { type: ['canvas', 'nonsense'] }, ['canvas']],
+    ])('reads %s from the URL', async (_, params, types) => {
+        const logic = analyticsListLogic()
+        logic.mount()
+        router.actions.push(urls.analyticsList(params))
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.filters.types).toEqual(types)
+    })
+
+    it('narrows the feed to every picked type', async () => {
+        const logic = analyticsListLogic()
+        logic.mount()
+        logic.actions.setFilters({ types: ['canvas', 'notebook'] })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.feedQuery.types).toEqual(['canvas', 'notebook'])
+    })
+
+    it('drops only insights from the picked types when insights get hidden', async () => {
+        const logic = analyticsListLogic()
+        logic.mount()
+        logic.actions.setFilters({ types: ['insight', 'notebook'] })
+        logic.actions.setInsightsHidden(true)
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.filters.types).toEqual(['notebook'])
+    })
+
+    it('shows no matches, not a load error, for a tag on types that carry no tags', async () => {
+        const logic = analyticsListLogic()
+        logic.mount()
+        logic.actions.setFilters({ types: ['canvas'], tags: ['weekly'] })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.listState).toBe('no-matches')
     })
 
     it('refreshes view times when URL filters restore a cached sorted list', async () => {

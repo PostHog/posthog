@@ -104,3 +104,10 @@ ENDPOINT_DESCRIPTIONS: dict[str, str] = {
     "budget_performance_history": "Budgeted versus actual amounts for each period a budget has covered.",
     "notifications": "Alert thresholds attached to each budget, and whether they are currently in alarm.",
 }
+
+
+# The IAM actions this source calls. A role session can use only these.
+AWS_SESSION_ACTIONS = (
+    "budgets:Describe*",
+    "budgets:View*",
+)

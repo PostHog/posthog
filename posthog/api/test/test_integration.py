@@ -1156,6 +1156,7 @@ class TestAWSRoleBasedIntegration:
         params=[
             (Integration.IntegrationKind.AWS_S3),
             (Integration.IntegrationKind.AWS_REDSHIFT),
+            (Integration.IntegrationKind.AWS_WAREHOUSE_SOURCES),
         ],
         ids=lambda kind: kind.value,
     )
@@ -1163,7 +1164,9 @@ class TestAWSRoleBasedIntegration:
         return request.param
 
     @pytest.fixture(autouse=True)
-    def setup_integration(self, db, aws_integration_kind):
+    def setup_integration(self, db, aws_integration_kind, settings):
+        settings.BATCH_EXPORT_S3_EXTERNAL_ROLE_ARN = "arn:aws:iam::111111111111:role/batch-exports"
+        settings.WAREHOUSE_SOURCES_AWS_ROLE_ARN = "arn:aws:iam::111111111111:role/warehouse-sources"
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
         self.user = User.objects.create_and_join(
@@ -1204,6 +1207,16 @@ class TestAWSRoleBasedIntegration:
         assert integration.integration_id == "prod-aws"
         assert integration.config == {"name": "prod-aws", "aws_role_arn": role, **self.extra_config}
         assert integration.sensitive_config == {}
+        our_role = (
+            "warehouse-sources"
+            if self.integration_kind == Integration.IntegrationKind.AWS_WAREHOUSE_SOURCES
+            else "batch-exports"
+        )
+        mock_validate.assert_called_once_with(
+            aws_role_arn=role,
+            our_aws_role_arn=f"arn:aws:iam::111111111111:role/{our_role}",
+            external_id=f"posthog-{self.organization.id}",
+        )
 
     @patch("posthog.models.integration.aws.validate_aws_role_arn")
     def test_create_rejects_invalid_role_arn(self, mock_validate, client: HttpClient):
@@ -1275,6 +1288,31 @@ class TestAWSRoleBasedIntegration:
         assert second.status_code == status.HTTP_400_BAD_REQUEST
         assert "An integration named 'prod-aws' already exists" in second.json()["detail"]
         assert Integration.objects.filter(team=self.team, integration_id="prod-aws").count() == 1
+
+
+@pytest.mark.django_db
+@patch("posthog.models.integration.aws.validate_aws_role_arn")
+def test_aws_warehouse_sources_integration_needs_our_role(mock_validate, client: HttpClient, settings):
+    settings.WAREHOUSE_SOURCES_AWS_ROLE_ARN = ""
+    organization = Organization.objects.create(name="Test Org")
+    team = Team.objects.create(organization=organization, name="Test Team")
+    user = User.objects.create_and_join(
+        organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+    )
+    client.force_login(user)
+
+    response = client.post(
+        f"/api/environments/{team.pk}/integrations",
+        {
+            "kind": Integration.IntegrationKind.AWS_WAREHOUSE_SOURCES,
+            "config": {"name": "prod-aws", "aws_role_arn": "arn:aws:iam::123456789012:role/my-role"},
+        },
+        content_type="application/json",
+    )
+
+    assert response.status_code == status.HTTP_400_BAD_REQUEST
+    assert "not available on this PostHog instance" in response.json()["detail"]
+    mock_validate.assert_not_called()
 
 
 class TestS3CompatibleIntegration:

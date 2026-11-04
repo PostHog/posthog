@@ -74,3 +74,11 @@ ERROR_MESSAGES = {
     "KmsAccessDeniedException": "Grant access to the AWS KMS key used by this workflow.",
     "InvalidToken": "The AWS pagination token expired or is invalid. Restart the table sync.",
 }
+
+
+# The IAM actions this source calls. A role session can use only these.
+AWS_SESSION_ACTIONS = (
+    "states:Describe*",
+    "states:Get*",
+    "states:List*",
+)

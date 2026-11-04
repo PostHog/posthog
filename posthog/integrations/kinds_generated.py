@@ -22,6 +22,7 @@ class IntegrationKind(StrEnum):
     APPLE_ADS = "apple-ads"
     AWS_REDSHIFT = "aws-redshift"
     AWS_S3 = "aws-s3"
+    AWS_WAREHOUSE_SOURCES = "aws-warehouse-sources"
     AZURE_BLOB = "azure-blob"
     BING_ADS = "bing-ads"
     CLICKUP = "clickup"
@@ -98,6 +99,12 @@ class AwsS3Kind(KindAccessor):
     kind = "aws-s3"
     credentials = AuthAccessor(kind="aws-s3", auth_type=AuthType.CREDENTIALS)  # the default
     any = IntegrationReader(kinds=frozenset({"aws-s3"}))
+
+
+class AwsWarehouseSourcesKind(KindAccessor):
+    kind = "aws-warehouse-sources"
+    credentials = AuthAccessor(kind="aws-warehouse-sources", auth_type=AuthType.CREDENTIALS)  # the default
+    any = IntegrationReader(kinds=frozenset({"aws-warehouse-sources"}))
 
 
 class AzureBlobKind(KindAccessor):
@@ -392,6 +399,7 @@ class GeneratedIntegrationManager(IntegrationManagerBase):
     apple_ads = AppleAdsKind()
     aws_redshift = AwsRedshiftKind()
     aws_s3 = AwsS3Kind()
+    aws_warehouse_sources = AwsWarehouseSourcesKind()
     azure_blob = AzureBlobKind()
     bing_ads = BingAdsKind()
     clickup = ClickupKind()
