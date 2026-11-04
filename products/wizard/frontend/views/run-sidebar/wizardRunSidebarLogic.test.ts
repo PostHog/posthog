@@ -42,10 +42,11 @@ describe('wizardRunSidebarLogic', () => {
         const sync = wizardRunSyncLogic({ projectId: '1' })
         const runs = ['first', 'second', 'third'].map((id) => ({ ...run(id), status: 'running' as const }))
         sync.actions.runsLoaded(runs)
-        logic.actions.clickState()
+        logic.actions.clickState('navbar_sidebar')
         expect(posthog.capture).toHaveBeenCalledWith('wizard sidebar state clicked', {
             event_source: 'wizard_ui',
             project_id: '1',
+            location: 'navbar_sidebar',
             run_count: 3,
             active_run_count: 3,
         })

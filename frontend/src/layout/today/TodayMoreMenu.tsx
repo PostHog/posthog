@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { Suspense } from 'react'
 
 import { IconEllipsis, IconExternal, IconWarning } from '@posthog/icons'
 import {
@@ -11,12 +12,27 @@ import {
 
 import { helpMenuLogic } from 'lib/components/HelpMenu/helpMenuLogic'
 import { posthogStatusLogic } from 'lib/components/HelpMenu/posthogStatusLogic'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { lazyWithRetry } from 'lib/utils/retryImport'
+import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
 import { todayMenuLinkItem } from './todayMenuLinkItem'
 import { SEVERITY_TEXT_CLASS } from './todayRailSeverity'
 import { todayRailStatusLogic } from './todayRailStatusLogic'
 import { TodayRailTile } from './TodayRailTile'
+
+// Flag-gated, so users without the flag skip the wizard chunk.
+const WizardRunsUnseenDot = lazyWithRetry(() =>
+    import('products/wizard/frontend/views/run-sidebar/WizardRunsUnseenDot').then(({ WizardRunsUnseenDot }) => ({
+        default: WizardRunsUnseenDot,
+    }))
+)
+const WizardRunsMoreMenuItem = lazyWithRetry(() =>
+    import('products/wizard/frontend/views/run-sidebar/WizardRunsMoreMenuItem').then(({ WizardRunsMoreMenuItem }) => ({
+        default: WizardRunsMoreMenuItem,
+    }))
+)
 
 /**
  * The rail's "More" menu. The help menu shortcut opens it too.
@@ -28,6 +44,8 @@ export function TodayMoreMenu(): JSX.Element {
     const { statusPageUrl } = useValues(posthogStatusLogic)
     const { statusSeverity, statusText, healthSeverity, healthText, moreSeverity, moreLabel } =
         useValues(todayRailStatusLogic)
+    const wizardUiEnabled = useFeatureFlag('WIZARD_UI_ENABLED')
+    const { currentProjectId } = useValues(projectLogic)
 
     return (
         <DropdownMenu open={isHelpMenuOpen} onOpenChange={setHelpMenuOpen}>
@@ -36,11 +54,18 @@ export function TodayMoreMenu(): JSX.Element {
                     <TodayRailTile
                         label="More"
                         icon={
-                            statusSeverity === 'ok' ? (
-                                <IconEllipsis />
-                            ) : (
-                                <IconWarning className={SEVERITY_TEXT_CLASS[statusSeverity]} />
-                            )
+                            <>
+                                {statusSeverity === 'ok' ? (
+                                    <IconEllipsis />
+                                ) : (
+                                    <IconWarning className={SEVERITY_TEXT_CLASS[statusSeverity]} />
+                                )}
+                                {wizardUiEnabled && currentProjectId !== null && (
+                                    <Suspense fallback={null}>
+                                        <WizardRunsUnseenDot projectId={String(currentProjectId)} />
+                                    </Suspense>
+                                )}
+                            </>
                         }
                         active={isHelpMenuOpen}
                         dataAttr="help-menu-button"
@@ -73,6 +98,11 @@ export function TodayMoreMenu(): JSX.Element {
                 >
                     Health
                 </DropdownMenuItem>
+                {wizardUiEnabled && currentProjectId !== null && (
+                    <Suspense fallback={null}>
+                        <WizardRunsMoreMenuItem projectId={String(currentProjectId)} />
+                    </Suspense>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem
                     render={todayMenuLinkItem('https://posthog.com/changelog', { external: true })}
