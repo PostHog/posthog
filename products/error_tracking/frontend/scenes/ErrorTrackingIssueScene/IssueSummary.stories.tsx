@@ -34,6 +34,7 @@ function render(props: Partial<IssueSummarySectionProps>, width: 'narrow' | 'wid
                 feedback={null}
                 open
                 canManageAiSettings
+                loading={false}
                 onToggle={noop}
                 onRetry={noop}
                 onFeedback={noop}
@@ -59,6 +60,12 @@ export const Closed: Story = { render: () => render({ open: false }) }
 // Each reason a summary is missing is one line. Snapshots of these add nothing the Failed row does not cover.
 const NO_SNAPSHOT = { testOptions: { snapshotBrowsers: [] } }
 
+/** The issue is new, so its summary is most likely still being written. */
+export const Writing: Story = {
+    render: () => render({ view: 'writing', summary: null }),
+    parameters: NO_SNAPSHOT,
+}
+
 export const NotGenerated: Story = {
     render: () => render({ view: 'not_generated', summary: null }),
     parameters: NO_SNAPSHOT,
@@ -69,7 +76,7 @@ export const AiNotApproved: Story = {
     parameters: NO_SNAPSHOT,
 }
 
-/** A member cannot change the organization's AI setting, so the line asks them to go to an admin instead. */
+/** A member cannot change the organization's AI setting, so the row offers to ask an admin instead. */
 export const AiNotApprovedForMember: Story = {
     render: () => render({ view: 'ai_not_approved', summary: null, canManageAiSettings: false }),
     parameters: NO_SNAPSHOT,

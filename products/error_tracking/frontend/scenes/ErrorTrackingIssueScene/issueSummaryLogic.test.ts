@@ -40,6 +40,7 @@ describe('issueSummaryLogic', () => {
 
     beforeEach(() => {
         jest.useFakeTimers()
+        jest.setSystemTime(new Date('2026-11-04T12:00:00Z'))
         initKeaTests()
     })
 
@@ -55,25 +56,30 @@ describe('issueSummaryLogic', () => {
     }
 
     it.each([
-        ['a summary is stored', READY, 'ready'],
-        ['no summary is stored', NOT_GENERATED, 'not_generated'],
-        ['summaries are off for the project', UNAVAILABLE, 'hidden'],
-        ['the organization has not approved AI', AI_NOT_APPROVED, 'ai_not_approved'],
-        ['the person cannot read the summary sources', RESTRICTED, 'restricted'],
-    ])('reads once and never polls when %s', async (_name, response, view) => {
-        retrieve.mockResolvedValue(response)
-        logic = issueSummaryLogic({ issueId: ISSUE_ID })
-        logic.mount()
+        ['a summary is stored', READY, null, 'ready'],
+        ['no summary is stored for an older issue', NOT_GENERATED, '2026-11-04T11:00:00Z', 'not_generated'],
+        ['no summary is stored yet for a new issue', NOT_GENERATED, '2026-11-04T11:59:00Z', 'writing'],
+        ['summaries are off for the project', UNAVAILABLE, null, 'hidden'],
+        ['the organization has not approved AI', AI_NOT_APPROVED, null, 'ai_not_approved'],
+        ['the person cannot read the summary sources', RESTRICTED, null, 'restricted'],
+    ])(
+        'shows nothing before the answer, then reads once and never polls when %s',
+        async (_name, response, firstSeen, view) => {
+            retrieve.mockResolvedValue(response)
+            logic = issueSummaryLogic({ issueId: ISSUE_ID, firstSeen })
+            logic.mount()
+            expect(logic.values.view).toBe('hidden')
 
-        await expectLogic(logic).toDispatchActions(['loadSummarySuccess']).toMatchValues({ view })
-        await advance(60_000)
-        expect(retrieve).toHaveBeenCalledTimes(1)
-    })
+            await expectLogic(logic).toDispatchActions(['loadSummarySuccess']).toMatchValues({ view })
+            await advance(60_000)
+            expect(retrieve).toHaveBeenCalledTimes(1)
+        }
+    )
 
     it('shows a failed read and recovers on retry', async () => {
         retrieve.mockRejectedValueOnce(new Error('500')).mockResolvedValue(READY)
         jest.spyOn(console, 'error').mockImplementation(() => {})
-        logic = issueSummaryLogic({ issueId: ISSUE_ID })
+        logic = issueSummaryLogic({ issueId: ISSUE_ID, firstSeen: null })
         logic.mount()
 
         await advance(0)
@@ -90,7 +96,7 @@ describe('issueSummaryLogic', () => {
         retrieve.mockResolvedValue(READY)
         issuePaneSectionsLogic.mount()
         issuePaneSectionsLogic.actions.setSummaryOpen(true)
-        logic = issueSummaryLogic({ issueId: ISSUE_ID })
+        logic = issueSummaryLogic({ issueId: ISSUE_ID, firstSeen: null })
         logic.mount()
 
         await expectLogic(logic).toDispatchActions(['loadSummarySuccess'])

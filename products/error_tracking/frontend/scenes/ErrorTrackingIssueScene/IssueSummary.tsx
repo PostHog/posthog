@@ -6,6 +6,7 @@ import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { organizationLogic } from 'scenes/organizationLogic'
+import { AIAccessRequest } from 'scenes/settings/organization/AIAccessRequest'
 import { urls } from 'scenes/urls'
 
 import type { ErrorTrackingStoredIssueSummaryApi } from '../../generated/api.schemas'
@@ -21,6 +22,7 @@ export interface IssueSummarySectionProps {
     feedback: IssueSummaryFeedback | null
     open: boolean
     canManageAiSettings: boolean
+    loading: boolean
     onToggle: () => void
     onRetry: () => void
     onFeedback: (feedback: IssueSummaryFeedback) => void
@@ -51,7 +53,7 @@ function SummaryField({
     )
 }
 
-/** Why there is no summary to open, as one line of the pane. */
+/** Why there is no summary to open, and what the person can do about it. */
 function SummaryNote({
     view,
     canManageAiSettings,
@@ -62,6 +64,8 @@ function SummaryNote({
     switch (view) {
         case 'failed':
             return <>Couldn't load the summary.</>
+        case 'writing':
+            return <>No summary yet. Summaries take a minute to write after an issue is first seen.</>
         case 'not_generated':
             return <>No summary. Summaries are written when an issue is first seen.</>
         case 'restricted':
@@ -79,7 +83,12 @@ function SummaryNote({
                     </Link>
                 </>
             ) : (
-                <>No summary. AI features are off for your organization. Ask an organization admin to turn them on.</>
+                <>
+                    No summary. AI features are off for your organization.
+                    <div className="mt-1">
+                        <AIAccessRequest />
+                    </div>
+                </>
             )
     }
 }
@@ -90,6 +99,7 @@ export function IssueSummarySection({
     feedback,
     open,
     canManageAiSettings,
+    loading,
     onToggle,
     onRetry,
     onFeedback,
@@ -106,17 +116,22 @@ export function IssueSummarySection({
                 data-attr="error-tracking-issue-summary"
             >
                 <IssuePaneSectionName name="Summary" />
-                <span className="min-w-0 flex-1 text-xs text-secondary leading-snug">
+                <div className="min-w-0 flex-1 text-xs text-secondary leading-snug">
                     <SummaryNote view={view} canManageAiSettings={canManageAiSettings} />
-                </span>
-                {view === 'failed' ? (
+                </div>
+                {view === 'failed' || view === 'writing' ? (
                     <LemonButton
                         size="xsmall"
                         type="secondary"
                         onClick={onRetry}
-                        data-attr="error-tracking-issue-summary-retry"
+                        loading={loading}
+                        data-attr={
+                            view === 'failed'
+                                ? 'error-tracking-issue-summary-retry'
+                                : 'error-tracking-issue-summary-check-again'
+                        }
                     >
-                        Try again
+                        {view === 'failed' ? 'Try again' : 'Check again'}
                     </LemonButton>
                 ) : null}
             </div>
@@ -195,9 +210,9 @@ export function IssueSummarySection({
 }
 
 export function IssueSummary(): JSX.Element | null {
-    const { issueId } = useValues(errorTrackingIssueSceneLogic)
-    const logic = issueSummaryLogic({ issueId })
-    const { view, summary, feedback } = useValues(logic)
+    const { issueId, issue } = useValues(errorTrackingIssueSceneLogic)
+    const logic = issueSummaryLogic({ issueId, firstSeen: issue?.first_seen ?? null })
+    const { view, summary, feedback, summaryResponseLoading } = useValues(logic)
     const { loadSummary, sendFeedback } = useActions(logic)
     const { summaryOpen } = useValues(issuePaneSectionsLogic)
     const { setSummaryOpen } = useActions(issuePaneSectionsLogic)
@@ -209,6 +224,7 @@ export function IssueSummary(): JSX.Element | null {
             feedback={feedback}
             open={summaryOpen}
             canManageAiSettings={!!isAdminOrOwner}
+            loading={summaryResponseLoading}
             onToggle={() => setSummaryOpen(!summaryOpen)}
             onRetry={loadSummary}
             onFeedback={sendFeedback}
