@@ -1,15 +1,18 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonCalendarSelectInput, LemonSearchableSelect, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonCalendarSelectInput, LemonSearchableSelect, LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 import { preflightLogic } from 'lib/logic/preflightLogic'
+import { pluralize } from 'lib/utils/strings'
 import { timeZoneLabel } from 'lib/utils/timezones'
 import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { SendDayPicker } from '../../SendCalendar/SendDayPicker'
+import { describeRule, sendingRule } from '../../SendCalendar/sendSpacing'
 import { EmailSendingRateLimitPicker } from '../../Workflows/hogflows/steps/components/EmailSendingRateLimitPicker'
 import { RecurringSchedulePicker } from '../../Workflows/hogflows/steps/components/RecurringSchedulePicker'
 import { broadcastWizardLogic } from '../broadcastWizardLogic'
@@ -43,17 +46,24 @@ function SkipFrequencyCap(): JSX.Element | null {
     ) {
         return null
     }
+    const holdHours = config.marketing_frequency_cap_hold_hours
     return (
         <div className="flex flex-col gap-1 max-w-160">
             <LemonSwitch
-                label="Send even if people recently got another marketing email"
+                label="Send even if people reached your frequency cap"
                 checked={emailSettings.skipFrequencyCap}
                 onChange={(skipFrequencyCap) => setEmailSettings({ skipFrequencyCap })}
                 data-attr="broadcast-skip-frequency-cap"
             />
             <span className="text-secondary text-sm">
-                For time-sensitive email, like an event invite. Your project's frequency cap won't delay this email, and
-                it won't count toward the cap. People who unsubscribed still don't get it.
+                Your{' '}
+                <Link to={urls.settings('environment-workflows', 'workflows-frequency-cap')} target="_blank">
+                    frequency cap
+                </Link>{' '}
+                is {describeRule(sendingRule(config))}. People over it{' '}
+                {holdHours ? `wait up to ${pluralize(holdHours, 'hour')}, then get skipped` : 'get skipped'}. With this
+                on, they get this email when it sends, and it doesn't count toward the cap. Use it for time-sensitive
+                email, like an event invite. People who unsubscribed still don't get it.
             </span>
         </div>
     )

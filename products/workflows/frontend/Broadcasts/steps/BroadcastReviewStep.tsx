@@ -177,7 +177,9 @@ export function BroadcastReviewStep(): JSX.Element {
                             <div className="text-xs text-secondary">Links get UTM tags.</div>
                         )}
                         {emailSettings.skipFrequencyCap && emailSettings.messageCategoryType !== 'transactional' && (
-                            <div className="text-xs text-secondary">The frequency cap won't delay this email.</div>
+                            <div className="text-xs text-secondary">
+                                The frequency cap won't delay or skip this email.
+                            </div>
                         )}
                         {aiEmailDraftStatus ? <AiEmailDraftStatus {...aiEmailDraftStatus} /> : null}
                         <div className="@container">
