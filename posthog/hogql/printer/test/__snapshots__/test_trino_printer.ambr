@@ -459,6 +459,7 @@
       'reinterpretAsUInt8',
       'rowNumberInAllBlocks',
       'rowNumberInBlock',
+      'sha256',
       'stringToH3',
       'subBitmap',
       'tgamma',
