@@ -445,8 +445,14 @@ def worktrees_clean(
         click.echo("Aborted.")
         return
 
-    _stop_worktree_mirrors(registered_boxes)
-    reclaimed, removed, failed = _execute(stale, mode, repo_root)
+    reclaimed, removed, failed = _execute(
+        stale,
+        mode,
+        repo_root,
+        before_remove=lambda wt: _stop_worktree_mirrors(
+            [box for box in registered_boxes if box.current_path == wt.path]
+        ),
+    )
     _add_reclaimed_properties(reclaimed, removed)
     if reclaimed >= 0:
         summary = f"\n✓ Done. Reclaimed ~{_format_size(reclaimed)} of disk across {removed}/{len(stale)} worktree(s)."
@@ -1284,8 +1290,16 @@ def _du_sizes(paths: Sequence[Path]) -> dict[str, float]:
     return sizes
 
 
-def _execute(worktrees: list[Worktree], mode: str, repo_root: Path) -> tuple[float, int, int]:
+def _execute(
+    worktrees: list[Worktree],
+    mode: str,
+    repo_root: Path,
+    before_remove: Callable[[Worktree], None] = lambda wt: None,
+) -> tuple[float, int, int]:
     """Delete the selected worktrees (or their deps).
+
+    ``before_remove`` runs for each worktree that passed the final in-use check,
+    so a worktree kept at the last moment keeps its sync mirror too.
 
     Returns (real_bytes_reclaimed, worktrees_removed, worktrees_failed). The
     reclaimed figure is measured from actual filesystem free space before/after,
@@ -1312,6 +1326,7 @@ def _execute(worktrees: list[Worktree], mode: str, repo_root: Path) -> tuple[flo
         if _in_use(_resolve(wt.path), busy):
             click.echo(f"  skipped {_display_path(wt.path)}: a running process now has it as its working directory")
             continue
+        before_remove(wt)
         if mode == "deps":
             if _delete_paths(wt.deps_items):
                 failed += 1

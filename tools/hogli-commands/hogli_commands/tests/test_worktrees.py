@@ -658,6 +658,7 @@ class TestExecute:
         (second / "src").mkdir(parents=True)
         snapshots = iter([set(), {(second / "src").resolve()}])
         monkeypatch.setattr(worktrees, "_process_cwds", lambda: next(snapshots))
+        before_remove = Mock()
 
         _, removed, failed = _execute(
             [
@@ -666,11 +667,13 @@ class TestExecute:
             ],
             "full",
             tmp_path,
+            before_remove=before_remove,
         )
 
         assert (removed, failed) == (1, 0)
         assert not first.exists()
         assert second.exists()
+        assert [call.args[0].path for call in before_remove.call_args_list] == [first]
 
     @pytest.mark.parametrize("read_only_go_module_cache", [True, False], ids=["read_only_tree", "already_removed"])
     def test_full_mode_counts_worktree_as_removed(self, tmp_path, read_only_go_module_cache) -> None:
