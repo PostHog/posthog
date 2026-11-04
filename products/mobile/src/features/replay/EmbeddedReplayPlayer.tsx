@@ -1,10 +1,10 @@
 import * as Crypto from 'expo-crypto'
-import { type ReactElement, useEffect, useMemo, useRef, useState } from 'react'
+import { type ReactElement, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, AppState, Modal, Platform, Text, View } from 'react-native'
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context'
 import WebView, { type WebViewMessageEvent } from 'react-native-webview'
 
-import { fetchReplayBlock, fetchReplaySources, MAX_PLAYER_BYTES, type ReplaySources } from '@/api/replayPlayback'
+import { fetchReplayBlock, fetchReplaySources, ReplayByteBudget, type ReplaySources } from '@/api/replayPlayback'
 import { sessionGeneration } from '@/auth/tokens'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { reportScopeError } from '@/features/views/useViewsAccess'
@@ -16,7 +16,13 @@ import { StateView } from '@/ui/StateView'
 import { createStyles, useColors } from '@/ui/theme'
 import { iconSizes, layout, type } from '@/ui/tokens'
 
-import { blockChunkScript, parsePlayerMessage, playerHtml } from './player/playerHtml'
+import {
+    blockChunkScript,
+    blockStatusScript,
+    cancelBlocksScript,
+    parsePlayerMessage,
+    playerHtml,
+} from './player/playerHtml'
 
 const PLAYER_ORIGIN = 'https://mobile-replay.invalid/'
 const CHUNK_CHARACTERS = 64 * 1024
@@ -30,6 +36,20 @@ interface EmbeddedReplayPlayerProps {
     seconds: number
     startedAt: string | null
     onClose: () => void
+}
+
+interface PlayerBridge {
+    controller: AbortController
+    inFlight: Set<number>
+    budget: ReplayByteBudget
+    generation: number
+    ready: boolean
+    startupTimer: ReturnType<typeof setTimeout> | null
+}
+
+function clearStartupTimeout(current: PlayerBridge): void {
+    if (current.startupTimer !== null) clearTimeout(current.startupTimer)
+    current.startupTimer = null
 }
 
 export function EmbeddedReplayPlayer(props: EmbeddedReplayPlayerProps): ReactElement {
@@ -66,32 +86,74 @@ function PlayerContent({
     const [loading, setLoading] = useState(true)
     const [nonce] = useState(() => Crypto.randomUUID())
     const [initial] = useState(() => ({ seconds, startedAt, colors }))
-    const bridge = useRef<{
-        controller: AbortController
-        inFlight: Set<number>
-        bytes: number
-        generation: number
-    } | null>(null)
+    const bridge = useRef<PlayerBridge | null>(null)
+
+    const isCurrent = useCallback(
+        (current: PlayerBridge): boolean =>
+            bridge.current === current &&
+            !current.controller.signal.aborted &&
+            current.generation === sessionGeneration(),
+        []
+    )
+    const fail = useCallback(
+        (message: string): void => {
+            const current = bridge.current
+            if (!current || !isCurrent(current)) return
+            clearStartupTimeout(current)
+            webview.current?.injectJavaScript(cancelBlocksScript())
+            current.controller.abort()
+            setFailure(message)
+        },
+        [isCurrent]
+    )
+    const resumeStartupTimeout = useCallback(
+        (current: PlayerBridge): void => {
+            clearStartupTimeout(current)
+            if (!isCurrent(current) || current.ready || current.inFlight.size > 0) return
+            current.startupTimer = setTimeout(() => {
+                if (isCurrent(current)) fail('The player took too long to start. Try again.')
+            }, 30_000)
+        },
+        [fail, isCurrent]
+    )
 
     useEffect(() => {
         const controller = new AbortController()
-        bridge.current = { controller, inFlight: new Set(), bytes: 0, generation }
+        const current: PlayerBridge = {
+            controller,
+            inFlight: new Set(),
+            budget: new ReplayByteBudget(),
+            generation,
+            ready: false,
+            startupTimer: null,
+        }
+        bridge.current = current
         setSources(null)
         setFailure(null)
         setLoading(true)
         if (!scope) return () => controller.abort()
         void fetchReplaySources(sessionId, controller.signal)
             .then((data) => {
-                if (!controller.signal.aborted && generation === sessionGeneration()) setSources(data)
-            })
-            .catch((error: unknown) => {
-                if (!controller.signal.aborted) {
-                    reportScopeError(error, 'replay')
-                    setFailure(actionErrorMessage(error))
+                if (isCurrent(current)) {
+                    setSources(data)
+                    resumeStartupTimeout(current)
                 }
             })
-        return () => controller.abort()
-    }, [sessionId, scope, generation])
+            .catch((error: unknown) => {
+                if (isCurrent(current)) {
+                    reportScopeError(error, 'replay')
+                    fail(actionErrorMessage(error))
+                }
+            })
+        return () => {
+            clearStartupTimeout(current)
+            if (bridge.current === current) {
+                webview.current?.injectJavaScript(cancelBlocksScript())
+                bridge.current = null
+            }
+            controller.abort()
+        }
+    }, [sessionId, scope, generation, fail, isCurrent, resumeStartupTimeout])
 
     useEffect(() => {
         const subscription = AppState.addEventListener('change', (state) => {
@@ -100,25 +162,52 @@ function PlayerContent({
         return () => subscription.remove()
     }, [])
 
-    const fail = (message: string): void => {
-        bridge.current?.controller.abort()
-        setFailure(message)
+    const loadBlock = (current: PlayerBridge, id: number, index: number): void => {
+        if (current.inFlight.has(id)) return
+        const source = sources?.sources[index]
+        if (!source) return
+        current.inFlight.add(id)
+        clearStartupTimeout(current)
+        webview.current?.injectJavaScript(blockStatusScript(id, false))
+        void fetchReplayBlock(sessionId, source, current.controller.signal, {
+            budget: current.budget,
+            onRequestState: (state) => {
+                if (isCurrent(current)) {
+                    webview.current?.injectJavaScript(blockStatusScript(id, state === 'loading'))
+                }
+            },
+        })
+            .then((text) => {
+                if (!isCurrent(current)) return
+                for (let offset = 0; offset < text.length || offset === 0; offset += CHUNK_CHARACTERS) {
+                    webview.current?.injectJavaScript(
+                        blockChunkScript(
+                            id,
+                            text.slice(offset, offset + CHUNK_CHARACTERS),
+                            offset + CHUNK_CHARACTERS >= text.length
+                        )
+                    )
+                }
+            })
+            .catch((error: unknown) => {
+                if (isCurrent(current)) {
+                    reportScopeError(error, 'replay')
+                    fail(actionErrorMessage(error))
+                }
+            })
+            .finally(() => {
+                current.inFlight.delete(id)
+                if (isCurrent(current)) resumeStartupTimeout(current)
+            })
     }
-    useEffect(() => {
-        if (!loading || failure) return
-        const timer = setTimeout(() => {
-            bridge.current?.controller.abort()
-            setFailure('The player took too long to start. Try again.')
-        }, 30_000)
-        return () => clearTimeout(timer)
-    }, [loading, failure])
     const onMessage = (event: WebViewMessageEvent): void => {
         if (!sources || !isPlayerUrl(event.nativeEvent.url)) return
         const message = parsePlayerMessage(event.nativeEvent.data, sources.sources.length)
         const current = bridge.current
-        if (!message || !current || current.controller.signal.aborted || current.generation !== sessionGeneration())
-            return
+        if (!message || !current || !isCurrent(current)) return
         if (message.type === 'ready') {
+            current.ready = true
+            clearStartupTimeout(current)
             setLoading(false)
             return
         }
@@ -130,35 +219,7 @@ function PlayerContent({
             )
             return
         }
-        if (current.inFlight.has(message.id)) return
-        const source = sources.sources[message.index]
-        if (!source) return
-        current.inFlight.add(message.id)
-        void fetchReplayBlock(sessionId, source, current.controller.signal)
-            .then((text) => {
-                if (current.controller.signal.aborted || current.generation !== sessionGeneration()) return
-                current.bytes += text.length * 2
-                if (current.bytes > MAX_PLAYER_BYTES) {
-                    fail('This recording is too large to play on this device.')
-                    return
-                }
-                for (let offset = 0; offset < text.length || offset === 0; offset += CHUNK_CHARACTERS) {
-                    webview.current?.injectJavaScript(
-                        blockChunkScript(
-                            message.id,
-                            text.slice(offset, offset + CHUNK_CHARACTERS),
-                            offset + CHUNK_CHARACTERS >= text.length
-                        )
-                    )
-                }
-            })
-            .catch((error: unknown) => {
-                if (!current.controller.signal.aborted) {
-                    reportScopeError(error, 'replay')
-                    fail(actionErrorMessage(error))
-                }
-            })
-            .finally(() => current.inFlight.delete(message.id))
+        loadBlock(current, message.id, message.index)
     }
     const html = useMemo(
         () =>

@@ -465,6 +465,8 @@ Use an authenticated project with a web recording and a mobile recording. Open e
 "Watch full replay", and verify play/pause, seeking, speed, closing, reopening and pausing when backgrounded.
 No second sign-in or AI summary should be needed. Repeat with a recording from another project after switching
 projects, an expired recording, a failed snapshot request and a recording with no full snapshot.
+Also verify a 60-block recording after other replay requests, loading that takes over 30 seconds in total, and closing during a budget wait.
+Seek across recorded tabs after the first tab ends and check that the player shows a tab with events at that time.
 
 The embedded renderer reuses `common/replay-headless` and `common/replay-shared`. After changing those sources
 or `src/features/replay/player/player.browser.js` or `playerRuntime.ts`, run `node scripts/build-replay-player.mjs` from this directory.
