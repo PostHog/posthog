@@ -6743,7 +6743,7 @@ class SignalReportArtefactViewSet(
         if isinstance(parsed_content, ChannelAssignment):
             self._validate_channel_assignment(parsed_content, request)
         if isinstance(parsed_content, RepoSelectionResult):
-            parsed_content = with_server_selection_fields(parsed_content)
+            parsed_content = with_server_selection_fields(str(report_id), parsed_content)
         claim_id = request.validated_data.get("claim_id")
         if isinstance(parsed_content, SuggestedReviewers):
             try:
@@ -6885,7 +6885,7 @@ class SignalReportArtefactViewSet(
             if isinstance(parsed_content, ChannelAssignment):
                 self._validate_channel_assignment(parsed_content, request)
             if isinstance(parsed_content, RepoSelectionResult):
-                content = with_server_selection_fields(parsed_content).model_dump(mode="json")
+                content = with_server_selection_fields(str(artefact.report_id), parsed_content).model_dump(mode="json")
             artefact.update_content(content)
         except ArtefactContentValidationError as e:
             return Response(

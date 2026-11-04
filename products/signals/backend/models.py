@@ -485,6 +485,7 @@ class SignalReport(UUIDModel):
     # recount it against SignalTeamConfig.max_reports_per_day. Null for reports that predate the
     # field or never surfaced.
     first_visible_at = models.DateTimeField(null=True, blank=True)
+    research_context = models.JSONField(null=True, blank=True)
     research_blocked_reason = models.CharField(max_length=64, null=True, blank=True)
     research_blocked_at = models.DateTimeField(null=True, blank=True)
     implementation_blocked_reason = models.CharField(max_length=64, null=True, blank=True)

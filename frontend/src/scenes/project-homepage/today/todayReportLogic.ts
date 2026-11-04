@@ -121,8 +121,10 @@ export interface todayReportLogicValues {
 export interface todayReportLogicActions {
     createPrFromReport: (
         report: SignalReport,
-        feedback?: string | undefined
+        feedback?: string | undefined,
+        confirmedRepository?: string | undefined
     ) => {
+        confirmedRepository: string | undefined
         feedback: string | undefined
         report: SignalReport
     } // inboxTaskKickoffLogic

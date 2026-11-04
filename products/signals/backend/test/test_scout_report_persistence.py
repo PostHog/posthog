@@ -980,14 +980,16 @@ class TestScoutReportRepository(BaseTest):
         assert self._set(report_id, repository) is False
         assert self._set(report_id, "acme/other") is True
 
-    @parameterized.expand([False, True])
-    def test_naming_an_already_inferred_repository_is_a_change(self, with_context: bool) -> None:
+    @parameterized.expand([None, "data_only", "repository_discovery"])
+    def test_naming_an_already_inferred_repository_is_a_change(self, mode: str | None) -> None:
         # An inferred selection names the repository the report links, and is stamped ineligible for
         # autostart because the report never asked for a pull request. A scout naming the same one is
         # the decision that lifts it, so comparing the repository alone would drop the correction and
         # leave the report unable to open a draft pull request.
         report_id = self._create()
-        context = ReportResearchContext(mode="data_only", repository_status="no_integration") if with_context else None
+        context = (
+            ReportResearchContext.model_validate({"mode": mode, "repository_status": "available"}) if mode else None
+        )
         if context is not None:
             SignalReportArtefact.append_status(
                 team_id=self.team.id,
@@ -1014,6 +1016,9 @@ class TestScoutReportRepository(BaseTest):
         corrected = persisted_repo_selection(report_id)
         assert corrected is not None and corrected.research_context == context
         assert self._set(report_id, "acme/widgets") is False
+        if mode == "repository_discovery":
+            assert self._set(report_id, None)
+            assert self._set(report_id, "acme/widgets")
         selection = (
             SignalReportArtefact.objects.filter(
                 report_id=report_id, type=SignalReportArtefact.ArtefactType.REPO_SELECTION
@@ -1022,7 +1027,9 @@ class TestScoutReportRepository(BaseTest):
             .first()
         )
         assert selection is not None
-        assert '"autostart_eligible":true' in selection.content
+        selected = RepoSelectionResult.model_validate_json(selection.content)
+        assert selected.autostart_eligible is (mode != "repository_discovery")
+        assert selected.requires_confirmation is (mode == "repository_discovery")
 
 
 class TestScoutReportSuggestedPrompts(BaseTest):

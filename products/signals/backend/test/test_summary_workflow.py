@@ -21,6 +21,7 @@ from posthog.models import Organization, Team
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.daily_limit import DailyReportLimitGate
+from products.signals.backend.github_readiness import RESEARCH_SUSPENDED_FOR_GITHUB_ERROR_TYPE
 from products.signals.backend.models import SignalReport
 from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.report_generation.research import ActionabilityChoice
@@ -483,6 +484,19 @@ async def test_research_retries_after_a_sandbox_outage_instead_of_failing_the_re
 
 
 @pytest.mark.asyncio
+async def test_research_suspended_for_github_ends_the_run_without_failing_the_report():
+    recorder = _Recorder(
+        research_errors=[
+            ApplicationError("Read access lost", type=RESEARCH_SUSPENDED_FOR_GITHUB_ERROR_TYPE, non_retryable=True)
+        ]
+    )
+    await _run_summary_workflow(recorder)
+    assert recorder.researches == 1
+    assert recorder.failures == 0
+    assert recorder.ready_inputs == []
+
+
+@pytest.mark.asyncio
 async def test_research_fails_the_report_once_the_sandbox_retry_budget_is_spent():
     recorder = _Recorder(research_errors=[_sandbox_unavailable() for _ in range(8)])
     with pytest.raises(WorkflowFailureError):
@@ -571,7 +585,7 @@ async def test_metric_payload_reaches_the_report_transition(choice, target, chec
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("github_optional", [False, True])
-async def test_no_repository_researches_only_for_the_pilot(github_optional):
+async def test_no_repository_continues_research_with_connected_github(github_optional):
     recorder = _Recorder(
         selected_repository=None,
         github_optional=github_optional,
@@ -580,21 +594,10 @@ async def test_no_repository_researches_only_for_the_pilot(github_optional):
 
     await _run_summary_workflow(recorder)
 
-    if github_optional:
-        assert recorder.researches == 1
-        assert recorder.pending_inputs == []
-        assert recorder.ready_inputs[0].title == "t"
-        assert recorder.failures == 0
-        return
-    assert recorder.researches == 0
-    assert len(recorder.pending_inputs) == 1
-    pending = recorder.pending_inputs[0]
-    assert pending.keep_existing_content is True
-    assert pending.title == "Repository selection required"
-    assert pending.summary == "Could not automatically select a repository: no repository matched"
-    assert pending.suggested_prompts is None
-    assert pending.pending_reason == "repo_selection_required"
-    assert pending.note == "Could not automatically select a repository: no repository matched"
+    assert recorder.researches == 1
+    assert recorder.pending_inputs == []
+    assert recorder.ready_inputs[0].title == "t"
+    assert recorder.failures == 0
 
 
 # ---------------------------------------------------------------------------

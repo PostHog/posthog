@@ -372,6 +372,12 @@ export function InboxDetailFrame({
 
     const summaryColumn = (
         <div className="flex flex-1 flex-col gap-6">
+            {report.research_context?.mode === 'repository_discovery' && (
+                <LemonBanner type="info">
+                    Research started without a checkout and used read-only repository discovery. Confirm a recommended
+                    target before implementation.
+                </LemonBanner>
+            )}
             {report.research_context?.mode === 'data_only' && (
                 <LemonBanner type="info">
                     This report uses only your PostHog data. Without code access, agents can find problems but can't

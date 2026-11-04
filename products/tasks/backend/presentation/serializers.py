@@ -1150,6 +1150,12 @@ class TaskRunScheduleSerializer(serializers.Serializer):
 
 
 class TaskCreateSerializer(TaskWriteSerializer, TaskRunScheduleSerializer):
+    confirmed_repository = serializers.CharField(
+        required=False,
+        write_only=True,
+        max_length=255,
+        help_text="Explicitly confirm the current research-recommended repository for a report implementation. This does not override the server-selected target.",
+    )
     start_run = serializers.BooleanField(
         required=False,
         default=False,

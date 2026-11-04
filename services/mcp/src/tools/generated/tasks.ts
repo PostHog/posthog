@@ -253,6 +253,7 @@ const TasksCreateSchema = () => {
         auto_publish: true,
         channel: true,
         scheduled_at: true,
+        confirmed_repository: true,
         start_run: true,
         signal_report_discussion_question: true,
         naming_source: true,

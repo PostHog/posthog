@@ -35,9 +35,13 @@ class ResearchAccess:
     blocker: str | None = None
 
 
-def research_access(*, github_optional_allowed: bool, github_status: GitHubReadinessStatus) -> ResearchAccess:
+def research_access(
+    *, github_optional_allowed: bool, github_status: GitHubReadinessStatus, repository: str | None = None
+) -> ResearchAccess:
     if github_status == GitHubReadinessStatus.READY:
-        return ResearchAccess(mode=ResearchAccessMode.CODE)
+        if repository:
+            return ResearchAccess(mode=ResearchAccessMode.CODE)
+        return ResearchAccess(mode=ResearchAccessMode.REPOSITORY_DISCOVERY)
     if github_optional_allowed:
         return ResearchAccess(mode=ResearchAccessMode.DATA_ONLY)
     return ResearchAccess(mode=ResearchAccessMode.BLOCKED, blocker=github_status.value)

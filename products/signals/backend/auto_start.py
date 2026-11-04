@@ -1060,6 +1060,8 @@ def start_requested_implementation(
     if repo_selection is None or repo_selection.repository is None or not report.title or not report.summary:
         raise RequestedImplementationUnavailable("The completed research has no implementation repository or summary")
 
+    if repo_selection.requires_confirmation:
+        raise RequestedImplementationUnavailable("Confirm the recommended repository before implementation")
     if not monitoring_repository_allowed(request.team_id, request.report_id, repo_selection.repository):
         raise RequestedImplementationUnavailable("The selected repository does not satisfy source privacy requirements")
 
@@ -1365,6 +1367,7 @@ async def maybe_autostart_implementation_task(
     triggering_user_id: int | None = None,
     billing_exempt_reason: str | None = None,
     repository_autostart_eligible: bool = True,
+    repository_confirmation_required: bool = False,
     implementation_decision: ImplementationDecision | None = None,
     remaining_retries: int = 2,
     dispatch: ImplementationDispatch | None = None,
@@ -1418,6 +1421,8 @@ async def maybe_autostart_implementation_task(
     their report and artefacts. Callers should wrap this in try/except so an
     autostart failure does not fail the report itself.
     """
+    if repository_confirmation_required:
+        return AutostartOutcome(status="blocked", reason="Confirm the recommended repository before implementation")
     if not await database_sync_to_async(assignment_side_effects_allowed)(team_id=team_id, report_id=report_id):
         return AutostartOutcome(status="cancelled", reason="Assignment side effects are disabled")
 
@@ -1909,6 +1914,7 @@ async def maybe_autostart_from_report_artefacts(
         # which would let one user act under another's PostHog identity (reviewer impersonation).
         triggering_user_id=editor_user_id,
         repository_autostart_eligible=repo_selection.autostart_eligible,
+        repository_confirmation_required=repo_selection.requires_confirmation,
         implementation_decision=implementation_decision,
         remaining_retries=remaining_retries,
         recovery=recovery,

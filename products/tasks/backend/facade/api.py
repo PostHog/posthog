@@ -8032,6 +8032,7 @@ def create_task(
     # The relationship the client asserted (validated by the serializer, which rejects `research`).
     # Popped so it isn't forwarded to the model; the link itself is recorded by record_report_task below.
     signal_report_task_relationship = validated_data.pop("signal_report_task_relationship", None)
+    confirmed_report_repository = validated_data.pop("confirmed_repository", None)
     signal_report = validated_data.get("signal_report")
     report_discussion = (
         validated_data["origin_product"] == Task.OriginProduct.SIGNAL_REPORT
@@ -8335,6 +8336,17 @@ def create_task(
                 description=validated_data.get("description"),
                 created_by_id=user_id,
             )
+        if signal_report_id and signal_report_task_relationship in (None, "implementation"):
+            from products.signals.backend.facade.github_optional import (
+                repository_confirmation_matches,  # noqa: PLC0415 - keeps the signals model graph off the facade import path
+            )
+
+            if not repository_confirmation_matches(
+                team_id, signal_report_id, confirmed_report_repository, validated_data.get("repository")
+            ):
+                raise ValidationError(
+                    {"repository": "Confirm the recommended repository before starting implementation."}
+                )
         task = Task.objects.create(**validated_data)
         if task.signal_report_id and task.origin_product == Task.OriginProduct.SIGNAL_REPORT:
             # Record the task↔report association + work-log artefact for the asserted relationship

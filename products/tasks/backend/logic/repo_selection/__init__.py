@@ -13,6 +13,7 @@ if TYPE_CHECKING:
         RepoSelectionUsageLimitError,
         filter_repository_candidates_for_sources,
         list_team_connected_repositories,
+        research_repository_candidates,
         resolve_team_github_integration,
         select_repository,
     )
@@ -25,6 +26,7 @@ __all__ = [
     "RepoSelectionUnavailableError",
     "RepoSelectionUsageLimitError",
     "filter_repository_candidates_for_sources",
+    "research_repository_candidates",
     "list_team_connected_repositories",
     "resolve_team_github_integration",
     "select_repository",
@@ -41,6 +43,7 @@ _LAZY_FROM_AGENT = frozenset(
         "RepoSelectionUnavailableError",
         "RepoSelectionUsageLimitError",
         "filter_repository_candidates_for_sources",
+        "research_repository_candidates",
         "list_team_connected_repositories",
         "resolve_team_github_integration",
         "select_repository",

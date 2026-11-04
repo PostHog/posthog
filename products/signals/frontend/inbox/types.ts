@@ -97,6 +97,7 @@ export const ACTIONABLE_ACTIONABILITY_VALUES: SignalReportActionability[] = [
 ]
 
 export interface SignalReport extends Pick<SignalReportApi, 'monitoring_started_at'> {
+    repository_confirmation_required?: SignalReportApi['repository_confirmation_required']
     startup_failure?: SignalReportApi['startup_failure']
     research_context?: SignalReportApi['research_context']
     repo_slug?: SignalReportApi['repo_slug']

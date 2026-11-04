@@ -76,7 +76,12 @@ export function ImplementButton({
             surface,
             extra: { has_feedback: trimmed.length > 0 },
         })
-        createPrFromReport(report, trimmed || undefined)
+        // The confirmation popover names the target, so submitting it confirms that repository.
+        createPrFromReport(
+            report,
+            trimmed || undefined,
+            report.repository_confirmation_required ? (report.repo_slug ?? undefined) : undefined
+        )
     }
 
     const runImplementationPrompt = (agentKey: AgentPromptDestination, run: (prompt: string) => void): void => {
@@ -133,6 +138,12 @@ export function ImplementButton({
                         closeOnClickInside: false,
                         overlay: (
                             <div className="flex w-128 max-w-full flex-col gap-2 p-2">
+                                {report.repository_confirmation_required && (
+                                    <p className="mb-0 text-sm break-words">
+                                        Research recommends <span translate="no">{report.repo_slug}</span>. Confirm this
+                                        target to start implementation. Automatic implementation remains unchanged.
+                                    </p>
+                                )}
                                 <span className="text-xs font-semibold text-tertiary">
                                     Add instructions for the PostHog agent
                                 </span>
@@ -204,7 +215,9 @@ export function ImplementButton({
                                         disabledReason={disabledReason}
                                         data-attr="inbox-report-create-pr-submit"
                                     >
-                                        Implement with PostHog
+                                        {report.repository_confirmation_required
+                                            ? `Confirm and implement in ${report.repo_slug}`
+                                            : 'Implement with PostHog'}
                                     </LemonButton>
                                 </div>
                             </div>

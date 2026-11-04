@@ -1703,6 +1703,11 @@ export interface TaskCreateApi {
      * @nullable
      */
     scheduled_at?: string | null
+    /**
+     * Explicitly confirm the current research-recommended repository for a report implementation. This does not override the server-selected target.
+     * @maxLength 255
+     */
+    confirmed_repository?: string
     /** Create the first cloud run. It starts immediately unless scheduled_at is set. */
     start_run?: boolean
     /**

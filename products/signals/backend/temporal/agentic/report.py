@@ -35,9 +35,14 @@ from products.signals.backend.assignment_flags import assignment_writer_enabled
 from products.signals.backend.auto_start import ReviewerContent
 from products.signals.backend.contracts import MonitoringUnresolvedSignalExtra
 from products.signals.backend.enums import ReportLinkKind, SignalSourceProduct, SignalSourceType, SuggestedSourceProduct
+from products.signals.backend.github_optional import ResearchAccessPolicy
+from products.signals.backend.github_readiness import (
+    RESEARCH_SUSPENDED_FOR_GITHUB_ERROR_TYPE,
+    suspend_research_after_lost_read_access,
+)
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalReportCheck
 from products.signals.backend.receivers import _is_safety_suppressed
-from products.signals.backend.recurrence import fixed_dismissal_at
+from products.signals.backend.recurrence import fixed_dismissal_at, recurrence_rejects_repository
 from products.signals.backend.repo_corrections import SCOUT_REPOSITORY_CONTENT_NEEDLE, WRONG_REPO_CONTENT_NEEDLE
 from products.signals.backend.report_charts import ReportChart, chart_batch_error
 from products.signals.backend.report_check_research import check_versions
@@ -68,7 +73,11 @@ from products.signals.backend.report_generation.reviewer_telemetry import (
     capture_suggested_reviewers_resolved,
     capture_suggested_reviewers_unresolved,
 )
-from products.signals.backend.report_generation.select_repo import RepoSelectionResult, persisted_repo_selection
+from products.signals.backend.report_generation.select_repo import (
+    RepoSelectionResult,
+    persisted_repo_selection,
+    repository_candidates_for_signals,
+)
 from products.signals.backend.report_lifecycle import report_status_filter
 from products.signals.backend.report_metrics import REPORT_METRIC_GOAL_FIELDS, ReportMetric, metric_batch_error
 from products.signals.backend.report_monitoring_provenance import (
@@ -719,6 +728,8 @@ def _append_agentic_report_artefacts(
     artefacts: list[ArtefactDraft],
     priority_judgment_id: UUID | None = None,
     reviewer_proposal: ReviewerProposal | None = None,
+    repo_selection_as_of: datetime | None = None,
+    research_context: ReportResearchContext | None = None,
 ) -> bool:
     # Append-only: each (re-promotion) run adds a new version of its artefacts rather than
     # replacing the previous ones. The report's current judgments / repo selection / reviewers are
@@ -737,12 +748,28 @@ def _append_agentic_report_artefacts(
     service = ReviewerRules(team=Team.objects.get(id=team_id), report_id=report_id)
     with transaction.atomic():
         # Priority edits take the same lock, so a correction cannot arrive between this check and append.
-        SignalReport.objects.select_for_update().get(id=report_id, team_id=team_id)
+        report = SignalReport.objects.select_for_update().get(id=report_id, team_id=team_id)
+        report.research_context = research_context.model_dump(mode="json") if research_context else None
+        report.save(update_fields=["research_context"])
         priority_adjusted_mid_run = any(isinstance(draft.content, PriorityAssessment) for draft in artefacts) and (
             _priority_adjusted_since(team_id, report_id, priority_judgment_id)
         )
         wrote_reviewers = False
         for draft in artefacts:
+            if isinstance(draft.content, RepoSelectionResult) and draft.content.requires_confirmation:
+                current = (
+                    SignalReportArtefact.objects.filter(team_id=team_id, report_id=report_id, type="repo_selection")
+                    .order_by("-created_at", "-id")
+                    .first()
+                )
+                if current is not None and current.created_by_id is not None:
+                    continue
+            if (
+                isinstance(draft.content, RepoSelectionResult)
+                and repo_selection_as_of is not None
+                and _reviewer_selection_written_since(team_id, report_id, repo_selection_as_of)
+            ):
+                continue
             if priority_adjusted_mid_run and isinstance(draft.content, PriorityAssessment):
                 continue
             if isinstance(draft.content, SuggestedReviewers):
@@ -1003,6 +1030,8 @@ async def _persist_agentic_report_artefacts(
         team_id=team_id,
         report_id=report_id,
         artefacts=artefacts,
+        research_context=repo_selection.research_context,
+        repo_selection_as_of=repo_selection_as_of,
         priority_judgment_id=priority_judgment_id,
         reviewer_proposal=reviewer_proposal,
     )
@@ -1164,13 +1193,84 @@ def _capture_research_steering_attached(*, team_id: int, report_id: str, steerin
         logger.exception("Failed to capture signals_research_steering_attached", report_id=report_id)
 
 
+def _validated_repository_recommendation(
+    input: RunAgenticReportInput, result: ReportResearchOutput
+) -> RepoSelectionResult:
+    selection = input.repo_selection
+    recommendation = result.repository_recommendation
+    if (
+        selection.repository
+        or not recommendation
+        or not selection.research_context
+        or selection.research_context.mode != "repository_discovery"
+    ):
+        return selection
+    repository = recommendation.repository.strip().lower()
+    try:
+        candidates = repository_candidates_for_signals(input.team_id, input.signals)
+        if repository not in candidates or not ResearchAccessPolicy.repository_available(input.team_id, repository):
+            return selection
+        if recurrence_rejects_repository(team_id=input.team_id, report_id=input.report_id, repository=repository):
+            return selection
+    except Exception:
+        logger.warning(
+            "signals_repository_recommendation_check_failed",
+            team_id=input.team_id,
+            report_id=input.report_id,
+            exc_info=True,
+        )
+        return selection
+    return RepoSelectionResult(
+        repository=repository,
+        reason=recommendation.reason,
+        autostart_eligible=False,
+        confirmation_required=True,
+        research_context=selection.research_context,
+        task_id=result.research_task_id,
+    )
+
+
 async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportOutput:
     """Run the sandbox-backed report research and persist its artefacts after full success."""
     try:
-        assert input.github_optional or input.repo_selection.repository is not None, (
-            "run_agentic_report_activity called without a repository"
-        )
         repository = input.repo_selection.repository
+        repository_candidates: list[str] = []
+        discovery = (
+            repository is None
+            and input.repo_selection.research_context is not None
+            and input.repo_selection.research_context.mode == "repository_discovery"
+        )
+        assert input.github_optional or repository is not None or discovery, (
+            "run_agentic_report_activity called without a repository or discovery context"
+        )
+        if discovery:
+            repository_candidates = await database_sync_to_async(
+                repository_candidates_for_signals, thread_sensitive=False
+            )(input.team_id, input.signals)
+            if not repository_candidates and not input.github_optional:
+                raise ApplicationError(
+                    "Repository discovery found no candidates for a project that requires GitHub",
+                    non_retryable=True,
+                )
+            if not repository_candidates:
+                input = replace(
+                    input,
+                    repo_selection=input.repo_selection.model_copy(
+                        update={
+                            "research_context": ReportResearchContext(
+                                mode="data_only", repository_status="no_repositories"
+                            )
+                        }
+                    ),
+                )
+                discovery = False
+                await database_sync_to_async(capture_research_access_event, thread_sensitive=False)(
+                    team_id=input.team_id,
+                    report_id=input.report_id,
+                    origin="pipeline",
+                    reason="no_repositories",
+                    fallback=True,
+                )
         if repository is not None:
             sources = await database_sync_to_async(monitoring_repository_sources, thread_sensitive=False)(
                 input.team_id, input.signals
@@ -1201,7 +1301,9 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
         async with Heartbeater():
             # 1. Get context for the sandbox
             user_id = await database_sync_to_async(
-                resolve_acting_user_id_for_team if input.github_optional else resolve_user_id_for_team,
+                resolve_acting_user_id_for_team
+                if input.github_optional or repository is None
+                else resolve_user_id_for_team,
                 thread_sensitive=False,
             )(input.team_id)
             if user_id is None:
@@ -1216,7 +1318,10 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
                 team_id=input.team_id,
                 user_id=user_id,
                 repository=repository,
-                github_read_access=input.github_optional and repository is not None,
+                # A target nobody has confirmed stays read-only, even when research reuses it.
+                github_read_access=bool(repository_candidates)
+                or (input.github_optional and repository is not None)
+                or input.repo_selection.requires_confirmation,
                 sandbox_environment_id=sandbox_env_id,
                 # Reads, plus the scratchpad: the research agent queries data/insights and can
                 # list the report's artefacts, but never writes artefacts itself — the pipeline
@@ -1349,15 +1454,54 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
                 agent_checks_enabled=agent_checks_enabled,
                 steering_section=steering.section,
                 suggestable_products=suggestable_products,
+                repository_candidates=repository_candidates,
                 current_tags=tag_context.current_tags,
                 team_tags=tag_context.team_tags,
             )
+            if discovery and result.research_run_id:
+                run = await database_sync_to_async(tasks_facade.get_task_run, thread_sensitive=False)(
+                    result.research_run_id, team_id=input.team_id
+                )
+                if run and run.state.get("github_read_access_available") is False:
+                    if not input.github_optional:
+                        # Only GitHub-optional projects may keep project-data research. Suspend rather
+                        # than retry: each retry repeats a full research session, and a failed report
+                        # never recovers on reconnect.
+                        await database_sync_to_async(suspend_research_after_lost_read_access, thread_sensitive=False)(
+                            input.team_id, input.report_id
+                        )
+                        raise ApplicationError(
+                            "GitHub read access was unavailable during repository discovery",
+                            type=RESEARCH_SUSPENDED_FOR_GITHUB_ERROR_TYPE,
+                            non_retryable=True,
+                        )
+                    input = replace(
+                        input,
+                        repo_selection=input.repo_selection.model_copy(
+                            update={
+                                "research_context": ReportResearchContext(
+                                    mode="data_only", repository_status="github_unavailable"
+                                )
+                            }
+                        ),
+                    )
+                    await database_sync_to_async(capture_research_access_event, thread_sensitive=False)(
+                        team_id=input.team_id,
+                        report_id=input.report_id,
+                        origin="pipeline",
+                        reason="github_unavailable",
+                        fallback=True,
+                    )
+            selection = await database_sync_to_async(_validated_repository_recommendation, thread_sensitive=False)(
+                input, result
+            )
+            repository = selection.repository
             # 4. Persist artefacts, avoid partial data from failed runs
             await _persist_agentic_report_artefacts(
                 input.team_id,
                 input.report_id,
                 result,
-                input.repo_selection,
+                selection,
                 repo_selection_as_of=input.repo_selection_as_of,
                 priority_judgment_id=priority_judgment_id,
                 reviewer_proposal=reviewer_proposal,
@@ -1457,10 +1601,23 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
 @scoped_temporal()
 @close_db_connections
 async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenticReportOutput:
+    if (
+        input.github_optional
+        and input.repo_selection.research_context
+        and input.repo_selection.research_context.mode == "data_only"
+        and input.repo_selection.repository is not None
+    ):
+        input = replace(input, repo_selection=input.repo_selection.model_copy(update={"repository": None}))
     try:
         return await _run_agentic_report(input)
     except RepositoryContextUnavailable:
-        if not input.github_optional or input.repo_selection.repository is None:
+        if not input.github_optional or (
+            input.repo_selection.repository is None
+            and (
+                input.repo_selection.research_context is None
+                or input.repo_selection.research_context.mode != "repository_discovery"
+            )
+        ):
             raise
         await database_sync_to_async(capture_research_access_event, thread_sensitive=False)(
             team_id=input.team_id,

@@ -472,7 +472,9 @@ def test_nonpublic_source_can_keep_its_repository(source_private: bool | None) -
 
 
 def test_select_repository_drops_server_fields_the_model_emitted() -> None:
-    result = RepoSelectionResult(repository="acme/a", reason="Matching code.", blocked_reason="not_connected")
+    result = RepoSelectionResult(
+        repository="acme/a", reason="Matching code.", blocked_reason="not_connected", confirmation_required=True
+    )
     session = MagicMock()
     session.end = AsyncMock()
     github = MagicMock()
@@ -495,7 +497,7 @@ def test_select_repository_drops_server_fields_the_model_emitted() -> None:
             candidate_repos=["acme/a", "acme/b"],
         )
 
-    assert (selected.repository, selected.blocked_reason) == ("acme/a", None)
+    assert (selected.repository, selected.blocked_reason, selected.confirmation_required) == ("acme/a", None, False)
 
 
 @pytest.mark.parametrize("selected_repository", ["acme/b", "acme/c"])

@@ -1715,16 +1715,23 @@ async def test_background_scout_reports_never_reach_autostart(run_origin, config
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize(
-    ("repository_autostart_eligible", "user_triggered", "expect_task"),
+    ("repository_autostart_eligible", "user_triggered", "expect_task", "confirmation_required"),
     [
-        (True, False, True),
-        (False, False, False),
-        (False, True, True),
+        (True, False, True, False),
+        (False, False, False, False),
+        (False, True, True, False),
+        (False, True, False, True),
+        (False, False, False, True),
     ],
 )
 @pytest.mark.parametrize("monitoring,private_destination", [(False, False), (True, False), (True, True)])
 async def test_inferred_repository_only_blocks_the_reviewerless_fallback(
-    repository_autostart_eligible, user_triggered, expect_task, monitoring: bool, private_destination: bool
+    repository_autostart_eligible,
+    user_triggered,
+    expect_task,
+    confirmation_required,
+    monitoring: bool,
+    private_destination: bool,
 ):
     # A repo read out of the report's own text is a target for whoever clicks Create PR, so it must not
     # reach the reviewer-less fallback — the one path where nobody named the destination or the runner.
@@ -1809,6 +1816,7 @@ async def test_inferred_repository_only_blocks_the_reviewerless_fallback(
             priority=PriorityAssessment(explanation="Affects many sessions.", priority=Priority.P2),
             triggering_user_id=enabler.id if user_triggered else None,
             repository_autostart_eligible=repository_autostart_eligible,
+            repository_confirmation_required=confirmation_required,
         )
 
     assert (mock_create.call_count == 1) is (expect_task and (not monitoring or private_destination))
