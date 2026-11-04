@@ -26,6 +26,7 @@ from products.warehouse_sources.sources.vitally.settings import (
     CUSTOM_OBJECT_SCHEMA_PREFIX,
     ENDPOINTS as VITALLY_ENDPOINTS,
     INCREMENTAL_FIELDS as VITALLY_INCREMENTAL_FIELDS,
+    UNPARTITIONED_ENDPOINTS,
     UPDATED_AT_INCREMENTAL_FIELD,
 )
 from products.warehouse_sources.sources.vitally.vitally import (
@@ -155,6 +156,7 @@ class VitallySource(ResumableSource[VitallySourceConfig, VitallyResumeConfig]):
         resumable_source_manager: ResumableSourceManager[VitallyResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
+        is_partitioned = inputs.schema_name not in UNPARTITIONED_ENDPOINTS
         return SourceResponse(
             name=inputs.schema_name,
             on_complete=resumable_source_manager.clear_state,
@@ -173,11 +175,11 @@ class VitallySource(ResumableSource[VitallySourceConfig, VitallyResumeConfig]):
                 resumable_source_manager=resumable_source_manager,
             ),
             primary_keys=["id"],
-            partition_count=1,  # this enables partitioning
-            partition_size=1,  # this enables partitioning
-            partition_mode="datetime",
-            partition_format="week",
-            partition_keys=["created_at"],
+            partition_count=1 if is_partitioned else None,  # this enables partitioning
+            partition_size=1 if is_partitioned else None,  # this enables partitioning
+            partition_mode="datetime" if is_partitioned else None,
+            partition_format="week" if is_partitioned else None,
+            partition_keys=["created_at"] if is_partitioned else None,
             # `sortBy` carries no direction, so only the Messages read claims an order.
             sort_mode="desc" if inputs.schema_name == "Messages" else None,
         )
