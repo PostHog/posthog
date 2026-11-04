@@ -13,12 +13,11 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { newWorkflowLogic } from '../newWorkflowLogic'
 import { workflowTemplatesLogic } from '../templates/workflowTemplatesLogic'
-import { workflowsLogic } from '../workflowsLogic'
-import { templateTypeForListType } from '../workflowTypeFilters'
 import { WORKFLOW_FOLDER_BREADCRUMBS_DROP_SCOPE } from './workflowFolderDragScopes'
 import { workflowFoldersLogic } from './workflowFoldersLogic'
 import { WorkflowNewFolderButton } from './WorkflowNewFolderButton'
 import { WorkflowsListV2ColumnsMenu } from './WorkflowsListV2ColumnsMenu'
+import { workflowsListV2Logic } from './workflowsListV2Logic'
 
 export function WorkflowFolderToolbar(): JSX.Element {
     const {
@@ -33,7 +32,7 @@ export function WorkflowFolderToolbar(): JSX.Element {
         browserReady,
     } = useValues(workflowFoldersLogic)
     const { openFolder, setFolderJumpSearch } = useActions(workflowFoldersLogic)
-    const { filters } = useValues(workflowsLogic)
+    const { templateTypeFilter } = useValues(workflowsListV2Logic)
     const { setTypeFilter } = useActions(workflowTemplatesLogic)
     const { startNewWorkflow } = useActions(newWorkflowLogic)
     const { selectedFiles } = useValues(workflowFoldersLogic)
@@ -153,7 +152,7 @@ export function WorkflowFolderToolbar(): JSX.Element {
                                     product_type: ProductKey.WORKFLOWS,
                                     intent_context: ProductIntentContext.WORKFLOW_CREATED,
                                 })
-                                setTypeFilter(templateTypeForListType(filters.type))
+                                setTypeFilter(templateTypeFilter)
                                 startNewWorkflow()
                             }}
                             tooltip={`The workflow lands in ${currentFolder && currentFolder !== 'Unfiled' ? currentFolder.replaceAll('/', ' / ') : 'Unfiled / Workflows'}`}

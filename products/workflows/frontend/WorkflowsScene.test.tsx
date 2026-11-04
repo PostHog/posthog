@@ -334,6 +334,22 @@ describe('WorkflowsScene', () => {
             })
         })
 
+        it('opens the template chooser on the kind facet from the folder toolbar', async () => {
+            window.POSTHOG_APP_CONTEXT = {
+                ...window.POSTHOG_APP_CONTEXT!,
+                resource_access_control: {
+                    ...window.POSTHOG_APP_CONTEXT!.resource_access_control!,
+                    hog_flow: AccessControlLevel.Editor,
+                },
+            }
+            const user = userEvent.setup()
+            await renderFolder('Billing', 'Welcome series', ' kind:messaging')
+            await user.click(
+                document.querySelector('[data-attr="workflows-folder-toolbar"] [data-attr="new-workflow"]')!
+            )
+            expect(workflowTemplatesLogic.values.typeFilter).toEqual('messaging')
+        })
+
         it('keeps sidebar folders, breadcrumbs and the up row as separate drop targets', async () => {
             await renderFolder('Billing/Cards', 'Renewal reminder')
             const targets = [...(droppables?.values() ?? [])].map((droppable) => ({
