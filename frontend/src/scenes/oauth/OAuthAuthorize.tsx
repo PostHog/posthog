@@ -460,20 +460,28 @@ export const OAuthAuthorize = (): JSX.Element => {
                                             </li>
                                         ))}
                                         {requiredScopeRows.map((row) => (
-                                            <li key={row.key} className="flex items-center space-x-2">
-                                                <IconCheck color="var(--success)" className="shrink-0" />
-                                                <span className="font-medium">{row.description}</span>
-                                                {row.alreadyGranted ? (
-                                                    <Tooltip title={`You granted this to ${appName} before`}>
-                                                        <LemonTag>Already granted</LemonTag>
-                                                    </Tooltip>
-                                                ) : (
-                                                    !allScopesRequired && (
-                                                        <Tooltip title={`${appName} requires this permission`}>
-                                                            <LemonTag>Required</LemonTag>
+                                            <li key={row.key} className="space-y-1">
+                                                <div className="flex items-center space-x-2">
+                                                    <IconCheck color="var(--success)" className="shrink-0" />
+                                                    <span className="font-medium">{row.description}</span>
+                                                    {row.alreadyGranted ? (
+                                                        <Tooltip title={`You granted this to ${appName} before`}>
+                                                            <LemonTag>Already granted</LemonTag>
                                                         </Tooltip>
-                                                    )
-                                                )}
+                                                    ) : (
+                                                        !allScopesRequired && (
+                                                            <Tooltip title={`${appName} requires this permission`}>
+                                                                <LemonTag>Required</LemonTag>
+                                                            </Tooltip>
+                                                        )
+                                                    )}
+                                                </div>
+                                                {row.warning ? (
+                                                    <div className="flex items-start gap-2 text-xs italic pl-6">
+                                                        <IconWarning className="text-base text-secondary mt-0.5" />
+                                                        <span>{row.warning}</span>
+                                                    </div>
+                                                ) : null}
                                             </li>
                                         ))}
                                     </ul>
