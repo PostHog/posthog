@@ -179,7 +179,13 @@ def variable_writes(variables: Any, actions: Any) -> str:
         }
         if action.get("output_variable") or set_values:
             writers[str(action.get("id"))] = [action.get("output_variable"), set_values]
-    return json.dumps([variables or [], writers], sort_keys=True, default=str)
+    values = [
+        {field: value for field, value in variable.items() if field not in ("label", "description")}
+        if isinstance(variable, dict)
+        else variable
+        for variable in (variables if isinstance(variables, list) else [])
+    ]
+    return json.dumps([values, writers], sort_keys=True, default=str)
 
 
 def draft_test_moves_live_credentials(

@@ -19,6 +19,7 @@ from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
+from prometheus_client import REGISTRY
 from rest_framework import status
 
 from posthog.api.tagged_item import set_tags_on_object
@@ -7421,11 +7422,73 @@ class TestHogFlowSecretInputs(APIBaseTest):
         if variable_default is not None:
             payload["variables"] = [{**payload["variables"][0], "default": variable_default}]
 
+        refusals_before = self._reauth_refusals()
+
         response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", payload)
 
         assert response.status_code == expected_status, response.json()
+        assert self._reauth_refusals() - refusals_before == (1 if expected_status == 403 else 0)
         if expected_status == 403:
             assert response.json()["code"] == "sensitive_action_required_reauth"
+
+    def _reauth_refusals(self) -> float:
+        return sum(
+            REGISTRY.get_sample_value("posthog_cdp_credential_move_reauth_refused_total", {"surface": surface}) or 0
+            for surface in ("workflow_step", "workflow_variables", "workflow_draft_test")
+        )
+
+    @parameterized.expand([("no_staged_draft", False), ("staged_draft", True)])
+    def test_a_variables_only_edit_needs_recent_authentication(self, _name: str, staged_draft: bool) -> None:
+        payload = self._linked_flow_payload()
+        flow_id = self.client.post(f"/api/projects/{self.team.id}/hog_flows", payload).json()["id"]
+        if staged_draft:
+            flow = HogFlow.objects.get(id=flow_id)
+            flow.status = HogFlow.State.ACTIVE
+            flow.draft = {"actions": flow.actions, "variables": flow.variables}
+            flow.save()
+        self._make_session_stale()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"variables": [{**payload["variables"][0], "default": "attacker.example.com"}]},
+            format="json",
+        )
+
+        assert response.status_code == 403, response.json()
+        assert response.json()["code"] == "sensitive_action_required_reauth"
+
+    def test_a_test_run_of_a_step_only_in_the_draft_keeps_its_own_secret_without_a_prompt(self) -> None:
+        # The builder tests the staged draft by sending it as `configuration`. A secret saved only in the
+        # draft was saved with the draft's step, so testing that step moves no live credential.
+        payload = self._flow_payload()
+        flow_id = self.client.post(f"/api/projects/{self.team.id}/hog_flows", payload).json()["id"]
+        draft_step = {**payload["actions"][1], "id": "action_2", "name": "action_2"}
+        draft_step["config"] = {**draft_step["config"], "inputs": {"url": {"value": "https://draft.example.com"}}}
+        flow = HogFlow.objects.get(id=flow_id)
+        flow.status = HogFlow.State.ACTIVE
+        flow.draft = {"actions": [*flow.actions, draft_step]}
+        flow.draft_encrypted_inputs = {**flow.encrypted_inputs, "action_2": {"api_key": {"value": "DRAFT-ONLY"}}}
+        flow.save()
+        self._make_session_stale()
+        config = {"name": payload["name"], "actions": [*payload["actions"], draft_step]}
+        for action in config["actions"][1:]:
+            action["config"]["inputs"]["api_key"] = {"secret": True}
+
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test"
+        ) as mock_invoke:
+            mock_invoke.return_value = MagicMock(status_code=200, json=lambda: {"status": "success"})
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}/invocations/",
+                data={"globals": {"event": {"event": "$pageview", "distinct_id": "d"}}, "configuration": config},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        sent_actions = mock_invoke.call_args.kwargs["payload"]["configuration"]["actions"]
+        assert next(a for a in sent_actions if a["id"] == "action_2")["config"]["inputs"]["api_key"]["value"] == (
+            "DRAFT-ONLY"
+        )
 
     @parameterized.expand([("step_redirected", True, False), ("variable_redirected", False, True)])
     def test_a_live_save_compares_with_live_rather_than_the_staged_draft(

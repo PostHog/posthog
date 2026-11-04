@@ -3,7 +3,7 @@ import json
 import logging
 import contextlib
 from collections.abc import Iterable
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from django.conf import settings
 from django.db import models
@@ -1076,6 +1076,11 @@ def _has_value(value: Any) -> bool:
     return value not in (None, "", [], {})
 
 
+def _value_and_templating(item: Any) -> tuple[Any, Any]:
+    # An input item is `{"value": ..., "templating": ...}`, or a bare value in rows saved by hand.
+    return (item.get("value"), item.get("templating")) if isinstance(item, dict) else (item, None)
+
+
 def _comparable_inputs(inputs: Any, skipped_keys: set[str]) -> dict[str, str]:
     if not isinstance(inputs, dict):
         return {}
@@ -1083,7 +1088,7 @@ def _comparable_inputs(inputs: Any, skipped_keys: set[str]) -> dict[str, str]:
     for key, item in inputs.items():
         if str(key) in skipped_keys:
             continue
-        value, templating = (item.get("value"), item.get("templating")) if isinstance(item, dict) else (item, None)
+        value, templating = _value_and_templating(item)
         # Hog reads a missing input as null, but an empty string or list is a value code can branch on.
         if value is not None:
             result[str(key)] = json.dumps([value, templating], sort_keys=True, default=str)
@@ -1166,7 +1171,10 @@ CREDENTIAL_MOVE_REAUTH_REFUSED_COUNTER = Counter(
 )
 
 
-def require_recent_login_to_move_credentials(request: object, surface: str) -> None:
+CredentialMoveSurface = Literal["destination", "workflow_step", "workflow_variables", "workflow_draft_test"]
+
+
+def require_recent_login_to_move_credentials(request: object, surface: CredentialMoveSurface) -> None:
     """Refuse a save that moves a stored credential unless the last login is recent enough."""
     try:
         require_recent_authentication(request, max_age=settings.SESSION_INTEGRATION_LINK_AGE)
@@ -1194,12 +1202,11 @@ def linked_integration_input_keys(binding: SecretBinding) -> set[str]:
         for schema in inputs_schema or []
         if isinstance(schema, dict) and schema.get("type") in INTEGRATION_INPUT_TYPES and "key" in schema
     }
+    scope_inputs = [inputs for _, inputs in scopes if isinstance(inputs, dict)]
     return {
         key
         for key in integration_keys
-        for _, inputs in scopes
-        if isinstance(inputs, dict)
-        and _has_value(inputs[key].get("value") if isinstance(inputs.get(key), dict) else inputs.get(key))
+        if any(_has_value(_value_and_templating(inputs.get(key))[0]) for inputs in scope_inputs)
     }
 
 

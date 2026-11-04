@@ -621,6 +621,26 @@ def existing_secret_bindings(
     )
 
 
+def saved_secret_bindings(
+    instance: WorkflowEditState, template_cache: Optional[TemplateCache] = None
+) -> dict[str, dict]:
+    # The step config each secret was saved with: the draft's for a secret the draft staged, new or
+    # rotated, else live's. A live secret the draft only carries keeps its live config, because a
+    # proposal or a revision restore can stage a draft with no recent-login check.
+    live_secrets = live_secret_map(instance, template_cache)
+    staged = {
+        action_id: {
+            key: value for key, value in secrets.items() if (live_secrets.get(action_id) or {}).get(key) != value
+        }
+        for action_id, secrets in (instance.draft_encrypted_inputs or {}).items()
+        if isinstance(secrets, dict)
+    }
+    return merge_secret_maps(
+        live_secret_bindings(instance, template_cache),
+        secret_bindings_for_actions((instance.draft or {}).get("actions"), staged, template_cache),
+    )
+
+
 def snapshot_flow_content(flow: WorkflowEditState) -> dict:
     return snapshot_content({field: getattr(flow, field) for field in DRAFT_CONTENT_FIELDS})
 
@@ -3736,7 +3756,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
                 and not self.context.get("live_secrets_only")
             )
             self.context["credential_baseline_is_draft"] = baseline_is_draft
-            secret_bindings = existing_secret_bindings if baseline_is_draft else live_secret_bindings
+            secret_bindings = existing_secret_bindings if baseline_is_draft else saved_secret_bindings
             self.context["existing_secret_bindings"] = secret_bindings(
                 instance, template_cache=self.context["_hogflow_template_cache"]
             )
@@ -3880,8 +3900,8 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
         if instance and "variables" in data and "actions" not in data:
             # A content edit on an active workflow can land in its staged draft, whose steps may differ.
             draft_actions = (instance.draft or {}).get("actions")
-            for stored in (instance.actions, draft_actions):
-                _require_replay_vision_editor_access(self.context.get("request"), self.context, stored)
+            for stored_steps in (instance.actions, draft_actions):
+                _require_replay_vision_editor_access(self.context.get("request"), self.context, stored_steps)
 
         if stored and ("variables" in data or "actions" in data):
             _require_recent_authentication_for_variable_edits(self.context, stored, data)

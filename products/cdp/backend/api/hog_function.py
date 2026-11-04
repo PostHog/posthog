@@ -742,8 +742,6 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         )
 
         instance = cast(Optional[HogFunction], self.context.get("instance", self.instance))
-        # The type-specific checks below rebind `instance` to `self.instance`, which a test run leaves empty.
-        stored_function = instance if isinstance(instance, HogFunction) else None
         current_filters = instance.filters if isinstance(instance, HogFunction) else {}
         proposed_filters = attrs.get("filters", current_filters)
         require_viewer_access_to_added_actions(
@@ -834,10 +832,10 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             # The cap covers the effective post-update state: restoring a soft-deleted
             # enabled function ({"deleted": false} with no "enabled" key) re-enters the
             # running set just like flipping enabled on, and must not bypass the limit.
-            instance = self.instance if isinstance(self.instance, HogFunction) else None
-            will_be_enabled = attrs.get("enabled", instance.enabled if instance else False)
-            will_be_deleted = attrs.get("deleted", instance.deleted if instance else False)
-            was_active = instance is not None and instance.enabled and not instance.deleted
+            saved = self.instance if isinstance(self.instance, HogFunction) else None
+            will_be_enabled = attrs.get("enabled", saved.enabled if saved else False)
+            will_be_deleted = attrs.get("deleted", saved.deleted if saved else False)
+            was_active = saved is not None and saved.enabled and not saved.deleted
             apply_limit = will_be_enabled and not will_be_deleted and not was_active
 
             if apply_limit:
@@ -875,14 +873,14 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             if hog_type in TYPES_WITH_JAVASCRIPT_SOURCE:
                 try:
                     # Validate transpilation using the model instance
-                    instance = self.instance if isinstance(self.instance, HogFunction) else None
+                    saved = self.instance if isinstance(self.instance, HogFunction) else None
                     attrs["transpiled"] = get_transpiled_function(
                         HogFunction(
                             team=team,
                             hog=attrs["hog"],
                             filters=attrs["filters"],
                             inputs=attrs["inputs"],
-                            inputs_schema=attrs.get("inputs_schema", instance.inputs_schema if instance else None),
+                            inputs_schema=attrs.get("inputs_schema", saved.inputs_schema if saved else None),
                         )
                     )
                 except TranspilerError:
@@ -897,7 +895,9 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             if not attrs.get("hog"):
                 raise serializers.ValidationError({"hog": "Required."})
 
-        self._require_recent_authentication_for_credential_moves(attrs, stored_function)
+        self._require_recent_authentication_for_credential_moves(
+            attrs, instance if isinstance(instance, HogFunction) else None
+        )
         return attrs
 
     def _require_recent_authentication_for_credential_moves(self, attrs: dict, instance: Optional[HogFunction]) -> None:
