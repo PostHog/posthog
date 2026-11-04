@@ -492,19 +492,17 @@ export class HogFunctionHandler implements ActionHandler {
                 skipReason === 'suppressed'
                     ? `Skipping send: recipient is on the suppression list.`
                     : `Recipient has opted out, skipping message delivery.`
-            const metrics =
-                skipReason === 'suppressed'
-                    ? [
-                          {
-                              team_id: hogFunctionInvocation.teamId,
-                              app_source_id: hogFunctionInvocation.parentRunId ?? hogFunctionInvocation.functionId,
-                              instance_id: action.id,
-                              metric_kind: 'email' as const,
-                              metric_name: 'email_suppressed' as const,
-                              count: 1,
-                          },
-                      ]
-                    : []
+            const metrics = [
+                {
+                    team_id: hogFunctionInvocation.teamId,
+                    app_source_id: hogFunctionInvocation.parentRunId ?? hogFunctionInvocation.functionId,
+                    instance_id: action.id,
+                    metric_kind: 'email' as const,
+                    metric_name:
+                        skipReason === 'suppressed' ? ('email_suppressed' as const) : ('email_opted_out' as const),
+                    count: 1,
+                },
+            ]
             this.recordSkippedEmail(
                 hogFunctionInvocation,
                 action,

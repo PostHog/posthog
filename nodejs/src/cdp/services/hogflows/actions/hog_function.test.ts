@@ -486,8 +486,10 @@ describe('HogFunctionHandler', () => {
         expect(invocationResult.logs[0].message).toContain(
             `[Action:function] Recipient has opted out, skipping message delivery.`
         )
-        // Opt-out skips do not emit an app metric — no billable_invocation, no email_suppressed.
-        expect(invocationResult.metrics).toEqual([])
+        // A broadcast's audience breakdown counts opt-outs from this metric. It is not billable.
+        expect(invocationResult.metrics).toEqual([
+            expect.objectContaining({ metric_kind: 'email', metric_name: 'email_opted_out', count: 1 }),
+        ])
         expect(mockFetch).not.toHaveBeenCalled()
     })
 
