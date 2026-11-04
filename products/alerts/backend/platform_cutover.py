@@ -34,8 +34,10 @@ from products.alerts_platform.backend.facade.contracts import (
 from products.alerts_platform.backend.facade.delivery import has_legacy_event_emitter
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
 
-# A firing never moves, so only these states are carried over.
 PLATFORM_HANDOVER_STATE: Final[dict[str, PlatformAlertState]] = {
+    # The platform carries the firing with its start unknown. An insight alert notifies on every
+    # firing check, so the platform's next check sends what the insight stack would have sent.
+    AlertState.FIRING: PlatformAlertState.FIRING,
     AlertState.NOT_FIRING: PlatformAlertState.NOT_FIRING,
     # The platform keeps a snooze on the copy's `snooze_until`, which the copy takes from this alert.
     AlertState.SNOOZED: PlatformAlertState.NOT_FIRING,
@@ -73,8 +75,6 @@ class CutoverSkip(StrEnum):
     ENVIRONMENT = "environment"
     # The platform cannot copy it, such as an alert with no cadence.
     NOT_ON_PLATFORM = "not_on_platform"
-    # The two stacks key a firing differently, so a firing moves only after it resolves.
-    FIRING = "firing"
     # The insight scheduler owes this alert a check, which may already be running and could notify
     # after the move.
     CHECK_DUE = "check_due"
@@ -168,8 +168,6 @@ def _cut_over_alert(team_id: int, alert_id: UUID, now: datetime | None) -> Cutov
             return CutoverSkip.NOT_ON_PLATFORM
         if not delivers_as_it_does_today(alert):
             return CutoverSkip.NO_HOG_FUNCTION_PATH
-        if alert.state == AlertState.FIRING:
-            return CutoverSkip.FIRING
         if _insight_check_owed(team_id, alert.id, at):
             return CutoverSkip.CHECK_DUE
         if _investigation_unsettled(alert, at):

@@ -30,6 +30,7 @@ class TestInsightPlatformCutover(APIBaseTest):
     @parameterized.expand(
         [
             ("quiet", {}, "not_firing"),
+            ("firing", {"state": AlertState.FIRING}, "firing"),
             ("errored", {"state": AlertState.ERRORED}, "errored"),
             (
                 "snoozed_keeps_checking_muted",
@@ -69,7 +70,6 @@ class TestInsightPlatformCutover(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("firing", {"state": AlertState.FIRING}, CutoverSkip.FIRING),
             ("check_due", {"next_check_at": NOW}, CutoverSkip.CHECK_DUE),
             ("never_scheduled", {"next_check_at": None}, CutoverSkip.CHECK_DUE),
         ]
