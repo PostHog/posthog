@@ -4,13 +4,14 @@ import { IconCheck, IconEllipsis, IconUndo } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
 import { OPTIONAL_COLUMNS, OPTIONAL_COLUMN_TITLES } from './workflowListLabels'
+import { PENDING_ACTION_REASONS } from './workflowSavedViews'
 import { workflowsListV2Logic } from './workflowsListV2Logic'
 import { workflowsSavedViewsLogic } from './workflowsSavedViewsLogic'
 
 export function WorkflowsListV2ColumnsMenu(): JSX.Element {
     const { shownColumns } = useValues(workflowsListV2Logic)
     const { toggleColumn, resetColumns } = useActions(workflowsListV2Logic)
-    const { available, myWorkflowsDeleted, saving, writeDisabledReason } = useValues(workflowsSavedViewsLogic)
+    const { available, myWorkflowsDeleted, pendingAction, writeDisabledReason } = useValues(workflowsSavedViewsLogic)
     const { restoreMyWorkflows } = useActions(workflowsSavedViewsLogic)
 
     return (
@@ -46,7 +47,9 @@ export function WorkflowsListV2ColumnsMenu(): JSX.Element {
                                       icon: <IconUndo />,
                                       tooltip: 'Brings the view back for everyone in this project',
                                       onClick: restoreMyWorkflows,
-                                      disabledReason: saving ? 'A view is being saved' : writeDisabledReason,
+                                      disabledReason: pendingAction
+                                          ? PENDING_ACTION_REASONS[pendingAction]
+                                          : writeDisabledReason,
                                       'data-attr': 'workflows-combined-restore-shipped-views',
                                   },
                               ]

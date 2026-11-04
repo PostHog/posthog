@@ -948,7 +948,7 @@ describe('workflowsSavedViewsLogic', () => {
             'restore',
             500,
             { detail: 'Server error' },
-            "Couldn't restore My workflows. Check your connection and try again.",
+            "Couldn't restore My workflows. PostHog ran into a problem. Try again in a moment.",
         ],
     ])(
         'explains a failed %s that returns %s, and hands a dialog its failure',

@@ -1,7 +1,7 @@
 import { IconEllipsis } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
-import { SavedViewAction, WorkflowSavedView } from './workflowSavedViews'
+import { PENDING_ACTION_REASONS, SavedViewAction, WorkflowSavedView } from './workflowSavedViews'
 
 export interface WorkflowSavedViewActionsProps {
     activeView: WorkflowSavedView
@@ -18,15 +18,6 @@ export interface WorkflowSavedViewActionsProps {
     onSave: () => void
     onRename: () => void
     onDelete: () => void
-}
-
-const PENDING_ACTION_REASONS: Record<SavedViewAction, string> = {
-    'save-as': 'Saving the new view',
-    update: 'Updating the view',
-    rename: 'Renaming the view',
-    delete: 'Deleting the view',
-    restore: 'Restoring My workflows',
-    reset: 'Loading the latest version of the view',
 }
 
 export function WorkflowSavedViewActions({

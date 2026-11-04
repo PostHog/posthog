@@ -138,6 +138,15 @@ export function isMissingViewError(error: unknown): boolean {
     return error instanceof ApiError && error.status === 404
 }
 
+export const PENDING_ACTION_REASONS: Record<SavedViewAction, string> = {
+    'save-as': 'Saving the new view',
+    update: 'Updating the view',
+    rename: 'Renaming the view',
+    delete: 'Deleting the view',
+    restore: 'Restoring My workflows',
+    reset: 'Loading the latest version of the view',
+}
+
 export function savedViewFailureMessage(action: SavedViewAction, viewName: string, error: unknown): string {
     return `${failedActionMessage(action, viewName)} ${failureReason(action, error)}`
 }
@@ -174,5 +183,8 @@ function failureReason(action: SavedViewAction, error: unknown): string {
     if (error instanceof ApiError && status === 400 && error.detail) {
         return error.detail
     }
-    return 'Check your connection and try again.'
+    if (status === undefined) {
+        return 'Check your connection and try again.'
+    }
+    return 'PostHog ran into a problem. Try again in a moment.'
 }
