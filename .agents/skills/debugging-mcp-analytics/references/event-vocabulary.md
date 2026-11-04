@@ -161,10 +161,12 @@ From TS 0.7.0, `applyMcpLibIdentity` relabels the client as `$lib` = `posthog-no
 posthog-node sets `$lib` at the client level, so that relabel covers **every** event sent by
 the client you pass to `instrument()`, not only the MCP events.
 
-Newer releases of both MCP SDKs drop this relabel and keep the base SDK's `$lib`
-(`posthog-node`, `posthog-python`) and its `$lib_version`. Capture v1 takes `$lib` from a
-per-request header, so one client has one identity. Old and new clients send events side
-by side for a long time, so find MCP traffic by its `$mcp_*` event names or by
+The TypeScript SDK keeps this relabel on posthog-node 6, so give MCP analytics its own client
+and call `instrument()` before that client captures anything. posthog-node 6 fixes `$lib` per
+capture lane when the lane first sends, so a client that captured earlier keeps `posthog-node`.
+posthog-python 8, posthog-go v2 and posthog-rs 1.0 drop their MCP labels and keep the base SDK's
+`$lib` and `$lib_version`, because capture v1 takes `$lib` from a per-request header, one per
+client. So find MCP traffic by its `$mcp_*` event names or by
 `$mcp_source = 'posthog_mcp_analytics'`, not by `$lib`.
 
 ## TypeScript SDK behaviour by version
