@@ -5,7 +5,7 @@ import type { Env, Runtime } from '@/core/runtime'
 import type { StoreChoice } from '@/posthog/credential-store/types'
 import { loginStorage, readLogin } from '@/posthog/login/stored'
 
-import { PersonalAPIKey, type AccessKey } from './access-key'
+import { PersonalAPIKey, type AccessKey, type AccessKeyStorage } from './access-key'
 import { hostKey, sameHost } from './host'
 import { readSettings } from './settings'
 
@@ -17,7 +17,7 @@ export type Credentials = { key: AccessKey } & (
     | { source: 'dotenv-file'; path: string }
     // What `hog auth login` or `hog auth migrate` saved. `path` is the file that holds the secret,
     // and null for the keychain.
-    | { source: 'store'; store: StoreChoice; path: string | null }
+    | { source: 'store'; store: StoreChoice; path: string | null; storage: AccessKeyStorage }
 )
 
 export type CredentialSource = Credentials['source']
@@ -226,9 +226,10 @@ export async function resolveCredentials(
                     EXIT_USAGE
                 )
             }
-            const key = await login.key.fresh(runtime, loginStorage(runtime, login))
+            const storage = loginStorage(runtime, login)
+            const key = await login.key.fresh(runtime, storage)
             const { store } = login
-            return { key, source: 'store', store: store.kind, path: store.path }
+            return { key, source: 'store', store: store.kind, path: store.path, storage }
         }
     }
 
