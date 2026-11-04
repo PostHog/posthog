@@ -421,11 +421,10 @@ class TestRuleAssignmentNotification(BaseTest):
         self.produce_created_event.assert_called_once()
         assert REGISTRY.get_sample_value(RULE_NOTIFY_COUNTER, {"outcome": expected_outcome}) == before + 1
 
-    def _assert_sent_nothing(self) -> None:
+    def _assert_notified_nobody(self) -> None:
         self.create_notification.assert_not_called()
         self.send_email.delay.assert_not_called()
         self.produce_assigned_event.assert_not_called()
-        self.capture.assert_not_called()
 
     @parameterized.expand([("user",), ("role",)])
     def test_notifies_the_rule_assignee(self, assignee_type: str) -> None:
@@ -453,19 +452,20 @@ class TestRuleAssignmentNotification(BaseTest):
 
     @parameterized.expand(
         [
-            ("no_assignee", "none", True),
-            ("flag_off", "current", False),
-            ("assignee_changed", "previous", True),
+            ("no_assignee", "none", True, False),
+            ("flag_off", "current", False, True),
+            ("assignee_changed", "previous", True, True),
         ]
     )
-    def test_sends_nothing(self, expected_outcome: str, cymbal_assignee: str, flag_on: bool) -> None:
+    def test_notifies_nobody(self, expected_outcome: str, cymbal_assignee: str, flag_on: bool, captured: bool) -> None:
         self.flag_enabled.return_value = flag_on
         _, current = self._assign_like_cymbal("user")
         previous = assignee_property({"type": "user", "id": self.user.id})
 
         self._run_activity({"none": None, "current": current, "previous": previous}[cymbal_assignee], expected_outcome)
 
-        self._assert_sent_nothing()
+        self._assert_notified_nobody()
+        assert self.capture.call_count == int(captured)
 
     def test_failed_created_event_notifies_nobody(self) -> None:
         _, assignee = self._assign_like_cymbal("user")
@@ -474,7 +474,17 @@ class TestRuleAssignmentNotification(BaseTest):
         with self.captureOnCommitCallbacks(execute=True), pytest.raises(RuntimeError):
             emit_issue_created_internal_event_activity(self._activity_inputs(assignee))
 
-        self._assert_sent_nothing()
+        self._assert_notified_nobody()
+        self.capture.assert_not_called()
+
+    def test_failed_capture_still_notifies(self) -> None:
+        _, assignee = self._assign_like_cymbal("user")
+        self.capture.side_effect = OperationalError("the connection is closed")
+
+        self._run_activity(assignee, "notified")
+
+        self.create_notification.assert_called_once()
+        self.send_email.delay.assert_called_once()
 
     @parameterized.expand(
         [

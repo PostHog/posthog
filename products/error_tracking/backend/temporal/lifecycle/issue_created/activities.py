@@ -394,14 +394,23 @@ def dispatch_issue_created_alert_activity(inputs: IssueCreatedWorkflowInputs) ->
     )
 
 
-def _capture_auto_assigned(assignment: ErrorTrackingIssueAssignment, assignee_type: str) -> None:
-    team = assignment.issue.team
-    ph_background_capture()(
-        distinct_id=str(team.uuid),
-        event=ISSUE_AUTO_ASSIGNED_EVENT,
-        groups=groups(team=team),
-        properties={"issue_id": str(assignment.issue_id), "assignee_type": assignee_type, "source": "rule"},
-    )
+def _report_rule_assignment_failure(message: str, inputs: IssueCreatedWorkflowInputs, error: Exception) -> None:
+    logger.exception(message, team_id=inputs.team_id, issue_id=inputs.issue_id)
+    if not is_expected_activity_failure(error):
+        posthoganalytics.capture_exception(error)
+
+
+def _capture_auto_assigned(inputs: IssueCreatedWorkflowInputs, assignee: str) -> None:
+    try:
+        team = Team.objects.get(id=inputs.team_id)
+        ph_background_capture()(
+            distinct_id=str(team.uuid),
+            event=ISSUE_AUTO_ASSIGNED_EVENT,
+            groups=groups(team=team),
+            properties={"issue_id": inputs.issue_id, "assignee_type": json.loads(assignee)["type"], "source": "rule"},
+        )
+    except Exception as error:
+        _report_rule_assignment_failure("error_tracking_issue_auto_assigned_capture_failed", inputs, error)
 
 
 def _notify_rule_assignment(inputs: IssueCreatedWorkflowInputs) -> RuleAssignmentNotifyOutcome:
@@ -409,6 +418,8 @@ def _notify_rule_assignment(inputs: IssueCreatedWorkflowInputs) -> RuleAssignmen
     # On a new issue, only a rule can have set the assignee.
     if inputs.assignee is None:
         return RuleAssignmentNotifyOutcome.NO_ASSIGNEE
+    # Before the flag check, so the event counts every rule assignment, not only the ones that notify.
+    _capture_auto_assigned(inputs, inputs.assignee)
     if not team_flag_enabled(RULE_ASSIGNMENT_NOTIFY_FLAG, inputs.team_id):
         return RuleAssignmentNotifyOutcome.FLAG_OFF
 
@@ -425,14 +436,9 @@ def _notify_rule_assignment(inputs: IssueCreatedWorkflowInputs) -> RuleAssignmen
         # A person can reassign the issue before this activity runs, and that change sends its own notifications.
         if assignment is None or assignee is None or assignee_property(assignee.to_json()) != inputs.assignee:
             return RuleAssignmentNotifyOutcome.ASSIGNEE_CHANGED
-        _capture_auto_assigned(assignment, assignee.type)
         notify_automatic_assignment(assignment=assignment, assignee=assignee, label=RULE_ASSIGNMENT_LABEL)
     except Exception as error:
-        logger.exception(
-            "error_tracking_rule_assignment_notify_failed", team_id=inputs.team_id, issue_id=inputs.issue_id
-        )
-        if not is_expected_activity_failure(error):
-            posthoganalytics.capture_exception(error)
+        _report_rule_assignment_failure("error_tracking_rule_assignment_notify_failed", inputs, error)
         return RuleAssignmentNotifyOutcome.SEND_FAILED
     return RuleAssignmentNotifyOutcome.NOTIFIED
 
