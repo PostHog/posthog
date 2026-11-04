@@ -296,6 +296,7 @@ def test_agent_traffic_walks_active_sites_until_a_short_page(
     assert result.raised is None
     assert result.rows == [{**row, "brand_id": 11, "site_id": SITE_B} for row in rows]
     assert result.paths == ["/v1/brands", "/v1/11/sites", *[f"/v1/11/sites/{SITE_B}/agent-traffic"] * 2]
+    assert query(result, 1) == {}
     start = expected_start or (today - timedelta(days=365)).isoformat()
     for index, offset in ((2, "0"), (3, "2")):
         assert query(result, index) == {

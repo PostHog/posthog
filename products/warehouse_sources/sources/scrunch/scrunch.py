@@ -138,6 +138,8 @@ def _middle_resource(parent: FanoutParent, window: _DateWindow) -> EndpointResou
     endpoint: Endpoint = {"path": parent.path, "params": params}
     middle: EndpointResource = {"name": parent.name, "include_from_parent": ["id"], "endpoint": endpoint}
     if parent.name == "sites":
+        # The sites list takes no paging params and returns every site at once.
+        endpoint["paginator"] = "single_page"
         # Other sites of the brand return 404 on the agent traffic route.
         middle["data_map"] = lambda site: site if site.get("agent_traffic_active") else []
     elif parent.name == "sitemap_pages":
