@@ -290,7 +290,9 @@ jobs:
               working-directory: .
               run: |
                   # Use docker to clean up files created by containers (from repo root, not rust/)
-                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
+                  if [ -d "data" ]; then
+                      docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
+                  fi
               continue-on-error: true
 
             - name: Log in to Docker Hub
@@ -316,13 +318,6 @@ jobs:
                   ../bin/ci-wait-for-docker wait seaweedfs objectstorage
 
                   echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
-
-            - name: Dump Kafka logs on failure
-              if: failure()
-              run: |
-                  docker ps -a || true
-                  docker logs --tail=500 rust-kafka-1 || true
-                  docker inspect rust-kafka-1 || true
 
             # please keep the tag version here in sync with rust-version in rust/*/Cargo.toml
             - name: Install rust
@@ -495,6 +490,15 @@ jobs:
                       echo "::endgroup::"
                   done
                   exit $overall_rc
+
+            - name: Dump Kafka logs on failure
+              if: ${{ !cancelled() && (failure() || steps.run-tests.outcome == 'failure') }}
+              env:
+                  COMPOSE_FILE: ../docker-compose.dev.yml:../docker-compose.profiles.yml
+              run: |
+                  docker ps -a || true
+                  docker compose logs --no-color --tail=500 kafka || true
+                  docker compose ps -a -q kafka | xargs -r docker inspect || true
 
             # Doctests fail the job directly: they emit no JUnit, so the quarantine gate
             # below can neither see nor mask them.
