@@ -17525,7 +17525,8 @@
                 "TwoDimensionalHeatmap",
                 "BoxPlot",
                 "SlopeGraph",
-                "ScatterPlot"
+                "ScatterPlot",
+                "BreakdownIcicle"
             ],
             "type": "string"
         },

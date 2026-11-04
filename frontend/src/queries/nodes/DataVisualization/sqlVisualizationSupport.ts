@@ -27,6 +27,7 @@ const VISUALIZATION_SUPPORT: Record<ChartDisplayType, VisualizationSupport> = {
     [ChartDisplayType.CalendarHeatmap]: 'manual',
     [ChartDisplayType.BoxPlot]: 'manual',
     [ChartDisplayType.SlopeGraph]: 'manual',
+    [ChartDisplayType.BreakdownIcicle]: 'none',
 }
 
 const MANUAL_SETUP_REASON = 'Open the insight to pick which column goes on each axis'

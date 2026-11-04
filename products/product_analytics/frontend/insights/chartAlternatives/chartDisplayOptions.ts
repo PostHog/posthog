@@ -10,6 +10,7 @@ export type ChartDisplayIcon =
     | 'cumulative'
     | 'donut'
     | 'horizontalBar'
+    | 'icicle'
     | 'line'
     | 'metric'
     | 'number'
@@ -34,6 +35,7 @@ export interface ChartDisplayOptionGroup {
 
 export interface ChartDisplayOptionEligibility {
     boxPlotMissingProperty: boolean
+    hasBreakdownIcicle?: boolean
     hasMetricInsight: boolean
     hasSingleSeriesOutput: boolean
     hasTrendsFormula: boolean
@@ -89,6 +91,7 @@ export function applyChartDisplay(query: TrendsQuery, display: ChartDisplayType)
 
 export function getChartDisplayOptions({
     boxPlotMissingProperty,
+    hasBreakdownIcicle = false,
     hasMetricInsight,
     hasSingleSeriesOutput,
     hasTrendsFormula,
@@ -113,6 +116,10 @@ export function getChartDisplayOptions({
     const proportionBarDisabledReason =
         trendsOnlyDisabledReason ||
         (isComparing ? "This type doesn't support comparing to a previous period." : undefined)
+    // The icicle nests each breakdown inside the one before it, so it needs at least one to nest.
+    const icicleDisabledReason =
+        proportionBarDisabledReason ||
+        (breakdownProps.length === 0 ? 'Add a breakdown to use an icicle chart.' : undefined)
 
     return [
         {
@@ -246,6 +253,17 @@ export function getChartDisplayOptions({
                               ? "This type isn't available, because there's a breakdown other than by Country Code or Country Name properties."
                               : undefined),
                 },
+                ...(hasBreakdownIcicle
+                    ? [
+                          {
+                              display: ChartDisplayType.BreakdownIcicle,
+                              icon: 'icicle' as const,
+                              label: 'Icicle chart',
+                              description: 'Totals nested by each breakdown in turn, with the overall total on top.',
+                              disabledReason: icicleDisabledReason,
+                          },
+                      ]
+                    : []),
                 {
                     display: ChartDisplayType.CalendarHeatmap,
                     icon: 'calendarHeatmap',

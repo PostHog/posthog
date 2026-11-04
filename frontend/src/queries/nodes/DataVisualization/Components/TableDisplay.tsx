@@ -40,6 +40,7 @@ const DISPLAY_TYPE_LABELS: Record<ChartDisplayType, string> = {
     [ChartDisplayType.BoxPlot]: 'Box plot',
     [ChartDisplayType.SlopeGraph]: 'Slope graph',
     [ChartDisplayType.ScatterPlot]: 'Scatter plot',
+    [ChartDisplayType.BreakdownIcicle]: 'Icicle chart',
 }
 
 export function renderDisplayTypeLabel(displayType: ChartDisplayType, autoVisualizationType: ChartDisplayType): string {

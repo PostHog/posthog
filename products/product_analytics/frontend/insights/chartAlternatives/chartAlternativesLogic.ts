@@ -246,6 +246,7 @@ export const chartAlternativesLogic = kea<chartAlternativesLogicType>([
                     breakdowns: trendsSource?.breakdownFilter?.breakdowns,
                     boxPlotMissingProperty: isBoxPlotMissingProperty(series as TrendsQuery['series']),
                     hasMetricInsight: !!featureFlags[FEATURE_FLAGS.METRIC_INSIGHT],
+                    hasBreakdownIcicle: !!featureFlags[FEATURE_FLAGS.TRENDS_BREAKDOWN_ICICLE],
                     isComparing: !!trendsSource?.compareFilter?.compare,
                 }),
         ],

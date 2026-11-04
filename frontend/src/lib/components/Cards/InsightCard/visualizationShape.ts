@@ -42,6 +42,7 @@ export function visualizationShape(query: InsightModel['query']): VisualizationS
         case ChartDisplayType.ActionsBarValue:
         case ChartDisplayType.ActionsProportionBar:
         case ChartDisplayType.BoxPlot:
+        case ChartDisplayType.BreakdownIcicle:
             return 'bar'
         case ChartDisplayType.ActionsPie:
             return 'pie'

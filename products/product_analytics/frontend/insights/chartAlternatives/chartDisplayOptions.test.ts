@@ -91,6 +91,18 @@ describe('getChartDisplayOptions', () => {
             ChartDisplayType.ActionsProportionBar,
             "This type doesn't support comparing to a previous period.",
         ],
+        [
+            'no breakdown to nest',
+            { ...RENDERS_EVERYTHING, hasBreakdownIcicle: true },
+            ChartDisplayType.BreakdownIcicle,
+            'Add a breakdown to use an icicle chart.',
+        ],
+        [
+            'nothing in the way of an icicle',
+            { ...RENDERS_EVERYTHING, hasBreakdownIcicle: true, breakdowns: [{ property: '$browser' }] },
+            ChartDisplayType.BreakdownIcicle,
+            undefined,
+        ],
     ])('says why %s disables a chart type', (_case, eligibility, display, disabledReason) => {
         const reasons = disabledReasons(eligibility)
 
@@ -103,5 +115,14 @@ describe('getChartDisplayOptions', () => {
         [false, false],
     ])('offers Metric when hasMetricInsight is %s: %s', (hasMetricInsight, offered) => {
         expect(disabledReasons({ ...RENDERS_EVERYTHING, hasMetricInsight }).has(ChartDisplayType.Metric)).toBe(offered)
+    })
+
+    it.each([
+        [true, true],
+        [false, false],
+    ])('offers the icicle chart when hasBreakdownIcicle is %s: %s', (hasBreakdownIcicle, offered) => {
+        expect(
+            disabledReasons({ ...RENDERS_EVERYTHING, hasBreakdownIcicle }).has(ChartDisplayType.BreakdownIcicle)
+        ).toBe(offered)
     })
 })

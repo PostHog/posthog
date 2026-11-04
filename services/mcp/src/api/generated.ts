@@ -5711,6 +5711,7 @@ export namespace Schemas {
       BoxPlot: 'BoxPlot',
       SlopeGraph: 'SlopeGraph',
       ScatterPlot: 'ScatterPlot',
+      BreakdownIcicle: 'BreakdownIcicle',
     } as const;
 
     export interface TrendsFormulaNode {

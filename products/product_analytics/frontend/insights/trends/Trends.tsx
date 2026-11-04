@@ -21,6 +21,7 @@ import { BoxPlotChart } from 'products/product_analytics/frontend/insights/trend
 import { TrendsCalendarHeatMap } from 'products/product_analytics/frontend/insights/trends/CalendarHeatMap'
 import { MetricCard } from 'products/product_analytics/frontend/insights/trends/Metric/Metric'
 import { TrendsBarChart } from 'products/product_analytics/frontend/insights/trends/TrendsBarChart/TrendsBarChart'
+import { TrendsBreakdownIcicle } from 'products/product_analytics/frontend/insights/trends/TrendsBreakdownIcicle/TrendsBreakdownIcicle'
 import { TrendsLifecycleChart } from 'products/product_analytics/frontend/insights/trends/TrendsLifecycleChart/TrendsLifecycleChart'
 import { TrendsLineChart } from 'products/product_analytics/frontend/insights/trends/TrendsLineChart/TrendsLineChart'
 import { TrendsPieChart } from 'products/product_analytics/frontend/insights/trends/TrendsPieChart/TrendsPieChart'
@@ -137,6 +138,9 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
         }
         if (display === ChartDisplayType.SlopeGraph) {
             return <TrendsSlopeChart context={context} />
+        }
+        if (display === ChartDisplayType.BreakdownIcicle) {
+            return <TrendsBreakdownIcicle context={context} />
         }
         // Line/area/cumulative displays land here, and so does any display value without a trends
         // renderer (e.g. Auto, reachable via the API) — the default chart beats a blank tile.

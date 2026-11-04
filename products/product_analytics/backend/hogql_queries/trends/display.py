@@ -24,6 +24,7 @@ class TrendsDisplay:
             or self.display_type == ChartDisplayType.WORLD_MAP
             or self.display_type == ChartDisplayType.CALENDAR_HEATMAP
             or self.display_type == ChartDisplayType.ACTIONS_TABLE
+            or self.display_type == ChartDisplayType.BREAKDOWN_ICICLE
         )
 
     def wrap_inner_query(self, inner_query: ast.SelectQuery, breakdown_enabled: bool) -> ast.SelectQuery:
