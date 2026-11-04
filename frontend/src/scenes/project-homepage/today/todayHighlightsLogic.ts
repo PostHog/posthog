@@ -56,7 +56,8 @@ function pulseLoadOutcome(
     status: HighlightsApi['status'] | undefined,
     failed: boolean,
     unavailable: boolean,
-    numberCount: number
+    numberCount: number,
+    pinsSettled: boolean
 ): 'request_error' | 'unavailable' | 'failed' | 'ready' | 'empty' | null {
     if (failed) {
         return 'request_error'
@@ -67,7 +68,13 @@ function pulseLoadOutcome(
     if (status === 'failed') {
         return 'failed'
     }
-    return status === 'ready' ? (numberCount > 0 ? 'ready' : 'empty') : null
+    if (status !== 'ready') {
+        return null
+    }
+    if (numberCount > 0) {
+        return 'ready'
+    }
+    return pinsSettled ? 'empty' : null
 }
 
 function capturePulseLoad(
@@ -774,9 +781,10 @@ export const todayHighlightsLogic = kea<todayHighlightsLogicType>([
                 values.highlights?.status,
                 values.highlightsFailed,
                 cache.highlightsUnavailable === true,
-                numberCount
+                numberCount,
+                values.pulsePinsSettled
             )
-            if (outcome && (outcome !== 'empty' || values.pulsePinsSettled)) {
+            if (outcome) {
                 load.finished = true
                 cache.disposables.dispose('pulseLoadSlow')
                 cache.disposables.dispose('pulseLoadVisibility')

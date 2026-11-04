@@ -193,3 +193,20 @@ class TestPinnedNumbers(BaseTest):
             ),
             (resolved, failed),
         )
+
+    def test_a_pin_after_the_deadline_is_skipped_and_marks_the_result_failed(self) -> None:
+        with (
+            patch.object(pinned, "PIN_SECONDS", 0),
+            patch.object(routine, "get_insight_series") as series,
+        ):
+            result = pinned.resolve_pins(
+                ResolvePinsInputs(
+                    team_id=self.team.id,
+                    user_id=self.user.id,
+                    local_day=TODAY.isoformat(),
+                    scopes=None,
+                    pins=[PinnedNumber("insight:ready")],
+                )
+            )
+
+        self.assertEqual((METRICS.validate_json(result.found), result.failed, series.called), ([], True, False))
