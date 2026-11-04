@@ -28,11 +28,12 @@ from products.tasks.backend.logic.services.staged_artifacts import (
     build_task_artifact_entry,
     build_task_staged_artifact_cache_key,
 )
-from products.tasks.backend.logic.services.warm import WarmResult
+from products.tasks.backend.logic.services.warm import ActiveSessionCaps, SandboxWarmer, WarmResult
 from products.tasks.backend.models import (
     TASK_OWNERSHIP_VERSION_STATE_KEY,
     SandboxCustomImage,
     SandboxEnvironment,
+    SandboxSession,
     Task,
     TaskRun,
 )
@@ -1549,6 +1550,61 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         m_signal.assert_not_called()
         run.refresh_from_db()
         assert run.state.get("await_user_message") is True
+
+    def test_create_endpoint_refuses_a_warm_reuse_at_the_active_session_cap(self):
+        _warm_task, run = self._warm_run()
+        busy_task = Task.objects.create(
+            team=self.team,
+            title="",
+            description="",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            created_by=self.user,
+        )
+        busy_run = TaskRun.objects.create(task=busy_task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        now = django_timezone.now()
+        SandboxSession.objects.unscoped().create(
+            team=self.team,
+            task_run=busy_run,
+            sandbox_id="sb-busy",
+            cpu_cores=4.0,
+            memory_gb=16.0,
+            ttl_seconds=3600,
+            ttl_expires_at=now + timedelta(hours=1),
+            user_attributed_at=now,
+            origin_product=busy_task.origin_product,
+        )
+
+        with (
+            patch.dict(
+                SandboxWarmer.ORIGIN_ACTIVE_SESSION_CAPS,
+                {Task.OriginProduct.USER_CREATED: ActiveSessionCaps(per_user=1, per_org=10)},
+            ),
+            patch(f"{FACADE}.signal_task_run_user_message", return_value=True) as m_signal,
+        ):
+            response = self.client.post(
+                "/api/projects/@current/tasks/",
+                {
+                    "description": "fix the bug",
+                    "repository": "posthog/posthog",
+                    "github_integration": self.integration.id,
+                    "branch": "main",
+                },
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        self.assertEqual(
+            response.json(),
+            {
+                "detail": "You already have 1 cloud sandboxes running. "
+                "Wait for one to finish or stop one, then try again.",
+                "code": "active_session_cap",
+            },
+        )
+        m_signal.assert_not_called()
+        run.refresh_from_db()
+        assert run.state.get("await_user_message") is True
+        assert Task.objects.filter(team=self.team).count() == 2
 
     def test_create_endpoint_without_warm_hints_is_not_regated(self):
         # Only a create that can activate a sandbox takes the run-start gates; a plain create still

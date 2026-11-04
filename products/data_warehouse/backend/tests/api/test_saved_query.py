@@ -3176,6 +3176,160 @@ class TestSavedQueryRun(APIBaseTest):
         mock_client.start_workflow.assert_called_once()
         self.assertEqual(mock_client.start_workflow.call_args[0][0], "data-modeling-materialize-view")
 
+    @parameterized.expand(
+        [
+            ("completed_run_5_minutes_ago", [(DataModelingJob.Status.COMPLETED, 5)], None, 429),
+            ("running_run_5_minutes_ago", [(DataModelingJob.Status.RUNNING, 5)], None, 429),
+            ("completed_run_20_minutes_ago", [(DataModelingJob.Status.COMPLETED, 20)], None, 200),
+            ("failed_run_5_minutes_ago", [(DataModelingJob.Status.FAILED, 5)], None, 200),
+            ("cancelled_run_5_minutes_ago", [(DataModelingJob.Status.CANCELLED, 5)], None, 200),
+            ("skipped_run_5_minutes_ago", [(DataModelingJob.Status.SKIPPED, 5)], None, 200),
+            (
+                "skipped_run_after_a_completed_run",
+                [(DataModelingJob.Status.SKIPPED, 5), (DataModelingJob.Status.COMPLETED, 10)],
+                None,
+                429,
+            ),
+            (
+                "managed_warehouse_run_5_minutes_ago",
+                [(DataModelingJob.Status.COMPLETED, 5, DataModelingJobEngine.MANAGED_WAREHOUSE)],
+                None,
+                200,
+            ),
+            (
+                "failed_run_after_a_completed_run",
+                [(DataModelingJob.Status.COMPLETED, 10), (DataModelingJob.Status.FAILED, 5)],
+                None,
+                200,
+            ),
+            ("query_edited_after_the_run", [(DataModelingJob.Status.COMPLETED, 5)], 2, 200),
+            ("query_edited_while_the_run_ran", [(DataModelingJob.Status.COMPLETED, 10)], 8, 200),
+        ]
+    )
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_run_is_refused_soon_after_the_last_run(
+        self, _name, runs, query_edited_minutes_ago, expected_status, mock_sync_connect
+    ):
+        mock_client = AsyncMock()
+        mock_sync_connect.return_value = mock_client
+        now = timezone.now()
+        saved_query, _dag, _node = self._make_saved_query_with_node("floored_view")
+        if query_edited_minutes_ago is not None:
+            saved_query.query_updated_at = now - timedelta(minutes=query_edited_minutes_ago)
+            saved_query.save(update_fields=["query_updated_at"])
+        for job_status, started_minutes_ago, *engine in runs:
+            job = DataModelingJob.objects.create(
+                team=self.team,
+                saved_query=saved_query,
+                status=job_status,
+                engine=engine[0] if engine else DataModelingJobEngine.CLICKHOUSE,
+                last_run_at=now,
+            )
+            DataModelingJob.objects.filter(id=job.id).update(created_at=now - timedelta(minutes=started_minutes_ago))
+
+        with time_machine.travel(now, tick=False):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/run/",
+            )
+
+        self.assertEqual(response.status_code, expected_status, response.content)
+        if expected_status == 429:
+            self.assertEqual(response.headers["Retry-After"], str((15 - runs[-1][1]) * 60))
+            mock_client.start_workflow.assert_not_called()
+        else:
+            mock_client.start_workflow.assert_called_once()
+
+    @parameterized.expand(
+        [
+            (
+                "every_built_view_ran_recently",
+                10,
+                DataModelingJob.Status.COMPLETED,
+                NodeType.MAT_VIEW,
+                False,
+                429,
+                "300",
+            ),
+            ("other_view_failed_recently", 3, DataModelingJob.Status.FAILED, NodeType.MAT_VIEW, False, 429, "600"),
+            (
+                "other_view_cancelled_recently",
+                3,
+                DataModelingJob.Status.CANCELLED,
+                NodeType.MAT_VIEW,
+                False,
+                429,
+                "600",
+            ),
+            ("other_view_skipped_recently", 3, DataModelingJob.Status.SKIPPED, NodeType.MAT_VIEW, False, 429, "600"),
+            (
+                "one_built_view_ran_before_the_limit",
+                20,
+                DataModelingJob.Status.COMPLETED,
+                NodeType.MAT_VIEW,
+                False,
+                200,
+                None,
+            ),
+            ("one_built_view_never_ran", None, None, NodeType.MAT_VIEW, False, 200, None),
+            ("plain_view_never_ran", None, None, NodeType.VIEW, False, 429, "600"),
+            ("deleted_view_never_ran", None, None, NodeType.MAT_VIEW, True, 429, "600"),
+        ]
+    )
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_run_with_direction_is_refused_only_when_every_built_view_ran_recently(
+        self,
+        _name,
+        related_started_minutes_ago,
+        related_status,
+        related_type,
+        related_deleted,
+        expected_status,
+        expected_retry_after,
+        mock_sync_connect,
+    ):
+        mock_client = AsyncMock()
+        mock_sync_connect.return_value = mock_client
+        now = timezone.now()
+        saved_query, dag, node = self._make_saved_query_with_node("floored_view")
+        node.type = NodeType.MAT_VIEW
+        mark_node_suspended(node, engine="clickhouse", reason="boom", job_id="job-1")
+        node.save()
+        related_saved_query = DataWarehouseSavedQuery.objects.create(
+            name="floored_related",
+            team=self.team,
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+            deleted=related_deleted,
+        )
+        related_node = Node.objects.create(team=self.team, dag=dag, saved_query=related_saved_query, type=related_type)
+        Edge.objects.create(team=self.team, dag=dag, source=related_node, target=node)
+        runs = [(saved_query, 5, DataModelingJob.Status.COMPLETED)]
+        if related_started_minutes_ago is not None:
+            runs.append((related_saved_query, related_started_minutes_ago, related_status))
+        for run_saved_query, started_minutes_ago, run_status in runs:
+            job = DataModelingJob.objects.create(
+                team=self.team,
+                saved_query=run_saved_query,
+                status=run_status,
+                engine=DataModelingJobEngine.CLICKHOUSE,
+            )
+            DataModelingJob.objects.filter(id=job.id).update(created_at=now - timedelta(minutes=started_minutes_ago))
+
+        with time_machine.travel(now, tick=False):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/run/",
+                {"direction": "upstream"},
+            )
+
+        self.assertEqual(response.status_code, expected_status, response.content)
+        node.refresh_from_db()
+        if expected_status == 429:
+            self.assertEqual(response.headers["Retry-After"], expected_retry_after)
+            mock_client.start_workflow.assert_not_called()
+            self.assertIn("clickhouse", suspension_state(node))
+        else:
+            mock_client.start_workflow.assert_called_once()
+            self.assertNotIn("clickhouse", suspension_state(node))
+
     @parameterized.expand([("upstream",), ("downstream",)])
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
     def test_run_with_dependencies(self, direction, mock_sync_connect):
@@ -3223,6 +3377,12 @@ class TestSavedQueryRun(APIBaseTest):
         Edge.objects.create(team=self.team, dag=dag, source=related_node, target=node)
         mark_node_suspended(node, engine=DataModelingJobEngine.MANAGED_WAREHOUSE, reason="boom", job_id="job-1")
         node.save()
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=saved_query,
+            status=DataModelingJob.Status.COMPLETED,
+            engine=DataModelingJobEngine.CLICKHOUSE,
+        )
         mock_eligible.return_value = True
         mock_client = self._trino_client()
         mock_sync_connect.return_value = mock_client

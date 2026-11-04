@@ -21,7 +21,7 @@ from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, Projec
 from products.messaging.backend.facade.transactional_email import EmailDeliveryStatus, EmailStatus, get_email_status
 from products.messaging.backend.presentation.views.message_templates import (
     TRANSACTIONAL_EMAIL_STATUS_SCOPE,
-    require_transactional_email_api,
+    require_email_status_read,
     transactional_email_authorized_by,
 )
 
@@ -117,7 +117,7 @@ class MessagingEmailsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         # server that sent the email, so only its project secret API key can read it.
         if not is_authenticated_via_project_secret_api_key(request):
             raise exceptions.NotAuthenticated()
-        require_transactional_email_api(self.team)
+        require_email_status_read(self.team)
         email_status = self._email_status(pk)
         self._report_status_read(request, email_status)
         if email_status is None:
