@@ -11,7 +11,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
-import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import { DashboardLoadAction, dashboardLogic, placeTilesInGroup } from 'scenes/dashboard/dashboardLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
@@ -400,7 +400,16 @@ export const addSavedInsightsModalLogic = kea<addSavedInsightsModalLogicType>([
                     ],
                 })
                 // A tile that was already on the dashboard stays in its own group.
-                mountedDashboard?.actions.placeAddedTiles(tileIdsBefore.has(tile.id) ? [] : [tile.id], groupKey)
+                await placeTilesInGroup(
+                    values.currentTeamId,
+                    dashboardId,
+                    tileIdsBefore.has(tile.id) ? [] : [tile.id],
+                    groupKey
+                )
+                // The dashboard can close while the requests run, so look it up again.
+                dashboardLogic
+                    .findMounted({ id: dashboardId })
+                    ?.actions.loadDashboard({ action: DashboardLoadAction.Update })
                 lemonToast.success('Insight added to dashboard')
             } catch (e) {
                 actions.dashboardUpdateFailed(insight.id)

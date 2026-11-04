@@ -509,6 +509,9 @@ describe('dashboardLogic', () => {
             expect(logic.values.dashboard?.customization?.groups).toEqual(groups)
             // The API replaces every group on write, so the others go back unchanged.
             expect(groups.target).toEqual({ collapsed: true })
+            // The save holds the logic mounted until it answers, so let it finish inside this test.
+            await expectLogic(dashboardsModel).toFinishAllListeners()
+            await expectLogic(logic).toFinishAllListeners()
         })
 
         it.each([
@@ -533,6 +536,9 @@ describe('dashboardLogic', () => {
             expect(logic.values.renamingTileGroupKey).toEqual(added)
             expect(logic.values.activeTileGroupTab).toEqual(opensTab ? added : null)
             expect(logic.values.scrollToBottomSignal).toEqual(opensTab ? scrollSignal : scrollSignal + 1)
+            // The save holds the logic mounted until it answers, so let it finish inside this test.
+            await expectLogic(dashboardsModel).toFinishAllListeners()
+            await expectLogic(logic).toFinishAllListeners()
         })
 
         it('creates a tile from a group menu in that group, in the same request', async () => {
@@ -546,7 +552,10 @@ describe('dashboardLogic', () => {
             expect(update).toHaveBeenCalledWith({ id: 5, tiles: [{ text: { body: 'New' }, group_key: 'other' }] })
         })
 
-        it('sends a rename made while the new group saves after that save', async () => {
+        it.each([
+            { name: 'while the dashboard stays open', leaveDuringSave: false },
+            { name: 'after the dashboard closes', leaveDuringSave: true },
+        ])('sends a rename made while the new group saves after that save, $name', async ({ leaveDuringSave }) => {
             groupTiles({ target: { collapsed: false } })
             await mountDashboard()
             const update = jest.spyOn(logic.actions, 'saveTileGroups')
@@ -555,6 +564,9 @@ describe('dashboardLogic', () => {
             const added = logic.values.renamingTileGroupKey!
             logic.actions.renameTileGroup(added, 'Named')
             expect(update).toHaveBeenCalledTimes(1)
+            if (leaveDuringSave) {
+                logic.unmount()
+            }
             await expectLogic(dashboardsModel).toFinishAllListeners()
             await expectLogic(logic).toFinishAllListeners()
 
@@ -563,19 +575,27 @@ describe('dashboardLogic', () => {
                 target: { collapsed: false },
                 [added]: { title: 'Named' },
             })
+            if (leaveDuringSave) {
+                logic.mount()
+            }
         })
 
-        it('reloads the dashboard when a group change fails to save', async () => {
+        it('puts back the saved groups and keeps a staged layout when a group change fails to save', async () => {
             groupTiles({ target: { collapsed: false } })
             await mountDashboard()
             useMocks({ patch: { '/api/environments/:team_id/dashboards/:id/': () => [500, {}] } })
             const errorToast = jest.spyOn(lemonToast, 'error').mockImplementation(() => '')
-            const load = jest.spyOn(logic.actions, 'loadDashboard')
+            const staged = {
+                sm: (logic.values.layouts.sm ?? []).map((item, index) => (index === 0 ? { ...item, w: 6 } : item)),
+            }
+            logic.actions.stageLayouts(staged)
 
             logic.actions.renameTileGroup('target', 'Unsaved')
             await expectLogic(dashboardsModel).toFinishAllListeners()
+            await expectLogic(logic).toFinishAllListeners()
 
-            expect(load).toHaveBeenCalledWith({ action: DashboardLoadAction.Update })
+            expect(logic.values.dashboard?.customization?.groups).toEqual({ target: { collapsed: false } })
+            expect(logic.values.draftLayouts).toEqual(staged)
             expect(errorToast).toHaveBeenCalledWith("Couldn't save the group change. Try again.")
         })
 
