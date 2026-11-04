@@ -11,6 +11,7 @@ import type { Context } from '@/tools/types'
  * list-to-detail flow usable — not the size the payload happens to be today.
  */
 const TOKEN_BUDGET = 10_000
+const UPDATE_TOKEN_BUDGET = 3_000
 
 const TILE_COUNT = 42
 
@@ -379,5 +380,39 @@ describe('dashboard-get response budget', () => {
         const shaped = await shapeDashboard({ expand: [QUERY_PATH] })
 
         expect(JSON.stringify(shaped)).not.toContain(':null')
+    })
+})
+
+describe('dashboard-update response budget', () => {
+    const tool = GENERATED_TOOLS['dashboard-update']!()
+
+    async function shapeUpdate(response: Record<string, unknown>): Promise<Record<string, any>> {
+        return (await tool.handler(
+            createMockContext(response),
+            tool.schema.parse({ id: 42, tiles: [{ id: 1000, layouts: { sm: { x: 0, y: 0, w: 8, h: 5 } } }] })
+        )) as Record<string, any>
+    }
+
+    it(`keeps a ${TILE_COUNT}-tile dashboard within the write confirmation budget`, async () => {
+        const shaped = await shapeUpdate(createDashboardResponse())
+
+        expect(estimateTokens(formatResponse(shaped))).toBeLessThan(UPDATE_TOKEN_BUDGET)
+    })
+
+    it('returns what each tile holds and where it sits, without the content dashboard-get returns', async () => {
+        const tiles = (await shapeUpdate(createMixedDashboardResponse())).tiles
+
+        expect(tiles[0]).toEqual({
+            id: 1000,
+            layouts: { sm: { h: 5, i: '1000', w: 6, x: 0, y: 0, minH: 2, minW: 2 } },
+            filters_overrides: {},
+            insight: { id: 2000, short_id: 'short0', name: 'Widget metric 0' },
+        })
+        expect(tiles[1].text).toEqual({ id: 300 })
+        expect(tiles[2].widget).toEqual({
+            id: '00000000-0000-4000-8000-000000000abc',
+            widget_type: 'error_tracking_list',
+            name: 'Widget errors',
+        })
     })
 })

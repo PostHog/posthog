@@ -295,6 +295,12 @@ tools:
                 - live_events_token
                 - heatmaps_screenshot_secret
                 - default_modifiers
+                - available_setup_task_ids
+                - onboarding_tasks
+                - live_events_columns
+                - product_intents.*.created_at
+                - product_intents.*.updated_at
+            strip_nulls: true
     project-settings-update:
         operation: organizations_projects_partial_update
         enabled: true

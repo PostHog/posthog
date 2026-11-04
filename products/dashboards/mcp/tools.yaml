@@ -470,9 +470,11 @@ tools:
             tiles. Put tiles that viewers check less often in a group that starts closed. To mark a tile, set its
             `badge`: `winner` shows a crown, for example on the best tile in a group, and `cheeky-hog` shows a hedgehog
             on hover. Set `badge` or `group_key` to null to remove it. To add new widget tiles to this dashboard, use
-            dashboard-widgets-batch-add instead. The returned tiles omit insight results to save context — use
-            dashboard-insights-run to fetch the actual data for each insight. After substantial visual changes, check
-            the final saved dashboard once if browser access is already available. Skip browser checks for small edits.
+            dashboard-widgets-batch-add instead. The response confirms the write with the dashboard settings and, per
+            tile, its id, layouts, group_key, badge, and what it holds: the insight id, short_id and name, the text id,
+            or the widget id, type and name. Call dashboard-get for tile content such as insight descriptions and text
+            bodies, and dashboard-insights-run for insight data. After substantial visual changes, check the final saved
+            dashboard once if browser access is already available. Skip browser checks for small edits.
         exclude_params:
             - creation_mode
             - is_shared
@@ -493,68 +495,31 @@ tools:
                     its grid position and size. To change a widget tile's config, name, or description, use
                     dashboard-widgets-batch-update.
         response:
-            exclude:
-                - user_access_level
-                - creation_mode
-                - deleted
-                - breakdown_colors
-                - data_color_theme_id
-                - quick_filter_ids
-                - tiles.*.color
-                - tiles.*.transparent_background
-                - tiles.*.show_description
-                - tiles.*.button_tile
-                - tiles.*.insight.result
-                - tiles.*.insight.hasMore
-                - tiles.*.insight.columns
-                - tiles.*.insight.hogql
-                - tiles.*.insight.types
-                - tiles.*.insight.query_status
-                - tiles.*.insight.cache_target_age
-                - tiles.*.insight.next_allowed_client_refresh
-                - tiles.*.insight.filters_hash
-                - tiles.*.insight.dashboards
-                - tiles.*.insight.dashboard_tiles
-                - tiles.*.insight.user_access_level
-                - tiles.*.insight.filters
-                - tiles.*.insight.is_sample
-                - tiles.*.insight.order
-                - tiles.*.insight.deleted
-                - tiles.*.insight.alerts
-                - tiles.*.insight.timezone
-                - tiles.*.insight.resolved_date_range
-                - tiles.*.insight.resolved_compare_date_range
-                - tiles.*.insight.filter_override_context
-                - created_by.uuid
-                - created_by.distinct_id
-                - created_by.is_email_verified
-                - created_by.hedgehog_config
-                - tiles.*.insight.created_by.uuid
-                - tiles.*.insight.created_by.distinct_id
-                - tiles.*.insight.created_by.is_email_verified
-                - tiles.*.insight.created_by.hedgehog_config
-                - tiles.*.insight.last_modified_by.uuid
-                - tiles.*.insight.last_modified_by.distinct_id
-                - tiles.*.insight.last_modified_by.is_email_verified
-                - tiles.*.insight.last_modified_by.hedgehog_config
-                - tiles.*.text.dashboard_tiles
-                - tiles.*.text.created_by.uuid
-                - tiles.*.text.created_by.distinct_id
-                - tiles.*.text.created_by.is_email_verified
-                - tiles.*.text.created_by.hedgehog_config
-                - tiles.*.text.last_modified_by.uuid
-                - tiles.*.text.last_modified_by.distinct_id
-                - tiles.*.text.last_modified_by.is_email_verified
-                - tiles.*.text.last_modified_by.hedgehog_config
-                - tiles.*.widget.dashboard_tiles
-                - tiles.*.widget.created_by.uuid
-                - tiles.*.widget.created_by.distinct_id
-                - tiles.*.widget.created_by.is_email_verified
-                - tiles.*.widget.created_by.hedgehog_config
-                - tiles.*.widget.last_modified_by.uuid
-                - tiles.*.widget.last_modified_by.distinct_id
-                - tiles.*.widget.last_modified_by.is_email_verified
-                - tiles.*.widget.last_modified_by.hedgehog_config
+            include:
+                - id
+                - name
+                - description
+                - pinned
+                - tags
+                - filters
+                - variables
+                - grid_spacing
+                - layout_compaction
+                - group_display
+                - groups
+                - tiles.*.id
+                - tiles.*.layouts
+                - tiles.*.group_key
+                - tiles.*.badge
+                - tiles.*.filters_overrides
+                - tiles.*.insight.id
+                - tiles.*.insight.short_id
+                - tiles.*.insight.name
+                - tiles.*.insight.derived_name
+                - tiles.*.text.id
+                - tiles.*.widget.id
+                - tiles.*.widget.widget_type
+                - tiles.*.widget.name
             strip_nulls: true
             informational_wrapper:
                 tag: dashboard-reference

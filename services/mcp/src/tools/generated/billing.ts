@@ -98,6 +98,11 @@ const billingOverviewGet = (): ToolBase<
             'products.*.addons.*.trial',
             'products.*.addons.*.inclusion_only',
             'products.*.addons.*.legacy_product',
+            'products.*.description',
+            'products.*.addons.*.description',
+            'available_product_features.*.description',
+            'available_product_features.*.note',
+            'available_product_features.*.is_plan_default',
         ]) as typeof result
         return filtered
     },

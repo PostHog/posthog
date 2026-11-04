@@ -276,9 +276,20 @@ tools:
             'schedules' (read-only here). For a batch workflow, check status=='active' plus an active entry in
             'schedules' to confirm it will actually fire. On an active workflow, 'draft' holds staged content changes
             awaiting workflows-publish (null when nothing is staged) — the live config in actions/edges is what's
-            running.
+            running. Step inputs leave out the bytecode PostHog compiles from them. An email step leaves out its editor
+            `design` unless you pass `expand` with its path; you need it to address blocks by id in
+            workflows-patch-action-email.
         ui_app: workflow
         hooks: workflows/broadcastLinkHooks
+        response:
+            exclude:
+                - actions.*.config.inputs.*.bytecode
+                - actions.*.config.inputs.*.transpiled
+                - draft.actions.*.config.inputs.*.bytecode
+                - draft.actions.*.config.inputs.*.transpiled
+            expandable:
+                - actions.*.config.inputs.email.value.design
+                - draft.actions.*.config.inputs.email.value.design
     workflows-get-invocation:
         operation: hog_flows_invocation_result_retrieve
         enabled: true
@@ -494,7 +505,8 @@ tools:
         description: >
             Surgically edit the email inside one function_email step - the fastest path for copy tweaks and design
             changes on a workflow email. Use operations (the same design ops as workflows-patch-email-template,
-            addressing blocks by id from the step's config.inputs.email.value.design) to edit the design, and
+            addressing blocks by id from the step's config.inputs.email.value.design, which workflows-get returns when
+            you pass that path in `expand`) to edit the design, and
             email_patch to change subject, preheader, text, or recipients. After design ops the HTML is re-rendered
             server-side, so the sent email always matches the design. Edits apply atomically: an invalid batch changes
             nothing. On an active workflow, edits stage a draft (composing with any staged graph edits) and nothing
