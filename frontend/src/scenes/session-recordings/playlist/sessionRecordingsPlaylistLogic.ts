@@ -170,6 +170,14 @@ export const defaultRecordingDurationFilter: RecordingDurationFilter = {
     operator: PropertyOperator.GreaterThan,
 }
 
+/**
+ * Whether the filters still carry the default duration filter. The list applies it without the
+ * viewer choosing it, so a list it empties can be hiding recordings the viewer never asked to
+ * exclude — the case the empty state's activity-filter row answers.
+ */
+export const hasDefaultRecordingDurationFilter = (filters: RecordingUniversalFilters): boolean =>
+    filters.duration.some((durationFilter) => objectsEqual(durationFilter, defaultRecordingDurationFilter))
+
 export const MAX_SELECTED_RECORDINGS = 20
 export const DELETE_CONFIRMATION_TEXT = 'delete'
 
@@ -637,6 +645,7 @@ export interface sessionRecordingsPlaylistLogicValues {
     eventsHaveSessionIdLoading: boolean
     exposureSkipExperimentId: number | undefined
     filters: RecordingUniversalFilters
+    hasMoreRecordingsHiddenByActivityFilter: boolean
     hasNext: boolean
     hiddenRecordings: SessionRecordingType[]
     hiddenRecordingsCount: number
@@ -656,6 +665,9 @@ export interface sessionRecordingsPlaylistLogicValues {
     pinnedRecordingsLoading: boolean
     recordings: SessionRecordingType[]
     recordingsCount: number
+    recordingsHiddenByActivityFilter: { count: number; hasMore: boolean }
+    recordingsHiddenByActivityFilterCount: number
+    recordingsHiddenByActivityFilterLoading: boolean
     selectMode: boolean
     selectedRecordingId: SessionRecordingType['id'] | null
     selectedRecordingOutsideFilters: boolean
@@ -818,6 +830,27 @@ export interface sessionRecordingsPlaylistLogicActions {
     }
     loadPrev: () => {
         value: true
+    }
+    loadRecordingsHiddenByActivityFilter: () => {
+        value: true
+    }
+    loadRecordingsHiddenByActivityFilterFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadRecordingsHiddenByActivityFilterSuccess: (
+        recordingsHiddenByActivityFilter: { count: number; hasMore: boolean },
+        payload?: {
+            value: true
+        }
+    ) => {
+        recordingsHiddenByActivityFilter: { count: number; hasMore: boolean }
+        payload?: {
+            value: true
+        }
     }
     loadSessionRecordings: (
         direction?: 'newer' | 'older',
@@ -1349,7 +1382,33 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             },
         ],
     })),
-    lazyLoaders(({ props }) => ({
+    lazyLoaders(({ props, values }) => ({
+        recordingsHiddenByActivityFilter: [
+            { count: 0, hasMore: false } as { count: number; hasMore: boolean },
+            {
+                loadRecordingsHiddenByActivityFilter: async (_, breakpoint) => {
+                    await breakpoint(100)
+
+                    // The same request the list load builds, with only the duration filters
+                    // dropped: conversion turns those into the query's having predicates and
+                    // nothing else, so the probe counts exactly what they exclude.
+                    const filters = getEffectiveRecordingFilters(values.filters, values.featureFlags)
+                    const convertedQuery = convertUniversalFiltersToRecordingsQuery({ ...filters, duration: [] })
+                    const response = await api.recordings.list({
+                        ...convertedQuery,
+                        person_uuid: props.personUUID ?? convertedQuery.person_uuid ?? '',
+                        // Same KLUDGE as the list load: too many distinct_ids would not fit in the URL.
+                        distinct_ids: (props.distinctIds?.length || 0) < 100 ? props.distinctIds : undefined,
+                        limit: RECORDINGS_LIMIT,
+                        hide_viewed_recordings: values.hideViewedRecordings || undefined,
+                    })
+
+                    breakpoint()
+
+                    return { count: response.results.length, hasMore: response.has_next }
+                },
+            },
+        ],
         pinnedRecordings: [
             [] as SessionRecordingType[],
             {
@@ -1886,6 +1945,18 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                 props.onRecordingsLoaded?.(sessionRecordingsResponse.results, !payload?.direction)
                 pruneSelectedRecordingsIds()
                 notifyRecordingSelected()
+
+                // A first-page load the default duration filter emptied may be hiding recordings
+                // rather than proving none exist, so probe for what it excluded: the empty state
+                // offers to show them. Clearing the duration filters removes the default, so the
+                // click that reveals them does not fire the probe again.
+                if (
+                    !payload?.direction &&
+                    sessionRecordingsResponse.results.length === 0 &&
+                    hasDefaultRecordingDurationFilter(values.filters)
+                ) {
+                    actions.loadRecordingsHiddenByActivityFilter()
+                }
             },
 
             loadSessionRecordingsFailure: ({ error, errorObject }) => {
@@ -2480,6 +2551,20 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             (s) => [s.hiddenRecordings],
             (hiddenRecordings: SessionRecordingType[]): number => {
                 return hiddenRecordings?.length ?? 0
+            },
+        ],
+
+        recordingsHiddenByActivityFilterCount: [
+            (s) => [s.recordingsHiddenByActivityFilter],
+            (recordingsHiddenByActivityFilter: { count: number; hasMore: boolean }): number => {
+                return recordingsHiddenByActivityFilter.count
+            },
+        ],
+
+        hasMoreRecordingsHiddenByActivityFilter: [
+            (s) => [s.recordingsHiddenByActivityFilter],
+            (recordingsHiddenByActivityFilter: { count: number; hasMore: boolean }): boolean => {
+                return recordingsHiddenByActivityFilter.hasMore
             },
         ],
 
