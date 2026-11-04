@@ -142,6 +142,7 @@ class AIGatewayRoute(NamedTuple):
     trace_id: str | None
     distinct_id: str | None
     privacy_mode: bool | None
+    properties: Mapping[str, Any]
 
 
 class MaxCallbackHandler(CallbackHandler):
@@ -178,6 +179,14 @@ class MaxCallbackHandler(CallbackHandler):
     @property
     def privacy_mode(self) -> bool:
         return self._privacy_mode or bool(getattr(self._ph_client, "privacy_mode", False))
+
+    @property
+    def capture_disabled(self) -> bool:
+        return getattr(self._ph_client, "disabled", False) is True
+
+    @property
+    def properties(self) -> Mapping[str, Any]:
+        return self._properties or {}
 
 
 def _posthog_callback_handlers(callbacks: Callbacks) -> list[CallbackHandler]:
@@ -392,6 +401,7 @@ class MaxChatMixin(BaseModel):
                 trace_id=handler.trace_id,
                 distinct_id=handler.distinct_id or self.user.distinct_id,
                 privacy_mode=handler.privacy_mode,
+                properties=handler.properties,
             )
         configurable = ensure_config().get("configurable") or {}
         return AIGatewayRoute(
@@ -400,6 +410,7 @@ class MaxChatMixin(BaseModel):
             trace_id=str(configurable["trace_id"]) if configurable.get("trace_id") else None,
             distinct_id=configurable.get("distinct_id") or self.user.distinct_id,
             privacy_mode=configurable.get("privacy_mode"),
+            properties={},
         )
 
     def _with_ai_gateway_headers(self, kwargs: dict[str, Any], route: AIGatewayRoute) -> dict[str, Any]:
@@ -409,7 +420,7 @@ class MaxChatMixin(BaseModel):
         # The gateway strips `$` keys and stamps ai_product itself; team_id names the customer it bills.
         labels = {
             key: str(value)
-            for key, value in posthog_properties.items()
+            for key, value in {**route.properties, **posthog_properties}.items()
             if value is not None and not key.startswith("$") and key != "ai_product"
         }
         if conversation_id:
@@ -771,7 +782,11 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
             AI_GATEWAY_FALLBACK_COUNTER.labels(reason="timeout_cooldown").inc()
             return fallback.get_num_tokens_from_messages(messages, tools=tools, **kwargs)
         try:
-            return super().get_num_tokens_from_messages(messages, tools=tools, **kwargs)
+            return super().get_num_tokens_from_messages(
+                messages,
+                tools=tools,
+                **{**kwargs, "extra_headers": {**(kwargs.get("extra_headers") or {}), "X-PostHog-Billable": "false"}},
+            )
         except Exception as error:
             reason = _ai_gateway_fallback_reason(error)
             if reason is None:
@@ -799,6 +814,8 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
             return None
         posthog_properties = kwargs["metadata"]["posthog_properties"]
         handler = cast(MaxCallbackHandler, handlers[0]) if handlers else None
+        if handler is not None and handler.capture_disabled:
+            return None
         billable = False
         if handler is not None:
             ai_product = handler.ai_product or posthog_properties["ai_product"]

@@ -875,7 +875,7 @@ class TestMaxChatAnthropicAIGateway(BaseTest):
             distinct_id="workflows-user",
             trace_id="workflows-trace",
             privacy_mode=True,
-            properties={"ai_product": "workflows"},
+            properties={"ai_product": "workflows", "alert_id": "alert-1"},
         )
         with patch("ee.hogai.llm.ensure_config", return_value=self._config(privacy_mode=False)):
             await model.agenerate([[HumanMessage(content="hello")]], callbacks=[handler])
@@ -888,20 +888,27 @@ class TestMaxChatAnthropicAIGateway(BaseTest):
                 headers["x-posthog-distinct-id"],
                 headers.get("x-posthog-privacy-mode"),
                 headers.get("x-posthog-billable"),
+                json.loads(headers["x-posthog-properties"]).get("alert_id"),
             ],
-            ["workflows", "workflows-trace", "workflows-user", "true", "false"],
+            ["workflows", "workflows-trace", "workflows-user", "true", "false", "alert-1"],
         )
 
     @parameterized.expand(
         [
             ("handler that would capture the generation again", "posthog_ai", "plain"),
             ("billed product the gateway does not bill", "replay_vision", "max"),
+            ("capture opted out", "posthog_ai", "disabled"),
         ]
     )
     async def test_calls_that_would_change_capture_or_billing_go_direct(self, _name, ai_product, handler_kind):
         model = self._model()
         model.posthog_properties = {"ai_product": ai_product}
-        handler = self._max_handler() if handler_kind == "max" else CallbackHandler(Mock(), distinct_id="d")
+        handlers = {
+            "max": lambda: self._max_handler(),
+            "disabled": lambda: MaxCallbackHandler(Mock(privacy_mode=False, disabled=True), distinct_id="d"),
+            "plain": lambda: CallbackHandler(Mock(), distinct_id="d"),
+        }
+        handler = handlers[handler_kind]()
         with patch("ee.hogai.llm.ensure_config", return_value=self._config(ai_product=None)):
             result = await model.agenerate([[HumanMessage(content="hello")]], callbacks=[handler])
 
@@ -1158,20 +1165,26 @@ class TestMaxChatAnthropicAIGateway(BaseTest):
 
     @parameterized.expand(
         [
-            ("gateway counts", False, 3),
-            ("gateway rate limit falls back to the twin", True, 7),
+            ("gateway counts", None, 3),
+            ("gateway rate limit falls back to the twin", 429, 7),
+            ("exhausted credits fall back to the twin", 402, 7),
         ]
     )
-    def test_token_counting_goes_through_the_gateway(self, _name, gateway_limited, expected_tokens):
+    def test_token_counting_goes_through_the_gateway(self, _name, gateway_status, expected_tokens):
         model = self._gateway_model()
 
         def count(counting_model, messages, tools=None, **kwargs):
             if counting_model.ai_gateway_fallback is None:
                 return 7
-            if not gateway_limited:
+            if gateway_status is None:
                 return 3
-            request = httpx.Request("POST", "https://ai-gateway.test/v1/messages/count_tokens")
-            raise anthropic.RateLimitError("limited", response=httpx.Response(429, request=request), body=None)
+            request = httpx.Request(
+                "POST", "https://ai-gateway.test/v1/messages/count_tokens", headers=kwargs.get("extra_headers")
+            )
+            response = httpx.Response(
+                gateway_status, request=request, headers={"X-PostHog-Denial": "credit_bucket_exhausted"}
+            )
+            raise anthropic.APIStatusError("denied", response=response, body=None)
 
         with patch.object(ChatAnthropic, "get_num_tokens_from_messages", count):
             self.assertEqual(model.get_num_tokens_from_messages([HumanMessage(content="hello")]), expected_tokens)
