@@ -12,6 +12,8 @@ from collections.abc import Collection
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+from posthog.paging import CursorPageRequest, Page, PageRequest
+
 from products.subscriptions.backend.logic import (
     auto_disable,
     queries,
@@ -202,6 +204,11 @@ def insight_has_active_subscription(insight_id: int) -> bool:
     return queries.insight_has_active_subscription(insight_id)
 
 
+def insight_ids_with_active_subscriptions(*, team_ids: Collection[int]) -> set[int]:
+    """Insights of these teams that an enabled subscription delivers, directly or as a live dashboard tile."""
+    return queries.insight_ids_with_active_subscriptions(team_ids=team_ids)
+
+
 def dashboard_has_active_full_subscription(dashboard_id: int) -> bool:
     """Whether an enabled subscription delivers every insight on this dashboard."""
     return queries.dashboard_has_active_full_subscription(dashboard_id)
@@ -212,15 +219,13 @@ def dashboard_has_active_full_subscription(dashboard_id: int) -> bool:
 
 
 def list_subscriptions(
-    *, team_id: int, query: contracts.SubscriptionListQuery, viewer: UserAccessControl, offset: int, limit: int
-) -> contracts.SubscriptionPage:
+    *, team_id: int, query: contracts.SubscriptionListQuery, viewer: UserAccessControl, page: PageRequest
+) -> Page[contracts.SubscriptionRecord]:
     """One page of the team's subscriptions that the viewer may see, in `query.ordering`.
 
     A subscription is hidden when the viewer cannot view an insight or a dashboard it delivers.
     """
-    return subscription_reads.list_subscriptions(
-        team_id=team_id, query=query, viewer=viewer, offset=offset, limit=limit
-    )
+    return subscription_reads.list_subscriptions(team_id=team_id, query=query, viewer=viewer, page=page)
 
 
 def get_subscription_ref(
@@ -302,6 +307,29 @@ def update_subscription(
     )
 
 
+def take_subscription_ownership(
+    *,
+    team: Team,
+    organization: Organization,
+    user: User,
+    viewer: UserAccessControl,
+    subscription_id: int,
+    analytics_props: AnalyticsProps,
+) -> contracts.SubscriptionRecord:
+    """Make `user` the owner of the subscription and enable it. Deliveries then run with their access.
+
+    Raises the same errors as `update_subscription`.
+    """
+    return subscription_writes.take_subscription_ownership(
+        team=team,
+        organization=organization,
+        user=user,
+        viewer=viewer,
+        subscription_id=subscription_id,
+        analytics_props=analytics_props,
+    )
+
+
 def start_test_delivery(*, team_id: int, subscription_id: int) -> contracts.ManualDeliveryResult:
     """Start one delivery of the subscription now, outside its schedule."""
     return subscription_writes.start_test_delivery(team_id=team_id, subscription_id=subscription_id)
@@ -323,17 +351,17 @@ def list_subscription_deliveries(
     subscription_id: str | None,
     status: str | None,
     viewer: UserAccessControl,
-    window: contracts.CreatedAtCursorWindow,
+    page: CursorPageRequest,
     filter_by_object_access: bool,
     include_all_if_admin: bool,
-) -> list[contracts.SubscriptionDeliveryRecord]:
-    """One window of a subscription's delivery history that the viewer may see."""
+) -> Page[contracts.SubscriptionDeliveryRecord]:
+    """One page of a subscription's delivery history that the viewer may see, ordered by `created_at`."""
     return subscription_reads.list_subscription_deliveries(
         team_id=team_id,
         subscription_id=subscription_id,
         status=status,
         viewer=viewer,
-        window=window,
+        page=page,
         filter_by_object_access=filter_by_object_access,
         include_all_if_admin=include_all_if_admin,
     )
@@ -363,12 +391,12 @@ def list_subscription_summaries(
     insight_id: int | None,
     dashboard_id: int | None,
     viewer: UserAccessControl,
-    window: contracts.CreatedAtCursorWindow,
-) -> list[contracts.SubscriptionSummaryRecord]:
-    """One window of the AI summaries that live subscriptions on one insight or one dashboard delivered.
+    page: CursorPageRequest,
+) -> Page[contracts.SubscriptionSummaryRecord]:
+    """One page, ordered by `created_at`, of the AI summaries that live subscriptions on one insight or one dashboard delivered.
 
     Pass exactly one of `insight_id` and `dashboard_id`, after checking that the viewer may view it.
     """
     return subscription_reads.list_subscription_summaries(
-        team_id=team_id, insight_id=insight_id, dashboard_id=dashboard_id, viewer=viewer, window=window
+        team_id=team_id, insight_id=insight_id, dashboard_id=dashboard_id, viewer=viewer, page=page
     )

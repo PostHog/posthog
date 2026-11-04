@@ -15,6 +15,7 @@ from .utils import (
     sequential_interval_halfwidth,
     sequential_p_value,
     sequential_rho,
+    validate_quantile_inputs,
     validate_sample_sizes,
 )
 
@@ -115,6 +116,7 @@ class TwoSidedTTest(StatisticalTest):
     ) -> TestResult:
         """Run two-sided t-test."""
         validate_sample_sizes(treatment_stat, control_stat)
+        validate_quantile_inputs(treatment_stat, control_stat)
 
         unadjusted_mean = kwargs.get("unadjusted_mean")
         point_estimate = calculate_point_estimate(treatment_stat, control_stat, difference_type, unadjusted_mean)
@@ -181,6 +183,7 @@ class SequentialTwoSidedTTest(StatisticalTest):
         **kwargs,
     ) -> TestResult:
         validate_sample_sizes(treatment_stat, control_stat)
+        validate_quantile_inputs(treatment_stat, control_stat)
 
         unadjusted_mean = kwargs.get("unadjusted_mean")
         point_estimate = calculate_point_estimate(treatment_stat, control_stat, difference_type, unadjusted_mean)

@@ -60,27 +60,39 @@ def test_built_in_agent_origins_use_restricted_oauth_scope(
     )
 
 
+@pytest.mark.parametrize(
+    "origin, state",
+    [
+        (Task.OriginProduct.POSTHOG_AI, {}),
+        (Task.OriginProduct.SIGNAL_REPORT, {"billing_product": "posthog_ai"}),
+        (Task.OriginProduct.SIGNALS_SCOUT, {"billing_product": "posthog_ai"}),
+    ],
+)
 @patch("products.tasks.backend.temporal.oauth.is_builtin_agent_enforcement_enabled", return_value=True)
 @patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
 def test_posthog_ai_task_keeps_member_token_and_posthog_ai_oauth_application(
     mock_create: MagicMock,
     mock_enforcement: MagicMock,
+    origin: Task.OriginProduct,
+    state: dict[str, str],
 ) -> None:
     task = MagicMock(
         id="task-id",
         created_by=MagicMock(),
         team_id=123,
-        origin_product=Task.OriginProduct.POSTHOG_AI,
+        origin_product=origin,
     )
 
-    assert create_oauth_access_token(task) == "token"
+    assert create_oauth_access_token(task, run_state=state) == "token"
 
+    expected = {"include_mcp_builtin_agent_scope": True} if origin == Task.OriginProduct.SIGNALS_SCOUT else {}
     mock_create.assert_called_once_with(
         task.created_by,
         123,
         scopes="read_only",
         application="posthog_ai",
         sandbox_task_id=task.id,
+        **expected,
     )
 
 
@@ -202,7 +214,7 @@ def test_signals_origins_mint_under_the_signals_app_and_mark_only_user_started_r
 @pytest.mark.django_db
 @patch("products.tasks.backend.temporal.oauth.is_builtin_agent_enforcement_enabled", return_value=False)
 @patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
-def test_two_runs_on_one_auto_started_task_get_different_signals_budgets(
+def test_manual_resume_of_pipeline_task_uses_phai_oauth(
     mock_create: MagicMock,
     mock_enforcement: MagicMock,
 ) -> None:
@@ -236,7 +248,8 @@ def test_two_runs_on_one_auto_started_task_get_different_signals_budgets(
     token.save()
     mock_create.return_value = "second-token"
     create_oauth_access_token_for_run(task, second.state, run_id=second.id)
-    assert mock_create.call_args.kwargs["include_interactive_run_scope"] is True
+    assert mock_create.call_args.kwargs["application"] == "posthog_ai"
+    assert "include_interactive_run_scope" not in mock_create.call_args.kwargs
     second.refresh_from_db()
     assert second.state["sandbox_oauth_token_ids"] == [str(token.id)]
 
@@ -528,6 +541,33 @@ def test_workflow_run_scopes_never_exceed_request_or_snapshot(
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("requested", [None, "signals_assessment"])
+def test_assessment_runtime_token_cannot_regain_general_writes(
+    test_task: Task, requested: PosthogMcpScopes | None
+) -> None:
+    test_task.origin_product = Task.OriginProduct.SIGNAL_REPORT
+    test_task.internal = True
+    test_task.save(update_fields=["origin_product", "internal"])
+    run = TaskRun.objects.create(
+        task=test_task,
+        team=test_task.team,
+        state={"pending_dispatch": {"posthog_mcp_scopes": "signals_assessment"}},
+    )
+
+    raw = create_oauth_access_token_for_run(test_task, run.state, scopes=requested, run_id=run.id)
+
+    token = OAuthAccessToken.objects.get(token=raw)
+    scopes = set(token.scope.split())
+    assert not scopes & RESEARCH_WITHHELD_SCOPES
+    assert ("internal_run:write" in scopes) is (requested is None)
+    assert "task:read" in scopes
+    assert "query:read" in scopes
+    assert token.sandbox_task_id == test_task.id
+    run.refresh_from_db()
+    assert str(token.id) in run.state["sandbox_oauth_token_ids"]
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize(
     ("origin_product", "state", "requested", "granted"),
     [
@@ -573,6 +613,18 @@ def test_workflow_run_scopes_never_exceed_request_or_snapshot(
             {"pending_dispatch": {"posthog_mcp_scopes": "signals_research"}},
             "signals_research",
             "signals_research",
+        ),
+        (
+            Task.OriginProduct.SIGNAL_REPORT,
+            {"pending_dispatch": {"posthog_mcp_scopes": "signals_assessment"}},
+            None,
+            [*resolve_scopes("signals_assessment"), "internal_run:write"],
+        ),
+        (
+            Task.OriginProduct.SIGNAL_REPORT,
+            {"pending_dispatch": {"posthog_mcp_scopes": "signals_assessment"}},
+            "signals_assessment",
+            "signals_assessment",
         ),
     ],
 )

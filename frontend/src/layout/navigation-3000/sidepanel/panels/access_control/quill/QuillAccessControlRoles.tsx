@@ -15,7 +15,7 @@ import { QuillAccessSection } from './QuillAccessSection'
 import { QuillRemoveAccessButton } from './QuillRemoveAccessButton'
 
 export function QuillAccessControlRoles(): JSX.Element {
-    const { accessControlRoles, addableRoles, rolesById, availableLevels, accessControlsLoading } =
+    const { accessControlRoles, addableRoles, rolesById, availableLevelsWithNone, accessControlsLoading } =
         useValues(accessControlLogic)
     // Each change saves the whole list, so a second change before the first lands could overwrite it.
     const savingReason = accessControlsLoading ? 'Saving…' : undefined
@@ -48,7 +48,7 @@ export function QuillAccessControlRoles(): JSX.Element {
                 <ItemActions>
                     <QuillAccessLevelSelect
                         level={access_level}
-                        levels={availableLevels}
+                        levels={availableLevelsWithNone}
                         disabledReason={savingReason}
                         onChange={(level) => void updateAccessControlRoles([{ role, level }])}
                     />

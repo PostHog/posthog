@@ -1,3 +1,4 @@
+from decimal import Decimal
 from types import SimpleNamespace
 from typing import cast
 from uuid import uuid4
@@ -65,6 +66,23 @@ class TestRunFooter(SimpleTestCase):
                 "*Claude Opus 5* · Your ChatGPT plan · Project: *Fernwood staging*",
             ),
             (
+                "cost_follows_the_model",
+                RunFooter(
+                    TASK_URL,
+                    "claude-opus-5",
+                    project="Fernwood staging",
+                    thread_cost_usd=Decimal("0.123456"),
+                ),
+                None,
+                f"<{TASK_URL}|View session> · *Claude Opus 5* · Thread cost: $0.12 · Project: *Fernwood staging*",
+            ),
+            (
+                "a_cost_under_a_cent_does_not_read_as_free",
+                RunFooter(thread_cost_usd=Decimal("0.004")),
+                None,
+                "Thread cost: <$0.01",
+            ),
+            (
                 "configure_only",
                 RunFooter(),
                 "slack://app?team=T1&id=A1&tab=home",
@@ -98,7 +116,7 @@ class TestLoadRunFooter(SimpleTestCase):
     def test_describes_the_run(self, mock_get_run, mock_parse) -> None:
         task_id = uuid4()
         mock_get_run.return_value = SimpleNamespace(
-            id=uuid4(), task_id=task_id, team_id=1, state={}, created_by_id=None
+            id=uuid4(), task_id=task_id, team_id=1, state={"slack_chart_links": True}, created_by_id=None
         )
         mock_parse.return_value = SimpleNamespace(model="claude-opus-5", reasoning_effort="high")
 
@@ -106,6 +124,7 @@ class TestLoadRunFooter(SimpleTestCase):
 
         assert f"/tasks/{task_id}" in (footer.task_url or "")
         assert footer.model == "claude-opus-5"
+        assert footer.chart_links is True
 
     @parameterized.expand(
         [

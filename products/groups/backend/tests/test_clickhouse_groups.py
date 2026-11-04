@@ -28,10 +28,9 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.constants import AvailableFeature
+from posthog.constants import AvailableFeature, GroupTypeIndex
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
-from posthog.models import GroupUsageMetric, PropertyDefinition
-from posthog.models.filters.utils import GroupTypeIndex
+from posthog.models import PropertyDefinition
 from posthog.models.group.group import Group
 from posthog.models.group.util import ListGroupsResult, create_group, list_groups, raw_create_group_ch
 from posthog.models.group_type_mapping import (
@@ -52,7 +51,6 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.groups.backend.presentation.views import _decode_groups_cursor, _encode_groups_cursor
 from products.notebooks.backend.facade.content import convert_notebook_content_to_markdown, is_markdown_notebook_content
 from products.notebooks.backend.models import Notebook, ResourceNotebook
-from products.warehouse_sources.backend.facade.models import DataWarehouseCredential, DataWarehouseTable
 
 PATH = "products.groups.backend.presentation.views"
 
@@ -1924,359 +1922,6 @@ class GroupsTypesViewSetTestCase(APIBaseTest):
         self.assertEqual(group_type.name_plural, "Orgs")
 
 
-class GroupUsageMetricViewSetTestCase(APIBaseTest):
-    def setUp(self):
-        super().setUp()
-        self.group_type = create_group_type_mapping(
-            team=self.team, project=self.project, group_type="organization", group_type_index=0
-        )
-        self.url = f"/api/projects/{self.team.id}/groups_types/{str(self.group_type.group_type_index)}/metrics"
-
-        self.other_org = Organization.objects.create(name="other org")
-        self.other_team = Team.objects.create(organization=self.other_org, name="other team")
-        self.other_group_type = create_group_type_mapping(
-            team=self.other_team, project_id=self.other_team.project_id, group_type="company", group_type_index=0
-        )
-        self.other_url = (
-            f"/api/projects/{self.other_team.id}/groups_types/{str(self.other_group_type.group_type_index)}/metrics"
-        )
-
-    def assertFields(self, data, metric):
-        self.assertEqual(data["id"], str(metric.id))
-        self.assertEqual(data["name"], metric.name)
-        self.assertEqual(data["format"], metric.format)
-        self.assertEqual(data["interval"], metric.interval)
-        self.assertEqual(data["display"], metric.display)
-        self.assertEqual(data["filters"], metric.filters)
-
-    def _create_metric(self, **kwargs):
-        defaults = {
-            "team": self.team,
-            "group_type_index": self.group_type.group_type_index,
-            "name": "Events",
-            "filters": {"foo": "bar"},
-        }
-        defaults.update(kwargs)
-        return GroupUsageMetric.objects.create(**defaults)
-
-    def test_list(self):
-        metric = self._create_metric()
-
-        response = self.client.get(self.url)
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertFields(response.json()["results"][0], metric)
-
-    def test_create(self):
-        payload = {"name": "Events", "filters": {"foo": "bar"}}
-
-        response = self.client.post(self.url, payload)
-
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        metric = GroupUsageMetric.objects.get(id=response.json().get("id"))
-        self.assertFields(response.json(), metric)
-        self.assertEqual(metric.team, self.team, "Should set team automatically")
-        self.assertEqual(
-            metric.group_type_index, self.group_type.group_type_index, "Should set group_type_index automatically"
-        )
-        self.assertIsNotNone(metric.bytecode, "Should set bytecode automatically")
-
-    def test_retrieve(self):
-        metric = self._create_metric()
-        url = f"{self.url}/{metric.id}"
-
-        response = self.client.get(url)
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertFields(response.json(), metric)
-
-    def test_update(self):
-        metric = self._create_metric()
-        url = f"{self.url}/{metric.id}"
-        payload = {
-            "name": "Updated Events",
-            "format": "currency",
-            "interval": 30,
-            "display": "sparkline",
-            "filters": {"updated": "value"},
-        }
-
-        response = self.client.put(url, payload)
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        metric.refresh_from_db()
-        self.assertEqual(metric.name, "Updated Events")
-        self.assertEqual(metric.format, "currency")
-        self.assertEqual(metric.interval, 30)
-        self.assertEqual(metric.display, "sparkline")
-        self.assertEqual(metric.filters, {"updated": "value"})
-        self.assertFields(response.json(), metric)
-
-    def test_delete(self):
-        metric = self._create_metric()
-        url = f"{self.url}/{metric.id}"
-
-        response = self.client.delete(url)
-
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        self.assertFalse(GroupUsageMetric.objects.filter(id=metric.id).exists())
-
-    def test_partial_update(self):
-        metric = self._create_metric()
-        url = f"{self.url}/{metric.id}"
-        payload = {"name": "Partially Updated Events"}
-
-        response = self.client.patch(url, payload)
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        metric.refresh_from_db()
-        self.assertEqual(metric.name, "Partially Updated Events")
-        self.assertEqual(metric.format, "numeric", "Should remain unchanged")
-        self.assertEqual(metric.interval, 7, "Should remain unchanged")
-        self.assertEqual(metric.display, "number", "Should remain unchanged")
-
-    def test_delete_nonexistent(self):
-        fake_id = "00000000-0000-0000-0000-000000000000"
-        url = f"{self.url}/{fake_id}"
-
-        response = self.client.delete(url)
-
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
-    def test_update_nonexistent(self):
-        fake_id = "00000000-0000-0000-0000-000000000000"
-        url = f"{self.url}/{fake_id}"
-        payload = {"name": "Updated Events"}
-
-        response = self.client.put(url, payload)
-
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
-    def test_unauthenticated_access(self):
-        self.client.logout()
-
-        response = self.client.get(self.url)
-
-        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
-
-    def test_unauthorized_team_access(self):
-        self._create_metric(group_type_index=self.other_group_type.group_type_index, team=self.other_team)
-
-        response = self.client.get(self.other_url)
-
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json(), self.permission_denied_response("You don't have access to the project."))
-
-    def test_unauthorized_metric_access(self):
-        other_metric = self._create_metric(
-            group_type_index=self.other_group_type.group_type_index, team=self.other_team
-        )
-        url = f"{self.other_url}/{other_metric.id}"
-
-        response = self.client.get(url)
-
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json(), self.permission_denied_response("You don't have access to the project."))
-
-    def test_unauthorized_metric_creation(self):
-        payload = {"name": "Unauthorized Events"}
-
-        response = self.client.post(self.other_url, payload)
-
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json(), self.permission_denied_response("You don't have access to the project."))
-
-    def test_unauthorized_metric_modification(self):
-        other_metric = self._create_metric(
-            group_type_index=self.other_group_type.group_type_index, team=self.other_team
-        )
-        url = f"{self.other_url}/{other_metric.id}"
-        payload = {"name": "Hacked Events"}
-
-        response = self.client.put(url, payload)
-
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json(), self.permission_denied_response("You don't have access to the project."))
-
-    def test_unauthorized_metric_deletion(self):
-        other_metric = self._create_metric(
-            group_type_index=self.other_group_type.group_type_index, team=self.other_team
-        )
-        url = f"{self.other_url}/{other_metric.id}"
-
-        response = self.client.delete(url)
-
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json(), self.permission_denied_response("You don't have access to the project."))
-
-        self.assertTrue(GroupUsageMetric.objects.filter(id=other_metric.id).exists())
-
-    def test_non_admin_cannot_update_metric(self):
-        metric = self._create_metric()
-        url = f"{self.url}/{metric.id}"
-        self.organization_membership.level = OrganizationMembership.Level.MEMBER
-        self.organization_membership.save()
-        self.organization.available_product_features = [
-            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
-        ]
-        self.organization.save()
-        # Grant member-level (not admin) project access so the request reaches the serializer
-        AccessControl.objects.create(
-            team=self.team,
-            resource="project",
-            resource_id=str(self.team.id),
-            access_level="member",
-        )
-
-        response = self.client.patch(url, {"name": "Should not update"})
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        metric.refresh_from_db()
-        self.assertEqual(metric.name, "Events")
-
-    def test_admin_can_update_metric(self):
-        metric = self._create_metric()
-        url = f"{self.url}/{metric.id}"
-        self.organization_membership.level = OrganizationMembership.Level.ADMIN
-        self.organization_membership.save()
-
-        response = self.client.patch(url, {"name": "Updated by admin"})
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        metric.refresh_from_db()
-        self.assertEqual(metric.name, "Updated by admin")
-
-    def _create_dw_table(self, name: str = "stripe_charges"):
-        credential = DataWarehouseCredential.objects.create(team=self.team, access_key="key", access_secret="secret")
-        return DataWarehouseTable.objects.create(
-            team=self.team,
-            name=name,
-            credential=credential,
-            url_pattern="http://example.com/{name}",
-            columns={
-                "customer_id": {"clickhouse": "String", "hogql": "StringDatabaseField", "valid": True},
-                "created": {"clickhouse": "DateTime64(3, 'UTC')", "hogql": "DateTimeDatabaseField", "valid": True},
-                "amount": {"clickhouse": "Float64", "hogql": "FloatDatabaseField", "valid": True},
-            },
-        )
-
-    def test_create_data_warehouse_metric(self):
-        self._create_dw_table()
-        payload = {
-            "name": "DW signups",
-            "math": "count",
-            "filters": {
-                "source": "data_warehouse",
-                "table_name": "stripe_charges",
-                "timestamp_field": "created",
-                "key_field": "customer_id",
-            },
-        }
-
-        response = self.client.post(self.url, payload, format="json")
-
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
-        metric = GroupUsageMetric.objects.get(id=response.json()["id"])
-        self.assertEqual(metric.filters["source"], "data_warehouse")
-        self.assertEqual(metric.filters["table_name"], "stripe_charges")
-
-    def test_create_data_warehouse_metric_rejects_missing_fields(self):
-        self._create_dw_table()
-        payload = {
-            "name": "DW signups",
-            "filters": {"source": "data_warehouse", "table_name": "stripe_charges"},
-        }
-
-        response = self.client.post(self.url, payload, format="json")
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["attr"], "filters")
-
-    def test_create_data_warehouse_metric_rejects_unknown_table(self):
-        payload = {
-            "name": "DW signups",
-            "filters": {
-                "source": "data_warehouse",
-                "table_name": "no_such_table",
-                "timestamp_field": "created",
-                "key_field": "customer_id",
-            },
-        }
-
-        response = self.client.post(self.url, payload, format="json")
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["attr"], "filters")
-
-    def test_create_data_warehouse_metric_accepts_table_with_null_deleted(self):
-        table = self._create_dw_table()
-        table.deleted = None
-        table.save()
-
-        payload = {
-            "name": "DW signups",
-            "filters": {
-                "source": "data_warehouse",
-                "table_name": "stripe_charges",
-                "timestamp_field": "created",
-                "key_field": "customer_id",
-            },
-        }
-
-        response = self.client.post(self.url, payload, format="json")
-
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
-
-    def test_create_data_warehouse_metric_rejects_soft_deleted_table(self):
-        table = self._create_dw_table()
-        table.deleted = True
-        table.save()
-
-        payload = {
-            "name": "DW signups",
-            "filters": {
-                "source": "data_warehouse",
-                "table_name": "stripe_charges",
-                "timestamp_field": "created",
-                "key_field": "customer_id",
-            },
-        }
-
-        response = self.client.post(self.url, payload, format="json")
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["attr"], "filters")
-
-    def test_create_data_warehouse_sum_requires_math_property(self):
-        self._create_dw_table()
-        payload = {
-            "name": "DW revenue",
-            "math": "sum",
-            "filters": {
-                "source": "data_warehouse",
-                "table_name": "stripe_charges",
-                "timestamp_field": "created",
-                "key_field": "customer_id",
-            },
-        }
-
-        response = self.client.post(self.url, payload, format="json")
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["attr"], "math_property")
-
-    def test_create_metric_rejects_unknown_source(self):
-        payload = {
-            "name": "Bogus",
-            "filters": {"source": "something_else"},
-        }
-
-        response = self.client.post(self.url, payload, format="json")
-
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["attr"], "filters")
-
-
 class GroupPropertyDefinitionsTestCase(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
@@ -2498,16 +2143,31 @@ class TestListGroupsFunction(ClickhouseTestMixin, APIBaseTest):
         assert result.groups[1].group_key == "org:2"
         assert result.has_more is True
 
-    @time_machine.travel("2021-05-04", tick=False)
+    @time_machine.travel("2021-05-03", tick=False)
+    def test_has_more_at_default_limit(self):
+        for i in range(101):
+            raw_create_group_ch(
+                team_id=self.team.pk, group_type_index=0, group_key=f"org:{i:03d}", properties={}, created_at=now()
+            )
+
+        result = list_groups(team_id=self.team.pk, group_type_index=0)
+
+        assert len(result.groups) == 100
+        assert result.has_more is True
+
+    @time_machine.travel("2021-05-06", tick=False)
     def test_pagination_cursor_returns_next_page(self):
-        with time_machine.travel("2021-05-01", tick=False):
-            create_group(team_id=self.team.pk, group_type_index=0, group_key="org:1", properties={})
-        with time_machine.travel("2021-05-02", tick=False):
-            create_group(team_id=self.team.pk, group_type_index=0, group_key="org:2", properties={})
-        with time_machine.travel("2021-05-03", tick=False):
-            create_group(team_id=self.team.pk, group_type_index=0, group_key="org:3", properties={})
+        for day in range(1, 6):
+            with time_machine.travel(f"2021-05-0{day}", tick=False):
+                create_group(
+                    team_id=self.team.pk,
+                    group_type_index=0,
+                    group_key=f"org:{day}",
+                    properties={"plan": "pro" if day % 2 else "free"},
+                )
 
         page1 = list_groups(team_id=self.team.pk, group_type_index=0, limit=2)
+        assert [g.group_key for g in page1.groups] == ["org:5", "org:4"]
         last = page1.groups[-1]
 
         page2 = list_groups(
@@ -2518,21 +2178,42 @@ class TestListGroupsFunction(ClickhouseTestMixin, APIBaseTest):
             limit=2,
         )
 
-        assert len(page2.groups) == 1
-        assert page2.groups[0].group_key == "org:1"
-        assert page2.has_more is False
+        assert [g.group_key for g in page2.groups] == ["org:3", "org:2"]
+        assert page2.has_more is True
+
+        first = page1.groups[0]
+        with self.capture_select_queries() as queries:
+            searched = list_groups(
+                team_id=self.team.pk,
+                group_type_index=0,
+                search="pro",
+                cursor_created_at_us=int(first.created_at.timestamp() * 1_000_000),
+                cursor_group_key=first.group_key,
+                limit=1,
+            )
+
+        assert [g.group_key for g in searched.groups] == ["org:3"]
+        assert searched.has_more is True
+        # Results alone cannot show that both queries stop at limit + 1 keys and that only the
+        # property-reading query aggregates whole properties.
+        sql = next(query for query in queries if "globalIn(tuple(" in query)
+        assert sql.count("LIMIT 2") == 2
+        assert sql.count("argMax(groups.group_properties,") == 1
 
     @time_machine.travel("2021-05-04", tick=False)
     def test_pagination_cursor_breaks_created_at_ties_on_group_key(self):
-        # Three groups created at the same instant: keyset pagination must fall back to the
+        # Four groups created at the same instant: keyset pagination must fall back to the
         # group_key tiebreaker (descending) and neither skip nor duplicate a row across pages.
+        # The tie spans more than limit + 1 keys, so the key-selection query's own tiebreak decides
+        # which keys reach a page.
         with time_machine.travel("2021-05-01", tick=False):
             create_group(team_id=self.team.pk, group_type_index=0, group_key="org:a", properties={})
             create_group(team_id=self.team.pk, group_type_index=0, group_key="org:b", properties={})
             create_group(team_id=self.team.pk, group_type_index=0, group_key="org:c", properties={})
+            create_group(team_id=self.team.pk, group_type_index=0, group_key="org:d", properties={})
 
         page1 = list_groups(team_id=self.team.pk, group_type_index=0, limit=2)
-        assert [g.group_key for g in page1.groups] == ["org:c", "org:b"]
+        assert [g.group_key for g in page1.groups] == ["org:d", "org:c"]
         assert page1.has_more is True
 
         last = page1.groups[-1]
@@ -2543,7 +2224,7 @@ class TestListGroupsFunction(ClickhouseTestMixin, APIBaseTest):
             cursor_group_key=last.group_key,
             limit=2,
         )
-        assert [g.group_key for g in page2.groups] == ["org:a"]
+        assert [g.group_key for g in page2.groups] == ["org:b", "org:a"]
         assert page2.has_more is False
 
     @time_machine.travel("2021-05-03", tick=False)
@@ -2592,13 +2273,13 @@ class TestListGroupsFunction(ClickhouseTestMixin, APIBaseTest):
 
     @time_machine.travel("2021-05-03", tick=False)
     def test_filters_by_group_type_index(self):
-        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:1", properties={})
-        create_group(team_id=self.team.pk, group_type_index=1, group_key="company:1", properties={})
+        create_group(team_id=self.team.pk, group_type_index=0, group_key="org:1", properties={"name": "Org"})
+        # The same key under another type is a different group; its versions must not merge in.
+        create_group(team_id=self.team.pk, group_type_index=1, group_key="org:1", properties={"name": "Company"})
 
         result = list_groups(team_id=self.team.pk, group_type_index=0)
 
-        assert len(result.groups) == 1
-        assert result.groups[0].group_key == "org:1"
+        assert [(g.group_key, g.group_properties) for g in result.groups] == [("org:1", {"name": "Org"})]
 
     @time_machine.travel("2021-05-03", tick=False)
     def test_empty_result(self):
@@ -2627,8 +2308,6 @@ class TestListGroupsFunction(ClickhouseTestMixin, APIBaseTest):
         assert result.groups[0].group_properties == {}
 
     def test_returns_latest_properties_after_update(self):
-        # The groups table dedups by argMax(_timestamp); a newer write for the same (index, key)
-        # must win and produce a single row — guards the choice of `groups` over `raw_groups`.
         with time_machine.travel("2021-05-01", tick=False):
             create_group(team_id=self.team.pk, group_type_index=0, group_key="org:1", properties={"name": "Old"})
         with time_machine.travel("2021-05-02", tick=False):
@@ -2644,6 +2323,9 @@ class TestListGroupsFunction(ClickhouseTestMixin, APIBaseTest):
 
         assert len(result.groups) == 1
         assert result.groups[0].group_properties == {"name": "New"}
+        assert list_groups(team_id=self.team.pk, group_type_index=0, search="Old").groups == []
+        searched = list_groups(team_id=self.team.pk, group_type_index=0, search="New")
+        assert [(g.group_key, g.group_properties) for g in searched.groups] == [("org:1", {"name": "New"})]
 
     @time_machine.travel("2021-05-03", tick=False)
     def test_preserves_complex_property_values(self):

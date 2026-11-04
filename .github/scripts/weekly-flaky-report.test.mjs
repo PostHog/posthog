@@ -3,10 +3,9 @@ import { describe, it } from 'node:test'
 
 import {
     buildBlocks,
-    buildTeamDigests,
     buildThreadSliceBlocks,
-    deliverTeamDigests,
     teamPostsWithheld,
+    teamReport,
     buildRunnerReports,
     CLUSTER_MIN_TESTS,
     enrich,
@@ -21,7 +20,7 @@ import {
     sharedTrunkLookup,
     tableRows,
 } from './weekly-flaky-report.mjs'
-import { repoPathResolver, trackedTestPaths } from './weekly-report-common.mjs'
+import { buildTeamDigests, deliverTeamDigests, repoPathResolver, trackedTestPaths } from './weekly-report-common.mjs'
 
 const onMasterResolver = (path) => [path]
 
@@ -643,8 +642,8 @@ describe('weekly flaky report', () => {
         }
 
         const posted = await deliverTeamDigests(teams, {
-            now: new Date('2026-10-05T13:10:00Z'),
             digest: { ts: '0', channel: 'C_DIGEST' },
+            report: teamReport(new Date('2026-10-05T13:10:00Z')),
             slack,
         })
 

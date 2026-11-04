@@ -588,7 +588,10 @@ export interface ActivityLogPaginatedResponseApi {
 }
 
 export interface PatchedAddPersonsToStaticCohortRequestApi {
-    /** List of person UUIDs to add to the cohort */
+    /**
+     * Person UUIDs to add to the cohort (the `id` column of the persons table, not distinct IDs). At most 1000 per request.
+     * @maxItems 1000
+     */
     person_ids?: string[]
 }
 
@@ -612,12 +615,104 @@ export interface CohortUsedInWorkflowsBlockApi {
     has_more: boolean
 }
 
+export interface CohortCalculationHistoryApi {
+    readonly id: string
+    /** Cohort filters/properties at time of calculation */
+    filters: unknown
+    /**
+     * Number of people in cohort
+     * @minimum 0
+     * @maximum 2147483647
+     * @nullable
+     */
+    count?: number | null
+    /** When calculation started */
+    started_at?: string
+    /**
+     * When calculation finished
+     * @nullable
+     */
+    finished_at?: string | null
+    /** Array of query information (query, query_id, query_ms, memory_mb, read_rows, written_rows) */
+    queries?: unknown
+    /**
+     * Error message if calculation failed
+     * @nullable
+     */
+    error?: string | null
+    /**
+     * Calculate duration in seconds if both start and end times are available
+     * @nullable
+     */
+    readonly duration_seconds: number | null
+    /** Check if calculation is completed (successfully or with error) */
+    readonly is_completed: boolean
+    /** Check if calculation completed successfully */
+    readonly is_successful: boolean
+    /**
+     * Get total query duration across all queries
+     * @nullable
+     */
+    readonly total_query_ms: number | null
+    /**
+     * Get total memory usage across all queries
+     * @nullable
+     */
+    readonly total_memory_mb: number | null
+    /**
+     * Get total rows read across all queries
+     * @nullable
+     */
+    readonly total_read_rows: number | null
+    /**
+     * Get total rows written across all queries
+     * @nullable
+     */
+    readonly total_written_rows: number | null
+    /**
+     * Get the main query (first query in the array)
+     * @nullable
+     */
+    readonly main_query: string | null
+}
+
+export interface CohortCalculationHistoryResponseApi {
+    /** Calculation runs on this page, newest first. */
+    results: CohortCalculationHistoryApi[]
+    /** Number of calculation runs recorded for the cohort. */
+    count: number
+    /**
+     * Query string for the next page, such as `?limit=100&offset=100`, or null.
+     * @nullable
+     */
+    next: string | null
+    /**
+     * Query string for the previous page, or null on the first page.
+     * @nullable
+     */
+    previous: string | null
+}
+
+export interface SerializedMatchedRecordingEventApi {
+    /** UUID of the matched event. */
+    uuid: string
+    /** When the matched event happened. */
+    timestamp: string
+    /** ID of the browser window the event was captured in. */
+    window_id: string
+}
+
+export interface SerializedMatchedRecordingApi {
+    /** ID of the session recording. */
+    session_id: string
+    /** Events of the recording that matched the query. */
+    events: SerializedMatchedRecordingEventApi[]
+}
+
 /**
  * The actor's properties.
  */
 export type SerializedPersonActorApiProperties = { [key: string]: unknown }
-
-export type SerializedPersonActorApiMatchedRecordingsItem = { [key: string]: unknown }
 
 export interface SerializedPersonActorApi {
     /** The person's UUID, or the group's key. */
@@ -630,7 +725,7 @@ export interface SerializedPersonActorApi {
      */
     created_at: string | null
     /** Recordings that matched the query. Empty unless the endpoint asks for them. */
-    matched_recordings: SerializedPersonActorApiMatchedRecordingsItem[]
+    matched_recordings: SerializedMatchedRecordingApi[]
     /**
      * The actor's value at the data point it was queried for. Null unless the query computes one.
      * @nullable
@@ -649,11 +744,8 @@ export interface SerializedPersonActorApi {
      * @nullable
      */
     last_seen_at: string | null
-    /**
-     * Whether the person has been identified.
-     * @nullable
-     */
-    is_identified: boolean | null
+    /** Whether the person has been identified. */
+    is_identified: boolean
 }
 
 export interface CohortPersonsResponseApi {
@@ -819,6 +911,20 @@ export type CohortsActivityRetrieveParams = {
      * @minimum 1
      */
     page?: number
+}
+
+export type CohortsCalculationHistoryRetrieveParams = {
+    /**
+     * Number of calculation runs to return. Defaults to 100, at most 500.
+     * @minimum 1
+     * @maximum 500
+     */
+    limit?: number
+    /**
+     * Number of calculation runs to skip. Defaults to 0.
+     * @minimum 0
+     */
+    offset?: number
 }
 
 export type CohortsPersonsRetrieveParams = {

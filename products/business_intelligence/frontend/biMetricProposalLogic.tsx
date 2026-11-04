@@ -5,15 +5,20 @@ import { LemonDialog, LemonInput, LemonTextArea, Link } from '@posthog/lemon-ui'
 import { ApiError } from 'lib/api'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { BIConfig } from '~/queries/schema/schema-business-intelligence'
 import { NodeKind } from '~/queries/schema/schema-general'
 
-import { METRIC_FIELD_COPY, validateMetricDescription, validateMetricName } from 'products/data_catalog/frontend/common'
-import { dataCatalogMetricsCreate } from 'products/data_catalog/frontend/generated/api'
+import {
+    existingMetricFromNameConflict,
+    METRIC_FIELD_COPY,
+    validateMetricDescription,
+    validateMetricName,
+} from 'products/data_catalog/frontend/common'
+import { createMetricAsUser } from 'products/data_catalog/frontend/createMetricAsUser'
 import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
+import { openOverwriteMetricDialog } from 'products/data_catalog/frontend/openOverwriteMetricDialog'
 
 import { captureBIEditorQuerySaved, captureBIWorksheetAction } from './biEditorAnalytics'
 import { BIEditorView } from './biEditorTypes'
@@ -57,10 +62,16 @@ export const biMetricProposalLogic = kea<biMetricProposalLogicType>([
             const snapshot = props.snapshot
             const config = props.config
             let submission: Promise<void> | null = null
+            let formClosed = false
+            let cancelConfirmation: (() => void) | undefined
             LemonDialog.openForm({
                 title: 'Propose as catalog metric',
                 description:
-                    'Saves this query with the date window and filters from its last run. Shelves and worksheet history are not part of the metric. An existing metric name updates that definition. Changes go through catalog review.',
+                    'Saves this query with the date window and filters from its last run. Shelves and worksheet history are not part of the metric. If the name already exists, you can confirm an overwrite. Changes go through catalog review.',
+                onAfterClose: () => {
+                    formClosed = true
+                    cancelConfirmation?.()
+                },
                 shouldAwaitSubmit: true,
                 primaryButtonProps: { children: 'Propose metric' },
                 initialValues: { name: '', display_name: props.name, description: '', unit: '' },
@@ -90,17 +101,46 @@ export const biMetricProposalLogic = kea<biMetricProposalLogicType>([
                         !value?.trim() ? 'Add a description' : validateMetricDescription(value.trim()),
                 },
                 onSubmit: async (fields) => {
+                    if (formClosed) {
+                        return
+                    }
                     if (submission) {
                         return submission
                     }
+                    let canceled = false
                     submission = (async () => {
-                        const metric = await dataCatalogMetricsCreate(String(teamLogic.values.currentTeamId), {
+                        const request = {
                             name: fields.name.trim(),
                             display_name: (fields.display_name ?? '').trim(),
                             description: fields.description.trim(),
                             unit: (fields.unit ?? '').trim(),
                             definition: { kind: NodeKind.HogQLQuery, query: snapshot },
+                        }
+                        const created = await createMetricAsUser(request, false).catch(async (error) => {
+                            if (formClosed) {
+                                canceled = true
+                                throw error
+                            }
+                            const existing = existingMetricFromNameConflict(error)
+                            if (!existing) {
+                                throw error
+                            }
+                            const confirmed = await new Promise<boolean>((resolve) => {
+                                cancelConfirmation = () => resolve(false)
+                                openOverwriteMetricDialog({
+                                    existing,
+                                    onOverwrite: () => resolve(true),
+                                    onCancel: cancelConfirmation,
+                                })
+                            })
+                            cancelConfirmation = undefined
+                            if (!confirmed || formClosed) {
+                                canceled = true
+                                throw error
+                            }
+                            return createMetricAsUser({ ...request, overwrite: true }, false)
                         })
+                        const metric = created.metric
                         metricsLogic.findMounted()?.actions.loadMetrics()
                         captureBIEditorQuerySaved({ editorView: BIEditorView.BI, config }, 'metric', 'create')
                         captureBIWorksheetAction('catalog_metric_proposed', config)
@@ -111,11 +151,13 @@ export const biMetricProposalLogic = kea<biMetricProposalLogicType>([
                         )
                     })()
                         .catch((error) => {
-                            lemonToast.error(
-                                error instanceof ApiError && error.detail
-                                    ? error.detail
-                                    : 'Could not propose the metric. Try again.'
-                            )
+                            if (!canceled) {
+                                lemonToast.error(
+                                    error instanceof ApiError && error.detail
+                                        ? error.detail
+                                        : 'Could not propose the metric. Try again.'
+                                )
+                            }
                             throw error
                         })
                         .finally(() => {

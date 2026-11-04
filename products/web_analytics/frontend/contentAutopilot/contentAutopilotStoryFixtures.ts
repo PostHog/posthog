@@ -1,6 +1,11 @@
 import type {
     AEOPromptApi,
+    AEOPromptCheckApi,
+    AEOPromptSetCountsApi,
+    AEOPromptSetOverviewApi,
+    AEOPromptStatsApi,
     AEOPromptTopicApi,
+    AEOPromptVersionApi,
     ContentAutopilotOpportunityApi,
     ContentAutopilotProposalApi,
     ContentAutopilotProposalListApi,
@@ -245,6 +250,9 @@ const EXAMPLE_PROMPT: AEOPromptApi = {
     external_visibility: 40,
     created_at: '2026-09-01T12:00:00Z',
     updated_at: '2026-09-01T12:00:00Z',
+    archived_at: null,
+    current_version: 1,
+    version_count: 1,
     latest_checks: [
         { engine: 'claude-web-search', cited: true, check_failed: false, checked_at: '2026-09-29T09:00:00Z' },
         { engine: 'openai-web-search', cited: false, check_failed: false, checked_at: '2026-09-29T09:00:00Z' },
@@ -253,7 +261,7 @@ const EXAMPLE_PROMPT: AEOPromptApi = {
 }
 
 export const EXAMPLE_PROMPTS: AEOPromptApi[] = [
-    EXAMPLE_PROMPT,
+    { ...EXAMPLE_PROMPT, current_version: 2, version_count: 2, updated_at: '2026-09-15T12:00:00Z' },
     {
         ...EXAMPLE_PROMPT,
         id: '00000000-0000-4000-8000-000000000302',
@@ -284,6 +292,37 @@ export const EXAMPLE_PROMPTS: AEOPromptApi[] = [
         ],
         last_checked_at: '2026-09-27T09:00:00Z',
     },
+    {
+        ...EXAMPLE_PROMPT,
+        id: '00000000-0000-4000-8000-000000000305',
+        prompt: 'What is the cheapest way to run A/B tests on a static site?',
+        topic: 'Experiments',
+        active: false,
+        archived_at: '2026-09-20T12:00:00Z',
+        latest_checks: [
+            { engine: 'claude-web-search', cited: false, check_failed: false, checked_at: '2026-09-19T09:00:00Z' },
+        ],
+        last_checked_at: '2026-09-19T09:00:00Z',
+    },
+]
+
+export const EXAMPLE_PROMPT_VERSIONS: AEOPromptVersionApi[] = [
+    {
+        version: 2,
+        text: EXAMPLE_PROMPT.prompt,
+        version_description: 'Name the audience so answers compare tools for startups',
+        created_by: { email: 'jane@example.com', name: 'Jane' },
+        created_at: '2026-09-15T12:00:00Z',
+        is_current: true,
+    },
+    {
+        version: 1,
+        text: 'What is the best open source product analytics tool?',
+        version_description: '',
+        created_by: null,
+        created_at: '2026-09-01T12:00:00Z',
+        is_current: false,
+    },
 ]
 
 export const EXAMPLE_PROMPT_TOPICS: AEOPromptTopicApi[] = [
@@ -291,3 +330,228 @@ export const EXAMPLE_PROMPT_TOPICS: AEOPromptTopicApi[] = [
     { topic: 'Product analytics', prompts: 2 },
     { topic: 'Session replay', prompts: 1 },
 ]
+
+const EXAMPLE_CHECK: AEOPromptCheckApi = {
+    id: '00000000-0000-4000-8000-000000000401',
+    run_id: '00000000-0000-4000-8000-000000000501',
+    engine: 'claude-web-search',
+    model: 'example-model-large',
+    created_at: '2026-09-29T09:00:00Z',
+    cited: true,
+    check_failed: false,
+    error: null,
+    cited_urls: [
+        'https://analytics-review.example.com/best-open-source-tools',
+        'https://example.com/docs/product-analytics',
+        'https://community.example.org/threads/startup-analytics',
+    ],
+    target_urls: ['https://example.com/docs/product-analytics'],
+    target_best_position: 2,
+    top_cited_domains: ['analytics-review.example.com', 'example.com', 'community.example.org'],
+    search_queries: ['best open source product analytics', 'self-hosted product analytics for startups'],
+    prompt_version: 2,
+    brand_sentiment: 'positive',
+    brand_sentiment_score: 0.86,
+    answer_text:
+        'For a small startup, a few open source product analytics tools stand out.\n\n' +
+        '1. Example Analytics: event tracking, funnels and retention, with a generous free tier.\n' +
+        '2. A self-hosted option if you need to keep data on your own servers.\n\n' +
+        'Pick the one that matches how much infrastructure you want to run.',
+}
+
+export const EXAMPLE_PROMPT_CHECKS: AEOPromptCheckApi[] = [
+    EXAMPLE_CHECK,
+    {
+        ...EXAMPLE_CHECK,
+        id: '00000000-0000-4000-8000-000000000402',
+        engine: 'openai-web-search',
+        cited: false,
+        cited_urls: ['https://analytics-review.example.com/best-open-source-tools'],
+        target_urls: [],
+        target_best_position: null,
+        top_cited_domains: ['analytics-review.example.com'],
+        search_queries: ['open source product analytics startup'],
+        brand_sentiment: null,
+        brand_sentiment_score: null,
+        answer_text: 'Most startups begin with a hosted tool.\nCompare pricing tiers before you commit.',
+    },
+    {
+        ...EXAMPLE_CHECK,
+        id: '00000000-0000-4000-8000-000000000403',
+        engine: 'exa-answer',
+        created_at: '2026-09-28T09:00:00Z',
+        cited: false,
+        check_failed: true,
+        prompt_version: 1,
+        error: 'The engine timed out.',
+        cited_urls: [],
+        target_urls: [],
+        target_best_position: null,
+        top_cited_domains: [],
+        search_queries: [],
+        brand_sentiment: null,
+        brand_sentiment_score: null,
+        answer_text: null,
+    },
+]
+
+type ExampleDay = 'cited' | 'mentioned' | 'not_cited' | 'failed' | null
+
+const EXAMPLE_ENGINE_DAYS: Record<string, ExampleDay[]> = {
+    'claude-web-search': ['cited', 'cited', null, 'mentioned', 'cited', 'cited', 'cited', 'failed', 'cited', 'cited'],
+    'openai-web-search': [
+        'not_cited',
+        'mentioned',
+        null,
+        'cited',
+        'not_cited',
+        'mentioned',
+        null,
+        'not_cited',
+        'cited',
+        'mentioned',
+    ],
+    'exa-answer': ['cited', 'failed', null, 'cited', 'cited', 'not_cited', 'cited', 'cited', 'failed', 'cited'],
+}
+
+const EXAMPLE_PROMPT_DAILY: AEOPromptStatsApi['daily'] = Object.entries(EXAMPLE_ENGINE_DAYS).flatMap(
+    ([engine, pattern]) =>
+        Array.from({ length: 29 }, (_, index) => ({ index, status: pattern[index % pattern.length] }))
+            .filter(({ status }) => status !== null)
+            .map(({ index, status }) => ({
+                date: `2026-09-${String(index + 1).padStart(2, '0')}`,
+                engine,
+                checks: 1,
+                cited: status === 'cited' ? 1 : 0,
+                mentioned: status === 'cited' || status === 'mentioned' ? 1 : 0,
+                failed: status === 'failed' ? 1 : 0,
+            }))
+)
+
+const exampleEngineStats = (engine: string): AEOPromptStatsApi['engines'][number] => {
+    const days = EXAMPLE_PROMPT_DAILY.filter((row) => row.engine === engine)
+    const sum = (key: 'checks' | 'cited' | 'mentioned' | 'failed'): number =>
+        days.reduce((total, row) => total + row[key], 0)
+    const answered = sum('checks') - sum('failed')
+    return {
+        engine,
+        checks: sum('checks'),
+        cited: sum('cited'),
+        mentioned: sum('mentioned'),
+        failed: sum('failed'),
+        citation_rate: answered ? sum('cited') / answered : null,
+        mention_rate: answered ? sum('mentioned') / answered : null,
+        first_checked_at: `${days[0].date}T09:00:00Z`,
+        last_checked_at: `${days[days.length - 1].date}T09:00:00Z`,
+    }
+}
+
+const EXAMPLE_CONSENSUS_DOMAINS = [
+    'analytics-review.example.com',
+    'example.com',
+    'community.example.org',
+    'rival.example.net',
+    'docs.rival.example.net',
+]
+
+export const EXAMPLE_PROMPT_STATS: AEOPromptStatsApi = {
+    total_checks: EXAMPLE_PROMPT_DAILY.length,
+    brand_names: ['example'],
+    daily_from: '2026-09-01',
+    daily_to: '2026-09-30',
+    engines: Object.keys(EXAMPLE_ENGINE_DAYS).map(exampleEngineStats),
+    daily: EXAMPLE_PROMPT_DAILY,
+    consensus: Object.keys(EXAMPLE_ENGINE_DAYS).flatMap((engine, engineIndex) =>
+        EXAMPLE_CONSENSUS_DOMAINS.map((domain, domainIndex) => ({
+            engine,
+            domain,
+            checks: 24,
+            checks_citing: Math.max(0, 22 - domainIndex * 5 - engineIndex * 3),
+        }))
+    ),
+    sentiment: [
+        { engine: 'claude-web-search', positive: 14, neutral: 6, negative: 1, unscored: 2 },
+        { engine: 'openai-web-search', positive: 5, neutral: 9, negative: 3, unscored: 0 },
+        { engine: 'exa-answer', positive: 0, neutral: 0, negative: 0, unscored: 18 },
+    ],
+    top_words: [
+        { word: 'analytics', count: 41 },
+        { word: 'product', count: 38 },
+        { word: 'open', count: 22 },
+        { word: 'source', count: 22 },
+        { word: 'startups', count: 11 },
+    ],
+}
+
+const setCounts = (
+    counts: Pick<AEOPromptSetCountsApi, 'checks' | 'failed' | 'cited' | 'mentioned' | 'prompts' | 'prompts_cited'>
+): AEOPromptSetCountsApi => {
+    const answered = counts.checks - counts.failed
+    return {
+        ...counts,
+        citation_rate: answered ? counts.cited / answered : null,
+        mention_rate: answered ? counts.mentioned / answered : null,
+    }
+}
+
+export const EXAMPLE_PROMPT_SET_OVERVIEW: AEOPromptSetOverviewApi = {
+    days: 30,
+    window_from: '2026-09-01',
+    window_to: '2026-09-30',
+    prompts_tracked: 42,
+    target_domains: ['example.com'],
+    brand_names: ['example'],
+    current: setCounts({ checks: 2520, failed: 60, cited: 984, mentioned: 1476, prompts: 44, prompts_cited: 31 }),
+    previous: setCounts({ checks: 2400, failed: 40, cited: 826, mentioned: 1416, prompts: 40, prompts_cited: 27 }),
+    engines: [
+        {
+            engine: 'claude-web-search',
+            ...setCounts({ checks: 900, failed: 10, cited: 445, mentioned: 623, prompts: 44, prompts_cited: 30 }),
+        },
+        {
+            engine: 'exa-answer',
+            ...setCounts({ checks: 720, failed: 20, cited: 140, mentioned: 280, prompts: 44, prompts_cited: 18 }),
+        },
+        {
+            engine: 'openai-web-search',
+            ...setCounts({ checks: 900, failed: 30, cited: 399, mentioned: 573, prompts: 44, prompts_cited: 28 }),
+        },
+    ],
+    topics: [
+        {
+            topic: '',
+            active_prompts: 1,
+            ...setCounts({ checks: 60, failed: 0, cited: 6, mentioned: 12, prompts: 1, prompts_cited: 1 }),
+        },
+        {
+            topic: 'Experiments',
+            active_prompts: 6,
+            ...setCounts({ checks: 360, failed: 10, cited: 70, mentioned: 140, prompts: 6, prompts_cited: 3 }),
+        },
+        {
+            topic: 'Feature flags',
+            active_prompts: 8,
+            ...setCounts({ checks: 480, failed: 10, cited: 188, mentioned: 329, prompts: 8, prompts_cited: 7 }),
+        },
+        {
+            topic: 'Product analytics',
+            active_prompts: 15,
+            ...setCounts({ checks: 900, failed: 20, cited: 528, mentioned: 704, prompts: 16, prompts_cited: 14 }),
+        },
+        {
+            topic: 'Session replay',
+            active_prompts: 12,
+            ...setCounts({ checks: 720, failed: 20, cited: 192, mentioned: 291, prompts: 13, prompts_cited: 6 }),
+        },
+        {
+            topic: 'Surveys',
+            active_prompts: 2,
+            ...setCounts({ checks: 0, failed: 0, cited: 0, mentioned: 0, prompts: 0, prompts_cited: 0 }),
+        },
+    ],
+    top_domains: [
+        { domain: 'analytics-review.example.com', answers: 1180, share_of_answers: 0.48, is_target: false },
+        { domain: 'example.com', answers: 984, share_of_answers: 0.4, is_target: true },
+        { domain: 'community.example.org', answers: 590, share_of_answers: 0.24, is_target: false },
+    ],
+}

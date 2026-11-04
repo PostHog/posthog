@@ -6,7 +6,7 @@ from temporalio import activity
 from posthog.models import Team
 from posthog.temporal.common.utils import asyncify
 
-from products.signals.backend.quota import (
+from products.signals.backend.facade.self_driving import (
     capture_signal_report_quota_paused,
     record_quota_check_failed_open,
     self_driving_quota_gate,
@@ -72,7 +72,10 @@ def enforce_self_driving_run_quota(input: EnforceSelfDrivingRunQuotaInput) -> st
         if run is None or run.is_terminal:
             return SELF_DRIVING_QUOTA_STOP_CHECKING
         task = run.task
-        if task.origin_product != Task.OriginProduct.SIGNAL_REPORT:
+        if (
+            task.origin_product != Task.OriginProduct.SIGNAL_REPORT
+            or (run.state or {}).get("billing_product") == "posthog_ai"
+        ):
             return SELF_DRIVING_QUOTA_STOP_CHECKING
         if _has_billable_pr_url(run.output):
             return SELF_DRIVING_QUOTA_STOP_CHECKING
@@ -152,7 +155,7 @@ def enforce_self_driving_run_quota(input: EnforceSelfDrivingRunQuotaInput) -> st
             )
             return SELF_DRIVING_QUOTA_CANCELLED
 
-        from products.signals.backend.task_run_artefacts import (  # noqa: PLC0415 — cross-product write kept off the activity import path
+        from products.signals.backend.facade.report_tasks import (  # noqa: PLC0415 — cross-product write kept off the activity import path
             release_quota_cancelled_implementation,
         )
 

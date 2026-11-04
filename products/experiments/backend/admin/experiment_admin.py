@@ -8,6 +8,7 @@ from django.http import HttpRequest, HttpResponseRedirect
 from django.shortcuts import redirect
 from django.urls import path, reverse
 from django.utils.html import format_html
+from django.utils.safestring import mark_safe
 
 from posthog.models.organization import Organization
 
@@ -226,7 +227,7 @@ class ExperimentAdmin(admin.ModelAdmin):
     def engine(self, experiment: Experiment):
         all_metrics = (experiment.metrics or []) + (experiment.metrics_secondary or [])
         if has_legacy_metric(all_metrics):
-            return format_html('<span style="color: orange;">Legacy</span>')
+            return mark_safe('<span style="color: orange;">Legacy</span>')
         return ""
 
     @admin.display(description="")

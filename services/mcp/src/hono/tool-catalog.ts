@@ -20,6 +20,7 @@ interface PreBuiltTool {
     build: () => ToolBase<ZodObjectAny>
     meta: ToolBase<ZodObjectAny>['_meta']
     rawInputSchema: ToolBase<ZodObjectAny>['rawInputSchema']
+    renderedNote?: ToolBase<ZodObjectAny>['renderedNote']
     definition: ToolDefinition | undefined
 }
 
@@ -128,6 +129,7 @@ export class ToolCatalog {
                 build: factory,
                 meta: base._meta,
                 rawInputSchema: base.rawInputSchema,
+                renderedNote: base.renderedNote,
                 definition: defs[name],
             })
         }
@@ -223,6 +225,7 @@ export class ToolCatalog {
                 handler: (context, params) => preBuilt.build().handler(context, params),
                 ...(preBuilt.rawInputSchema ? { rawInputSchema: preBuilt.rawInputSchema } : {}),
                 ...(preBuilt.meta ? { _meta: preBuilt.meta } : {}),
+                ...(preBuilt.renderedNote ? { renderedNote: preBuilt.renderedNote } : {}),
                 title: definition.title,
                 description: definition.description,
                 scopes: definition.required_scopes ?? [],

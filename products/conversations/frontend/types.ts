@@ -234,6 +234,7 @@ export interface ChatMessage {
     createdBy?: MessageAuthor | null
     createdAt: string
     isPrivate?: boolean
+    automatedUpdate?: boolean
     /** Edit count from the comment row. 0 means never edited. */
     version?: number
     emailDeliveryStatus?: EmailDeliveryStatus
@@ -340,6 +341,8 @@ export const aiTriageResultLabel: Record<AITriageResult, string> = {
     escalated_with_best: 'Escalated with draft',
     escalated_no_reply: 'Escalated, no draft',
     skipped_unactionable: 'Skipped',
+    skipped_team_replied: 'Skipped, team replied',
+    skipped_channel_excluded: 'Skipped, channel off',
     blocked_unsafe: 'Blocked unsafe ticket',
     blocked_unsafe_reply: 'Blocked unsafe reply',
     clarified: 'Asked a question',
@@ -382,6 +385,8 @@ const AI_TRIAGE_RESULT_TAG_TYPE: Record<AITriageResult, AITriageTagType> = {
     escalated_with_best: 'warning',
     escalated_no_reply: 'warning',
     skipped_unactionable: 'default',
+    skipped_team_replied: 'default',
+    skipped_channel_excluded: 'default',
     blocked_unsafe: 'danger',
     blocked_unsafe_reply: 'danger',
     clarified: 'warning',

@@ -26,6 +26,7 @@
 //! `target_file_size` per partition worker (see `crate::writer`).
 
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -46,7 +47,7 @@ use deltalake::{DeltaTable, ObjectStore, PartitionFilter, PartitionValue, Path};
 use futures::{StreamExt, TryStreamExt};
 use metrics::{counter, histogram};
 use parquet::arrow::arrow_reader::ArrowReaderMetadata;
-use parquet::arrow::async_reader::ParquetObjectReader;
+use parquet::arrow::async_reader::{ParquetObjectReader, ParquetRecordBatchStream};
 use parquet::arrow::ParquetRecordBatchStreamBuilder;
 use parquet::arrow::ProjectionMask;
 use parquet::file::metadata::ParquetMetaData;
@@ -56,7 +57,7 @@ use tracing::{debug, info, instrument, warn};
 
 use crate::errors::{Error, Result};
 use crate::limits::{
-    check_source_size, estimate_pk_set_bytes, resolve_max_source_bytes, ProcessLimits,
+    check_source_size, estimate_pk_set_bytes, resolve_max_source_bytes, Budget, ProcessLimits,
     SourceFootprint,
 };
 use crate::pkset::PkSet;
@@ -75,7 +76,7 @@ const WHOLE_TABLE: &str = "__deltalite_whole_table__";
 /// the observed batch size after the first decode.
 pub(crate) const INITIAL_DECODE_ESTIMATE_BYTES: usize = 4 * 1024 * 1024;
 /// First-iteration pre-decode reservation for narrow PK-column probe batches.
-const INITIAL_PROBE_ESTIMATE_BYTES: usize = 256 * 1024;
+pub(crate) const INITIAL_PROBE_ESTIMATE_BYTES: usize = 256 * 1024;
 
 /// Default per-call fetch budget. Readers of ordinary files (a few MB per row group)
 /// never wait on it at the default `max_parallel_files`; readers of files whose single
@@ -406,7 +407,7 @@ impl RelaxCache {
     /// committed. Valid only when the commit landed directly on the verified version
     /// (`committed == verified + 1`): a bigger jump means another writer's actions are
     /// part of the new version, so the memo stays behind and the next upsert rescans.
-    fn advance_own_commit(&mut self, committed: u64) {
+    pub(crate) fn advance_own_commit(&mut self, committed: u64) {
         if self.version.is_some_and(|v| committed == v + 1) {
             self.version = Some(committed);
         }
@@ -610,17 +611,23 @@ impl Budgets {
         let want = Self::kb(bytes);
         let local_kb = want.min(self.fetch_local_cap_kb as u64) as u32;
         let global_kb = want.min(self.limits.fetch_cap_kb() as u64) as u32;
-        let local = self
-            .fetch_local
-            .clone()
-            .acquire_many_owned(local_kb)
+        // The per-call wait shares the process-wide bound, so a stuck holder of either
+        // budget ends in an error that names the fetch budget.
+        self.limits
+            .bounded(Budget::Fetch, global_kb, async {
+                let local = self
+                    .fetch_local
+                    .clone()
+                    .acquire_many_owned(local_kb)
+                    .await
+                    .map_err(|_| Error::Generic("fetch-budget semaphore closed".into()))?;
+                let global = self.limits.acquire_fetch_kb(global_kb).await?;
+                Ok(FetchPermit {
+                    _local: local,
+                    _global: global,
+                })
+            })
             .await
-            .map_err(|_| Error::Generic("fetch-budget semaphore closed".into()))?;
-        let global = self.limits.acquire_fetch_kb(global_kb).await?;
-        Ok(FetchPermit {
-            _local: local,
-            _global: global,
-        })
     }
 
     /// Bytes of compressed row-group data one reader can hold without passing either
@@ -636,19 +643,35 @@ impl Budgets {
         let want = Self::kb(bytes);
         let local_kb = want.min(self.local_cap_kb as u64) as u32;
         let global_kb = want.min(self.limits.buffer_cap_kb() as u64) as u32;
-        let local = self
-            .local
-            .clone()
-            .acquire_many_owned(local_kb)
-            .await
-            .map_err(|_| Error::Generic("byte-budget semaphore closed".into()))?;
-        let global = self.limits.acquire_buffer_kb(global_kb).await?;
+        let (local, global) = self.acquire_byte_pair(local_kb, global_kb).await?;
         Ok(BudgetPermit {
             local: Some(local),
             global: Some(global),
             held_local_kb: local_kb,
             held_global_kb: global_kb,
         })
+    }
+
+    /// Local before global, the fixed order used everywhere (see `crate::limits`). The
+    /// per-call wait shares the process-wide bound, so a stuck holder of either budget
+    /// ends in an error that names the buffer budget.
+    async fn acquire_byte_pair(
+        &self,
+        local_kb: u32,
+        global_kb: u32,
+    ) -> Result<(OwnedSemaphorePermit, OwnedSemaphorePermit)> {
+        self.limits
+            .bounded(Budget::Buffer, global_kb, async {
+                let local = self
+                    .local
+                    .clone()
+                    .acquire_many_owned(local_kb)
+                    .await
+                    .map_err(|_| Error::Generic("byte-budget semaphore closed".into()))?;
+                let global = self.limits.acquire_buffer_kb(global_kb).await?;
+                Ok((local, global))
+            })
+            .await
     }
 
     /// Grow `permit` so it covers `total_bytes` (used after a decode turns out larger
@@ -678,14 +701,7 @@ impl Budgets {
         permit.global = None;
         permit.held_local_kb = 0;
         permit.held_global_kb = 0;
-        // Local before global, the fixed order used everywhere (see `crate::limits`).
-        let local = self
-            .local
-            .clone()
-            .acquire_many_owned(want_local)
-            .await
-            .map_err(|_| Error::Generic("byte-budget semaphore closed".into()))?;
-        let global = self.limits.acquire_buffer_kb(want_global).await?;
+        let (local, global) = self.acquire_byte_pair(want_local, want_global).await?;
         permit.local = Some(local);
         permit.global = Some(global);
         permit.held_local_kb = want_local;
@@ -839,7 +855,7 @@ async fn upsert_with_relax(
 /// (present with nulls, or absent so the cast will null-pad it) or in the table's own
 /// files (Add-action `nullCount` stats). Only positive evidence relaxes: files without
 /// stats are left alone, so a clean table's schema is never touched.
-async fn columns_needing_relax(
+pub(crate) async fn columns_needing_relax(
     table: &DeltaTable,
     source_batches: &[RecordBatch],
     source_schema: &Schema,
@@ -920,7 +936,10 @@ async fn columns_needing_relax(
 /// the upsert that follows plans against the relaxed schema; concurrent writers see a
 /// MetadataChanged conflict and re-plan (or fall back), exactly as for any other
 /// schema evolution.
-async fn relax_columns_to_nullable(table: &DeltaTable, columns: &[String]) -> Result<()> {
+pub(crate) async fn relax_columns_to_nullable(
+    table: &DeltaTable,
+    columns: &[String],
+) -> Result<()> {
     let snapshot = table.snapshot()?;
     let schema = snapshot.schema();
     let relaxed = StructType::try_new(schema.fields().map(|f| {
@@ -1153,8 +1172,69 @@ async fn upsert_inner(
     let rewrite_ms = rewrite_started.elapsed().as_millis() as u64;
 
     // --- Commit ----------------------------------------------------------------------
+    let committed = commit_partition_overwrite(
+        table,
+        snapshot,
+        actions,
+        &partition_columns,
+        opts.commit_max_retries,
+        opts.commit_metadata.clone(),
+    )
+    .await?;
+
+    // Only a landed commit makes the written files live and the removed files dead. Before
+    // it, a written file may be an orphan that no snapshot ever names.
+    if let Some(cache) = &opts.probe_cache {
+        cache.remove_all(removed_keys.iter().map(String::as_str));
+        let signature = pk_signature(&table_schema, &opts.primary_keys, &partition_col)?;
+        for (key, keys) in written_keys {
+            keys.store(key, signature);
+        }
+    }
+
+    stats.plan_ms = plan_ms;
+    stats.rewrite_ms = rewrite_ms;
+    stats.commit_ms = committed.commit_ms;
+    stats.maintenance_ms = committed.maintenance_ms;
+    stats.version = committed.version;
+    tracing::Span::current().record("version", stats.version);
+    info!(
+        version = stats.version,
+        partitions = stats.partitions_touched,
+        files_added = stats.files_added,
+        files_removed = stats.files_removed,
+        files_carried_over = stats.files_carried_over,
+        rows_updated = stats.rows_updated,
+        rows_inserted = stats.rows_inserted,
+        rows_copied = stats.rows_copied,
+        plan_ms = stats.plan_ms,
+        rewrite_ms = stats.rewrite_ms,
+        commit_ms = stats.commit_ms,
+        "upsert committed"
+    );
+    Ok((stats, committed.state))
+}
+
+/// A landed [`commit_partition_overwrite`].
+pub(crate) struct Committed {
+    pub(crate) version: i64,
+    pub(crate) state: DeltaTableState,
+    pub(crate) commit_ms: u64,
+    pub(crate) maintenance_ms: u64,
+}
+
+/// Commit a rewrite's Remove and Add actions as one partition-overwrite `Write`, then run
+/// log maintenance on a checkpoint boundary.
+pub(crate) async fn commit_partition_overwrite(
+    table: &DeltaTable,
+    snapshot: &DeltaTableState,
+    actions: Vec<Action>,
+    partition_columns: &[String],
+    max_retries: usize,
+    commit_metadata: Option<HashMap<String, Value>>,
+) -> Result<Committed> {
     let commit_started = Instant::now();
-    let predicate = partition_col.as_ref().map(|c| {
+    let predicate = partition_columns.first().map(|c| {
         let vals: Vec<String> = actions
             .iter()
             .filter_map(|a| match a {
@@ -1173,7 +1253,7 @@ async fn upsert_inner(
         partition_by: if partition_columns.is_empty() {
             None
         } else {
-            Some(partition_columns.clone())
+            Some(partition_columns.to_vec())
         },
         predicate,
     };
@@ -1184,10 +1264,10 @@ async fn upsert_inner(
     // caller back to the delta-rs MERGE for a write that has in fact happened. They run
     // best-effort below instead.
     let mut props = CommitProperties::default()
-        .with_max_retries(opts.commit_max_retries)
+        .with_max_retries(max_retries)
         .with_create_checkpoint(false)
         .with_cleanup_expired_logs(Some(false));
-    if let Some(md) = opts.commit_metadata.clone() {
+    if let Some(md) = commit_metadata {
         props = props.with_metadata(md);
     }
 
@@ -1200,43 +1280,19 @@ async fn upsert_inner(
         .await?;
     let commit_ms = commit_started.elapsed().as_millis() as u64;
 
-    // Only a landed commit makes the written files live and the removed files dead. Before
-    // it, a written file may be an orphan that no snapshot ever names.
-    if let Some(cache) = &opts.probe_cache {
-        cache.remove_all(removed_keys.iter().map(String::as_str));
-        let signature = pk_signature(&table_schema, &opts.primary_keys, &partition_col)?;
-        for (key, keys) in written_keys {
-            keys.store(key, signature);
-        }
-    }
-
+    let mut maintenance_ms = 0;
     if (finalized.version() + 1) % checkpoint_interval == 0 {
         let maintenance_started = Instant::now();
         best_effort_log_maintenance(table, finalized.version(), cleanup_enabled).await;
-        stats.maintenance_ms = maintenance_started.elapsed().as_millis() as u64;
+        maintenance_ms = maintenance_started.elapsed().as_millis() as u64;
     }
-
-    stats.plan_ms = plan_ms;
-    stats.rewrite_ms = rewrite_ms;
-    stats.commit_ms = commit_ms;
-    stats.version = i64::try_from(finalized.version())
-        .map_err(|_| Error::Generic("committed version overflows i64".into()))?;
-    tracing::Span::current().record("version", stats.version);
-    info!(
-        version = stats.version,
-        partitions = stats.partitions_touched,
-        files_added = stats.files_added,
-        files_removed = stats.files_removed,
-        files_carried_over = stats.files_carried_over,
-        rows_updated = stats.rows_updated,
-        rows_inserted = stats.rows_inserted,
-        rows_copied = stats.rows_copied,
-        plan_ms = stats.plan_ms,
-        rewrite_ms = stats.rewrite_ms,
-        commit_ms = stats.commit_ms,
-        "upsert committed"
-    );
-    Ok((stats, finalized.snapshot))
+    Ok(Committed {
+        version: i64::try_from(finalized.version())
+            .map_err(|_| Error::Generic("committed version overflows i64".into()))?,
+        state: finalized.snapshot,
+        commit_ms,
+        maintenance_ms,
+    })
 }
 
 /// Checkpoint and expired-log cleanup after a durable commit, tolerating failure: the
@@ -1281,7 +1337,7 @@ pub(crate) async fn best_effort_log_maintenance(
 
 /// Explicit argument > table property (already folded with delta-rs's default by the
 /// caller). Zero/absent explicit values fall through to the table's value.
-fn resolve_target_file_size(explicit: Option<usize>, table_value: usize) -> usize {
+pub(crate) fn resolve_target_file_size(explicit: Option<usize>, table_value: usize) -> usize {
     match explicit {
         Some(v) if v > 0 => v,
         _ => table_value,
@@ -1553,7 +1609,7 @@ fn source_pk_range(source: &PartitionSource, col_idx: usize) -> Result<Option<(V
 ///
 /// Each list keeps the snapshot's file order, as the per-partition filter did. Where
 /// the index cannot reproduce the filter's equality exactly, this falls back to it.
-async fn list_files_by_partition(
+pub(crate) async fn list_files_by_partition(
     table: &DeltaTable,
     partition_col: Option<&str>,
     values: &[&str],
@@ -1816,7 +1872,7 @@ fn file_cannot_match(
         || matches!(json_cmp(fmin, src_max), Some(std::cmp::Ordering::Greater))
 }
 
-fn json_cmp(a: &Value, b: &Value) -> Option<std::cmp::Ordering> {
+pub(crate) fn json_cmp(a: &Value, b: &Value) -> Option<std::cmp::Ordering> {
     match (a, b) {
         (Value::String(x), Value::String(y)) => Some(x.cmp(y)),
         (Value::Number(x), Value::Number(y)) => x.as_f64()?.partial_cmp(&y.as_f64()?),
@@ -1824,7 +1880,7 @@ fn json_cmp(a: &Value, b: &Value) -> Option<std::cmp::Ordering> {
     }
 }
 
-fn min_max_json(col: &dyn Array) -> Option<(Value, Value)> {
+pub(crate) fn min_max_json(col: &dyn Array) -> Option<(Value, Value)> {
     use arrow_array::cast::AsArray;
     use arrow_array::types::*;
 
@@ -1903,7 +1959,11 @@ fn min_max_json(col: &dyn Array) -> Option<(Value, Value)> {
 /// read back from storage is missing the column that the writer needs in order to route
 /// the rows back to the same partition. Getting this wrong would silently misroute
 /// rewritten rows.
-fn add_partition_column(batch: &RecordBatch, name: &str, value: &str) -> Result<RecordBatch> {
+pub(crate) fn add_partition_column(
+    batch: &RecordBatch,
+    name: &str,
+    value: &str,
+) -> Result<RecordBatch> {
     let n = batch.num_rows();
     let arr: Arc<dyn Array> = Arc::new(StringArray::from(vec![value; n]));
     let mut fields: Vec<Field> = batch
@@ -2286,24 +2346,16 @@ struct FileOutcome {
     remove: Action,
 }
 
-/// Stream one existing file, drop replaced rows, and send surviving batches to the
-/// partition's writer task. Every batch sent carries byte-budget permits acquired
-/// *before* the send; the writer releases them only after `write()` has copied the
-/// batch into its buffer, so queued + in-write survivor data across the whole process
-/// never exceeds the budgets.
-#[allow(clippy::too_many_arguments)]
-async fn filter_file(
-    store: Arc<dyn ObjectStore>,
-    f: TargetFile,
-    pkset: Arc<PkSet>,
-    table_schema: SchemaRef,
-    partition_col: Option<String>,
-    partition_value: String,
-    opts: Arc<UpsertOptions>,
-    budgets: Budgets,
-    tx: mpsc::UnboundedSender<(RecordBatch, BudgetPermit)>,
-) -> Result<FileOutcome> {
-    let (mut builder, held_fetch) = open_builder(&store, &f, &budgets).await?;
+/// Open a full-width stream over `f` for a rewrite, holding the fetch permit for the
+/// compressed bytes the reader will hold. The permit must outlive the stream.
+pub(crate) async fn open_rewrite_stream(
+    store: &Arc<dyn ObjectStore>,
+    f: &TargetFile,
+    budgets: &Budgets,
+    read_ahead_row_groups: bool,
+    read_batch_size: usize,
+) -> Result<(ParquetRecordBatchStream<ParquetObjectReader>, FetchPermit)> {
+    let (mut builder, held_fetch) = open_builder(store, f, budgets).await?;
     // Reserve the compressed bytes the reader will hold before it fetches any data.
     // Taken once per file and before any decode budget (see `Budgets::acquire_fetch`).
     let fetch = match held_fetch {
@@ -2311,7 +2363,7 @@ async fn filter_file(
         None => {
             let meta = builder.metadata().clone();
             let pair = max_row_group_pair_fetch_bytes(&meta);
-            if opts.read_ahead_row_groups
+            if read_ahead_row_groups
                 && meta.num_row_groups() > 1
                 && pair <= budgets.fetch_cap_bytes()
             {
@@ -2333,9 +2385,36 @@ async fn filter_file(
     let batch_rows = byte_bounded_batch_rows(
         builder.metadata(),
         INITIAL_DECODE_ESTIMATE_BYTES,
-        opts.read_batch_size,
+        read_batch_size,
     );
-    let mut stream = builder.with_batch_size(batch_rows).build()?;
+    Ok((builder.with_batch_size(batch_rows).build()?, fetch))
+}
+
+/// Stream one existing file, drop replaced rows, and send surviving batches to the
+/// partition's writer task. Every batch sent carries byte-budget permits acquired
+/// *before* the send; the writer releases them only after `write()` has copied the
+/// batch into its buffer, so queued + in-write survivor data across the whole process
+/// never exceeds the budgets.
+#[allow(clippy::too_many_arguments)]
+async fn filter_file(
+    store: Arc<dyn ObjectStore>,
+    f: TargetFile,
+    pkset: Arc<PkSet>,
+    table_schema: SchemaRef,
+    partition_col: Option<String>,
+    partition_value: String,
+    opts: Arc<UpsertOptions>,
+    budgets: Budgets,
+    tx: mpsc::UnboundedSender<(RecordBatch, BudgetPermit)>,
+) -> Result<FileOutcome> {
+    let (mut stream, fetch) = open_rewrite_stream(
+        &store,
+        &f,
+        &budgets,
+        opts.read_ahead_row_groups,
+        opts.read_batch_size,
+    )
+    .await?;
 
     let mut rows_updated = 0usize;
     let mut rows_copied = 0usize;
@@ -2553,10 +2632,18 @@ async fn rewrite_partition(
     // Reader tasks: up to max_parallel_files files stream concurrently (per call AND
     // per process). Each task takes its concurrency permits *inside* the task so
     // spawning never blocks this function.
+    //
+    // The wait for the per-call file permit has no bound, because files of a large
+    // partition queue there for as long as the rewrite takes. After one reader fails,
+    // the readers that get a per-call permit later stop instead of reading. Without
+    // that, every queued reader would wait the full process-wide bound one after
+    // another when a stuck call holds the process-wide file budget.
     let file_sem = Arc::new(Semaphore::new(opts.max_parallel_files.max(1)));
+    let reader_failed = Arc::new(AtomicBool::new(false));
     let mut readers = Vec::with_capacity(rewrite.len());
     for f in rewrite {
         let sem = file_sem.clone();
+        let failed = reader_failed.clone();
         let store = store.clone();
         let pkset = pkset.clone();
         let schema = table_schema.clone();
@@ -2571,8 +2658,18 @@ async fn rewrite_partition(
                 .acquire_owned()
                 .await
                 .map_err(|_| Error::Generic("file semaphore closed".into()))?;
-            let _global = opts.limits.acquire_file().await?;
-            filter_file(store, f, pkset, schema, pcol, value, opts, budgets, tx).await
+            if failed.load(Ordering::Relaxed) {
+                return Ok(None);
+            }
+            let outcome = async {
+                let _global = opts.limits.acquire_file().await?;
+                filter_file(store, f, pkset, schema, pcol, value, opts, budgets, tx).await
+            }
+            .await;
+            if outcome.is_err() {
+                failed.store(true, Ordering::Relaxed);
+            }
+            outcome.map(Some)
         }));
     }
     // Drop the parent's sender so the writer task ends when the readers do.
@@ -2587,11 +2684,13 @@ async fn rewrite_partition(
             .await
             .map_err(|e| Error::Generic(format!("file worker panicked: {e}")))?
         {
-            Ok(o) => {
+            Ok(Some(o)) => {
                 rows_updated += o.rows_updated;
                 rows_copied += o.rows_copied;
                 removes.push(o.remove);
             }
+            // Stopped because another reader failed; that reader's error is kept below.
+            Ok(None) => {}
             // Keep the first reader error, but keep draining so the writer terminates.
             Err(e) => reader_err = reader_err.or(Some(e)),
         }
@@ -2695,7 +2794,7 @@ async fn rewrite_partition(
 /// source write holds about as many decoded bytes as a survivor batch, and a row group
 /// passes the cap by at most that much on either path. Otherwise one `read_batch_size`
 /// slice of wide rows goes in one write and closes as one row group, far past the cap.
-fn source_slice_rows(
+pub(crate) fn source_slice_rows(
     batch: &RecordBatch,
     read_batch_size: usize,
     max_row_group_bytes: Option<usize>,
@@ -2711,7 +2810,7 @@ fn source_slice_rows(
 }
 
 /// Close the open file at `target_file_size`, else its row group at `max_row_group_bytes`.
-async fn roll_writer(
+pub(crate) async fn roll_writer(
     writer: &mut StreamingWriter,
     adds: &mut Vec<Add>,
     target_file_size: usize,

@@ -1,6 +1,8 @@
 import posthoganalytics
 from posthoganalytics.ai.prompts import PromptResult, Prompts
 
+from posthog.llm.managed_decision_model import prompt_key_configured
+
 ONBOARDING_PROMPT_NAME = "posthog-desktop-onboarding-run"
 ONBOARDING_PROMPT_LABEL = "production"
 REQUIRED_ONBOARDING_PROMPT_PLACEHOLDERS = frozenset({"brief", "channel_id", "followup", "homepage"})
@@ -148,6 +150,8 @@ _PROMPTS = Prompts(posthoganalytics, capture_errors=True)
 
 
 def load_onboarding_prompt() -> PromptResult:
+    if not prompt_key_configured():
+        return PromptResult(source="code_fallback", prompt=BUNDLED_ONBOARDING_PROMPT)
     return _PROMPTS.get(
         ONBOARDING_PROMPT_NAME,
         with_metadata=True,

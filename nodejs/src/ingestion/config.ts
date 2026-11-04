@@ -176,6 +176,10 @@ export type IngestionConsumerConfig = {
     // comes back skipped_move_limit for the merge-mode policy.
     PERSONHOG_SYNC_MERGE_MOVE_LIMIT: number
     PERSONHOG_IDENTITY_EMITS_MERGE_WARNINGS: boolean
+    // Re-send budget per batch for merges refused at admission, measured from the batch's
+    // first refusal and shared by every merge and step retry in it. Keep it well under
+    // CONSUMER_LOOP_STALL_THRESHOLD_MS, which the whole batch has to fit in.
+    PERSON_MERGE_NOT_APPLIED_WAIT_MS: number
     // Kill switch for emitting person_merge_events to the cohort-stream-processor.
     // Enable ordering: (1) create the topic, (2) set INGESTION_OUTPUT_PERSON_MERGE_EVENTS_TOPIC
     // (startup topic verification is then fatal by design), (3) flip this on. Flipping this on before
@@ -370,6 +374,7 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         PERSON_MERGE_SYNC_BATCH_SIZE: 0,
         PERSONHOG_SYNC_MERGE_MOVE_LIMIT: 10_000,
         PERSONHOG_IDENTITY_EMITS_MERGE_WARNINGS: false,
+        PERSON_MERGE_NOT_APPLIED_WAIT_MS: 20_000,
         PERSON_MERGE_EVENTS_ENABLED: false,
         PERSON_MERGE_EVENTS_PARTITION_COUNT: 64,
         PERSON_MERGE_EVENTS_TEAM_ALLOWLIST: '2',

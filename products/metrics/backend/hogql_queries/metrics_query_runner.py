@@ -266,6 +266,7 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
                     metricName=s.metric_name,
                     clause=s.clause,
                     unit=s.unit or None,
+                    histogramBounds=list(s.histogram_bounds) if s.histogram_bounds is not None else None,
                 )
                 for s in series
             ]

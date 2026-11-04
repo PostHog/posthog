@@ -11,6 +11,7 @@
         },
         "limit": {
             "description": "Number of results to return per page.",
+            "maximum": 250,
             "type": "number"
         },
         "offset": {

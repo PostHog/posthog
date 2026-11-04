@@ -1,4 +1,4 @@
-import { getInsightId } from 'scenes/insights/utils'
+import { getInsightId } from 'lib/insights/getInsightId'
 import { urls } from 'scenes/urls'
 
 import type { CyclotronJobInputSchemaType, InsightShortId } from '~/types'

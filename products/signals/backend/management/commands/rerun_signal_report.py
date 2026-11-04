@@ -25,7 +25,7 @@ from products.signals.backend.models import SignalReport
 from products.signals.backend.quota import self_driving_quota_gate
 from products.signals.backend.supersession import pending_replacement
 from products.signals.backend.task_run_artefacts import SIGNALS_PRODUCT, TASK_RUN_TYPE_IMPLEMENTATION
-from products.signals.backend.temporal.summary import SignalReportSummaryWorkflow
+from products.signals.backend.temporal.summary import RESEARCH_SANDBOX_RETRY_BUDGET, SignalReportSummaryWorkflow
 from products.signals.backend.temporal.types import IMPLEMENTATION_DEBOUNCE_SECONDS, SignalReportSummaryWorkflowInputs
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.usage import task_run_usage_limited
@@ -74,7 +74,8 @@ class Command(BaseCommand):
             id=SignalReportSummaryWorkflow.workflow_id_for(inputs.team_id, inputs.report_id),
             task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
             id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-            execution_timeout=timedelta(hours=1, seconds=IMPLEMENTATION_DEBOUNCE_SECONDS),
+            execution_timeout=timedelta(hours=1, seconds=IMPLEMENTATION_DEBOUNCE_SECONDS)
+            + RESEARCH_SANDBOX_RETRY_BUDGET,
         )
 
     def handle(self, *args: object, **options: object) -> None:

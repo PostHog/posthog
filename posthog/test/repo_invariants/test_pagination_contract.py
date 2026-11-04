@@ -28,6 +28,14 @@ LIST_VIEWSETS_WITHOUT_DIRECT_SHARED_PAGINATION = {
 
 EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.aeo.backend.presentation.views.AEOPromptViewSet",
+    # Returns one bounded object (capped at SERVICES_LIMIT services), not a page of rows.
+    "products.apm.backend.presentation.views.ServicesHealthViewSet",
+    # Returns one bounded object (capped at ENDPOINTS_LIMIT rows), not a page of rows.
+    "products.apm.backend.presentation.views.EndpointsHealthViewSet",
+    # Returns one bounded object (capped at MAP_EDGES_LIMIT edges over a bounded trace sample), not a page of rows.
+    "products.apm.backend.presentation.views.ServiceMapViewSet",
+    # Returns the team's 20 most recent import runs, not a page of rows.
+    "products.messaging.backend.presentation.views.provider_imports.ProviderImportViewSet",
     "ee.api.billing.BillingViewset",
     "ee.api.quota_limits.QuotaLimitsViewSet",
     "products.subscriptions.backend.presentation.views.SubscriptionDeliveryViewSet",
@@ -104,6 +112,7 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.autoresearch.backend.presentation.views.views.AutoresearchSuggestionViewSet",
     "products.autoresearch.backend.presentation.views.views.AutoresearchTrainingRunViewSet",
     "products.batch_exports.backend.presentation.views.batch_export.backfills.BatchExportBackfillViewSet",
+    "products.batch_exports.backend.presentation.views.batch_export.exports.BatchExportViewSet",
     "products.batch_exports.backend.presentation.views.batch_export.runs.BatchExportRunViewSet",
     "products.batch_exports.backend.presentation.views.file_download.FileDownloadBatchExportOnDemandViewSet",
     # Lists at most MAX_LIBRARIES_PER_TEAM (100) libraries, so it has no pages.
@@ -119,8 +128,14 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.conversations.backend.api.ai_context.AIContextAccountPropertiesViewSet",
     "products.conversations.backend.api.ai_reply_playbook.AIReplyPlaybookViewSet",
     "products.conversations.backend.api.signing_secret.SigningSecretViewSet",
+    # extend_schema_view only sets the list operation_id; the list itself stays the stock paginated one,
+    # with -usage_count, -created_at, -id ordering and a page-boundary test.
+    "products.conversations.backend.api.ticket_macros.TicketMacroViewSet",
     "products.conversations.backend.api.tickets.TicketViewSet",
     "products.customer_analytics.backend.presentation.views.announcements.AnnouncementViewSet",
+    # HogQL paginates after person aggregation. Tied-sort boundaries are covered by
+    # TestAccountUsersQuery.test_persons_are_narrowed_aggregated_and_paginated.
+    "products.customer_analytics.backend.presentation.views.account_persons_query.AccountPersonsViewSet",
     "products.customer_analytics.backend.presentation.views.customer_tasks.CustomerTaskViewSet",
     "products.customer_analytics.backend.presentation.views.views.AccountNotebookViewSet",
     "products.customer_analytics.backend.presentation.views.views.AccountNotesViewSet",
@@ -157,10 +172,14 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.data_warehouse.backend.presentation.views.fix_hogql.FixHogQLViewSet",
     "products.data_warehouse.backend.presentation.views.saved_query.viewset.DataWarehouseSavedQueryViewSet",
     "products.data_warehouse.backend.presentation.views.saved_query_column_annotation.DataWarehouseSavedQueryColumnAnnotationViewSet",
+    # extend_schema_view wraps the inherited DRF list solely to document include_columns.
+    "products.data_warehouse.backend.presentation.views.table.TableViewSet",
     "products.data_warehouse.backend.presentation.views.view_link.ViewLinkViewSet",
     "products.endpoints.backend.presentation.views.api.EndpointViewSet",
     "products.error_tracking.backend.presentation.views.alerts.ErrorTrackingAlertViewSet",
     "products.error_tracking.backend.presentation.views.assignment_rules.ErrorTrackingAssignmentRuleViewSet",
+    # Returns the fixed set of built-in filter definitions, one entry each, not a page of rows.
+    "products.error_tracking.backend.presentation.views.built_in_filters.ErrorTrackingBuiltInFilterViewSet",
     "products.error_tracking.backend.presentation.views.bypass_rules.ErrorTrackingBypassRuleViewSet",
     "products.error_tracking.backend.presentation.views.external_references.ErrorTrackingExternalReferenceViewSet",
     "products.error_tracking.backend.presentation.views.fingerprints.ErrorTrackingFingerprintViewSet",
@@ -209,8 +228,13 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.notebooks.backend.presentation.views.reusable_widget.ReusableWidgetViewSet",
     "products.notifications.backend.presentation.views.NotificationsViewSet",
     "products.product_analytics.backend.presentation.events_retention.EventsRetentionViewSet",
+    # Returns the organization's one retention setting, not a page of rows.
+    "products.product_analytics.backend.presentation.events_retention.OrganizationEventsRetentionViewSet",
     "products.product_analytics.backend.presentation.insight.InsightViewSet",
     "products.product_tours.backend.api.product_tour.ProductTourViewSet",
+    # Pages with `limit`/`offset` over clusters ranked live, with `has_more`; the API tests cover the page boundary.
+    "products.replay_vision.backend.api.clusters.VisionGroupViewSet",
+    "products.replay_vision.backend.api.clusters.VisionThemeViewSet",
     "products.replay_vision.backend.api.observations.ReplayObservationViewSet",
     "products.replay_vision.backend.api.observations.SessionReplayObservationViewSet",
     "products.replay_vision.backend.api.quota.VisionQuotaViewSet",
@@ -232,6 +256,12 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.signals.backend.presentation.inbox_summary.InboxSummaryViewSet",
     # Returns one team's onboarding state as a single document, so there is nothing to paginate.
     "products.signals.backend.presentation.onboarding.InboxOnboardingViewSet",
+    # Lists only the requesting member's own exclusions, a short list, so `pagination_class` is None.
+    "products.signals.backend.presentation.reviewer_exclusions.SignalReviewerExclusionViewSet",
+    # Returns one usage overview document, not a page of rows.
+    "products.signals.backend.presentation.spend.SignalSpendViewSet",
+    # Returns one rollup per signal source type; Settings needs the complete breakdown to total usage.
+    "products.signals.backend.presentation.spend.SignalSourceSpendViewSet",
     "products.signals.backend.scout_harness.views.SignalScoutConfigViewSet",
     "products.signals.backend.scout_harness.views.SignalScoutMembersViewSet",
     "products.signals.backend.scout_harness.views.SignalScoutNoteViewSet",

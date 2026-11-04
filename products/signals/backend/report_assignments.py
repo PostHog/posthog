@@ -2,17 +2,21 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime
+from functools import partial
 from typing import TypedDict
 
 from django.db import transaction
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
 import structlog
 
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
-from posthog.models.github_integration_base import GitHubIntegrationBase
+from posthog.models.github_integration_base import GitHubIntegrationBase, GitHubIntegrationError
 from posthog.models.integration import GitHubIntegration
 from posthog.models.user import User
 
@@ -34,12 +38,14 @@ from products.signals.backend.pull_requests import (
 )
 from products.signals.backend.report_claims import (
     ReportClaim,
+    actor_can_release_claim,
     actor_owns_claim,
     actor_works_under_claim,
     claim_from_artefact,
     get_active_claim,
     is_user_claim_of_task_creator,
 )
+from products.signals.backend.report_monitoring_attempts import complete_implementation
 from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)
@@ -97,9 +103,12 @@ class PullRequestDetails:
     number: int
     state: str
     merged: bool
+    merged_at: datetime | None = None
 
 
-def assignment_snapshot(report: SignalReport, assignment: ReportClaim | None) -> AssignmentSnapshot:
+def assignment_snapshot(
+    report: SignalReport, assignment: ReportClaim | None, *, include_pull_request: bool = True
+) -> AssignmentSnapshot:
     assignee: AssigneeSnapshot | None = None
     if assignment is not None:
         assignee = AssigneeSnapshot(
@@ -112,7 +121,11 @@ def assignment_snapshot(report: SignalReport, assignment: ReportClaim | None) ->
     from products.signals.backend.implementation_pr import fetch_implementation_pr_state_for_reports
 
     implementation_pr: PullRequestSnapshot | None = None
-    pr = fetch_implementation_pr_state_for_reports([str(report.id)], team_id=report.team_id).get(str(report.id))
+    pr = (
+        fetch_implementation_pr_state_for_reports([str(report.id)], team_id=report.team_id).get(str(report.id))
+        if include_pull_request
+        else None
+    )
     if pr is not None:
         parsed = GitHubIntegration.parse_pull_request_url(pr.url)
         implementation_pr = {
@@ -198,7 +211,7 @@ def claim_report_for_task(*, team_id: int, report_id: str, task_id: str) -> Repo
         return claim or create_claim(report, actor)
 
 
-def _pull_request_details(team_id: int, pr_url: str) -> PullRequestDetails:
+def _pull_request_details(team_id: int, pr_url: str, *, raise_on_error: bool = False) -> PullRequestDetails:
     parsed = GitHubIntegrationBase.parse_pull_request_url(pr_url)
     if parsed is None:
         raise InvalidPullRequestUrl("pr_url must be a GitHub pull request URL.")
@@ -225,6 +238,8 @@ def _pull_request_details(team_id: int, pr_url: str) -> PullRequestDetails:
             team_id=team_id,
             repository=parsed.repository,
         )
+        if raise_on_error:
+            raise
         return details
     if github is None:
         return details
@@ -238,6 +253,8 @@ def _pull_request_details(team_id: int, pr_url: str) -> PullRequestDetails:
             repository=parsed.repository,
             pr_number=parsed.number,
         )
+        if raise_on_error:
+            raise
         return details
     if not status.get("success"):
         logger.warning(
@@ -247,6 +264,8 @@ def _pull_request_details(team_id: int, pr_url: str) -> PullRequestDetails:
             pr_number=parsed.number,
             error=status.get("error"),
         )
+        if raise_on_error and status.get("status_code") != 404:
+            raise GitHubIntegrationError("Unable to verify pull request state", status_code=status.get("status_code"))
         return details
 
     merged = bool(status.get("merged"))
@@ -260,12 +279,18 @@ def _pull_request_details(team_id: int, pr_url: str) -> PullRequestDetails:
         pr_state = SignalReportAssignment.PrState.OPEN
     else:
         pr_state = SignalReportAssignment.PrState.UNKNOWN
+    raw_merged_at = status.get("merged_at")
+    try:
+        merged_at = parse_datetime(raw_merged_at) if isinstance(raw_merged_at, str) else None
+    except ValueError:
+        merged_at = None
     return PullRequestDetails(
         url=status.get("url") or pr_url,
         repository=details.repository,
         number=details.number,
         state=pr_state,
         merged=merged,
+        merged_at=merged_at if merged_at is not None and timezone.is_aware(merged_at) else None,
     )
 
 
@@ -301,7 +326,9 @@ def sync_task_pull_request_to_assignments(
     actor = ArtefactAttribution.from_task(task_id)
     with transaction.atomic():
         reports = list(
-            SignalReport.objects.select_for_update().filter(team_id=team_id, id__in=report_ids).order_by("id")
+            SignalReport.objects.select_for_update(no_key=True)
+            .filter(team_id=team_id, id__in=report_ids)
+            .order_by("id")
         )
         for report in reports:
             import_report_pull_requests(report, notify_reviewers=True)
@@ -328,7 +355,7 @@ def sync_task_pull_request_to_assignments(
         return len(reports)
 
 
-def _apply_pr_report_state(report: SignalReport, pr_state: str | None) -> None:
+def _apply_pr_report_state(report: SignalReport, pr_state: str | None, *, merged_at: datetime | None = None) -> None:
     target = None
     if pr_state == SignalReportAssignment.PrState.MERGED:
         target = SignalReport.Status.RESOLVED
@@ -340,10 +367,21 @@ def _apply_pr_report_state(report: SignalReport, pr_state: str | None) -> None:
     # close. Suppressing on it would undo the resolution moments after the person made it.
     if target == SignalReport.Status.SUPPRESSED and report.status in {
         SignalReport.Status.RESOLVED,
+        SignalReport.Status.CLOSED,
         SignalReport.Status.MONITORING,
     }:
         return
     try:
+        if target == SignalReport.Status.RESOLVED:
+            complete_implementation(
+                team_id=report.team_id,
+                report_id=report.id,
+                monitoring_started_at=merged_at,
+                attribution=ArtefactAttribution.system(),
+                from_pr_merge=True,
+            )
+            report.refresh_from_db()
+            return
         updated_fields = report.transition_to(target)
     except (InvalidStatusTransition, ValueError, TypeError):
         logger.info(
@@ -379,8 +417,13 @@ def claim_report(
     claim_id: str | None = None,
     takeover: bool = False,
     takeover_claim_id: str | None = None,
+    on_new_claim: Callable[..., None] | None = None,
 ) -> ReportClaim | None:
-    """Claim, release, or attach a PR to one report and return the current assignment."""
+    """Claim, release, or attach a PR to one report and return the current assignment.
+
+    `on_new_claim` runs after commit, only when this call started a claim, with `takeover` set when
+    it replaced someone else's claim.
+    """
     if release and (pr_url or pull_requests or takeover):
         raise ReportClaimConflict("Release cannot be combined with pull requests or takeover.")
     urls = list(dict.fromkeys(([pr_url] if pr_url else []) + (pull_requests or [])))
@@ -389,19 +432,23 @@ def claim_report(
     )
 
     with transaction.atomic():
-        locked_report = SignalReport.objects.select_for_update().get(id=report.id, team_id=report.team_id)
+        locked_report = SignalReport.objects.select_for_update(no_key=True).get(id=report.id, team_id=report.team_id)
         import_report_pull_requests(locked_report, notify_reviewers=True)
         assignment = get_active_claim(team_id=report.team_id, report_id=report.id)
-        before = assignment_snapshot(locked_report, assignment)
+        # Only the pull requests in this call change the implementation PR, so a claim without any skips reading
+        # it, which a bulk claim would otherwise do twice per report. A task actor's claim also links the task's
+        # runs to the report, so it keeps the full read.
+        include_pull_request = bool(details) or actor.task_id is not None
+        before = assignment_snapshot(locked_report, assignment, include_pull_request=include_pull_request)
         if claim_id and (assignment is None or str(assignment.claim_id) != claim_id):
             raise ReportClaimConflict("This claim is no longer active.")
-        if claim_id and assignment is not None and not actor_works_under_claim(assignment, actor):
+        if claim_id and assignment is not None and not release and not actor_works_under_claim(assignment, actor):
             raise ReportClaimConflict("This claim belongs to another actor.")
 
         if release:
             if assignment is None:
                 return None
-            if assignment.actor_kind and not actor_owns_claim(assignment, actor):
+            if assignment.actor_kind and not actor_can_release_claim(assignment, actor):
                 raise ReportClaimConflict("Only the current assignee can release this report.")
             release_claim(assignment, actor)
             assignment = None
@@ -421,6 +468,7 @@ def claim_report(
                 ):
                     return assignment
                 raise ReportClaimConflict(f"Reports with status '{report_status}' cannot be claimed.")
+            took_over = False
             if assignment is not None and not actor_works_under_claim(assignment, actor):
                 if takeover_claim_id and str(assignment.claim_id) != takeover_claim_id:
                     raise ReportClaimConflict("The report's claim changed. Reload the report and try again.")
@@ -430,8 +478,11 @@ def claim_report(
                     )
                 release_claim(assignment, actor, takeover=True)
                 assignment = None
+                took_over = True
             if assignment is None:
                 assignment = create_claim(locked_report, actor)
+                if on_new_claim is not None:
+                    transaction.on_commit(partial(on_new_claim, takeover=took_over))
 
         for pr_details in details:
             link_pull_request(
@@ -443,7 +494,7 @@ def claim_report(
         if details:
             apply_report_completion(locked_report)
 
-        after = assignment_snapshot(locked_report, assignment)
+        after = assignment_snapshot(locked_report, assignment, include_pull_request=include_pull_request)
         if before == after:
             return assignment
 
@@ -499,7 +550,11 @@ def update_assignments_for_pull_request(
     for team_id in sorted(set(team_ids)):
         report_ids = report_ids_for_implementation_pr(team_id=team_id, repository=repository, pr_number=pr_number)
         with transaction.atomic():
-            reports = SignalReport.objects.select_for_update().filter(team_id=team_id, id__in=report_ids).order_by("id")
+            reports = (
+                SignalReport.objects.select_for_update(no_key=True)
+                .filter(team_id=team_id, id__in=report_ids)
+                .order_by("id")
+            )
             for report in reports:
                 import_report_pull_requests(report, notify_reviewers=True)
                 for pr in fetch_implementation_prs_for_reports([str(report.id)], team_id=report.team_id).get(
@@ -520,6 +575,7 @@ def update_assignments_for_pull_request(
                                 number=pr_number,
                                 state=pr_state,
                                 merged=pr_state == "merged",
+                                merged_at=merged_at,
                             ),
                             actor=ArtefactAttribution.from_task(pr.task_id),
                             claim_id=pr.claim_id,

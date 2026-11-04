@@ -60,7 +60,7 @@ from posthog.rate_limit import TaskRunChartRenderThrottle
 from posthog.renderers import ServerSentEventRenderer
 from posthog.schema_migrations.upgrade import upgrade
 from posthog.security.outbound_proxy import internal_requests_session
-from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS, TASK_AGENT_OAUTH_APP_CLIENT_IDS
+from posthog.temporal.oauth import SANDBOX_OAUTH_APP_CLIENT_IDS
 from posthog.token_bucket import (
     BucketDecision,
     BucketUnavailable,
@@ -204,9 +204,6 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunLivingArtifactsResponseSerializer,
     TaskRunLogsQuerySerializer,
     TaskRunLogsView,
-    TaskRunPeerMessageRequestSerializer,
-    TaskRunPeerMessageResponseSerializer,
-    TaskRunPeersResponseSerializer,
     TaskRunPostHogReferencesRequestSerializer,
     TaskRunPostHogReferencesResponseSerializer,
     TaskRunRelayMessageRequestSerializer,
@@ -328,7 +325,6 @@ WARM_SANDBOX_FLAGS_BY_ORIGIN_PRODUCT: dict[str, str] = {
 # Origins that warm for every user, with no flag left to evaluate.
 WARM_SANDBOX_UNGATED_ORIGIN_PRODUCTS: frozenset[str] = frozenset(
     {
-        tasks_facade.TaskOriginProduct.POSTHOG_AI,
         tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
     }
 )
@@ -423,15 +419,13 @@ def _agent_run_enabled(request, team) -> bool:
 
 
 class _SchemaAwareLimitOffsetPagination(PrecountedLimitOffsetPagination):
-    """LimitOffsetPagination subclass that surfaces `default_limit`/`max_limit` in the OpenAPI schema."""
+    """LimitOffsetPagination subclass that surfaces `default_limit` and the bounds in the OpenAPI schema."""
 
     def get_schema_operation_parameters(self, view):
         parameters = super().get_schema_operation_parameters(view)
         for parameter in parameters:
             if parameter.get("name") == self.limit_query_param:
                 parameter["schema"]["default"] = self.default_limit
-                if self.max_limit is not None:
-                    parameter["schema"]["maximum"] = self.max_limit
                 parameter["schema"]["minimum"] = 1
             elif parameter.get("name") == self.offset_query_param:
                 parameter["schema"]["default"] = 0
@@ -553,7 +547,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if not isinstance(authenticator, OAuthAccessTokenAuthentication):
             raise PermissionDenied("Task comments are available only to the current task agent.")
         application = authenticator.access_token.application
-        if application is None or application.client_id not in TASK_AGENT_OAUTH_APP_CLIENT_IDS:
+        if application is None or application.client_id not in SANDBOX_OAUTH_APP_CLIENT_IDS:
             raise PermissionDenied("Task comments are available only to the current task agent.")
         try:
             parsed_task_id = UUID(task_id)
@@ -888,7 +882,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 and validated_data.get("github_user_integration") is None
             )
             if not is_code_access_exempt and (
-                access_response := code_access_required_response(request, self.organization)
+                access_response := code_access_required_response(
+                    request, self.organization, origin_product=origin_product
+                )
             ):
                 return access_response
             if limit_response := usage_limit_response(request.user, self.team_id):
@@ -953,6 +949,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return compute_quota_limit_response(error.reason)
         except ReportTaskCapExceeded as error:
             return self._report_task_cap_response(error.detail)
+        except tasks_facade.ActiveSessionCapRefused as error:
+            return Response({"detail": error.detail, "code": error.code}, status=status.HTTP_400_BAD_REQUEST)
         except tasks_facade.WarmRunActivationUnavailable as error:
             return self._warm_activation_unavailable_response(error)
         finally:
@@ -1715,6 +1713,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         """
         if origin_product in WARM_SANDBOX_UNGATED_ORIGIN_PRODUCTS:
             return True
+        if origin_product == tasks_facade.TaskOriginProduct.POSTHOG_AI:
+            return tasks_access.get_posthog_ai_access_decision(cast(User, self.request.user), self.organization).allowed
         flag = WARM_SANDBOX_FLAGS_BY_ORIGIN_PRODUCT.get(origin_product)
         if flag is None:
             return False
@@ -1780,7 +1780,9 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         code_access_allowed = False
         if origin_product == tasks_facade.TaskOriginProduct.SIGNAL_REPORT:
             code_access_allowed = code_access_required_response(request, self.organization) is None
-        elif access_response := code_access_required_response(request, self.organization):
+        elif access_response := code_access_required_response(
+            request, self.organization, origin_product=origin_product
+        ):
             return access_response
 
         user_id = self._user_id()
@@ -1894,6 +1896,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             )
         if error.kind == "detail":
             body: dict[str, Any] = {"detail": error.detail}
+            if error.code is not None:
+                body["code"] = error.code
             if error.missing_artifact_ids is not None:
                 body["missing_artifact_ids"] = error.missing_artifact_ids
             return Response(body, status=status.HTTP_400_BAD_REQUEST)
@@ -2010,11 +2014,21 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         self._authorized_task_id = self._ensure_task_accessible()
 
     @staticmethod
-    def _is_trial_lifecycle_update(payload: object) -> bool:
-        if not isinstance(payload, dict) or not payload or set(payload) - {"status", "error_message", "state"}:
+    def _is_runtime_lifecycle_update(payload: object) -> bool:
+        if (
+            not isinstance(payload, dict)
+            or not payload
+            or set(payload) - {"status", "error_message", "error_type", "output", "state"}
+        ):
             return False
         if "status" in payload and (
             not isinstance(payload["status"], str) or payload["status"] not in {"in_progress", "completed", "failed"}
+        ):
+            return False
+        if "error_type" in payload and payload.get("status") != "failed":
+            return False
+        if "output" in payload and not (
+            payload.get("status") in {"completed", "failed"} and tasks_facade.is_finish_report_output(payload["output"])
         ):
             return False
         if "state" in payload:
@@ -2032,6 +2046,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if self.action not in {
             "append_log",
             "set_summary",
+            "set_output",
             "update",
             "partial_update",
             "artifacts_download",
@@ -2039,13 +2054,16 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         }:
             return None
         scopes = get_authenticator_scopes(request.successful_authenticator) or []
+        runtime_scope = "internal_run:write" if "internal_run:write" in scopes else "scout_experiment_internal:read"
         if (
             "task:read" in scopes
-            and "scout_experiment_internal:read" in scopes
+            and runtime_scope in scopes
             and (
                 self.action in {"append_log", "set_summary"}
+                or self.action == "set_output"
+                and runtime_scope == "internal_run:write"
                 or self.action in {"update", "partial_update"}
-                and self._is_trial_lifecycle_update(request.data)
+                and self._is_runtime_lifecycle_update(request.data)
             )
             and run_context.is_sandbox_run_request(
                 request=request,
@@ -2054,7 +2072,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 run_id=self.kwargs.get("pk"),
             )
         ):
-            return ["task:read", "scout_experiment_internal:read"]
+            return ["task:read", runtime_scope]
         if self.action == "artifacts_download":
             return ["task:read"]
         if self.action == "retrieve":
@@ -2099,6 +2117,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         "list",
         "retrieve",
         "logs",
+        "log_entries",
         "session_logs",
         "task_session",
         "stream",
@@ -2500,7 +2519,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         detail=True,
         methods=["patch"],
         url_path="set_output",
-        required_scopes=["task:write"],
     )
     def set_output(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
@@ -2535,12 +2553,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     def set_summary(self, request, pk=None, **kwargs):
         task_id = self._ensure_task_accessible()
+        scopes = get_authenticator_scopes(request.successful_authenticator) or []
         run = tasks_facade.set_task_run_summary(
             pk,
             task_id,
             self.team_id,
             summary=request.validated_data["summary"],
             tags=request.validated_data.get("tags"),
+            sync_task_tags="internal_run:write" not in scopes or "task:write" in scopes,
             include_agent_state=run_context.is_sandbox_run_request(
                 request=self.request,
                 team_id=self.team_id,
@@ -3333,86 +3353,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return response
         return self._preview_unavailable_page(redirect.outcome, task_id)
 
-    def _peer_messaging_gate(self, task_id: str) -> Response | None:
-        """Server-side authorization for the peers endpoints. Tool gating in the
-        harness is UX, never authorization — everything is re-checked here.
-
-        - A sandbox-app OAuth token must be bound to exactly this task: the token's
-          user may well control other tasks too (same creator), so without this a
-          compromised sandbox for task A could send as task B's runs.
-        - The requester must be the task's creator: peer visibility and message
-          attribution derive entirely from the creating user, so broader task
-          access (e.g. the Slack same-team carve-out) must not let a teammate
-          enumerate or send as another user's runs.
-        - Both feature flags and the Pi runtime are enforced per request, mirroring
-          how every Pi write path re-checks ``pi_cloud_runtime_enabled`` — a stale
-          tool in a resumed sandbox can't outlive a rollback of either flag.
-        """
-        authenticator = self.request.successful_authenticator
-        if isinstance(authenticator, OAuthAccessTokenAuthentication):
-            access_token = authenticator.access_token
-            application = access_token.application
-            if (
-                application is not None
-                and application.client_id in SANDBOX_OAUTH_APP_CLIENT_IDS
-                and access_token.sandbox_task_id != UUID(task_id)
-            ):
-                raise NotFound("Task not found")
-        user = cast(User, self.request.user)
-        if not tasks_facade.task_created_by_user(task_id, self.team_id, user.id):
-            return Response(
-                TaskRunErrorResponseSerializer(
-                    {"error": "Peer messaging is only available to the task creator's runs"}
-                ).data,
-                status=status.HTTP_403_FORBIDDEN,
-            )
-        if not tasks_facade.task_uses_pi_runtime(task_id, self.team_id):
-            return Response(
-                TaskRunErrorResponseSerializer({"error": "Peer messaging requires the Pi runtime"}).data,
-                status=status.HTTP_403_FORBIDDEN,
-            )
-        if not tasks_facade.pi_cloud_runtime_enabled(self.team, user):
-            return Response(
-                TaskRunErrorResponseSerializer({"error": "The Pi cloud runtime is not enabled for this team"}).data,
-                status=status.HTTP_403_FORBIDDEN,
-            )
-        if not tasks_facade.agent_peer_messaging_enabled(self.team, user):
-            return Response(
-                TaskRunErrorResponseSerializer({"error": "Peer messaging is not enabled for this team"}).data,
-                status=status.HTTP_403_FORBIDDEN,
-            )
-        return None
-
-    @validated_request(
-        responses={
-            200: OpenApiResponse(
-                response=TaskRunPeersResponseSerializer,
-                description="Active agent runs this run may message",
-            ),
-            403: OpenApiResponse(
-                response=TaskRunErrorResponseSerializer,
-                description="Peer messaging is disabled or the task is not on the Pi runtime",
-            ),
-            404: OpenApiResponse(description="Run not found"),
-        },
-        summary="List peer agent runs",
-        description=(
-            "Agent runs this run may send messages to: cloud Pi runs of tasks created by the same user, "
-            "currently in progress or queued. Discovery and send validation share one visibility policy, "
-            "so a run can only message what it can list; the per-entry `sendable` flag is the liveness "
-            "contract."
-        ),
-    )
-    @action(detail=True, methods=["get"], url_path="peers", required_scopes=["task:read"])
-    def peers(self, request, pk=None, **kwargs):
-        task_id = self._ensure_task_accessible()
-        if (gate_response := self._peer_messaging_gate(task_id)) is not None:
-            return gate_response
-        peers = tasks_facade.list_task_run_peers(pk, task_id, self.team_id)
-        if peers is None:
-            raise NotFound()
-        return Response(TaskRunPeersResponseSerializer({"peers": peers}).data)
-
     @validated_request(
         responses={
             200: OpenApiResponse(
@@ -3510,51 +3450,6 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
 
     @validated_request(
-        request_serializer=TaskRunPeerMessageRequestSerializer,
-        responses={
-            200: OpenApiResponse(
-                response=TaskRunPeerMessageResponseSerializer,
-                description="Synchronous send result (accepted / target_finished / rejected)",
-            ),
-            400: OpenApiResponse(response=TaskRunErrorResponseSerializer, description="Invalid message payload"),
-            403: OpenApiResponse(
-                response=TaskRunErrorResponseSerializer,
-                description="Peer messaging is disabled or the task is not on the Pi runtime",
-            ),
-            404: OpenApiResponse(description="Run not found"),
-        },
-        summary="Send a message to a peer agent run",
-        description=(
-            "Relay a message from this run to a peer agent run. The body is delivered below a "
-            "server-composed provenance envelope as a queued (non-steer) turn; attachments are copied "
-            "into the target run's own artifact storage. `accepted` means queued for delivery, never "
-            "delivered — the sandbox handoff happens later inside the target's workflow."
-        ),
-        strict_request_validation=True,
-    )
-    @action(
-        detail=True,
-        methods=["post"],
-        url_path=r"peers/(?P<target_run_id>[^/]+)/message",
-        required_scopes=["task:write"],
-    )
-    def peers_message(self, request, pk=None, target_run_id=None, **kwargs):
-        task_id = self._ensure_task_accessible()
-        if (gate_response := self._peer_messaging_gate(task_id)) is not None:
-            return gate_response
-        result = tasks_facade.signal_task_run_peer_message(
-            pk,
-            task_id,
-            self.team_id,
-            target_run_id=target_run_id,
-            content=request.validated_data["content"],
-            artifact_ids=list(request.validated_data.get("artifact_ids") or []),
-        )
-        if result is None:
-            raise NotFound()
-        return Response(TaskRunPeerMessageResponseSerializer(result).data)
-
-    @validated_request(
         query_serializer=TaskRunLogsQuerySerializer,
         extensions={"x-product": "logs"},
         responses={
@@ -3579,6 +3474,14 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     )
     @action(detail=True, methods=["get"], url_path="logs", required_scopes=["task:read"])
     def logs(self, request, pk=None, **kwargs):
+        return self._logs_response(request, pk)
+
+    @validated_request(query_serializer=TaskRunLogsQuerySerializer, exclude=True)
+    @action(detail=True, methods=["get"], url_path="log_entries", required_scopes=["task:read"])
+    def log_entries(self, request, pk=None, **kwargs):
+        return self._logs_response(request, pk)
+
+    def _logs_response(self, request, pk) -> HttpResponse:
         task_id = self._ensure_task_accessible()
         query = request.validated_query_data
         timer = ServerTimingsGathered()
@@ -3816,7 +3719,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # A side question drives the agent and spends model tokens on the caller's behalf. Unlike
         # user_message below, it has no Inbox surface to exempt, so every caller takes both gates.
         if method == "side_question":
-            if access_response := code_access_required_response(request, self.organization):
+            if access_response := code_access_required_response(request, self.organization, posthog_ai_task_id=task_id):
                 return access_response
             if limit_response := usage_limit_response(request.user, self.team_id):
                 return limit_response
@@ -3886,7 +3789,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             # (see products/tasks/backend/logic/services/warm.py) stops counting it. No-op for Runs
             # that were never warm; best-effort, since a failure only over-counts the pool until terminal.
             try:
-                tasks_facade.update_task_run_state(pk, remove_keys=["await_user_message"])
+                tasks_facade.activate_warm_task_run(pk)
             except Exception:
                 logger.warning("Failed to clear await_user_message for task run %s", pk)
 

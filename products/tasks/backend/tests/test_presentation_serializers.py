@@ -1,5 +1,4 @@
 import base64
-import ipaddress
 from types import SimpleNamespace
 
 import time_machine
@@ -19,6 +18,7 @@ from posthog.temporal.oauth import (
     ARRAY_APP_CLIENT_ID_US,
     POSTHOG_DESKTOP_MOBILE_APP_CLIENT_ID_US,
 )
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.model_catalogue import GatewayModel
@@ -149,7 +149,7 @@ class TestTaskRunCreateRequestSerializer(SimpleTestCase):
         ]
     )
     @time_machine.travel("2026-09-18T12:00:00Z", tick=False)
-    @patch("posthog.security.url_validation.resolve_host_ips", return_value={ipaddress.ip_address("93.184.216.34")})
+    @mock_anti_ssrf_dns_lookup()
     def test_schedule_rejects_unsupported_inputs(self, name: str, payload: dict, field: str, _resolve_host_ips) -> None:
         serializer = TaskRunCreateRequestSerializer(data={"scheduled_at": "2026-09-19T12:00:00", **payload})
         with patch(
@@ -250,10 +250,7 @@ class TestTaskRunCreateRequestSerializer(SimpleTestCase):
         if not accepted:
             assert "claude_model_access" in serializer.errors
 
-    @patch(
-        "posthog.security.url_validation.resolve_host_ips",
-        return_value={ipaddress.ip_address("93.184.216.34")},
-    )
+    @mock_anti_ssrf_dns_lookup()
     def test_deduplicates_imported_mcp_server_host_resolution(self, mock_resolve_host_ips) -> None:
         serializer = TaskRunCreateRequestSerializer(
             data={

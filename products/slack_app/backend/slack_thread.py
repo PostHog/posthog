@@ -17,6 +17,7 @@ from posthog.slack.markdown import SLACK_MARKDOWN_TEXT_MAX_LEN, slack_markdown_b
 from products.slack_app.backend.analytics import capture_slack_event, slack_session_id
 from products.slack_app.backend.feature_flags import is_slack_app_forking_enabled
 from products.slack_app.backend.logic.feature_tips.offer import TipRequest, offer_feature_tip
+from products.slack_app.backend.logic.interview_recruitment import FrustrationInviteRequest, offer_frustration_invite
 from products.slack_app.backend.logic.reply_suggestions import (
     ReplySuggestionAttribution,
     SuggestedReply,
@@ -287,6 +288,7 @@ class SlackThreadHandler:
         actor_slack_user_id: str | None = None,
         turn_trace_id: str | None = None,
         turn_person_message: str | None = None,
+        include_thread_cost: bool = False,
     ) -> "SlackThreadHandler":
         """A handler whose footer describes ``run_id``.
 
@@ -295,7 +297,7 @@ class SlackThreadHandler:
         """
         handler = cls(
             context,
-            load_run_footer(run_id, integration_id=context.integration_id),
+            load_run_footer(run_id, integration_id=context.integration_id, include_thread_cost=include_thread_cost),
             actor_slack_user_id=actor_slack_user_id,
             turn_trace_id=turn_trace_id,
             turn_person_message=turn_person_message,
@@ -1128,8 +1130,25 @@ class SlackThreadHandler:
         )
 
     def offer_feature_tip(self) -> None:
+        """Offer one private prompt under the answer: an interview invitation if the reader is frustrated, else a tip."""
         if not self.actor_slack_user_id:
             return
+        try:
+            if offer_frustration_invite(
+                FrustrationInviteRequest(
+                    integration=self._get_integration(),
+                    slack_user_id=self.actor_slack_user_id,
+                    posthog_user=self._actor_posthog_user,
+                    channel=self.context.channel,
+                    thread_ts=self.context.thread_ts,
+                    signal="message",
+                    person_message=self.turn_person_message,
+                    trace_id=self.turn_trace_id,
+                )
+            ):
+                return
+        except Exception:
+            logger.warning("slack_app_interview_invite_failed", exc_info=True)
         try:
             offer_feature_tip(
                 TipRequest(
@@ -1163,6 +1182,10 @@ class SlackThreadHandler:
                 slack_session_id=self._session_id(),
                 task_id=self.run_footer.task_id,
                 run_id=self.run_footer.run_id,
+                chart_links=self.run_footer.chart_links,
+                thread_cost_usd=(
+                    float(self.run_footer.thread_cost_usd) if self.run_footer.thread_cost_usd is not None else None
+                ),
             )
         except Exception:
             logger.warning("slack_app_reply_posted_capture_failed", reply_kind=str(reply_kind), exc_info=True)

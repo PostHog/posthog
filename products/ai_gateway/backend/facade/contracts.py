@@ -23,6 +23,8 @@ class DevToken:
     expires_at: datetime | None
     revoked_at: datetime | None
     status: DevTokenStatus
+    # None when the token is not live or the gateway did not answer.
+    remaining_usd: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -42,6 +44,39 @@ class DevTokenUsage:
     token_cap_usd: Decimal
     ttl_seconds: int
     tokens: list[DevToken]
+
+
+@dataclass(frozen=True)
+class DevUserUsage:
+    user_id: int | None
+    email: str | None
+    distinct_id: str
+    tokens_minted_24h: int
+    tokens_minted_30d: int
+    live_tokens: int
+    revoked_30d: int
+    reserved_usd_24h: Decimal
+    spend_usd_24h: Decimal
+    spend_usd_7d: Decimal
+    spend_usd_30d: Decimal
+    last_minted_at: datetime | None
+
+
+@dataclass(frozen=True)
+class DevTokenActivity:
+    at: datetime
+    activity: str
+    actor_email: str | None
+    owner_email: str | None
+    client: DevTokenClient | None
+    cap_usd: Decimal | None
+
+
+@dataclass(frozen=True)
+class DevTeamUsage:
+    paying_team_id: int
+    users: list[DevUserUsage]
+    activity: list[DevTokenActivity]
 
 
 class DevTokenRefused(Exception):

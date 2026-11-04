@@ -155,7 +155,8 @@ A fast network response can still cause a slow interface if parsing, state propa
 A slow request does not explain a delayed local drag unless the interaction actually waits for it.
 
 SQL result tables in dashboard cards use row virtualization inside the tile's scroll area.
-Tables with more than 50 columns also use column virtualization with fixed column widths, unless pinned columns require the full column layout.
+Virtualized tables use a fixed layout. Each column width comes from its header and a sample of its cells, between 4rem and 20rem.
+Tables with more than 50 columns also use column virtualization with those widths, unless pinned columns require the full column layout.
 Image exports keep the full table layout.
 Table renderers prepare cells by row and column index, including transposed cells, so offscreen cells do not require formatting before display.
 Sorting prepares the selected column once per column configuration; comparisons reuse those cells.

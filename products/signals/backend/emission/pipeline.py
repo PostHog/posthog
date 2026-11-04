@@ -31,8 +31,11 @@ from products.signals.backend.emission.registry import (
 from products.signals.backend.emission.steering import SourceSteering, apply_steering, steering_from_config
 from products.signals.backend.facade.api import emit_signal
 from products.signals.backend.llm_spend import generate_with_spend
-from products.signals.backend.models import SignalEmissionRecord
-from products.signals.backend.spend import signal_id_for
+from products.signals.backend.models import SignalEmissionRecord, SignalReport
+from products.signals.backend.recurrence import reports_fork_recurrence
+from products.signals.backend.report_merge import signal_target_reports
+from products.signals.backend.spend import complete_signal_pipeline, finalized_signal_ids, signal_id_for
+from products.signals.backend.spend_billing import system_source_exempt
 from products.signals.backend.system_one_decision import run_model_decision
 from products.signals.backend.system_one_prompts import SystemOnePrompt, bundled_prompt, current_prompt
 from products.signals.backend.temporal import metrics
@@ -627,6 +630,16 @@ async def _emit_signals(
     return succeeded
 
 
+def _reports_closed_to_source_state(team_id: int, report_ids: set[str]) -> set[str]:
+    """The matched reports whose signals would fork a recurrence, after following merges and recurrences."""
+    if not report_ids:
+        return set()
+    reports = list(SignalReport.objects.filter(team_id=team_id, id__in=report_ids))
+    targets = signal_target_reports(team_id=team_id, reports=reports)
+    closed_targets = reports_fork_recurrence(team_id=team_id, reports=list(targets.values()))
+    return {report_id for report_id, target in targets.items() if str(target.id) in closed_targets}
+
+
 async def run_signal_pipeline(
     team: Team,
     config: SignalSourceTableConfig,
@@ -681,6 +694,15 @@ async def run_signal_pipeline(
         )
     logger.info(f"Built {len(outputs)} signal outputs from {len(records)} records for {source_label}", **extra)
 
+    # An activity retry must not rerun filters for a signal whose pipeline already finished.
+    finished = await database_sync_to_async(finalized_signal_ids)(
+        team_id=team.id, signal_ids=[output.signal_id for output in outputs if output.signal_id]
+    )
+    if config.record_processed_outputs and finished:
+        # Dispatch may have succeeded before the emission ledger write failed.
+        await _record_processed_outputs(team, [output for output in outputs if output.signal_id in finished])
+    outputs = [output for output in outputs if output.signal_id not in finished]
+
     organization = await database_sync_to_async(lambda: team.organization)()
     for output in outputs:
         capture_pipeline_stage("signal_data_source_entered", team, organization, output)
@@ -702,8 +724,21 @@ async def run_signal_pipeline(
             else output
             for output in outputs
         ]
+        # A source state change such as a closed issue only refreshes an open report. On a resolved
+        # report it usually means the fix landed, so it must not file a recurrence.
+        closed_report_ids = await database_sync_to_async(_reports_closed_to_source_state, thread_sensitive=False)(
+            team.id,
+            {
+                output.source_match_report_id
+                for output in outputs
+                if output.existing_source_only and output.source_match_report_id is not None
+            },
+        )
+        kept_outputs = []
         for output in outputs:
-            if output.existing_source_only and output.source_match_report_id is None:
+            if not output.existing_source_only:
+                kept_outputs.append(output)
+            elif output.source_match_report_id is None:
                 capture_pipeline_stage(
                     "signal_data_source_filtered",
                     team,
@@ -711,9 +746,17 @@ async def run_signal_pipeline(
                     output,
                     {"filter_reason": "source_state_without_report"},
                 )
-        outputs = [
-            output for output in outputs if not output.existing_source_only or output.source_match_report_id is not None
-        ]
+            elif output.source_match_report_id in closed_report_ids:
+                capture_pipeline_stage(
+                    "signal_data_source_filtered",
+                    team,
+                    organization,
+                    output,
+                    {"filter_reason": "source_state_on_closed_report"},
+                )
+            else:
+                kept_outputs.append(output)
+        outputs = kept_outputs
 
     if config.summarization_prompt is not None and config.description_summarization_threshold_chars is not None:
         threshold = config.description_summarization_threshold_chars
@@ -725,6 +768,14 @@ async def run_signal_pipeline(
             threshold=threshold,
             extra=extra,
         )
+        summarized_ids = {output.signal_id for output in outputs}
+        for original in pre_summary_by_id.values():
+            if original.signal_id and original.signal_id not in summarized_ids:
+                await database_sync_to_async(complete_signal_pipeline)(
+                    team_id=team.id,
+                    signal_id=original.signal_id,
+                    billing_exempt=system_source_exempt(original.source_product),
+                )
         for output in outputs:
             pre = pre_summary_by_id.get(output.source_id)
             if pre is not None and len(pre.description) > threshold:
@@ -756,6 +807,12 @@ async def run_signal_pipeline(
             )
         for source_id, output in pre_filter_by_id.items():
             if source_id not in post_filter_ids:
+                if output.signal_id:
+                    await database_sync_to_async(complete_signal_pipeline)(
+                        team_id=team.id,
+                        signal_id=output.signal_id,
+                        billing_exempt=system_source_exempt(output.source_product),
+                    )
                 capture_pipeline_stage(
                     "signal_data_source_filtered", team, organization, output, {"steering_applied": steering.active}
                 )

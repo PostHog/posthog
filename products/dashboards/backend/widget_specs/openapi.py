@@ -8,6 +8,8 @@ from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_fiel
 from pydantic import BaseModel
 from rest_framework import serializers
 
+from posthog.schema import BreakdownFilter, CompareFilter, IntervalType
+
 from products.dashboards.backend.constants import (
     DASHBOARD_GRID_COLUMN_COUNT,
     MAX_GROUP_KEY_LENGTH,
@@ -16,6 +18,7 @@ from products.dashboards.backend.constants import (
 from products.dashboards.backend.models.dashboard import (
     DASHBOARD_GRID_COMPACTION_MODES,
     DASHBOARD_GRID_SPACING_GAPS,
+    DASHBOARD_TILE_GROUP_DISPLAY_MODES,
     DashboardTileGroupColor,
 )
 from products.dashboards.backend.models.dashboard_tile import DashboardTileBadge
@@ -58,7 +61,8 @@ class DashboardTileGroupSerializer(serializers.Serializer):
         required=False,
         help_text=(
             "Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their "
-            "browser keeps that choice and it wins over this default."
+            "browser keeps that choice and it wins over this default. A closed group loads its tiles when a viewer "
+            "opens it."
         ),
     )
     color = serializers.ChoiceField(
@@ -86,6 +90,7 @@ class DashboardWidgetType(models.TextChoices):
     EXPERIMENT_RESULTS = "experiment_results"
     EXPERIMENTS_LIST = "experiments_list"
     LOGS_LIST = "logs_list"
+    METRICS_TABLE = "metrics_table"
     NOTEBOOK_WIDGET = "notebook_widget"
     SESSION_REPLAY_LIST = "session_replay_list"
     SURVEY_RESULTS = "survey_results"
@@ -375,6 +380,16 @@ class DashboardPatchTileOpenApiSerializer(serializers.Serializer):
     widget = DashboardPatchWidgetOpenApiSerializer(required=False, help_text="Nested widget row updates.")
 
 
+@extend_schema_field(BreakdownFilter)  # type: ignore[arg-type]
+class DashboardBreakdownFilterField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(CompareFilter)  # type: ignore[arg-type]
+class DashboardCompareFilterField(serializers.JSONField):
+    pass
+
+
 class DashboardFiltersOpenApiSerializer(serializers.Serializer):
     """OpenAPI-only shape for a dashboard's filters object (agents/MCP).
 
@@ -396,6 +411,31 @@ class DashboardFiltersOpenApiSerializer(serializers.Serializer):
     properties = serializers.JSONField(
         required=False,
         help_text="Dashboard-level property filters applied to every tile (PostHog property filter group).",
+    )
+    breakdown_filter = DashboardBreakdownFilterField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Dashboard-level breakdown applied to every tile that supports one, replacing the tile's own breakdown. "
+            'Example: {"breakdown_type": "event", "breakdown": "$browser"}. Null clears it.'
+        ),
+    )
+    # nosemgrep: choices-need-a-class -- generated query schema enum, ENUM_NAME_OVERRIDES pins IntervalTypeEnum
+    interval = serializers.ChoiceField(
+        choices=[interval.value for interval in IntervalType],
+        required=False,
+        allow_null=True,
+        help_text="Time granularity forced onto every tile that supports one. Null means each tile keeps its own.",
+    )
+    compareFilter = DashboardCompareFilterField(
+        required=False,
+        allow_null=True,
+        help_text="Period comparison forced onto every tile that supports one. Null means each tile keeps its own.",
+    )
+    filterTestAccounts = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text="True forces test accounts out of every tile, false forces them in, null keeps each tile's setting.",
     )
 
 
@@ -460,7 +500,7 @@ class PatchedDashboardOpenApiSerializer(serializers.Serializer):
     pinned = serializers.BooleanField(required=False)
     filters = DashboardFiltersOpenApiSerializer(
         required=False,
-        help_text="Dashboard-level filters (date range and properties) applied across all tiles as the source of truth.",
+        help_text="Dashboard-level filters (date range, properties, breakdown, interval, comparison) applied across all tiles as the source of truth.",
     )
     breakdown_colors = serializers.ListField(
         child=BreakdownColorConfigSerializer(),
@@ -494,6 +534,14 @@ class PatchedDashboardOpenApiSerializer(serializers.Serializer):
         help_text=(
             "How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles "
             "to the left, and stable preserves positions while moving colliding tiles."
+        ),
+    )
+    group_display = serializers.ChoiceField(
+        choices=DASHBOARD_TILE_GROUP_DISPLAY_MODES,
+        required=False,
+        help_text=(
+            "How tile groups show. sections shows each group as a band that opens and closes. tabs shows one "
+            "group at a time, and tiles outside any group get their own first tab."
         ),
     )
     groups = serializers.DictField(

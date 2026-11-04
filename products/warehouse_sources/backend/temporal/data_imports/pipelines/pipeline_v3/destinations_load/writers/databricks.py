@@ -28,7 +28,7 @@ from typing import ClassVar
 import pyarrow as pa
 import pyarrow.parquet as pq
 
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models.integration.databricks import DatabricksIntegration
 
 from products.batch_exports.backend.facade.destinations.databricks import (
@@ -219,10 +219,8 @@ def fields_for(schema: pa.Schema, *, with_batch_index: bool) -> list[DatabricksF
 
 async def _load_integration(integration_id: int, team_id: int) -> DatabricksIntegration:
     try:
-        integration = await Integration.objects.aget(
-            id=integration_id, team_id=team_id, kind=Integration.IntegrationKind.DATABRICKS
-        )
-    except Integration.DoesNotExist:
+        integration = await IntegrationManager.databricks.credentials.aget(team_id, integration_id)
+    except IntegrationNotFound:
         raise DatabricksIntegrationNotFoundError(
             f"Databricks integration with ID '{integration_id}' not found for team '{team_id}'"
         )

@@ -1,22 +1,22 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 
 import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { cn } from 'lib/utils/css-classes'
 
 import { useThreadSkin } from '../hooks/useThreadSkin'
 import { isLogicRetained, RETAINED_RUN_STREAMS, retainMountedLogic } from '../logics/retainedLogics'
 import { findLiveRunStreamKey, isTerminalRunStatus, runStreamLogic } from '../logics/runStreamLogic'
 import { taskLogic } from '../logics/taskLogic'
-import { isPiTaskRuntime, OriginProduct } from '../types/taskTypes'
+import { OriginProduct } from '../types/taskTypes'
 import { type TurnTrailer } from '../utils/turnTrailers'
 import { ContextUsageChip } from './ContextUsageChip'
 import { FeedbackPromptTrailer } from './FeedbackPromptTrailer'
 import { PermissionInput } from './PermissionInput'
 import { QuestionInput } from './QuestionInput'
 import { QuillRunSurfaceInputs } from './quill/QuillRunSurfaceInputs'
-import { RunLogSkeleton } from './RunLogSkeleton'
+import { RUN_LOG_REVEAL_CLASS, RunLogSkeleton } from './RunLogSkeleton'
 import { ThreadView } from './ThreadView'
 import { TurnTrailerActions } from './TurnTrailerActions'
 
@@ -127,7 +127,6 @@ function RunSurfaceRoot({
     // The runtime and scout flag live on the task (not the run), so the surface owns loading it once and
     // exposing it to the slots. The runner already has the task loaded; an embed fetches it here.
     const { task, taskLoading, taskError, taskNotFound } = useValues(taskLogic({ taskId }))
-    const piAcpEnabled = useFeatureFlag('PI_ACP')
     const { loadTask } = useActions(taskLogic({ taskId }))
     useEffect(() => {
         // A pending surface (optimistic create) has no task yet, so don't fetch an empty id.
@@ -148,12 +147,8 @@ function RunSurfaceRoot({
             )
         }
         if (!hasThreadItems && !hasOptimisticClientStream) {
-            return <RunLogSkeleton />
+            return <RunLogSkeleton listClassName="py-4" rowClassName="px-4" />
         }
-    }
-
-    if (task && isPiTaskRuntime(task.runtime) && !piAcpEnabled) {
-        return <LemonBanner type="info">Pi session logs aren't available in PostHog yet.</LemonBanner>
     }
 
     const isScout = task?.origin_product === OriginProduct.SIGNALS_SCOUT
@@ -269,9 +264,11 @@ function RunSurfaceThread({
             ) : null,
         [feedbackSessionId, feedbackRun]
     )
+    const showedSkeletonRef = useRef(false)
     const showSkeleton =
         (bootstrapLoading || (logBootstrapLoading && !runConnectionState)) && !hasThreadItems && streamKey === runId
     if (showSkeleton) {
+        showedSkeletonRef.current = true
         return <RunLogSkeleton className={className} listClassName={listClassName} rowClassName={rowClassName} />
     }
     // The runner shows context usage in its composer footer (`ContextUsageChip`); a surface with no
@@ -281,7 +278,7 @@ function RunSurfaceThread({
     return (
         <ThreadView
             scrollRestorationKey={restoreReadPosition ? taskId : undefined}
-            className={className}
+            className={cn(className, showedSkeletonRef.current && RUN_LOG_REVEAL_CLASS)}
             listClassName={listClassName}
             endInset={floatingInputsHeight > 0 ? floatingInputsHeight + FLOATING_INPUTS_GAP : undefined}
             rowClassName={rowClassName}

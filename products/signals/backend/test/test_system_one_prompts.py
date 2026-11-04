@@ -219,3 +219,13 @@ def test_managed_jevk_prompt_is_rejected(fallback: SystemOnePrompt) -> None:
         prompts.return_value.get.return_value = result
         assert fetch_prompt(fallback) is None
     assert fallback.model == DEFAULT_SYSTEM_ONE_MODEL
+
+
+@pytest.mark.parametrize("fallback", [SIGNAL_SAFETY_SYSTEM_ONE_PROMPT, REPORT_SAFETY_SYSTEM_ONE_PROMPT])
+def test_project_secret_key_skips_the_production_prompt_fetch(fallback: SystemOnePrompt) -> None:
+    with (
+        patch("products.signals.backend.system_one_prompts.posthoganalytics.personal_api_key", "phs_test"),
+        patch("products.signals.backend.system_one_prompts.Prompts") as prompts,
+    ):
+        assert fetch_prompt(fallback) is None
+    prompts.assert_not_called()

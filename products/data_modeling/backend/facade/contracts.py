@@ -63,6 +63,7 @@ class SavedQueryDefinition:
     created_at: datetime
     refreshes_incrementally: bool = False
     calls_decision_functions: bool = False
+    created_by_id: int | None = None
 
 
 @dataclass(frozen=True)
@@ -115,8 +116,27 @@ class MaterializationRunDirection(LabeledStrEnum):
     DOWNSTREAM = "downstream", "Downstream"
 
 
+class MaterializationEngine(LabeledStrEnum):
+    CLICKHOUSE = "clickhouse", "ClickHouse"
+    TRINO = "trino", "Trino"
+
+
 class MaterializationForbiddenError(Exception):
     pass
+
+
+class ManagedWarehouseUnavailableError(MaterializationForbiddenError):
+    pass
+
+
+class MaterializationAlreadyRunningError(Exception):
+    pass
+
+
+class MaterializationRanRecentlyError(Exception):
+    def __init__(self, message: str, *, retry_after_seconds: int) -> None:
+        super().__init__(message)
+        self.retry_after_seconds = retry_after_seconds
 
 
 class MaterializationFailedError(Exception):

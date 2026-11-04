@@ -3,6 +3,7 @@ import React, { useCallback, useMemo } from 'react'
 import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import { resolveCssColor } from '../../core/color-utils'
+import { DEFAULT_CHART_COLORS, useResolvedChartTheme } from '../../core/theme'
 import type {
     AreaSelectData,
     ChartConfig,
@@ -19,6 +20,7 @@ import type {
     TooltipContext,
 } from '../../core/types'
 import { DefaultTooltip } from '../../overlays/DefaultTooltip'
+import { useTooltipCapture } from '../../overlays/Tooltip'
 import { findClosestSeriesKey } from '../../overlays/tooltipUtils'
 import {
     drawColumnHighlights,
@@ -103,7 +105,7 @@ export interface HeatmapConfig {
     /** Column indices drawn with a band behind their cells, for a column the consumer selected
      *  or is hovering. */
     highlightedColumns?: number[]
-    /** Per-side margin overrides. Should be referentially stable. */
+    /** Per-side margin overrides. */
     margins?: Partial<ChartMargins>
     tooltip?: {
         /** Show the single-cell tooltip on hover. Defaults to true. */
@@ -149,7 +151,8 @@ export interface HeatmapProps {
     /** Dense grid of counts: `cells[rowIndex][colIndex]`, aligned with `yLabels`/`xLabels`.
      *  0 (or a missing entry) means an empty cell — nothing is drawn there. */
     cells: number[][]
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the quill CSS vars. */
+    theme?: ChartTheme
     config?: HeatmapConfig
     /** Custom tooltip. Each `ctx.seriesData` entry is one row at the hovered column; narrow to
      *  the hovered cell via `findClosestSeriesKey(ctx.seriesData, ctx.hoverPosition.y)`. */
@@ -166,6 +169,88 @@ export interface HeatmapProps {
     onError?: (error: Error, info: React.ErrorInfo) => void
 }
 
+function drawStatic({ ctx, scales }: ChartDrawArgs): void {
+    const priv = (scales._private as HeatmapPrivate | undefined)?.__heatmap
+    if (!priv) {
+        return
+    }
+    const { layout, cells: drawCells, accent: drawAccent, maxValue: max, colorScale: scale } = priv
+    drawColumnHighlights(ctx, layout, priv.highlightedColumns, drawAccent)
+    // One ramp per accent in play, because parsing the accent per cell is the expensive part.
+    const ramps = new Map<string, (t: number) => string>()
+    const rampFor = (color: string): ((t: number) => string) => {
+        let ramp = ramps.get(color)
+        if (!ramp) {
+            ramp = createCellColorRamp(color)
+            ramps.set(color, ramp)
+        }
+        return ramp
+    }
+    // A 1px gutter keeps cells readable as discrete buckets; collapse it when cells are so
+    // small the gap would dominate the fill.
+    const gap = layout.colWidth > 3 && layout.rowHeight > 3 ? 1 : 0
+    for (let r = 0; r < layout.rows; r++) {
+        const row = drawCells[r]
+        if (!row) {
+            continue
+        }
+        for (let c = 0; c < layout.cols; c++) {
+            const style = priv.styles[r]?.[c]
+            const rect = cellRect(layout, c, r)
+            if (style?.outlined) {
+                drawOutlinedCell(ctx, rect, gap, drawAccent)
+                continue
+            }
+            const value = row[c]
+            if (!(value > 0) && !style?.filled) {
+                continue
+            }
+            ctx.fillStyle = rampFor(style?.color ?? drawAccent)(normalizeCount(value, max, scale))
+            ctx.fillRect(rect.x + gap / 2, rect.y + gap / 2, rect.width - gap, rect.height - gap)
+        }
+    }
+}
+
+function drawHover({ ctx, scales, hoverIndex, hoverPosition, hoverProgress }: ChartDrawArgs): boolean {
+    const priv = (scales._private as HeatmapPrivate | undefined)?.__heatmap
+    if (!priv || hoverIndex < 0 || !hoverPosition) {
+        return false
+    }
+    const row = rowAtY(priv.layout, hoverPosition.y)
+    if (row < 0) {
+        return false
+    }
+    const rect = cellRect(priv.layout, hoverIndex, row)
+    ctx.save()
+    ctx.globalAlpha = hoverProgress
+    ctx.strokeStyle = priv.accent
+    ctx.lineWidth = 1.5
+    ctx.strokeRect(rect.x + 0.75, rect.y + 0.75, rect.width - 1.5, rect.height - 1.5)
+    ctx.restore()
+    return true
+}
+
+// Each row's tooltip anchor spans its cell exactly (top edge → bottom edge), so
+// `findClosestSeriesKey`'s containment pass resolves the hovered cell.
+const resolvePositionValue: ResolveValueFn = (series) =>
+    ((series.meta as HeatmapRowMeta | undefined)?.rowIndex ?? 0) + 1
+const resolveBottomValue: ResolveValueFn = (series) => (series.meta as HeatmapRowMeta | undefined)?.rowIndex ?? 0
+
+// Rewrite clicks to the row under the cursor — the base chart's click payload carries the
+// first series at the column, which is meaningless for a grid.
+function wrapClickData(data: PointClickData<HeatmapRowMeta>, scales: ChartScales): PointClickData<HeatmapRowMeta> {
+    const priv = (scales._private as HeatmapPrivate | undefined)?.__heatmap
+    if (!priv || !data.cursor) {
+        return data
+    }
+    const row = rowAtY(priv.layout, data.cursor.y)
+    const match = data.crossSeriesData.find((entry) => entry.series.meta?.rowIndex === row)
+    if (row < 0 || !match) {
+        return data
+    }
+    return { ...data, series: match.series, seriesIndex: row, value: match.value }
+}
+
 export function Heatmap({ onError, ...rest }: HeatmapProps): React.ReactElement {
     return (
         <ChartErrorBoundary onError={onError}>
@@ -178,7 +263,7 @@ function HeatmapInner({
     xLabels,
     yLabels,
     cells,
-    theme,
+    theme: themeProp,
     config,
     tooltip,
     onCellClick,
@@ -187,13 +272,14 @@ function HeatmapInner({
     dataAttr,
     children,
 }: Omit<HeatmapProps, 'onError'>): React.ReactElement {
+    const theme = useResolvedChartTheme(themeProp)
     const { colorScale: requestedColorScale = 'auto' } = config ?? {}
     // Resolve a `var(--…)` accent to a concrete color — canvas `fillStyle` (and `dimColor`'s
     // d3 parse) can't handle CSS variables, so an unresolved var would blank out every cell.
     // theme.colors are already resolved, so the memo re-runs (and re-resolves the accent against
     // the current theme) on a light/dark flip too.
     const accent = useMemo(
-        () => resolveCssColor(config?.color || theme.colors[0] || '#1d4aff'),
+        () => resolveCssColor(config?.color || theme.colors[0] || DEFAULT_CHART_COLORS[0]),
         [config?.color, theme.colors]
     )
 
@@ -284,148 +370,49 @@ function HeatmapInner({
         [yLabels, grid, accent, maxValue, colorScale, styles, highlightedColumns]
     )
 
-    const drawStatic = useCallback(({ ctx, scales }: ChartDrawArgs) => {
+    // Map the core's label-range + y-pixel-span brush payload onto grid indices.
+    const handleAreaSelect = (data: AreaSelectData, scales: ChartScales): void => {
         const priv = (scales._private as HeatmapPrivate | undefined)?.__heatmap
-        if (!priv) {
+        if (!priv || !onBrush) {
             return
         }
-        const { layout, cells: drawCells, accent: drawAccent, maxValue: max, colorScale: scale } = priv
-        drawColumnHighlights(ctx, layout, priv.highlightedColumns, drawAccent)
-        // One ramp per accent in play, because parsing the accent per cell is the expensive part.
-        const ramps = new Map<string, (t: number) => string>()
-        const rampFor = (color: string): ((t: number) => string) => {
-            let ramp = ramps.get(color)
-            if (!ramp) {
-                ramp = createCellColorRamp(color)
-                ramps.set(color, ramp)
-            }
-            return ramp
+        const { layout } = priv
+        if (layout.rows === 0) {
+            return
         }
-        // A 1px gutter keeps cells readable as discrete buckets; collapse it when cells are so
-        // small the gap would dominate the fill.
-        const gap = layout.colWidth > 3 && layout.rowHeight > 3 ? 1 : 0
-        for (let r = 0; r < layout.rows; r++) {
-            const row = drawCells[r]
-            if (!row) {
-                continue
-            }
-            for (let c = 0; c < layout.cols; c++) {
-                const style = priv.styles[r]?.[c]
-                const rect = cellRect(layout, c, r)
-                if (style?.outlined) {
-                    drawOutlinedCell(ctx, rect, gap, drawAccent)
-                    continue
-                }
-                const value = row[c]
-                if (!(value > 0) && !style?.filled) {
-                    continue
-                }
-                ctx.fillStyle = rampFor(style?.color ?? drawAccent)(normalizeCount(value, max, scale))
-                ctx.fillRect(rect.x + gap / 2, rect.y + gap / 2, rect.width - gap, rect.height - gap)
-            }
+        let startRow = 0
+        let endRow = layout.rows - 1
+        if (Math.abs(data.yPixel1 - data.yPixel0) >= FULL_HEIGHT_MIN_Y_DRAG_PX) {
+            // yPixel0 is the top of the drag → the higher row index (rows count bottom-up).
+            // Shrink the span half a pixel on each edge before snapping to rows: an edge landing
+            // exactly on a row boundary otherwise floors into the neighbouring row and reports a
+            // row the rect only touches. The FULL_HEIGHT_MIN_Y_DRAG_PX guard keeps the span far
+            // thicker than the nudge, so it can't invert.
+            const top = rowAtYClamped(layout, data.yPixel0 + BRUSH_EDGE_EPSILON_PX)
+            const bottom = rowAtYClamped(layout, data.yPixel1 - BRUSH_EDGE_EPSILON_PX)
+            startRow = Math.min(top, bottom)
+            endRow = Math.max(top, bottom)
         }
-    }, [])
+        onBrush({
+            x: { startIndex: data.startIndex, endIndex: data.endIndex },
+            y: { startIndex: startRow, endIndex: endRow },
+        })
+    }
 
-    const drawHover = useCallback(
-        ({ ctx, scales, hoverIndex, hoverPosition, hoverProgress }: ChartDrawArgs): boolean => {
-            const priv = (scales._private as HeatmapPrivate | undefined)?.__heatmap
-            if (!priv || hoverIndex < 0 || !hoverPosition) {
-                return false
-            }
-            const row = rowAtY(priv.layout, hoverPosition.y)
-            if (row < 0) {
-                return false
-            }
-            const rect = cellRect(priv.layout, hoverIndex, row)
-            ctx.save()
-            ctx.globalAlpha = hoverProgress
-            ctx.strokeStyle = priv.accent
-            ctx.lineWidth = 1.5
-            ctx.strokeRect(rect.x + 0.75, rect.y + 0.75, rect.width - 1.5, rect.height - 1.5)
-            ctx.restore()
-            return true
-        },
-        []
-    )
-
-    // Each row's tooltip anchor spans its cell exactly (top edge → bottom edge), so
-    // `findClosestSeriesKey`'s containment pass resolves the hovered cell.
-    const resolvePositionValue: ResolveValueFn = useCallback(
-        (series) => ((series.meta as HeatmapRowMeta | undefined)?.rowIndex ?? 0) + 1,
-        []
-    )
-    const resolveBottomValue: ResolveValueFn = useCallback(
-        (series) => (series.meta as HeatmapRowMeta | undefined)?.rowIndex ?? 0,
-        []
-    )
-
-    // Rewrite clicks to the row under the cursor — the base chart's click payload carries the
-    // first series at the column, which is meaningless for a grid.
-    const wrapClickData = useCallback(
-        (data: PointClickData<HeatmapRowMeta>, scales: ChartScales): PointClickData<HeatmapRowMeta> => {
-            const priv = (scales._private as HeatmapPrivate | undefined)?.__heatmap
-            if (!priv || !data.cursor) {
-                return data
-            }
-            const row = rowAtY(priv.layout, data.cursor.y)
-            const match = data.crossSeriesData.find((entry) => entry.series.meta?.rowIndex === row)
-            if (row < 0 || !match) {
-                return data
-            }
-            return { ...data, series: match.series, seriesIndex: row, value: match.value }
-        },
-        []
-    )
-
-    // Map the core's label-range + y-pixel-span brush payload onto grid indices.
-    const handleAreaSelect = useCallback(
-        (data: AreaSelectData, scales: ChartScales): void => {
-            const priv = (scales._private as HeatmapPrivate | undefined)?.__heatmap
-            if (!priv || !onBrush) {
-                return
-            }
-            const { layout } = priv
-            if (layout.rows === 0) {
-                return
-            }
-            let startRow = 0
-            let endRow = layout.rows - 1
-            if (Math.abs(data.yPixel1 - data.yPixel0) >= FULL_HEIGHT_MIN_Y_DRAG_PX) {
-                // yPixel0 is the top of the drag → the higher row index (rows count bottom-up).
-                // Shrink the span half a pixel on each edge before snapping to rows: an edge landing
-                // exactly on a row boundary otherwise floors into the neighbouring row and reports a
-                // row the rect only touches. The FULL_HEIGHT_MIN_Y_DRAG_PX guard keeps the span far
-                // thicker than the nudge, so it can't invert.
-                const top = rowAtYClamped(layout, data.yPixel0 + BRUSH_EDGE_EPSILON_PX)
-                const bottom = rowAtYClamped(layout, data.yPixel1 - BRUSH_EDGE_EPSILON_PX)
-                startRow = Math.min(top, bottom)
-                endRow = Math.max(top, bottom)
-            }
-            onBrush({
-                x: { startIndex: data.startIndex, endIndex: data.endIndex },
-                y: { startIndex: startRow, endIndex: endRow },
-            })
-        },
-        [onBrush]
-    )
-
-    const handlePointClick = useCallback(
-        (data: PointClickData<HeatmapRowMeta>): void => {
-            const rowIndex = data.series.meta?.rowIndex
-            if (rowIndex == null || !onCellClick) {
-                return
-            }
-            onCellClick({
-                xIndex: data.dataIndex,
-                yIndex: rowIndex,
-                // `data.label` is the per-column key, not the display label — map back by index.
-                xLabel: xLabels[data.dataIndex] ?? '',
-                yLabel: yLabels[rowIndex] ?? '',
-                value: data.value,
-            })
-        },
-        [onCellClick, xLabels, yLabels]
-    )
+    const handlePointClick = (data: PointClickData<HeatmapRowMeta>): void => {
+        const rowIndex = data.series.meta?.rowIndex
+        if (rowIndex == null || !onCellClick) {
+            return
+        }
+        onCellClick({
+            xIndex: data.dataIndex,
+            yIndex: rowIndex,
+            // `data.label` is the per-column key, not the display label — map back by index.
+            xLabel: xLabels[data.dataIndex] ?? '',
+            yLabel: yLabels[rowIndex] ?? '',
+            value: data.value,
+        })
+    }
 
     const userXTickFormatter = config?.xTickFormatter
     const xTickFormatter = useCallback(
@@ -438,61 +425,45 @@ function HeatmapInner({
 
     const tooltipLabelFormatter = config?.tooltip?.labelFormatter
     const tooltipValueFormatter = config?.tooltip?.valueFormatter
-    const renderTooltip = useMemo(
-        () =>
-            (ctx: HeatmapTooltipContext): React.ReactNode => {
-                // The base chart's `ctx.label` is the per-column key; restore the display label
-                // before it reaches either the custom or default tooltip.
-                const mapped = { ...ctx, label: resolveColumnLabel(ctx.label) }
-                if (tooltip) {
-                    return tooltip(mapped)
-                }
-                // Narrow to the single hovered cell — rows carry their cell's exact pixel range
-                // (yPixel/yPixelBottom), so containment resolves it — and let DefaultTooltip
-                // render that one row rather than maintaining a bespoke tooltip surface.
-                const key = mapped.hoverPosition
-                    ? findClosestSeriesKey(mapped.seriesData, mapped.hoverPosition.y)
-                    : null
-                const entry = mapped.seriesData.find((s) => s.series.key === key)
-                if (!entry) {
-                    return null
-                }
-                return (
-                    <DefaultTooltip
-                        {...mapped}
-                        seriesData={[entry]}
-                        labelFormatter={tooltipLabelFormatter}
-                        valueFormatter={tooltipValueFormatter}
-                    />
-                )
-            },
-        [tooltip, resolveColumnLabel, tooltipLabelFormatter, tooltipValueFormatter]
-    )
+    const captureTooltip = useTooltipCapture<HeatmapRowMeta>()
+    const renderTooltip = (ctx: HeatmapTooltipContext): React.ReactNode => {
+        // The base chart's `ctx.label` is the per-column key; restore the display label
+        // before it reaches either the custom or default tooltip.
+        const mapped = { ...ctx, label: resolveColumnLabel(ctx.label) }
+        captureTooltip(mapped)
+        if (tooltip) {
+            return tooltip(mapped)
+        }
+        // Narrow to the single hovered cell — rows carry their cell's exact pixel range
+        // (yPixel/yPixelBottom), so containment resolves it — and let DefaultTooltip
+        // render that one row rather than maintaining a bespoke tooltip surface.
+        const key = mapped.hoverPosition ? findClosestSeriesKey(mapped.seriesData, mapped.hoverPosition.y) : null
+        const entry = mapped.seriesData.find((s) => s.series.key === key)
+        if (!entry) {
+            return null
+        }
+        return (
+            <DefaultTooltip
+                {...mapped}
+                seriesData={[entry]}
+                labelFormatter={tooltipLabelFormatter}
+                valueFormatter={tooltipValueFormatter}
+            />
+        )
+    }
 
-    const baseConfig = useMemo<ChartConfig>(
-        () => ({
-            xTickFormatter,
-            yTickFormatter,
-            xAxisLabel: config?.xAxisLabel,
-            yAxisLabel: config?.yAxisLabel,
-            hideXAxis: config?.hideXAxis,
-            hideYAxis: config?.hideYAxis,
-            margins: config?.margins,
-            // 'cursor' placement: a follow-data anchor would pin the tooltip to the column top,
-            // far from the hovered cell in a tall grid.
-            tooltip: { enabled: config?.tooltip?.enabled, placement: 'cursor' },
-        }),
-        [
-            xTickFormatter,
-            yTickFormatter,
-            config?.xAxisLabel,
-            config?.yAxisLabel,
-            config?.hideXAxis,
-            config?.hideYAxis,
-            config?.margins,
-            config?.tooltip?.enabled,
-        ]
-    )
+    const baseConfig: ChartConfig = {
+        xTickFormatter,
+        yTickFormatter,
+        xAxisLabel: config?.xAxisLabel,
+        yAxisLabel: config?.yAxisLabel,
+        hideXAxis: config?.hideXAxis,
+        hideYAxis: config?.hideYAxis,
+        margins: config?.margins,
+        // 'cursor' placement: a follow-data anchor would pin the tooltip to the column top,
+        // far from the hovered cell in a tall grid.
+        tooltip: { enabled: config?.tooltip?.enabled, placement: 'cursor' },
+    }
 
     return (
         <Chart<HeatmapRowMeta>

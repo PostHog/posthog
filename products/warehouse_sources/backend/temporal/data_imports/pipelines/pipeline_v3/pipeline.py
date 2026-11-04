@@ -2,6 +2,7 @@ import time
 import asyncio
 import decimal
 import datetime
+import functools
 import contextlib
 from collections.abc import AsyncGenerator, AsyncIterator
 from typing import TYPE_CHECKING, Any, Generic
@@ -66,6 +67,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.r
     DurableProgress,
     HandoffGate,
     RideOutConfig,
+    activity_execution_age_seconds,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.safe_point import (
     PipelineSafePointHandler,
@@ -75,6 +77,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.s
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     _append_debug_column_to_pyarrows_table,
     _handle_null_columns_with_definitions,
+    drop_internal_columns,
     evolve_pyarrow_schema,
     merge_observed_columns_into_schema_metadata,
     normalize_column_name,
@@ -83,11 +86,18 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arr
     reconcile_batch_to_accumulated_schema,
     source_uses_delta_write_column_selection,
 )
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.async_iterate import async_iterate
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.async_iterate import (
+    async_iterate,
+    run_in_source_executor,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import DeltaMaintenance
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.hogql_schema import HogQLSchema
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.masking import (
+    mask_table_if_configured,
+    raise_if_masked_key_columns,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.partitioning import (
     append_cursor_partition_keys,
 )
@@ -200,6 +210,8 @@ class PipelineV3(Generic[ResumableData]):
     _ride_out: RideOutConfig | None = None
     _progress: DurableProgress | None = None
     _handoff_gate: HandoffGate | None = None
+    # The grace of the run's `ShutdownMonitor`. The age checks of a hand-off leave it out.
+    _shutdown_grace_seconds: float = 0.0
     _resumed_incremental_run_uuid: str | None = None
     _sent_resumed_run_finalization: bool = False
     _writes_staged_repartition_scheme: bool = False
@@ -230,11 +242,13 @@ class PipelineV3(Generic[ResumableData]):
         continued_job_ids: tuple[str, ...] = (),
         ride_out: RideOutConfig | None = None,
         progress: DurableProgress | None = None,
+        shutdown_grace_seconds: float = 0.0,
     ) -> None:
         self._resource = source_response
         self._kept_rows_synced = kept_rows_synced
         self._ride_out = ride_out
         self._progress = progress
+        self._shutdown_grace_seconds = shutdown_grace_seconds
         self._source_cursor_manager = source_cursor_manager
         self._resource_name = source_response.name
 
@@ -407,6 +421,7 @@ class PipelineV3(Generic[ResumableData]):
                 resume_manager=self._resumable_source_manager, is_webhook=self._schema.is_webhook
             ),
             primary_keys=self._resource.primary_keys,
+            masked_columns=self._schema.masked_columns,
         )
         self._internal_schema = HogQLSchema()
         self._sinks = build_pipeline_sinks(
@@ -686,7 +701,7 @@ class PipelineV3(Generic[ResumableData]):
         carry_over_enabled = self._preemption is not None and self._preemption.watermark_carry_over_enabled
         if checkpoint is not None and not checkpoint.is_void and carry_over_enabled:
             return PreemptionDecision(eligible=True, reason="watermark_carry_over")
-        if is_young_first_attempt():
+        if is_young_first_attempt(self._shutdown_grace_seconds):
             return PreemptionDecision(eligible=True, reason="young_first_attempt")
         if checkpoint is not None and not checkpoint.is_void:
             return PreemptionDecision(
@@ -719,10 +734,17 @@ class PipelineV3(Generic[ResumableData]):
             # A hand-off retires a laned run's companion jobs, so that run keeps the legacy rule.
             config=None if self._resource.lanes else self._ride_out,
             legacy_wants_handoff=lambda: should_check_shutdown(
-                self._schema, self._resource, self._reset_pipeline, self._resumable_source_manager is not None
+                self._schema,
+                self._resource,
+                self._reset_pipeline,
+                self._resumable_source_manager is not None,
+                shutdown_grace_seconds=self._shutdown_grace_seconds,
             ),
             restarts_from_scratch=self._restarts_from_scratch,
             logger=self._logger,
+            execution_age_seconds=functools.partial(
+                activity_execution_age_seconds, shutdown_grace_seconds=self._shutdown_grace_seconds
+            ),
         )
         return self._handoff_gate
 
@@ -869,6 +891,10 @@ class PipelineV3(Generic[ResumableData]):
                 self._resource,
                 is_first_sync=self._table is None or self._reset_pipeline,
             )
+            # Before the reset below deletes the table: a full-refresh table stores no key, so the API
+            # can accept a mask on the key that only this run resolves.
+            if self._resource.cdc_write_mode is None:
+                raise_if_masked_key_columns(self._schema, self._resource)
 
             await persist_primary_keys(self._schema, self._resource, self._is_incremental, self._logger)
 
@@ -916,6 +942,11 @@ class PipelineV3(Generic[ResumableData]):
                     self._delta_table_ref,
                     self._logger,
                     webhook_only=self._resource.webhook_only,
+                )
+                # A reset drops the earliest value of the table it deletes. No reloaded row is older than
+                # that value, so a run that kept it would never stage an earliest value of its own.
+                self._earliest_incremental_field_value = process_incremental_value(
+                    self._schema.incremental_field_earliest_value, self._schema.incremental_field_type
                 )
 
             is_fresh_sync = self._delta_table_ref.is_first_sync or self._schema.table is None
@@ -979,7 +1010,10 @@ class PipelineV3(Generic[ResumableData]):
             ):
                 await self._record_table_rebuild(self._run_uuid)
 
-            items = self._resource.items()
+            # A source can do blocking work when it builds its items, such as the DNS lookup of a
+            # host check. The source thread pool keeps that work off the event loop, as iteration
+            # already is, without tying up the default executor.
+            items = await run_in_source_executor(self._resource.items)
             safe_point_scope = self._activate_safe_point(items)
             source_items = self._source_items(items, source_type)
             awaiting_source = True
@@ -1078,8 +1112,13 @@ class PipelineV3(Generic[ResumableData]):
                 chunk_index += 1
             await self._finalize(row_count=row_count)
 
-            if activity.in_activity() and self._shutdown_monitor.is_worker_shutdown():
-                get_import_finished_during_shutdown_metric(source_type, handoff_gate.rode_out).add(1)
+            # The signal, not the monitor: an import that finished inside the shutdown grace counts too.
+            if activity.in_activity() and activity.is_worker_shutdown():
+                get_import_finished_during_shutdown_metric(
+                    source_type,
+                    handoff_gate.rode_out,
+                    within_grace=not self._shutdown_monitor.is_worker_shutdown(),
+                ).add(1)
 
             # With zero batches, `_finalize` sent no final-batch notification, so the load
             # consumer will never hear about this run and cannot finalize it — the workflow must.
@@ -1143,7 +1182,8 @@ class PipelineV3(Generic[ResumableData]):
             cleanup_memory(pa_memory_pool, py_table if "py_table" in locals() else None)
 
     async def _process_batch(self, pa_table: pa.Table, batch_index: int, row_count: int) -> None:
-        pa_table = _append_debug_column_to_pyarrows_table(pa_table, self._load_id)
+        pa_table = _append_debug_column_to_pyarrows_table(drop_internal_columns(pa_table), self._load_id)
+        source_column_names = pa_table.column_names
         if not self._resource.preserve_column_names:
             pa_table = normalize_table_column_names(pa_table)
 
@@ -1169,6 +1209,10 @@ class PipelineV3(Generic[ResumableData]):
 
         pa_table = evolve_pyarrow_schema(pa_table, None)
         pa_table = _handle_null_columns_with_definitions(pa_table, self._resource)
+        # After the null-column backfill, so a masked column the batch lacked is typed as text too.
+        # Capture masks a change before it writes the change buffer, so a buffered batch is masked already.
+        if self._resource.cdc_write_mode is None:
+            pa_table = await mask_table_if_configured(pa_table, self._schema, self._resource, source_column_names)
 
         # Converge this batch onto the column types earlier batches in this run already used,
         # and backfill columns they had that this one doesn't. The cursor column is named both

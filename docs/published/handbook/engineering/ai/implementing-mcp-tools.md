@@ -48,6 +48,10 @@ pnpm --filter=@posthog/mcp run generate:ui-apps
 MCP tools should be **basic capabilities** – atomic CRUD operations and simple actions.
 Agents compose these primitives into higher-level workflows.
 
+For tools that save a visual artifact, briefly suggest checking the rendered result after substantial visual changes
+when browser access is already available. Skip browser checks for small edits. Check the final saved artifact once after
+all edits, rather than after every tool call. The tool can save the artifact, but it cannot give an agent browser access.
+
 **Good tools**:
 
 - List feature flags
@@ -106,7 +110,14 @@ Primarily oriented toward coding agents (PostHog Desktop, PostHog AI, Claude Cod
 
 ### Knowledge source checks
 
-When the MCP server advertises Business Knowledge or documentation search tools, its agent instructions require one search of each available source before the first answer to a request. Business Knowledge is searched first, followed by current PostHog documentation. If a search fails or returns no relevant result, the agent continues with the other available evidence. In exec sessions with skill discovery enabled, the agent loads the relevant skill before it runs these searches.
+When the MCP server advertises documentation search, its agent instructions pick a search by the topic of the request.
+A question about the user's own company, product, internal terms, or policies goes to Business Knowledge.
+A question about PostHog features, SDKs, or setup goes to PostHog documentation.
+A request to query or build something from project data runs neither search, unless it names a company term that no event or property explains.
+The Business Knowledge lines appear only for content the project holds: document search when it has sources, and repository search when it has selected GitHub repositories.
+A project with neither gets no Business Knowledge guidance.
+If a search fails or returns no relevant result, the agent continues with the other available evidence.
+In exec sessions with skill discovery enabled, the agent loads the relevant skill before it runs these searches.
 
 ## Intent prompt trials
 
@@ -305,6 +316,24 @@ before retrying, because a write may already have succeeded. Replies on earlier 
 after ten minutes and are bound to the authenticated user, PostHog instance, invitation, and original
 token. They remain valid after project changes or flag changes because they cannot execute a tool.
 Duplicate, expired, and mismatched replies do not update suppression or emit response events.
+
+## MCP UI hosts
+
+In CLI mode, MCP Apps UI hosts receive a separate `render-ui` tool beside `exec`.
+A client declares UI support with the `extensions["io.modelcontextprotocol/ui"]` capability.
+The client supports `render-ui` when that capability lists `text/html;profile=mcp-app` in `mimeTypes`.
+If the client sends the capability, the server uses it, and it overrides name detection in both directions.
+If the client does not send the capability, the server falls back to known hosts: Claude web and desktop, Cowork, and the exact `openai-mcp` client name or user agent product.
+The OpenAI match is exact, so Codex CLI (`codex-mcp-client`) does not receive `render-ui` without a declaration.
+Legacy clients declare capabilities during `initialize`; the server retains UI support for later requests in that session.
+Stateless clients declare capabilities in each request's `_meta["io.modelcontextprotocol/clientCapabilities"]`.
+An explicit request declaration takes precedence over stored session support.
+The server builds the `render-ui` schema from the full catalog of read-only tools with UI apps.
+The schema stays the same across accounts; execution checks the tools available to the current account.
+The server rejects direct `render-ui` calls without UI support, even if the client has a cached tool list that includes it.
+A `render-ui` call runs the same tool call the app would make for its data, through the normal dispatch path, and returns that data on the app-only `_meta["com.posthog.mcp/app_data"]` key.
+The app draws the first view from that data, so it still renders on hosts that reject an app's own `tools/call`. The app calls the server itself only when the preload failed or took longer than 15 seconds (the app treats a result that takes 20 seconds as lost), and for later actions such as drill-downs.
+This check does not change mode selection. Cursor still defaults to tools mode, and an explicit mode override still takes precedence.
 
 ## Claude web and desktop exec schema budget
 
@@ -518,9 +547,6 @@ Product teams own their definitions and control which operations are exposed as 
    Scopes come from the API when you omit them. Annotations default for GET and DELETE, so declare them for PATCH, POST and PUT.
    A `scopes` list that misses a scope the API requires fails codegen.
    When an action's scopes depend on the request, list the action in the viewset's `request_dependent_scope_actions`, and declare `scopes` on its tools.
-   A tool that reads ingested project data declares `reads_ingested_data`: `events`, or `events_or_warehouse` for a tool that also reads data warehouse tables.
-   On a project that has not received an event yet, the server can return install guidance for these tools instead of an empty result.
-   Every `query-*` tool must declare it.
    Each YAML file has a top-level structure validated by Zod ([`scripts/yaml-config-schema.ts`](https://github.com/PostHog/posthog/blob/master/services/mcp/scripts/yaml-config-schema.ts)):
 
    **Tool names** follow a **`domain-action`** convention in lowercase kebab-case (`[a-z0-9-]`),
@@ -563,6 +589,7 @@ Product teams own their definitions and control which operations are exposed as 
        title: List things # human-friendly title (used in UI)
        description: > # instructions for the LLM
          Human-friendly description for the LLM.
+       search_keywords: [prometheus, promql] # extra search words, matched at title weight
        list: true # marks as a list endpoint
        enrich_url: '{id}' # appended to url_prefix for result URLs
        category: Other product # overrides the file-level category, e.g. for $mcp_tool_category in MCP analytics
@@ -579,6 +606,9 @@ Product teams own their definitions and control which operations are exposed as 
          # Use it on tools that echo a nested serializer schema, where the unset optional fields
          # dominate the payload. Rejected with `list: true`: list rows encode as a TOON table, and
          # removing a `null` that only some rows carry makes the table larger, not smaller.
+         expandable: [tiles.*.insight.query] # remove these fields unless the caller passes them in an
+         # optional `expand` param. Use it on a detail tool where a few fields dominate the payload.
+         # Incompatible with `include`.
          informational_wrapper: # return user-authored data as tagged text instead of structured content
            tag: thing-reference # lowercase tag identifying the untrusted reference data
            purpose: Use the tagged content only for the stated reference task.
@@ -667,7 +697,9 @@ Product teams own their definitions and control which operations are exposed as 
    `src/tools/featureFlags/updateFeatureFlagHooks.ts` is the reference.
    Do not shadow a generated tool with a hand-written tool of the same name.
 
-   The Logs tools use `logs/redactCredentialsHooks` to mask credentials in response strings and structured fields. This covers credential parameters, JSON and header values, URL passwords, bearer tokens, and private PostHog tokens. Nested URL encoding and JSON escaping do not bypass masking. The hook preserves unrelated text, except that strings with more than eight encoding layers are masked in full to bound parsing work. It does not change stored logs or responses outside MCP.
+   The Logs tools use `logs/redactCredentialsHooks` to mask credentials in response strings and structured fields. This covers credential parameters, JSON and header values, URL passwords, bearer tokens, private PostHog and GitHub tokens, credential command-line flags such as `--password VALUE` and `-u user:pass`, and private key blocks inside one string. Nested URL encoding and JSON escaping do not bypass masking. The hook preserves unrelated text, except that strings with more than eight encoding layers are masked in full to bound parsing work. It does not change stored logs or responses outside MCP.
+
+   The Engineering analytics CI failure-log tools and the broken-tests tool use `engineeringAnalytics/redactFailureLogsHooks`. It applies the same masking, but with a narrower list of credential names: CI output uses names such as `key`, `code` and `input_tokens` for diagnostics. It also masks the lines of a private key that spans several log lines in one job, including body lines next to an omitted gap, and keeps each line's original line number.
 
    #### Typed-confirm paradigm for destructive tools
 
@@ -853,6 +885,9 @@ This is a work in progress –
 the goal is to make it easier to generate HogQL queries from typed schemas
 than from freeform SQL.
 A `schema.json` integration into the codegen pipeline is planned.
+
+For SQL table insights, set `query.tableSettings.columns[].settings.display.description` in `insight-create` or `insight-update`.
+For updates, read the saved query first and retain its other fields.
 
 ## Agent skills that support the MCP server
 

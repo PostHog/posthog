@@ -304,7 +304,9 @@ class TestUntaggedFollowupInteractivity(TestCase):
                 opens_thread=False,
             )
 
-        assert [c.kwargs["user"] for c in slack.client.chat_postEphemeral.call_args_list] == ["U_ALICE", "U_BOB"]
+        # The creator gets a DM, which notifies them. The joiner hears in the thread that the creator was asked.
+        assert [c.kwargs["channel"] for c in slack.client.chat_postMessage.call_args_list] == ["U_ALICE"]
+        assert [c.kwargs["user"] for c in slack.client.chat_postEphemeral.call_args_list] == ["U_BOB"]
 
     @parameterized.expand([("thread_creator", "U_ALICE", True), ("someone_else", "U_MALLORY", False)])
     def test_only_the_thread_creator_can_let_someone_join(
@@ -414,7 +416,6 @@ class TestUntaggedQuestionInteractivity(TestCase):
         action_id: str,
         slack_user_id: str = "U_BOB",
         *,
-        flag_on: bool = True,
         start_fails: bool = False,
         ext_shared: bool | None = False,
     ) -> Any:
@@ -442,7 +443,6 @@ class TestUntaggedQuestionInteractivity(TestCase):
                 "products.slack_app.backend.api._start_mention_workflow",
                 side_effect=RuntimeError("temporal down") if start_fails else None,
             ) as mock_start,
-            patch("products.slack_app.backend.api.is_slack_app_unprompted_answers_enabled", return_value=flag_on),
             patch("products.slack_app.backend.api.channel_ext_shared_state", return_value=ext_shared),
         ):
             self.client.post(
@@ -517,8 +517,3 @@ class TestUntaggedQuestionInteractivity(TestCase):
         )
 
         assert not self._click(UNTAGGED_QUESTION_ACTION_RUN).called
-
-    def test_confirmation_after_the_flag_was_turned_off_answers_nothing(self, mock_slack_cls, mock_post):
-        mock_slack_cls.slack_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
-
-        assert not self._click(UNTAGGED_QUESTION_ACTION_RUN, flag_on=False).called

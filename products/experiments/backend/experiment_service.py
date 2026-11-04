@@ -3,7 +3,7 @@
 import json
 import time
 from collections import defaultdict
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from copy import deepcopy
 from datetime import date, datetime, timedelta
 from enum import Enum
@@ -22,7 +22,12 @@ import structlog
 from rest_framework import status
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError
 
-from posthog.schema import ActionsNode, ExperimentEventExposureConfig, ExperimentExposureCriteria
+from posthog.schema import (
+    ActionsNode,
+    ExperimentEventExposureConfig,
+    ExperimentExposureCriteria,
+    ExperimentWarehouseNativeExposureConfig,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
@@ -35,6 +40,15 @@ from posthog.api.cohort import (
 )
 from posthog.api.utils import ServiceRequest
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.constants import (
+    ACTIONS,
+    DATA_WAREHOUSE_ENTITIES,
+    EVENTS,
+    TREND_FILTER_TYPE_ACTIONS,
+    TREND_FILTER_TYPE_DATA_WAREHOUSE,
+    TREND_FILTER_TYPE_EVENTS,
+    AvailableFeature,
+)
 from posthog.event_usage import EventSource, report_user_action
 from posthog.exceptions import (
     ClickHouseEstimatedQueryExecutionTimeTooLong,
@@ -44,13 +58,16 @@ from posthog.exceptions import (
 from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
 from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.activity_logging.utils import get_changed_fields_local
-from posthog.models.entity.entity import Entity, parse_entities
 from posthog.models.person.util import get_person_ids_and_uuids_by_uuids
+from posthog.models.property.parse import parse_property_group_data
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.utils import str_to_bool
 
+from products.approvals.backend.actions.experiments import LaunchExperimentAction
+from products.approvals.backend.ownership import scope_by_owner_enabled
+from products.approvals.backend.policies import PolicyEngine
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.facade.contracts import ExperimentHealthFinding
 from products.experiments.backend.facade.launch_signals import experiment_launched
@@ -66,6 +83,7 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     EXPERIMENT_EXPOSURE_EVENT,
     apply_exposure_criteria_defaults,
     build_exposure_event_conditions,
+    exposure_event_names,
     get_exposure_event_and_property,
     resolve_default_exposure_event,
 )
@@ -74,10 +92,11 @@ from products.experiments.backend.logic.timeseries_text import ExperimentTimeser
 from products.experiments.backend.metric_calculation.config import (
     ExperimentCalculationSettings,
     build_primary_calculation_configs,
+    get_metric_calculation_config,
     saved_metric_calculation_keys,
     stamp_calculation_keys,
 )
-from products.experiments.backend.metric_calculation.results import MetricResultStore
+from products.experiments.backend.metric_calculation.results import DailyTimeseries, MetricResultStore
 from products.experiments.backend.metric_resolution import MetricRole
 from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event
 from products.experiments.backend.metric_validation import (
@@ -359,13 +378,32 @@ def _apply_holdout(filters: dict, holdout: ExperimentHoldout | None) -> dict:
     )
 
 
+def _first_legacy_filter_entity(filter_data: dict) -> dict[str, Any] | None:
+    """Returns the first action, event or data warehouse entry of a legacy insight filter, with its `type` set."""
+    entities: list[dict[str, Any]] = []
+    for key, entity_type in (
+        (ACTIONS, TREND_FILTER_TYPE_ACTIONS),
+        (EVENTS, TREND_FILTER_TYPE_EVENTS),
+        (DATA_WAREHOUSE_ENTITIES, TREND_FILTER_TYPE_DATA_WAREHOUSE),
+    ):
+        raw = filter_data.get(key)
+        if not raw:
+            continue
+        if isinstance(raw, str):
+            raw = json.loads(raw)
+        entities.extend({**entity, "type": entity_type} for entity in raw)
+    # An entry with order 0 or no order sorts first, the same as legacy insight filter parsing.
+    return min(
+        entities,
+        key=lambda entity: (int(entity["order"]) if entity.get("order") is not None else 0) or -1,
+        default=None,
+    )
+
+
 def _tracked_health_finding(finding: ExperimentHealthFinding) -> str:
     # pinned: `code:subcode:severity:reason`, as on the page's `experiment health checked`. Insights split each
     # string on `:`, so every field is present, empty when the finding has none.
-    reason = finding.evidence.get("reason")
-    return ":".join(
-        [finding.code.value, finding.subcode or "", finding.severity.value, reason if isinstance(reason, str) else ""]
-    )
+    return ":".join([finding.code.value, finding.subcode or "", finding.severity.value, finding.reason or ""])
 
 
 class ExperimentVersionConflict(APIException):
@@ -766,7 +804,7 @@ class ExperimentService:
         # nullable), so only validate shape when a value is present.
         if exposure_criteria.get("exposure_config") is not None:
             cls._validate_exposure_config_shape(
-                exposure_criteria["exposure_config"], "exposure_criteria.exposure_config"
+                exposure_criteria["exposure_config"], "exposure_criteria.exposure_config", warehouse_native_allowed=True
             )
 
         if exposure_criteria.get("activation_config") is not None:
@@ -791,7 +829,9 @@ class ExperimentService:
         )
 
     @classmethod
-    def _validate_exposure_config_shape(cls, exposure_config: object, field_path: str) -> None:
+    def _validate_exposure_config_shape(
+        cls, exposure_config: object, field_path: str, *, warehouse_native_allowed: bool = False
+    ) -> None:
         if not isinstance(exposure_config, dict):
             raise ValidationError(
                 f"{field_path} must be an object, got {type(exposure_config).__name__}. {cls.EXPOSURE_CONFIG_HINT}"
@@ -800,6 +840,12 @@ class ExperimentService:
         # `kind` is optional; missing kind defaults to ExperimentEventExposureConfig
         # to mirror the pydantic Literal default on that model.
         kind = exposure_config.get("kind", "ExperimentEventExposureConfig")
+        if kind == "ExperimentWarehouseNativeExposureConfig" and warehouse_native_allowed:
+            # The kind exists so the rest of the product can be built against it; nothing can run it yet.
+            cls._validate_exposure_config_model(
+                ExperimentWarehouseNativeExposureConfig, exposure_config, field_path, kind
+            )
+            raise ValidationError(f"{field_path}: warehouse-native exposures are not supported yet.")
         if kind not in cls.EXPOSURE_CONFIG_KINDS:
             raise ValidationError(
                 f"{field_path}.kind must be one of "
@@ -808,6 +854,12 @@ class ExperimentService:
             )
 
         model_cls = ActionsNode if kind == "ActionsNode" else ExperimentEventExposureConfig
+        cls._validate_exposure_config_model(model_cls, exposure_config, field_path, kind)
+
+    @classmethod
+    def _validate_exposure_config_model(
+        cls, model_cls: type[pydantic.BaseModel], exposure_config: dict, field_path: str, kind: object
+    ) -> None:
         try:
             model_cls.model_validate(exposure_config)
         except pydantic.ValidationError as e:
@@ -1188,6 +1240,7 @@ class ExperimentService:
         )
         self.validate_saved_metrics_ids(saved_metrics_ids, self.team.id)
         is_draft = start_date is None
+        self._reject_live_create_under_launch_policy(is_draft)
 
         feature_flag, used_variants = self._ensure_feature_flag(
             feature_flag_key=feature_flag_key,
@@ -1541,6 +1594,40 @@ class ExperimentService:
         )
 
         return feature_flag, variants or list(DEFAULT_VARIANTS)
+
+    def _reject_live_create_under_launch_policy(self, is_draft: bool) -> None:
+        """Refuse creating an already-running experiment when launching one needs approval.
+
+        A create mints the flag before the experiment row exists, so the flag is unowned for that
+        instant and `experiment.launch` cannot see it. Gating the create instead is not the
+        answer: a change request replays a flag write, and there is no experiment yet for that
+        write to belong to. So refuse, and point at the draft-then-launch route, where the launch
+        is reviewed.
+
+        Only reachable through the API. The experiment form sends no start date, so every
+        experiment it creates is a draft.
+
+        Existence of the policy decides, not evaluation of it, which mirrors the flag API's own
+        refusal of a write it cannot send for approval. A caller who could bypass the launch
+        approval is refused here too, because the create carries no intent to evaluate conditions
+        or a bypass against, and refusing is the direction that cannot leak an unreviewed launch.
+        """
+        if is_draft:
+            return
+        organization = self.team.organization
+        if not organization.is_feature_available(AvailableFeature.APPROVALS):
+            # Without the feature the gate admits every flag write, so there is no review to protect.
+            return
+        if not scope_by_owner_enabled(organization):
+            # The flag family still gates this create until the organization scopes policies by
+            # flag owner, so there is nothing for this guard to add.
+            return
+        if PolicyEngine().get_policy_for_action(LaunchExperimentAction, self.team, organization) is None:
+            return
+        raise ValidationError(
+            "Launching an experiment needs approval in this project. "
+            "Create the experiment as a draft, then launch it to request approval."
+        )
 
     def _assert_flag_access(
         self,
@@ -1935,7 +2022,7 @@ class ExperimentService:
             # A side-effect mutation can't be routed through the change-request flow (this runs
             # inside archive_experiment's transaction, so an ApprovalRequired would roll back the
             # just-created ChangeRequest) — refuse up front instead of letting the gate fire.
-            if flag_disable_requires_approval(self.team):
+            if flag_disable_requires_approval(feature_flag.id, team=self.team):
                 raise PermissionDenied(
                     "Disabling this feature flag requires approval. Disable it from the feature flag page "
                     "to go through the approval flow, then archive the experiment."
@@ -4205,11 +4292,9 @@ class ExperimentService:
             raise ValidationError("Experiment already has an exposure cohort")
 
         exposure_filter_data = (experiment.parameters or {}).get("custom_exposure_filter")
-        exposure_entities: list[Entity] = []
-        if exposure_filter_data:
-            exposure_entities = parse_entities(exposure_filter_data)
+        entity = _first_legacy_filter_entity(exposure_filter_data) if exposure_filter_data else None
 
-        target_entity: int | str = "$feature_flag_called"
+        target_entities: Sequence[int | str]
         target_entity_type = "events"
         target_filters = [
             {
@@ -4220,22 +4305,23 @@ class ExperimentService:
             }
         ]
 
-        if exposure_entities:
-            entity = exposure_entities[0]
-            if entity.id:
-                target_entity_type = entity.type if entity.type in ["events", "actions"] else "events"
-                target_entity = entity.id
-                if entity.type == "actions":
-                    try:
-                        target_entity = int(target_entity)
-                    except ValueError:
-                        raise ValidationError("Invalid action ID")
+        if entity is not None and entity.get("id"):
+            if entity["type"] == "actions":
+                target_entity_type = "actions"
+                try:
+                    target_entities = [int(entity["id"])]
+                except ValueError:
+                    raise ValidationError("Invalid action ID")
+            else:
+                target_entities = exposure_event_names(str(entity["id"]))
 
-                target_filters = [
-                    prop.to_dict()
-                    for prop in entity.property_groups.flat
-                    if prop.type in ("event", "feature", "element", "hogql")
-                ]
+            target_filters = [
+                prop.to_dict()
+                for prop in parse_property_group_data(entity.get("properties")).flat
+                if prop.type in ("event", "feature", "element", "hogql")
+            ]
+        else:
+            target_entities = exposure_event_names(resolve_default_exposure_event(self.team, experiment.start_date))
 
         context = serializer_context or self._build_serializer_context()
         # CohortSerializer expects "team" directly in context
@@ -4262,6 +4348,7 @@ class ExperimentService:
                                         "event_filters": target_filters,
                                         "explicit_datetime": experiment.start_date.isoformat(),
                                     }
+                                    for target_entity in target_entities
                                 ],
                             }
                         ],
@@ -4500,14 +4587,13 @@ class ExperimentService:
     # Timeseries
     # ------------------------------------------------------------------
 
-    def get_timeseries_results(
-        self,
-        experiment: Experiment,
-        *,
-        metric_uuid: str,
-        fingerprint: str,
-    ) -> dict:
-        """Retrieve timeseries results for an experiment-metric combination."""
+    def get_timeseries_results(self, experiment: Experiment, *, metric_uuid: str) -> dict:
+        """Retrieve timeseries results for an experiment-metric combination.
+
+        The calculation key comes from the metric's current calculation config, never from the client, so the chart
+        shows the rows of the current settings. `MetricResultStore.timeseries` says which row a day without such a row
+        shows.
+        """
         project_tz = ZoneInfo(experiment.team.timezone) if experiment.team.timezone else ZoneInfo("UTC")
 
         if not experiment.start_date:
@@ -4526,8 +4612,12 @@ class ExperimentService:
         for experiment_date in experiment_dates:
             timeseries[experiment_date.isoformat()] = None
 
-        stored = MetricResultStore(experiment_id=experiment.id).timeseries(
-            metric_uuid, fingerprint, timezone=project_tz
+        # A metric that no longer resolves on the experiment has no key, so it reads as a series with no rows.
+        calculation_config = get_metric_calculation_config(experiment, metric_uuid)
+        stored = (
+            MetricResultStore(experiment_id=experiment.id).timeseries(calculation_config, timezone=project_tz)
+            if calculation_config is not None
+            else DailyTimeseries(by_day={}, earliest=None, latest=None)
         )
 
         completed_count = 0
@@ -4570,14 +4660,9 @@ class ExperimentService:
         else:
             overall_status = "partial"
 
-        active_recalculation = ExperimentTimeseriesRecalculation.objects.filter(
-            experiment=experiment,
-            fingerprint=fingerprint,
-            status__in=[
-                ExperimentTimeseriesRecalculation.Status.PENDING,
-                ExperimentTimeseriesRecalculation.Status.IN_PROGRESS,
-            ],
-        ).first()
+        active_recalculation = (
+            self._active_timeseries_backfill(experiment, metric_uuid) if calculation_config is not None else None
+        )
 
         response = {
             "experiment_id": experiment.id,
@@ -4598,51 +4683,66 @@ class ExperimentService:
         ).format()
         return response
 
-    def request_timeseries_recalculation(
-        self,
-        experiment: Experiment,
-        *,
-        metric: dict,
-        fingerprint: str,
-    ) -> dict:
-        """Create an idempotent recalculation request for experiment timeseries data."""
+    def request_timeseries_recalculation(self, experiment: Experiment, *, metric_uuid: str) -> dict:
+        """Create an idempotent recalculation request for experiment timeseries data.
+
+        The backfill computes the metric's current definition and files the days under its calculation key, both
+        from the experiment, so the chart finds them.
+        """
         if not experiment.is_launched:
             raise ValidationError("Cannot recalculate timeseries for experiment that hasn't started")
+
+        calculation_config = get_metric_calculation_config(experiment, metric_uuid)
+        if calculation_config is None:
+            raise ValidationError(
+                "This metric is not on the experiment, or it uses an older metric format that has no daily results. "
+                "Pick a metric from the experiment's metrics."
+            )
+        metric = calculation_config.definition
+        fingerprint = calculation_config.calculation_key()
 
         # The backfill runs this metric without a user, so the caller's warehouse access is checked here.
         validate_warehouse_metrics([metric], team=self.team, user=self.user)
 
-        existing_recalculation = ExperimentTimeseriesRecalculation.objects.filter(
-            experiment=experiment,
-            fingerprint=fingerprint,
-            status__in=[
-                ExperimentTimeseriesRecalculation.Status.PENDING,
-                ExperimentTimeseriesRecalculation.Status.IN_PROGRESS,
-            ],
-        ).first()
+        with transaction.atomic():
+            # Serialize supersession with each backfill's status check and result write.
+            Experiment.objects.select_for_update(no_key=True).filter(id=experiment.id, team=self.team).exists()
+            # A failed backfill can still start again on a Temporal retry. The active or new backfill replaces it, so
+            # a retry must not run beside it or recompute the days again.
+            ExperimentTimeseriesRecalculation.objects.filter(
+                experiment=experiment,
+                metric__uuid=calculation_config.metric_id,
+                status=ExperimentTimeseriesRecalculation.Status.FAILED,
+            ).update(status=ExperimentTimeseriesRecalculation.Status.CANCELED)
+            existing_recalculation = self._active_timeseries_backfill(experiment, calculation_config.metric_id)
 
-        if existing_recalculation:
-            return {
-                "id": existing_recalculation.id,
-                "experiment_id": experiment.id,
-                "metric_uuid": existing_recalculation.metric.get("uuid"),
-                "fingerprint": fingerprint,
-                "status": existing_recalculation.status,
-                "created_at": existing_recalculation.created_at.isoformat(),
-                "is_existing": True,
-            }
+            if existing_recalculation and existing_recalculation.fingerprint != fingerprint:
+                existing_recalculation.status = ExperimentTimeseriesRecalculation.Status.CANCELED
+                existing_recalculation.save(update_fields=["status"])
+                existing_recalculation = None
 
-        metric_uuid = metric.get("uuid")
-        if metric_uuid:
-            MetricResultStore(experiment_id=experiment.id).delete_daily_points(metric_uuid, fingerprint)
+            if existing_recalculation:
+                return {
+                    "id": existing_recalculation.id,
+                    "experiment_id": experiment.id,
+                    "metric_uuid": existing_recalculation.metric.get("uuid"),
+                    "fingerprint": existing_recalculation.fingerprint,
+                    "status": existing_recalculation.status,
+                    "created_at": existing_recalculation.created_at.isoformat(),
+                    "is_existing": True,
+                }
 
-        recalculation_request = ExperimentTimeseriesRecalculation.objects.create(
-            team=experiment.team,
-            experiment=experiment,
-            metric=metric,
-            fingerprint=fingerprint,
-            status=ExperimentTimeseriesRecalculation.Status.PENDING,
-        )
+            MetricResultStore(experiment_id=experiment.id).delete_daily_points(
+                calculation_config.metric_id, fingerprint
+            )
+
+            recalculation_request = ExperimentTimeseriesRecalculation.objects.create(
+                team=experiment.team,
+                experiment=experiment,
+                metric=metric,
+                fingerprint=fingerprint,
+                status=ExperimentTimeseriesRecalculation.Status.PENDING,
+            )
 
         return {
             "id": recalculation_request.id,
@@ -4653,6 +4753,28 @@ class ExperimentService:
             "created_at": recalculation_request.created_at.isoformat(),
             "is_existing": False,
         }
+
+    @staticmethod
+    def _active_timeseries_backfill(
+        experiment: Experiment, metric_uuid: str
+    ) -> ExperimentTimeseriesRecalculation | None:
+        """The pending or running backfill of the metric with this uuid, under any key.
+
+        A different key must be canceled before its replacement starts. Workers check this status under the
+        experiment lock before writing, so a superseded query cannot overwrite the replacement's results.
+        """
+        return (
+            ExperimentTimeseriesRecalculation.objects.filter(
+                experiment=experiment,
+                metric__uuid=metric_uuid,
+                status__in=[
+                    ExperimentTimeseriesRecalculation.Status.PENDING,
+                    ExperimentTimeseriesRecalculation.Status.IN_PROGRESS,
+                ],
+            )
+            .order_by("-created_at")
+            .first()
+        )
 
     # ------------------------------------------------------------------
     # Velocity stats

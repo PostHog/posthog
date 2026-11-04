@@ -1,4 +1,5 @@
-// Runs through actions/github-script when a pull request merges. If its body
+// Runs through actions/github-script when a pull request merges, or from a
+// manual dispatch that names a merged pull request to replay. If its body
 // carries the hidden marker that the recreating-fork-prs skill writes
 // ("<!-- fork-pr: <n> @<login> -->"), it tells the contributor on fork PR #<n>
 // where their change landed, then closes that PR.
@@ -43,6 +44,7 @@ function buildComment({ login, mergedPrNumber, credited }) {
 const MERGED_PR_QUERY = `query($owner: String!, $name: String!, $number: Int!) {
   repository(owner: $owner, name: $name) {
     pullRequest(number: $number) {
+      merged
       body
       mergeCommit { authors(first: 50) { nodes { user { login } } } }
     }
@@ -73,11 +75,16 @@ async function fetchPullRequest(github, query, variables) {
     }
 }
 
-module.exports = async ({ github, context, core }) => {
+module.exports = async ({ github, context, core, mergedPrNumber }) => {
     const { owner, repo } = context.repo
-    const mergedPrNumber = context.payload.pull_request.number
 
     const mergedPr = await fetchPullRequest(github, MERGED_PR_QUERY, { owner, name: repo, number: mergedPrNumber })
+    // A manual dispatch can name any number, and thanking for an unmerged PR
+    // would close the fork PR before its change lands.
+    if (!mergedPr?.merged) {
+        core.warning(`Skipping #${mergedPrNumber}: not a merged pull request`)
+        return
+    }
     const contribution = parseContribution(mergedPr.body)
     if (!contribution) {
         core.info(`#${mergedPrNumber} has no fork-pr marker`)

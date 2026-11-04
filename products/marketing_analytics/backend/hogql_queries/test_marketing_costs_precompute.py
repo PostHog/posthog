@@ -1,7 +1,9 @@
 import uuid
-from datetime import date, datetime
+from contextlib import nullcontext
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
+import time_machine
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 from unittest.mock import Mock, patch
 
@@ -9,7 +11,13 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
-from posthog.schema import DateRange, MarketingAnalyticsDrillDownLevel, MarketingAnalyticsTableQuery
+from posthog.schema import (
+    CompareFilter,
+    DateRange,
+    MarketingAnalyticsDrillDownLevel,
+    MarketingAnalyticsTableQuery,
+    MarketingAnalyticsTableQueryResponse,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
@@ -18,9 +26,11 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.clickhouse.preaggregation.marketing_costs_sql import DISTRIBUTED_MARKETING_COSTS_TABLE
-from posthog.clickhouse.query_tagging import tags_context
+from posthog.clickhouse.query_tagging import Feature, tags_context
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
+from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
+from products.analytics_platform.backend.models.preaggregation_job import PreaggregationJob
 from products.marketing_analytics.backend.hogql_queries.adapters.base import (
     GoogleAdsConfig,
     MarketingSourceAdapter,
@@ -151,6 +161,25 @@ class TestMarketingCostsPrecompute(ClickhouseTestMixin, BaseTest):
         assert sources == {"google"}
         # cost_date is a real per-day date (not the sentinel empty), enabling daily-window caching.
         assert all(r[self._col(cols, "cost_date")] is not None for r in rows)
+
+    @parameterized.expand([("ahead_of_utc", "Asia/Tokyo"), ("utc", "UTC"), ("behind_utc", "America/Los_Angeles")])
+    def test_daily_job_window_holds_only_its_own_cost_date(self, _name, team_timezone):
+        self.team.timezone = team_timezone
+        self.team.save()
+        mat = self._adapter().build_materialization_query("google_test")
+        assert mat is not None
+        # Run the AST directly, because a to_hogql round trip drops the window's UTC timezone.
+        mat_query = replace_placeholders(
+            mat,
+            {
+                "time_window_min": ast.Constant(value=datetime(2024, 3, 16, tzinfo=UTC)),
+                "time_window_max": ast.Constant(value=datetime(2024, 3, 17, tzinfo=UTC)),
+            },
+        )
+        result = execute_hogql_query(mat_query, self.team)
+        cols = list(result.columns or [])
+
+        assert {r[self._col(cols, "cost_date")] for r in result.results or []} == {date(2024, 3, 16)}
 
     @parameterized.expand(
         [
@@ -309,6 +338,47 @@ class TestMarketingCostsPrecompute(ClickhouseTestMixin, BaseTest):
                 f"deduped row should carry the latest {label_column} '{post_value}', not the stale '{pre_value}'"
             )
 
+    @parameterized.expand([("plain", False, False), ("compare", True, False), ("unstamped_latest_day", False, True)])
+    def test_latest_day_stamp_comes_from_the_latest_day_window_not_the_oldest(
+        self, _name, compare, unstamped_latest_day
+    ):
+        warmed_at = datetime(2024, 3, 20, 12, tzinfo=UTC)
+        read_at = warmed_at + timedelta(days=3)
+        latest_day_window_start = datetime(2024, 3, 23, tzinfo=UTC)
+
+        def read(now: datetime, *, warmer: bool) -> MarketingAnalyticsTableQueryResponse:
+            with time_machine.travel(now, tick=False):
+                runner = MarketingAnalyticsTableQueryRunner(
+                    query=MarketingAnalyticsTableQuery(
+                        dateRange=DateRange(date_from="2024-03-01"),
+                        compareFilter=CompareFilter(compare=compare),
+                        limit=100,
+                        offset=0,
+                        properties=[],
+                    ),
+                    team=self.team,
+                )
+                runner.config.costs_precomputation_enabled = True
+                with (
+                    patch.object(MarketingSourceFactory, "create_adapters", lambda _self: [self._adapter()]),
+                    patch.object(MarketingSourceFactory, "get_valid_adapters", lambda _self, adapters: adapters),
+                    tags_context(feature=Feature.CACHE_WARMUP) if warmer else nullcontext(),
+                ):
+                    return runner.calculate()
+
+        read(warmed_at, warmer=True)
+        # Three days on, the warmer rebuilds only the windows past their TTL; older days keep their jobs.
+        read(read_at, warmer=True)
+        if unstamped_latest_day:
+            PreaggregationJob.objects.filter(team=self.team, time_range_start=latest_day_window_start).update(
+                computed_at=None
+            )
+        response = read(read_at, warmer=False)
+
+        assert response.latestDayComputedAt == (None if unstamped_latest_day else read_at.isoformat())
+        if not unstamped_latest_day:
+            assert response.dataComputedAt == warmed_at.isoformat()
+
     @parameterized.expand([("user_read", None, True), ("on_demand_revalidation", REVALIDATION_TRIGGER, False)])
     def test_on_demand_revalidation_never_builds_costs(self, _name, trigger, expect_costs_build):
         # The Celery revalidation runs userless with warehouse access control bypassed, and a user read
@@ -359,7 +429,7 @@ class TestMarketingCostsPrecompute(ClickhouseTestMixin, BaseTest):
             interval=None,
             now=datetime(2023, 2, 1),
         )
-        ready = Mock(ready=True, job_ids=["00000000-0000-0000-0000-000000000001"])
+        ready = LazyComputationResult(ready=True, job_ids=[uuid.UUID("00000000-0000-0000-0000-000000000001")])
         with (
             patch.object(MarketingSourceFactory, "create_adapters", lambda self: [good, bad]),
             patch.object(MarketingSourceFactory, "get_valid_adapters", lambda self, adapters: adapters),

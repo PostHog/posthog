@@ -1,4 +1,4 @@
-import type { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
+import type { ExternalDataSourceType } from '~/types'
 
 import type { SignalSourceProductApi, SignalSourceConfigSourceTypeEnumApi } from '../generated/api.schemas'
 
@@ -7,7 +7,7 @@ interface ExternalSignalSourceDefinition {
     label: string
     category: string
     watches: string
-    dwSourceType: ExternalDataSourceTypeEnumApi
+    dwSourceType: ExternalDataSourceType
     requiredTables: readonly string[]
     sourceType: SignalSourceConfigSourceTypeEnumApi
     // Creation-only cursors miss later edits, so these sources opt into full refresh.
@@ -113,6 +113,42 @@ export const EXTERNAL_SIGNAL_SOURCES = [
         watches: 'Monitor new issues and updates',
         dwSourceType: 'Shortcut',
         requiredTables: ['stories'],
+        sourceType: 'issue',
+    },
+    {
+        source: 'clickup',
+        label: 'ClickUp',
+        category: 'Issue tracking',
+        watches: 'Monitor new tasks and updates',
+        dwSourceType: 'ClickUp',
+        requiredTables: ['tasks'],
+        sourceType: 'issue',
+    },
+    {
+        source: 'wrike',
+        label: 'Wrike',
+        category: 'Issue tracking',
+        watches: 'Monitor new tasks and updates',
+        dwSourceType: 'Wrike',
+        requiredTables: ['tasks'],
+        sourceType: 'issue',
+    },
+    {
+        source: 'trello',
+        label: 'Trello',
+        category: 'Issue tracking',
+        watches: 'Monitor new cards and updates',
+        dwSourceType: 'Trello',
+        requiredTables: ['cards'],
+        sourceType: 'issue',
+    },
+    {
+        source: 'bugherd',
+        label: 'BugHerd',
+        category: 'Issue tracking',
+        watches: 'Monitor new bug reports and tasks',
+        dwSourceType: 'Bugherd',
+        requiredTables: ['Tasks'],
         sourceType: 'issue',
     },
     {

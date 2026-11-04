@@ -30,9 +30,12 @@ from .serializers import (
     CliAuthorizedSerializer,
     CliAuthorizeSerializer,
     CliExchangeSerializer,
+    DevTeamUsageSerializer,
     DevTokenRefusalSerializer,
     DevTokenRevokedSerializer,
     DevTokenRevokeSerializer,
+    DevTokenSerializer,
+    DevTokenStatusRequestSerializer,
     DevTokenUsageSerializer,
     MintedDevTokenSerializer,
 )
@@ -64,25 +67,25 @@ def _refusal(refused: DevTokenRefused) -> Response:
 class DevGatewayTokenViewSet(viewsets.ViewSet):
     authentication_classes = [SessionAuthentication]
     permission_classes = [permissions.IsAuthenticated, TimeSensitiveActionPermission]
-    time_sensitive_exclude_actions = ["revoke", "usage"]
+    time_sensitive_exclude_actions = ["revoke", "usage", "team_usage"]
     scope_object = "INTERNAL"
 
     def get_throttles(self) -> list[BaseThrottle]:
         if self.action in ("create", "authorize_cli"):
             return [DevTokenMintThrottle()]
-        if self.action == "exchange_cli":
+        if self.action in ("exchange_cli", "token_status"):
             return [DevTokenExchangeIPThrottle()]
         return super().get_throttles()
 
     def get_authenticators(self) -> list[BaseAuthentication]:
-        # The exchange is authenticated by the PKCE verifier, not a session; DRF resolves
-        # authenticators before `self.action` is set, so match on the path.
-        if self.request is not None and self.request.path.rstrip("/").endswith("/cli_exchange"):
+        # The PKCE verifier or the bearer authenticates these; DRF resolves authenticators before
+        # `self.action` is set, so match on the path.
+        if self.request is not None and self.request.path.rstrip("/").endswith(("/cli_exchange", "/token_status")):
             return []
         return super().get_authenticators()
 
     def get_permissions(self) -> Sequence["_SupportsHasPermission"]:
-        if self.action == "exchange_cli":
+        if self.action in ("exchange_cli", "token_status"):
             return [permissions.AllowAny()]
         return super().get_permissions()
 
@@ -101,6 +104,22 @@ class DevGatewayTokenViewSet(viewsets.ViewSet):
         if refused is not None:
             return _refusal(refused)
         return Response(DevTokenUsageSerializer(api.dev_token_usage(cast(User, request.user))).data)
+
+    @validated_request(
+        responses={200: OpenApiResponse(response=DevTeamUsageSerializer), 403: _REFUSAL, 503: _REFUSAL},
+        summary="Developer mode minting and spend per user over the last 30 days",
+    )
+    @action(detail=False, methods=["get"], url_path="team_usage")
+    def team_usage(self, request: Request) -> Response:
+        if is_impersonated(request):
+            return _refusal(
+                DevTokenRefused("impersonated", "Developer mode isn't available while impersonating a user.", 403)
+            )
+        try:
+            usage = api.dev_team_usage(cast(User, request.user))
+        except DevTokenRefused as e:
+            return _refusal(e)
+        return Response(DevTeamUsageSerializer(usage).data)
 
     @validated_request(
         responses={
@@ -174,3 +193,16 @@ class DevGatewayTokenViewSet(viewsets.ViewSet):
         except DevTokenRefused as e:
             return _refusal(e)
         return Response(MintedDevTokenSerializer(minted).data, status=status.HTTP_201_CREATED)
+
+    @validated_request(
+        request_serializer=DevTokenStatusRequestSerializer,
+        responses={200: OpenApiResponse(response=DevTokenSerializer), 404: _REFUSAL, 503: _REFUSAL},
+        summary="Look up a developer mode token's status and budget left by its bearer",
+    )
+    @action(detail=False, methods=["post"], url_path="token_status")
+    def token_status(self, request: Request) -> Response:
+        try:
+            token = api.dev_token_status(request.validated_data["token"])
+        except DevTokenRefused as e:
+            return _refusal(e)
+        return Response(DevTokenSerializer(token).data)

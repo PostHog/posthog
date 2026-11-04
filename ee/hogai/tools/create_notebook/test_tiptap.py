@@ -1,16 +1,15 @@
+import time
+
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
 from posthog.schema import MarkdownBlock, SessionReplayBlock
 
+from posthog.comment.tiptap import _parse_inline, markdown_to_tiptap_nodes
+
 from ee.hogai.artifacts.types import StoredBlock, VisualizationRefBlock
-from ee.hogai.tools.create_notebook.tiptap import (
-    _parse_inline,
-    blocks_to_tiptap_doc,
-    markdown_to_tiptap_nodes,
-    tiptap_doc_to_text,
-)
+from ee.hogai.tools.create_notebook.tiptap import blocks_to_tiptap_doc, tiptap_doc_to_text
 
 
 class TestParseInline(SimpleTestCase):
@@ -42,6 +41,25 @@ class TestParseInline(SimpleTestCase):
                         "marks": [{"type": "link", "attrs": {"href": "https://example.com"}}],
                     }
                 ],
+            ),
+            (
+                "bold link label",
+                "[**Set up**](https://example.com)",
+                [
+                    {
+                        "type": "text",
+                        "text": "Set up",
+                        "marks": [
+                            {"type": "bold"},
+                            {"type": "link", "attrs": {"href": "https://example.com"}},
+                        ],
+                    }
+                ],
+            ),
+            (
+                "unsafe link stays text",
+                "[click](javascript:alert(1))",
+                [{"type": "text", "text": "[click](javascript:alert(1))"}],
             ),
             (
                 "mixed inline",
@@ -158,12 +176,125 @@ class TestMarkdownToTiptapNodes(SimpleTestCase):
                     }
                 ],
             ),
+            (
+                "ordered list keeps its numbers across a blank line",
+                "1. first\n\n2. second",
+                [
+                    {
+                        "type": "orderedList",
+                        "content": [
+                            {
+                                "type": "listItem",
+                                "content": [
+                                    {
+                                        "type": "paragraph",
+                                        "content": [{"type": "text", "text": "first"}],
+                                    }
+                                ],
+                            },
+                            {
+                                "type": "listItem",
+                                "content": [
+                                    {
+                                        "type": "paragraph",
+                                        "content": [{"type": "text", "text": "second"}],
+                                    }
+                                ],
+                            },
+                        ],
+                    }
+                ],
+            ),
+            (
+                "ordered item keeps the next line",
+                "1. first\nSee more",
+                [
+                    {
+                        "type": "orderedList",
+                        "content": [
+                            {
+                                "type": "listItem",
+                                "content": [
+                                    {
+                                        "type": "paragraph",
+                                        "content": [{"type": "text", "text": "first See more"}],
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ],
+            ),
+            (
+                "nested bullets stay inside the numbered step",
+                "1. step\n   - bullet\n2. next",
+                [
+                    {
+                        "type": "orderedList",
+                        "content": [
+                            {
+                                "type": "listItem",
+                                "content": [
+                                    {"type": "paragraph", "content": [{"type": "text", "text": "step"}]},
+                                    {
+                                        "type": "bulletList",
+                                        "content": [
+                                            {
+                                                "type": "listItem",
+                                                "content": [
+                                                    {
+                                                        "type": "paragraph",
+                                                        "content": [{"type": "text", "text": "bullet"}],
+                                                    }
+                                                ],
+                                            }
+                                        ],
+                                    },
+                                ],
+                            },
+                            {
+                                "type": "listItem",
+                                "content": [
+                                    {"type": "paragraph", "content": [{"type": "text", "text": "next"}]},
+                                ],
+                            },
+                        ],
+                    }
+                ],
+            ),
+            (
+                "empty heading does not stall the next line",
+                "## \nAfter",
+                [
+                    {"type": "paragraph", "content": [{"type": "text", "text": "## "}]},
+                    {"type": "paragraph", "content": [{"type": "text", "text": "After"}]},
+                ],
+            ),
             ("empty string", "", []),
             ("whitespace only", "   \n  \n  ", []),
         ]
     )
     def test_markdown_to_tiptap_nodes(self, _name, markdown, expected):
         assert markdown_to_tiptap_nodes(markdown) == expected
+
+    def test_unclosed_brackets_stay_text(self):
+        text = "[" * 20000
+        started = time.monotonic()
+        nodes = _parse_inline(text)
+        assert time.monotonic() - started < 1
+        assert nodes == [{"type": "text", "text": text}]
+
+    def test_failed_link_destination_is_not_rescanned(self):
+        text = "[" * 4000 + "](https://" + "a" * 4000
+        started = time.monotonic()
+        nodes = _parse_inline(text)
+        assert time.monotonic() - started < 1
+        assert "".join(node["text"] for node in nodes) == text
+        blocked = "[" * 2000 + "](javascript:" + "a" * 2000 + ")"
+        started = time.monotonic()
+        nodes = _parse_inline(blocked)
+        assert time.monotonic() - started < 1
+        assert "".join(node["text"] for node in nodes) == blocked
 
     def test_multi_block_markdown(self):
         md = "# Title\n\nSome text.\n\n- a\n- b\n\n```\ncode\n```"

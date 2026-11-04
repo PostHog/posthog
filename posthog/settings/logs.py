@@ -183,6 +183,7 @@ LOGGING: dict[str, Any] = {
         # Same clamp: the host guards log a matched out-of-band interaction domain at INFO,
         # while the refusal beside it logs at WARNING, so the gap is invisible without this.
         "posthog.security.url_validation": {"level": "INFO", "handlers": ["console"], "propagate": False},
+        "posthog.dns_hosts": {"level": "INFO", "handlers": ["console"], "propagate": False},
         # The posthoganalytics SDK claims the "posthog" logger name and clamps it to WARNING
         # at client init, so the source-registry prewarm's INFO lifecycle logs need an
         # explicit level to be visible.

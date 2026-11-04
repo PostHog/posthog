@@ -90,6 +90,7 @@ from products.endpoints.backend.presentation.throttles import (
     EndpointProjectSecretApiKeyTeamBurstThrottle,
     EndpointProjectSecretApiKeyTeamSustainedThrottle,
     EndpointSustainedThrottle,
+    charge_inline_rate,
 )
 
 
@@ -336,6 +337,7 @@ class EndpointViewSet(
         latest_jobs = DataModelingJob.objects.filter(engine=DataModelingJob.Engine.CLICKHOUSE).order_by("-last_run_at")
         latest_completed_jobs = latest_jobs.filter(status=DataModelingJob.Status.COMPLETED)
         return queryset.select_related("saved_query", "team").prefetch_related(
+            EndpointVersion.frequency_nodes_prefetch(),
             Prefetch("saved_query__datamodelingjob_set", queryset=latest_jobs[:1], to_attr="prefetched_latest_jobs"),
             Prefetch(
                 "saved_query__datamodelingjob_set",
@@ -730,7 +732,14 @@ class EndpointViewSet(
                 service.log_rejected_run(endpoint, self._rejection_reason(response))
                 return response
 
-        return service.execute(endpoint, data, version_obj, limit=limit, offset=offset)
+        return service.execute(
+            endpoint,
+            data,
+            version_obj,
+            limit=limit,
+            offset=offset,
+            before_inline_fallback=lambda: charge_inline_rate(request, self),
+        )
 
     @extend_schema(
         description=(
