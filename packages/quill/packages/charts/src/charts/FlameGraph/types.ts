@@ -136,7 +136,8 @@ export type FlameTooltipContext<Meta = unknown> = TooltipContext<Meta> & {
 export interface FlameGraphProps<Meta = unknown> {
     /** One root, or several roots drawn side by side. */
     data: FlameNode<Meta> | FlameNode<Meta>[]
-    theme: ChartTheme
+    /** Defaults to the nearest `ChartThemeProvider`, then the CSS variables. */
+    theme?: ChartTheme
     config?: FlameGraphConfig
     /** Case-insensitive substring matched against node names. Matches keep their color, the rest
      *  dims, and the breadcrumb row shows the match count and share. */
