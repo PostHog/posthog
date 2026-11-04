@@ -926,7 +926,9 @@ export class EmailService {
      * Transactional sends are charged but never delayed, because a password reset that arrives
      * two hours late has already failed the person waiting on it. The charge does not bound the
      * exemption: claimUpTo records no debt, so once a bucket empties further transactional sends
-     * cost nothing. The SES account limiter and the daily tier sweep carry that case.
+     * cost nothing. No other control bounds that volume per team either. The SES limiter paces
+     * the whole account, so what is left is suspension and the daily tier job, which demotes a
+     * team on its complaint and bounce rates after the fact.
      */
     private async claimTeamSendingBudget(
         invocation: CyclotronJobInvocationHogFunction,
