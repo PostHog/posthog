@@ -11,7 +11,7 @@ import structlog
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
-from products.alerts_platform.backend.facade.api import get_configuration
+from products.alerts_platform.backend.facade.api import list_configurations
 from products.alerts_platform.backend.facade.contracts import PlatformAlertConfigurationView, SourceKind
 from products.logs.backend.alert_state_machine import NotificationAction
 from products.logs.backend.models import LogsAlertConfiguration
@@ -195,12 +195,21 @@ def _facts_by_alert_id(team_id: int, alert_ids: set[str]) -> dict[str, _AlertFac
         str(alert.id): _AlertFacts.of_logs_alert(alert)
         for alert in LogsAlertConfiguration.objects.filter(team_id=team_id, id__in=alert_ids)
     }
-    for alert_id in alert_ids - facts.keys():
-        configuration = get_configuration(
-            team_id=team_id, source_kinds=[SourceKind.LOGS.value], configuration_id=UUID(alert_id)
+    missing = [UUID(alert_id) for alert_id in alert_ids - facts.keys()]
+    if missing:
+        page = list_configurations(
+            team_id=team_id,
+            source_kinds=[SourceKind.LOGS.value],
+            limit=len(missing),
+            offset=0,
+            configuration_ids=missing,
         )
-        if configuration is not None:
-            facts[alert_id] = _AlertFacts.of_configuration(configuration)
+        facts.update(
+            {
+                str(configuration.id): _AlertFacts.of_configuration(configuration)
+                for configuration in page.configurations
+            }
+        )
     return facts
 
 
