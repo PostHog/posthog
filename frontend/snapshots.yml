@@ -717,13 +717,13 @@ snapshots:
     components-chart-legend-series-menu--single-series--light:
         hash: v1.k794b7964.45544c43c187fd1d1fc7b204e7c33c7e422c5c56838cac44e5d63318c7f5e283.phbzfcS5A5m2LHaspjABfv-I6FPQ1-LnsCFRwyX81uQ
     components-command-k-search--chip-and-value-suggestions--dark:
-        hash: v1.k794b7964.e2cf036318e82d7af931975ced73d650a9b53723986853b5bac7ce5ae3b576bd.mkkCjEHVSszzagFa9wpCoMZM3k0NFHzhuv_ghy7a9hU
+        hash: v1.k794b7964.ced343446b982f961f849c3c21b0291456454a8bdabbffb4c40bc2465c38b705.vVQJg_pcOqsFUbRrIZOaZz2gMa8IBYTJQKsMPbfUGJ0
     components-command-k-search--chip-and-value-suggestions--light:
-        hash: v1.k794b7964.e7333bff9cf7731d6fc4de2c3de02126f269c9f18072af98231084282a7c5d65.J458vmekHctug5oj4MC67c2qudoY1nHzt0P9V_3lzx4
+        hash: v1.k794b7964.ccb298dc4076c600a145a31a044963cef3118ca4843fa8ff894a3ef90c79d808.8qYvuh3gupAupj16CkZQvwzrc2fANTy_rRWfxckuleI
     components-command-k-search--empty--dark:
-        hash: v1.k794b7964.711532ac6e726991456a1aa5a65adf56f507b821de5e1a0c1fdfdb346fbd6e50.-PeRL7ixVxVUioP_mIhM-QchAgCbxP020gNMtokg-Xk
+        hash: v1.k794b7964.f3260178d12c5e4e9a6b52804d25e9682b65d51d6fb097d2cfff69b6e124bdfb.5cMrbH5cW9Vi0zRIEfsr36NFl_6gFKU9xPbhprCc3Po
     components-command-k-search--empty--light:
-        hash: v1.k794b7964.f4c44beb1177df5a36770418b3141cbc9c26aa1665bf648865efd6eeab65437f.yDDLvsODc11eeiBKHRmSt12Ox8AxQZSgiRfGcd_ZR5o
+        hash: v1.k794b7964.2fe17203f6572c08eb8b837f1f764d1ad9de4bf44c9806504dbb8e9dbbb3de8e.dwlzrd6hB4t05RAf3vxzqaGmaCjbA53_SxsS5D6LnEk
     components-command-k-search-notice--close-spellings--dark:
         hash: v1.k794b7964.ffa192d267350a8866038659a7415aed68505662d35ae38774d58f83d5836c77.mHzLJfwxAGLcu-XeF7aGcByPBoDWki0HcQVfD-vHjos
     components-command-k-search-notice--close-spellings--light:
@@ -11455,9 +11455,9 @@ snapshots:
     scenes-app-errortracking--group-page-releases-stacked--light:
         hash: v1.k794b7964.bbd7d8f861510cc79188ecbe20e6af110f08f96a53ef27ac75ce28bbd704f48c.bBi7jDw0DwllpcX_pkQJi-DdiBG_XAmTwS_GzqDEoRw
     scenes-app-errortracking--group-page-today-rail-nav--dark:
-        hash: v1.k794b7964.44bec3bc5d0ee4ef65f548012c4ec6e4cc65ddb94d6251f4cd9563bdc90f16bf.iSE4tmNbkJFoeG6DCM5k-F8hXt0cFQUPYkcOfbamQUk
+        hash: v1.k794b7964.7b967502dd276f40a0035c9f1fec6c4fff32e4558afd88b2605089ae34d79bf5.Qa-Nb2wVDvXbs1WAzJLiYFVpc-IJMDtPG31P0njv5lc
     scenes-app-errortracking--group-page-today-rail-nav--light:
-        hash: v1.k794b7964.e74f7ba76b28c0803dcd71ec276c0774cc236ead25cbcd7c5e911775e1b2391c.Utp2DqgtqoD_iT_VmejgjPgCsR1YJYhZAAmyrqE_dkA
+        hash: v1.k794b7964.195f79c54a1021066a5212c8f778741cb247edc4a77fed677d59f09d2d8b9c98.DoLnAH2gz3VSkmqa-0j8TUEIO-gAuHe1oPz5NWZf0Dw
     scenes-app-errortracking--group-page-with-many-self-driving-reports--dark:
         hash: v1.k794b7964.80a2533ac0237e1c88e747da106127fb7f335c4dfbda4dcd9acc58d5fad4133d.-bwvh6NUGPl4apMtIctBlqZHzMtXaDazhCLw-q4AUtM
     scenes-app-errortracking--group-page-with-many-self-driving-reports--light:
@@ -11603,13 +11603,13 @@ snapshots:
     scenes-app-experiments--experiment-recordings-empty-in-session-has-none--light:
         hash: v1.k794b7964.5c85105ab9444ffc8ce4a3e9555924cd95137c1877fa967acef8e76b8d961071.ub13Q6e9xXJv4HGQrx1Lx4e-qtFFhlB61nOd1JFRVwg
     scenes-app-experiments--experiment-recordings-empty-metric-filter-failed--dark:
-        hash: v1.k794b7964.8a7e5d560bcfe4077b393deebbe0ac6a966c4733a07e988fd565f761fc5d284e.L6c_1rHbqwQCqmjcZfSR-FzBpnUKelxTEKuNzjYkcJs
+        hash: v1.k794b7964.792f3415a54e357a63e07c8462c6ff4d6cc5a23d1389f95492db451cd97bb595.XmT1vm8BV5oPAZhy70UfZwRP-rTxIgAQthY5by_LpAs
     scenes-app-experiments--experiment-recordings-empty-metric-filter-failed--light:
-        hash: v1.k794b7964.f8b5e7def7b6fd6d1a7f1f3122fbc6087dd2c96ce594d99817350912f2a33ef0.NsB81HhpL1SN3e9bGp6t5ygFkeKJ2wbocIWbY4kxOSY
+        hash: v1.k794b7964.ae88163fbe3bd0aef014b016cd8ab9bacde9e99639609a2bb652d7f6d898e797.YKFPldQToi2uaHd4QtcsKex3fBXjcMQjW6B-Ex4qrHk
     scenes-app-experiments--experiment-recordings-empty-metric-filter-matched-nothing--dark:
-        hash: v1.k794b7964.76401d6b006d3f7da3171290c10fdbddd96eb13d1a61d8303db55ccc697b46d1.zzI53pKMUqwq0Uza0ei5S7fzR8q_hkWRpPHSpvpAKw4
+        hash: v1.k794b7964.cdd7c3112086763ea2825ece27a02f581985afb2c204727ba6aad11d8fb73eba.bzA9SB2aik123eZIrOOcYneROOTG3K5TcjoXKVwqaY4
     scenes-app-experiments--experiment-recordings-empty-metric-filter-matched-nothing--light:
-        hash: v1.k794b7964.b1ae720741bd3b6382965b0f5ac03467f9f525c752dd31b63ef01df224f25a4b.ApCKxaxjWnJGi1e_hhBViY2JtjO0UwjBn8gV30leNgs
+        hash: v1.k794b7964.ffbef39b322adb9c44e861613af4c0819b5128261d828ed8b0ef2892f56bfeae.aFFm57j_GBrJ98ahT2y1MZgkz0uhVv7Yed-FxkDN4T0
     scenes-app-experiments--experiment-recordings-empty-too-early--dark:
         hash: v1.k794b7964.d85e6184e9fa6c5ebde50cbd9f69d43fb5a2852f0fe1faaa0547e510e8af548e.jsyKzWBMSCOFsJGn2OIrKktKaUzMUoZZwB9aVdxNdyM
     scenes-app-experiments--experiment-recordings-empty-too-early--light:
@@ -16643,9 +16643,9 @@ snapshots:
     scenes-data-warehouse-sql-editor-save-as-menu--lemon--light:
         hash: v1.k794b7964.ce49834d2dd9a3e8d8f7f2ded91b0977b7c4f6fa9ae4094a26f75958097ce647.giNr9vzojfM_H0KtB2m449ZMzA2qtjt_Taw5_XsjwvQ
     scenes-data-warehouse-sql-editor-save-as-menu--quill--dark:
-        hash: v1.k794b7964.71d22f1784db63d4d163056fc4ca69f28ec4769dc924324114f81a1e73d6dd5d.zDoDPkZY04gocUtFOs0koHllRDvOQ9EtmB4RMM_F7qA
+        hash: v1.k794b7964.e396b3281daddcb67dbc14225067df3dab1a6077867daadafede5dc4dcb4279b.FggnmgmTjKlhyMzbp6j3ljT9GtV_cOInn4pCoXrL_4Q
     scenes-data-warehouse-sql-editor-save-as-menu--quill--light:
-        hash: v1.k794b7964.6515668099ff3a4bd1bbb4dac22586daeb8a1419fbd49d8bec87336b00cb3a50.bRgz6NTo6yEZtn_77eHLnzNprgOyoTnF7g6bWrSxMEY
+        hash: v1.k794b7964.a4d8e5587668a9e51adb4e6cb84af579198518505792df34aa50b70bba3ba1fc.7S_CAG8YdHkCIadU9ffHpHWUC0d_et_sgX8QDaEI-zs
     scenes-inbox-scout-tags--editor-and-filter--dark:
         hash: v1.k794b7964.79b0730ad23bc4daace066e8418a8f851d9a3e018bce50cd906f6f9276017d39.oiSmz7Fd649f4FBQK82nQ2-HLpGPZPaM9stDumq8qPo
     scenes-inbox-scout-tags--editor-and-filter--light:
