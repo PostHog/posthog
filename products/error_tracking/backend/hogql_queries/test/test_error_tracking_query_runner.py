@@ -79,7 +79,7 @@ from products.error_tracking.backend.models import (
     sync_issues_to_clickhouse,
     update_error_tracking_issue_fingerprints,
 )
-from products.event_definitions.backend.property_type import PropertyType
+from products.event_definitions.backend.facade.enums import PropertyType
 
 
 class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIdentities):

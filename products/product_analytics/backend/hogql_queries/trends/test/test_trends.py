@@ -70,7 +70,8 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
-from products.event_definitions.backend.models.property_definition import PropertyDefinition
+from products.event_definitions.backend.facade.enums import PropertyDefinitionType, PropertyType
+from products.event_definitions.backend.facade.testing import create_property_definition, property_definition_exists
 from products.product_analytics.backend.hogql_queries.trends.test.test_trends_persons import get_actors
 from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import TrendsQueryRunner
 
@@ -106,22 +107,22 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         props = kwargs.get("properties")
         if props is not None:
             for key, value in props.items():
-                prop_def_exists = PropertyDefinition.objects.filter(team=self.team, name=key).exists()
+                prop_def_exists = property_definition_exists(team_id=self.team.id, name=key)
                 if prop_def_exists is False:
                     if isinstance(value, str):
-                        type = "String"
+                        type = PropertyType.String
                     elif isinstance(value, bool):
-                        type = "Boolean"
+                        type = PropertyType.Boolean
                     elif isinstance(value, int):
-                        type = "Numeric"
+                        type = PropertyType.Numeric
                     else:
-                        type = "String"
+                        type = PropertyType.String
 
-                    PropertyDefinition.objects.create(
-                        team=self.team,
+                    create_property_definition(
+                        team_id=self.team.id,
                         name=key,
                         property_type=type,
-                        type=PropertyDefinition.Type.EVENT,
+                        type=PropertyDefinitionType.EVENT,
                     )
 
     def _create_person(self, **kwargs):
@@ -129,22 +130,22 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         props = kwargs.get("properties")
         if props is not None:
             for key, value in props.items():
-                prop_def_exists = PropertyDefinition.objects.filter(team=self.team, name=key).exists()
+                prop_def_exists = property_definition_exists(team_id=self.team.id, name=key)
                 if prop_def_exists is False:
                     if isinstance(value, str):
-                        type = "String"
+                        type = PropertyType.String
                     elif isinstance(value, bool):
-                        type = "Boolean"
+                        type = PropertyType.Boolean
                     elif isinstance(value, int):
-                        type = "Numeric"
+                        type = PropertyType.Numeric
                     else:
-                        type = "String"
+                        type = PropertyType.String
 
-                    PropertyDefinition.objects.create(
-                        team=self.team,
+                    create_property_definition(
+                        team_id=self.team.id,
                         name=key,
                         property_type=type,
-                        type=PropertyDefinition.Type.PERSON,
+                        type=PropertyDefinitionType.PERSON,
                     )
         return person
 
@@ -155,23 +156,23 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
         if props is not None:
             for key, value in props.items():
-                prop_def_exists = PropertyDefinition.objects.filter(team=self.team, name=key).exists()
+                prop_def_exists = property_definition_exists(team_id=self.team.id, name=key)
                 if prop_def_exists is False:
                     if isinstance(value, str):
-                        type = "String"
+                        type = PropertyType.String
                     elif isinstance(value, bool):
-                        type = "Boolean"
+                        type = PropertyType.Boolean
                     elif isinstance(value, int):
-                        type = "Numeric"
+                        type = PropertyType.Numeric
                     else:
-                        type = "String"
+                        type = PropertyType.String
 
-                    PropertyDefinition.objects.create(
-                        team=self.team,
+                    create_property_definition(
+                        team_id=self.team.id,
                         name=key,
                         property_type=type,
                         group_type_index=index,
-                        type=PropertyDefinition.Type.GROUP,
+                        type=PropertyDefinitionType.GROUP,
                     )
 
     def _create_events(self, use_time=False) -> tuple[Action, Person]:
@@ -396,11 +397,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
 
     # just make sure this doesn't error
     def test_no_props_string(self):
-        PropertyDefinition.objects.create(
-            team=self.team,
+        create_property_definition(
+            team_id=self.team.id,
             name="$some_property",
-            property_type="String",
-            type=PropertyDefinition.Type.EVENT,
+            property_type=PropertyType.String,
+            type=PropertyDefinitionType.EVENT,
         )
 
         with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
@@ -453,11 +454,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
 
     def test_no_props_numeric(self):
-        PropertyDefinition.objects.create(
-            team=self.team,
+        create_property_definition(
+            team_id=self.team.id,
             name="$some_property",
-            property_type="Numeric",
-            type=PropertyDefinition.Type.EVENT,
+            property_type=PropertyType.Numeric,
+            type=PropertyDefinitionType.EVENT,
         )
 
         with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
@@ -510,11 +511,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             )
 
     def test_no_props_boolean(self):
-        PropertyDefinition.objects.create(
-            team=self.team,
+        create_property_definition(
+            team_id=self.team.id,
             name="$some_property",
-            property_type="Boolean",
-            type=PropertyDefinition.Type.EVENT,
+            property_type=PropertyType.Boolean,
+            type=PropertyDefinitionType.EVENT,
         )
 
         with time_machine.travel("2020-01-04T13:01:01Z", tick=False):
@@ -3976,13 +3977,13 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         journeys_for(events_by_person=journey, team=self.team)
 
         for key in ["order", "name"]:
-            exists = PropertyDefinition.objects.filter(team=self.team, name=key).exists()
+            exists = property_definition_exists(team_id=self.team.id, name=key)
             if not exists:
-                PropertyDefinition.objects.create(
-                    team=self.team,
+                create_property_definition(
+                    team_id=self.team.id,
                     name=key,
-                    property_type="String",
-                    type=PropertyDefinition.Type.EVENT,
+                    property_type=PropertyType.String,
+                    type=PropertyDefinitionType.EVENT,
                 )
 
         return (person1, person2, person3, person4)
@@ -4280,11 +4281,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[1]["count"], 1)
 
     def test_breakdown_by_element_property(self):
-        PropertyDefinition.objects.create(
-            team=self.team,
+        create_property_definition(
+            team_id=self.team.id,
             name="text",
-            property_type="Boolean",
-            type=PropertyDefinition.Type.EVENT,
+            property_type=PropertyType.Boolean,
+            type=PropertyDefinitionType.EVENT,
         )
         # One button and one link, each nested in a div, so the chains hold more than one
         # element and the innermost pick is exercised. The button appears twice.
@@ -5327,11 +5328,11 @@ class TestTrends(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(weekly_response[0]["data"][0], 3)  # this would be 2 without the aggregate hack
 
             # Make sure breakdown doesn't cause us to join on pdi
-            PropertyDefinition.objects.create(
-                team=self.team,
+            create_property_definition(
+                team_id=self.team.id,
                 name="$some_prop",
-                property_type="String",
-                type=PropertyDefinition.Type.EVENT,
+                property_type=PropertyType.String,
+                type=PropertyDefinitionType.EVENT,
             )
             with time_machine.travel("2019-12-31T13:00:01Z", tick=False):
                 daily_response = self._run_query(

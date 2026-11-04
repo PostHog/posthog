@@ -3,9 +3,6 @@ from functools import cached_property
 from math import ceil
 from typing import Any, Optional, Union
 
-from django.db import models
-from django.db.models.functions import Coalesce
-
 from posthog.schema import (
     ActionConversionGoal,
     ActionsNode,
@@ -42,7 +39,6 @@ from posthog.models import Team
 from posthog.models.user import User
 
 from products.actions.backend.models.action import Action
-from products.event_definitions.backend.models.property_definition import PropertyDefinition
 from products.product_analytics.backend.hogql_queries.trends.series_with_extras import SeriesWithExtras
 from products.web_analytics.backend.hogql_queries.first_pageview_attribution import (
     first_pageview_aware_properties_to_expr,
@@ -431,26 +427,3 @@ class CalendarHeatmapQueryRunner(AnalyticsQueryRunner[CalendarHeatmapResponse]):
 
     def apply_dashboard_filters(self, dashboard_filter: DashboardFilter):
         super().apply_dashboard_filters(dashboard_filter=dashboard_filter)
-
-    def _event_property(
-        self,
-        field: str,
-        field_type: PropertyDefinition.Type,
-        group_type_index: Optional[int],
-    ) -> str:
-        try:
-            return (
-                PropertyDefinition.objects.alias(
-                    effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-                )
-                .get(
-                    effective_project_id=self.team.project_id,
-                    name=field,
-                    type=field_type,
-                    group_type_index=group_type_index if field_type == PropertyDefinition.Type.GROUP else None,
-                )
-                .property_type
-                or "String"
-            )
-        except PropertyDefinition.DoesNotExist:
-            return "String"

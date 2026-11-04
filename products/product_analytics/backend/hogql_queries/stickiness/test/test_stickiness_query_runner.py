@@ -60,7 +60,8 @@ from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.actions.backend.models.action import Action
-from products.event_definitions.backend.models.property_definition import PropertyDefinition
+from products.event_definitions.backend.facade.enums import PropertyType
+from products.event_definitions.backend.facade.testing import create_property_definition
 from products.product_analytics.backend.hogql_queries.stickiness.stickiness_query_runner import StickinessQueryRunner
 from products.warehouse_sources.backend.facade.testing import create_data_warehouse_table_from_csv
 
@@ -110,18 +111,18 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def _create_events(self, data: list[PersonSeriesFixture]):
         person_result = []
-        properties_to_create: dict[str, str] = {}
+        properties_to_create: dict[str, PropertyType] = {}
         for person in data:
             first_timestamp = person.events[0].timestamps[0]
 
             for key, value in person.properties.items():
                 if key not in properties_to_create:
                     if isinstance(value, bool):
-                        type = "Boolean"
+                        type = PropertyType.Boolean
                     elif isinstance(value, int):
-                        type = "Numeric"
+                        type = PropertyType.Numeric
                     else:
-                        type = "String"
+                        type = PropertyType.String
 
                     properties_to_create[key] = type
 
@@ -147,7 +148,7 @@ class TestStickinessQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     )
 
         for key, value in properties_to_create.items():
-            PropertyDefinition.objects.create(team=self.team, name=key, property_type=value)
+            create_property_definition(team_id=self.team.id, name=key, property_type=value)
 
         return person_result
 

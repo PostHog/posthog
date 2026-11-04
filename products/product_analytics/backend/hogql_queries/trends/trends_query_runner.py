@@ -7,8 +7,6 @@ from operator import itemgetter
 from typing import Any, Optional, Union
 
 from django.conf import settings
-from django.db import models
-from django.db.models.functions import Coalesce
 
 from natsort import natsorted, ns
 
@@ -84,7 +82,8 @@ from posthog.utils import multisort
 
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
-from products.event_definitions.backend.models.property_definition import PropertyDefinition
+from products.event_definitions.backend.facade import api as event_definitions_api
+from products.event_definitions.backend.facade.enums import PropertyDefinitionType
 from products.product_analytics.backend.hogql_queries.trends.display import TrendsDisplay
 from products.product_analytics.backend.hogql_queries.trends.series_with_extras import SeriesWithExtras
 from products.product_analytics.backend.hogql_queries.trends.trend_validation_rules import (
@@ -1303,11 +1302,11 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             return False
 
         if breakdown_type == "person":
-            property_type = PropertyDefinition.Type.PERSON
+            property_type = PropertyDefinitionType.PERSON
         elif breakdown_type == "group":
-            property_type = PropertyDefinition.Type.GROUP
+            property_type = PropertyDefinitionType.GROUP
         else:
-            property_type = PropertyDefinition.Type.EVENT
+            property_type = PropertyDefinitionType.EVENT
 
         field_type = self._event_property(
             str(breakdown_value),
@@ -1326,25 +1325,13 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
     def _event_property(
         self,
         field: str,
-        field_type: PropertyDefinition.Type,
+        field_type: PropertyDefinitionType,
         group_type_index: Optional[int],
     ) -> str:
-        try:
-            return (
-                PropertyDefinition.objects.alias(
-                    effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
-                )
-                .get(
-                    effective_project_id=self.team.project_id,
-                    name=field,
-                    type=field_type,
-                    group_type_index=group_type_index if field_type == PropertyDefinition.Type.GROUP else None,
-                )
-                .property_type
-                or "String"
-            )
-        except PropertyDefinition.DoesNotExist:
-            return "String"
+        property_type = event_definitions_api.get_property_type(
+            project_id=self.team.project_id, name=field, type=field_type, group_type_index=group_type_index
+        )
+        return property_type.value if property_type is not None else "String"
 
     @cached_property
     def _trends_display(self) -> TrendsDisplay:

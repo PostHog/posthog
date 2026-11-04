@@ -28,7 +28,7 @@ from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.constants import AvailableFeature
 from posthog.errors import CHQueryErrorQueryWasCancelled, ExposedCHQueryError
 from posthog.exceptions import APIQueriesBudgetExceeded
-from posthog.models import PersonalAPIKey, PropertyDefinition
+from posthog.models import PersonalAPIKey
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.team import Team
@@ -37,6 +37,8 @@ from products.access_control.backend.facade.api import upsert_property_access_co
 from products.access_control.backend.facade.contracts import PropertyAccessLevel, UpsertPropertyAccessControlInput
 from products.access_control.backend.models.access_control import AccessControl
 from products.cohorts.backend.models.cohort import Cohort
+from products.event_definitions.backend.facade.enums import PropertyDefinitionType
+from products.event_definitions.backend.facade.testing import create_property_definition
 from products.product_analytics.backend.facade.contracts import (
     InsightDataCheck,
     InsightDataChecks,
@@ -861,17 +863,17 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("a_property_the_checks_read", "$host", PropertyDefinition.Type.EVENT, "unsupported", None),
-            ("a_property_the_checks_do_not_read", "plan", PropertyDefinition.Type.EVENT, "warning", None),
-            ("the_email_of_a_person", "email", PropertyDefinition.Type.PERSON, "warning", "hidden_property"),
-            ("an_event_property_named_email", "email", PropertyDefinition.Type.EVENT, "warning", None),
+            ("a_property_the_checks_read", "$host", PropertyDefinitionType.EVENT, "unsupported", None),
+            ("a_property_the_checks_do_not_read", "plan", PropertyDefinitionType.EVENT, "warning", None),
+            ("the_email_of_a_person", "email", PropertyDefinitionType.PERSON, "warning", "hidden_property"),
+            ("an_event_property_named_email", "email", PropertyDefinitionType.EVENT, "warning", None),
         ]
     )
     def test_a_hidden_property_stops_the_checks_only_when_they_read_it(
         self,
         _name: str,
         hidden_property: str,
-        property_type: PropertyDefinition.Type,
+        property_type: PropertyDefinitionType,
         status: str,
         internal_users_skip_reason: str | None,
     ) -> None:
@@ -879,7 +881,7 @@ class TestInsightDataChecks(ClickhouseTestMixin, APIBaseTest):
             {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
         ]
         self.organization.save()
-        definition = PropertyDefinition.objects.create(team=self.team, name=hidden_property, type=property_type)
+        definition = create_property_definition(team_id=self.team.id, name=hidden_property, type=property_type)
         upsert_property_access_control(
             team_id=self.team.id,
             created_by_id=self.user.id,

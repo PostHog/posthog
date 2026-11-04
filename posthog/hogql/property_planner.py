@@ -29,7 +29,7 @@ from posthog.clickhouse.materialized_column_types import MATERIALIZATION_VALID_T
 from posthog.clickhouse.property_groups import property_groups
 from posthog.schema_enums import PropertyGroupsMode
 
-from products.event_definitions.backend.property_type import PropertyType
+from products.event_definitions.backend.facade.enums import PropertyType
 
 
 class PropertyScope(StrEnum):

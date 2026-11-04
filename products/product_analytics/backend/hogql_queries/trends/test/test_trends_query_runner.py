@@ -85,7 +85,12 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
-from products.event_definitions.backend.models.property_definition import PropertyDefinition
+from products.event_definitions.backend.facade.enums import PropertyDefinitionType, PropertyType
+from products.event_definitions.backend.facade.testing import (
+    create_property_definition,
+    property_definition_exists,
+    set_property_type,
+)
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 from products.product_analytics.backend.hogql_queries.trends.trends_query_runner import TrendsQueryRunner
@@ -145,18 +150,18 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def _create_events(self, data: list[SeriesFixture]):
         person_result = []
-        properties_to_create: dict[str, str] = {}
+        properties_to_create: dict[str, PropertyType] = {}
         for person in data:
             first_timestamp = person.events[0].timestamps[0]
 
             for key, value in person.properties.items():
                 if key not in properties_to_create:
                     if isinstance(value, bool):
-                        type = "Boolean"
+                        type = PropertyType.Boolean
                     elif isinstance(value, int):
-                        type = "Numeric"
+                        type = PropertyType.Numeric
                     else:
-                        type = "String"
+                        type = PropertyType.String
                     properties_to_create[key] = type
 
             with time_machine.travel(first_timestamp, tick=False):
@@ -181,7 +186,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     )
 
         for key, value in properties_to_create.items():
-            PropertyDefinition.objects.create(team=self.team, name=key, property_type=value)
+            create_property_definition(team_id=self.team.id, name=key, property_type=value)
 
         return person_result
 
@@ -255,23 +260,23 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         if props is not None:
             for key, value in props.items():
-                prop_def_exists = PropertyDefinition.objects.filter(team=self.team, name=key).exists()
+                prop_def_exists = property_definition_exists(team_id=self.team.id, name=key)
                 if prop_def_exists is False:
                     if isinstance(value, str):
-                        type = "String"
+                        type = PropertyType.String
                     elif isinstance(value, bool):
-                        type = "Boolean"
+                        type = PropertyType.Boolean
                     elif isinstance(value, int):
-                        type = "Numeric"
+                        type = PropertyType.Numeric
                     else:
-                        type = "String"
+                        type = PropertyType.String
 
-                    PropertyDefinition.objects.create(
-                        team=self.team,
+                    create_property_definition(
+                        team_id=self.team.id,
                         name=key,
                         property_type=type,
                         group_type_index=index,
-                        type=PropertyDefinition.Type.GROUP,
+                        type=PropertyDefinitionType.GROUP,
                     )
 
     def _create_test_groups(self):
@@ -2922,7 +2927,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ]
 
     def test_breakdown_values_limit(self):
-        PropertyDefinition.objects.create(team=self.team, name="breakdown_value", property_type="String")
+        create_property_definition(team_id=self.team.id, name="breakdown_value", property_type=PropertyType.String)
 
         for value in list(range(30)):
             _create_event(
@@ -3010,7 +3015,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response.results), 10)
 
     def test_multiple_breakdowns_values_limit(self):
-        PropertyDefinition.objects.create(team=self.team, name="breakdown_value", property_type="String")
+        create_property_definition(team_id=self.team.id, name="breakdown_value", property_type=PropertyType.String)
 
         for value in list(range(30)):
             _create_event(
@@ -3132,7 +3137,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(len(response.results), 11)
 
     def test_breakdown_values_world_map_limit(self):
-        PropertyDefinition.objects.create(team=self.team, name="breakdown_value", property_type="String")
+        create_property_definition(team_id=self.team.id, name="breakdown_value", property_type=PropertyType.String)
 
         for value in list(range(250)):
             _create_event(
@@ -6308,7 +6313,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             properties={"$browser": "Safari"},
         )
 
-        PropertyDefinition.objects.create(team=self.team, name="$browser", property_type="String")
+        create_property_definition(team_id=self.team.id, name="$browser", property_type=PropertyType.String)
 
         # has data
         response = self._run_trends_query(
@@ -6417,7 +6422,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             properties={"$browser": "Firefox"},
         )
 
-        PropertyDefinition.objects.create(team=self.team, name="$browser", property_type="String")
+        create_property_definition(team_id=self.team.id, name="$browser", property_type=PropertyType.String)
 
         response = self._run_trends_query(
             "2020-01-10",
@@ -6821,7 +6826,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         ]
 
     def test_trends_with_formula_and_multiple_breakdowns_hide_other_breakdowns(self):
-        PropertyDefinition.objects.create(team=self.team, name="breakdown_value", property_type="String")
+        create_property_definition(team_id=self.team.id, name="breakdown_value", property_type=PropertyType.String)
 
         for value in list(range(30)):
             _create_event(
@@ -6928,11 +6933,7 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         # need to let property be inferred as a different type first and then override
         # to get the `toFloat` cast
-        nullable_prop = PropertyDefinition.objects.get(name="nullable_prop")
-        nullable_prop.property_type = "Numeric"
-        nullable_prop.save()
-
-        nullable_prop = PropertyDefinition.objects.get(name="nullable_prop")
+        set_property_type(team_id=self.team.id, name="nullable_prop", property_type=PropertyType.Numeric)
 
         response = self._run_trends_query(
             "2020-01-08",
@@ -7585,8 +7586,8 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         Test that the "Other" breakdown correctly sums values across all breakdown values
         that didn't make the top list, rather than taking the maximum.
         """
-        PropertyDefinition.objects.create(team=self.team, name="category", property_type="String")
-        PropertyDefinition.objects.create(team=self.team, name="ram_mb", property_type="Numeric")
+        create_property_definition(team_id=self.team.id, name="category", property_type=PropertyType.String)
+        create_property_definition(team_id=self.team.id, name="ram_mb", property_type=PropertyType.Numeric)
 
         # Create events with many distinct breakdown values to trigger "Other"
         # We'll make sure top 3 categories by sum are A, B, C
@@ -7716,8 +7717,8 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         Test that the "Other" breakdown with histogram bins and MAX aggregation correctly
         takes the maximum, not sums values.
         """
-        PropertyDefinition.objects.create(team=self.team, name="vcpu", property_type="Numeric")
-        PropertyDefinition.objects.create(team=self.team, name="ram_mb", property_type="Numeric")
+        create_property_definition(team_id=self.team.id, name="vcpu", property_type=PropertyType.Numeric)
+        create_property_definition(team_id=self.team.id, name="ram_mb", property_type=PropertyType.Numeric)
 
         # Create events with various vcpu values that will be binned
         # We'll use MAX aggregation on ram_mb
@@ -7818,8 +7819,8 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         Test that the "Other" breakdown with histogram bins correctly sums values,
         not takes the maximum.
         """
-        PropertyDefinition.objects.create(team=self.team, name="vcpu", property_type="Numeric")
-        PropertyDefinition.objects.create(team=self.team, name="ram_mb", property_type="Numeric")
+        create_property_definition(team_id=self.team.id, name="vcpu", property_type=PropertyType.Numeric)
+        create_property_definition(team_id=self.team.id, name="ram_mb", property_type=PropertyType.Numeric)
 
         # We'll create events with various vcpu values that will be binned
         # and have different ram_mb values to aggregate

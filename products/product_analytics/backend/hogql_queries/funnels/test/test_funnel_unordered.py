@@ -32,7 +32,8 @@ from posthog.schema import (
 from posthog.constants import FunnelOrderType
 from posthog.test.test_journeys import journeys_for
 
-from products.event_definitions.backend.models.property_definition import PropertyDefinition
+from products.event_definitions.backend.facade.enums import PropertyDefinitionType, PropertyType
+from products.event_definitions.backend.facade.testing import create_property_definition
 from products.product_analytics.backend.hogql_queries.funnels import FunnelUDF
 from products.product_analytics.backend.hogql_queries.funnels.funnels_query_runner import FunnelsQueryRunner
 from products.product_analytics.backend.hogql_queries.funnels.test.breakdown_cases import (
@@ -1452,11 +1453,11 @@ class TestFunnelUnorderedSteps(ClickhouseTestMixin, APIBaseTest):
             properties={"is_saved": True},
             team=self.team,
         )
-        PropertyDefinition.objects.get_or_create(
-            team=self.team,
-            type=PropertyDefinition.Type.EVENT,
+        create_property_definition(
+            team_id=self.team.id,
+            type=PropertyDefinitionType.EVENT,
             name="is_saved",
-            defaults={"property_type": "Boolean"},
+            property_type=PropertyType.Boolean,
         )
 
         query = unordered_funnels_query(
