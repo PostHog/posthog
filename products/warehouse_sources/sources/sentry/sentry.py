@@ -530,7 +530,7 @@ def _usable_resume_state(
 
 
 def _resume_issue_order(
-    issues: Iterable[dict[str, Any]],
+    list_issues: Callable[[], Iterable[dict[str, Any]]],
     checkpoint_issue_id: str | None,
     checkpoint_issue_done: bool,
     skip_limit: int,
@@ -539,16 +539,15 @@ def _resume_issue_order(
     """Yield each issue from the checkpoint on, with its position and whether it is the checkpoint issue.
 
     This assumes the issue order of the earlier attempt, so the issues listed before the checkpoint
-    issue were read and are held back. Sentry orders `sort=date` by last seen, so an issue with a new
+    issue were read and are skipped. Sentry orders `sort=date` by last seen, so an issue with a new
     event can move ahead of the checkpoint and get skipped. The checkpoint issue can also be deleted or
     merged between attempts. When it is not found within `skip_limit` positions, or before the listing
-    ends or reaches `listing_floor`, the held issues are yielded after all, because a resume that skips
-    every issue completes with no rows and reports success. A full refresh appends their rows again.
+    ends or reaches `listing_floor`, the listing starts again from the top, because a resume that skips
+    every issue completes with no rows and reports success. Listing again keeps no skipped issue in
+    memory, and a full refresh appends the rows of the issues it reads again.
     """
-    positioned = enumerate(issues, start=1)
+    positioned = enumerate(list_issues(), start=1)
     if checkpoint_issue_id is not None:
-        # Only the fields the caller reads, so a deep checkpoint holds little memory.
-        held: list[tuple[int, Any, Any]] = []
         found = False
         for position, issue in positioned:
             if str(issue["id"]) == checkpoint_issue_id:
@@ -556,25 +555,15 @@ def _resume_issue_order(
                 if not checkpoint_issue_done:
                     yield position, issue, True
                 break
-            held.append((position, issue["id"], issue.get("lastSeen")))
             if position > skip_limit:
                 break
             if listing_floor is not None:
                 issue_last_seen = _parse_datetime_value(issue.get("lastSeen"))
                 if issue_last_seen is not None and issue_last_seen <= listing_floor:
                     break
-        if found:
-            held.clear()
-        else:
-            logger.info(
-                "sentry_source.stale_resume_checkpoint",
-                resume_issue_id=checkpoint_issue_id,
-                held_issues=len(held),
-            )
-            held.reverse()
-            while held:
-                position, issue_id, last_seen = held.pop()
-                yield position, {"id": issue_id, "lastSeen": last_seen}, False
+        if not found:
+            logger.info("sentry_source.stale_resume_checkpoint", resume_issue_id=checkpoint_issue_id)
+            positioned = enumerate(list_issues(), start=1)
     for position, issue in positioned:
         yield position, issue, False
 
@@ -591,26 +580,25 @@ def _iter_issue_tag_values_rows(
     cutoff_last_seen = _parse_datetime_value(incremental_last_seen_max)
     use_warehouse_parent = issues_table is not None
 
-    issues: Iterator[dict[str, Any]]
-    if issues_table is not None:
-        # Streamed scan — the reader must never materialize the table. The incremental
-        # early-break below becomes a per-row filter in this mode (same issue set, no
-        # ordering requirement). Duplicate rows can't occur: append-mode parents take the
-        # API path instead of this one.
-        issues = (
-            row
-            for page in iter_parent_pages_from_warehouse(
-                table=issues_table,
-                parent_name="issues",
-                columns=_ISSUES_PARENT_COLUMNS,
-                page_size=100,
-                schema_name="issue_tag_values",
-                row_filter=_issues_parent_row_filter(cutoff_last_seen),
+    def list_issues() -> Iterator[dict[str, Any]]:
+        if issues_table is not None:
+            # Streamed scan — the reader must never materialize the table. The incremental
+            # early-break below becomes a per-row filter in this mode (same issue set, no
+            # ordering requirement). Duplicate rows can't occur: append-mode parents take the
+            # API path instead of this one.
+            return (
+                row
+                for page in iter_parent_pages_from_warehouse(
+                    table=issues_table,
+                    parent_name="issues",
+                    columns=_ISSUES_PARENT_COLUMNS,
+                    page_size=100,
+                    schema_name="issue_tag_values",
+                    row_filter=_issues_parent_row_filter(cutoff_last_seen),
+                )
+                for row in page
             )
-            for row in page
-        )
-    else:
-        issues = _iter_endpoint_rows(
+        return _iter_endpoint_rows(
             base_api_url=base_api_url,
             path=f"/organizations/{organization_slug}/issues/",
             headers=headers,
@@ -643,7 +631,7 @@ def _iter_issue_tag_values_rows(
     stale_issues: set[str] = set()
 
     for issue_position, issue, is_checkpoint_issue in _resume_issue_order(
-        issues,
+        list_issues,
         checkpoint_issue_id,
         checkpoint_issue_done,
         resume_skip_limit,
