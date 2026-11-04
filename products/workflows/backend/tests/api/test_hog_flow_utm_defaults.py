@@ -1,12 +1,15 @@
+import time
 from typing import Any
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
+
 from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
-from posthog.models import OrganizationMembership
+from posthog.models import Integration, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
@@ -21,6 +24,7 @@ from products.workflows.backend.models.workflow_proposal import WorkflowProposal
 from products.workflows.backend.tests.api.test_hog_flow import (
     _SECRET_TEMPLATE_ID,
     _email_function_template,
+    _secret_binding_flag_on,
     _secret_input_template,
     _valid_email_inputs,
 )
@@ -343,23 +347,34 @@ class TestHogFlowUtmDefaults(APIBaseTest):
         assert self._email_config(flow)["utm_params"] == {"utm_source": "newsletter"}
         assert flow.encrypted_inputs["webhook_1"]["api_key"]["value"] == "live-secret"
 
+    @patch("products.cdp.backend.validation.posthoganalytics.feature_enabled", new=_secret_binding_flag_on)
     def test_apply_utm_defaults_keeps_live_and_staged_secrets_apart(self) -> None:
         sync_template_to_db(_secret_input_template())
-        webhook = {
-            "id": "webhook_1",
-            "name": "Notify",
-            "type": "function",
-            "config": {"template_id": _SECRET_TEMPLATE_ID, "inputs": {"url": {"value": "https://example.com"}}},
-        }
+        integration = Integration.objects.create(team=self.team, kind="slack", config={}, sensitive_config={})
+
+        def webhook(url: str) -> dict[str, Any]:
+            inputs = {"url": {"value": url}, "connection": {"value": integration.id}}
+            return {
+                "id": "webhook_1",
+                "name": "Notify",
+                "type": "function",
+                "config": {"template_id": _SECRET_TEMPLATE_ID, "inputs": inputs},
+            }
+
         flow = HogFlow.objects.create(
             team=self.team,
             name="Active with staged rotation",
             status=HogFlow.State.ACTIVE,
-            actions=[TRIGGER, _email_action(), webhook],
+            actions=[TRIGGER, _email_action(), webhook("https://example.com")],
             encrypted_inputs={"webhook_1": {"api_key": {"value": "live-secret"}}},
-            draft={"actions": [TRIGGER, _email_action(), webhook]},
+            draft={"actions": [TRIGGER, _email_action(), webhook("https://staged.example.com")]},
             draft_encrypted_inputs={"webhook_1": {"api_key": {"value": "staged-secret"}}},
         )
+        stale = time.time() - settings.SESSION_INTEGRATION_LINK_AGE - 60
+        session = self.client.session
+        session[settings.SESSION_COOKIE_CREATED_AT_KEY] = stale
+        session[settings.SESSION_LAST_REAUTH_AT_KEY] = stale
+        session.save()
 
         applied = self.client.post(
             f"/api/projects/{self.team.id}/hog_flows/apply_utm_defaults",

@@ -1590,12 +1590,18 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         if expected_status == 403:
             assert res.json()["code"] == "sensitive_action_required_reauth"
 
+    @parameterized.expand(
+        [
+            ("destination", "fetch(inputs.url, {'headers': {'Authorization': inputs.api_key}});"),
+            ("transformation", "print(inputs.url, inputs.api_key)\nreturn event"),
+        ]
+    )
     @SECRET_BINDING_ENFORCED
-    def test_test_run_of_an_edited_config_needs_recent_authentication(self) -> None:
+    def test_test_run_of_an_edited_config_needs_recent_authentication(self, hog_type: str, hog: str) -> None:
         payload = {
-            "type": "destination",
+            "type": hog_type,
             "name": "Fetch URL",
-            "hog": "fetch(inputs.url, {'headers': {'Authorization': inputs.api_key}});",
+            "hog": hog,
             "inputs_schema": [
                 {"key": "url", "type": "string", "label": "URL", "required": True},
                 {"key": "api_key", "type": "string", "label": "API key", "secret": True, "required": True},

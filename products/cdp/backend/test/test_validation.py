@@ -1603,13 +1603,13 @@ class TestReservedFunctionsUsed(SimpleTestCase):
 
 class TestCredentialMoveNeedsReauth(SimpleTestCase):
     CODE = "fetch(f'https://{inputs.host}/track', {'headers': {'Authorization': inputs.api_key}})"
-    SCHEMA = [
+    SCHEMA: list[dict[str, Any]] = [
         {"key": "host", "type": "string", "label": "Host"},
         {"key": "region", "type": "string"},
         {"key": "api_key", "type": "string", "secret": True},
         {"key": "connection", "type": "integration", "integration": "slack"},
     ]
-    INPUTS = {"host": {"value": "api.example.com"}, "region": {"value": "us"}}
+    INPUTS: dict[str, dict[str, Any]] = {"host": {"value": "api.example.com"}, "region": {"value": "us"}}
     STORED = SecretBinding(code=CODE, inputs=INPUTS, inputs_schema=SCHEMA)
 
     def _schema_with(self, key: str, **changes: Any) -> list[dict]:
@@ -1639,6 +1639,14 @@ class TestCredentialMoveNeedsReauth(SimpleTestCase):
                 True,
             ),
             ("mapping_added", {"mappings": [{"inputs": {"host": {"value": "attacker.example.com"}}}]}, True),
+            # Code can branch on an empty string, which Hog tells apart from a missing input.
+            ("empty_value_added", {"inputs": {**INPUTS, "path": {"value": ""}}}, True),
+            # An input that matches a choice compiles to a literal, so the choices decide the value.
+            (
+                "choices_change",
+                {"inputs_schema": [SCHEMA[0], {**SCHEMA[1], "choices": [{"value": "eu"}]}, *SCHEMA[2:]]},
+                True,
+            ),
         ]
     )
     def test_kept_secret(self, _name: str, changes: dict, expected: bool) -> None:
@@ -1694,6 +1702,13 @@ class TestCredentialMoveNeedsReauth(SimpleTestCase):
         current = SecretBinding(code=self.CODE, inputs={**self.INPUTS, **current_link}, inputs_schema=self.SCHEMA)
 
         assert credential_move_needs_reauth(stored, current, set()) is expected
+
+    def test_an_integration_in_a_mapping_counts_when_another_scope_types_its_key(self) -> None:
+        # The worker merges every scope's schema, so the top-level type loads the mapping's value.
+        mapping = {"inputs_schema": [{"key": "connection", "type": "number"}], "inputs": {"connection": {"value": 1}}}
+        current = replace(self.STORED, mappings=[mapping])
+
+        assert credential_move_needs_reauth(None, current, set()) is True
 
     def test_a_staged_secret_is_checked_against_the_config_it_was_staged_with(self) -> None:
         staged = replace(self.STORED, inputs={**self.INPUTS, "host": {"value": "new.example.com"}})

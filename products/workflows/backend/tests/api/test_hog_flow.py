@@ -7346,16 +7346,51 @@ class TestHogFlowSecretInputs(APIBaseTest):
         flow = HogFlow.objects.get(id=flow_id)
         assert flow.encrypted_inputs["action_1"]["secret_headers"]["value"] == expected_stored
 
+    def _make_session_stale(self) -> None:
+        stale = time.time() - settings.SESSION_INTEGRATION_LINK_AGE - 60
+        session = self.client.session
+        session[settings.SESSION_COOKIE_CREATED_AT_KEY] = stale
+        session[settings.SESSION_LAST_REAUTH_AT_KEY] = stale
+        session.save()
+
+    def _linked_flow_payload(self) -> dict:
+        integration = Integration.objects.create(team=self.team, kind="slack", config={}, sensitive_config={})
+        return {
+            **self._flow_payload(extra_inputs={"connection": {"value": integration.id}}),
+            "variables": [{"key": "host", "type": "string", "label": "Host", "default": "example.com"}],
+        }
+
+    def test_creating_a_linked_flow_needs_recent_authentication(self) -> None:
+        self._make_session_stale()
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", self._linked_flow_payload())
+
+        assert response.status_code == 403, response.json()
+        assert response.json()["code"] == "sensitive_action_required_reauth"
+
     @parameterized.expand(
         [
-            ("create", None, 403),
-            ("unchanged", {"api_key": {"secret": True}}, 200),
+            ("unchanged", {"api_key": {"secret": True}}, {}, None, 200),
             # No input is safe to change: a template can pick its URL from any of them.
-            ("headers_change", {"headers": {"value": {"X-Note": "changed"}}, "api_key": {"secret": True}}, 403),
-            ("url_change", {"url": {"value": "https://new.example.com"}}, 403),
-            ("variable_change", {"api_key": {"secret": True}, "variables": "changed"}, 403),
+            (
+                "headers_change",
+                {"headers": {"value": {"X-Note": "changed"}}, "api_key": {"secret": True}},
+                {},
+                None,
+                403,
+            ),
+            ("url_change", {"url": {"value": "https://new.example.com"}}, {}, None, 403),
+            ("variable_change", {"api_key": {"secret": True}}, {}, "attacker.example.com", 403),
+            # A step that writes a variable moves every credential a later step templates it into.
+            (
+                "output_variable_added",
+                {"api_key": {"secret": True}},
+                {"output_variable": {"key": "host", "result_path": "body.host"}},
+                None,
+                403,
+            ),
             # The secret is entered again and nothing stays linked, so nothing stored moves.
-            ("unlink", {"connection": {"value": None}}, 200),
+            ("unlink", {"connection": {"value": None}}, {}, None, 200),
             # Nothing is linked any more, but the step's own stored secret still moves.
             (
                 "unlink_and_redirect",
@@ -7364,41 +7399,58 @@ class TestHogFlowSecretInputs(APIBaseTest):
                     "url": {"value": "https://new.example.com"},
                     "api_key": {"secret": True},
                 },
+                {},
+                None,
                 403,
             ),
         ]
     )
     def test_credential_move_needs_recent_authentication(
-        self, _name: str, input_changes: Optional[dict], expected_status: int
+        self,
+        _name: str,
+        input_changes: dict,
+        action_changes: dict,
+        variable_default: Optional[str],
+        expected_status: int,
     ) -> None:
-        integration = Integration.objects.create(team=self.team, kind="slack", config={}, sensitive_config={})
-        payload = {
-            **self._flow_payload(extra_inputs={"connection": {"value": integration.id}}),
-            "variables": [{"key": "host", "type": "string", "label": "Host", "default": "example.com"}],
-        }
-        stale = time.time() - settings.SESSION_INTEGRATION_LINK_AGE - 60
+        payload = self._linked_flow_payload()
+        flow_id = self.client.post(f"/api/projects/{self.team.id}/hog_flows", payload).json()["id"]
+        self._make_session_stale()
+        self._function_inputs(payload).update(input_changes)
+        next(a for a in payload["actions"] if a["type"] == "function").update(action_changes)
+        if variable_default is not None:
+            payload["variables"] = [{**payload["variables"][0], "default": variable_default}]
 
-        def make_session_stale() -> None:
-            session = self.client.session
-            session[settings.SESSION_COOKIE_CREATED_AT_KEY] = stale
-            session[settings.SESSION_LAST_REAUTH_AT_KEY] = stale
-            session.save()
-
-        if input_changes is None:
-            make_session_stale()
-            response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", payload)
-        else:
-            flow_id = self.client.post(f"/api/projects/{self.team.id}/hog_flows", payload).json()["id"]
-            make_session_stale()
-            changes = dict(input_changes)
-            if changes.pop("variables", None):
-                payload["variables"] = [{**payload["variables"][0], "default": "attacker.example.com"}]
-            self._function_inputs(payload).update(changes)
-            response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", payload)
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", payload)
 
         assert response.status_code == expected_status, response.json()
         if expected_status == 403:
             assert response.json()["code"] == "sensitive_action_required_reauth"
+
+    @parameterized.expand([("step_redirected", True, False), ("variable_redirected", False, True)])
+    def test_a_live_save_compares_with_live_rather_than_the_staged_draft(
+        self, _name: str, redirect_step: bool, redirect_variable: bool
+    ) -> None:
+        # A proposal or a revision restore stages a draft without a recent-login check, so saving
+        # the same config live must not take that draft as the config the credential was saved with.
+        payload = self._linked_flow_payload()
+        flow_id = self.client.post(f"/api/projects/{self.team.id}/hog_flows", payload).json()["id"]
+        if redirect_step:
+            self._function_inputs(payload)["url"] = {"value": "https://attacker.example.com"}
+        if redirect_variable:
+            payload["variables"] = [{**payload["variables"][0], "default": "attacker.example.com"}]
+        flow = HogFlow.objects.get(id=flow_id)
+        flow.status = HogFlow.State.ACTIVE
+        flow.draft = {"actions": payload["actions"], "variables": payload["variables"]}
+        flow.draft_encrypted_inputs = flow.encrypted_inputs
+        flow.save()
+        self._make_session_stale()
+        self._function_inputs(payload)["api_key"] = {"secret": True}
+
+        response = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{flow_id}", payload)
+
+        assert response.status_code == 403, response.json()
+        assert response.json()["code"] == "sensitive_action_required_reauth"
 
     def test_metadata_only_update_leaves_secret_intact(self):
         # A PATCH that carries no actions must not clear the stored secret.
@@ -7609,13 +7661,19 @@ class TestHogFlowSecretInputs(APIBaseTest):
         # And the resent mask never wiped the stored secret.
         assert flow.encrypted_inputs["action_1"]["api_key"]["value"] == "SUPER-SECRET"
 
-    def test_test_invocation_rehydrates_resent_secret_in_configuration(self):
+    @parameterized.expand([("unchanged", None, 200), ("variable_change", "attacker.example.com", 403)])
+    def test_test_invocation_rehydrates_resent_secret_in_configuration(
+        self, _name: str, variable_default: Optional[str], expected_status: int
+    ):
         # A test run submits an explicit `configuration` (the masked graph a GET returned). The nested
         # HogFlowSerializer never gets self.instance, so recovery must come via context - otherwise the
         # required secret input 400s or is silently dropped.
         flow_id = self._create()
         config = self._flow_payload()
         self._function_inputs(config)["api_key"] = {"secret": True}
+        if variable_default is not None:
+            config["variables"] = [{"key": "host", "type": "string", "label": "Host", "default": variable_default}]
+        self._make_session_stale()
 
         with patch(
             "products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test"
@@ -7630,7 +7688,10 @@ class TestHogFlowSecretInputs(APIBaseTest):
                 },
                 format="json",
             )
-        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.status_code == expected_status, response.json()
+        if expected_status == 403:
+            mock_invoke.assert_not_called()
+            return
         sent_actions = mock_invoke.call_args.kwargs["payload"]["configuration"]["actions"]
         sent_inputs = next(a for a in sent_actions if a["type"] == "function")["config"]["inputs"]
         assert sent_inputs["api_key"]["value"] == "SUPER-SECRET"

@@ -1,3 +1,4 @@
+import json
 from copy import deepcopy
 from typing import Any, Optional
 
@@ -151,6 +152,33 @@ def flow_holds_credentials(
     if any(secrets_by_action.values() if isinstance(secrets_by_action, dict) else []):
         return True
     return any(linked_integration_input_keys(binding) for binding in action_bindings(actions, template_cache).values())
+
+
+_SET_VARIABLE_TEMPLATE_ID = "template-posthog-set-variable"
+
+
+def variable_writes(variables: Any, actions: Any) -> str:
+    """What decides a flow's variables, in a form two configs compare by.
+
+    That is the variable defaults, every step's `output_variable`, and the inputs of every
+    set-variable step. A step input can template in a variable, so a change to any of these can
+    move a credential that another step keeps.
+    """
+    writers: dict[str, Any] = {}
+    for action in actions if isinstance(actions, list) else []:
+        if not isinstance(action, dict):
+            continue
+        config = action.get("config")
+        if not isinstance(config, dict):
+            config = {}
+        inputs = config.get("inputs") if config.get("template_id") == _SET_VARIABLE_TEMPLATE_ID else None
+        set_values = {
+            key: [item.get("value"), item.get("templating")] if isinstance(item, dict) else item
+            for key, item in (inputs if isinstance(inputs, dict) else {}).items()
+        }
+        if action.get("output_variable") or set_values:
+            writers[str(action.get("id"))] = [action.get("output_variable"), set_values]
+    return json.dumps([variables or [], writers], sort_keys=True, default=str)
 
 
 def draft_test_moves_live_credentials(

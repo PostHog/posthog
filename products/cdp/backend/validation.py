@@ -5,6 +5,7 @@ import contextlib
 from collections.abc import Iterable
 from typing import Any, Optional
 
+from django.conf import settings
 from django.db import models
 
 import posthoganalytics
@@ -1063,8 +1064,9 @@ class SecretBinding:
 
 
 # Schema fields that change only how the form looks, so editing them cannot move a credential.
+# `choices` is not one of them, because an input that matches a choice compiles to a literal.
 _PRESENTATION_SCHEMA_KEYS = frozenset(
-    {"label", "description", "hidden", "required", "searchable", "choices", "requiredScopes", "order"}
+    {"label", "description", "hidden", "required", "searchable", "requiredScopes", "order"}
 )
 
 
@@ -1080,7 +1082,8 @@ def _comparable_inputs(inputs: Any, skipped_keys: set[str]) -> dict[str, str]:
         if str(key) in skipped_keys:
             continue
         value, templating = (item.get("value"), item.get("templating")) if isinstance(item, dict) else (item, None)
-        if _has_value(value):
+        # Hog reads a missing input as null, but an empty string or list is a value code can branch on.
+        if value is not None:
             result[str(key)] = json.dumps([value, templating], sort_keys=True, default=str)
     return result
 
@@ -1141,6 +1144,9 @@ def secret_binding_enforced(team: Team) -> bool:
     Off by default while the checks roll out, so a team that hits a false refusal can be dropped
     from the flag without a deploy.
     """
+    # The end-to-end suite cannot target a flag at the teams it seeds, and it covers the re-auth flow.
+    if settings.E2E_TESTING:
+        return True
     return bool(
         posthoganalytics.feature_enabled(
             SECRET_BINDING_FEATURE_FLAG,
@@ -1161,17 +1167,21 @@ def linked_integration_input_keys(binding: SecretBinding) -> set[str]:
         for mapping in binding.mappings or []
         if isinstance(mapping, dict)
     ]
-    linked: set[str] = set()
-    for inputs_schema, inputs in scopes:
-        for schema in inputs_schema or []:
-            if not isinstance(schema, dict) or schema.get("type") not in INTEGRATION_INPUT_TYPES or "key" not in schema:
-                continue
-            key = str(schema["key"])
-            for candidate in (inputs, binding.inputs):
-                item = candidate.get(key) if isinstance(candidate, dict) else None
-                if _has_value(item.get("value") if isinstance(item, dict) else item):
-                    linked.add(key)
-    return linked
+    # The worker merges the schemas of every scope, so a key typed as an integration in one scope
+    # loads the integration for a value in any other.
+    integration_keys = {
+        str(schema["key"])
+        for inputs_schema, _ in scopes
+        for schema in inputs_schema or []
+        if isinstance(schema, dict) and schema.get("type") in INTEGRATION_INPUT_TYPES and "key" in schema
+    }
+    return {
+        key
+        for key in integration_keys
+        for _, inputs in scopes
+        if isinstance(inputs, dict)
+        and _has_value(inputs[key].get("value") if isinstance(inputs.get(key), dict) else inputs.get(key))
+    }
 
 
 def credential_move_needs_reauth(
@@ -1198,7 +1208,9 @@ def credential_move_needs_reauth(
     baselines = [(bindings or {}).get(key, stored) for key in kept_secret_keys]
     if linked:
         baselines.append(stored)
-    return any(baseline is None or secret_binding_changed(baseline, current) for baseline in baselines)
+    # Most keys share one baseline, so compare each distinct one once.
+    distinct = {id(baseline): baseline for baseline in baselines}.values()
+    return any(baseline is None or secret_binding_changed(baseline, current) for baseline in distinct)
 
 
 class InputsSerializer(serializers.DictField):

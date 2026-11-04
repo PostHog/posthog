@@ -11,10 +11,6 @@ import { PlaywrightWorkspaceSetupResult, expect, test } from '../utils/workspace
 // at once. That path has to work from both editors, because the workflow builder saves leniently
 // and could swallow the refusal, and the destination editor must leave the credential stored
 // rather than blank it after the retry.
-//
-// The templates below carry a real `fetch` call because the backend traces the template code to
-// work out which inputs reach a URL. A template whose code never fetches has no URL inputs to
-// rebind, so a test seeded against one would pass without the feature being there at all.
 
 const SECRET_TEMPLATE_ID = 'template-secret-binding-e2e'
 const INTEGRATION_TEMPLATE_ID = 'template-integration-reauth-e2e'

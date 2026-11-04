@@ -20,6 +20,7 @@ from products.workflows.backend.services.hog_flow_secrets import (
     secret_keys_for_action,
     strip_content_secrets,
     strip_secrets_from_content,
+    variable_writes,
 )
 
 __all__ = [
@@ -41,4 +42,5 @@ __all__ = [
     "secret_keys_for_action",
     "strip_content_secrets",
     "strip_secrets_from_content",
+    "variable_writes",
 ]

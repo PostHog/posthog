@@ -743,6 +743,8 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         )
 
         instance = cast(Optional[HogFunction], self.context.get("instance", self.instance))
+        # The type-specific checks below rebind `instance` to `self.instance`, which a test run leaves empty.
+        stored_function = instance if isinstance(instance, HogFunction) else None
         current_filters = instance.filters if isinstance(instance, HogFunction) else {}
         proposed_filters = attrs.get("filters", current_filters)
         require_viewer_access_to_added_actions(
@@ -896,7 +898,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
             if not attrs.get("hog"):
                 raise serializers.ValidationError({"hog": "Required."})
 
-        self._require_recent_authentication_for_credential_moves(attrs, instance)
+        self._require_recent_authentication_for_credential_moves(attrs, stored_function)
         return attrs
 
     def _require_recent_authentication_for_credential_moves(self, attrs: dict, instance: Optional[HogFunction]) -> None:
