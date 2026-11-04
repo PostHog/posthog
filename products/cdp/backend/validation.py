@@ -159,6 +159,12 @@ def validate_sandbox_email_sender(email_value: object, context: dict[str, Any]) 
         raise serializers.ValidationError(
             {"input": "The sandbox sender cannot be used in broadcasts. Select a sender on your own verified domain."}
         )
+    if context.get("workflow_origin_product") == "transactional_emails":
+        raise serializers.ValidationError(
+            {
+                "input": "The sandbox sender cannot send transactional email. Select a sender on your own verified domain."
+            }
+        )
     for stored in _stored_email_values(context):
         if (
             isinstance(stored, dict)
