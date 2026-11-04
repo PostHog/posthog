@@ -13,6 +13,7 @@ from django.utils import timezone
 import pytest_asyncio
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
+from posthoganalytics.types import FeatureFlagResult
 from rest_framework import status
 from rest_framework.exceptions import APIException
 from rest_framework.response import Response
@@ -397,6 +398,55 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         new_version = endpoint.get_version()
         self.assertEqual(new_version.version, 2)
         self.assertEqual(new_version.data_freshness_seconds, 43200)
+
+    @parameterized.expand(
+        [
+            ("saved_cadence_carries_over", True),
+            ("query_cache_duration_stays_held_to_the_floor", False),
+        ]
+    )
+    def test_query_edit_under_a_plan_floor(self, _name, was_materialized):
+        self.organization.has_active_subscription = False
+        self.organization.save(update_fields=["has_active_subscription"])
+        endpoint = create_endpoint_with_version(
+            name="floored_query_edit",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            data_freshness_seconds=900,
+        )
+        if was_materialized:
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+                {"is_materialized": True},
+                format="json",
+            )
+            self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+            set_declared_target(Node.objects.get(saved_query=endpoint.get_version().saved_query), timedelta(minutes=15))
+
+        with mock.patch(
+            "products.data_modeling.backend.logic.refresh_floor.posthoganalytics.get_feature_flag_result",
+            return_value=FeatureFlagResult(
+                key="data-modeling-refresh-floor",
+                enabled=True,
+                variant=None,
+                payload={"min_interval": "6hour"},
+                reason=None,
+            ),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+                {"query": {"kind": "HogQLQuery", "query": "SELECT count() FROM events"}, "is_materialized": True},
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.assertEqual("materialization_error" not in response.json(), was_materialized, response.json())
+        new_version = endpoint.get_version()
+        self.assertEqual(new_version.version, 2)
+        self.assertEqual(new_version.saved_query_id is not None, was_materialized)
+        if was_materialized:
+            self.assertEqual(new_version.data_freshness_seconds, 900)
 
     @parameterized.expand([(True,), (False,)])
     def test_node_target_change_invalidates_readiness_after_commit(self, has_endpoint_link):

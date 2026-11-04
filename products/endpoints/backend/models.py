@@ -317,7 +317,7 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
             to_attr=cls.FREQUENCY_NODES_ATTR,
         )
 
-    def _declared_target_seconds(self) -> int | None:
+    def declared_target_seconds(self) -> int | None:
         if self.saved_query_id is None:
             return None
 
@@ -332,12 +332,12 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
 
     @property
     def data_freshness_seconds(self) -> int:
-        declared = self._declared_target_seconds()
+        declared = self.declared_target_seconds()
         return self.cache_ttl_seconds if declared is None else declared
 
     @property
     def serving_window(self) -> ServingWindow:
-        declared = self._declared_target_seconds()
+        declared = self.declared_target_seconds()
         if declared is None:
             return ServingWindow(seconds=self.cache_ttl_seconds, from_plan_floor=False)
         team = self.team or self.endpoint.team

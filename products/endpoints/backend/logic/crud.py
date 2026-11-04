@@ -225,7 +225,7 @@ class EndpointCrudService:
                 clear_endpoint_materialization_cache(self.team.pk, endpoint.name)
 
             step = "versioning"
-            target_version, version_was_created, old_bucket_overrides = self._apply_query_change(
+            target_version, version_was_created, replaced_version = self._apply_query_change(
                 endpoint, data, target_version, was_materialized
             )
 
@@ -243,7 +243,7 @@ class EndpointCrudService:
                     version_targeted,
                     was_materialized=was_materialized,
                     version_was_created=version_was_created,
-                    old_bucket_overrides=old_bucket_overrides,
+                    replaced_version=replaced_version,
                 )
 
             step = "tags_and_activity"
@@ -327,8 +327,11 @@ class EndpointCrudService:
         data: EndpointRequest,
         target_version: EndpointVersion,
         was_materialized: bool,
-    ) -> tuple[EndpointVersion, bool, dict[str, str] | None]:
-        """Create a new version when the query changed. Returns (target_version, created, old_bucket_overrides)."""
+    ) -> tuple[EndpointVersion, bool, EndpointVersion | None]:
+        """Create a new version when the query changed. Returns (target_version, created, replaced_version).
+
+        `replaced_version` is the materialized version the new one takes over from, or None.
+        """
         if data.query is None:
             return target_version, False, None
 
@@ -336,12 +339,10 @@ class EndpointCrudService:
         if not endpoint.has_query_changed(new_query_dict):
             return target_version, False, None
 
-        # Preserve bucketing across the version bump so materialization transfers cleanly.
-        old_bucket_overrides = target_version.bucket_overrides if was_materialized else None
         new_version = endpoint.create_new_version(query=new_query_dict, user=self.user)
         # The "current" version changed — its cached throttle readiness no longer applies.
         clear_endpoint_materialization_cache(self.team.pk, endpoint.name)
-        return new_version, True, old_bucket_overrides
+        return new_version, True, target_version if was_materialized else None
 
     def _apply_version_field_updates(
         self,
@@ -391,7 +392,7 @@ class EndpointCrudService:
         *,
         was_materialized: bool,
         version_was_created: bool,
-        old_bucket_overrides: dict[str, str] | None,
+        replaced_version: EndpointVersion | None,
     ) -> str | None:
         """Bring the target version's materialization in line with the request.
 
@@ -430,8 +431,9 @@ class EndpointCrudService:
             return None
 
         bucket_overrides = raw_data.get("bucket_overrides")
-        if bucket_overrides is None and version_was_created:
-            bucket_overrides = old_bucket_overrides
+        # Preserve bucketing across the version bump so materialization transfers cleanly.
+        if bucket_overrides is None and replaced_version is not None:
+            bucket_overrides = replaced_version.bucket_overrides
         validate_bucket_overrides(bucket_overrides)
         stored_bucket_overrides = target_version.bucket_overrides
 
@@ -441,6 +443,7 @@ class EndpointCrudService:
                 target_version,
                 requested_freshness if requested_freshness is not None else target_version.data_freshness_seconds,
                 bucket_overrides=bucket_overrides,
+                replaced_version=replaced_version,
             )
             if (
                 bucket_overrides is not None

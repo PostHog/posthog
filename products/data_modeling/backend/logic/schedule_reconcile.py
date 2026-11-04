@@ -248,6 +248,18 @@ def apply_saved_query_frequency_target(
     return written
 
 
+def carry_saved_query_frequency_target(saved_query: "DataWarehouseSavedQuery", target: timedelta) -> None:
+    """Store on the saved query's nodes a cadence it inherits from the saved query it replaces.
+
+    The plan floor lets a saved cadence stay, so a query edit must not turn an existing cadence into
+    a new one. This writes without validating: the `apply_saved_query_frequency_target` that follows
+    still checks the sources and consumers of the new query.
+    """
+    with transaction.atomic():
+        for node in Node.objects.select_for_update(of=("self",)).filter(team=saved_query.team, saved_query=saved_query):
+            set_declared_target(node, target)
+
+
 def check_saved_query_frequency_target(
     saved_query: "DataWarehouseSavedQuery", target: timedelta, *, visible_names: Mapping[str, str] | None = None
 ) -> None:
