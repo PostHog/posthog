@@ -458,7 +458,9 @@ class ReviewQueueItemViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, 
         self, queryset: QuerySet[ReviewQueueItem, ReviewQueueItem]
     ) -> QuerySet[ReviewQueueItem, ReviewQueueItem]:
         viewable_queues = self.user_access_control.filter_queryset_by_access_level(
-            ReviewQueue.objects.filter(team_id=self.team_id, deleted=False), resource="llm_analytics"
+            ReviewQueue.objects.filter(team_id=self.team_id, deleted=False),
+            include_all_if_admin=True,
+            resource="llm_analytics",
         )
         return (
             queryset.filter(team_id=self.team_id, deleted=False, queue__in=viewable_queues)
