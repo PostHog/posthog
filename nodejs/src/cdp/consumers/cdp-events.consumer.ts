@@ -19,6 +19,9 @@ import { parseBatch, readTeamIdHeader } from './message-parsing'
 import { counterParseError, counterTeamIdHeaderMismatch, counterTeamIdSource } from './metrics'
 import { PUSH_NOTIFICATION_OPENED_EVENT, buildPushOpenedMetric } from './push-open-tracking'
 
+const isEventObject = (value: unknown): value is RawClickHouseEvent =>
+    typeof value === 'object' && value !== null && !Array.isArray(value)
+
 export class CdpEventsConsumer<
     TConfig extends PluginsServerConfig = PluginsServerConfig,
 > extends CdpConsumerBase<TConfig> {
@@ -201,16 +204,10 @@ export class CdpEventsConsumer<
             parse: (message) => {
                 const parseEvent = (): RawClickHouseEvent => {
                     const clickHouseEvent = parseJSON(message.value!.toString())
-                    // Without this, a message that is no event at all reads as an event with no team id
-                    // and takes the invalid team id skip, which loses bytes a later schema could still read.
-                    if (
-                        typeof clickHouseEvent !== 'object' ||
-                        clickHouseEvent === null ||
-                        Array.isArray(clickHouseEvent)
-                    ) {
+                    if (!isEventObject(clickHouseEvent)) {
                         throw new Error('not_an_event')
                     }
-                    return clickHouseEvent as RawClickHouseEvent
+                    return clickHouseEvent
                 }
                 const buildGlobals = (team: Team, clickHouseEvent: RawClickHouseEvent) => {
                     const globals = convertToHogFunctionInvocationGlobals(clickHouseEvent, team, this.config.SITE_URL)
@@ -249,8 +246,6 @@ export class CdpEventsConsumer<
                 }
             },
             loadTeam: (teamId) => this.loadTeamWithHogFunctionsOrFlows(teamId, this.hogTypes),
-            // Skipped rather than parked. A replay rebuilds nothing from a team id that no team
-            // query accepts, so a record of this class sits in the queue until it expires.
             onInvalidTeamId: () => counterParseError.labels({ error: 'invalid_team_id' }).inc(),
             // Parked rather than dropped: a schema we cannot read today is often one a later
             // version can.

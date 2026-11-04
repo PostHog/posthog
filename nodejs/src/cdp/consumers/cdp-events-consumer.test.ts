@@ -763,7 +763,6 @@ describe('CdpEventsConsumer', () => {
             })
 
             it('skips an event whose team id is not a team id, and processes the rest of the batch', async () => {
-                // A replay rebuilds nothing from this id, so parking it only fills the queue.
                 await insertHogFunction({
                     ...HOG_EXAMPLES.simple_fetch,
                     ...HOG_INPUTS_EXAMPLES.simple_fetch,
