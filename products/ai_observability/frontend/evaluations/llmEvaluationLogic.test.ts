@@ -1696,16 +1696,27 @@ return result`,
             })
         })
 
-        it('setEvaluationType switches back to llm_judge config shape', async () => {
+        it('switching method and back keeps the prompt and code already typed', async () => {
             await expectLogic(logic).toDispatchActions(['loadEvaluationSuccess'])
 
+            logic.actions.setEvaluationPrompt('Is the answer polite?')
             logic.actions.setEvaluationType('hog')
+            logic.actions.setHogSource('return true;')
             logic.actions.setEvaluationType('llm_judge')
 
             await expectLogic(logic).toMatchValues({
                 evaluation: expect.objectContaining({
                     evaluation_type: 'llm_judge',
-                    evaluation_config: { prompt: '' },
+                    evaluation_config: { prompt: 'Is the answer polite?' },
+                }),
+            })
+
+            logic.actions.setEvaluationType('hog')
+
+            await expectLogic(logic).toMatchValues({
+                evaluation: expect.objectContaining({
+                    evaluation_type: 'hog',
+                    evaluation_config: { source: 'return true;' },
                 }),
             })
         })

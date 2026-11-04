@@ -260,6 +260,11 @@ function filterEvaluationRuns(
 
 type TestableHogEvaluation = HogEvaluation
 
+export interface MethodConfigDrafts {
+    prompt?: string
+    hogSource?: string
+}
+
 function isTestableHogEvaluation(evaluation: EvaluationConfig | null): evaluation is TestableHogEvaluation {
     return evaluation?.evaluation_type === 'hog'
 }
@@ -350,6 +355,7 @@ export interface llmEvaluationLogicValues {
     judgeMethod: JudgeMethod
     judgeModelGroups: ProviderModelGroup[]
     maxContext: MaxContextInput[]
+    methodConfigDrafts: MethodConfigDrafts
     modelSelectionRequired: boolean
     numericBoundsRequired: boolean
     originalEvaluation: EvaluationConfig | null
@@ -527,6 +533,8 @@ export interface llmEvaluationLogicActions {
     }
     setEvaluationType: (evaluationType: EvaluationType) => {
         evaluationType: EvaluationType
+        methodConfigDrafts: MethodConfigDrafts
+        previousEvaluation: EvaluationConfig | null
     }
     setFormStep: (step: string) => {
         step: string
@@ -711,7 +719,11 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         setJudgeMethod: (judgeMethod: JudgeMethod) => ({ judgeMethod }),
         setIncludeMedia: (includeMedia: boolean) => ({ includeMedia }),
         setReasoningLevel: (reasoningLevel: ReasoningLevel | null) => ({ reasoningLevel }),
-        setEvaluationType: (evaluationType: EvaluationType) => ({ evaluationType }),
+        setEvaluationType: (evaluationType: EvaluationType) => ({
+            evaluationType,
+            previousEvaluation: values.evaluation,
+            methodConfigDrafts: values.methodConfigDrafts,
+        }),
         setEvaluationTarget: (target: EvaluationTarget) => ({ target }),
         setSettleStrategy: (strategy: EvaluationSettleStrategy) => ({ strategy }),
         // Duration fields only — switching strategy must go through setSettleStrategy so the
@@ -921,6 +933,26 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                         : state,
             },
         ],
+        methodConfigDrafts: [
+            {} as MethodConfigDrafts,
+            {
+                loadEvaluationSuccess: () => ({}),
+                setEvaluationType: (state, { previousEvaluation }) =>
+                    previousEvaluation?.evaluation_type === 'llm_judge'
+                        ? { ...state, prompt: previousEvaluation.evaluation_config.prompt }
+                        : previousEvaluation?.evaluation_type === 'hog'
+                          ? {
+                                ...state,
+                                // An untouched default is regenerated on return so it matches the output type chosen meanwhile.
+                                hogSource:
+                                    previousEvaluation.evaluation_config.source ===
+                                    toHogEvaluation(previousEvaluation).evaluation_config.source
+                                        ? undefined
+                                        : previousEvaluation.evaluation_config.source,
+                            }
+                          : state,
+            },
+        ],
         originalEvaluation: [
             null as EvaluationConfig | null,
             {
@@ -1053,12 +1085,15 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     state && isLLMJudgeEvaluation(state)
                         ? { ...state, evaluation_config: { ...state.evaluation_config, include_media: includeMedia } }
                         : state,
-                setEvaluationType: (state, { evaluationType }) => {
+                setEvaluationType: (state, { evaluationType, methodConfigDrafts }) => {
                     if (!state) {
                         return null
                     }
                     if (evaluationType === 'hog') {
-                        return toHogEvaluation(state)
+                        const hogEvaluation = toHogEvaluation(state)
+                        return methodConfigDrafts.hogSource === undefined
+                            ? hogEvaluation
+                            : { ...hogEvaluation, evaluation_config: { source: methodConfigDrafts.hogSource } }
                     }
                     if (evaluationType === 'sentiment') {
                         if (
@@ -1069,7 +1104,10 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                         }
                         return toSentimentEvaluation(state)
                     }
-                    return toLLMJudgeEvaluation(state)
+                    const judgeEvaluation = toLLMJudgeEvaluation(state)
+                    return methodConfigDrafts.prompt === undefined
+                        ? judgeEvaluation
+                        : { ...judgeEvaluation, evaluation_config: { prompt: methodConfigDrafts.prompt } }
                 },
                 setEvaluationTarget: (state, { target }) => {
                     if (!state) {
