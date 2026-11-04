@@ -111,7 +111,12 @@ async function tracked<T>(call: () => Promise<T>): Promise<T> {
 function bunSecrets(service: string): Secrets {
     return {
         get: (name) => tracked(() => Bun.secrets.get({ service, name })),
-        set: (name, value) => tracked(() => Bun.secrets.set({ service, name, value })),
+        // Windows only: the default `enterprise` lets a roaming profile copy the item to every machine the
+        // person signs in to. Bun versions without the option, and its types, ignore it.
+        set: (name, value) =>
+            tracked(() =>
+                Bun.secrets.set({ service, name, value, persist: 'local' } as Parameters<typeof Bun.secrets.set>[0])
+            ),
         delete: (name) => tracked(() => Bun.secrets.delete({ service, name })),
     }
 }
