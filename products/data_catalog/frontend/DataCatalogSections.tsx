@@ -23,7 +23,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
-import { ModelsLineageTab } from 'products/data_modeling/frontend/lineage/ModelsLineageTab'
+import { QuillModelsLineageTab } from 'products/data_modeling/frontend/lineage/QuillModelsLineageTab'
 
 import { CatalogOverview } from './CatalogOverview'
 import { CatalogUsageSection } from './CatalogUsageSection'
@@ -51,7 +51,7 @@ const WAREHOUSE_SECTIONS: DataCatalogTab[] = ['tables', 'lineage', 'usage']
 const SECTION_CONTENT: Partial<Record<DataCatalogTab, () => JSX.Element>> = {
     overview: CatalogOverview,
     tables: CatalogTablesSection,
-    lineage: ModelsLineageTab,
+    lineage: QuillModelsLineageTab,
     metrics: MetricsTab,
     relationships: RelationshipsTab,
     usage: CatalogUsageSection,

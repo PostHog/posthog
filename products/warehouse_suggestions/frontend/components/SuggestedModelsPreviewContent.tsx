@@ -1,11 +1,10 @@
 import { useActions, useValues } from 'kea'
-import { RefObject, useCallback, useRef } from 'react'
+import { ReactNode, RefObject, useCallback, useRef } from 'react'
 
 import { Button, Heading, Text } from '@posthog/quill'
 
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
 import { SavingsBannerMessage } from './SavingsBannerMessage'
-import { SuggestedModelsDialogs } from './SuggestedModelsDialogs'
 import { SuggestedModelsPreviewTable } from './SuggestedModelsPreviewTable'
 import { useFocusFollowsRemovedRow } from './useFocusFollowsRemovedRow'
 
@@ -13,10 +12,12 @@ const HEADING_ID = 'models-overview-suggestions-heading'
 
 export interface SuggestedModelsPreviewContentProps {
     emptyFocusRef: RefObject<HTMLElement>
+    dialogs: ReactNode
 }
 
 export function SuggestedModelsPreviewContent({
     emptyFocusRef,
+    dialogs,
 }: SuggestedModelsPreviewContentProps): JSX.Element | null {
     const { stripState, rankedSuggestions, savingsSummary } = useValues(warehouseSuggestionsLogic)
     const { openReview } = useActions(warehouseSuggestionsLogic)
@@ -59,7 +60,7 @@ export function SuggestedModelsPreviewContent({
                     <SuggestedModelsPreviewTable suggestions={rankedSuggestions} />
                 </section>
             )}
-            <SuggestedModelsDialogs />
+            {dialogs}
         </>
     )
 }

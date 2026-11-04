@@ -1,11 +1,14 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { useValues } from 'kea'
+import { BindLogic, useValues } from 'kea'
 import { useEffect } from 'react'
+
+import { FEATURE_FLAGS } from 'lib/constants'
 
 import { useStorybookMocks } from '~/mocks/browser'
 
 import type { WarehouseSuggestionApi, WarehouseSuggestionStatusApi } from '../generated/api.schemas'
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
+import { QuillCertificationSuggestionsDialogs } from './QuillCertificationSuggestionsDialogs'
 import { SuggestedCertificationsTable } from './SuggestedCertificationsTable'
 
 const LIST_URL = '/api/projects/:team_id/warehouse_suggestions/'
@@ -67,6 +70,7 @@ interface TableStoryProps {
     width?: 'normal' | 'narrow'
     reviewOpen?: boolean
     confirmSuggestionId?: string
+    catalogDialogs?: boolean
     deleteView?: boolean
 }
 
@@ -75,6 +79,7 @@ function TableStory({
     width,
     reviewOpen = false,
     confirmSuggestionId,
+    catalogDialogs,
     deleteView = false,
 }: TableStoryProps): JSX.Element {
     useStorybookMocks({
@@ -89,17 +94,25 @@ function TableStory({
         if (stripState !== 'active') {
             return
         }
-        if (reviewOpen || confirmSuggestionId) {
+        if (reviewOpen || (!catalogDialogs && confirmSuggestionId)) {
             logic.actions.openReview()
         }
         if (confirmSuggestionId) {
             logic.actions.openAcceptConfirm(confirmSuggestionId)
             logic.actions.setDeleteView(deleteView)
         }
-    }, [reviewOpen, confirmSuggestionId, deleteView, stripState, logic])
+    }, [reviewOpen, confirmSuggestionId, deleteView, catalogDialogs, stripState, logic])
     return (
         <div className={width === 'narrow' ? 'w-[520px] p-4' : 'w-[1000px] p-4'}>
-            <SuggestedCertificationsTable />
+            {catalogDialogs ? (
+                <BindLogic logic={warehouseSuggestionsLogic} props={{ surface: 'catalog' }}>
+                    <div data-quill>
+                        <QuillCertificationSuggestionsDialogs />
+                    </div>
+                </BindLogic>
+            ) : (
+                <SuggestedCertificationsTable />
+            )}
         </div>
     )
 }
@@ -176,4 +189,59 @@ export const DeleteDialog: Story = {
         results: [suggestion('3', 'deprecate', 'saved_query', 'old_marketing_rollup')],
     },
     parameters: dialogSnapshot(1300),
+}
+
+const catalogDialogSnapshot = (width: number): Story['parameters'] => ({
+    ...dialogSnapshot(width),
+    featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
+    testOptions: { viewport: { width, height: 900 }, snapshotBrowsers: [] },
+})
+
+export const CatalogReviewDialog: Story = {
+    args: {
+        catalogDialogs: true,
+        reviewOpen: true,
+        results: [
+            suggestion('1', 'certify', 'saved_query', 'customer_monthly_revenue'),
+            suggestion('2', 'certify', 'table', 'stripe_charges'),
+            suggestion('3', 'deprecate', 'saved_query', 'old_marketing_rollup', false),
+        ],
+    },
+    parameters: catalogDialogSnapshot(1300),
+}
+
+export const CatalogDeprecateDialog: Story = {
+    args: {
+        catalogDialogs: true,
+        confirmSuggestionId: '3',
+        results: [suggestion('3', 'deprecate', 'saved_query', 'old_marketing_rollup')],
+    },
+    parameters: catalogDialogSnapshot(1300),
+}
+
+export const CatalogDeleteDialog: Story = {
+    args: {
+        catalogDialogs: true,
+        confirmSuggestionId: '3',
+        deleteView: true,
+        results: [suggestion('3', 'deprecate', 'saved_query', 'old_marketing_rollup')],
+    },
+    parameters: catalogDialogSnapshot(1300),
+}
+
+export const CatalogDeprecateDialogPartialReadData: Story = {
+    args: {
+        catalogDialogs: true,
+        confirmSuggestionId: '3',
+        results: [
+            {
+                ...suggestion('3', 'deprecate', 'saved_query', 'old_marketing_rollup'),
+                evidence: {
+                    ...suggestion('3', 'deprecate', 'saved_query', 'old_marketing_rollup').evidence,
+                    days_with_data: 12,
+                },
+            },
+        ],
+    },
+    parameters: catalogDialogSnapshot(1300),
 }

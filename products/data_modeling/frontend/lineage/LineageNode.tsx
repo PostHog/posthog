@@ -98,6 +98,17 @@ export function lineageIssueMessage(issue: NonNullable<DataModelingNode['lineage
     return `Couldn't find ${issue.detail}. This may read a table that was renamed or removed.`
 }
 
+export function lineageNodeAriaLabel(node: LineageNodeShape, selectable?: boolean): string {
+    const destination = node.type === 'metric' ? 'the metric' : 'the model'
+    const cardAction = selectable ? 'highlights its lineage' : `opens ${destination}`
+    return [
+        `${node.name}, ${NODE_TYPE_TAG_SETTINGS[node.type].label.toLowerCase()}, ${cardAction}`,
+        node.lineage_issue && lineageIssueMessage(node.lineage_issue),
+    ]
+        .filter(Boolean)
+        .join('. ')
+}
+
 /** The warning mark drawn on a lineage node, and repeated beside the name in the editor's table. */
 export function LineageIssueMarker({ issue }: { issue: NonNullable<DataModelingNode['lineage_issue']> }): JSX.Element {
     const message = lineageIssueMessage(issue)
@@ -380,14 +391,7 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
         fn?.()
     }
 
-    const destination = node.type === 'metric' ? 'the metric' : 'the model'
-    const cardAction = data.selectable ? 'highlights its lineage' : `opens ${destination}`
-    const ariaLabel = [
-        `${node.name}, ${NODE_TYPE_TAG_SETTINGS[node.type].label.toLowerCase()}, ${cardAction}`,
-        node.lineage_issue && lineageIssueMessage(node.lineage_issue),
-    ]
-        .filter(Boolean)
-        .join('. ')
+    const ariaLabel = lineageNodeAriaLabel(node, data.selectable)
 
     const nodeCard = (
         <div
