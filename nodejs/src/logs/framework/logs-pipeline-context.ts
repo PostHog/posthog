@@ -18,6 +18,7 @@ import { LOGS_DLQ_OUTPUT } from '../outputs/outputs'
 import type { RetentionRuleSource } from '../retention/compile-retention-rules'
 import { RETENTION_MONTH_DAYS } from '../retention/evaluate-retention'
 import type { LogsSamplingService } from '../sampling/logs-sampling.service'
+import type { SamplingRuleSource } from '../sampling/sampling-rules-cache'
 import type { LogsRateLimiterService } from '../services/logs-rate-limiter.service'
 import type { LogsIngestionMessage } from '../types'
 
@@ -30,6 +31,7 @@ export type LogsConsumerIdentity = {
     quotaResource: QuotaResource
     metricRuleSource: MetricRuleSource
     retentionRuleSource: RetentionRuleSource
+    samplingRuleSource: SamplingRuleSource
 }
 
 export type LogsFeatureGates = {

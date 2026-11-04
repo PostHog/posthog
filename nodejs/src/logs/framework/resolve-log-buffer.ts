@@ -94,7 +94,7 @@ export async function resolveLogBuffer(
     const samplingEvalEnabled = isSamplingEvalEnabledForTeam(context, message.teamId)
     let ruleSet: CompiledRuleSet | null = null
     if (samplingCache && samplingEvalEnabled && appliesTeamLogRules(message)) {
-        ruleSet = await samplingCache.getCompiledRuleSet(message.teamId)
+        ruleSet = await samplingCache.getCompiledRuleSet(message.teamId, context.identity.samplingRuleSource)
     }
     const useSamplingPipeline = Boolean(ruleSet && ruleSet.rules.length > 0)
     const recordsTransform = await buildRecordsTransform(context, message, batchBudget)
