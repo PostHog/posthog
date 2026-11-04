@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 import { TextMorph } from 'torph/react'
 
@@ -148,11 +149,12 @@ function OverviewSection({
                 <LemonButton
                     size="small"
                     type="secondary"
-                    onClick={() =>
+                    onClick={() => {
+                        posthog.capture('replay_vision_scanner_draft_section_edit_clicked', { section: editStep })
                         router.actions.push(
                             scannerStepUrlWithParams(editStep, scannerId, { ...searchParams, from: 'overview' })
                         )
-                    }
+                    }}
                     data-attr={`vision-goal-overview-edit-${editStep}`}
                 >
                     Edit

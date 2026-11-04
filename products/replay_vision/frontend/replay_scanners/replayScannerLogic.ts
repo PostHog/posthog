@@ -70,6 +70,7 @@ import {
     parseSortParam,
     serializeSortParam,
 } from '../utils/urlParams'
+import { draftChanges } from './draftChanges'
 import { clampDurationFilter, durationFilterError } from './durationBounds'
 import {
     ExperimentScannerContext,
@@ -548,6 +549,7 @@ export interface replayScannerLogicValues {
     experimentContextLinked: boolean
     goalBudgetInput: number | null
     goalDraft: DraftScannerResponseApi | null
+    goalDraftBaseline: ScannerFormValues | null
     goalDraftInput: string
     goalDraftLoading: boolean
     goalDraftQuery: RecordingsQuery | null
@@ -812,6 +814,9 @@ export interface replayScannerLogicActions {
     setGoalBudgetInput: (budget: number | null) => {
         budget: number | null
     }
+    setGoalDraftBaseline: (baseline: ScannerFormValues | null) => {
+        baseline: ScannerFormValues | null
+    }
     setGoalDraftInput: (goal: string) => {
         goal: string
     }
@@ -1073,6 +1078,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         setGoalSpendMode: (mode: GoalSpendMode) => ({ mode }),
         setGoalDraftQuery: (query: RecordingsQuery | null) => ({ query }),
         setEntryPoint: (entryPoint: string | null) => ({ entryPoint }),
+        setGoalDraftBaseline: (baseline: ScannerFormValues | null) => ({ baseline }),
         loadObservations: (background = false) => ({ background }),
         loadObservationsSuccess: (observations: ReplayObservationApi[], total: number) => ({ observations, total }),
         loadObservationsFailure: true,
@@ -1228,6 +1234,21 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                                 entry_point: values.entryPoint,
                             })
                         )
+                        if (values.creationMethod === 'ai') {
+                            // Joins to replay_vision_scanner_created on scanner_id. Null changes mean the
+                            // drafted form was lost to a reload, not that the draft was saved unchanged.
+                            const changes = values.goalDraftBaseline
+                                ? draftChanges(values.goalDraftBaseline, scanner)
+                                : null
+                            posthog.capture('replay_vision_scanner_draft_saved', {
+                                scanner_id: response.id,
+                                draft_edited: changes ? changes.length > 0 : null,
+                                draft_changes: changes,
+                                drafted_scanner_type: values.goalDraftBaseline?.scanner_type ?? null,
+                                scanner_type: scanner.scanner_type,
+                                entry_point: values.entryPoint,
+                            })
+                        }
                         actions.scannerSaved(scanner)
                         leaveScannerEditor(props.id, urls.replayVision(response.id))
                         // First scheduled results are minutes away, so the copy matches the Overview's
@@ -1406,6 +1427,18 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             null as DraftScannerResponseApi | null,
             {
                 startFromScratch: () => null,
+            },
+        ],
+        // The form as the AI draft filled it, so the save can report what the person changed on review.
+        // Not persisted: after a reload it is null and the save reports the changes as unknown.
+        goalDraftBaseline: [
+            null as ScannerFormValues | null,
+            {
+                setGoalDraftBaseline: (_, { baseline }) => baseline,
+                draftScannerFromGoal: () => null,
+                startFromScratch: () => null,
+                discardScannerDraft: () => null,
+                scannerSaved: () => null,
             },
         ],
         // How the form standing in front of the user was built, sent with the create request so the
@@ -2466,6 +2499,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 actions.rebuildExperimentContext()
                 // The form now carries the drafted filter, so count what it will actually watch.
                 actions.loadScannerEstimate()
+                actions.setGoalDraftBaseline(values.scanner)
             },
 
             draftScannerFromGoalFailure: ({ errorObject }) => {

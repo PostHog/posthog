@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 import { FormEvent, useState } from 'react'
 
 import * as construction2Png from '@posthog/brand/hoggies/png/construction-2'
@@ -341,7 +342,9 @@ function SelfDrivingOutcomesLine({ scannerId }: { scannerId: string }): JSX.Elem
 
 function ConfigureStep(): JSX.Element {
     const { scannerId } = useValues(scannerEditorSceneLogic)
-    const { scanner, isNew, goalDraft, lockedToExperimentScanner } = useValues(replayScannerLogic({ id: scannerId }))
+    const { scanner, isNew, goalDraft, lockedToExperimentScanner, creationMethod } = useValues(
+        replayScannerLogic({ id: scannerId })
+    )
     const { setScannerType } = useActions(replayScannerLogic({ id: scannerId }))
     const isTypeSelectable = isNew && !lockedToExperimentScanner
     const experimentScanners = useFeatureFlag('VISION_EXPERIMENT_SCANNER')
@@ -370,19 +373,36 @@ function ConfigureStep(): JSX.Element {
                             if (next === scanner.scanner_type) {
                                 return
                             }
-                            if (scanner.scanner_config?.prompt?.trim()) {
+                            const hadPrompt = !!scanner.scanner_config?.prompt?.trim()
+                            const reportTypeChange = (confirmed: boolean): void => {
+                                posthog.capture('replay_vision_scanner_type_changed', {
+                                    from_type: scanner.scanner_type,
+                                    to_type: next,
+                                    creation_method: creationMethod,
+                                    had_prompt: hadPrompt,
+                                    confirmed,
+                                })
+                            }
+                            if (hadPrompt) {
                                 LemonDialog.open({
                                     title: 'Switch scanner type?',
                                     description:
                                         'Your prompt and type-specific settings will reset to defaults for the new type.',
                                     primaryButton: {
                                         children: 'Switch and reset',
-                                        onClick: () => setScannerType(next),
+                                        onClick: () => {
+                                            reportTypeChange(true)
+                                            setScannerType(next)
+                                        },
                                     },
-                                    secondaryButton: { children: 'Keep current' },
+                                    secondaryButton: {
+                                        children: 'Keep current',
+                                        onClick: () => reportTypeChange(false),
+                                    },
                                 })
                                 return
                             }
+                            reportTypeChange(true)
                             setScannerType(next)
                         }}
                         options={scannerTypeOptions(experimentScanners || scanner.scanner_type === 'experiment').map(

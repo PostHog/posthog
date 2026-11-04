@@ -538,13 +538,13 @@ export const createExperimentLogic = kea<createExperimentLogicType>([
                                 label: 'Set up experiment scanner',
                                 action: () =>
                                     router.actions.push(
-                                        combineUrl(
-                                            urls.replayVisionScannerDetails('new'),
-                                            experimentScannerParams({
+                                        combineUrl(urls.replayVisionScannerDetails('new'), {
+                                            ...experimentScannerParams({
                                                 experimentId: response.id as number,
                                                 variantKey: null,
-                                            })
-                                        ).url
+                                            }),
+                                            entry_point: 'experiment_create_wizard_retry',
+                                        }).url
                                     ),
                             },
                         })
