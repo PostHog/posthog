@@ -17,6 +17,7 @@ from prometheus_client import Counter
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.exceptions_capture import capture_exception
+from posthog.models.instance_setting import get_instance_setting
 
 from products.approvals.backend.exceptions import ApprovalRequired
 from products.approvals.backend.scheduled_changes import apply_gated_scheduled_change, regate_recurring_scheduled_change
@@ -191,6 +192,11 @@ def compute_next_run_cron(cron_expr: str, current: datetime, tz: tzinfo = UTC) -
 
 
 def process_scheduled_changes() -> None:
+    # Read the kill switch once per sweep, outside the transaction, so no row lock waits on it and
+    # every schedule in one batch steps the same way. The setting cache holds for 60 seconds, so a
+    # change reaches the workers within about a minute.
+    step_in_schedule_timezone = get_instance_setting("SCHEDULED_CHANGE_LOCAL_TIME_RECURRENCE_ENABLED")
+
     try:
         with transaction.atomic():
             scheduled_changes = (
@@ -258,13 +264,16 @@ def process_scheduled_changes() -> None:
                         cron_expr = scheduled_change.cron_expression
                         interval = scheduled_change.recurrence_interval
                         tz = resolve_schedule_timezone(scheduled_change.timezone)
+                        # The kill switch governs the interval path only. Cron recurrence shipped
+                        # with local-time semantics and keeps them.
+                        interval_tz = tz if step_in_schedule_timezone else UTC
 
                         if cron_expr:
                             next_run = compute_next_run_cron(cron_expr, scheduled_change.scheduled_at, tz)
                             interval_label = "cron"
                         else:
                             assert interval is not None
-                            next_run = compute_next_run(scheduled_change.scheduled_at, interval, tz)
+                            next_run = compute_next_run(scheduled_change.scheduled_at, interval, interval_tz)
                             interval_label = interval
 
                         # If task execution was delayed and next_run is still in the past, skip ahead
@@ -276,7 +285,7 @@ def process_scheduled_changes() -> None:
                                 next_run = compute_next_run_cron(cron_expr, next_run, tz)
                             else:
                                 assert interval is not None
-                                next_run = compute_next_run(next_run, interval, tz)
+                                next_run = compute_next_run(next_run, interval, interval_tz)
                             skipped_count += 1
 
                         # If we hit the cap and next_run is still in the past, jump directly
@@ -292,7 +301,7 @@ def process_scheduled_changes() -> None:
                                 next_run = compute_next_run_cron(cron_expr, now, tz)
                             else:
                                 assert interval is not None
-                                next_run = compute_next_run(now, interval, tz)
+                                next_run = compute_next_run(now, interval, interval_tz)
 
                         # Log and track if we skipped executions due to delayed processing
                         # (skipped_count > 1 means we skipped more than just advancing to the next run)

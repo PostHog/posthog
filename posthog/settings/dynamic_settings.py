@@ -422,6 +422,16 @@ CONSTANCE_CONFIG = {
         "run rather than at the end of the cache TTL.",
         bool,
     ),
+    "SCHEDULED_CHANGE_LOCAL_TIME_RECURRENCE_ENABLED": (
+        get_from_env("SCHEDULED_CHANGE_LOCAL_TIME_RECURRENCE_ENABLED", True, type_cast=str_to_bool),
+        "Whether a repeating feature flag schedule holds its local time of day across a daylight "
+        "saving change. Turn this off to step the stored UTC instant instead, which moves the local "
+        "time by one hour at each change. Off is the behavior before November 2026. This applies to "
+        "every project, to daily, weekly, monthly and yearly schedules, and to the next run the "
+        "sweep works out rather than to a run already scheduled. Cron schedules always hold their "
+        "local time and this setting does not reach them.",
+        bool,
+    ),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
@@ -491,6 +501,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "WEB_ANALYTICS_WARMING_SHARD_THREADS",
     "WEB_ANALYTICS_WARMING_SHARDS",
     "WEB_ANALYTICS_WARMING_PRESET_LANE_ENABLED",
+    "SCHEDULED_CHANGE_LOCAL_TIME_RECURRENCE_ENABLED",
 )
 
 # SECRET_SETTINGS can only be updated but will never be exposed through the API (we do store them plain text in the DB)

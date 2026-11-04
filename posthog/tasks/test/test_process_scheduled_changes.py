@@ -20,6 +20,7 @@ from parameterized import parameterized
 
 from posthog.models import Organization
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.team import Team
 from posthog.tasks.process_scheduled_changes import process_scheduled_changes, resolve_schedule_timezone
 
@@ -1886,6 +1887,34 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
 
             scheduled_change.refresh_from_db()
             self.assertEqual(scheduled_change.scheduled_at, expected_next)
+
+    @time_machine.travel("2024-11-03T03:31:00Z", tick=False)
+    def test_interval_recurrence_kill_switch_restores_utc_stepping(self) -> None:
+        feature_flag = FeatureFlag.objects.create(
+            name="Flag kill switch",
+            key="flag-interval-kill-switch",
+            active=False,
+            filters={"groups": []},
+            team=self.team,
+            created_by=self.user,
+        )
+
+        scheduled_change = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=feature_flag.id,
+            model_name="FeatureFlag",
+            payload={"operation": "update_status", "value": True},
+            scheduled_at=datetime(2024, 11, 3, 3, 30, tzinfo=UTC),
+            is_recurring=True,
+            recurrence_interval="daily",
+            timezone="America/New_York",
+        )
+
+        with override_instance_config("SCHEDULED_CHANGE_LOCAL_TIME_RECURRENCE_ENABLED", False):
+            process_scheduled_changes()
+
+        scheduled_change.refresh_from_db()
+        self.assertEqual(scheduled_change.scheduled_at, datetime(2024, 11, 4, 3, 30, tzinfo=UTC))
 
 
 @contextmanager
