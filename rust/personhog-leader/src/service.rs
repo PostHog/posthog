@@ -100,6 +100,22 @@ struct Committed {
     _inflight: InflightGuard,
 }
 
+/// Registers the revival outcomes at zero. A revival under a standing
+/// death document is rare, so a series born at its first one would hide
+/// that one from `increase()`.
+fn register_revival_metrics() {
+    for outcome in [
+        "served",
+        "row_below_death",
+        "tombstoned",
+        "no_fallback",
+        "load_error",
+    ] {
+        counter!("personhog_leader_revivals_total", "outcome" => outcome).increment(0);
+    }
+    drop(histogram!("personhog_leader_person_load_duration_ms", "source" => "revival"));
+}
+
 pub struct PersonHogLeaderService {
     committer: Arc<Committer>,
     cache: Arc<PartitionedCache>,
@@ -224,6 +240,7 @@ impl PersonHogLeaderService {
         authority: Arc<AuthorityClock>,
         emitted_versions: Arc<EmittedVersions>,
     ) -> Self {
+        register_revival_metrics();
         let committer = Arc::new(Committer {
             cache: Arc::clone(&cache),
             dirty_index: Arc::clone(&dirty_index),
@@ -447,6 +464,73 @@ impl PersonHogLeaderService {
         }
     }
 
+    /// A live PG row above the death version can only be a stub-create
+    /// revival under the same id. Caller holds the per-key lock.
+    async fn serve_revival(
+        &self,
+        partition: u32,
+        key: &PersonCacheKey,
+        person: CachedPerson,
+    ) -> Result<CachedPerson, Status> {
+        if !person.is_deleted {
+            return Ok(person);
+        }
+        let Some(fallback) = &self.fallback else {
+            counter!("personhog_leader_revivals_total", "outcome" => "no_fallback").increment(1);
+            return Ok(person);
+        };
+        let started = Instant::now();
+        let result = load_person_from_pg(&fallback.pool, &fallback.table, key).await;
+        histogram!("personhog_leader_person_load_duration_ms", "source" => "revival")
+            .record(started.elapsed().as_secs_f64() * 1000.0);
+        match result {
+            Ok(Some(row)) if row.version > person.version => {
+                counter!("personhog_leader_revivals_total", "outcome" => "served").increment(1);
+                tracing::info!(
+                    team_id = key.team_id,
+                    person_id = key.person_id,
+                    death_version = person.version,
+                    version = row.version,
+                    "serving a person revived in Postgres over its death document"
+                );
+                self.cache.put(partition, key.clone(), row.clone());
+                Ok(row)
+            }
+            Ok(Some(row)) => {
+                // The tombstone precedes the release, so a live row this
+                // low is a pre-death read; it must not revive the person.
+                counter!("personhog_leader_revivals_total", "outcome" => "row_below_death")
+                    .increment(1);
+                tracing::warn!(
+                    team_id = key.team_id,
+                    person_id = key.person_id,
+                    death_version = person.version,
+                    version = row.version,
+                    "a live Postgres row sits at or below the death document"
+                );
+                Ok(person)
+            }
+            Ok(None) => {
+                counter!("personhog_leader_revivals_total", "outcome" => "tombstoned").increment(1);
+                Ok(person)
+            }
+            Err(e) => {
+                counter!("personhog_leader_revivals_total", "outcome" => "load_error").increment(1);
+                counter!("personhog_leader_pg_fallback_errors_total").increment(1);
+                tracing::error!(
+                    team_id = key.team_id,
+                    person_id = key.person_id,
+                    error = %e,
+                    "PG revival check failed"
+                );
+                // Callers read not-found as gone, which this could not establish.
+                Err(Status::unavailable(
+                    "could not check whether a destroyed person was revived; retry",
+                ))
+            }
+        }
+    }
+
     /// Look up a person from cache, falling back to PG on miss.
     /// Acquires a per-key lock.
     async fn lookup_or_load(
@@ -454,12 +538,13 @@ impl PersonHogLeaderService {
         partition: u32,
         key: &PersonCacheKey,
     ) -> Result<CachedPerson, Status> {
-        // Fast path: cache hit (no lock needed)
+        // Fast path: cache hit (no lock needed); a death document takes the locked path.
         match self.cache.get(partition, key) {
-            CacheLookup::Found(person) => {
+            CacheLookup::Found(person) if !person.is_deleted => {
                 Self::record_cache_hit();
                 return Ok(person);
             }
+            CacheLookup::Found(_) => {}
             CacheLookup::PartitionNotOwned => {
                 return Err(Status::failed_precondition(format!(
                     "partition {} not owned by this leader",
@@ -474,12 +559,13 @@ impl PersonHogLeaderService {
         let _guard = mutex.lock().await;
 
         // Double-check cache -- another request may have loaded it
-        if let CacheLookup::Found(person) = self.cache.get(partition, key) {
+        let person = if let CacheLookup::Found(person) = self.cache.get(partition, key) {
             Self::record_cache_hit();
-            return Ok(person);
-        }
-
-        self.recover_or_load(partition, key).await
+            person
+        } else {
+            self.recover_or_load(partition, key).await?
+        };
+        self.serve_revival(partition, key, person).await
     }
 
     /// Look up a person from cache, falling back to PG on miss.
@@ -489,17 +575,20 @@ impl PersonHogLeaderService {
         partition: u32,
         key: &PersonCacheKey,
     ) -> Result<CachedPerson, Status> {
-        match self.cache.get(partition, key) {
+        let person = match self.cache.get(partition, key) {
             CacheLookup::Found(person) => {
                 Self::record_cache_hit();
-                Ok(person)
+                person
             }
-            CacheLookup::PartitionNotOwned => Err(Status::failed_precondition(format!(
-                "partition {} not owned by this leader",
-                partition
-            ))),
-            CacheLookup::PersonNotFound => self.recover_or_load(partition, key).await,
-        }
+            CacheLookup::PartitionNotOwned => {
+                return Err(Status::failed_precondition(format!(
+                    "partition {} not owned by this leader",
+                    partition
+                )))
+            }
+            CacheLookup::PersonNotFound => self.recover_or_load(partition, key).await?,
+        };
+        self.serve_revival(partition, key, person).await
     }
 
     /// The shared tail of every document write: refuse unapplyable records,
