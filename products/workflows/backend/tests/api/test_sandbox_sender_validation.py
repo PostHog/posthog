@@ -93,8 +93,15 @@ class TestSandboxSenderValidation(APIBaseTest):
             "inputs": {"email": {"value": self._email()}},
         }
 
-    @parameterized.expand([("integer",), ("float",), ("malformed_rotation",)])
-    def test_broadcast_cannot_select_the_sandbox_sender(self, sender_shape: str) -> None:
+    @parameterized.expand(
+        [
+            (f"{shape}_flag_{'on' if flag_on else 'off'}", shape, flag_on)
+            for shape in ("integer", "float", "malformed_rotation")
+            for flag_on in (True, False)
+        ]
+    )
+    def test_broadcast_cannot_select_the_sandbox_sender(self, _name: str, sender_shape: str, flag_on: bool) -> None:
+        self.flag_enabled.return_value = flag_on
         workflow = self._workflow()
         workflow["origin_product"] = "broadcasts"
         sender = workflow["actions"][1]["config"]["inputs"]["email"]["value"]["from"]
@@ -109,7 +116,9 @@ class TestSandboxSenderValidation(APIBaseTest):
         assert "sandbox sender" in response.json()["detail"].lower()
         assert "broadcast" in response.json()["detail"].lower()
 
-    def test_destination_cannot_select_the_sandbox_sender(self) -> None:
+    @parameterized.expand([("flag_on", True), ("flag_off", False)])
+    def test_destination_cannot_select_the_sandbox_sender(self, _name: str, flag_on: bool) -> None:
+        self.flag_enabled.return_value = flag_on
         response = self.client.post(
             f"/api/projects/{self.team.id}/hog_functions/",
             self._function(),
@@ -285,31 +294,18 @@ class TestSandboxSenderValidation(APIBaseTest):
         assert "fixed From address and name" in response.json()["detail"]
         assert "Reply-To" in response.json()["detail"]
 
-    @parameterized.expand(
-        [
-            ("hog_flows", "flag off"),
-            ("hog_functions/", "flag off"),
-            ("hog_flows", "no sandbox settings"),
-            ("hog_functions/", "no sandbox settings"),
-        ]
-    )
-    def test_saves_skip_the_sandbox_checks_while_the_sandbox_sender_is_off(self, endpoint: str, off: str) -> None:
-        self.flag_enabled.reset_mock()
-        self.flag_enabled.return_value = off != "flag off"
+    @parameterized.expand([("hog_flows",), ("hog_functions/",)])
+    def test_saves_skip_the_sandbox_checks_without_sandbox_settings(self, endpoint: str) -> None:
         payload = self._workflow() if endpoint == "hog_flows" else self._function()
 
         with (
-            override_settings(SES_SANDBOX_TENANT_NAME="" if off == "no sandbox settings" else "posthog-sandbox"),
+            override_settings(SES_SANDBOX_TENANT_NAME=""),
             CaptureQueriesContext(connection) as queries,
         ):
             response = self.client.post(f"/api/projects/{self.team.id}/{endpoint}", payload)
 
         assert response.status_code == 201, response.json()
         assert not [query for query in queries.captured_queries if '"posthog_integration"' in query["sql"]]
-        sandbox_flag_checks = [
-            call for call in self.flag_enabled.call_args_list if call.args[:1] == ("workflows-sandbox-sender",)
-        ]
-        assert bool(sandbox_flag_checks) is (off == "flag off")
 
     def test_test_send_configuration_can_select_the_sandbox_sender(self) -> None:
         serializer = HogFunctionInvocationSerializer(
