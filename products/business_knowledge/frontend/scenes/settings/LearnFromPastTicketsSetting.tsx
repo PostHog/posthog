@@ -12,7 +12,7 @@ function progressSummary(progress: LearningBackfillProgressApi): string {
     return `${pluralize(progress.tickets_read, 'ticket')} read, ${progress.knowledge_created} added as knowledge`
 }
 
-export function LearnFromPastTicketsSetting(): JSX.Element {
+export function LearnFromPastTicketsSetting(): JSX.Element | null {
     const { settings, learningBackfillStarting } = useValues(businessKnowledgeSettingsLogic)
     const { startLearningBackfill } = useActions(businessKnowledgeSettingsLogic)
 
