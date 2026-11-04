@@ -2,6 +2,7 @@
 import React, { useCallback, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { ChartLegendLayout } from '../../components/Legend/ChartLegendLayout'
+import { Legend, type LegendItem } from '../../components/Legend/Legend'
 import { ChartHoverContext, ChartLayoutContext } from '../../core/chart-context'
 import type { ChartHoverContextValue, ChartLayoutContextValue } from '../../core/chart-context'
 import { ChartShell, useCanvasBounds } from '../../core/chart-shell'
@@ -35,12 +36,22 @@ import {
     visibleDepths,
 } from './flame-layout'
 import { FlameGraphHeader, type FlameCrumb } from './FlameGraphHeader'
-import { FlameLegend } from './FlameLegend'
 import type { FlameBundleDatum, FlameGraphProps, FlameHit, FlameNodeDatum, FlameTooltipContext } from './types'
 
 const ROW_HEIGHT = 22
 const DEFAULT_MAX_HEIGHT = 480
 const DEFAULT_THRESHOLD = 0.1
+/** Groups past this count fold into one "+N more" row, so a graph with many services keeps a
+ *  one- or two-line legend. The largest groups come first. */
+const MAX_LEGEND_ITEMS = 12
+const LEGEND_MORE_KEY = '\u0000more'
+
+const renderLegendItem = (node: React.ReactNode, item: LegendItem): React.ReactNode =>
+    item.key === LEGEND_MORE_KEY ? (
+        <span className="text-xs leading-4 text-(--color-graph-axis-label)">{item.label}</span>
+    ) : (
+        node
+    )
 const ZERO_MARGINS: ChartMargins = { top: 0, right: 0, bottom: 0, left: 0 }
 const NO_SCALES: ChartScales = { x: () => undefined, y: () => 0, yTicks: () => [] }
 
@@ -518,6 +529,18 @@ function FlameGraphInner<Meta = unknown>({
 
     const isEmpty = tree.size === 0 || tree.x1[tree.rowStart[1] - 1] <= 0
     const showLegend = colors.legend.length > 0 && !isEmpty
+    // Memoized, because the chart re-renders on every mousemove while the legend only changes with the data.
+    const legend = useMemo(() => {
+        const rest = colors.legend.length - MAX_LEGEND_ITEMS
+        const items =
+            rest > 0
+                ? [
+                      ...colors.legend.slice(0, MAX_LEGEND_ITEMS),
+                      { key: LEGEND_MORE_KEY, label: `+${rest} more`, color: '' },
+                  ]
+                : colors.legend
+        return <Legend items={items} align="start" renderItem={renderLegendItem} />
+    }, [colors.legend])
 
     return (
         <ChartLayoutContext.Provider value={layoutValue}>
@@ -530,12 +553,7 @@ function FlameGraphInner<Meta = unknown>({
                     {!isEmpty ? (
                         <FlameGraphHeader crumbs={crumbs} onReset={focus ? resetZoom : null} search={searchResult} />
                     ) : null}
-                    <ChartLegendLayout
-                        legend={showLegend ? <FlameLegend entries={colors.legend} ink={ink} /> : null}
-                        position="bottom"
-                        align="start"
-                        gap={6}
-                    >
+                    <ChartLegendLayout legend={showLegend ? legend : null} position="bottom" align="start" gap={6}>
                         <div
                             className="relative w-full overflow-y-auto overflow-x-hidden outline-none focus-visible:ring-2 focus-visible:ring-(--color-graph-crosshair)"
                             style={{ height: viewportHeight, containerType: 'size' }}

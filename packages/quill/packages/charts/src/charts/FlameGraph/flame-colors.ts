@@ -1,8 +1,10 @@
 import { rgb } from 'd3-color'
 
+import type { LegendItem } from '../../components/Legend/Legend'
 import { mixColors, prefersLightText, toSrgbColor } from '../../core/color-utils'
 import { DEFAULT_CHART_COLORS } from '../../core/theme'
 import type { ChartTheme } from '../../core/types'
+import { formatShare } from '../../utils/format'
 import { classifyChange, type FlameDiffOptions, type FlameTree } from './flame-layout'
 import type { FlameChangeKind } from './types'
 
@@ -63,24 +65,12 @@ export function resolveColorBy(tree: FlameTree<unknown>): FlameColorBy {
     return tree.hasGroups ? 'group' : 'name'
 }
 
-export interface FlameLegendEntry {
-    key: string
-    label: string
-    color: string
-    /** Draws the swatch with a dashed outline, like a new node. */
-    dashed?: boolean
-    /** Draws the swatch faded, like a gone node. */
-    faded?: boolean
-    /** Muted trailing text, for example a group's share of self value. */
-    detail?: string
-}
-
 export interface FlameColors {
     /** Fill per node index. Nodes share string instances, so a fill change is an identity check. */
     fills: string[]
     /** {@link MARK_NEW} / {@link MARK_GONE} per node index. */
     marks: Uint8Array
-    legend: FlameLegendEntry[]
+    legend: LegendItem[]
 }
 
 function blend(color: string, background: string, strength: number): string {
@@ -123,16 +113,21 @@ export function computeFlameColors(
                 marks[i] = change.kind === 'new' ? MARK_NEW : change.kind === 'gone' ? MARK_GONE : 0
             }
         }
-        const legend: FlameLegendEntry[] = [
+        const legend: LegendItem[] = [
             { key: 'slower', label: 'Slower', color: slower[DIFF_STEPS / 2] },
             { key: 'faster', label: 'Faster', color: faster[DIFF_STEPS / 2] },
             { key: 'similar', label: 'Similar', color: ink.neutral },
         ]
         if (seen.has('new')) {
-            legend.push({ key: 'new', label: 'New', color: ink.neutral, dashed: true })
+            legend.push({
+                key: 'new',
+                label: 'New',
+                color: ink.neutral,
+                swatchClassName: 'border border-dashed border-current',
+            })
         }
         if (seen.has('gone')) {
-            legend.push({ key: 'gone', label: 'Gone', color: ink.neutral, faded: true })
+            legend.push({ key: 'gone', label: 'Gone', color: ink.neutral, swatchClassName: 'opacity-50' })
         }
         return { fills, marks, legend }
     }
@@ -159,24 +154,17 @@ export function computeFlameColors(
         selfByKey.set(key, (selfByKey.get(key) ?? 0) + tree.self[i])
     }
 
-    const legend: FlameLegendEntry[] =
+    const legend: LegendItem[] =
         colorBy === 'group'
             ? Array.from(slots, ([key, slot]) => ({
                   key,
                   label: key,
                   color: slotFills[slot],
-                  detail: tree.totalValue > 0 ? formatShare((selfByKey.get(key) ?? 0) / tree.totalValue) : undefined,
+                  secondaryLabel:
+                      tree.totalValue > 0 ? formatShare((selfByKey.get(key) ?? 0) / tree.totalValue) : undefined,
               })).sort((a, b) => (selfByKey.get(b.key) ?? 0) - (selfByKey.get(a.key) ?? 0))
             : []
     return { fills, marks, legend }
-}
-
-export function formatShare(fraction: number): string {
-    const percent = fraction * 100
-    if (percent > 0 && percent < 0.1) {
-        return '<0.1%'
-    }
-    return `${percent >= 10 ? Math.round(percent) : Math.round(percent * 10) / 10}%`
 }
 
 /** Derived colors keyed by fill, so each distinct fill runs the color math once. */
