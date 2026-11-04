@@ -3532,6 +3532,29 @@ describe('dashboardLogic', () => {
                 }).toNotHaveDispatchedActions([
                     logic.actionCreators.setDashboardEditing(null, DashboardEventSource.DashboardHeaderDiscardChanges),
                 ])
+
+                await expectLogic(logic, () => {
+                    logic.actions.cancelLayoutEdit()
+                })
+                    .toFinishAllListeners()
+                    .toMatchValues({ discardPromptOpen: true, layoutEditShortcutsEnabled: false })
+                expect(dialogOpenSpy).toHaveBeenCalledTimes(1)
+
+                dialogOpenSpy.mock.calls[0][0].onAfterClose()
+                await expectLogic(logic, () => {
+                    logic.actions.cancelLayoutEdit()
+                }).toFinishAllListeners()
+                expect(dialogOpenSpy).toHaveBeenCalledTimes(2)
+            })
+
+            it.each([
+                ['a text tile dialog is open', (): void => logic.actions.openTextTileModal()],
+                ['an image tile dialog is open', (): void => logic.actions.openImageTileModal()],
+                ['a button tile dialog is open', (): void => logic.actions.openButtonTileModal()],
+                ['the add widget dialog is open', (): void => logic.actions.setAddWidgetModalOpen(true)],
+                ['a tile is carried', (): void => logic.actions.setCarryingTile(true)],
+            ])('turns off layout edit shortcuts while %s', async (_, open) => {
+                await expectLogic(logic, open).toMatchValues({ layoutEditShortcutsEnabled: false })
             })
 
             it('exits edit mode immediately when the prompt flag is off, even with unsaved layout changes', async () => {

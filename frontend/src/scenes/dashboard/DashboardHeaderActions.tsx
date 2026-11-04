@@ -116,14 +116,12 @@ export function DashboardAddTileButton(): JSX.Element | null {
 }
 
 export function DashboardEditSaveCancelButtons({
-    withShortcuts = true,
     applyFiltersButton,
 }: {
-    withShortcuts?: boolean
     /** The large-dashboard "Apply filters" preview button, rendered between Cancel and Save. */
     applyFiltersButton?: JSX.Element | null
 }): JSX.Element {
-    const { dashboardLoading, canEditDashboard } = useValues(dashboardLogic)
+    const { dashboardLoading, canEditDashboard, layoutEditShortcutsEnabled } = useValues(dashboardLogic)
     const { cancelLayoutEdit, saveLayout } = useActions(dashboardLogic)
 
     const cancelButton = (
@@ -158,7 +156,7 @@ export function DashboardEditSaveCancelButtons({
         </LemonButton>
     )
 
-    if (!withShortcuts) {
+    if (!layoutEditShortcutsEnabled) {
         return (
             <>
                 {cancelButton}
@@ -195,28 +193,13 @@ export function DashboardEditSaveCancelButtons({
 }
 
 export function EditModeActions(): JSX.Element {
-    const {
-        canEditDashboard,
-        layoutEditMode,
-        tiles,
-        dashboardCustomizeMenuOpen,
-        showTextTileModal,
-        showImageTileModal,
-        showButtonTileModal,
-        addWidgetModalOpen,
-    } = useValues(dashboardLogic)
+    const { canEditDashboard, layoutEditMode, tiles, dashboardCustomizeMenuOpen } = useValues(dashboardLogic)
     const { setDashboardCustomizeMenuOpen } = useActions(dashboardLogic)
 
     return (
         <>
             <DashboardSubscribeButton />
-            {layoutEditMode && (
-                <DashboardEditSaveCancelButtons
-                    withShortcuts={
-                        !(showTextTileModal || showImageTileModal || showButtonTileModal || addWidgetModalOpen)
-                    }
-                />
-            )}
+            {layoutEditMode && <DashboardEditSaveCancelButtons />}
             {canEditDashboard && !layoutEditMode && tiles.length > 0 && <DashboardCustomizeButton />}
             {layoutEditMode && tiles.length > 0 && (
                 <LemonMenu

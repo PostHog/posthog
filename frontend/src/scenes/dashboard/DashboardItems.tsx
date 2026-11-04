@@ -3,7 +3,8 @@ import './DashboardItems.scss'
 import clsx from 'clsx'
 import { useActions, useAsyncActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
-import { RefObject, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { RefObject, memo, useCallback, useEffect, useMemo, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { GridLayout, Responsive as ReactGridLayout } from 'react-grid-layout'
 import type { Layout, LayoutItem } from 'react-grid-layout'
 import { type PositionStrategy, setTransform } from 'react-grid-layout/core'
@@ -50,6 +51,7 @@ import { TileGroupTakeOutDropZone } from 'products/dashboards/frontend/component
 import { getDashboardTileSpacingGap } from 'products/dashboards/frontend/dashboardCustomization'
 import { getGroupTitlesByTileId, hasTileDecorations } from 'products/dashboards/frontend/dashboardTileGroups'
 import { type DashboardSection, getSectionGroupKey } from 'products/dashboards/frontend/dashboardTileSections'
+import { useClickToMoveTile } from 'products/dashboards/frontend/useClickToMoveTile'
 import { useDashboardContainerWidth } from 'products/dashboards/frontend/useDashboardContainerWidth'
 import { TAKE_OUT_DROP_ZONE_KEY, useTileGroupDrag } from 'products/dashboards/frontend/useTileGroupDrag'
 
@@ -160,6 +162,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         selectTileGroupTab,
         updateTileGroupSectionLayout,
         moveTileToSection,
+        setCarryingTile,
     } = useActions(dashboardLogic)
     const { updateWidgetTile } = useAsyncActions(dashboardLogic)
     // dashboard_tiles is empty because this selector covers a whole group, not one tile; the
@@ -179,8 +182,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     const retryFailedDashboardTile = isSharedView()
         ? undefined
         : () => loadDashboard({ action: DashboardLoadAction.Update })
-
-    const [containerHeight, setContainerHeight] = useState<number | undefined>(undefined)
 
     // cannot click links when dragging and 250ms after
     const isDragging = useRef(false)
@@ -232,41 +233,13 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     const { width: gridWidth, containerRef } = useDashboardContainerWidth()
     const showBands = tileGroupSections.length > 0
     const activeTabIndex = tileGroupSections.findIndex((section) => getSectionGroupKey(section) === activeTileGroupTab)
-    const { gridCompactor, handleLayoutChange, interactionInProgress, startInteraction, finishInteraction } =
-        useDashboardLayoutInteraction({
-            layoutEditMode,
-            layoutCompaction: dashboard?.customization?.layout_compaction,
-            // Each band grid reports only its own tiles.
-            updateLayouts: showBands ? updateTileGroupSectionLayout : stageLayouts,
-        })
+    const { gridCompactor, handleLayoutChange, startInteraction, finishInteraction } = useDashboardLayoutInteraction({
+        layoutEditMode,
+        layoutCompaction: dashboard?.customization?.layout_compaction,
+        // Each band grid reports only its own tiles.
+        updateLayouts: showBands ? updateTileGroupSectionLayout : stageLayouts,
+    })
 
-    useEffect(() => {
-        if (!containerRef.current) {
-            return
-        }
-
-        const element = containerRef.current
-        const observer = new ResizeObserver((entries) => {
-            // Skip per-frame height commits during a gesture — they re-render every tile just for GridBackground,
-            // lagging the cursor. flushPendingLayouts remeasures on stop.
-            if (interactionInProgress.current) {
-                return
-            }
-            for (const entry of entries) {
-                if (entry.target === element) {
-                    setContainerHeight(entry.contentRect.height)
-                }
-            }
-        })
-
-        // Set initial height
-        setContainerHeight(element.clientHeight)
-        observer.observe(element)
-
-        return () => {
-            observer.disconnect()
-        }
-    }, [containerRef])
     const isMobileView = !!gridWidth && gridWidth <= BREAKPOINTS['sm']
     const isEditablePlacement =
         !readOnly &&
@@ -362,6 +335,13 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         restoreLayout: (layout) => stageLayouts({ sm: layout }),
     })
     const boundedStrategy = useMemo(() => sidewaysBoundedStrategy(gridWidth), [gridWidth])
+    const { tileMoveInputRef, carryHeldDrag } = useClickToMoveTile({
+        containerRef: containerRef as RefObject<HTMLElement>,
+        enabled: dragConfig.enabled,
+        handleSelector: dragConfig.handle,
+        cancelSelector: dragConfig.cancel,
+        onCarryingChange: setCarryingTile,
+    })
 
     const resizeConfig = useMemo(
         () => ({
@@ -484,17 +464,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         ]
     )
 
-    const flushPendingLayouts = useCallback(() => {
-        finishInteraction()
-        // Remeasure once the gesture settles, since height updates were suppressed during it.
-        requestAnimationFrame(() => {
-            if (containerRef.current) {
-                setContainerHeight(containerRef.current.clientHeight)
-            }
-        })
-        // oxlint-disable-next-line react-hooks/exhaustive-deps -- ref reads inside requestAnimationFrame aren't valid deps
-    }, [finishInteraction])
-
     const handleWidthChange = useCallback(
         (containerWidth: number, _: unknown, newCols: number) => {
             updateContainerWidth(containerWidth, newCols)
@@ -541,11 +510,11 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     )
 
     const handleResizeStop = useCallback(() => {
-        flushPendingLayouts()
+        finishInteraction()
         if (dashboard?.id) {
             reportDashboardTileRepositioned(dashboard.id, 'resized', effectiveZoom)
         }
-    }, [dashboard?.id, effectiveZoom, flushPendingLayouts])
+    }, [dashboard?.id, effectiveZoom, finishInteraction])
 
     const handleDragStart = useCallback(
         (
@@ -562,8 +531,9 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             startInteraction(layout, newItem, 'drag')
             startTileDrag(newItem, element)
             startAutoScroll()
+            carryHeldDrag(element)
         },
-        [startInteraction, startTileDrag, startAutoScroll]
+        [startInteraction, startTileDrag, startAutoScroll, carryHeldDrag]
     )
 
     const handleDrag = useCallback(
@@ -594,13 +564,14 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
             dragEndTimeout.current = window.setTimeout(() => {
                 isDragging.current = false
             }, 250)
-            flushPendingLayouts()
+            finishInteraction()
             finishTileDrag(newItem, element, event)
-            if (dashboard?.id) {
-                reportDashboardTileRepositioned(dashboard.id, 'moved', effectiveZoom)
+            const input = tileMoveInputRef.current
+            if (dashboard?.id && input !== 'canceled') {
+                reportDashboardTileRepositioned(dashboard.id, 'moved', effectiveZoom, input)
             }
         },
-        [dashboard?.id, effectiveZoom, flushPendingLayouts, finishTileDrag, stopAutoScroll]
+        [dashboard?.id, effectiveZoom, finishInteraction, finishTileDrag, stopAutoScroll, tileMoveInputRef]
     )
 
     const renderTile = (tile: DashboardTile): JSX.Element | undefined => {
@@ -798,8 +769,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         const isLastSection = activeTabIndex >= 0 || (index === tileGroupSections.length - 1 && !showTakeOutDropZone)
         const isDraggingOutOfSection =
             !!dropTargetKey && section.tiles.some((tile) => tile.id.toString() === draggingTileId)
-        // One empty row below the tiles gives a dragged tile somewhere to land.
-        const sectionRows = Math.max(0, ...(sectionLayouts.sm ?? []).map((item) => item.y + item.h)) + 1
         return (
             <div
                 className="relative"
@@ -812,7 +781,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                         cols={BREAKPOINT_COLUMN_COUNTS.sm}
                         rowHeight={rowHeight}
                         margin={margin}
-                        height={sectionRows * (rowHeight + margin[1]) - margin[1]}
                     />
                 )}
                 {/* Not Responsive: its layout copy and the inner grid's can swap on every render while tiles stream in. */}
@@ -896,7 +864,6 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                             cols={BREAKPOINT_COLUMN_COUNTS.sm}
                             rowHeight={rowHeight}
                             margin={margin}
-                            height={containerHeight} // kept in sync via ResizeObserver
                         />
                     )}
 
@@ -918,6 +885,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                     </ReactGridLayout>
                 </div>
             )}
+            <TileMoveHint />
             {dashboardStreaming && (
                 <div className="mt-4 flex items-center justify-center">
                     <div className="flex items-center gap-2 text-muted">
@@ -927,5 +895,25 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                 </div>
             )}
         </div>
+    )
+}
+
+// Reads carryingTile itself, so a carry starting or ending re-renders only this pill and not every tile in the grid.
+// The portal keeps the pill out of the grid's subtree, where inserting a node restyles every tile.
+function TileMoveHint(): JSX.Element | null {
+    const { carryingTile } = useValues(dashboardLogic)
+    if (!carryingTile) {
+        return null
+    }
+    return createPortal(
+        // Ignores the pointer, because the next click drops the tile wherever this pill is.
+        <div
+            role="status"
+            className="pointer-events-none fixed bottom-6 left-1/2 z-top flex -translate-x-1/2 items-center gap-2 rounded-full border bg-surface-primary px-3 py-1 text-sm shadow"
+        >
+            <span>Click to drop the tile</span>
+            <span className="text-secondary">· Esc to cancel</span>
+        </div>,
+        document.body
     )
 }

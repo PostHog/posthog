@@ -30,10 +30,7 @@ export function QuillDashboardHeaderActions(): JSX.Element | null {
         layoutEditMode,
         tiles,
         dashboardCustomizeMenuOpen,
-        showTextTileModal,
-        showImageTileModal,
-        showButtonTileModal,
-        addWidgetModalOpen,
+        layoutEditShortcutsEnabled,
     } = useValues(dashboardLogic)
     const { setDashboardMode, setDashboardCustomizeMenuOpen, cancelLayoutEdit, saveLayout } = useActions(dashboardLogic)
     const { push } = useActions(router)
@@ -43,7 +40,6 @@ export function QuillDashboardHeaderActions(): JSX.Element | null {
     }
 
     if (dashboardEditing) {
-        const withShortcuts = !(showTextTileModal || showImageTileModal || showButtonTileModal || addWidgetModalOpen)
         const cancelButton = (
             <Button
                 data-attr="dashboard-edit-mode-discard"
@@ -76,7 +72,7 @@ export function QuillDashboardHeaderActions(): JSX.Element | null {
             <>
                 <QuillDashboardSubscribeButton />
                 {layoutEditMode &&
-                    (withShortcuts ? (
+                    (layoutEditShortcutsEnabled ? (
                         <>
                             <Shortcut
                                 name="CancelDashboardEdit"

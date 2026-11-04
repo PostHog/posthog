@@ -179,12 +179,14 @@ export function reportDashboardInsightDeleteAfterRemovalClicked(otherDashboardCo
 export function reportDashboardTileRepositioned(
     dashboardId: number,
     action: 'moved' | 'resized',
-    layoutZoom: number
+    layoutZoom: number,
+    input: 'drag' | 'click' = 'drag'
 ): void {
     posthog.capture('dashboard tile repositioned', {
         dashboard_id: dashboardId,
         action,
         layout_zoom: layoutZoom,
+        input,
     })
 }
 
