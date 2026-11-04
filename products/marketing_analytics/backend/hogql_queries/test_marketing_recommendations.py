@@ -5,8 +5,10 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.marketing_analytics.backend.hogql_queries.marketing_recommendations import (
+    SEARCH_CONSOLE_PERFORMANCE_URL,
     CampaignStats,
     OrganicQueryStats,
+    RankingPage,
     RecommendationInputs,
     SearchTermStats,
     TermKeywordStats,
@@ -51,9 +53,11 @@ def _inputs(
     terms: tuple[SearchTermStats, ...] = (),
     organic: tuple[OrganicQueryStats, ...] = (),
     term_keywords: tuple[TermKeywordStats, ...] = (),
+    ranking_pages: tuple[RankingPage, ...] = (),
 ) -> RecommendationInputs:
     return RecommendationInputs(
         term_keywords=term_keywords,
+        ranking_pages=ranking_pages,
         campaigns=campaigns,
         search_terms=terms,
         organic_queries=organic,
@@ -124,7 +128,73 @@ class TestMarketingRecommendations(SimpleTestCase):
 
         leak = next(rec for rec in recs if rec.rule == "brand_leak")
         assert (leak.subject, leak.action) == ("Generic", 'Add "example" as a negative keyword')
+        assert [step.copyValue for step in leak.steps or [] if step.copyValue] == ["Generic", '"example"']
         assert not any(rec.rule == "scale_campaign" and rec.subject == "Generic" for rec in recs)
+
+    def test_review_campaign_steps_start_with_the_searches_that_waste_spend(self) -> None:
+        good = _campaign(id="c1", name="Good", cost=1000, conversions=10)
+        costly = _campaign(id="c2", name="Costly", cost=2000, conversions=2)
+        terms = (
+            _term("product analytics", "c1", cost=1000, conversions=10),
+            _term("drain small", "c2", cost=300, conversions=0),
+            _term("drain big", "c2", cost=400, conversions=0),
+            _term("drain too small", "c2", cost=20, conversions=0),
+            replace(_term("already a keyword", "c2", cost=500, conversions=0), status="ADDED"),
+            _term("example login", "c2", cost=600, conversions=0),
+            _term("cheap keeper", "c2", cost=50, conversions=1),
+            replace(_term("cheap but excluded", "c2", cost=40, conversions=1), status="EXCLUDED"),
+            _term("costly converter", "c2", cost=300, conversions=1),
+        )
+
+        review = next(rec for rec in recommend(_inputs((good, costly), terms)) if rec.rule == "review_campaign")
+
+        steps = review.steps or []
+        assert review.subject == "Costly"
+        assert [step.copyValue for step in steps if step.copyValue] == ["Costly", "[drain big]\n[drain small]"]
+        assert '"cheap keeper"' in steps[2].text
+        assert "costly converter" not in steps[2].text and "cheap but excluded" not in steps[2].text
+        assert all(step.linkText and step.linkText in step.text for step in steps if step.url)
+
+    @parameterized.expand(
+        [
+            ("near_top_3_with_known_page", 8.0, True, "striking_distance", "https://example.com/funnels"),
+            (
+                "near_top_3_without_page_table",
+                8.0,
+                False,
+                "striking_distance",
+                f"{SEARCH_CONSOLE_PERFORMANCE_URL}?resource_id=sc-domain%3Aexample.com",
+            ),
+            ("ranks_beyond_page_one", 30.0, True, "content_gap", "https://example.com/funnels"),
+            ("does_not_rank", None, True, "content_gap", None),
+        ]
+    )
+    def test_organic_steps_start_from_the_page_that_ranks(
+        self, _name: str, position: float | None, has_pages: bool, rule: str, first_url: str | None
+    ) -> None:
+        terms = (
+            _term("funnel analysis", "c1", cost=100, conversions=5),
+            _term("session replay", "c1", cost=900, conversions=5),
+        )
+        organic = (
+            (OrganicQueryStats(query="funnel analysis", clicks=20, impressions=2000, position=position),)
+            if position
+            else ()
+        )
+        pages = (
+            RankingPage(query="funnel analysis", page="https://example.com/blog", impressions=300),
+            RankingPage(query="funnel analysis", page="https://example.com/funnels", impressions=1700),
+        )
+
+        recs = recommend(_inputs((_campaign(),), terms, organic, ranking_pages=pages if has_pages else ()))
+
+        organic_recs = [rec for rec in recs if rec.subject == "funnel analysis" and rec.rule == rule]
+        assert len(organic_recs) == 1
+        steps = organic_recs[0].steps or []
+        assert steps[0].url == first_url
+        if first_url is None:
+            assert steps[0].text.startswith("Create a page")
+        assert all(step.linkText and step.linkText in step.text for step in steps if step.url)
 
     @parameterized.expand(
         [
@@ -156,18 +226,25 @@ class TestMarketingRecommendations(SimpleTestCase):
         ]
     )
     def test_keyword_gap_needs_every_meaningful_word_to_convert(self, _name: str, query: str, expected: bool) -> None:
-        campaign = _campaign()
+        campaigns = (_campaign(id="c2", name="Replay"), _campaign())
         terms = (
             _term("funnel tracking", "c1", cost=100, conversions=10),
             _term("analysis software", "c1", cost=100, conversions=10),
             _term("spy", "c1", cost=1000, conversions=1),
+            _term("session replay", "c2", cost=100, conversions=10),
         )
         organic = tuple(OrganicQueryStats(query=f"filler {i}", clicks=1, impressions=1, position=50) for i in range(30))
         organic += (OrganicQueryStats(query=query, clicks=1, impressions=5000, position=25),)
 
-        gaps = [rec.subject for rec in recommend(_inputs((campaign,), terms, organic)) if rec.rule == "keyword_gap"]
+        gaps = {
+            rec.subject: rec.campaign
+            for rec in recommend(_inputs(campaigns, terms, organic))
+            if rec.rule == "keyword_gap"
+        }
 
         assert (query in gaps) == expected
+        if expected:
+            assert gaps[query] == "Search"
 
     def test_performance_max_gets_brand_exclusion_and_rank_advice(self) -> None:
         pmax = _campaign(
@@ -182,15 +259,15 @@ class TestMarketingRecommendations(SimpleTestCase):
             _term("project planning software", "pmax", cost=700, conversions=8),
         )
 
-        actions = {
-            (rec.rule.value, rec.action) for rec in recommend(_inputs((pmax,), terms)) if rec.level == "campaign"
-        }
+        recs = [rec for rec in recommend(_inputs((pmax,), terms)) if rec.level == "campaign"]
 
-        assert actions == {
+        assert {(rec.rule.value, rec.action) for rec in recs} == {
             ("brand_leak", 'Add a brand exclusion for "example"'),
             ("scale_campaign", "Raise the target CPA or improve its asset groups"),
             ("policy_limited", "Check the affected ads in Policy manager"),
         }
+        leak = next(rec for rec in recs if rec.rule == "brand_leak")
+        assert [step.copyValue for step in leak.steps or [] if step.copyValue] == ["PMax", "example"]
 
     @parameterized.expand(
         [
@@ -198,17 +275,32 @@ class TestMarketingRecommendations(SimpleTestCase):
                 "broad",
                 "BROAD",
                 'Add it as a negative, or change the keyword "website traffic" from broad to exact match',
+                [
+                    ("Search", "campaigns"),
+                    ("[spy website traffic]", "keywords/negative"),
+                    ("website traffic", "keywords"),
+                ],
             ),
             (
                 "phrase_enum_number",
                 "3",
                 'Add it as a negative, or change the keyword "website traffic" from phrase to exact match',
+                [
+                    ("Search", "campaigns"),
+                    ("[spy website traffic]", "keywords/negative"),
+                    ("website traffic", "keywords"),
+                ],
             ),
-            ("exact", "EXACT", 'Review the keyword "website traffic" (exact match) and its landing page, or pause it'),
+            (
+                "exact",
+                "EXACT",
+                'Review the keyword "website traffic" (exact match) and its landing page, or pause it',
+                [("Search", "campaigns"), ("website traffic", "keywords")],
+            ),
         ]
     )
     def test_spend_without_conversions_names_the_keyword_that_matched(
-        self, _name: str, match_type: str, expected: str
+        self, _name: str, match_type: str, expected: str, expected_copy: list[tuple[str, str]]
     ) -> None:
         terms = (
             _term("spy website traffic", "c1", cost=500, conversions=0),
@@ -219,13 +311,19 @@ class TestMarketingRecommendations(SimpleTestCase):
             TermKeywordStats(term="spy website traffic", keyword="traffic", match_type="BROAD", cost=100),
         )
 
-        actions = [
-            rec.action
+        recs = [
+            rec
             for rec in recommend(_inputs((_campaign(),), terms, term_keywords=keywords))
             if rec.rule == "spend_without_conversions"
         ]
 
-        assert actions == [expected]
+        assert [rec.action for rec in recs] == [expected]
+        assert [
+            (step.copyValue, (step.url or "").removeprefix("https://ads.google.com/aw/"))
+            for step in recs[0].steps or []
+            if step.copyValue
+        ] == expected_copy
+        assert all(step.linkText and step.linkText in step.text for step in recs[0].steps or [] if step.url)
 
     @parameterized.expand([("serving", "ELIGIBLE", 1), ("paused", "PAUSED", 0), ("removed", "REMOVED", 0)])
     def test_spend_without_conversions_skips_campaigns_that_do_not_serve(

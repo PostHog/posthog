@@ -16,6 +16,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     CurrentBranchHealth,
     DeliveryPipeline,
     DeliveryStageTiming,
+    DepotCIRepoUsage,
     JobLogBadge,
     JobLogInsights,
     JobStepLogBadges,
@@ -694,6 +695,22 @@ class DeliveryPipelineSerializer(DataclassSerializer):
             "merged_pr_count": {
                 "help_text": "PRs merged in the window with bots and drafts excluded. A narrower "
                 "population than RepoOverview.merged_pr_count, which counts all authors."
+            },
+        }
+
+
+class DepotCIRepoUsageSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = DepotCIRepoUsage
+        extra_kwargs = {
+            "repo": {"help_text": "Repository the Depot source syncs, as lowercase 'owner/name'."},
+            "elapsed_seconds": {
+                "help_text": "Run time of the finished Depot CI job attempts that started in the window, hand-off jobs "
+                "included."
+            },
+            "estimated_cost_usd": {
+                "help_text": "elapsed_seconds at the Depot CI list price for a 2-vCPU sandbox. Depot does not report "
+                "the sandbox size of an attempt."
             },
         }
 

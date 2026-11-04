@@ -314,6 +314,8 @@ The cached bytes are kept for thirty days and re-extended on every refresh, so a
 No `learn`, `initialize`, or `discover` request reads the archive from Redis.
 By default it is loaded from `https://github.com/PostHog/posthog/releases/download/agent-skills-latest/skills.zip`.
 Set `POSTHOG_MCP_SKILLS_URL` to use another archive during local development.
+The context-mill omnibus skills are overlaid on that bundle from the shared copy the resource refresh publishes; set `POSTHOG_MCP_OMNIBUS_SKILLS=off` to serve the bundle alone.
+A pinned bundle (`POSTHOG_MCP_SKILLS_SHA256`) serves no overlay, and a product skill keeps its name when an overlay skill collides with it.
 Custom archive URLs use separate Redis cache namespaces so a local bundle cannot read or overwrite the published bundle's cache entry.
 Project skills are read directly from the request-authenticated project and are not cached by the MCP server.
 Only latest, active, uncategorized skills are exposed through `learn`; category-specific skills such as scouts stay on their own surfaces.

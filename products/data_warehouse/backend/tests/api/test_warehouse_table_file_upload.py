@@ -1,5 +1,4 @@
 import io
-import ipaddress
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
@@ -12,6 +11,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.team import Team
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 from products.warehouse_sources.backend.facade.api import FILE_FORMAT_READ_HINTS
 from products.warehouse_sources.backend.facade.testing import (
@@ -262,10 +262,7 @@ class TestCreateTableFromUpload(APIBaseTest):
 
         with (
             patch("posthog.security.url_validation.is_dev_mode", return_value=False),
-            patch(
-                "posthog.security.url_validation.resolve_host_ips",
-                return_value={ipaddress.ip_address("93.184.216.34")},
-            ),
+            mock_anti_ssrf_dns_lookup(),
         ):
             response = self.client.patch(
                 f"/api/environments/{self.team.pk}/warehouse_tables/{table.id}",

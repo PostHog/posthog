@@ -97,6 +97,8 @@ jobs:
                         - 'posthog/models/feature_flag/flags_cache.py'
                         - 'posthog/models/feature_flag/feature_flag.py'
                         - 'rust/feature-flags/tests/fixtures/hypercache_contract.json'
+                        # common-cohort-team-access tests its query against the table these migrations build
+                        - 'products/cohorts/backend/migrations/**'
                         # replay-core-v4's tests read the encryption vectors the Node writers pin
                         - 'nodejs/src/ingestion/pipelines/sessionreplay/ml-mirror/keys/encryption-vector*.json'
                         - 'nodejs/src/ingestion/pipelines/sessionreplay/ai-research/v4-keys/encryption-vector*.json'
@@ -288,7 +290,9 @@ jobs:
               working-directory: .
               run: |
                   # Use docker to clean up files created by containers (from repo root, not rust/)
-                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
+                  if [ -d "data" ]; then
+                      docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
+                  fi
               continue-on-error: true
 
             - name: Log in to Docker Hub
@@ -314,13 +318,6 @@ jobs:
                   ../bin/ci-wait-for-docker wait seaweedfs objectstorage
 
                   echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
-
-            - name: Dump Kafka logs on failure
-              if: failure()
-              run: |
-                  docker ps -a || true
-                  docker logs --tail=500 rust-kafka-1 || true
-                  docker inspect rust-kafka-1 || true
 
             # please keep the tag version here in sync with rust-version in rust/*/Cargo.toml
             - name: Install rust
@@ -473,9 +470,10 @@ jobs:
                       # cohort-stream-processor's broker and S3 tests are #[ignore]'d. This job runs Kafka
                       # and SeaweedFS (objectstorage, :19000). `kind(test)` selects the tests/ binaries,
                       # whose ignored tests all need this stack. One at a time: each joins its own
-                      # consumer group and most create several 64-partition topics.
+                      # consumer group and most create several 64-partition topics. Not `localhost`: it
+                      # also resolves to `::1`, where the broker refuses, and the tests' readers fail on that.
                       if [ "$pkg" = "cohort-stream-processor" ]; then
-                          KAFKA_HOSTS=localhost:9092 \
+                          KAFKA_HOSTS=kafka:9092 \
                           CHECKPOINT_S3_ENDPOINT=http://localhost:19000 \
                           CHECKPOINT_S3_REGION=us-east-1 \
                           CHECKPOINT_S3_BUCKET=posthog \
@@ -492,6 +490,15 @@ jobs:
                       echo "::endgroup::"
                   done
                   exit $overall_rc
+
+            - name: Dump Kafka logs on failure
+              if: ${{ !cancelled() && (failure() || steps.run-tests.outcome == 'failure') }}
+              env:
+                  COMPOSE_FILE: ../docker-compose.dev.yml:../docker-compose.profiles.yml
+              run: |
+                  docker ps -a || true
+                  docker compose logs --no-color --tail=500 kafka || true
+                  docker compose ps -a -q kafka | xargs -r docker inspect || true
 
             # Doctests fail the job directly: they emit no JUnit, so the quarantine gate
             # below can neither see nor mask them.

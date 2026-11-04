@@ -31,9 +31,7 @@ function render(props: Partial<IssueSummarySectionProps>, width: 'narrow' | 'wid
             <IssueSummarySection
                 view="ready"
                 summary={SUMMARY}
-                regenerating={false}
                 feedback={null}
-                onRegenerate={noop}
                 onRetry={noop}
                 onFeedback={noop}
                 {...props}

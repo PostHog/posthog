@@ -1,6 +1,8 @@
 import dataclasses
 from typing import Final, Literal
 
+from posthog.schema import PrecomputationMode
+
 from posthog.dataclasses import frozen
 
 # Shared by the workflow definition, the schedule, and the management command.
@@ -50,7 +52,7 @@ TIMEOUT_MAX_METRIC_ATTEMPTS = 2
 # being polled constantly. The random position in the band spreads out metrics that bounced in the same burst,
 # so their retries do not arrive together. The per-org app limiter skips Temporal activities, so this delay is
 # what lets the cluster drain. The sum of the bands, at most 600 s, stays inside
-# METRIC_CALC_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS.
+# METRIC_CALC_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS where that budget applies.
 CAPACITY_RETRY_FIRST_DELAY_MIN_SECONDS = 10
 CAPACITY_RETRY_FIRST_DELAY_MAX_SECONDS = 20
 CAPACITY_RETRY_BACKOFF_COEFFICIENT = 2.0
@@ -78,7 +80,9 @@ METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS = 300
 # Total budget for one metric across all its attempts and retry delays, queue wait included (the calc
 # activity's schedule_to_close_timeout). It keeps the IN_PROGRESS phase (this budget, the failure backstop and
 # the finish step) below the staleness TTL in recalculation.py, so a slow but healthy run is never treated as
-# stale. The budget ends a metric before MAX_METRIC_ATTEMPTS when its attempts are slow.
+# stale. The budget ends a metric before MAX_METRIC_ATTEMPTS when its attempts are slow. Only a calc on the
+# workflow's own queue gets it. A calc on the activity or precompute queue waits for a slot with no total budget,
+# so its run can outlast the staleness TTL.
 METRIC_CALC_SCHEDULE_TO_CLOSE_TIMEOUT_SECONDS = 1200
 
 # Without a heartbeat, Temporal can deliver a cancellation to the calc activity only after start_to_close,
@@ -130,6 +134,10 @@ class ExperimentMetricToRecalculate:
     metric_uuid: str
     # "primary" or "secondary": the metric's role in the experiment, not its kind.
     role: str
+    # The calc activity's queue and precompute mode, chosen at discovery. The workflow uses them only for a run
+    # that has an activity_task_queue. None keeps the run's activity_task_queue and the AUTO mode.
+    task_queue: str | None = None
+    precomputation_mode: PrecomputationMode | None = None
 
 
 @dataclasses.dataclass

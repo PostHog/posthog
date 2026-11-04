@@ -332,7 +332,7 @@ class Experiment(Taggable, FileSystemSyncMixin, ModelActivityMixin, RootTeamMixi
         )
 
 
-def _live_experiments_for_flag(feature_flag_id: Any) -> "QuerySet[Experiment]":
+def live_experiments_for_flag(feature_flag_id: Any) -> "QuerySet[Experiment]":
     """Single source of truth for the `has_experiment` predicate: a flag has a linked
     experiment iff a non-deleted Experiment row references it. The Rust flags service
     (rust/feature-flags/src/flags/feature_flag_list.rs) mirrors this in hand-written SQL —
@@ -345,12 +345,12 @@ def _live_experiments_for_flag(feature_flag_id: Any) -> "QuerySet[Experiment]":
 
 def live_experiment_exists() -> Exists:
     """`Exists` subquery for `.annotate()` over many flags. For a single in-hand flag, use `flag_has_live_experiment`."""
-    return Exists(_live_experiments_for_flag(OuterRef("pk")))
+    return Exists(live_experiments_for_flag(OuterRef("pk")))
 
 
 def flag_has_live_experiment(feature_flag_id: int) -> bool:
     """Instance-level companion to `live_experiment_exists` — same predicate, one flag."""
-    return _live_experiments_for_flag(feature_flag_id).exists()
+    return live_experiments_for_flag(feature_flag_id).exists()
 
 
 def metric_display_rank(ordered_uuids: Sequence[str] | None) -> Callable[[str], int]:

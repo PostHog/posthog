@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from ..shared.enums import DifferenceType
-from ..shared.statistics import ProportionStatistic, RatioStatistic, SampleMeanStatistic, StatisticError
+from ..shared.statistics import AnyStatistic, ProportionStatistic, SampleMeanStatistic, StatisticError
 from .priors import GaussianPrior
 from .tests import BayesianGaussianTest, BayesianMeanTest, BayesianProportionTest, BayesianResult, BayesianTest
 
@@ -90,7 +90,7 @@ class BayesianMethod:
         Get or create test instance based on statistic type and configuration.
 
         Args:
-            stat_type: Type of statistic (SampleMeanStatistic or ProportionStatistic)
+            stat_type: Type of statistic; types without a dedicated test use BayesianGaussianTest
 
         Returns:
             Appropriate BayesianTest instance
@@ -109,8 +109,8 @@ class BayesianMethod:
 
     def run_test(
         self,
-        treatment_stat: SampleMeanStatistic | ProportionStatistic | RatioStatistic,
-        control_stat: SampleMeanStatistic | ProportionStatistic | RatioStatistic,
+        treatment_stat: AnyStatistic,
+        control_stat: AnyStatistic,
         prior: GaussianPrior | None = None,
         **kwargs,
     ) -> BayesianResult:

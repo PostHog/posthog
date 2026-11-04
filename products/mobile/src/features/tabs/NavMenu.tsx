@@ -1,12 +1,13 @@
 import { type ComponentType, type ReactElement, useEffect, useState } from 'react'
-import { Text, useWindowDimensions, View } from 'react-native'
-
+import { Text, View } from 'react-native'
 import { useAuthStore } from '@/auth/authStore'
 import { ProjectSheet } from '@/features/projects/ProjectSheet'
+import type { PostHogStatus } from '@/features/status/usePostHogStatus'
 import { track } from '@/lib/analytics'
 import { FloatingCard } from '@/ui/FloatingCard'
 import { ChevronUpDownIcon } from '@/ui/icons/ChevronUpDownIcon'
 import { ExternalLinkIcon } from '@/ui/icons/ExternalLinkIcon'
+import { GlobeIcon } from '@/ui/icons/GlobeIcon'
 import { GripIcon } from '@/ui/icons/GripIcon'
 import { PinIcon } from '@/ui/icons/PinIcon'
 import { SettingsIcon } from '@/ui/icons/SettingsIcon'
@@ -15,6 +16,7 @@ import type { IconProps } from '@/ui/icons/types'
 import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles, useColors } from '@/ui/theme'
 import { iconSizes, radii, type } from '@/ui/tokens'
+import { useSceneDimensions } from '@/ui/useSceneDimensions'
 import { topOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { SignOutConfirm } from '../settings/SignOutConfirm'
@@ -28,6 +30,8 @@ interface NavMenuProps {
     /** A pinned list's rows, at the top while its tab is focused. Null leaves the section out. */
     navList: { onUnpin: () => void; onOpenWeb: (() => void) | null } | null
     onClose: () => void
+    status: PostHogStatus
+    onOpenStatus: () => void
     onSettings: () => void
     onSignOut: () => void
     /** Replaces the rows with the sign-out confirmation. */
@@ -72,6 +76,8 @@ export function NavMenu({
     navList,
     onClose,
     onSettings,
+    status: { summary: statusUpdate, indicatorColor },
+    onOpenStatus,
     onSignOut,
     confirmingSignOut,
     signOutPending,
@@ -82,9 +88,9 @@ export function NavMenu({
     const colors = useColors()
     const styles = useStyles()
     const insets = useScreenInsets()
-    const { width: windowWidth } = useWindowDimensions()
+    const { width: windowWidth } = useSceneDimensions()
     // The handoff's 75% width is the content box; padding and border add 22pt.
-    const width = Math.round(windowWidth * 0.75) + 22
+    const width = Math.min(400, Math.round(windowWidth * 0.75) + 22)
     const [pickingProject, setPickingProject] = useState(false)
 
     useEffect(() => {
@@ -143,6 +149,38 @@ export function NavMenu({
                     />
                 ) : (
                     <>
+                        <Pressable44
+                            accessibilityRole="link"
+                            accessibilityLabel={
+                                statusUpdate
+                                    ? `PostHog status: ${statusUpdate}`
+                                    : indicatorColor
+                                      ? 'PostHog status: All systems operational'
+                                      : 'PostHog status'
+                            }
+                            pressedBackground={colors.sunken}
+                            style={styles.row}
+                            onPress={onOpenStatus}
+                            testID="nav-status"
+                        >
+                            {indicatorColor ? (
+                                <View style={styles.statusIcon}>
+                                    <View style={[styles.statusDot, { backgroundColor: colors[indicatorColor] }]} />
+                                </View>
+                            ) : (
+                                <GlobeIcon size={iconSizes.control} />
+                            )}
+                            <View style={styles.statusBody}>
+                                <Text style={styles.statusTitle}>PostHog status</Text>
+                                {statusUpdate ? (
+                                    <Text style={styles.statusSummary} numberOfLines={2}>
+                                        {statusUpdate}
+                                    </Text>
+                                ) : null}
+                            </View>
+                            <ExternalLinkIcon size={iconSizes.small} color={colors.tertiary} />
+                        </Pressable44>
+                        <View style={[styles.divider, styles.sectionDivider]} />
                         {navList ? (
                             <>
                                 <MenuRow
@@ -225,6 +263,11 @@ const useStyles = createStyles(({ colors }) => ({
         paddingHorizontal: 14,
         borderRadius: radii.menuRow,
     },
+    statusIcon: { width: iconSizes.control, alignItems: 'center' },
+    statusDot: { width: 10, height: 10, borderRadius: 5 },
+    statusBody: { flex: 1 },
+    statusTitle: { ...type.menuRow, color: colors.ink },
+    statusSummary: { ...type.meta, color: colors.muted },
     rowLabel: {
         ...type.menuRow,
         color: colors.ink,
