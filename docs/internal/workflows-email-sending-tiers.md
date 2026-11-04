@@ -33,7 +33,7 @@ While the block exists, the endpoint returns 404 for the organization's projects
 Set `WORKFLOWS_SANDBOX_SENDER_DOMAIN`, `SES_SANDBOX_FROM_ADDRESS`, and `SES_SANDBOX_TENANT_NAME` in Django; any empty value leaves the endpoint unavailable and lets every team register any domain as before.
 The worker sends from the same `SES_SANDBOX_FROM_ADDRESS`, so set it once for Django and the worker. The address the UI shows is then the address the worker sends from.
 With the flag on, opening the Channels page creates the sender and shows it in its own row.
-Workflow email steps offer it as a sender. It replaces any other selected sender and has no Reply-To or custom sender. Broadcasts and other email surfaces do not offer it.
+Workflow email steps and template test sends offer it as a sender. In a step it replaces any other selected sender and has no Reply-To or custom sender. Broadcasts and other email surfaces do not offer it.
 Users cannot edit, verify, or remove the managed integration, make it the project default, use it for transactional email, or register their own integration on the shared domain.
 The managed integration is excluded from project SES tenant migration, identity cleanup, data suggestions, and the reputation page's domain breakdown.
 Configure the shared SES route, then enable `WORKFLOWS_SANDBOX_SENDER_ENABLED` on the worker and CDP API. Enable `workflows-sandbox-sender` last, and only for test projects until the worker reads the tenant pause and organization block in every region.
