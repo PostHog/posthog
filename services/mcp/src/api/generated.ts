@@ -13170,10 +13170,17 @@ export namespace Schemas {
       MetricsAlertConfig: 'MetricsAlertConfig',
     } as const;
 
+    /**
+     * Values for the `$name` variables in the insight's query.
+     */
+    export type MetricsAlertConfigVariables = {[key: string]: MetricsDashboardVariableSelection} | null;
+
     export interface MetricsAlertConfig {
       /** When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one. */
       check_ongoing_interval?: boolean | null;
       type: MetricsAlertConfigType;
+      /** Values for the `$name` variables in the insight's query. */
+      variables?: MetricsAlertConfigVariables;
     }
 
     /**
