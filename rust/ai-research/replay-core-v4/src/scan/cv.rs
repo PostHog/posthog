@@ -413,7 +413,6 @@ pub fn extract_event_images(
     event: &Event,
     sink: &mut ImageSink<'_>,
     copy: Option<&mut Copier<'_>>,
-    before_images: Option<&mut BeforeImages<'_>>,
 ) -> Option<Vec<u8>> {
     let (mut stored, takes_images) = match (&*expansion(inner, event), copy) {
         (Expansion::Failed | Expansion::Skipped, _) => (None, false),
@@ -432,11 +431,6 @@ pub fn extract_event_images(
     }
     if let Cow::Owned(canonical) = scan::canonical_strings(stored.as_deref().unwrap_or(arrived)) {
         stored = Some(canonical);
-    }
-    if let Some(changed) =
-        before_images.and_then(|before| before(stored.as_deref().unwrap_or(arrived)))
-    {
-        stored = Some(changed);
     }
     if takes_images {
         if let Cow::Owned(extracted) = extract_images(stored.as_deref().unwrap_or(arrived), sink) {
@@ -532,9 +526,6 @@ fn write_object(
 
 /// Copies a range of the payload or of a decoded string into the stored event, with what the writer changes there.
 pub type Copier<'c> = dyn FnMut(EditSource, &[u8], Span, &mut Vec<u8>) + 'c;
-
-/// Changes the stored event once its strings are canonical, before moving its inline images out changes them.
-pub type BeforeImages<'c> = dyn FnMut(&[u8]) -> Option<Vec<u8>> + 'c;
 
 fn expanded(
     inner: &[u8],
@@ -645,7 +636,7 @@ mod tests {
             .iter()
             .map(|e| {
                 serde_json::from_slice(
-                    &extract_event_images(&message.inner, e, &mut sink, None, None).unwrap(),
+                    &extract_event_images(&message.inner, e, &mut sink, None).unwrap(),
                 )
                 .unwrap()
             })
@@ -698,7 +689,7 @@ mod tests {
                 .events
                 .iter()
                 .map(|e| {
-                    let stored = extract_event_images(&message.inner, e, &mut sink, None, None)
+                    let stored = extract_event_images(&message.inner, e, &mut sink, None)
                         .unwrap_or_else(|| message.inner[e.span.0..e.span.1].to_vec());
                     serde_json::from_slice(&stored).unwrap()
                 })
@@ -742,7 +733,7 @@ mod tests {
         );
         let mut sink = sink();
         assert_eq!(
-            extract_event_images(&message.inner, &message.events[1], &mut sink, None, None),
+            extract_event_images(&message.inner, &message.events[1], &mut sink, None),
             None
         );
 
@@ -848,7 +839,7 @@ mod tests {
         let stored: Vec<Vec<u8>> = message
             .events
             .iter()
-            .map(|e| extract_event_images(&message.inner, e, &mut sink, None, None).unwrap())
+            .map(|e| extract_event_images(&message.inner, e, &mut sink, None).unwrap())
             .collect();
         assert!(stored
             .iter()
@@ -880,8 +871,7 @@ mod tests {
             message_with(json!([{"type": 2, "timestamp": 1, "data": compressed, "cv": "2024-10"}]));
         message.decode_compressed();
         let stored =
-            extract_event_images(&message.inner, &message.events[0], &mut sink(), None, None)
-                .unwrap();
+            extract_event_images(&message.inner, &message.events[0], &mut sink(), None).unwrap();
         assert!(String::from_utf8_lossy(&stored).contains(r#""textContent":"a"#));
         assert_eq!(
             serde_json::from_slice::<Value>(&stored).unwrap(),
@@ -907,7 +897,7 @@ mod tests {
         let mut sink = sink();
         for event in &message.events {
             assert_eq!(
-                extract_event_images(&message.inner, event, &mut sink, None, None),
+                extract_event_images(&message.inner, event, &mut sink, None),
                 None
             );
         }
@@ -1018,9 +1008,8 @@ mod tests {
         for (event, pointer, outcome) in cases {
             let message = message_with(json!([event]));
             let mut sink = sink();
-            let stored =
-                extract_event_images(&message.inner, &message.events[0], &mut sink, None, None)
-                    .map(|stored| serde_json::from_slice::<Value>(&stored).unwrap());
+            let stored = extract_event_images(&message.inner, &message.events[0], &mut sink, None)
+                .map(|stored| serde_json::from_slice::<Value>(&stored).unwrap());
             let replacement = match outcome {
                 Outcome::Kept => {
                     assert_eq!(stored, None, "{event}");
