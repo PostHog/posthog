@@ -58,7 +58,9 @@ class TestLogsQueryPrefilter:
                 filterGroup=PropertyGroupFilter(type=FilterLogicalOperator.AND_, values=[]),
             ),
             team=Team(id=1, timezone="UTC", organization=Organization()),
-            modifiers=HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.DISABLED, useNewEventsSchema=False),
+            modifiers=HogQLQueryModifiers(
+                personsOnEventsMode=PersonsOnEventsMode.DISABLED, useNewEventsSchema=False, optimizeProjections=False
+            ),
         )
         query = ReplaceFilters(runner.query_date_range.to_hogql_filters(), runner.team, Database()).visit(
             runner.to_query()
