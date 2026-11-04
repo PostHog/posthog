@@ -354,6 +354,7 @@ export interface inboxFiltersLogicValues {
         | 'held-back'
         | 'monitoring'
         | 'needs-decision'
+        | 'outcome-monitoring'
         | 'not-actionable'
         | 'resolved'
     )[]
@@ -458,7 +459,7 @@ export interface inboxFiltersLogicActions {
         source: string
     }
     toggleState: (state: InboxReportSectionKey) => {
-        state: 'closed' | 'dismissed' | 'held-back' | 'monitoring' | 'needs-decision' | 'not-actionable' | 'resolved'
+        state: InboxReportSectionKey
     }
 }
 
@@ -499,6 +500,7 @@ export interface inboxFiltersLogicMeta {
                 | 'held-back'
                 | 'monitoring'
                 | 'needs-decision'
+                | 'outcome-monitoring'
                 | 'not-actionable'
                 | 'resolved'
             )[],
@@ -511,6 +513,7 @@ export interface inboxFiltersLogicMeta {
                 | 'held-back'
                 | 'monitoring'
                 | 'needs-decision'
+                | 'outcome-monitoring'
                 | 'not-actionable'
                 | 'resolved'
             )[],

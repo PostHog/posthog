@@ -16,7 +16,7 @@ import {
 
 /**
  * Multi-select report-state filter for the flat Reports list: one checkbox per state (Needs decision,
- * Review and merge, Resolved, Closed, Dismissed, plus Not actionable for staff). The open-work states are
+ * Review and merge, Monitoring, Resolved, Closed, Dismissed, plus Not actionable for staff). The open-work states are
  * selected by default (see DEFAULT_STATE_FILTER); an empty selection means every state, so the
  * trigger reads "All statuses" then.
  */
