@@ -23,7 +23,6 @@ from posthog.integrations import IntegrationManager, IntegrationRecord
 from posthog.models.integration import POSTHOG_CONNECT_KIND, SANDBOX_EMAIL_PROVIDER, WAREHOUSE_SOURCE_TYPE_CONFIG_KEY
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.permissions import posthog_feature_flag_enabled
 
 from products.actions.backend.models.action import Action
 from products.cdp.backend.filters import (
@@ -128,18 +127,6 @@ def _sandbox_email_integrations(
     return cache
 
 
-def _sandbox_sender_enabled(team: Team, context: dict[str, Any]) -> bool:
-    flag_cache: dict[int, bool] = context.setdefault("sandbox_sender_enabled_cache", {})
-    if team.id not in flag_cache:
-        try:
-            flag_cache[team.id] = posthog_feature_flag_enabled(
-                "workflows-sandbox-sender", str(team.uuid), organization_id=team.organization_id, team_id=team.id
-            )
-        except Exception:
-            flag_cache[team.id] = False
-    return flag_cache[team.id]
-
-
 def _stored_email_values(context: dict[str, Any]) -> list[object]:
     # A workflow step passes its stored email values. A hog function passes them by input key,
     # so only the value stored under the input being validated counts.
@@ -152,15 +139,15 @@ def _stored_email_values(context: dict[str, Any]) -> list[object]:
 
 
 def validate_sandbox_email_sender(email_value: object, context: dict[str, Any]) -> None:
-    # Every check returns before any query or flag evaluation while the sandbox settings are empty,
-    # and before any integration lookup while the project lacks the flag.
+    # Every check returns before any query while the sandbox settings are empty. The project flag
+    # only gates adoption: a sandbox sender the project already has keeps its limits with the flag off.
     if not _sandbox_sender_configured():
         return
     if not isinstance(email_value, dict) or not isinstance(email_value.get("from"), dict):
         return
     integration_ids = _delivery_sender_ids(email_value["from"])
     get_team = context.get("get_team")
-    if not integration_ids or get_team is None or not _sandbox_sender_enabled(get_team(), context):
+    if not integration_ids or get_team is None:
         return
     # Bounds the lookup below. InputsItemSerializer applies the same limit to every save.
     if len(integration_ids) > MAX_WORKFLOW_EMAIL_SENDERS:
