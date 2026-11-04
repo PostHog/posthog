@@ -470,7 +470,7 @@ describe('InstructionsFormatter', () => {
             const entries = formatter.buildClaudeExecLearnGuides(fullCtx)
             const analytics = entries.find((entry) => entry.id === 'analytics')
 
-            expect(entries.map(({ id }) => id)).toEqual(['analytics', 'visualizations', 'urls', 'feedback'])
+            expect(entries.map(({ id }) => id)).toEqual(['analytics', 'hogql', 'visualizations', 'urls', 'feedback'])
             expect(analytics?.content).toContain('### Retrieving data')
             expect(analytics?.content).toContain('### Examples')
             expect(analytics?.content).toContain('- `query-trends` — time series')
@@ -492,6 +492,7 @@ describe('InstructionsFormatter', () => {
 
             expect(formatter.buildClaudeExecLearnGuides(ctx).map((entry) => entry.id)).toEqual([
                 'analytics',
+                'hogql',
                 'urls',
                 'feedback',
             ])

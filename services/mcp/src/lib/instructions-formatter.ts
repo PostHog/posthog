@@ -8,6 +8,7 @@ import {
     type ToolInfo,
 } from '@/lib/instructions'
 import { formatPrompt } from '@/lib/utils'
+import EXECUTE_SQL_REFERENCE from '@/templates/execute-sql-reference.md'
 import ACTIVITY_HISTORY_SQL from '@/templates/sections/activity-history-sql.md'
 import ACTIVITY_HISTORY from '@/templates/sections/activity-history.md'
 import AGENT_FEEDBACK from '@/templates/sections/agent-feedback.md'
@@ -44,6 +45,8 @@ import TOOL_SEARCH from '@/templates/sections/tool-search.md'
 import URL_PATTERNS from '@/templates/sections/url-patterns.md'
 import { type ExecLearnGuide, LEARN_COMMAND_LINE } from '@/tools/exec-learn'
 import type { BusinessKnowledgeContent } from '@/tools/types'
+
+export const HOGQL_GUIDE_ID = 'hogql'
 
 /** Naming a command the catalog withholds sends the agent down a path it cannot take. */
 const WHATS_NEW_WITH_DOCS_SEARCH =
@@ -333,6 +336,15 @@ export class InstructionsFormatter {
                 ),
             },
         ]
+
+        // The compact `execute-sql` description points here, so this guide must keep the
+        // complete guidelines and every section that description leaves out.
+        entries.push({
+            id: HOGQL_GUIDE_ID,
+            title: 'HogQL reference',
+            description: 'Full HogQL guidelines, examples, and the observability and LLM tables for `execute-sql`.',
+            content: `${ctx.guidelines.trim()}\n\n${EXECUTE_SQL_REFERENCE.trim()}`,
+        })
 
         if (ctx.renderUiEnabled) {
             entries.push({

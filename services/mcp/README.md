@@ -292,6 +292,7 @@ Optional, task-specific guidance is served through the same tool:
 
 - `learn` lists the available built-in guides and, when enabled, the PostHog/project skill discovery syntax.
 - `learn analytics` loads detailed analytics guidance and examples.
+- `learn hogql` loads the full HogQL guidelines, SQL examples, and the observability and LLM table reference for `execute-sql`.
 - `learn visualizations` loads rendering guidance when visualizations are available.
 - `learn urls` loads the PostHog app link formatting rules (kept inline for other clients; served as a guide on Claude web and desktop to protect the schema budget).
 - `learn feedback` loads feedback guidance when feedback is available.
@@ -306,6 +307,14 @@ Optional, task-specific guidance is served through the same tool:
 Built-in guides are specific to Claude web and desktop. Skill discovery is independently available to every cli-mode client when the `mcp-exec-skills` feature flag is enabled. Other clients, including Claude Code, receive only the skill commands and do not receive Claude's built-in guides. If the flag is missing, disabled, or cannot be evaluated, skill commands are omitted from the schema and rejected at runtime.
 When skill discovery is enabled, the inline prompt tells every non-plugin cli client, including Claude web and desktop, to search with `learn -s "<task keywords>"` before non-trivial PostHog work, load matches by exact qualified name, and follow the loaded `SKILL.md` before choosing tools. Trivial lookups and unrelated conversation skip this workflow.
 Skill use is advisory: a product `call` is never rejected for skipping `learn`, so every client behaves the same whether or not it holds an MCP session id.
+
+`info execute-sql` carries the HogQL rules needed for routine queries inline. The full HogQL guidelines and reference stay inline only for clients that cannot load them on demand. Other clients get a pointer instead:
+
+- Claude web and desktop: `learn hogql`.
+- Other cli clients with skill discovery enabled: `learn posthog:querying-posthog-data references/guidelines.md`.
+- `consumer=plugin`: the bundled `querying-posthog-data` skill.
+
+Tools mode, `consumer=posthog-code`, and cli clients without `learn` keep the full description, because they have no on-demand path the server can rely on.
 
 The skill bundle is shared through Redis: each pod loads it once at startup, parses it into memory, and serves every `learn` command from that parsed catalog.
 A background timer polls a small version key in Redis; only when the version changes does a pod read the archive bytes again.

@@ -1,8 +1,28 @@
+import guidelines from '@shared/guidelines.md'
 import { describe, expect, it } from 'vitest'
 
+import { MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
 import { InstructionsBuilder } from '@/hono/instructions'
+import type { ResolvedState } from '@/hono/request-state-resolver'
+import { MCPClientProfile } from '@/lib/client-detection'
+import { estimateTokens } from '@/lib/estimate-tokens'
+import { HOGQL_GUIDE_ID } from '@/lib/instructions-formatter'
+import EXECUTE_SQL_REFERENCE from '@/templates/execute-sql-reference.md'
 import CATALOG_TRUST_DISCOVERY from '@/templates/sections/catalog-trust-discovery.md'
 import METRIC_DISCOVERY from '@/templates/sections/metric-discovery.md'
+
+import { makeToolExecutorState } from '../shared/test-utils'
+
+const GUIDELINES = '#### HogQL guidelines\n\nFull guideline text.'
+
+function execState(opts: { consumer?: string; vendorClient?: string; skills?: boolean } = {}): ResolvedState {
+    return makeToolExecutorState([{ name: 'execute-sql' }], {
+        useSingleExec: true,
+        clientProfile: new MCPClientProfile({ vendorClient: opts.vendorClient }),
+        requestContext: { mcpConsumer: opts.consumer } as any,
+        toolFeatureFlags: opts.skills ? { [MCP_EXEC_SKILLS_FEATURE_FLAG]: true } : {},
+    })
+}
 
 describe('formatExecuteSqlDescription', () => {
     const builder = new InstructionsBuilder('some guidelines')
@@ -37,5 +57,51 @@ describe('formatExecuteSqlDescription', () => {
     it('keeps data-catalog discovery within its character budget', () => {
         const catalogSections = `${METRIC_DISCOVERY.trim()}\n\n${CATALOG_TRUST_DISCOVERY.trim()}`
         expect(catalogSections.length).toBeLessThan(3000)
+    })
+
+    // Every client must still reach the full guidelines: inline when it has no on-demand
+    // path, or through the path the compact description names.
+    it.each([
+        { label: 'tools mode', state: undefined, pointer: undefined },
+        { label: 'cli without learn', state: execState(), pointer: undefined },
+        { label: 'posthog-code', state: execState({ consumer: 'posthog-code', skills: true }), pointer: undefined },
+        {
+            label: 'plugin',
+            state: execState({ consumer: 'plugin', skills: true }),
+            pointer: 'bundled `querying-posthog-data` skill',
+        },
+        {
+            label: 'cli with skills',
+            state: execState({ skills: true }),
+            pointer: 'learn posthog:querying-posthog-data references/guidelines.md',
+        },
+        {
+            label: 'claude web',
+            state: execState({ vendorClient: 'ClaudeAI', skills: true }),
+            pointer: `learn ${HOGQL_GUIDE_ID}`,
+        },
+    ])('serves the HogQL guidelines inline or names where to load them ($label)', ({ state, pointer }) => {
+        const rendered = new InstructionsBuilder(GUIDELINES).formatExecuteSqlDescription(state)
+        expect(rendered.includes(GUIDELINES)).toBe(pointer === undefined)
+        expect(rendered).toContain(pointer ?? EXECUTE_SQL_REFERENCE.trim())
+    })
+
+    // Agents run `info execute-sql` before most SQL, so this size is paid once per analytics session.
+    it('keeps the compact description within its token budget', () => {
+        const rendered = new InstructionsBuilder(guidelines).formatExecuteSqlDescription(execState({ skills: true }))
+        expect(estimateTokens(rendered)).toBeLessThan(4500)
+    })
+
+    it('loses no line of the full description between the compact variant and the hogql guide', async () => {
+        const state = execState({ vendorClient: 'ClaudeAI' })
+        const builder = new InstructionsBuilder(GUIDELINES)
+        const full = builder.formatExecuteSqlDescription()
+        const compact = builder.formatExecuteSqlDescription(state)
+        const guide = await builder.buildExecLearnCatalog(state, undefined)!.execute(HOGQL_GUIDE_ID)
+
+        const missing = full
+            .split('\n')
+            .filter((line) => line.trim() && !compact.includes(line) && !guide.includes(line))
+        expect(missing).toEqual([])
     })
 })

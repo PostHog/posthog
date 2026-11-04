@@ -32,6 +32,7 @@ Assistant: [Runs only `learn -s "checkout conversion drop"`; waits. Gets `postho
 Load all matching topics in one `learn` command first. Topics are cumulative.
 
 - analytics: Query or analyze PostHog data; governed metrics, certified tables, and verified joins live in the catalog.
+- hogql: Full HogQL guidelines, examples, and the observability and LLM tables for `execute-sql`.
 - visualizations: Create or render a visualization.
 - urls: Load before writing any PostHog app link or URL.
 - feedback: Send feedback about PostHog.
