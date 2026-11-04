@@ -23,6 +23,7 @@ from products.warehouse_sources.sources.sentry.sentry import (
     SentryRateLimitedError,
     SentryResumeConfig,
     SentrySessionsRejectedError,
+    SentryStaleResumeCheckpointError,
     SentryStatsSummaryRejectedError,
     _custom_endpoint_rows,
     _normalize_organization_slug,
@@ -1068,19 +1069,36 @@ class TestIssueTagValuesResumable:
                     tag_key="browser",
                     values_next_url="https://sentry.io/api/0/organizations/acme/issues/999/tags/browser/values/?cursor=0:100:2",
                 ),
-                ["100", "101", "102", "103"],
+                False,
+                None,
             ),
-            ("checkpoint_past_the_limit", SentryResumeConfig(completed_issue_id="102", issue_position=3), ["103"]),
+            (
+                "checkpoint_past_the_limit",
+                SentryResumeConfig(completed_issue_id="102", issue_position=3),
+                False,
+                ["103"],
+            ),
             (
                 "checkpoint_issue_gone_before_the_limit",
                 SentryResumeConfig(completed_issue_id="999", issue_position=10),
+                False,
+                None,
+            ),
+            (
+                "checkpoint_issue_gone_on_a_merging_run",
+                SentryResumeConfig(completed_issue_id="999", issue_position=10),
+                True,
                 ["100", "101", "102", "103"],
             ),
         ]
     )
     @patch("products.warehouse_sources.sources.sentry.sentry._RESUME_ISSUE_SKIP_LIMIT", 1)
     def test_checkpoint_issue_search_is_bounded(
-        self, _name: str, resume_state: SentryResumeConfig, expected_issue_ids: list[str]
+        self,
+        _name: str,
+        resume_state: SentryResumeConfig,
+        incremental: bool,
+        expected_issue_ids: list[str] | None,
     ) -> None:
         def script(request: RecordedRequest) -> ScriptedResponse:
             if request.path.endswith("/organizations/acme/issues/"):
@@ -1089,9 +1107,24 @@ class TestIssueTagValuesResumable:
                 return _json([{"key": "browser"}])
             return _json([{"value": "Chrome"}])
 
-        result = _driver().run("issue_tag_values", script, resume_state=resume_state)
+        incremental_inputs: dict[str, Any] = (
+            {
+                "should_use_incremental_field": True,
+                "db_incremental_field_last_value": datetime(2026, 1, 1, tzinfo=UTC),
+                "incremental_field": "lastSeen",
+            }
+            if incremental
+            else {}
+        )
+        result = _driver().run("issue_tag_values", script, resume_state=resume_state, **incremental_inputs)
 
-        assert [row["issue_id"] for row in result.rows] == expected_issue_ids
+        if expected_issue_ids is None:
+            assert isinstance(result.raised, SentryStaleResumeCheckpointError)
+            assert result.rows == []
+            assert result.final_state is None
+        else:
+            assert result.raised is None
+            assert [row["issue_id"] for row in result.rows] == expected_issue_ids
 
     def test_partial_resume_state_falls_through_to_fresh_run(self) -> None:
         """Only activate resume when the full (issue_id, tag_key, values_next_url)

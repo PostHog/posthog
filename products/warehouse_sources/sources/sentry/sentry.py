@@ -297,6 +297,10 @@ class SentryRateLimitedError(Exception):
     """Sentry kept returning 429 until the request-level retry budget ran out."""
 
 
+class SentryStaleResumeCheckpointError(Exception):
+    """The issue_tag_values checkpoint issue is gone, and this attempt cannot read the issues again without duplicates."""
+
+
 def _is_retryable_response(response: Response) -> bool:
     return response.status_code in _RETRYABLE_STATUS_CODES
 
@@ -542,6 +546,8 @@ def _resume_issue_order(
     checkpoint_issue_done: bool,
     skip_limit: int,
     listing_floor: datetime | None,
+    merges_rows: bool,
+    clear_checkpoint: Callable[[], None],
 ) -> Iterator[_ListedIssue]:
     """Yield each issue from the checkpoint on, with its position and whether it is the checkpoint issue.
 
@@ -549,9 +555,11 @@ def _resume_issue_order(
     issue were read and are skipped. Sentry orders `sort=date` by last seen, so an issue with a new
     event can move ahead of the checkpoint and get skipped. The checkpoint issue can also be deleted or
     merged between attempts. When it is not found within `skip_limit` positions, or before the listing
-    ends or reaches `listing_floor`, the listing starts again from the top, because a resume that skips
-    every issue completes with no rows and reports success. Listing again keeps no skipped issue in
-    memory, and a full refresh appends the rows of the issues it reads again.
+    ends or reaches `listing_floor`, the issues are read again from the top, because a resume that
+    skips every issue completes with no rows and reports success. When `merges_rows` is true, the
+    listing starts again in this attempt, and the rows it reads again merge on the primary key.
+    Otherwise the attempt appends, so the rows of the earlier attempt would duplicate. The checkpoint
+    is then cleared and the attempt fails, and the next attempt overwrites the table on its first batch.
     """
     positioned = enumerate(list_issues(), start=1)
     if checkpoint_issue_id is not None:
@@ -569,7 +577,16 @@ def _resume_issue_order(
                 if issue_last_seen is not None and issue_last_seen <= listing_floor:
                     break
         if not found:
-            logger.info("sentry_source.stale_resume_checkpoint", resume_issue_id=checkpoint_issue_id)
+            logger.info(
+                "sentry_source.stale_resume_checkpoint",
+                resume_issue_id=checkpoint_issue_id,
+                restarts_attempt=not merges_rows,
+            )
+            if not merges_rows:
+                clear_checkpoint()
+                raise SentryStaleResumeCheckpointError(
+                    "The resume checkpoint issue is no longer listed, so the sync starts again from the first issue."
+                )
             positioned = enumerate(list_issues(), start=1)
     for position, issue in positioned:
         yield _ListedIssue(position=position, issue=issue, is_checkpoint=False)
@@ -635,6 +652,10 @@ def _iter_issue_tag_values_rows(
             resume_done_tag_keys = list(loaded.completed_tag_keys or [])
             resume_skips_to_tag = loaded.completed_tag_keys is None
 
+    def clear_checkpoint() -> None:
+        if resumable_source_manager is not None:
+            resumable_source_manager.clear_state()
+
     stale_issues: set[str] = set()
 
     for listed in _resume_issue_order(
@@ -643,6 +664,9 @@ def _iter_issue_tag_values_rows(
         checkpoint_issue_done,
         resume_skip_limit,
         None if use_warehouse_parent else cutoff_last_seen,
+        # An incremental run with a watermark merges on the primary key. Other runs append.
+        merges_rows=cutoff_last_seen is not None,
+        clear_checkpoint=clear_checkpoint,
     ):
         issue = listed.issue
         issue_position = listed.position
