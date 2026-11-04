@@ -133,6 +133,20 @@ class TestReadsEventsWithoutLowerBound(BaseTest):
                 True,
             ),
             ("hour_of_day", "select count() from events where toHour(timestamp) >= 9", True),
+            ("partition_key", "select count() from events where toYYYYMM(timestamp) = 202601", False),
+            ("year", "select count() from events where toYear(timestamp) >= 2026", False),
+            ("to_date_snake_case", "select count() from events where to_date(timestamp) >= today() - 7", False),
+            (
+                "in_subquery_on_events",
+                "select * from events where toDate(timestamp) in "
+                f"(select toDate(max(timestamp)) from events where timestamp > {RECENT})",
+                False,
+            ),
+            (
+                "outer_bound_across_inner_offset",
+                f"select count() from (select timestamp from events offset 5) where timestamp > {RECENT}",
+                True,
+            ),
             ("age_from_date_difference", "select count() from events where today() - toDate(timestamp) > 30", True),
             ("age_from_minus_call", "select count() from events where minus(today(), toDate(timestamp)) > 30", True),
             ("modulo_of_date", "select count() from events where toDate(timestamp) % 7 >= 1", True),

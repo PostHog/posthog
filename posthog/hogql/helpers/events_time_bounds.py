@@ -6,10 +6,10 @@ partition the team ever wrote to. The check runs on a resolved AST and answers p
 conjunct of WHERE or PREWHERE, in the select that reads the table or in an enclosing select that
 filters a column taken from that table's `timestamp`. A point lookup by `uuid` also counts.
 
-An enclosing filter does not count across a LIMIT, LIMIT BY or window function in the inner select,
-or a LIMIT on an inner set query, because moving the filter inside would change the result, so it cannot restrict the read. It also
-does not count for a CTE that the query references more than once, because the filter restricts
-only one of those reads.
+An enclosing filter does not count across a LIMIT, OFFSET, LIMIT BY or window function in the inner
+select, or a LIMIT or OFFSET on an inner set query, because moving the filter inside would change the
+result, so it cannot restrict the read. It also does not count for a CTE that the query references
+more than once, because the filter restricts only one of those reads.
 
 The check reads the shape of the query and not the value of the bound, so `timestamp > '1970-01-01'`
 passes. It guides callers and does not guarantee a scan size.
@@ -34,13 +34,31 @@ from posthog.hogql.visitor import TraversingVisitor
 _TIMESTAMP_COLUMN = "timestamp"
 _UUID_COLUMN = "uuid"
 _LOWER_BOUND_OPS = frozenset(
-    {ast.CompareOperationOp.Gt, ast.CompareOperationOp.GtEq, ast.CompareOperationOp.Eq, ast.CompareOperationOp.In}
+    {
+        ast.CompareOperationOp.Gt,
+        ast.CompareOperationOp.GtEq,
+        ast.CompareOperationOp.Eq,
+        ast.CompareOperationOp.In,
+        ast.CompareOperationOp.GlobalIn,
+    }
 )
 _FLIPPED_LOWER_BOUND_OPS = frozenset(
     {ast.CompareOperationOp.Lt, ast.CompareOperationOp.LtEq, ast.CompareOperationOp.Eq}
 )
 _POINT_LOOKUP_OPS = frozenset({ast.CompareOperationOp.Eq, ast.CompareOperationOp.In})
-_ORDER_PRESERVING_FUNCTIONS = frozenset({"toDate", "toDateTime64", "toUnixTimestamp"})
+_ORDER_PRESERVING_FUNCTIONS = frozenset(
+    {
+        "toDate",
+        "to_date",
+        "toDateTime64",
+        "toUnixTimestamp",
+        "toUnixTimestamp64Milli",
+        "toYear",
+        "toYYYYMM",
+        "toYYYYMMDD",
+        "toYYYYMMDDhhmmss",
+    }
+)
 _DATE_TRUNC_FUNCTIONS = frozenset({"dateTrunc", "date_trunc"})
 
 
@@ -83,13 +101,13 @@ class _SelectScan(TraversingVisitor):
             super().visit(node)
 
     def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
-        if node.limit is not None:
+        if node.limit is not None or node.offset is not None:
             self.pushdown_blocked.add(id(node.type))
         super().visit_select_set_query(node)
 
     def visit_select_query(self, node: ast.SelectQuery) -> None:
         self.selects.append(node)
-        if node.limit is not None or node.limit_by is not None:
+        if node.limit is not None or node.offset is not None or node.limit_by is not None:
             self.pushdown_blocked.add(id(node.type))
         self._enclosing_selects.append(node)
         super().visit_select_query(node)
