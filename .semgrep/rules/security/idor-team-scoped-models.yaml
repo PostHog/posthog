@@ -305,6 +305,7 @@ rules:
                               |MessageSuppression
                               |MessageTemplate
                               |Metric
+                              |MetricDailyQueryCount
                               |MetricsDashboardDiscovery
                               |MetricsDashboardSuggestion
                               |RelationshipProposal
@@ -808,6 +809,7 @@ rules:
                         |MessageSuppression
                         |MessageTemplate
                         |Metric
+                        |MetricDailyQueryCount
                         |MetricsDashboardDiscovery
                         |MetricsDashboardSuggestion
                         |RelationshipProposal
