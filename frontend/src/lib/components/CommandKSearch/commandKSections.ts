@@ -105,6 +105,7 @@ const SECTION_LABELS: Record<Exclude<CommandKSectionKey, `group-${string}`>, str
     events: 'Events',
     properties: 'Properties',
     workflows: 'Workflows',
+    endpoints: 'Endpoints',
     accounts: 'Accounts',
     tickets: 'Support tickets',
     persons: 'Persons',
