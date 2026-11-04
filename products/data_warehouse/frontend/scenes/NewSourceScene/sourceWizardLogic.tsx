@@ -33,6 +33,11 @@ import {
 
 import type { SourceFieldConfig } from 'products/data_warehouse/frontend/types'
 import {
+    externalDataSourcesBulkUpdateSchemasPartialUpdate,
+    externalDataSourcesRetrieve,
+} from 'products/warehouse_sources/frontend/generated/api'
+import {
+    ExternalDataSourceBulkUpdateSchemaApi,
     SourceConfigResponseApi,
     SourceFieldSwitchGroupConfigApi,
     SuggestedTableApi,
@@ -411,6 +416,39 @@ export const bulkToggledShouldSync = (schema: ExternalDataSourceSyncSchema, sele
     return selectAll
 }
 
+export interface PollingSyncSettings {
+    sync_type: 'full_refresh' | 'incremental' | 'append'
+    incremental_field?: string
+    incremental_field_type?: string
+}
+
+/** The default sync method for a table that does not sync by CDC or webhook. */
+export function defaultPollingSyncSettings(
+    schema: ExternalDataSourceSyncSchema,
+    connectorName: string
+): PollingSyncSettings {
+    if (schema.prefers_full_refresh) {
+        return { sync_type: 'full_refresh' }
+    }
+    if (schema.incremental_available && !hasIncrementalMergeKey(schema)) {
+        return { sync_type: 'full_refresh' }
+    }
+    if (schema.incremental_available || schema.append_available) {
+        const resolvedField =
+            connectorName === 'Supabase'
+                ? resolveUpdateTrackedIncrementalField(schema.incremental_fields)
+                : resolveIncrementalField(schema.incremental_fields)
+        if (resolvedField) {
+            return {
+                sync_type: schema.incremental_available ? 'incremental' : 'append',
+                incremental_field: resolvedField.field,
+                incremental_field_type: resolvedField.field_type,
+            }
+        }
+    }
+    return { sync_type: 'full_refresh' }
+}
+
 function syncExpandedSchemaGroupKeys(
     actions: sourceWizardLogicType['actions'],
     values: sourceWizardLogicType['values']
@@ -549,8 +587,11 @@ export interface sourceWizardLogicValues {
     webhookFieldInputsTouched: boolean
     webhookFieldInputsTouches: Record<string, boolean>
     webhookFieldInputsValidationErrors: DeepPartialMap<Record<string, any>, ValidationErrorType>
+    webhookManualSetupConfirmed: boolean
+    webhookNeedsManualConfirmation: boolean
     webhookResult: WebhookCreateResult | null
     webhookStepComplete: boolean
+    webhookTablesSwitching: boolean
     wizardAvailableDestinationCount: number
     wizardDestinationIds: string[]
 }
@@ -784,14 +825,23 @@ export interface sourceWizardLogicActions {
     setWebhookFieldInputsValues: (values: DeepPartial<Record<string, any>>) => {
         values: DeepPartial<Record<string, any>>
     }
+    setWebhookManualSetupConfirmed: (confirmed: boolean) => {
+        confirmed: boolean
+    }
     setWebhookResult: (result: WebhookCreateResult | null) => {
         result: WebhookCreateResult | null
+    }
+    setWebhookTablesSwitching: (switching: boolean) => {
+        switching: boolean
     }
     setWizardAvailableDestinationCount: (count: number) => {
         count: number
     }
     setWizardDestinationIds: (destinationIds: string[]) => {
         destinationIds: string[]
+    }
+    skipWebhookSetup: () => {
+        value: true
     }
     submitSourceConnectionDetails: () => {
         value: boolean
@@ -826,6 +876,9 @@ export interface sourceWizardLogicActions {
         webhookFieldInputs: Record<string, any>
     }
     submitWebhookFields: () => {
+        value: true
+    }
+    switchWebhookTablesToPolling: () => {
         value: true
     }
     syncExpandedSchemaGroupKeys: (
@@ -928,9 +981,14 @@ export interface sourceWizardLogicMeta {
             }[]
         ) => Breadcrumb[]
         hasWebhookSchemas: (databaseSchema: ExternalDataSourceSyncSchema[]) => boolean
-        webhookStepComplete: (
+        webhookNeedsManualConfirmation: (
             webhookResult: WebhookCreateResult | null,
             selectedConnector: SourceConfigResponseApi | null
+        ) => boolean
+        webhookStepComplete: (
+            webhookResult: WebhookCreateResult | null,
+            webhookNeedsManualConfirmation: boolean,
+            webhookManualSetupConfirmed: boolean
         ) => boolean
         isManualLinkingSelected: (selectedConnector: SourceConfigResponseApi | null) => boolean
         isDirectQueryMode: (
@@ -1143,6 +1201,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             result,
         }),
         submitWebhookFields: true,
+        setWebhookManualSetupConfirmed: (confirmed: boolean) => ({ confirmed }),
+        switchWebhookTablesToPolling: true,
+        setWebhookTablesSwitching: (switching: boolean) => ({ switching }),
+        skipWebhookSetup: true,
         openCdcSelfManagedSetupDialog: true,
         closeCdcSelfManagedSetupDialog: true,
         clearCdcPrereqsCheckResult: true,
@@ -1455,6 +1517,20 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 setWebhookResult: () => false,
             },
         ],
+        webhookManualSetupConfirmed: [
+            false,
+            {
+                setWebhookManualSetupConfirmed: (_, { confirmed }) => confirmed,
+                setWebhookResult: () => false,
+                onClear: () => false,
+            },
+        ],
+        webhookTablesSwitching: [
+            false,
+            {
+                setWebhookTablesSwitching: (_, { switching }) => switching,
+            },
+        ],
     }),
     loaders(({ values }) => ({
         cdcPrereqsCheckResult: [
@@ -1598,19 +1674,28 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             (databaseSchema: ExternalDataSourceSyncSchema[]): boolean =>
                 databaseSchema.some((s) => s.supports_webhooks && s.sync_type === 'webhook' && s.should_sync),
         ],
-        webhookStepComplete: [
+        webhookNeedsManualConfirmation: [
             (s) => [s.webhookResult, s.selectedConnector],
             (webhookResult: WebhookCreateResult | null, selectedConnector: SourceConfigResponseApi | null): boolean => {
+                if (!webhookResult?.webhook_url || webhookResultHasNoPendingInputs(webhookResult)) {
+                    return false
+                }
+                // With a required field to save, saving that form is the proof of the manual setup.
+                const webhookFields = selectedConnector?.webhookFields ?? []
+                return !webhookFields.some((f) => 'required' in f && f.required)
+            },
+        ],
+        webhookStepComplete: [
+            (s) => [s.webhookResult, s.webhookNeedsManualConfirmation, s.webhookManualSetupConfirmed],
+            (
+                webhookResult: WebhookCreateResult | null,
+                webhookNeedsManualConfirmation: boolean,
+                webhookManualSetupConfirmed: boolean
+            ): boolean => {
                 if (webhookResultHasNoPendingInputs(webhookResult)) {
                     return true
                 }
-                if (!webhookResult) {
-                    return false
-                }
-
-                const webhookFields = selectedConnector?.webhookFields ?? []
-                const requiredFields = webhookFields.filter((f) => 'required' in f && f.required)
-                return requiredFields.length === 0
+                return webhookNeedsManualConfirmation && webhookManualSetupConfirmed
             },
         ],
         isManualLinkingSelected: [
@@ -1712,7 +1797,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 }
 
                 if (currentStep === 4 && !webhookStepComplete) {
-                    return 'Finish setting up the webhook to continue'
+                    return 'Set up the webhook, or choose another option below this step'
                 }
 
                 if (currentStep === WIZARD_DESTINATION_STEP) {
@@ -2413,6 +2498,91 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 posthog.captureException(e)
             }
         },
+        switchWebhookTablesToPolling: async () => {
+            const { sourceId, currentTeamId, selectedConnector } = values
+            if (!sourceId || !currentTeamId || !selectedConnector) {
+                return
+            }
+            actions.setWebhookTablesSwitching(true)
+            try {
+                const source = await externalDataSourcesRetrieve(String(currentTeamId), sourceId)
+                const wizardSchemas = new Map(values.databaseSchema.map((schema) => [schema.table, schema]))
+                const updates: ExternalDataSourceBulkUpdateSchemaApi[] = []
+                const switched = new Map<string, PollingSyncSettings>()
+                for (const item of source.schemas) {
+                    const schemaId = typeof item.id === 'string' ? item.id : null
+                    const name = typeof item.name === 'string' ? item.name : null
+                    const wizardSchema = name ? wizardSchemas.get(name) : undefined
+                    if (!schemaId || !name || !wizardSchema || item.sync_type !== 'webhook' || !item.should_sync) {
+                        continue
+                    }
+                    const settings = defaultPollingSyncSettings(wizardSchema, selectedConnector.name)
+                    switched.set(name, settings)
+                    updates.push({
+                        id: schemaId,
+                        sync_type: settings.sync_type,
+                        incremental_field: settings.incremental_field ?? null,
+                        incremental_field_type: settings.incremental_field_type ?? null,
+                    })
+                }
+                if (updates.length > 0) {
+                    await externalDataSourcesBulkUpdateSchemasPartialUpdate(String(currentTeamId), sourceId, {
+                        schemas: updates,
+                    })
+                }
+                actions.setDatabaseSchemas(
+                    values.databaseSchema.map((schema) => {
+                        const settings = switched.get(schema.table)
+                        return settings
+                            ? {
+                                  ...schema,
+                                  sync_type: settings.sync_type,
+                                  incremental_field: settings.incremental_field ?? null,
+                                  incremental_field_type: settings.incremental_field_type ?? null,
+                              }
+                            : schema
+                    })
+                )
+                posthog.capture('source wizard webhook tables switched to polling', {
+                    sourceType: selectedConnector.name,
+                    tableCount: updates.length,
+                })
+                lemonToast.success(
+                    `Switched ${updates.length.toLocaleString()} ${updates.length === 1 ? 'table' : 'tables'} to another sync method`
+                )
+                actions.setStep(5)
+            } catch (e: any) {
+                posthog.captureException(e)
+                lemonToast.error(
+                    `Couldn't change the sync method: ${e.data?.detail ?? e.data?.message ?? e.message ?? 'unknown error'}. Try again, or change it on the source's Schemas tab later.`
+                )
+            } finally {
+                actions.setWebhookTablesSwitching(false)
+            }
+        },
+        skipWebhookSetup: () => {
+            const sourceName = values.selectedConnector?.label ?? values.selectedConnector?.name ?? 'the source'
+            LemonDialog.open({
+                title: 'Skip the webhook setup?',
+                description: `Tables that use webhook sync get no webhook updates until you set up the webhook. Until then, each sync reads the ${sourceName} API instead. This is slower, and a sync can read the whole table each time. You can set up the webhook later on the source's Webhook tab.`,
+                primaryButton: {
+                    children: 'Skip webhook setup',
+                    status: 'danger',
+                    onClick: () => {
+                        posthog.capture('source wizard webhook setup skipped', {
+                            sourceType: values.selectedConnector?.name,
+                            webhookCreateFailed: values.webhookResult ? !values.webhookResult.success : null,
+                        })
+                        actions.setStep(5)
+                    },
+                    'data-attr': 'source-wizard-skip-webhook-confirm',
+                },
+                secondaryButton: {
+                    children: 'Go back',
+                    type: 'tertiary',
+                },
+            })
+        },
         submitWebhookFields: async () => {
             if (!values.sourceId) {
                 return
@@ -2517,25 +2687,13 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                             schema.sync_type = 'cdc'
                         } else if (schema.supports_webhooks) {
                             schema.sync_type = 'webhook'
-                        } else if (schema.prefers_full_refresh) {
-                            schema.sync_type = 'full_refresh'
-                        } else if (schema.incremental_available && !hasIncrementalMergeKey(schema)) {
-                            schema.sync_type = 'full_refresh'
-                        } else if (schema.incremental_available || schema.append_available) {
-                            const method = schema.incremental_available ? 'incremental' : 'append'
-                            const resolvedField =
-                                values.selectedConnector.name === 'Supabase'
-                                    ? resolveUpdateTrackedIncrementalField(schema.incremental_fields)
-                                    : resolveIncrementalField(schema.incremental_fields)
-                            schema.sync_type = method
-                            if (resolvedField) {
-                                schema.incremental_field = resolvedField.field
-                                schema.incremental_field_type = resolvedField.field_type
-                            } else {
-                                schema.sync_type = 'full_refresh'
-                            }
                         } else {
-                            schema.sync_type = 'full_refresh'
+                            const settings = defaultPollingSyncSettings(schema, values.selectedConnector.name)
+                            schema.sync_type = settings.sync_type
+                            if (settings.incremental_field) {
+                                schema.incremental_field = settings.incremental_field
+                                schema.incremental_field_type = settings.incremental_field_type ?? null
+                            }
                         }
                     }
 

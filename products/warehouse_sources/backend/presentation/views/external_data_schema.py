@@ -43,6 +43,7 @@ from products.data_warehouse.backend.facade.api import (
     unpause_external_data_schedule,
     update_external_job_status,
 )
+from products.warehouse_sources.backend.facade.api import schema_needs_webhook, sources_missing_webhook
 from products.warehouse_sources.backend.facade.contracts import ConfigValueError, UndecryptedConfigError
 from products.warehouse_sources.backend.facade.models import (
     CDC_SNAPSHOT_LANE_KEY,
@@ -148,6 +149,7 @@ def source_syncs_on_demand(source_type: str) -> bool:
 
 
 PINNED_TABLE_IDS_CONTEXT_KEY = "pinned_table_ids"
+WEBHOOK_MISSING_BY_SOURCE_CONTEXT_KEY = "webhook_missing_by_source"
 
 
 def pinned_table_ids(schemas: Iterable[ExternalDataSchema], team_id: int) -> dict[uuid.UUID, uuid.UUID]:
@@ -172,6 +174,20 @@ def pinned_table_ids(schemas: Iterable[ExternalDataSchema], team_id: int) -> dic
         )
     )
     return {schema_id: table_id for schema_id, table_id in pins.items() if table_id in live}
+
+
+def webhook_not_registered(schema: ExternalDataSchema, context: dict[str, Any]) -> bool:
+    """Whether the schema syncs by webhook but its source has no enabled webhook.
+
+    A list fills `WEBHOOK_MISSING_BY_SOURCE_CONTEXT_KEY` up front with `sources_missing_webhook`. Without it,
+    the first schema of each source looks the source up and keeps the answer for the rest.
+    """
+    if not schema_needs_webhook(schema):
+        return False
+    missing_by_source: dict[uuid.UUID, bool] = context.setdefault(WEBHOOK_MISSING_BY_SOURCE_CONTEXT_KEY, {})
+    if schema.source_id not in missing_by_source:
+        missing_by_source.update(sources_missing_webhook(schema.team_id, [schema]))
+    return missing_by_source[schema.source_id]
 
 
 def linked_table_id(schema: ExternalDataSchema, context: dict[str, Any]) -> uuid.UUID | None:
@@ -702,6 +718,14 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "or fails for another reason, not when an update lands."
         ),
     )
+    webhook_not_registered = serializers.SerializerMethodField(
+        read_only=True,
+        help_text=(
+            "Whether this table uses webhook sync, but its source has no enabled webhook. Such a table "
+            "gets no webhook updates. Each sync polls the source API instead, which is slower and can read "
+            "the whole table. Set up the webhook on the source, or change `sync_type`."
+        ),
+    )
     enabled_columns = serializers.ListField(
         child=serializers.CharField(),
         required=False,
@@ -801,6 +825,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "primary_key_columns",
             "cdc_table_mode",
             "incremental_sync_blocked",
+            "webhook_not_registered",
             "enabled_columns",
             "row_filters",
             "row_filter_columns",
@@ -824,6 +849,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "status",
             "pending_self_managed_table",
             "incremental_sync_blocked",
+            "webhook_not_registered",
             "next_full_refresh_at",
             "description",
             "row_filter_columns",
@@ -1012,6 +1038,10 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
     def get_incremental(self, schema: ExternalDataSchema) -> bool:
         return schema.is_incremental
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_webhook_not_registered(self, schema: ExternalDataSchema) -> bool:
+        return webhook_not_registered(schema, self.context)
 
     @extend_schema_field(serializers.UUIDField(allow_null=True))
     def get_table_id(self, schema: ExternalDataSchema) -> uuid.UUID | None:
@@ -2302,6 +2332,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if kwargs.get("many") and args:
             context = kwargs["context"]
             context[PINNED_TABLE_IDS_CONTEXT_KEY] = pinned_table_ids(args[0], self.team_id)
+            context[WEBHOOK_MISSING_BY_SOURCE_CONTEXT_KEY] = sources_missing_webhook(self.team_id, args[0])
         serializer_class = self.get_serializer_class()
         return serializer_class(*args, **kwargs)
 
