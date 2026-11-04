@@ -123,7 +123,10 @@ class SchedulingUnavailableError(Exception):
 def is_raw_managed_trino_query(query: object) -> bool:
     """A raw Trino view stores Trino SQL that only hosted Trino can run, so ClickHouse and lineage skip it."""
     return (
-        isinstance(query, dict) and query.get("executionTarget") == "managed_trino" and bool(query.get("sendRawQuery"))
+        isinstance(query, dict)
+        and query.get("executionTarget") == "managed_trino"
+        # The list endpoint matches JSON `true` in SQL, so a truthy string must not count here either.
+        and query.get("sendRawQuery") is True
     )
 
 

@@ -1,6 +1,27 @@
-import { isOnboardingNotRequiredForPath, withForwardedSearchParams } from './sceneLogic'
+import { getOnboardingRedirectNextPath, isOnboardingNotRequiredForPath, withForwardedSearchParams } from './sceneLogic'
 
 describe('sceneLogic', () => {
+    describe('getOnboardingRedirectNextPath', () => {
+        it.each<[string, string, string | undefined, string]>([
+            [
+                'keeps the query string of the page that was blocked',
+                '/project/123/data-warehouse/new-source?kind=Vercel&utm_source=wizard',
+                undefined,
+                '/data-warehouse/new-source?kind=Vercel&utm_source=wizard',
+            ],
+            ['prefers an explicit next param', '/project/123/insights?a=1', '/dashboard?b=2', '/dashboard?b=2'],
+            [
+                'ignores an off-site next param',
+                '/project/123/insights?a=1',
+                'https://evil.example.com/dashboard',
+                '/insights?a=1',
+            ],
+        ])('%s', (_label, href, nextParam, expected) => {
+            const location = new URL(href, 'https://us.posthog.com') as unknown as Location
+            expect(getOnboardingRedirectNextPath(nextParam, location)).toBe(expected)
+        })
+    })
+
     describe('isOnboardingNotRequiredForPath', () => {
         // Regression guard: mid-onboarding users hitting auth/account round-trips (email-change
         // confirmation, credential/passkey review) must not be bounced to /onboarding before the
