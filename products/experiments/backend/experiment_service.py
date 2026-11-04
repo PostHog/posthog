@@ -40,7 +40,15 @@ from posthog.api.cohort import (
 )
 from posthog.api.utils import ServiceRequest
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.constants import AvailableFeature
+from posthog.constants import (
+    ACTIONS,
+    DATA_WAREHOUSE_ENTITIES,
+    EVENTS,
+    TREND_FILTER_TYPE_ACTIONS,
+    TREND_FILTER_TYPE_DATA_WAREHOUSE,
+    TREND_FILTER_TYPE_EVENTS,
+    AvailableFeature,
+)
 from posthog.event_usage import EventSource, report_user_action
 from posthog.exceptions import (
     ClickHouseEstimatedQueryExecutionTimeTooLong,
@@ -50,8 +58,8 @@ from posthog.exceptions import (
 from posthog.models.activity_logging.activity_log import Change, Detail, Trigger, log_activity
 from posthog.models.activity_logging.model_activity import is_impersonated_session
 from posthog.models.activity_logging.utils import get_changed_fields_local
-from posthog.models.entity.entity import Entity, parse_entities
 from posthog.models.person.util import get_person_ids_and_uuids_by_uuids
+from posthog.models.property.parse import parse_property_group_data
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -367,6 +375,28 @@ def _apply_holdout(filters: dict, holdout: ExperimentHoldout | None) -> dict:
         filters,
         holdout_id=holdout.id if holdout else None,
         exclusion_percentage=holdout.exclusion_percentage if holdout else None,
+    )
+
+
+def _first_legacy_filter_entity(filter_data: dict) -> dict[str, Any] | None:
+    """Returns the first action, event or data warehouse entry of a legacy insight filter, with its `type` set."""
+    entities: list[dict[str, Any]] = []
+    for key, entity_type in (
+        (ACTIONS, TREND_FILTER_TYPE_ACTIONS),
+        (EVENTS, TREND_FILTER_TYPE_EVENTS),
+        (DATA_WAREHOUSE_ENTITIES, TREND_FILTER_TYPE_DATA_WAREHOUSE),
+    ):
+        raw = filter_data.get(key)
+        if not raw:
+            continue
+        if isinstance(raw, str):
+            raw = json.loads(raw)
+        entities.extend({**entity, "type": entity_type} for entity in raw)
+    # An entry with order 0 or no order sorts first, the same as legacy insight filter parsing.
+    return min(
+        entities,
+        key=lambda entity: (int(entity["order"]) if entity.get("order") is not None else 0) or -1,
+        default=None,
     )
 
 
@@ -4270,9 +4300,7 @@ class ExperimentService:
             raise ValidationError("Experiment already has an exposure cohort")
 
         exposure_filter_data = (experiment.parameters or {}).get("custom_exposure_filter")
-        exposure_entities: list[Entity] = []
-        if exposure_filter_data:
-            exposure_entities = parse_entities(exposure_filter_data)
+        entity = _first_legacy_filter_entity(exposure_filter_data) if exposure_filter_data else None
 
         target_entities: Sequence[int | str]
         target_entity_type = "events"
@@ -4285,20 +4313,19 @@ class ExperimentService:
             }
         ]
 
-        entity = exposure_entities[0] if exposure_entities else None
-        if entity is not None and entity.id:
-            if entity.type == "actions":
+        if entity is not None and entity.get("id"):
+            if entity["type"] == "actions":
                 target_entity_type = "actions"
                 try:
-                    target_entities = [int(entity.id)]
+                    target_entities = [int(entity["id"])]
                 except ValueError:
                     raise ValidationError("Invalid action ID")
             else:
-                target_entities = exposure_event_names(str(entity.id))
+                target_entities = exposure_event_names(str(entity["id"]))
 
             target_filters = [
                 prop.to_dict()
-                for prop in entity.property_groups.flat
+                for prop in parse_property_group_data(entity.get("properties")).flat
                 if prop.type in ("event", "feature", "element", "hogql")
             ]
         else:

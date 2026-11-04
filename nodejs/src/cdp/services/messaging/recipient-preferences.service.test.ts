@@ -13,10 +13,10 @@ import { createTestTeamFixture } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
-import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
+import { FrequencyCap, TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
 import { createFrequencyCapValkeyPool } from './frequency-cap-valkey-pool'
-import { RecipientPreferencesService } from './recipient-preferences.service'
+import { FrequencyCapCheck, RecipientPreferencesService } from './recipient-preferences.service'
 import { RecipientTokensService } from './recipient-tokens.service'
 
 const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -658,9 +658,9 @@ describe('RecipientPreferencesService', () => {
         })
     })
 
-    describe('isFrequencyCapped', () => {
+    describe('checkFrequencyCap', () => {
         let valkey: RedisV2
-        let frequencyCap: { max_messages: number | null; window_days: number | null }
+        let frequencyCap: FrequencyCap
         let teamWorkflowsConfig: TeamWorkflowsConfigService
         let cappedService: RecipientPreferencesService
         let persons: { getCyclotronPerson: jest.Mock }
@@ -691,7 +691,7 @@ describe('RecipientPreferencesService', () => {
 
         beforeEach(async () => {
             await deleteKeysWithPrefix(valkey, `@posthog/workflows-frequency-cap/${team.id}/`)
-            frequencyCap = { max_messages: 2, window_days: 7 }
+            frequencyCap = { max_messages: 2, window_days: 7, hold_hours: null }
             teamWorkflowsConfig = new TeamWorkflowsConfigService(hub.postgres, hub.pubSub)
             jest.spyOn(teamWorkflowsConfig, 'getFrequencyCap').mockImplementation(() => Promise.resolve(frequencyCap))
             persons = { getCyclotronPerson: jest.fn().mockResolvedValue(null) }
@@ -702,10 +702,11 @@ describe('RecipientPreferencesService', () => {
             })
         })
 
-        const sendAt = async (action: HogFlowAction, at: number): Promise<boolean> => {
+        const checkAt = async (action: HogFlowAction, at: number): Promise<FrequencyCapCheck> => {
             jest.spyOn(Date, 'now').mockReturnValue(at)
-            return cappedService.isFrequencyCapped(createFunctionStepInvocation(action as any), action)
+            return cappedService.checkFrequencyCap(createFunctionStepInvocation(action as any), action)
         }
+        const sendAt = async (action: HogFlowAction, at: number): Promise<boolean> => (await checkAt(action, at)).capped
 
         it('caps marketing sends past the limit until the window moves past the oldest send', async () => {
             const day = 24 * 60 * 60 * 1000
@@ -713,33 +714,42 @@ describe('RecipientPreferencesService', () => {
 
             expect(await sendAt(emailAction(), start)).toBe(false)
             expect(await sendAt(emailAction(), start + day)).toBe(false)
-            expect(await sendAt(emailAction(), start + 2 * day)).toBe(true)
+            expect(await checkAt(emailAction(), start + 2 * day)).toEqual({
+                capped: true,
+                nextSlotAt: start + 7 * day,
+                holdHours: null,
+            })
             expect(await sendAt(emailAction(), start + 7 * day + 1)).toBe(false)
         })
 
         it('lets a re-entered step visit keep its slot from the send time and counts a later visit', async () => {
-            frequencyCap = { max_messages: 1, window_days: 1 }
+            frequencyCap = { max_messages: 1, window_days: 1, hold_hours: 12 }
             const hour = 60 * 60 * 1000
             const start = 1_800_000_000_000
             const action = emailAction()
             const invocation = createFunctionStepInvocation(action)
             invocation.state.actionId = action.id
             invocation.state.actionStepCount = 1
-            const checkAt = async (at: number): Promise<boolean> => {
+            const visitAt = async (at: number): Promise<FrequencyCapCheck> => {
                 jest.spyOn(Date, 'now').mockReturnValue(at)
-                return cappedService.isFrequencyCapped(invocation, action)
+                return cappedService.checkFrequencyCap(invocation, action)
             }
 
             // The email queue runs the step a second time after the hog queue routed it there and paced it.
-            expect(await checkAt(start)).toBe(false)
-            expect(await checkAt(start + 23 * hour)).toBe(false)
+            expect(await visitAt(start)).toEqual({ capped: false })
+            expect(await visitAt(start + 23 * hour)).toEqual({ capped: false })
 
+            // The slot frees a day after the second run moved it, not a day after the first check.
             invocation.state.actionStepCount = 3
-            expect(await checkAt(start + 25 * hour)).toBe(true)
+            expect(await visitAt(start + 25 * hour)).toEqual({
+                capped: true,
+                nextSlotAt: start + 47 * hour,
+                holdHours: 12,
+            })
         })
 
         it('counts a push to a named person against that person, not the run person', async () => {
-            frequencyCap = { max_messages: 1, window_days: 7 }
+            frequencyCap = { max_messages: 1, window_days: 7, hold_hours: null }
             persons.getCyclotronPerson.mockResolvedValue({ id: 'named-person-id' })
             const pushToNamed: Extract<HogFlowAction, { type: 'function_push' }> = {
                 id: 'push',
@@ -770,9 +780,17 @@ describe('RecipientPreferencesService', () => {
         })
 
         it.each([
-            ['transactional sends', emailAction('transactional'), { max_messages: 0, window_days: 7 }],
-            ['marketing sends that skip the cap', emailAction('marketing', true), { max_messages: 1, window_days: 7 }],
-            ['teams with no cap', emailAction(), { max_messages: null, window_days: null }],
+            [
+                'transactional sends',
+                emailAction('transactional'),
+                { max_messages: 0, window_days: 7, hold_hours: null },
+            ],
+            [
+                'marketing sends that skip the cap',
+                emailAction('marketing', true),
+                { max_messages: 1, window_days: 7, hold_hours: null },
+            ],
+            ['teams with no cap', emailAction(), { max_messages: null, window_days: null, hold_hours: null }],
         ])('never caps %s', async (_, action, cap) => {
             frequencyCap = cap
             for (let i = 0; i < 3; i++) {

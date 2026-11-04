@@ -28,13 +28,7 @@ def decide_thread_join(
     A person's approval holds whatever the mode is now, because a mode change applies to new
     people only.
     """
-    from products.tasks.backend.facade import api as tasks_facade
-
-    mode = resolve_thread_join_mode(
-        integration,
-        mapping.mentioning_slack_user_id,
-        own_subscription=tasks_facade.uses_own_subscription(mapping.task_run.state),
-    )
+    mode = resolve_thread_join_mode(integration, mapping.mentioning_slack_user_id)
     if mode == ThreadJoinMode.ALLOW:
         return ThreadJoinDecision.ALLOW
     approved = set(

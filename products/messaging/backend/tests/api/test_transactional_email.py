@@ -160,8 +160,32 @@ class TestTransactionalEmail(APIBaseTest):
         [
             ("send_with_write_scope", "post", "send/", ["hog_flow:write"], status.HTTP_202_ACCEPTED),
             ("send_with_read_scope", "post", "send/", ["hog_flow:read"], status.HTTP_403_FORBIDDEN),
+            ("send_with_preference_scope", "post", "send/", ["messaging_preference:write"], status.HTTP_403_FORBIDDEN),
+            ("send_with_send_scope", "post", "send/", ["transactional_email:write"], status.HTTP_202_ACCEPTED),
+            ("send_with_status_scope", "post", "send/", ["transactional_email:read"], status.HTTP_403_FORBIDDEN),
             ("send_email_with_write_scope", "post", "send_email", ["hog_flow:write"], status.HTTP_202_ACCEPTED),
             ("send_email_with_read_scope", "post", "send_email", ["hog_flow:read"], status.HTTP_403_FORBIDDEN),
+            (
+                "send_email_with_preference_scope",
+                "post",
+                "send_email",
+                ["messaging_preference:write"],
+                status.HTTP_403_FORBIDDEN,
+            ),
+            (
+                "send_email_with_send_scope",
+                "post",
+                "send_email",
+                ["transactional_email:write"],
+                status.HTTP_202_ACCEPTED,
+            ),
+            (
+                "send_email_with_status_scope",
+                "post",
+                "send_email",
+                ["transactional_email:read"],
+                status.HTTP_403_FORBIDDEN,
+            ),
             ("retrieve_is_not_a_psak_action", "get", "", ["hog_flow:write"], status.HTTP_403_FORBIDDEN),
             (
                 "make_transactional_is_not_a_psak_action",
@@ -184,6 +208,49 @@ class TestTransactionalEmail(APIBaseTest):
         response = getattr(self._psak_client(scopes), method)(url, body if method == "post" else None, format="json")
 
         assert response.status_code == expected_status, response.json()
+
+    @parameterized.expand(
+        [
+            ("send_scope", "template", ["transactional_email:write"], "transactional_email"),
+            ("workflow_scope", "template", ["hog_flow:write"], "hog_flow"),
+            (
+                "send_scope_on_send_email",
+                "send_email",
+                ["transactional_email:write"],
+                "transactional_email",
+            ),
+            ("workflow_scope_on_send_email", "send_email", ["hog_flow:write"], "hog_flow"),
+            (
+                "both_scopes",
+                "template",
+                ["hog_flow:write", "transactional_email:write"],
+                "transactional_email",
+            ),
+        ]
+    )
+    def test_records_the_scope_that_authorized_the_send(
+        self, mock_post, _flag, capture, _name, route, scopes, expected_authorized_by
+    ):
+        self._cdp_accepts(mock_post)
+
+        response = self._send(self._psak_client(scopes), route, self.body)
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert capture.call_args.kwargs["properties"]["authorized_by"] == expected_authorized_by
+
+    def test_a_personal_api_key_with_the_send_scope_cannot_change_the_template(self, mock_post, _flag, _capture):
+        self._cdp_accepts(mock_post)
+        client = APIClient()
+        client.credentials(
+            HTTP_AUTHORIZATION=f"Bearer {self.create_personal_api_key_with_scopes(['transactional_email:write'])}"
+        )
+        template_url = f"/api/projects/{self.team.id}/messaging_templates/{self.template.id}/"
+
+        send = client.post(self.url, self.body, format="json")
+        edit = client.patch(template_url, {"name": "Renamed"}, format="json")
+
+        assert send.status_code == status.HTTP_202_ACCEPTED, send.json()
+        assert edit.status_code == status.HTTP_403_FORBIDDEN, edit.json()
 
     @parameterized.expand(
         [

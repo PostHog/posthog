@@ -250,6 +250,7 @@ class SignalSourceType(StrEnum):
     CI_DURATION_REGRESSION = "ci_duration_regression"
     SEARCH_OPPORTUNITY = "search_opportunity"
     CHECK_FAILED = "check_failed"
+    MONITORING_UNRESOLVED = "monitoring_unresolved"
     INCIDENT = "incident"
 
 

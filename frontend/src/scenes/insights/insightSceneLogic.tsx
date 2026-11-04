@@ -2,6 +2,7 @@ import {
     MakeLogicType,
     BuiltLogic,
     actions,
+    afterMount,
     connect,
     kea,
     listeners,
@@ -42,6 +43,7 @@ import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigati
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
+import { DataVisualizationRenderer, InsightVizRenderer } from '~/queries/Query/queryNodeRenderers'
 import { isDataTableNode, isInsightVizNode } from '~/queries/schema/node-guards'
 import { checkLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
@@ -1028,5 +1030,10 @@ export const insightSceneLogic = kea<insightSceneLogicType>([
             setInsightId: actionToUrl,
             setInsightMode: actionToUrl,
         }
+    }),
+    afterMount(() => {
+        // An insight is a chart or a SQL visualization. Fetch both renderers alongside the insight itself.
+        void InsightVizRenderer.preload()
+        void DataVisualizationRenderer.preload()
     }),
 ])

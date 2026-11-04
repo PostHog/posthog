@@ -27,12 +27,12 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SerializedGroupActorSerializer, SerializedPersonActorSerializer
 from posthog.api.utils import action
 from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.constants import GroupTypeIndex
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import GroupUsageMetric
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
-from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.group import Group
 from posthog.models.group.util import (
     GroupAlreadyExistsError,

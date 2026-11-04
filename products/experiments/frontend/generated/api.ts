@@ -826,10 +826,14 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * `running_but_flag_disabled`, as a warning. A caller who can't view the linked flag's
  * history gets the warning, because the pause is not read. A draft whose flag is already
  * active with multiple variants gets `not_started_but_multiple_variants_rolled_out` as info.
- * An ended experiment whose flag is still active with multiple variants gets
- * `ended_but_multiple_variants_rolled_out` as a warning, or `ended_flag_not_called` as info
- * when the flag's `last_called_at` shows no call in the 3 days after the end. The info waits
- * an extra hour, because `last_called_at` trails a call.
+ * An ended experiment whose flag is still active with multiple variants gets no finding when
+ * another experiment on the flag is running or launched after the end. Otherwise it gets
+ * `ended_flag_shared_with_draft` as info when a draft experiment uses the flag,
+ * `ended_but_multiple_variants_rolled_out` as a warning when the flag's `last_called_at` is
+ * after the end and within the last 3 days, and `ended_flag_not_called` as info when it is
+ * not, from 3 days and an hour after the end, because `last_called_at` trails a call. Until
+ * then without such a call, or when the organization's flag calls can't be read, it gets
+ * `ended_flag_calls_unknown` as info.
  *
  * A running experiment whose first primary metric is a funnel gets the info
  * `early_significance` (subcode `below_detectable_effect`) when a significant variant's

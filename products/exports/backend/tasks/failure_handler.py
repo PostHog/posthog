@@ -39,6 +39,7 @@ from posthog.exceptions import (
     ClickHouseQuerySizeExceeded,
     ClickHouseQueryTimeOut,
 )
+from posthog.query_creator_access import CreatorLeftOrganizationError
 from posthog.storage.object_storage import ObjectStorageError
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
@@ -234,6 +235,7 @@ USER_QUERY_ERRORS = (
     ExcelColumnLimitExceeded,
     InvalidExportContext,
     UserAccessControlError,  # The export creator has no access to a resource the query needs
+    CreatorLeftOrganizationError,
 )
 
 TIMEOUT_ERRORS = (

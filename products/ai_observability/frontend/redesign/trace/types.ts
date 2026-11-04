@@ -13,6 +13,7 @@ import type {
 export type TraceNodeKind = TraceNodeApi['kind']
 
 export type TraceMode = 'spans' | 'thread' | 'timeline' | 'summary' | 'feedback'
+export type TraceOpeningMode = 'summary' | null
 
 export type TraceViewChoice = 'new' | 'legacy'
 

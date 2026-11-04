@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.core.management import call_command
+from django.db.models import F
 from django.test import SimpleTestCase
 from django.utils import timezone
 
@@ -34,10 +35,12 @@ from products.signals.backend.models import (
     SignalReportArtefact,
     SignalReportAssignment,
 )
+from products.signals.backend.personal_ranking import serve as personal_ranking_serve
 from products.signals.backend.personal_ranking.candidates import Candidate
 from products.signals.backend.personal_ranking.config import (
     CandidatePool,
     PersonalRankingConfig,
+    PersonalRankingTickConfig,
     ReasonLimits,
     parse_config,
 )
@@ -363,6 +366,45 @@ class TestConfig(SimpleTestCase):
             ),
             ("reasoning_effort", {"reasoning_effort": "high"}, PersonalRankingConfig(reasoning_effort="high")),
             ("invalid_reasoning_effort", {"reasoning_effort": "max"}, PersonalRankingConfig()),
+            ("tick_without_enabled_stays_off", {"tick": {"organization_ids": ["org"]}}, PersonalRankingConfig()),
+            (
+                "tick_drops_invalid_values_and_caps_large_ones",
+                {
+                    "tick": {
+                        "enabled": True,
+                        "organization_ids": ["org", 3, ""],
+                        "skip_team_ids": [1, True, "2"],
+                        "self_driving_organization_percentage": 101,
+                        "max_pairs_per_tick": 10_000,
+                        "max_tick_builds_per_day": -1,
+                        "max_org_share": 2,
+                    }
+                },
+                PersonalRankingConfig(
+                    tick=PersonalRankingTickConfig(
+                        enabled=True, organization_ids=("org",), skip_team_ids=(1,), max_pairs_per_tick=500
+                    )
+                ),
+            ),
+            (
+                "enabled_tick_raises_freshness_and_leaves_a_shared_reserve",
+                {
+                    "max_builds_per_day": 100,
+                    "tick": {"enabled": True, "target_interval_minutes": 180, "max_tick_builds_per_day": 100},
+                },
+                PersonalRankingConfig(
+                    max_builds_per_day=100,
+                    freshness_minutes=180,
+                    tick=PersonalRankingTickConfig(
+                        enabled=True, target_interval_minutes=180, max_tick_builds_per_day=80
+                    ),
+                ),
+            ),
+            (
+                "disabled_tick_leaves_freshness_alone",
+                {"tick": {"target_interval_minutes": 180}},
+                PersonalRankingConfig(),
+            ),
         ]
     )
     def test_parse_config(self, _name: str, payload: Any, expected: PersonalRankingConfig) -> None:
@@ -398,7 +440,7 @@ class TestBuildPersonalRanking(BaseTest):
             ),
             (
                 "products.signals.backend.ranking.inbox_sort.posthoganalytics.get_feature_flag",
-                MagicMock(return_value="action"),
+                MagicMock(return_value="action_pills"),
             ),
         ):
             patcher = patch(target, value)
@@ -770,6 +812,12 @@ class TestForMeEndpoint(APIBaseTest):
         assert (self._state(self._get()), self._rows()) == ((True, False, False), 3)
 
         second = self._claimed_report("Second")
+        body = self._get()
+        assert (self._state(body), self.queued) == ((True, False, False), [])
+        assert [entry["report"]["id"] for entry in body["results"]] == [str(first.id)]
+        PersonalInboxRanking.objects.for_team(self.team.id).update(
+            created_at=F("created_at") - datetime.timedelta(days=2)
+        )
         assert self._state(self._get()) == (True, True, True)
         self._run_builds()
         body = self._get()
@@ -784,6 +832,45 @@ class TestForMeEndpoint(APIBaseTest):
         body = self._get(refresh="true", wait_seconds=5)
         assert (self._state(body), self._rows()) == ((False, False, False), 5)
 
+    @parameterized.expand(
+        [
+            ("during_gather", "gather_candidates", {}, False, False),
+            ("before_lock", "may_call_model", {}, False, False),
+            ("refresh", "gather_candidates", {"refresh": "true"}, False, False),
+            ("refresh_before_lock", "may_call_model", {"refresh": "true"}, False, False),
+            ("inputs_changed", "gather_candidates", {}, True, True),
+            ("focus", "gather_candidates", {"focus": "checkout"}, False, True),
+        ]
+    )
+    def test_a_build_that_lands_during_the_read_answers_it(
+        self, _name: str, step: str, params: dict[str, Any], change_inputs: bool, builds: bool
+    ) -> None:
+        self.payload = {"build_burst": 3, "builds_per_hour": 1}
+        report = self._claimed_report("First")
+        self._get()
+        self._run_builds()
+        report.title = "First, edited"
+        report.save()
+        self._get()
+
+        real_step = getattr(personal_ranking_serve, step)
+
+        def build_lands(*args: Any, **kwargs: Any) -> Any:
+            self._run_builds()
+            if change_inputs:
+                report.title = "First, edited again"
+                report.save()
+            return real_step(*args, **kwargs)
+
+        with patch.object(personal_ranking_serve, step, side_effect=build_lands):
+            body = self._get(**params)
+
+        assert (self._rows(), len(self.queued)) == (2, int(builds))
+        assert self._state(body) == ((True, True, True) if builds else (True, False, False))
+        self._run_builds()
+        # A read that queued no build spent no bucket, so the burst still has one build left.
+        assert self._get(refresh="true")["building"] is not builds
+
     def test_throttled_build_serves_the_stored_list_or_the_inbox_order(self) -> None:
         self.payload = {"build_burst": 1, "builds_per_hour": 1}
         first = self._claimed_report("First")
@@ -792,6 +879,8 @@ class TestForMeEndpoint(APIBaseTest):
 
         assert (self._state(self._get(refresh="true")), self.queued) == ((True, False, False), [])
         self._claimed_report("Second")
+        first.title = "First, edited"
+        first.save()
         body = self._get()
         assert (self._state(body), self._rows()) == ((True, True, False), 1)
         assert [entry["report"]["id"] for entry in body["results"]] == [str(first.id)]
@@ -848,6 +937,23 @@ class TestForMeEndpoint(APIBaseTest):
             assert self._get()["building"] is True
 
         assert [args[1] for args in self.queued] == [self.user.id, third.id]
+
+    def test_a_list_the_tick_checked_stays_fresh_past_its_build_time(self) -> None:
+        self._claimed_report("First")
+        with time_machine.travel(timezone.now(), tick=False) as traveller:
+            self._get()
+            self._run_builds()
+            traveller.shift(datetime.timedelta(hours=2))
+            assert self._get()["stale"] is True
+            self._run_builds()
+
+            traveller.shift(datetime.timedelta(hours=2))
+            PersonalInboxRanking.objects.for_team(self.team.id).filter(user_id=self.user.id).update(
+                checked_at=timezone.now()
+            )
+            body = self._get()
+
+        assert (self._state(body), self.queued) == ((True, False, False), [])
 
     def test_another_user_never_reads_your_list(self) -> None:
         self._get()

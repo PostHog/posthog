@@ -110,6 +110,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.sou
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.stripe import (
     DEFAULT_LIMIT,
     SUBSCRIPTION_PAGE_LIMIT,
+    V2_LIST_PAGE_LIMIT,
     StripeAuthenticationError,
     StripeNestedResource,
     StripeResource,
@@ -360,6 +361,9 @@ class TestStripeApiVersionDispatch:
         assert [row["id"] for table in result.rows for row in table.to_pylist()] == ["obp_2", "obp_1"]
         assert result.paths == [path, path]
         assert {request.headers["stripe-version"] for request in result.requests} == {STRIPE_API_VERSION_ENDIVE}
+        # The v2 Money Management list endpoints reject DEFAULT_LIMIT (100) with "Limit must be
+        # between 1 and 50" — the first request must ask for the v2-specific page size instead.
+        assert result.requests[0].param("limit") == str(V2_LIST_PAGE_LIMIT)
         # A saved cursor would mark the next attempt as resumed, and a resumed full refresh appends.
         assert result.saved_states == []
 

@@ -63,6 +63,7 @@ DESKTOP_SDKS: frozenset[str] = frozenset(
         "posthog-rs-mcp",
         "posthog-go-mcp",
         "posthog-ruby-mcp",
+        "posthog-roblox",
         "js",
     }
 )
@@ -97,6 +98,7 @@ SDK_READABLE_NAME: dict[str, str] = {
     "posthog-unreal": "Unreal Engine",
     "posthog-go-mcp": "Go MCP",
     "posthog-ruby-mcp": "Ruby MCP",
+    "posthog-roblox": "Roblox",
     "js": "JavaScript Lite",
 }
 
