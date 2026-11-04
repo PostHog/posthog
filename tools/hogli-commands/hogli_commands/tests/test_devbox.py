@@ -21,6 +21,7 @@ from hogli_commands.devbox import (
     cli as devbox_cli,
     coder,
     config as devbox_config,
+    hogland as devbox_hogland,
     mutagen as devbox_mutagen,
     sync as devbox_sync,
     worktree as devbox_worktree,
@@ -1087,6 +1088,49 @@ class TestDevboxWorktreeCommand:
         assert result.exit_code == 1, result.output
         assert str(other) in result.output
         assert str(worktree_root) not in devbox_config.load_worktree_boxes()
+
+    @pytest.mark.parametrize(
+        "recorded_id, live_boxes, dry_run, expected_exit",
+        [
+            pytest.param("box-1", [{"name": "wt-feat", "id": "box-1"}], False, 1, id="live-box-blocks-the-switch"),
+            pytest.param(None, [{"name": "wt-feat", "id": "box-1"}], False, 1, id="live-box-with-unrecorded-id-blocks"),
+            pytest.param("box-1", [], False, 0, id="deleted-box-switches-and-drops-its-mirror"),
+            pytest.param("box-1", [], True, 0, id="dry-run-keeps-registration-and-mirror"),
+        ],
+    )
+    def test_switching_provider_away_from_hogland(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        worktree_root: Path,
+        recorded_id: str | None,
+        live_boxes: list[dict[str, str]],
+        dry_run: bool,
+        expected_exit: int,
+    ) -> None:
+        devbox_config.record_worktree_box(
+            worktree_root,
+            devbox_config.WorktreeBoxRecord(
+                workspace="wt-feat", git_dir="admin", workspace_id=recorded_id, provider="hogland"
+            ),
+        )
+        monkeypatch.setattr(devbox_worktree.hogland, "ensure_cli", lambda: None)
+        monkeypatch.setattr(devbox_worktree.hogland, "fetch_devboxes", lambda: live_boxes)
+        monkeypatch.setattr(devbox_worktree, "fetch_user_workspaces", lambda: [])
+        monkeypatch.setattr(devbox_cli, "list_user_workspaces", lambda: [])
+        monkeypatch.setattr(devbox_worktree, "devbox_start", lambda **kwargs: None)
+        monkeypatch.setattr(devbox_worktree, "ensure_sync_session", lambda *a, **kw: None)
+        terminated: list[str] = []
+        monkeypatch.setattr(devbox_worktree.mutagen, "sync_terminate", terminated.append)
+
+        result = runner.invoke(
+            cli, ["devbox:worktree", "--provider", "coder", "--label", "feat", *(["--dry-run"] if dry_run else [])]
+        )
+
+        assert result.exit_code == expected_exit, result.output
+        switched = expected_exit == 0 and not dry_run
+        expected_record = "devbox-test-user-feat" if switched else "wt-feat"
+        assert devbox_config.load_worktree_boxes()[str(worktree_root)].workspace == expected_record
+        assert terminated == ([devbox_worktree.mutagen.workspace_label_selector("wt-feat")] if switched else [])
 
 
 class TestWorkspaceRegion:
@@ -4139,8 +4183,8 @@ class TestKeepaliveShim:
 
     @pytest.mark.parametrize(
         "target, bumped",
-        [("coder.devbox-test-user", True), ("nobody@127.0.0.1", False)],
-        ids=["devbox-host-bumped", "non-devbox-host-untouched"],
+        [("coder.devbox-test-user", True), ("hogland.wt-test", True), ("nobody@127.0.0.1", False)],
+        ids=["devbox-host-bumped", "hogland-host-bumped-with-config", "non-devbox-host-untouched"],
     )
     def test_shim_rewrites_ssh_options_only_for_devbox_hosts(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, target: str, bumped: bool
@@ -4177,6 +4221,8 @@ class TestKeepaliveShim:
                 "-oConnectTimeout=": f"-oConnectTimeout={devbox_mutagen._CONNECT_TIMEOUT_SECONDS}",
             }
             expected = [next((v for k, v in rewrites.items() if a.startswith(k)), a) for a in incoming]
+            if target.startswith("hogland."):
+                expected = ["-F", str(devbox_mutagen.hogland_ssh_config_path()), *expected]
             assert forwarded == expected
             assert "-oServerAliveCountMax=1" not in forwarded
             assert "-oConnectTimeout=5" not in forwarded
@@ -4870,3 +4916,52 @@ class TestRenderSyncStatus:
         rendered = devbox_cli._render_sync_status("devbox-test-user")
         assert "watching" in rendered
         assert "●" in rendered
+
+
+class TestHoglandEndpoint:
+    @pytest.mark.parametrize(
+        "known_box_id, box_id, key_reset",
+        [
+            pytest.param("box-1", "box-1", False, id="same-box-keeps-host-key"),
+            pytest.param("box-1", "box-2", True, id="replacement-box-resets-host-key"),
+            pytest.param(None, "box-1", True, id="unknown-box-resets-host-key"),
+        ],
+    )
+    def test_host_key_resets_when_the_box_changes(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        known_box_id: str | None,
+        box_id: str,
+        key_reset: bool,
+    ) -> None:
+        monkeypatch.setattr(devbox_hogland, "_SSH_DIR", tmp_path)
+        (tmp_path / "known_hosts").write_text("hogland.wt-feat ssh-ed25519 AAAA\n")
+        if known_box_id is not None:
+            (tmp_path / "hosts").mkdir()
+            (tmp_path / "hosts" / "wt-feat.box-id").write_text(known_box_id)
+        endpoint = devbox_hogland.parse_endpoint(
+            {
+                "action": "noop-already-running",
+                "box": {"id": box_id, "status": "running", "public_ip": "192.0.2.10", "guest_ssh_port": 2222},
+            }
+        )
+
+        with patch.object(devbox_hogland.subprocess, "run") as run:
+            devbox_hogland.write_ssh_entry("wt-feat", endpoint)
+
+        assert run.called is key_reset
+        assert (tmp_path / "hosts" / "wt-feat.box-id").read_text() == box_id
+
+    @pytest.mark.parametrize(
+        "label",
+        ["feat\n    HostName 192.0.2.99", "../escape", "Feat", "-feat"],
+        ids=["newline-injects-ssh-directive", "path-traversal", "uppercase", "leading-hyphen"],
+    )
+    def test_unsafe_label_is_refused(self, label: str) -> None:
+        with pytest.raises(SystemExit):
+            devbox_hogland.name_for_label(label)
+
+    def test_box_without_ssh_fails(self) -> None:
+        with pytest.raises(SystemExit):
+            devbox_hogland.parse_endpoint({"action": "running", "box": {"id": "box-1", "status": "placing"}})

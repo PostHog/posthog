@@ -1441,12 +1441,16 @@ class TestSavedQuery(APIBaseTest):
             ("materialized_without_a_target", NodeType.MAT_VIEW, None, ["upstream_view"]),
             # an ephemeral view never runs, so nothing about it speeds up
             ("ephemeral", NodeType.VIEW, timedelta(days=1), []),
+            # a pinned view keeps its own cadence whatever its consumers ask for
+            ("pinned", NodeType.MAT_VIEW, timedelta(days=1), [], True),
         ]
     )
-    def test_an_option_names_the_upstream_views_it_speeds_up(self, _name, upstream_type, upstream_target, expected):
+    def test_an_option_names_the_upstream_views_it_speeds_up(
+        self, _name, upstream_type, upstream_target, expected, upstream_pinned=False
+    ):
         # A finer cadence downstream drags slower upstream views along with it. The picker has to
         # say so before the write, or the upstream cadences change behind the user's back.
-        from products.data_modeling.backend.facade.api import set_declared_target
+        from products.data_modeling.backend.facade.api import apply_saved_query_frequency_target, set_declared_target
 
         upstream = self._create_view_with_a_consumer(consumer_target=timedelta(days=1))
         upstream_node = Node.objects.get(saved_query_id=upstream["id"])
@@ -1454,6 +1458,10 @@ class TestSavedQuery(APIBaseTest):
         upstream_node.save(update_fields=["type"])
         if upstream_target is not None:
             set_declared_target(upstream_node, upstream_target)
+        if upstream_pinned:
+            apply_saved_query_frequency_target(
+                DataWarehouseSavedQuery.objects.get(id=upstream["id"]), None, pinned=True, keep_target=True
+            )
         consumer_id = DataWarehouseSavedQuery.objects.get(team=self.team, name="consumer_view").id
 
         options = {option["cadence"]: option for option in self._read_frequency_bounds(str(consumer_id))["options"]}

@@ -6812,12 +6812,15 @@ class TestHogFlowVersionedMetrics(ClickhouseTestMixin, APIBaseTest):
         self._seed("hog_flow", str(self.flow.id), succeeded=7)
         base = f"/api/projects/{self.team.id}/hog_flows/{self.flow.id}"
 
-        version_one = self.client.get(f"{base}/metrics/version?version=1")
+        version_one = self.client.get(f"{base}/metrics/version?version=1&breakdown_by=name&name=succeeded,skipped")
         version_two = self.client.get(f"{base}/metrics/version?version=2")
         whole = self.client.get(f"{base}/metrics")
 
         assert version_one.status_code == 200, version_one.json()
-        assert self._succeeded(version_one) == 3
+        assert {series["name"]: sum(series["values"]) for series in version_one.json()["series"]} == {
+            "succeeded": 3,
+            "skipped": 0,
+        }
         assert self._succeeded(version_two) == 5
         # The unversioned read keys batch runs on the run, so it is its own series rather than a sum.
         assert self._succeeded(whole) == 7

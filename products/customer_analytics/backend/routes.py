@@ -1,6 +1,7 @@
 from posthog.api.routing import RouterRegistry
 
 from products.customer_analytics.backend.presentation.views import urls as external_api_urls
+from products.customer_analytics.backend.presentation.views.account_persons_query import AccountPersonsViewSet
 from products.customer_analytics.backend.presentation.views.accounts_table_query import AccountsTableQueryViewSet
 from products.customer_analytics.backend.presentation.views.announcements import AnnouncementViewSet
 from products.customer_analytics.backend.presentation.views.customer_tasks import CustomerTaskViewSet
@@ -32,6 +33,12 @@ api_urlpatterns = external_api_urls.urlpatterns
 
 
 def register_routes(routers: RouterRegistry) -> None:
+    routers.projects.register(
+        r"accounts/(?P<id>[^/.]+)/persons",
+        AccountPersonsViewSet,
+        "project_account_persons",
+        ["team_id"],
+    )
     routers.projects.register(
         r"accounts_table_query",
         AccountsTableQueryViewSet,
