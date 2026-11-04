@@ -220,7 +220,7 @@ def query_merge_queue_overview(
     }
     date_to_merged_clause = date_to_filter_clause(date_to, placeholders, column="pr.merged_at")
     gate_attempts = gate_attempts_sql(
-        runs_source=curated.run_source(started_floor=True),
+        runs_source=curated.run_source(started_floor=True, since=gate_from),
         pull_requests_source=curated.pr_source(),
         pull_request_filter="""pr.merged_at IS NOT NULL AND (
             (pr.merged_at >= {date_from} __DATE_TO_MERGED__ AND r.run_started_at >= {current_gate_from})

@@ -115,9 +115,9 @@ def query_default_branch(
     if date_to is not None:
         placeholders["date_to"] = ast.Constant(value=date_to)
     response = curated.run(
-        _DEFAULT_BRANCH_SELECT.replace("__RUNS_SOURCE__", curated.run_source(started_floor=True)).replace(
-            "__DATE_TO__", date_to_clause
-        ),
+        _DEFAULT_BRANCH_SELECT.replace(
+            "__RUNS_SOURCE__", curated.run_source(started_floor=True, since=date_from)
+        ).replace("__DATE_TO__", date_to_clause),
         query_type="engineering_analytics.default_branch",
         placeholders=placeholders,
     )
@@ -206,7 +206,7 @@ def query_success_rate_series(
     if date_to is not None:
         placeholders["date_to"] = ast.Constant(value=date_to)
     sql = (
-        _PASS_RATE_SERIES_SELECT.replace("__RUNS_SOURCE__", curated.run_source(started_floor=True))
+        _PASS_RATE_SERIES_SELECT.replace("__RUNS_SOURCE__", curated.run_source(started_floor=True, since=date_from))
         .replace("__DATE_TO__", date_to_clause)
         .replace("__BUCKET_FN__", bucket_expr(granularity, "run_started_at"))
     )
@@ -425,7 +425,7 @@ def _query_run_headlines(
     sql = (
         _RUNS_SELECT.replace("__CUR__", windows.current)
         .replace("__PREV__", windows.previous)
-        .replace("__RUNS_SOURCE__", curated.run_source(started_floor=True))
+        .replace("__RUNS_SOURCE__", curated.run_source(started_floor=True, since=prev_from))
         .replace("__DATE_TO__", date_to_clause)
     )
     response = curated.run(sql, query_type="engineering_analytics.repo_overview_runs", placeholders=placeholders)

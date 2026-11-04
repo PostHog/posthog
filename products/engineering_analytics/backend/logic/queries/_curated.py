@@ -20,6 +20,7 @@ from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import Future
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import datetime
 from functools import partial
 from typing import TYPE_CHECKING
 
@@ -243,11 +244,13 @@ class CuratedGitHubSource:
         """Curated pull-requests ``SELECT``, parenthesised for use as a subquery."""
         return f"({pull_requests.build_query(self._tables.pull_requests)})"
 
-    def run_source(self, *, started_floor: bool = False, live: bool = False) -> str:
+    def run_source(self, *, started_floor: bool = False, since: datetime | None = None, live: bool = False) -> str:
         """Curated workflow-runs ``SELECT``, parenthesised for use as a subquery. ``started_floor``
         adds the raw-string scan floor — callers must register {run_started_floor} (see
-        run_started_floor_constant). ``live`` preserves current-status reads and raw step lookups."""
-        if not live and (stored := self._stored_ci()):
+        run_started_floor_constant). ``since`` is the read's window start; the stored rows serve a
+        read only when they cover it, and an unbounded read never (see ``MaterializedCI.covers``).
+        ``live`` preserves current-status reads and raw step lookups."""
+        if not live and (stored := self._stored_ci_covering(since)):
             return f"({stored.runs(started_floor=started_floor)})"
         query = workflow_runs.build_query(
             self._runs_table(),
@@ -256,17 +259,20 @@ class CuratedGitHubSource:
         )
         return f"({query})"
 
-    def jobs_source(self, *, created_floor: bool = False, include_steps: bool = False) -> str | None:
+    def jobs_source(
+        self, *, created_floor: bool = False, since: datetime | None = None, include_steps: bool = False
+    ) -> str | None:
         """Curated workflow-jobs ``SELECT`` subquery, or None when the optional jobs table isn't synced.
 
         ``created_floor`` adds the raw-string scan floor inside the builder — callers must register
         {job_created_floor} (see run_started_floor_constant). A windowed caller needs it: the builder's
         ``is_rerun_copy`` duplicate scan reads no ``created_at_raw``, so only the floor bounds it.
+        ``since`` is the read's window start, as for ``run_source``.
 
         ``include_steps`` appends the raw ``steps`` JSON column, for a read bounded to one run."""
         if not self._tables.workflow_jobs:
             return None
-        if not include_steps and (stored := self._stored_ci()):
+        if not include_steps and (stored := self._stored_ci_covering(since)):
             return f"({stored.jobs(created_floor=created_floor)})"
         query = workflow_jobs.build_query(
             self._jobs_table(self._tables.workflow_jobs), created_floor=created_floor, include_steps=include_steps
@@ -322,6 +328,10 @@ class CuratedGitHubSource:
         return resolve_ci_data_freshness(
             team=self._team, tables=self._tables, user_access_control=self._user_access_control
         )
+
+    def _stored_ci_covering(self, since: datetime | None) -> MaterializedCI | None:
+        stored = self._stored_ci()
+        return stored if stored is not None and stored.covers(since) else None
 
     def _stored_ci(self) -> MaterializedCI | None:
         catalog = self._catalog()
@@ -475,7 +485,7 @@ class CuratedGitHubSource:
             )
         """
 
-    def job_cost_source(self, *, created_floor: bool = False) -> str | None:
+    def job_cost_source(self, *, created_floor: bool = False, since: datetime | None = None) -> str | None:
         """Per-job cost ``SELECT`` subquery: the rows ``engineering_analytics_job_costs`` exposes, with
         the pass-through columns the public view leaves out (``run_started_at`` and ``run_head_branch``
         among them). None when the jobs table isn't synced, exactly like ``jobs_source``.
@@ -490,10 +500,11 @@ class CuratedGitHubSource:
         the run-windowed predicates every cost query uses). Every windowed caller wants it: the cost
         source's window predicates read the RUN's columns and so can never prune the jobs scan, and
         the ``is_rerun_copy`` duplicate scan would otherwise aggregate the full history on every call.
+        ``since`` is the read's window start, as for ``run_source``.
         """
         if not self._tables.workflow_jobs:
             return None
-        if stored := self._stored_ci():
+        if stored := self._stored_ci_covering(since):
             query = job_costs.build_attributed_query(
                 costed_jobs=stored.jobs(created_floor=created_floor, with_cost=True),
                 runs=stored.runs(include_shells=True),

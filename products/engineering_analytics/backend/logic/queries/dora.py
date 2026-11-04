@@ -455,6 +455,8 @@ class _DoraScan:
     placeholders: dict[str, ast.Expr]
     date_from: datetime
     date_to: datetime | None
+    # The earliest run start the merge-attribution scan reads, which is where the runs source must cover from.
+    runs_from: datetime
 
     def run(self, sql: str, *, query_type: str, placeholders: dict[str, ast.Expr] | None = None) -> HogQLQueryResponse:
         """Run ``sql`` with the shared placeholders plus ``placeholders`` that only this read binds."""
@@ -470,7 +472,7 @@ class _DoraScan:
             f"{self.deploys_cte}, {_DEPLOY_HEADS_CTE}, {_DEPLOYED_PRS_CTE}".replace(
                 "__PR_SOURCE__", self.curated.pr_source()
             )
-            .replace("__RUNS_SOURCE__", self.curated.run_source(started_floor=True))
+            .replace("__RUNS_SOURCE__", self.curated.run_source(started_floor=True, since=self.runs_from))
             .replace("__TEAM_FILTER__", pr_filter)
         )
 
@@ -729,13 +731,14 @@ def _scan(
     """Resolve the environment scope and bind the deploys CTE and placeholders every deploy read shares."""
     end = date_to or datetime.now(tz=date_from.tzinfo)
     prev_from = date_from - (end - date_from)
+    runs_from = prev_from - _MERGE_SCAN_LOOKBACK
 
     placeholders: dict[str, ast.Expr] = {
         "date_from": ast.Constant(value=date_from),
         "prev_from": ast.Constant(value=prev_from),
         "deploy_scan_floor": ast.Constant(value=prev_from - _DEPLOY_SCAN_SLACK),
-        "merge_scan_floor": ast.Constant(value=prev_from - _MERGE_SCAN_LOOKBACK),
-        "run_started_floor": run_started_floor_constant(prev_from - _MERGE_SCAN_LOOKBACK),
+        "merge_scan_floor": ast.Constant(value=runs_from),
+        "run_started_floor": run_started_floor_constant(runs_from),
     }
     if date_to is not None:
         placeholders["date_to"] = ast.Constant(value=date_to)
@@ -762,6 +765,7 @@ def _scan(
         placeholders=placeholders,
         date_from=date_from,
         date_to=date_to,
+        runs_from=runs_from,
     )
 
 

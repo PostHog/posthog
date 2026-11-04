@@ -379,7 +379,7 @@ def query_ready_to_merge_facts(
 
 def _query_pushes(curated: CuratedGitHubSource, pr_numbers: list[int], run_from: datetime) -> dict[int, list[datetime]]:
     push_rows = push_rows_select(
-        runs_source=curated.run_source(started_floor=True),
+        runs_source=curated.run_source(started_floor=True, since=run_from),
         run_filter="pr_number IN {pr_numbers} AND run_started_at >= {run_from}",
     )
     response = curated.run(
@@ -400,7 +400,7 @@ def _query_gate_attempts(
     gate_from = date_from - GATE_RUN_LOOKBACK
     response = curated.run(
         gate_attempts_sql(
-            runs_source=curated.run_source(started_floor=True),
+            runs_source=curated.run_source(started_floor=True, since=gate_from),
             pull_requests_source=curated.pr_source(),
             pull_request_filter="pr.number IN {pr_numbers} AND pr.merged_at IS NOT NULL",
             decisive_failure_conclusions_sql=DECISIVE_FAILURE_CONCLUSIONS_SQL,

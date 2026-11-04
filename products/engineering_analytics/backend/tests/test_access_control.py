@@ -39,7 +39,7 @@ from products.engineering_analytics.backend.tests._github_fixtures import (
     create_warehouse_table_row,
     link_schema,
 )
-from products.engineering_analytics.backend.tests.test_materialized_ci import _ready_views
+from products.engineering_analytics.backend.tests.test_materialized_ci import _covered_since, _ready_views
 from products.warehouse_sources.backend.facade.models import ExternalDataSource
 from products.warehouse_sources.backend.facade.testing import WarehouseAccessControlTestMixin
 
@@ -272,7 +272,7 @@ class TestEngineeringAnalyticsWarehouseAcl(WarehouseAccessControlTestMixin):
             reader = CuratedGitHubSource.for_team(
                 self.team, user_access_control=UserAccessControl(self.no_access_user, self.team)
             )
-            source = reader.run_source()
+            source = reader.run_source(since=_covered_since())
             if condition == "allowed":
                 assert ci_rows.RUNS_VIEW_NAME in source
             else:
