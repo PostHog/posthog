@@ -84,6 +84,7 @@ class TestEventsRetentionAPI(APIBaseTest):
             "plan_retention_months": 12,
             "min_retention_months": 1,
             "max_retention_months": 12,
+            "retention_months_choices": [1, 3, 12, 24, 36, 60, 84],
         }
 
     @parameterized.expand(
@@ -125,11 +126,11 @@ class TestEventsRetentionAPI(APIBaseTest):
             organization=self.organization, default_events_retention_months=12
         )
 
-        response = self.client.post(self.url(), {"retention_months": 6}, format="json")
+        response = self.client.post(self.url(), {"retention_months": 3}, format="json")
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["retention_months"] == 6
-        assert response.json()["project_retention_months"] == 6
+        assert response.json()["retention_months"] == 3
+        assert response.json()["project_retention_months"] == 3
         assert ActivityLog.objects.filter(team_id=self.team.id, scope="Team", activity="updated").exists()
 
         response = self.client.post(self.url(), {"retention_months": None}, format="json")
@@ -143,7 +144,8 @@ class TestEventsRetentionAPI(APIBaseTest):
         [
             ("longer_than_the_plan", "organization_admin", 36, status.HTTP_400_BAD_REQUEST),
             ("shorter_than_the_staff_minimum", "organization_admin", 3, status.HTTP_400_BAD_REQUEST),
-            ("only_a_project_admin", "project_admin", 6, status.HTTP_403_FORBIDDEN),
+            ("not_one_of_the_choices", "organization_admin", 18, status.HTTP_400_BAD_REQUEST),
+            ("only_a_project_admin", "project_admin", 12, status.HTTP_403_FORBIDDEN),
         ]
     )
     def test_rejects_a_project_window(self, _name: str, level: str, months: int, expected_status: int) -> None:
@@ -170,6 +172,7 @@ class TestEventsRetentionAPI(APIBaseTest):
             "plan_retention_months": 24,
             "min_retention_months": 1,
             "max_retention_months": 24,
+            "retention_months_choices": [1, 3, 12, 24, 36, 60, 84],
         }
         assert self.client.get(self.url()).json()["retention_months"] == 12
         assert ActivityLog.objects.filter(
@@ -184,8 +187,8 @@ class TestEventsRetentionAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("longer_than_the_staff_maximum", "organization_admin", 18, status.HTTP_400_BAD_REQUEST),
-            ("only_a_project_admin", "project_admin", 6, status.HTTP_403_FORBIDDEN),
+            ("longer_than_the_staff_maximum", "organization_admin", 24, status.HTTP_400_BAD_REQUEST),
+            ("only_a_project_admin", "project_admin", 12, status.HTTP_403_FORBIDDEN),
         ]
     )
     def test_rejects_an_organization_window(self, _name: str, level: str, months: int, expected_status: int) -> None:

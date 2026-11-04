@@ -42504,6 +42504,8 @@ export namespace Schemas {
       readonly default_retention_months: number;
       /** Whether the default is longer than 24 months because the plan predates the 24-month default. */
       readonly default_is_grandfathered: boolean;
+      /** The periods, in months, an admin can choose from. A save also has to be between min_retention_months and max_retention_months. Only PostHog staff can set other periods. */
+      readonly retention_months_choices: readonly number[];
       /** The longest window the organization's plan allows, in months. */
       readonly plan_retention_months: number;
       /** The shortest window an admin can set, in months. */
@@ -70023,6 +70025,8 @@ export namespace Schemas {
       readonly default_retention_months: number;
       /** Whether the default is longer than 24 months because the plan predates the 24-month default. */
       readonly default_is_grandfathered: boolean;
+      /** The periods, in months, an admin can choose from. A save also has to be between min_retention_months and max_retention_months. Only PostHog staff can set other periods. */
+      readonly retention_months_choices: readonly number[];
       /** The longest window the organization's plan allows, in months. */
       readonly plan_retention_months: number;
       /** The shortest window an admin can set, in months. */

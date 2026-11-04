@@ -54,6 +54,11 @@ class OrganizationEventsRetentionSerializer(serializers.Serializer):
         read_only=True,
         help_text="Whether the default is longer than 24 months because the plan predates the 24-month default.",
     )
+    retention_months_choices = serializers.ListField(
+        child=serializers.IntegerField(),
+        read_only=True,
+        help_text="The periods, in months, an admin can choose from. A save also has to be between min_retention_months and max_retention_months. Only PostHog staff can set other periods.",
+    )
     plan_retention_months = serializers.IntegerField(
         read_only=True,
         help_text="The longest window the organization's plan allows, in months.",
@@ -104,6 +109,7 @@ def _organization_fields(organization: OrganizationEventsRetention) -> dict[str,
         "organization_retention_months": organization.organization_months,
         "default_retention_months": organization.default_months,
         "default_is_grandfathered": organization.default_is_grandfathered,
+        "retention_months_choices": organization.months_choices,
         "plan_retention_months": organization.plan_months,
         "min_retention_months": organization.min_months,
         "max_retention_months": organization.max_months,

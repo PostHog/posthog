@@ -23,6 +23,8 @@ from posthog.models.user import User
 
 from products.product_analytics.backend.facade.contracts import OrganizationEventsRetention
 
+RETENTION_MONTHS_CHOICES = (1, 3, 12, 24, 36, 60, 84)
+
 
 def _report_retention_set(
     organization: Organization,
@@ -92,6 +94,7 @@ def organization_events_retention(organization: Organization) -> OrganizationEve
         plan_months=plan_months,
         min_months=staff_min or 1,
         max_months=min(plan_months, staff_max) if staff_max else plan_months,
+        months_choices=list(RETENTION_MONTHS_CHOICES),
     )
 
 
@@ -104,7 +107,15 @@ def project_events_retention_months(team: Team) -> int | None:
 
 
 def _check_allowed(retention: OrganizationEventsRetention, months: int | None) -> None:
-    if months is not None and not retention.min_months <= months <= retention.max_months:
+    if months is None:
+        return
+    if months not in retention.months_choices:
+        *shorter, longest = retention.months_choices
+        raise ValidationError(
+            f"Events retention has to be {', '.join(map(str, shorter))} or {longest} months. "
+            "Contact PostHog support to set another period."
+        )
+    if not retention.min_months <= months <= retention.max_months:
         raise ValidationError(
             f"Events retention has to be {describe_months_range(retention.min_months, retention.max_months)}."
         )
