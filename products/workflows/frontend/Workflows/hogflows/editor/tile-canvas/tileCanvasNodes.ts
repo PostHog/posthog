@@ -217,7 +217,6 @@ export function nearestInsertEdge(
     return best?.edge ?? null
 }
 
-/** The part of a canvas drag event that a step drop reads, so a test can drive the handlers without a browser. */
 export interface StepDragEvent {
     clientX: number
     clientY: number
@@ -236,41 +235,47 @@ export interface StepDropCanvas {
     dropAt: (edge: HogFlowEdge, snapped: boolean) => void
 }
 
-/** The + a step drag lands on, null when no + takes the step, and undefined for a drag that carries no step. */
-function stepDropEdge(event: StepDragEvent, canvas: StepDropCanvas): HogFlowEdge | null | undefined {
-    if (!canvas.isWaitingForStep || !event.dataTransfer.types.includes(STEP_DRAG_DATA_TYPE)) {
-        return undefined
-    }
+function isAwaitedStepDrag(event: StepDragEvent, canvas: StepDropCanvas): boolean {
+    return canvas.isWaitingForStep && event.dataTransfer.types.includes(STEP_DRAG_DATA_TYPE)
+}
+
+function placeableEdgeUnderDrag(event: StepDragEvent, canvas: StepDropCanvas): HogFlowEdge | null {
     const point = canvas.toFlowPoint({ x: event.clientX, y: event.clientY })
     return nearestInsertEdge(canvas.edges, point, canvas.placeableEdgeKeys)
 }
 
+function acceptStepDrag(event: StepDragEvent): void {
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'move'
+}
+
+function isReleasedOnPlus(event: StepDragEvent): boolean {
+    return event.target instanceof Element && !!event.target.closest(`[data-attr="${QUICK_ADD_ATTR}"]`)
+}
+
 export function handleStepDragOver(event: StepDragEvent, canvas: StepDropCanvas): void {
-    const edge = stepDropEdge(event, canvas)
-    if (edge === undefined) {
+    if (!isAwaitedStepDrag(event, canvas)) {
         return
     }
+    const edge = placeableEdgeUnderDrag(event, canvas)
     const key = edge ? getEdgeId(edge) : null
     if (key !== canvas.dropTargetEdgeKey) {
         canvas.setDropTargetEdgeKey(key)
     }
-    // Accepting the drag only when a + can take the step shows the no-drop cursor everywhere else.
     if (edge) {
-        event.preventDefault()
-        event.dataTransfer.dropEffect = 'move'
+        acceptStepDrag(event)
     }
 }
 
 export function handleStepDrop(event: StepDragEvent, canvas: StepDropCanvas): void {
-    const edge = stepDropEdge(event, canvas)
-    if (edge === undefined) {
+    if (!isAwaitedStepDrag(event, canvas)) {
         return
     }
+    const edge = placeableEdgeUnderDrag(event, canvas)
     canvas.setDropTargetEdgeKey(null)
     if (edge) {
         event.preventDefault()
-        const isOnPlus = event.target instanceof Element && !!event.target.closest(`[data-attr="${QUICK_ADD_ATTR}"]`)
-        canvas.dropAt(edge, !isOnPlus)
+        canvas.dropAt(edge, !isReleasedOnPlus(event))
     }
 }
 

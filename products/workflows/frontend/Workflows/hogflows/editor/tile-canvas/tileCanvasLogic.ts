@@ -126,7 +126,6 @@ function frameOrigin(layout: CanvasLayout | null, group: PathGroup): Point {
     return box ? { x: box.x + box.width / 2, y: box.y + 40 } : { x: 0, y: 0 }
 }
 
-/** Whether a dragged step was let go off the + it landed on, which tells a drop on the + from a snapped one. */
 const snappedProperty = (snapped: boolean | undefined): { snapped?: boolean } =>
     snapped !== undefined ? { snapped } : {}
 
