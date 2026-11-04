@@ -129,9 +129,9 @@ export type FlameLabelFont = 'monospace' | 'sans'
 export type FlameSort = 'input' | 'value'
 
 export interface FlameGraphConfig {
-    /** Sets the defaults of `labelFont`, `sort` and `tooltip.showSelf` at once. `profile` (default):
-     *  monospace labels, input order, a self row. `breakdown`: proportional labels, siblings sorted
-     *  by value, no self row. Each of those options still overrides its preset default. */
+    /** Sets the defaults of `labelFont` and `sort` at once. `profile` (default): monospace labels,
+     *  input order. `breakdown`: proportional labels, siblings sorted by value. Each of those options
+     *  still overrides its preset default. */
     preset?: FlamePreset
     /** `monospace` reads well for function and span names; `sans` for property values such as
      *  countries or browsers. Defaults to the preset's choice. */
@@ -169,10 +169,6 @@ export interface FlameGraphConfig {
     tooltip?: {
         /** Show the tooltip on hover. Defaults to true. */
         enabled?: boolean
-        /** Show the self value: the part of the node's value not in its children. With it off, the tooltip
-         *  shows the value with its share of the parent and of the total. Defaults to the preset's
-         *  choice. */
-        showSelf?: boolean
     }
 }
 
@@ -186,10 +182,6 @@ export type FlameTooltipContext<Meta = unknown> = TooltipContext<Meta> & {
     comparing: boolean
     /** True when a click on the hovered cell zooms into it. */
     canFocus: boolean
-    /** Whether the built-in tooltip shows the self row, from `config.tooltip.showSelf` or the preset. */
-    showSelf: boolean
-    /** Sum of the roots' values, the whole the shares are taken of. */
-    totalValue: number
 }
 
 export interface FlameGraphProps<Meta = unknown> {

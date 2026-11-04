@@ -211,16 +211,15 @@ There is no `series` or `labels`.
   A node with no baseline, or a baseline of 0, is new and gets a dashed outline; a node with a baseline but no value is gone and draws faded.
   `diff.slowerColor` / `diff.fasterColor` override the palette's red (`theme.colors[4]`) and blue (`theme.colors[0]`).
 - `config.preset` picks defaults for the kind of data.
-  `profile` (default) suits call trees of durations: monospace labels, children in input order, and a self row in the tooltip.
-  `breakdown` suits counts nested by property, such as a trend broken down by country and then browser, drawn as an icicle with the total on top: proportional labels, siblings sorted widest first, and a tooltip of value, share of parent and share of total.
-  `labelFont` (`monospace` | `sans`), `sort` (`input` | `value`) and `tooltip.showSelf` override the preset one at a time.
+  `profile` (default) suits call trees of durations: monospace labels and children in input order.
+  `breakdown` suits counts nested by property, such as a trend broken down by country and then browser, drawn as an icicle with the total on top: proportional labels and siblings sorted widest first.
+  `labelFont` (`monospace` | `sans`) and `sort` (`input` | `value`) override the preset one at a time.
   Format values, such as `12.3K pageviews`, with `valueFormatter`.
 - Labels truncate with an ellipsis; a node scrolled off the left edge keeps its label at the edge.
   Nodes narrower than 3px merge with their narrow siblings into one "+N more" cell, and the children of a narrow node are not drawn.
   Two or more children under 1% of their parent move to the end of the row, so they sit together and merge into one cell.
-- Hover shows the name, the group when it differs from the name, the count, and the baseline and change when comparing.
-  With `tooltip.showSelf` on it adds total with its share of all roots, self, and share of parent; with it off, value, share of parent and share of total.
-  A `tooltip` render prop replaces the content and receives `FlameTooltipContext`: `hit` is either `{ kind: 'node', node }` or `{ kind: 'bundle', bundle }`, plus `valueFormatter`, `comparing`, `canFocus`, `showSelf` and `totalValue`.
+- Hover shows the shared `DefaultTooltip`: the name, one row with the value (labeled with the group when there is one), and a baseline row when comparing.
+  A `tooltip` render prop replaces the content and receives `FlameTooltipContext`: `hit` is either `{ kind: 'node', node }` or `{ kind: 'bundle', bundle }`, plus `valueFormatter`, `comparing` and `canFocus`.
 - Click zooms into a node over 280ms (instant under reduced motion): it spans the full width, its ancestors stay above it at full width and fade, and its siblings leave the view.
   A "+N more" cell zooms to just the bundled nodes.
   The breadcrumb row above the graph shows the path with a reset button, and Escape zooms out one level while the graph has keyboard focus.
