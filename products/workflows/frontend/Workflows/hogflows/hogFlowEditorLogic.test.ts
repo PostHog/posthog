@@ -905,9 +905,12 @@ describe('hogFlowEditorLogic', () => {
                           : {},
             }) as HogFlowAction
 
-        const nodeIdsLeftToRight = (ids: string[]): string[] => {
-            const xById = new Map(logic.values.nodes.map((node) => [node.id, node.position.x]))
-            return [...ids].sort((a, b) => xById.get(a)! - xById.get(b)!)
+        const xOf = (id: string): number => {
+            const node = logic.values.nodes.find((candidate) => candidate.id === id)
+            if (!node) {
+                throw new Error(`node ${id} was not laid out`)
+            }
+            return node.position.x
         }
 
         beforeEach(async () => {
@@ -951,8 +954,8 @@ describe('hogFlowEditorLogic', () => {
 
             await expectLogic(logic, () => logic.actions.resetFlowFromHogFlow(flow)).toDispatchActions(['setNodesRaw'])
 
-            expect(nodeIdsLeftToRight(['added', 'wait'])).toEqual(['added', 'wait'])
-            expect(nodeIdsLeftToRight(['first', 'second'])).toEqual(['first', 'second'])
+            expect(xOf('added')).toBeLessThan(xOf('wait'))
+            expect(xOf('first')).toBeLessThan(xOf('second'))
         })
     })
 })
