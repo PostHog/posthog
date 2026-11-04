@@ -685,6 +685,10 @@ mod tests {
             catalog.load().processes(TeamId(5)),
             "a granted team with no realtime cohort is processed, so its merges still drain",
         );
+        assert!(
+            !catalog.load().processes(TeamId(9)),
+            "a team outside the read's scope is not processed, so its merges drop",
+        );
     }
 
     #[tokio::test]

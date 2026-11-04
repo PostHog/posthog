@@ -20,22 +20,12 @@ impl Generation {
     }
 }
 
-/// Whether a catalog processes a team that its team map does not list.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum UnlistedTeams {
-    /// The catalog was built for every team.
-    Processed,
-    /// The catalog was built for the listed teams only.
-    NotProcessed,
-}
-
 #[derive(Debug)]
 pub struct FilterCatalog {
-    /// Processed teams, each with its filters, or `None` for a processed team with no parseable
-    /// realtime cohort. Filters exist only as an entry of a processed team, so the catalog cannot hold
-    /// filters for a team it does not process.
-    teams: HashMap<TeamId, Option<Arc<TeamFilters>>>,
-    unlisted: UnlistedTeams,
+    teams: HashMap<TeamId, Arc<TeamFilters>>,
+    /// The teams the catalog was built for. A superset of `teams`, because a processed team with no
+    /// parseable realtime cohort has no filters.
+    processing: TeamAllowlist,
     generation: Generation,
 }
 
@@ -46,64 +36,38 @@ impl FilterCatalog {
     }
 
     /// A catalog for the teams in `processing`, with the filters of `teams`. A team outside
-    /// `processing` gets no entry, so the catalog leaves its filters out.
+    /// `processing` gets no filters.
     pub fn for_processing(
         processing: TeamAllowlist,
         teams: impl IntoIterator<Item = (TeamId, TeamFilters)>,
     ) -> Self {
-        let filters = teams
-            .into_iter()
-            .map(|(team, filters)| (team, Arc::new(filters)));
-        let (teams, unlisted) = match processing {
-            TeamAllowlist::All => (
-                filters
-                    .map(|(team, filters)| (team, Some(filters)))
-                    .collect(),
-                UnlistedTeams::Processed,
-            ),
-            TeamAllowlist::Only(team_ids) => {
-                let mut filters: HashMap<TeamId, Arc<TeamFilters>> = filters.collect();
-                let teams = team_ids
-                    .into_iter()
-                    .map(|team_id| {
-                        let team = TeamId(team_id);
-                        (team, filters.remove(&team))
-                    })
-                    .collect();
-                (teams, UnlistedTeams::NotProcessed)
-            }
-        };
         Self {
-            teams,
-            unlisted,
+            teams: teams
+                .into_iter()
+                .filter(|(team, _)| processing.includes(team.0))
+                .map(|(team, filters)| (team, Arc::new(filters)))
+                .collect(),
+            processing,
             generation: Generation::INITIAL,
         }
     }
 
     /// A catalog that processes exactly `teams`.
     pub fn from_teams(teams: impl IntoIterator<Item = (TeamId, TeamFilters)>) -> Self {
-        Self {
-            teams: teams
-                .into_iter()
-                .map(|(team, filters)| (team, Some(Arc::new(filters))))
-                .collect(),
-            unlisted: UnlistedTeams::NotProcessed,
-            generation: Generation::INITIAL,
-        }
+        let teams: Vec<(TeamId, TeamFilters)> = teams.into_iter().collect();
+        let processing = TeamAllowlist::Only(teams.iter().map(|(team, _)| team.0).collect());
+        Self::for_processing(processing, teams)
     }
 
     /// Whether the catalog was built for `team_id`. True for a processed team with no realtime
     /// cohort, which [`Self::team`] has no filters for.
     pub fn processes(&self, team_id: TeamId) -> bool {
-        match self.unlisted {
-            UnlistedTeams::Processed => true,
-            UnlistedTeams::NotProcessed => self.teams.contains_key(&team_id),
-        }
+        self.processing.includes(team_id.0)
     }
 
     /// The frozen filters for a team, or `None` if it has no realtime cohorts or is not processed.
     pub fn team(&self, team_id: TeamId) -> Option<&Arc<TeamFilters>> {
-        self.teams.get(&team_id)?.as_ref()
+        self.teams.get(&team_id)
     }
 
     pub fn generation(&self) -> Generation {
@@ -117,22 +81,16 @@ impl FilterCatalog {
         self
     }
 
-    /// Teams with filters.
     pub fn team_count(&self) -> usize {
-        self.with_filters().count()
+        self.teams.len()
     }
 
     /// Total distinct conditionHashes across all teams (sum of the per-team dedup sets).
     pub fn total_unique_conditions(&self) -> usize {
-        self.with_filters()
-            .map(|(_, team)| team.unique_condition_hashes.len())
-            .sum()
-    }
-
-    fn with_filters(&self) -> impl Iterator<Item = (&TeamId, &Arc<TeamFilters>)> {
         self.teams
-            .iter()
-            .filter_map(|(team, filters)| Some((team, filters.as_ref()?)))
+            .values()
+            .map(|team| team.unique_condition_hashes.len())
+            .sum()
     }
 }
 
@@ -149,7 +107,7 @@ impl Default for FilterCatalog {
 /// entries valid. `manager.rs`'s equivalence test guards the contract.
 impl Hash for FilterCatalog {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        let mut teams: Vec<(&TeamId, &Arc<TeamFilters>)> = self.with_filters().collect();
+        let mut teams: Vec<(&TeamId, &Arc<TeamFilters>)> = self.teams.iter().collect();
         teams.sort_unstable_by_key(|(team, _)| team.0);
         for (team, filters) in teams {
             team.0.hash(state);
