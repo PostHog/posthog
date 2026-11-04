@@ -5,6 +5,7 @@ ones. That classification is resolved through the facade; the throttle classes
 and their request-parsing helpers are pure HTTP concerns and live here.
 """
 
+from rest_framework.exceptions import Throttled
 from rest_framework.throttling import SimpleRateThrottle
 
 from posthog.rate_limit import (
@@ -65,9 +66,11 @@ class _MaterializedRateMixin(SimpleRateThrottle):
 
     materialized_rate: str
     materialized_scope: str
+    # Set to bill the request to the inline budget whatever the request looks like.
+    inline_only = False
 
     def allow_request(self, request, view):
-        materialized = _is_materialized_endpoint_request(request, view)
+        materialized = not self.inline_only and _is_materialized_endpoint_request(request, view)
         if materialized:
             self.rate = self.materialized_rate
             self.scope = self.materialized_scope
@@ -124,3 +127,18 @@ class EndpointProjectSecretApiKeyTeamSustainedThrottle(_MaterializedRateMixin, P
     rate = APIQueriesSustainedThrottle.rate
     materialized_rate = EndpointSustainedThrottle.materialized_rate
     materialized_scope = "materialized_endpoint_psak_team_sustained"
+
+
+def charge_inline_rate(request, view) -> None:
+    """Draw the inline rate budget for a run whose materialized read failed, or refuse it with a 429.
+
+    The throttles grant the materialized budget before the query runs, so a run that then falls
+    back to inline would otherwise draw on a budget meant for the cheaper materialized read.
+    """
+    waits = []
+    for throttle in view.get_throttles():
+        throttle.inline_only = True
+        if not throttle.allow_request(request, view):
+            waits.append(throttle.wait())
+    if waits:
+        raise Throttled(wait=max((wait for wait in waits if wait is not None), default=None))

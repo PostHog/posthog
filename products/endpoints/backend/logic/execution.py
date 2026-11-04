@@ -11,6 +11,7 @@ response post-processing, metrics, and failure signals. Kind-specific behavior
 import re
 import time
 import uuid
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from typing import Literal, Union, cast
 
@@ -518,11 +519,13 @@ class EndpointExecutionService(PydanticModelMixin):
         version_obj: EndpointVersion | None,
         limit: int | None = None,
         offset: int | None = None,
+        before_inline_fallback: Callable[[], None] | None = None,
     ) -> Response:
         """Run an endpoint version and return the HTTP response.
 
         Assumes the caller has resolved the version (or established that none was
-        requested explicitly) and parsed limit/offset.
+        requested explicitly) and parsed limit/offset. ``before_inline_fallback`` runs
+        when a failed materialized read is about to re-run inline, and may raise to refuse it.
         """
         if version_obj is None:
             return Response(
@@ -605,6 +608,8 @@ class EndpointExecutionService(PydanticModelMixin):
                     result = None
 
             if result is None:
+                if materialized_failed and before_inline_fallback is not None:
+                    before_inline_fallback()
                 result = self._execute_inline_endpoint(
                     endpoint,
                     data,
@@ -677,6 +682,9 @@ class EndpointExecutionService(PydanticModelMixin):
             code, detail = _query_performance_code_and_detail(e)
             logger.warning("Endpoint query hit a performance limit", endpoint_name=endpoint.name, reason=error_label)
             raise EndpointQueryTooExpensive(detail, code=code)
+        except Throttled:
+            # A rate-limit refusal is not an endpoint fault, so it stays out of the execution counter.
+            raise
         except ClickHouseAtCapacity as e:
             execution_status = "capacity"
             error_label = "ClickHouseAtCapacity"

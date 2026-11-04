@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 from prometheus_client import REGISTRY
+from rest_framework.exceptions import Throttled
 from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
@@ -19,6 +20,7 @@ from products.endpoints.backend.presentation.throttles import (
     EndpointBurstThrottle,
     EndpointSustainedThrottle,
     _is_materialized_endpoint_request,
+    charge_inline_rate,
 )
 from products.endpoints.backend.rate_limit import (
     MATERIALIZED_ENDPOINT_CACHE_TTL,
@@ -551,6 +553,26 @@ class TestEndpointThrottles(APIBaseTest):
             {k: events[0].kwargs["properties"][k] for k in ("team_id", "endpoint_name", "reason")},
             {"team_id": self.team.id, "endpoint_name": "refused", "reason": expected_reason},
         )
+
+    def test_fallback_charge_bills_the_inline_budget_even_for_a_materialized_request(self):
+        _create_ready_materialized_endpoint(self.team, self.user, "fell_back", timezone.now())
+        request = MagicMock()
+        request.data = {}
+        request.query_params = {}
+        view = MagicMock()
+        view.team_id = self.team.id
+        view.kwargs = {"name": "fell_back"}
+        throttle = EndpointBurstThrottle()
+        throttle.history = []
+        view.get_throttles.return_value = [throttle]
+        inline_labels = {"scope": "api_queries_burst", "reason": "inline_rate"}
+        before = REGISTRY.get_sample_value("posthog_endpoint_rate_limited_total", inline_labels) or 0
+
+        with patch("posthog.rate_limit.PersonalOrProjectSecretApiKeyRateThrottle.allow_request", return_value=False):
+            with self.assertRaises(Throttled):
+                charge_inline_rate(request, view)
+
+        self.assertEqual(REGISTRY.get_sample_value("posthog_endpoint_rate_limited_total", inline_labels), before + 1)
 
 
 class TestMaterializationStateCacheTimeout(APIBaseTest):
