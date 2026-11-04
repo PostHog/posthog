@@ -69,10 +69,12 @@ def _no_schedules():
     return temporal
 
 
-def _fake_view(name: str = "fake_provider_view", materialized: bool = True, **overrides: Any) -> ProvidedView:
+def _fake_view(
+    name: str = "fake_provider_view", materialized: bool = True, query: str = "SELECT 1 AS id", **overrides: Any
+) -> ProvidedView:
     return ProvidedView(
         name=name,
-        query="SELECT 1 AS id",
+        query=query,
         fields={"id": IntegerDatabaseField(name="id")},
         materialized=materialized,
         **overrides,
