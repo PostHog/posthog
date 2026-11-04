@@ -750,7 +750,7 @@ export interface TeamBasicType extends WithAccessControl {
     organization: string // Organization ID
     project_id: number
     api_token: string
-    // Always null: the raw legacy token never leaves the server. The fields drop with the column retirement (#66179).
+    // Null in every response except rotate_secret_token, which returns the newly minted token once. The fields drop with the column retirement (#66179).
     secret_api_token: string | null
     secret_api_token_backup: string | null
     name: string

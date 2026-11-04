@@ -168,8 +168,9 @@ def heatmaps_screenshot_secret_for_reader(team: Team, user_permissions: "UserPer
 
 
 def hide_secret_api_tokens(representation: dict[str, Any]) -> None:
-    """The legacy token stays a live credential through its PSAK mirror row, so no API response
-    carries the plaintext. The fields stay in the schema as null until the column retirement drops them."""
+    """The legacy token stays a live credential through its PSAK mirror row, so reads never carry
+    the plaintext. The one exception is the rotate_secret_token response, which writes the token it
+    just minted back over this null, once. The fields stay in the schema until #66179 drops them."""
     for field in ("secret_api_token", "secret_api_token_backup"):
         if field in representation:
             representation[field] = None
