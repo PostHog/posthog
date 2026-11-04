@@ -664,6 +664,13 @@ class TestAbandon(_MigrationTest):
         self.delete_schedule.assert_not_called()
 
 
+def _replace_values(inputs: dict[str, Any], old: str, new: str) -> dict[str, Any]:
+    return {
+        key: _replace_values(value, old, new) if isinstance(value, dict) else new if value == old else value
+        for key, value in inputs.items()
+    }
+
+
 class TestMergeDuplicateSources(_MigrationTest):
     def _duplicates(self, count: int = 3) -> list[DataWarehouseTable]:
         tables = [
@@ -682,10 +689,7 @@ class TestMergeDuplicateSources(_MigrationTest):
             credential.access_key = "AKIAFIRST"
             credential.save()
             source = _schema_for(table).source
-            inputs = SourceInputsStore.load(source)
-            SourceInputsStore.save(
-                source, {key: "AKIAFIRST" if value == f"AKIATEMP{i}" else value for key, value in inputs.items()}
-            )
+            SourceInputsStore.save(source, _replace_values(SourceInputsStore.load(source), f"AKIATEMP{i}", "AKIAFIRST"))
             ExternalDataSource.objects.filter(pk=source.pk).update(
                 created_at=datetime(2024, 1, 1 + i, tzinfo=UTC),
                 connection_metadata={
