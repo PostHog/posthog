@@ -83,6 +83,36 @@ class TestLogsQueryPrefilter:
         assert query.where is not None
         assert "time_bucket" in query.where.to_hogql()
 
+    @pytest.mark.parametrize("search_term", ["error", r"50%_off\path", ""])
+    def test_search_prefilter_preserves_matching_and_escaping(self, search_term, snapshot):
+        runner = LogsQueryRunner(
+            query=LogsQuery(
+                dateRange=DateRange(date_from="2025-12-15T12:00:00Z", date_to="2025-12-15T12:10:00Z"),
+                searchTerm=search_term,
+                serviceNames=[],
+                severityLevels=[],
+                filterGroup=PropertyGroupFilter(type=FilterLogicalOperator.AND_, values=[]),
+            ),
+            team=Team(id=1, timezone="UTC", organization=Organization()),
+            modifiers=HogQLQueryModifiers(
+                personsOnEventsMode=PersonsOnEventsMode.DISABLED, useNewEventsSchema=False, optimizeProjections=False
+            ),
+        )
+        query = ReplaceFilters(runner.query_date_range.to_hogql_filters(), runner.team, Database()).visit(
+            runner.to_query()
+        )
+        assert query.prewhere is not None
+        assert ("body" in query.prewhere.to_hogql()) == bool(search_term)
+        context = HogQLContext(
+            team_id=runner.team.id,
+            team=runner.team,
+            database=Database(),
+            modifiers=runner.modifiers,
+            enable_select_queries=True,
+        )
+        sql, _ = prepare_and_print_ast(query, context, "clickhouse", settings=runner.settings, pretty=True)
+        assert {"sql": sql, "parameters": context.values} == snapshot
+
 
 class TestAttributeFilters(APIBaseTest):
     def test_log_attribute_filters(self):

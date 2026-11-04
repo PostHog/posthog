@@ -367,6 +367,14 @@ class LogsFilterBuilder:
         exprs = [self._column_filter_expr(log_filter) for log_filter in self.log_filters]
         return [expr for expr in exprs if expr is not None]
 
+    def search_filter(self) -> LogPropertyFilter:
+        return LogPropertyFilter(
+            key="body",
+            operator=PropertyOperator.ICONTAINS,
+            type=LogPropertyFilterType.LOG,
+            value=self.query.searchTerm,
+        )
+
     def where(self) -> ast.Expr:
         exprs: list[ast.Expr] = []
 
@@ -445,12 +453,7 @@ class LogsFilterBuilder:
         exprs.append(ast.Placeholder(expr=ast.Field(chain=["filters"])))
 
         if self.query.searchTerm:
-            search_filter = LogPropertyFilter(
-                key="body",
-                operator=PropertyOperator.ICONTAINS,
-                type=LogPropertyFilterType.LOG,
-                value=self.query.searchTerm,
-            )
+            search_filter = self.search_filter()
             exprs.append(get_lowercase_index_hint(search_filter, team=self.team))
             exprs.append(property_to_expr(search_filter, team=self.team))
 
@@ -834,6 +837,10 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
 
     def to_query(self) -> ast.SelectQuery:
         order_dir = "ASC" if self.query.orderBy == "earliest" else "DESC"
+        prewhere = parse_expr("{filters(timestamp AS timestamp)}")
+        if self.query.searchTerm:
+            # Filter bodies before reading attribute maps for matching logs.
+            prewhere = ast.And(exprs=[prewhere, property_to_expr(self._filter_builder.search_filter(), team=self.team)])
 
         query = self.paginator.paginate(
             parse_select(
@@ -855,12 +862,12 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
                 event_name,
                 {live_logs_checkpoint} as live_logs_checkpoint
             FROM logs
-            PREWHERE {time_filter}
+            PREWHERE {prewhere}
             WHERE {where}
         """,
                 placeholders={
                     "where": self.where(),
-                    "time_filter": parse_expr("{filters(timestamp AS timestamp)}"),
+                    "prewhere": prewhere,
                     "live_logs_checkpoint": LIVE_LOGS_CHECKPOINT_QUERY,
                     # Attribute maps dominate payload size. When excluded we still SELECT a column
                     # (an empty map) so the positional result mapping in _calculate stays stable. The

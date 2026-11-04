@@ -83,3 +83,159 @@
   OFFSET 0 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=0, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=0, use_hive_partitioning=0
   '''
 # ---
+# name: TestLogsQueryPrefilter.test_search_prefilter_preserves_matching_and_escaping[50%_off\\path]
+  dict({
+    'parameters': dict({
+      'hogql_val_0': '%50%_off\\path%',
+      'hogql_val_1': '2025-12-15 12:00:00',
+      'hogql_val_2': 'UTC',
+      'hogql_val_3': '2025-12-15 12:10:00',
+      'hogql_val_4': 'UTC',
+      'hogql_val_5': '%50%_off\\path%',
+      'hogql_val_6': '%50%_off\\path%',
+    }),
+    'sql': '''
+      SELECT
+          logs_distributed.uuid AS uuid,
+          hex(tryBase64Decode(logs_distributed.trace_id)) AS `hex(tryBase64Decode(trace_id))`,
+          hex(tryBase64Decode(logs_distributed.span_id)) AS `hex(tryBase64Decode(span_id))`,
+          logs_distributed.body AS body,
+          logs_distributed.attributes AS attributes,
+          logs_distributed.timestamp AS timestamp,
+          logs_distributed.observed_timestamp AS observed_timestamp,
+          logs_distributed.severity_text AS severity_text,
+          logs_distributed.severity_number AS severity_number,
+          logs_distributed.severity_text AS level,
+          logs_distributed.resource_attributes AS resource_attributes,
+          logs_distributed.resource_fingerprint AS resource_fingerprint,
+          logs_distributed.instrumentation_scope AS instrumentation_scope,
+          logs_distributed.event_name AS event_name,
+          (SELECT
+                  min(partition_checkpoint) AS `min(partition_checkpoint)`
+              FROM
+                  (SELECT
+                      logs_kafka_metrics_distributed._topic AS _topic,
+                      logs_kafka_metrics_distributed._partition AS _partition,
+                      max(logs_kafka_metrics_distributed.max_observed_timestamp) AS partition_checkpoint
+                  FROM
+                      logs_kafka_metrics_distributed
+                  GROUP BY
+                      logs_kafka_metrics_distributed._topic,
+                      logs_kafka_metrics_distributed._partition)) AS live_logs_checkpoint
+      FROM
+          logs_distributed
+      PREWHERE
+          and(and(less(logs_distributed.timestamp, toDateTime64('2025-12-15 12:10:00.000000', 6, 'UTC')), greaterOrEquals(logs_distributed.timestamp, toDateTime64('2025-12-15 12:00:00.000000', 6, 'UTC'))), ilike(toString(logs_distributed.body), %(hogql_val_0)s))
+      WHERE
+          and(equals(logs_distributed.team_id, 1), and(greaterOrEquals(toStartOfDay(logs_distributed.time_bucket), toStartOfDay(assumeNotNull(toDateTime(%(hogql_val_1)s, %(hogql_val_2)s)))), lessOrEquals(toStartOfDay(logs_distributed.time_bucket), toStartOfDay(assumeNotNull(toDateTime(%(hogql_val_3)s, %(hogql_val_4)s))))), and(less(logs_distributed.timestamp, toDateTime64('2025-12-15 12:10:00.000000', 6, 'UTC')), greaterOrEquals(logs_distributed.timestamp, toDateTime64('2025-12-15 12:00:00.000000', 6, 'UTC'))), indexHint(like(lower(logs_distributed.body), %(hogql_val_5)s)), ilike(toString(logs_distributed.body), %(hogql_val_6)s))
+      ORDER BY
+          logs_distributed.timestamp DESC,
+          logs_distributed.uuid DESC
+      LIMIT 101
+      OFFSET 0 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=0, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=0, use_hive_partitioning=0
+    ''',
+  })
+# ---
+# name: TestLogsQueryPrefilter.test_search_prefilter_preserves_matching_and_escaping[]
+  dict({
+    'parameters': dict({
+      'hogql_val_0': '2025-12-15 12:00:00',
+      'hogql_val_1': 'UTC',
+      'hogql_val_2': '2025-12-15 12:10:00',
+      'hogql_val_3': 'UTC',
+    }),
+    'sql': '''
+      SELECT
+          logs_distributed.uuid AS uuid,
+          hex(tryBase64Decode(logs_distributed.trace_id)) AS `hex(tryBase64Decode(trace_id))`,
+          hex(tryBase64Decode(logs_distributed.span_id)) AS `hex(tryBase64Decode(span_id))`,
+          logs_distributed.body AS body,
+          logs_distributed.attributes AS attributes,
+          logs_distributed.timestamp AS timestamp,
+          logs_distributed.observed_timestamp AS observed_timestamp,
+          logs_distributed.severity_text AS severity_text,
+          logs_distributed.severity_number AS severity_number,
+          logs_distributed.severity_text AS level,
+          logs_distributed.resource_attributes AS resource_attributes,
+          logs_distributed.resource_fingerprint AS resource_fingerprint,
+          logs_distributed.instrumentation_scope AS instrumentation_scope,
+          logs_distributed.event_name AS event_name,
+          (SELECT
+                  min(partition_checkpoint) AS `min(partition_checkpoint)`
+              FROM
+                  (SELECT
+                      logs_kafka_metrics_distributed._topic AS _topic,
+                      logs_kafka_metrics_distributed._partition AS _partition,
+                      max(logs_kafka_metrics_distributed.max_observed_timestamp) AS partition_checkpoint
+                  FROM
+                      logs_kafka_metrics_distributed
+                  GROUP BY
+                      logs_kafka_metrics_distributed._topic,
+                      logs_kafka_metrics_distributed._partition)) AS live_logs_checkpoint
+      FROM
+          logs_distributed
+      PREWHERE
+          and(less(logs_distributed.timestamp, toDateTime64('2025-12-15 12:10:00.000000', 6, 'UTC')), greaterOrEquals(logs_distributed.timestamp, toDateTime64('2025-12-15 12:00:00.000000', 6, 'UTC')))
+      WHERE
+          and(equals(logs_distributed.team_id, 1), and(greaterOrEquals(toStartOfDay(logs_distributed.time_bucket), toStartOfDay(assumeNotNull(toDateTime(%(hogql_val_0)s, %(hogql_val_1)s)))), lessOrEquals(toStartOfDay(logs_distributed.time_bucket), toStartOfDay(assumeNotNull(toDateTime(%(hogql_val_2)s, %(hogql_val_3)s))))), and(less(logs_distributed.timestamp, toDateTime64('2025-12-15 12:10:00.000000', 6, 'UTC')), greaterOrEquals(logs_distributed.timestamp, toDateTime64('2025-12-15 12:00:00.000000', 6, 'UTC'))))
+      ORDER BY
+          logs_distributed.timestamp DESC,
+          logs_distributed.uuid DESC
+      LIMIT 101
+      OFFSET 0 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=0, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=0, use_hive_partitioning=0
+    ''',
+  })
+# ---
+# name: TestLogsQueryPrefilter.test_search_prefilter_preserves_matching_and_escaping[error]
+  dict({
+    'parameters': dict({
+      'hogql_val_0': '%error%',
+      'hogql_val_1': '2025-12-15 12:00:00',
+      'hogql_val_2': 'UTC',
+      'hogql_val_3': '2025-12-15 12:10:00',
+      'hogql_val_4': 'UTC',
+      'hogql_val_5': '%error%',
+      'hogql_val_6': '%error%',
+    }),
+    'sql': '''
+      SELECT
+          logs_distributed.uuid AS uuid,
+          hex(tryBase64Decode(logs_distributed.trace_id)) AS `hex(tryBase64Decode(trace_id))`,
+          hex(tryBase64Decode(logs_distributed.span_id)) AS `hex(tryBase64Decode(span_id))`,
+          logs_distributed.body AS body,
+          logs_distributed.attributes AS attributes,
+          logs_distributed.timestamp AS timestamp,
+          logs_distributed.observed_timestamp AS observed_timestamp,
+          logs_distributed.severity_text AS severity_text,
+          logs_distributed.severity_number AS severity_number,
+          logs_distributed.severity_text AS level,
+          logs_distributed.resource_attributes AS resource_attributes,
+          logs_distributed.resource_fingerprint AS resource_fingerprint,
+          logs_distributed.instrumentation_scope AS instrumentation_scope,
+          logs_distributed.event_name AS event_name,
+          (SELECT
+                  min(partition_checkpoint) AS `min(partition_checkpoint)`
+              FROM
+                  (SELECT
+                      logs_kafka_metrics_distributed._topic AS _topic,
+                      logs_kafka_metrics_distributed._partition AS _partition,
+                      max(logs_kafka_metrics_distributed.max_observed_timestamp) AS partition_checkpoint
+                  FROM
+                      logs_kafka_metrics_distributed
+                  GROUP BY
+                      logs_kafka_metrics_distributed._topic,
+                      logs_kafka_metrics_distributed._partition)) AS live_logs_checkpoint
+      FROM
+          logs_distributed
+      PREWHERE
+          and(and(less(logs_distributed.timestamp, toDateTime64('2025-12-15 12:10:00.000000', 6, 'UTC')), greaterOrEquals(logs_distributed.timestamp, toDateTime64('2025-12-15 12:00:00.000000', 6, 'UTC'))), ilike(toString(logs_distributed.body), %(hogql_val_0)s))
+      WHERE
+          and(equals(logs_distributed.team_id, 1), and(greaterOrEquals(toStartOfDay(logs_distributed.time_bucket), toStartOfDay(assumeNotNull(toDateTime(%(hogql_val_1)s, %(hogql_val_2)s)))), lessOrEquals(toStartOfDay(logs_distributed.time_bucket), toStartOfDay(assumeNotNull(toDateTime(%(hogql_val_3)s, %(hogql_val_4)s))))), and(less(logs_distributed.timestamp, toDateTime64('2025-12-15 12:10:00.000000', 6, 'UTC')), greaterOrEquals(logs_distributed.timestamp, toDateTime64('2025-12-15 12:00:00.000000', 6, 'UTC'))), indexHint(like(lower(logs_distributed.body), %(hogql_val_5)s)), ilike(toString(logs_distributed.body), %(hogql_val_6)s))
+      ORDER BY
+          logs_distributed.timestamp DESC,
+          logs_distributed.uuid DESC
+      LIMIT 101
+      OFFSET 0 SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=0, optimize_min_equality_disjunction_chain_length=4294967295, optimize_rewrite_aggregate_function_with_if=0, optimize_min_inequality_conjunction_chain_length=4294967295, allow_experimental_join_condition=0, use_hive_partitioning=0
+    ''',
+  })
+# ---
