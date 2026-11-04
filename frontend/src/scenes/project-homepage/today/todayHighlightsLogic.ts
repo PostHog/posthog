@@ -392,10 +392,14 @@ export interface todayHighlightsLogicMeta {
             highlights: HighlightsApi | null,
             hiddenPulseMetrics: Record<string, true>,
             currentProjectId: number | string,
-            pulsePlaces: any,
+            pulsePlaces: PulsePlace[],
             pulsePinsSettled: boolean
         ) => PulsePlacement
-        pulseSlots: (pulsePlacement: any, highlights: HighlightsApi | null, highlightsFailed: boolean) => PulseSlotApi[]
+        pulseSlots: (
+            pulsePlacement: PulsePlacement,
+            highlights: HighlightsApi | null,
+            highlightsFailed: boolean
+        ) => PulseSlotApi[]
         pulseTiles: (highlights: HighlightsApi | null, pulseSlots: PulseSlotApi[]) => HighlightMetricApi[]
         highlightsPending: (
             highlights: HighlightsApi | null,
