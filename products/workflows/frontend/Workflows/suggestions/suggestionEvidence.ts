@@ -7,6 +7,13 @@ export const MIN_EVIDENCE_SAMPLE = 20
 // Mirrors EVIDENCE_UNITS in products/workflows/backend/presentation/views/hog_flow.py.
 export type EvidenceUnit = 'rate' | 'count'
 
+export const CONVERSION_RATE_LABEL = 'conversion rate'
+
+// What the n beside a rate counts. Mirrors the denominators in TARGET_METRICS in products/workflows/backend/metrics.py.
+export function sampleLabel(metric: string): string {
+    return metric === CONVERSION_RATE_LABEL ? 'runs past their conversion window' : 'tracked sends'
+}
+
 export interface GuardrailReading {
     metric: string
     value: number | null
