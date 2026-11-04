@@ -124,6 +124,33 @@ fn unauthorized(message: impl Into<String>) -> Rejection {
     )
 }
 
+/// The token from the URL path first, then the `Authorization` header (`Bearer`, `bearer` or a bare
+/// token), then `?token=`. For intakes whose senders can only edit the URL or add one header.
+pub fn token_from_path_header_or_query(
+    path_token: Option<&str>,
+    headers: &HeaderMap,
+    query_token: Option<&str>,
+) -> Result<String, Rejection> {
+    let header_token = headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .map(|auth| {
+            auth.strip_prefix("Bearer ")
+                .or_else(|| auth.strip_prefix("bearer "))
+                .unwrap_or(auth)
+                .trim()
+        });
+    [path_token, header_token, query_token]
+        .into_iter()
+        .flatten()
+        .find(|token| !token.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| {
+            error!("No token provided");
+            unauthorized("No token provided")
+        })
+}
+
 /// Splits before it trims, so a value of exactly `Bearer ` still yields the empty token callers reject.
 fn strip_bearer(value: &str) -> &str {
     value.split("Bearer ").last().unwrap_or("").trim()
@@ -263,6 +290,39 @@ mod tests {
                     case.name
                 ),
             }
+        }
+    }
+
+    #[test]
+    fn intake_token_comes_from_the_path_then_the_header_then_the_query_param() {
+        for (path, auth, query, expected) in [
+            (
+                Some("phc_path"),
+                Some("Bearer phc_header"),
+                Some("phc_query"),
+                Some("phc_path"),
+            ),
+            (
+                Some(""),
+                Some("Bearer phc_header"),
+                None,
+                Some("phc_header"),
+            ),
+            (None, Some("bearer phc_header "), None, Some("phc_header")),
+            (None, Some("phc_bare"), None, Some("phc_bare")),
+            (None, Some("Bearer "), Some("phc_query"), Some("phc_query")),
+            (None, None, Some(""), None),
+        ] {
+            let pairs: Vec<_> = auth
+                .map(|value| ("authorization", value))
+                .into_iter()
+                .collect();
+            let token = token_from_path_header_or_query(path, &headers(&pairs), query).ok();
+            assert_eq!(
+                token.as_deref(),
+                expected,
+                "{path:?} / {auth:?} / {query:?}"
+            );
         }
     }
 }

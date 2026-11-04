@@ -1,5 +1,7 @@
-use crate::authorizer::Signal;
-use crate::log_record::{apply_timestamp_override, datetime_from_millis, KafkaLogRow};
+use crate::authorizer::{token_from_path_header_or_query, Signal};
+use crate::log_record::{
+    apply_timestamp_override, datetime_from_millis, hex_to_base64, KafkaLogRow,
+};
 use crate::service::{decode_body_if_gzip_magic, Service};
 use axum::{
     extract::State,
@@ -7,7 +9,6 @@ use axum::{
     http::{HeaderMap, StatusCode},
     response::Json,
 };
-use base64::{engine::general_purpose::STANDARD as base64_standard, Engine};
 use bytes::Bytes;
 use chrono::Utc;
 use serde::{Deserialize, Deserializer};
@@ -103,37 +104,6 @@ pub fn parse_datadog_tags(ddtags: Option<&str>) -> HashMap<String, String> {
         }
     }
     attributes
-}
-
-pub(crate) fn extract_token_from_auth_header(headers: &HeaderMap) -> Option<String> {
-    headers
-        .get("authorization")
-        .and_then(|v| v.to_str().ok())
-        .map(|auth| {
-            // Support both "Bearer <token>" and just "<token>"
-            if let Some(token) = auth.strip_prefix("Bearer ") {
-                token.trim().to_string()
-            } else if let Some(token) = auth.strip_prefix("bearer ") {
-                token.trim().to_string()
-            } else {
-                auth.trim().to_string()
-            }
-        })
-}
-
-pub(crate) fn hex_to_base64(hex_str: &str) -> String {
-    // Remove any 0x prefix if present
-    let hex_str = hex_str.strip_prefix("0x").unwrap_or(hex_str);
-
-    // Decode hex to bytes
-    match hex::decode(hex_str) {
-        Ok(bytes) => base64_standard.encode(&bytes),
-        Err(_) => {
-            // If hex decoding fails, return empty string
-            debug!("Failed to decode hex string: {}", hex_str);
-            String::new()
-        }
-    }
 }
 
 pub fn extract_trace_span_ids(extra: &HashMap<String, serde_json::Value>) -> (String, String) {
@@ -290,23 +260,11 @@ pub async fn export_datadog_logs_http(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
-    // Try to get token from: path, Authorization header, or query param
-    let token = match path_token {
-        Some(Path(t)) if !t.is_empty() => t,
-        _ => match extract_token_from_auth_header(&headers) {
-            Some(t) if !t.is_empty() => t,
-            _ => match query_params.token.as_deref() {
-                Some(t) if !t.is_empty() => t.to_string(),
-                _ => {
-                    error!("No token provided");
-                    return Err((
-                        StatusCode::UNAUTHORIZED,
-                        Json(json!({"error": "No token provided"})),
-                    ));
-                }
-            },
-        },
-    };
+    let token = token_from_path_header_or_query(
+        path_token.as_ref().map(|Path(token)| token.as_str()),
+        &headers,
+        query_params.token.as_deref(),
+    )?;
 
     // Datadog agents ship logs, so this shares the logs signal.
     service.authorizer.authorize_token(&token, Signal::Logs)?;

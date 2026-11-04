@@ -276,6 +276,21 @@ fn extract_string_from_map(attributes: &HashMap<String, String>, key: &str) -> S
     }
 }
 
+pub(crate) fn hex_to_base64(hex_str: &str) -> String {
+    // Remove any 0x prefix if present
+    let hex_str = hex_str.strip_prefix("0x").unwrap_or(hex_str);
+
+    // Decode hex to bytes
+    match hex::decode(hex_str) {
+        Ok(bytes) => BASE64_STANDARD.encode(&bytes),
+        Err(_) => {
+            // If hex decoding fails, return empty string
+            debug!("Failed to decode hex string: {}", hex_str);
+            String::new()
+        }
+    }
+}
+
 pub fn extract_trace_id(input: &[u8]) -> [u8; 16] {
     if input.len() == 16 {
         let mut bytes = [0; 16];

@@ -1,6 +1,7 @@
-use crate::authorizer::Signal;
-use crate::endpoints::datadog::{extract_token_from_auth_header, hex_to_base64};
-use crate::log_record::{apply_timestamp_override, datetime_from_millis, KafkaLogRow};
+use crate::authorizer::{token_from_path_header_or_query, Signal};
+use crate::log_record::{
+    apply_timestamp_override, datetime_from_millis, hex_to_base64, KafkaLogRow,
+};
 use crate::service::{decode_body_if_gzip_magic, Service};
 use axum::{
     extract::{Extension, Path, Query, State},
@@ -421,22 +422,11 @@ pub async fn export_vercel_logs_http(
 ) -> Result<Json<Value>, (StatusCode, Json<Value>)> {
     // The drain config takes custom headers, so `Authorization: Bearer <token>` is the usual
     // shape; the path and query forms cover setups that only edit the URL.
-    let token = match path_token {
-        Some(Path(t)) if !t.is_empty() => t,
-        _ => match extract_token_from_auth_header(&headers) {
-            Some(t) if !t.is_empty() => t,
-            _ => match query_params.token {
-                Some(t) if !t.is_empty() => t,
-                _ => {
-                    error!("No token provided");
-                    return Err((
-                        StatusCode::UNAUTHORIZED,
-                        Json(json!({"error": "No token provided"})),
-                    ));
-                }
-            },
-        },
-    };
+    let token = token_from_path_header_or_query(
+        path_token.as_ref().map(|Path(token)| token.as_str()),
+        &headers,
+        query_params.token.as_deref(),
+    )?;
 
     service.authorizer.authorize_token(&token, Signal::Logs)?;
     tracing::Span::current().record("token", &token);
