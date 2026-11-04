@@ -60,6 +60,7 @@ from posthog.temporal.alerts.admission import (
     release_evaluation_slot,
     release_evaluation_slots,
 )
+from posthog.temporal.alerts.alert_firing_signal import emit_alert_firing_signal
 from posthog.temporal.alerts.investigation import (
     carried_verdict_suppresses,
     claim_investigation_slot,
@@ -783,6 +784,7 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
         # recorded on the check and can't affect the alert outcome.
         if should_run_metrics_investigation:
             run_metrics_alert_investigation(alert, alert_check)
+        emit_alert_firing_signal(alert, alert_check, previous_state=previous_state, breaches=breaches)
 
         return EvaluateAlertResult(
             alert_check_id=str(alert_check.id),

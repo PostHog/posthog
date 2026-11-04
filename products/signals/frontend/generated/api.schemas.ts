@@ -3831,6 +3831,7 @@ export const SignalSourceProductApi = {
  * * `health_issue` - health_issue
  * * `scanner_finding` - scanner_finding
  * * `anomaly_investigation` - anomaly_investigation
+ * * `alert_firing` - alert_firing
  * * `feedback` - feedback
  * * `review` - review
  * * `ci_flaky_check` - ci_flaky_check
@@ -3860,6 +3861,7 @@ export const SignalSourceTypeApi = {
     HealthIssue: 'health_issue',
     ScannerFinding: 'scanner_finding',
     AnomalyInvestigation: 'anomaly_investigation',
+    AlertFiring: 'alert_firing',
     Feedback: 'feedback',
     Review: 'review',
     CiFlakyCheck: 'ci_flaky_check',
@@ -4159,6 +4161,20 @@ export interface AnalyticsAnomalyInvestigationSignalExtraApi {
     alert_check_id?: string | null
     investigation_id?: string | null
     evaluation_key?: string | null
+}
+
+export interface AnalyticsAlertFiringSignalExtraApi {
+    alert_id: string
+    alert_name: string
+    insight_id: string
+    alert_check_id: string
+    detector_type: string
+    breaches: string[]
+    episode_started_at: string
+    url: string
+    insight_name?: string | null
+    insight_short_id?: string | null
+    triggered_dates?: string[] | null
 }
 
 export type HealthCheckSignalExtraSeverityEnumApi =
@@ -4974,6 +4990,7 @@ export type SignalExtraApi =
     | LogsAlertStateChangeSignalExtraApi
     | ReplayVisionScannerFindingSignalExtraApi
     | AnalyticsAnomalyInvestigationSignalExtraApi
+    | AnalyticsAlertFiringSignalExtraApi
     | HealthCheckSignalExtraApi
     | EngineeringAnalyticsCIFlakyCheckSignalExtraApi
     | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtraApi
@@ -5248,6 +5265,7 @@ export interface SignalNodeApi {
      * * `health_issue` - health_issue
      * * `scanner_finding` - scanner_finding
      * * `anomaly_investigation` - anomaly_investigation
+     * * `alert_firing` - alert_firing
      * * `feedback` - feedback
      * * `review` - review
      * * `ci_flaky_check` - ci_flaky_check

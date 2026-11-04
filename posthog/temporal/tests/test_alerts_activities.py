@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 import time_machine
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 from django.core.exceptions import ValidationError
 from django.db import OperationalError, connection, transaction
@@ -97,6 +97,7 @@ from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration,
 from products.alerts_platform.backend.facade.contracts import AlertDelivery
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.product_analytics.backend.facade.models import Insight
+from products.signals.backend.facade.source_configs import SignalSourceConfigSnapshot
 
 
 def _email_delivery(target: str, at: str = "2026-08-11T00:00:00+00:00") -> AlertDelivery:
@@ -1021,14 +1022,30 @@ class TestEvaluateAlert:
         assert result.new_state == AlertState.NOT_FIRING
         assert inflight_alert_ids() == set()
 
-    async def test_evaluate_firing_with_breaches(self, alert) -> None:
-        with patch(
-            "posthog.temporal.alerts.activities.check_alert_for_insight",
-            return_value=AlertEvaluationResult(value=100.0, breaches=["value above threshold"]),
+    @pytest.mark.parametrize("signal_error", [None, RuntimeError("signals unavailable")])
+    async def test_evaluate_firing_with_breaches(self, alert, signal_error: Exception | None) -> None:
+        # The inbox signal is best effort: a failure must not change the check or its notification.
+        emit = AsyncMock(return_value=True, side_effect=signal_error)
+        with (
+            patch(
+                "posthog.temporal.alerts.activities.check_alert_for_insight",
+                return_value=AlertEvaluationResult(value=100.0, breaches=["value above threshold"]),
+            ),
+            patch("posthog.temporal.alerts.alert_firing_signal.emit_signal", emit),
+            patch(
+                "posthog.temporal.alerts.alert_firing_signal.get_source_config",
+                return_value=SignalSourceConfigSnapshot(enabled=True, created_by_id=None, config={}),
+            ),
+            patch(
+                "posthog.temporal.alerts.alert_firing_signal.get_analytics_alert_scope",
+                return_value="all_firing_alerts",
+            ),
         ):
             env = ActivityEnvironment()
             result = await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id)))
 
+        emit.assert_awaited_once()
+        assert emit.await_args.kwargs["source_id"] == f"{alert.id}:{result.alert_check_id}"
         assert result.new_state == AlertState.FIRING
         assert result.should_notify is True
 

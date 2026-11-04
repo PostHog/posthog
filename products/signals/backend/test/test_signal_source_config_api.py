@@ -746,6 +746,18 @@ class TestIsSourceEnabledGating(APIBaseTest):
 
         assert SignalSourceConfig.is_source_enabled(self.team.id, "session_replay", "session_problem") is True
 
+    @parameterized.expand([("no_row", None, False), ("enabled_row", True, True), ("disabled_row", False, False)])
+    def test_alert_firing_gated_by_product_analytics_row(self, _name, existing_enabled, expected):
+        if existing_enabled is not None:
+            SignalSourceConfig.objects.create(
+                team=self.team,
+                source_product=SignalSourceConfig.SourceProduct.ANALYTICS,
+                source_type=SignalSourceConfig.SourceType.ANOMALY_INVESTIGATION,
+                enabled=existing_enabled,
+            )
+
+        assert SignalSourceConfig.is_source_enabled(self.team.id, "analytics", "alert_firing") is expected
+
     def test_pganalyze_issue_requires_own_config(self):
         SignalSourceConfig.objects.create(
             team=self.team,

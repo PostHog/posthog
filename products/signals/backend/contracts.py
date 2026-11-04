@@ -506,6 +506,30 @@ class AnalyticsAnomalyInvestigationSignalInput(SignalInputBase):
     extra: AnalyticsAnomalyInvestigationSignalExtra
 
 
+# An insight alert that started to fire and that the investigation agent does not investigate. Kept
+# apart from the investigation payload, which requires a verdict this path never has.
+class AnalyticsAlertFiringSignalExtra(SignalExtraBase):
+    alert_id: str
+    alert_name: str
+    insight_id: str
+    # The check that started the firing episode. It is also the signal's source id.
+    alert_check_id: str
+    # `threshold`, or the anomaly detector type.
+    detector_type: str
+    breaches: list[str]
+    episode_started_at: str
+    url: str
+    insight_name: str | None = None
+    insight_short_id: str | None = None
+    triggered_dates: list[str] | None = None
+
+
+class AnalyticsAlertFiringSignalInput(SignalInputBase):
+    source_type: Literal[SignalSourceType.ALERT_FIRING]
+    source_product: Literal[SignalSourceProduct.ANALYTICS]
+    extra: AnalyticsAlertFiringSignalExtra
+
+
 # ── Health checks ───────────────────────────────────────────────────────────────
 
 HealthCheckSeverity = Literal["critical", "warning", "info"]
@@ -1961,6 +1985,7 @@ SignalInput = Annotated[
     | MonitoringUnresolvedSignalInput
     | LogsAlertStateChangeSignalInput
     | AnalyticsAnomalyInvestigationSignalInput
+    | AnalyticsAlertFiringSignalInput
     | HealthCheckSignalInput
     | ReplayVisionScannerFindingSignalInput
     | FreshdeskTicketSignalInput
@@ -2077,6 +2102,7 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     SignalsScoutSignalInput,
     LogsAlertStateChangeSignalInput,
     AnalyticsAnomalyInvestigationSignalInput,
+    AnalyticsAlertFiringSignalInput,
     HealthCheckSignalInput,
     ReplayVisionScannerFindingSignalInput,
     FreshdeskTicketSignalInput,

@@ -62,6 +62,9 @@ export function signalCardSourceLine(signal: { source_product: string; source_ty
     if (source_product === 'analytics' && source_type === 'anomaly_investigation') {
         return 'Product analytics · Anomaly investigation'
     }
+    if (source_product === 'analytics' && source_type === 'alert_firing') {
+        return 'Product analytics · Alert firing'
+    }
     if (source_product === 'health_checks') {
         return 'Health checks · Instrumentation issue'
     }
