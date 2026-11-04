@@ -2,8 +2,6 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonButton, SpinnerOverlay } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-
 import { CanvasCommandGroup } from './hogflows/editor/tile-canvas/CanvasCommandGroup'
 import { HogFlowEditor } from './hogflows/HogFlowEditor'
 import { hogFlowEditorLogic } from './hogflows/hogFlowEditorLogic'
@@ -15,17 +13,12 @@ export function Workflow(props: WorkflowLogicProps): JSX.Element {
         workflowLogic(props)
     )
     const { loadWorkflow, keepMyWorkflowVersion } = useActions(workflowLogic(props))
-    const { editorLayout, isTreeView, isTileCanvas } = useValues(hogFlowEditorLogic(logicProps))
-    const { setEditorLayout } = useActions(hogFlowEditorLogic(logicProps))
-    const treeViewEnabled = useFeatureFlag('WORKFLOWS_LINEAR_VIEW')
+    const { isTileCanvas } = useValues(hogFlowEditorLogic(logicProps))
 
     return (
         <div className="relative flex min-h-[25rem] flex-1 flex-col overflow-hidden rounded-md border">
             <WorkflowStatusBar
                 {...props}
-                editorLayout={editorLayout}
-                showEditorLayoutToggle={treeViewEnabled && !isTileCanvas}
-                onEditorLayoutChange={setEditorLayout}
                 commands={isTileCanvas ? <CanvasCommandGroup {...logicProps} /> : undefined}
             />
             {/* Brief working/disabled overlay while we reconcile to an edit made elsewhere (clean state). */}
@@ -49,11 +42,7 @@ export function Workflow(props: WorkflowLogicProps): JSX.Element {
                     </div>
                 </LemonBanner>
             )}
-            {!originalWorkflow && workflowLoading ? (
-                <SpinnerOverlay />
-            ) : (
-                <HogFlowEditor isTreeView={isTreeView} isTileCanvas={isTileCanvas} />
-            )}
+            {!originalWorkflow && workflowLoading ? <SpinnerOverlay /> : <HogFlowEditor isTileCanvas={isTileCanvas} />}
         </div>
     )
 }

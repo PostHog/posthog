@@ -709,7 +709,6 @@ describe('hogFlowEditorLogic', () => {
             featureFlagLogic.actions.setFeatureFlags(flags, Object.fromEntries(flags.map((flag) => [flag, true])))
             const editorLogic = hogFlowEditorLogic()
             editorLogic.mount()
-            editorLogic.actions.setEditorLayout('advanced')
             await expectLogic(editorLogic).toFinishAllListeners()
             const layout = jest.spyOn(autolayout, 'getFormattedNodes')
 

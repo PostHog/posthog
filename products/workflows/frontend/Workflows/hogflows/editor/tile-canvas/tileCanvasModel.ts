@@ -2,8 +2,8 @@ import type { AppMetricsTotalsRequest } from 'lib/components/AppMetrics/appMetri
 
 import { getEdgeId } from '../../edgeId'
 import type { CreateActionType, HogFlowEditorActionMetrics } from '../../hogFlowEditorLogic'
-import { getWorkflowBranchLabel, isBranchingAction } from '../../tree/workflowTree'
 import type { HogFlow, HogFlowAction, HogFlowEdge } from '../../types'
+import { getWorkflowBranchLabel, isBranchingAction } from '../../workflowBranches'
 
 export type FlowGraph = Pick<HogFlow, 'actions' | 'edges'>
 
