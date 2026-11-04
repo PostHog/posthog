@@ -8,6 +8,7 @@ from products.warehouse_sources.sources.aws_config.aws_config import (
 )
 from products.warehouse_sources.sources.aws_config.canonical_descriptions import CANONICAL_DESCRIPTIONS
 from products.warehouse_sources.sources.aws_config.settings import (
+    AWS_SESSION_ACTIONS,
     CONFIG_API_VERSION,
     ENDPOINT_DESCRIPTIONS,
     ENDPOINTS,
@@ -52,6 +53,7 @@ class AwsConfigSource(ResumableSource[AwsConfigSourceConfig, AwsConfigResumeConf
 
     lists_tables_without_credentials = True
     flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    aws_session_actions = AWS_SESSION_ACTIONS
     credential_kind = "aws-config"
     supported_versions = (CONFIG_API_VERSION,)
     default_version = CONFIG_API_VERSION
@@ -97,7 +99,7 @@ class AwsConfigSource(ResumableSource[AwsConfigSourceConfig, AwsConfigResumeConf
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
-            credentials = resolve_aws_credentials(config.aws_auth, team_id)
+            credentials = resolve_aws_credentials(config.aws_auth, team_id, AWS_SESSION_ACTIONS)
         except AwsAuthError as error:
             return False, str(error)
         return validate_aws_config_credentials(config, credentials, self.resolve_api_version(api_version), schema_name)
@@ -113,7 +115,7 @@ class AwsConfigSource(ResumableSource[AwsConfigSourceConfig, AwsConfigResumeConf
     ) -> SourceResponse:
         return aws_config_source(
             config,
-            resolve_aws_credentials(config.aws_auth, inputs.team_id),
+            resolve_aws_credentials(config.aws_auth, inputs.team_id, AWS_SESSION_ACTIONS),
             inputs.schema_name,
             self.resolve_api_version(inputs.api_version),
             resumable_source_manager,

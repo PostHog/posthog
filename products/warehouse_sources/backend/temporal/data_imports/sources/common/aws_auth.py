@@ -1,6 +1,7 @@
 import time
 import datetime as dt
 import functools
+from collections.abc import Sequence
 from typing import Protocol
 
 from asgiref.sync import async_to_sync
@@ -148,8 +149,10 @@ def aws_auth_field() -> SourceFieldSelectConfig:
     )
 
 
-def resolve_aws_credentials(auth: AwsAuth, team_id: int) -> Credentials:
+def resolve_aws_credentials(auth: AwsAuth, team_id: int, session_actions: Sequence[str]) -> Credentials:
     """The credentials to sign the source's AWS requests with.
+
+    `session_actions` are the IAM actions the source calls. A role session can use only those.
 
     A role gives refreshable credentials. The second hop of the role chain caps a session at one
     hour, so botocore assumes the role again when the credentials are about to expire.
@@ -163,10 +166,10 @@ def resolve_aws_credentials(auth: AwsAuth, team_id: int) -> Credentials:
         raise AwsAuthError(UNKNOWN_AUTH_ERROR)
     if not auth.aws_integration_id:
         raise AwsAuthError(MISSING_ROLE_ERROR)
-    return _integration_credentials(auth.aws_integration_id, team_id)
+    return _integration_credentials(auth.aws_integration_id, team_id, session_actions)
 
 
-def _integration_credentials(integration_id: int, team_id: int) -> Credentials:
+def _integration_credentials(integration_id: int, team_id: int, session_actions: Sequence[str]) -> Credentials:
     # Importing the batch exports facade loads aioboto3, so it stays off the source registry's import path.
     from products.batch_exports.backend.facade.destinations.s3 import (  # noqa: PLC0415
         ExternalRoleArnNotConfiguredError,
@@ -197,9 +200,9 @@ def _integration_credentials(integration_id: int, team_id: int) -> Credentials:
         integration.aws_role_arn,
         external_id,
         session_name=f"PostHog-warehouse-source-{team_id}",
-        # The customer's role decides what PostHog can read. A source calls several services, so a
-        # narrower session policy per source would only break reads that the role allows.
-        policy_statements=[PolicyStatement(Effect="Allow", Action=["*"], Resource="*")],
+        # A role made for batch exports also grants S3 writes and KMS. The session keeps only the
+        # actions this source calls, so a sync cannot use the rest of the role.
+        policy_statements=[PolicyStatement(Effect="Allow", Action=list(session_actions), Resource="*")],
         # Without a retry an STS hiccup fails the sync. With the default five attempts, a role that
         # denies PostHog keeps the credential check waiting for half a minute.
         max_attempts=2,
