@@ -11,7 +11,8 @@ export function HealthFindingListItem({
 }: {
     finding: HealthPanelFinding
     isSelected: boolean
-    onSelect: () => void
+    /** Returns whether the pick puts the detail of the finding on screen. */
+    onSelect: () => boolean
 }): JSX.Element {
     const { reportOpened } = useHealthFindingReporting({
         code: finding.code,
@@ -28,12 +29,10 @@ export function HealthFindingListItem({
                 active={isSelected}
                 icon={<HealthFindingSeverityIcon severity={finding.severity} />}
                 onClick={() => {
-                    // The first issue shows without a click, so only a reader's own pick reports the finding as opened.
-                    if (!isSelected) {
+                    if (onSelect()) {
                         // pinned: insights count `why` as opening the detail of a finding
                         reportOpened('why')
                     }
-                    onSelect()
                 }}
                 aria-current={isSelected ? 'true' : undefined}
                 data-attr="experiment-health-finding"

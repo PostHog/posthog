@@ -259,27 +259,64 @@ describe('health finding reporting', () => {
         }
     )
 
-    it('shows the first issue on the health tab without a report, and reports each finding or check a person picks once', async () => {
-        renderHealth(UNEVEN_EXPOSURES)
-        expect(screen.getByText(/The linked feature flag is disabled/)).toBeInTheDocument()
-        const pickEvents = (): (string | undefined)[][] =>
-            captureSpy.mock.calls
-                .filter(([event]) =>
-                    ['experiment health finding opened', 'experiment health check expanded'].includes(String(event))
-                )
-                .map(([event, properties]) => [event, properties.finding_code ?? properties.check_key])
-        expect(pickEvents()).toEqual([])
+    it.each([
+        {
+            container: 'wide',
+            isNarrow: false,
+            expected: [
+                ['experiment health finding opened', 'srm'],
+                ['experiment health check expanded', 'no_metric'],
+            ],
+        },
+        {
+            container: 'narrow',
+            isNarrow: true,
+            expected: [
+                ['experiment health finding opened', 'flag_off_while_running'],
+                ['experiment health finding opened', 'srm'],
+                ['experiment health finding opened', 'srm'],
+                ['experiment health check expanded', 'no_metric'],
+            ],
+        },
+    ])(
+        'reports each finding or check a person opens on the health tab in a $container container',
+        async ({ isNarrow, expected }) => {
+            // jsdom applies no container query, so the detail stays beside the list until `hidden` takes effect,
+            // as it does below the breakpoint.
+            const narrowStyles = document.head.appendChild(document.createElement('style'))
+            narrowStyles.textContent = isNarrow ? '.hidden { display: none; }' : ''
+            try {
+                renderHealth(UNEVEN_EXPOSURES)
+                expect(screen.getByText(/The linked feature flag is disabled/)).toBeInTheDocument()
+                const pickEvents = (): (string | undefined)[][] =>
+                    captureSpy.mock.calls
+                        .filter(([event]) =>
+                            ['experiment health finding opened', 'experiment health check expanded'].includes(
+                                String(event)
+                            )
+                        )
+                        .map(([event, properties]) => [event, properties.finding_code ?? properties.check_key])
+                expect(pickEvents()).toEqual([])
 
-        await pickFromList('The experiment is paused')
-        await pickFromList('Users are not split across variants as configured')
-        await pickFromList('Users are not split across variants as configured')
-        await pickFromList('Metrics not set up')
+                // A narrow container shows the list or the detail, so the reader goes back to the list between picks.
+                for (const title of [
+                    'The experiment is paused',
+                    'Users are not split across variants as configured',
+                    'Users are not split across variants as configured',
+                    'Metrics not set up',
+                ]) {
+                    await pickFromList(title)
+                    if (isNarrow) {
+                        await userEvent.click(screen.getByText('All checks'))
+                    }
+                }
 
-        expect(pickEvents()).toEqual([
-            ['experiment health finding opened', 'srm'],
-            ['experiment health check expanded', 'no_metric'],
-        ])
-    })
+                expect(pickEvents()).toEqual(expected)
+            } finally {
+                narrowStyles.remove()
+            }
+        }
+    )
 
     it('reports zero exposures only from the open panel, as shown and then as opened', async () => {
         renderWarnings(NO_EXPOSURES)

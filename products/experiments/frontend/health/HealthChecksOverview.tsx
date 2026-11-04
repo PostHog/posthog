@@ -1,5 +1,5 @@
 import { useActions } from 'kea'
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
 import { IconChevronLeft } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
@@ -39,9 +39,16 @@ export function HealthChecksOverview({
     const issueCount = healthIssues(findings).length
     const selection = resolveHealthPanelSelection(pickedSelection, findings, listedChecks)
 
-    const select = (next: HealthPanelSelection): void => {
+    const detailRef = useRef<HTMLElement>(null)
+
+    // Returns whether the pick puts a detail on screen, which is what reports it as opened. The first issue shows
+    // without a click, but only beside the list: a narrow container hides the detail behind the list, so there a
+    // click opens even the item that is already picked. Only the container query knows the width, so ask the page.
+    const select = (next: HealthPanelSelection, isSelected: boolean): boolean => {
+        const opensDetail = !isSelected || !detailRef.current || getComputedStyle(detailRef.current).display === 'none'
         setPickedSelection(next)
         setIsDetailOpenWhenNarrow(true)
+        return opensDetail
     }
 
     return (
@@ -67,12 +74,13 @@ export function HealthChecksOverview({
                         <ul className="m-0 list-none flex flex-col gap-0.5 border-t px-1 py-2">
                             {findings.map((finding) => {
                                 const key = healthFindingKey(finding)
+                                const isSelected = selection.kind === 'finding' && selection.key === key
                                 return (
                                     <HealthFindingListItem
                                         key={key}
                                         finding={finding}
-                                        isSelected={selection.kind === 'finding' && selection.key === key}
-                                        onSelect={() => select({ kind: 'finding', key })}
+                                        isSelected={isSelected}
+                                        onSelect={() => select({ kind: 'finding', key }, isSelected)}
                                     />
                                 )
                             })}
@@ -85,16 +93,17 @@ export function HealthChecksOverview({
                                 exposureChecksMissing={exposureChecksMissing}
                                 selectedKey={selection.kind === 'check' ? selection.key : null}
                                 onSelect={(check) => {
-                                    if (!(selection.kind === 'check' && selection.key === check.key)) {
+                                    const isSelected = selection.kind === 'check' && selection.key === check.key
+                                    if (select({ kind: 'check', key: check.key }, isSelected)) {
                                         reportHealthCheckExpanded(check)
                                     }
-                                    select({ kind: 'check', key: check.key })
                                 }}
                             />
                         </div>
                     )}
                 </nav>
                 <section
+                    ref={detailRef}
                     aria-label="Health check details"
                     className={cn(
                         'flex-1 min-w-0 flex-col gap-3 px-4 py-3 @min-[48rem]/health-checks:flex',
