@@ -96,6 +96,7 @@ from products.signals.backend.tracker_issues import (
     complete_monitoring_tracker_issues,
     link_pull_request_to_tracker_issue,
 )
+from products.signals.backend.trial.tasks import cancel_trial_grant as cancel_trial_grant
 from products.tasks.backend.facade.repo_activity import RepositoryCommitActivityError
 
 logger = structlog.get_logger(__name__)
