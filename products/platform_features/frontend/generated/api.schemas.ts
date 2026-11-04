@@ -894,6 +894,56 @@ export interface WelcomeResponseApi {
     is_organization_first_user: boolean
 }
 
+/**
+ * * `session` - session
+ * * `personal_api_key` - personal_api_key
+ * * `oauth` - oauth
+ * * `project_secret_key` - project_secret_key
+ * * `team_secret_token` - team_secret_token
+ * * `id_jag` - id_jag
+ * * `internal_jwt` - internal_jwt
+ * * `service_jwt` - service_jwt
+ * * `internal_api_secret` - internal_api_secret
+ * * `scim` - scim
+ * * `vercel` - vercel
+ * * `partner` - partner
+ * * `sharing_access_token` - sharing_access_token
+ * * `sharing_password` - sharing_password
+ * * `widget_token` - widget_token
+ * * `billing_service` - billing_service
+ * * `gateway_agent` - gateway_agent
+ * * `export_renderer` - export_renderer
+ * * `webhook` - webhook
+ * * `cross_region_signature` - cross_region_signature
+ * * `unattributed` - unattributed
+ */
+export type ActivityLogCredentialTypeEnumApi =
+    (typeof ActivityLogCredentialTypeEnumApi)[keyof typeof ActivityLogCredentialTypeEnumApi]
+
+export const ActivityLogCredentialTypeEnumApi = {
+    Session: 'session',
+    PersonalApiKey: 'personal_api_key',
+    Oauth: 'oauth',
+    ProjectSecretKey: 'project_secret_key',
+    TeamSecretToken: 'team_secret_token',
+    IdJag: 'id_jag',
+    InternalJwt: 'internal_jwt',
+    ServiceJwt: 'service_jwt',
+    InternalApiSecret: 'internal_api_secret',
+    Scim: 'scim',
+    Vercel: 'vercel',
+    Partner: 'partner',
+    SharingAccessToken: 'sharing_access_token',
+    SharingPassword: 'sharing_password',
+    WidgetToken: 'widget_token',
+    BillingService: 'billing_service',
+    GatewayAgent: 'gateway_agent',
+    ExportRenderer: 'export_renderer',
+    Webhook: 'webhook',
+    CrossRegionSignature: 'cross_region_signature',
+    Unattributed: 'unattributed',
+} as const
+
 export interface ActivityLogApi {
     readonly id: string
     user: UserBasicApi
@@ -918,6 +968,35 @@ export interface ActivityLogApi {
     client?: string | null
     /** @nullable */
     ip_address?: string | null
+    /** Kind of credential that authenticated the request that made the change. 'unattributed' means the request recorded no credential. Null for changes made outside a request, such as background jobs, and for entries recorded before PostHog stored the credential.
+     *
+     * * `session` - session
+     * * `personal_api_key` - personal_api_key
+     * * `oauth` - oauth
+     * * `project_secret_key` - project_secret_key
+     * * `team_secret_token` - team_secret_token
+     * * `id_jag` - id_jag
+     * * `internal_jwt` - internal_jwt
+     * * `service_jwt` - service_jwt
+     * * `internal_api_secret` - internal_api_secret
+     * * `scim` - scim
+     * * `vercel` - vercel
+     * * `partner` - partner
+     * * `sharing_access_token` - sharing_access_token
+     * * `sharing_password` - sharing_password
+     * * `widget_token` - widget_token
+     * * `billing_service` - billing_service
+     * * `gateway_agent` - gateway_agent
+     * * `export_renderer` - export_renderer
+     * * `webhook` - webhook
+     * * `cross_region_signature` - cross_region_signature
+     * * `unattributed` - unattributed */
+    readonly credential_type: ActivityLogCredentialTypeEnumApi | null
+    /**
+     * Id of the credential that authenticated the change: the login session id for 'session', or the key id for 'personal_api_key' and 'project_secret_key'. Null for every other credential type and for impersonated changes.
+     * @nullable
+     */
+    readonly credential_id: string | null
     /** @maxLength 79 */
     activity: string
     /**

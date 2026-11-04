@@ -33,6 +33,7 @@ from posthog.models.integration import (
     POSTHOG_CONNECT_DEFAULT_SCOPES,
     POSTHOG_CONNECT_IDENTITY_SCOPES,
     Integration,
+    LinearIntegration,
     OauthClientCredentials,
     OauthIntegration,
     oauth_refresh_failure_reason,
@@ -596,6 +597,37 @@ class TestOauthIntegrationModel(BaseTest):
         with time_machine.travel(now + timedelta(seconds=1000), tick=False):
             # After the threshold it is expired
             assert OauthIntegration(integration).access_token_expired()
+
+    @patch("posthog.models.integration.oauth.reload_integrations_on_workers")
+    @patch("posthog.models.integration.oauth.requests.post")
+    def test_only_a_reconnect_moves_a_linear_connection_past_the_webhooks_date(self, mock_post, mock_reload):
+        mock_post.return_value.status_code = 200
+        # The token exchange pops fields from the body, so each request needs its own copy.
+        mock_post.return_value.json.side_effect = lambda: {
+            "access_token": "FAKES_ACCESS_TOKEN",
+            "refresh_token": "FAKE_REFRESH_TOKEN",
+            "expires_in": 3600,
+            "data": {"viewer": {"organization": {"id": "linear-org-1", "name": "Acme", "urlKey": "acme"}}},
+        }
+        params = {"code": "code", "state": "next=/projects/test"}
+
+        with self.settings(**self.mock_settings):
+            with time_machine.travel("2026-01-01T12:00:00Z", tick=False):
+                connected = OauthIntegration.integration_from_oauth_response("linear", self.team.id, self.user, params)
+            assert LinearIntegration(connected).authorized_before_webhooks() is True
+
+            with time_machine.travel("2026-11-03T12:00:00Z", tick=False):
+                OauthIntegration(connected).refresh_access_token()
+            connected.refresh_from_db()
+            assert LinearIntegration(connected).authorized_before_webhooks() is True
+
+            with time_machine.travel("2026-11-03T13:00:00Z", tick=False):
+                reconnected = OauthIntegration.integration_from_oauth_response(
+                    "linear", self.team.id, self.user, params
+                )
+
+        assert reconnected.id == connected.id
+        assert LinearIntegration(reconnected).authorized_before_webhooks() is False
 
     @patch("posthog.models.integration.oauth.reload_integrations_on_workers")
     @patch("posthog.models.integration.oauth.requests.post")
