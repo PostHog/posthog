@@ -254,7 +254,7 @@ class TestScoutSpendSettlement(BaseTest):
             complete_task_spend(team_id=self.team.id, run_id=str(run.id))
         spend = SignalSpend.objects.for_team(self.team.id).get(scout_run=scout)
         self.assertIsNone(spend.finalized_at)
-        self.assertTrue(spend.accounting_failed)
+        self.assertFalse(spend.accounting_failed)
         with patch(
             "products.tasks.backend.logic.services.gateway_usage._fetch_gateway_cost",
             new=AsyncMock(return_value=GatewayRequestCost(model="example", provider="example", cost_microusd=50)),

@@ -74,7 +74,7 @@ def _spend_credits_by_team(
     if organization_ids is not None:
         eligible &= Q(team__organization_id__in=organization_ids)
     # Running costs belong in quota checks before their final receipt becomes billable.
-    now = timezone.now()
+    now = datetime.now(UTC)
     period = Q(finalized_at__gte=begin, finalized_at__lt=end)
     if include_running and begin <= now < end:
         period_start = Cast(KeyTextTransform("0", "team__organization__usage__period"), DateTimeField())

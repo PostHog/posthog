@@ -1,6 +1,5 @@
 import type { Decorator, Meta, StoryObj } from '@storybook/react'
 import { waitFor, within } from '@testing-library/dom'
-import { useMountedLogic } from 'kea'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 

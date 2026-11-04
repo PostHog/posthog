@@ -5240,12 +5240,14 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
             signal_id=uuid4(),
             finalized_at=period.start,
             spend=15,
+            usage_billing=True,
         )
         SignalReport.objects.filter(id=report.id).update(created_at=period.start - relativedelta(days=1))
+        # Changing the plan does not reclassify existing work.
         organization = team.organization
         organization.usage = {"signals_spend_credits": {"billing_start_date": period.start.date().isoformat()}}
         organization.save(update_fields=["usage"])
-        self.assertEqual(get_teams_with_signals_credits_used_in_period(period.start, period.end), [])
+        self.assertEqual(get_teams_with_signals_credits_used_in_period(period.start, period.end), [(team.id, 1500)])
         self.assertEqual(get_teams_with_signals_spend_credits_used_in_period(period.start, period.end), [(team.id, 15)])
 
     def test_self_driving_credits_for_orgs_sum_each_orgs_teams(self) -> None:

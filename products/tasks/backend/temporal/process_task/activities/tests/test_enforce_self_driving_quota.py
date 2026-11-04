@@ -68,6 +68,7 @@ class TestEnforceSelfDrivingRunQuotaActivity:
                 report=report,
                 task_run_id=test_task_run.id,
                 kind="reviewer_triggered_implementation",
+                usage_billing=True,
             )
         )
         record_task_cost_delta(team_id=test_task.team_id, run_id=test_task_run.id, cost_delta_microusd=200_000)
