@@ -5,7 +5,8 @@ import { initKeaTests } from '~/test/init'
 import { AccountProductUsagePeople } from './AccountProductUsagePeople'
 
 describe('AccountProductUsagePeople', () => {
-    it('shows a compact full-week summary and exposes qualifications on demand', () => {
+    it('shows a compact full-week summary and opens qualifications on request', () => {
+        const inspect = jest.fn()
         initKeaTests()
         render(
             <AccountProductUsagePeople
@@ -23,10 +24,10 @@ describe('AccountProductUsagePeople', () => {
                         topPaths: [{ path: '/insights', seconds: 120 }],
                     },
                 ]}
-                firsts={[]}
                 total={5}
                 columnKey="2026-11-01"
                 productLabel="Product analytics"
+                onInspect={inspect}
                 showDetails
             />
         )
@@ -35,10 +36,7 @@ describe('AccountProductUsagePeople', () => {
         expect(screen.getByText('Nov 1')).toBeTruthy()
         expect(screen.getByText('Nov 7, 2026')).toBeTruthy()
         fireEvent.click(screen.getByRole('button', { name: 'Qualification details' }))
-        expect(screen.getAllByText('Alice').length).toBeGreaterThan(0)
-        expect(screen.getByText('4 actions, 120 seconds on product pages')).toBeTruthy()
-        expect(screen.getByText('insight viewed: 4')).toBeTruthy()
-        expect(screen.getByText('/insights: 120 seconds')).toBeTruthy()
+        expect(inspect).toHaveBeenCalledTimes(1)
         expect(screen.getByText('+4 more')).toBeTruthy()
     })
 })

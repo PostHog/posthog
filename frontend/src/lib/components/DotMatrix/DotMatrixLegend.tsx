@@ -56,26 +56,30 @@ export function DotMatrixLegend({
                                 </svg>
                             )
                             return onSelectedSeriesChange ? (
-                                <LemonButton
+                                <span
                                     key={item.key}
-                                    className={itemClassName}
-                                    size="xsmall"
-                                    type="tertiary"
-                                    aria-pressed={selectedSeries.includes(item.key)}
-                                    data-attr="dot-matrix-series"
-                                    onMouseEnter={() => onHoveredSeriesChange?.(item.key)}
-                                    onMouseLeave={() => onHoveredSeriesChange?.(null)}
-                                    onFocus={() => onHoveredSeriesChange?.(item.key)}
-                                    onBlur={() => onHoveredSeriesChange?.(null)}
-                                    onClick={(event) =>
-                                        onSelectedSeriesChange(
-                                            toggleDotMatrixSeries(selectedSeries, item.key, event.shiftKey)
-                                        )
-                                    }
-                                    icon={icon}
+                                    className="contents"
+                                    onFocusCapture={() => onHoveredSeriesChange?.(item.key)}
+                                    onBlurCapture={() => onHoveredSeriesChange?.(null)}
                                 >
-                                    {item.label ?? item.key}
-                                </LemonButton>
+                                    <LemonButton
+                                        className={itemClassName}
+                                        size="xsmall"
+                                        type="tertiary"
+                                        aria-pressed={selectedSeries.includes(item.key)}
+                                        data-attr="dot-matrix-series"
+                                        onMouseEnter={() => onHoveredSeriesChange?.(item.key)}
+                                        onMouseLeave={() => onHoveredSeriesChange?.(null)}
+                                        onClick={(event) =>
+                                            onSelectedSeriesChange(
+                                                toggleDotMatrixSeries(selectedSeries, item.key, event.shiftKey)
+                                            )
+                                        }
+                                        icon={icon}
+                                    >
+                                        {item.label ?? item.key}
+                                    </LemonButton>
+                                </span>
                             ) : (
                                 <span key={item.key} className={clsx(itemClassName, 'DotMatrix__legend-item--static')}>
                                     {icon}

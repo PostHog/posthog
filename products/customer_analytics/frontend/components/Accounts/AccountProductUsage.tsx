@@ -1,12 +1,14 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
-import { LemonBanner, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonModal, Spinner } from '@posthog/lemon-ui'
 
 import type { BookActivityMatrixResult } from '~/queries/schema/schema-general'
 
 import { AccountProductUsagePeople } from './AccountProductUsagePeople'
 import { getLatestProductUsageColumn, getAccountProductUsagePeopleCell } from './accountProductUsagePeople'
 import { accountProductUsagePeopleLogic } from './accountProductUsagePeopleLogic'
+import { AccountProductUsageQualifications } from './AccountProductUsageQualifications'
 import { AccountProductUsageTable } from './AccountProductUsageTable'
 
 export function AccountProductUsage({
@@ -27,6 +29,21 @@ export function AccountProductUsage({
     const logic = accountProductUsagePeopleLogic({ result, accountId, instanceId, includeFirstUse })
     const { details, detailsLoading, error } = useValues(logic)
     const { loadDetails } = useActions(logic)
+    const [inspectedCell, setInspectedCell] = useState<{
+        matrix: BookActivityMatrixResult
+        productKey: string
+        columnKey: string
+    } | null>(null)
+    const inspected =
+        !error && inspectedCell?.matrix === result && details?.matrix === result
+            ? getAccountProductUsagePeopleCell(
+                  result,
+                  accountId,
+                  details.people.people,
+                  inspectedCell.productKey,
+                  inspectedCell.columnKey
+              )
+            : null
     const latestColumn = getLatestProductUsageColumn(result)
     const renderPeople = (productKey: string, columnKey: string, showDetails = false): JSX.Element | null => {
         if (detailsLoading && details?.matrix !== result) {
@@ -47,10 +64,10 @@ export function AccountProductUsage({
                 people={showDetails ? people : people.slice(0, 3)}
                 productLabel={result.series.find((product) => product.key === productKey)?.label ?? productKey}
                 partial={result.columns.find((column) => column.key === columnKey)?.partial}
-                firsts={includeFirstUse ? (details.firsts?.people ?? []) : []}
                 total={total}
                 columnKey={columnKey}
                 showDetails={showDetails}
+                onInspect={() => setInspectedCell({ matrix: result, productKey, columnKey })}
             />
         )
     }
@@ -72,6 +89,28 @@ export function AccountProductUsage({
                 <LemonBanner type="warning">
                     Some user details are missing because the result reached its limit.
                 </LemonBanner>
+            )}
+            {inspected && inspectedCell && (
+                <LemonModal isOpen title="Qualification details" onClose={() => setInspectedCell(null)} width={560}>
+                    <div className="flex flex-col gap-4">
+                        <AccountProductUsagePeople
+                            people={inspected.people}
+                            total={inspected.total}
+                            columnKey={inspectedCell.columnKey}
+                            productLabel={
+                                result.series.find((product) => product.key === inspectedCell.productKey)?.label ??
+                                inspectedCell.productKey
+                            }
+                            partial={result.columns.find((column) => column.key === inspectedCell.columnKey)?.partial}
+                            showDetails
+                        />
+                        <AccountProductUsageQualifications
+                            people={inspected.people}
+                            firsts={includeFirstUse ? (details?.firsts?.people ?? []) : []}
+                            columnKey={inspectedCell.columnKey}
+                        />
+                    </div>
+                </LemonModal>
             )}
             <AccountProductUsageTable
                 result={result}

@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
 import { performQuery } from '~/queries/query'
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -23,9 +23,9 @@ const person = {
     label: 'Alice',
     rank: 1,
     actionCount: 4,
-    engagedSeconds: 0,
-    actions: [],
-    topPaths: [],
+    engagedSeconds: 120,
+    actions: [{ event: 'insight viewed', count: 4 }],
+    topPaths: [{ path: '/insights', seconds: 120 }],
 }
 const props = {
     result,
@@ -41,6 +41,23 @@ describe('AccountProductUsage history', () => {
         query.mockReset()
     })
     afterEach(cleanup)
+    it('keeps qualification details open after the weekly tooltip loses hover', async () => {
+        query.mockResolvedValue({ results: { rows: [], columns: [], people: [person], truncated: false } })
+        render(<AccountProductUsage {...props} includeFirstUse={false} />)
+        await screen.findByText('Alice +4')
+        const cell = screen.getByRole('img', { name: 'Product analytics users: 5' }).closest('.DotMatrix__cell')!
+        fireEvent.focus(cell)
+        fireEvent.click(await screen.findByRole('button', { name: 'Qualification details' }))
+        fireEvent.blur(cell)
+        fireEvent.mouseLeave(cell)
+        const modal = await screen.findByRole('dialog')
+        expect(within(modal).getByText('4 actions, 120 seconds on product pages')).toBeTruthy()
+        expect(within(modal).getByText('insight viewed: 4')).toBeTruthy()
+        expect(within(modal).getByText('/insights: 120 seconds')).toBeTruthy()
+        fireEvent.click(within(modal).getByRole('button', { name: 'close' }))
+        await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    })
+
     it('trusts all-history account dates instead of a false current-period matrix first use', async () => {
         query.mockImplementation((request) =>
             Promise.resolve({

@@ -1,30 +1,28 @@
-import { LemonCollapse } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 
-import type { BookActivityPerson, BookActivityPersonFirstUse } from '~/queries/schema/schema-general'
-
-import { ProductUsagePersonTooltip } from '../ProductUsageGrid/ProductUsagePersonTooltip'
+import type { BookActivityPerson } from '~/queries/schema/schema-general'
 
 export function AccountProductUsagePeople({
     people,
-    firsts,
     total,
     columnKey,
     productLabel,
     partial = false,
     showDetails = false,
+    onInspect,
 }: {
     people: BookActivityPerson[]
-    firsts: BookActivityPersonFirstUse[]
     total: number
     columnKey: string
     productLabel?: string
     partial?: boolean
     showDetails?: boolean
+    onInspect?: () => void
 }): JSX.Element {
     const end = dayjs(columnKey).add(1, 'week')
     if (!showDetails) {
@@ -36,12 +34,12 @@ export function AccountProductUsagePeople({
                 title={
                     <AccountProductUsagePeople
                         people={people}
-                        firsts={firsts}
                         total={total}
                         columnKey={columnKey}
                         productLabel={productLabel}
                         partial={partial}
                         showDetails
+                        onInspect={onInspect}
                     />
                 }
             >
@@ -75,41 +73,10 @@ export function AccountProductUsagePeople({
             ))}
             {total > people.length && <span className="text-secondary">{`+${total - people.length} more`}</span>}
             {!people.length && total === 0 && <span className="text-secondary">No activity</span>}
-            {people.length > 0 && (
-                <LemonCollapse
-                    size="xsmall"
-                    embedded
-                    panels={[
-                        {
-                            key: 'qualifications',
-                            header: 'Qualification details',
-                            content: (
-                                <div className="flex flex-col gap-3">
-                                    {people.map((person) => {
-                                        const firstUse = firsts.find(
-                                            (first) =>
-                                                first.row === person.row &&
-                                                first.series === person.series &&
-                                                first.personId === person.personId
-                                        )
-                                        return (
-                                            <ProductUsagePersonTooltip
-                                                key={person.personId}
-                                                person={person}
-                                                firstUse={firstUse}
-                                                isNew={
-                                                    !!firstUse &&
-                                                    firstUse.date >= columnKey.slice(0, 10) &&
-                                                    firstUse.date < end.format('YYYY-MM-DD')
-                                                }
-                                            />
-                                        )
-                                    })}
-                                </div>
-                            ),
-                        },
-                    ]}
-                />
+            {people.length > 0 && onInspect && (
+                <LemonButton size="xsmall" type="secondary" onClick={onInspect}>
+                    Qualification details
+                </LemonButton>
             )}
         </div>
     )
