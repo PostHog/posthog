@@ -50,7 +50,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
-from products.warehouse_sources.backend.self_managed_access import adoption_access_error
+from products.warehouse_sources.backend.self_managed_access import AdoptionAccessError, adoption_access_error
 from products.warehouse_sources.backend.temporal.data_imports.destinations.enablement import (
     external_destination_ids_for,
 )
@@ -665,7 +665,8 @@ async def _import_data_with_reporting(
         # checks again before it changes the table.
         adoption_error = await database_sync_to_async_pool(self_managed_adoption_error)(schema)
         if adoption_error is not None:
-            raise NonRetryableException(adoption_error)
+            # The workflow reads the message from the cause, so chain the refusal.
+            raise NonRetryableException(adoption_error) from AdoptionAccessError(adoption_error)
 
         reset_pipeline = _resolve_reset_pipeline(inputs, schema, job_created_at=model.created_at)
 

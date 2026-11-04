@@ -546,6 +546,8 @@ async def test_a_refused_self_managed_adoption_stops_the_run_before_extraction()
     assert type(exc_info.value).__name__ in IMPORT_NON_RETRYABLE_ERROR_TYPES
     assert error_message_matches(str(exc_info.value), Any_Source_Errors.keys())
     assert Any_Source_Errors[ADOPTION_ACCESS_ERROR] is None
+    # The workflow records `e.cause.cause` as the job's error, so the refusal must be the cause.
+    assert str(exc_info.value.__cause__) == message
 
 
 @pytest.mark.asyncio

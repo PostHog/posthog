@@ -1256,7 +1256,7 @@ class TestAccessRulesMoveWithTheTable(_AccessRulesTest):
         assert self._source_rules(sources["open"]) == set()
         assert self._source_rules(sources["private"]) == {("", "none")}
         assert self._source_rules(sources["read_only"]) == {("", "viewer")}
-        assert "access_signature" not in sources["open"].connection_metadata[MIGRATION_MARKER_KEY]
+        assert "access_signature" not in (sources["open"].connection_metadata or {})[MIGRATION_MARKER_KEY]
         for table in (private, also_private, read_only):
             self._assert_move_keeps_access(table)
 
@@ -1378,7 +1378,7 @@ class TestAccessRulesMoveWithTheTable(_AccessRulesTest):
         source = _schema_for(table).source
         assert source.source_type == "FileUpload"
         assert self._source_rules(source) == {("A", "viewer"), ("", "none")}
-        assert source.connection_metadata[MIGRATION_MARKER_KEY]["access_signature"]
+        assert (source.connection_metadata or {})[MIGRATION_MARKER_KEY]["access_signature"]
         self._assert_move_keeps_access(table)
 
 
@@ -1456,8 +1456,8 @@ class TestAccessRulesAfterLinking(_AccessRulesTest):
     def test_a_source_made_before_access_signatures_takes_only_tables_without_rules(self) -> None:
         old = self._linked({})
         source = _schema_for(old).source
-        assert MIGRATION_MARKER_KEY in source.connection_metadata
-        assert "access_signature" not in source.connection_metadata[MIGRATION_MARKER_KEY]
+        assert MIGRATION_MARKER_KEY in (source.connection_metadata or {})
+        assert "access_signature" not in (source.connection_metadata or {})[MIGRATION_MARKER_KEY]
         plain = self._linked({}, name="plain")
         private = self._linked({"table": "none"}, name="private")
 
@@ -1543,7 +1543,7 @@ class TestMergeKeepsAccessRules(_AccessRulesTest):
             SourceInputsStore.save(
                 source, {key: "AKIAFIRST" if value == f"AKIATEMP{i}" else value for key, value in inputs.items()}
             )
-            signature = source.connection_metadata[MIGRATION_MARKER_KEY].get("access_signature")
+            signature = (source.connection_metadata or {})[MIGRATION_MARKER_KEY].get("access_signature")
             ExternalDataSource.objects.filter(pk=source.pk).update(
                 created_at=datetime(2024, 1, 1 + i, tzinfo=UTC),
                 connection_metadata={
