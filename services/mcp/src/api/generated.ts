@@ -117565,6 +117565,20 @@ export namespace Schemas {
       dateTo?: string;
     }
 
+    export interface _MetricQueryCount {
+      /** Metric name as it appears in the team's data. */
+      metric_name: string;
+      /** Number of builder and PromQL queries that read the metric in the window. SQL mode queries do not count. */
+      query_count: number;
+      /** When a query last read the metric, ISO 8601. */
+      last_queried_at: string;
+    }
+
+    export interface _MetricQueryCountsResponse {
+      /** Metrics that queries read in the window, the most queried first. */
+      results: _MetricQueryCount[];
+    }
+
     export interface _MetricQueryRequest {
       /** The metric query to execute. */
       query: _MetricQueryBody;
@@ -130437,6 +130451,21 @@ export namespace Schemas {
      * @maxLength 255
      */
     value?: string;
+    };
+
+    export type MetricsQueryCountsRetrieveParams = {
+    /**
+     * Number of UTC days to count, today included.
+     * @minimum 1
+     * @maximum 90
+     */
+    days?: number;
+    /**
+     * Maximum number of metrics to return.
+     * @minimum 1
+     * @maximum 1000
+     */
+    limit?: number;
     };
 
     export type MetricsValuesRetrieveParams = {

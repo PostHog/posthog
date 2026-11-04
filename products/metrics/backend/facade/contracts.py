@@ -42,6 +42,8 @@ from .enums import (
 # Each clause runs its own ClickHouse query on the shared logs cluster, so
 # the clause count per request is hard-capped.
 MAX_CLAUSES_PER_QUERY = 10
+DEFAULT_QUERY_COUNT_DAYS = 30
+MAX_QUERY_COUNT_DAYS = 90
 MAX_SPARKLINE_BATCH_SIZE = 20
 
 
@@ -408,6 +410,19 @@ class MetricsOverview:
     series: int
     lookback_seconds: int
     services: tuple[MetricsServiceOverview, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class MetricQueryCount:
+    """How often queries read one metric of a team inside a window of days.
+
+    A query counts once for each metric that it selects, whatever the number of clauses or selectors that name it.
+    Builder and PromQL queries count, from the app, alerts and the Prometheus API. SQL mode queries do not count.
+    """
+
+    metric_name: str
+    query_count: int
+    last_queried_at: dt.datetime
 
 
 class DashboardImportError(ValueError):

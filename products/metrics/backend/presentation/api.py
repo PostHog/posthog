@@ -46,13 +46,16 @@ from products.metrics.backend.facade.api import (
     list_metric_event_samples,
     list_metric_names,
     list_metric_picker_names,
+    list_metric_query_counts,
     list_metric_variable_options,
     run_metric_query,
     run_promql_query,
     team_has_metrics,
 )
 from products.metrics.backend.facade.contracts import (
+    DEFAULT_QUERY_COUNT_DAYS,
     MAX_CLAUSES_PER_QUERY,
+    MAX_QUERY_COUNT_DAYS,
     MAX_SPARKLINE_BATCH_SIZE,
     METRICS_ERROR_OVERLAYS_FEATURE_FLAG,
     METRICS_FEATURE_FLAG,
@@ -644,6 +647,32 @@ class _MetricPickerNamesResponseSerializer(serializers.Serializer):
     results = _MetricPickerNameSerializer(many=True, help_text="Distinct metric names ordered by recent activity.")
 
 
+class _MetricQueryCountsParamsSerializer(serializers.Serializer):
+    days = serializers.IntegerField(
+        default=DEFAULT_QUERY_COUNT_DAYS,
+        min_value=1,
+        max_value=MAX_QUERY_COUNT_DAYS,
+        help_text="Number of UTC days to count, today included.",
+    )
+    limit = serializers.IntegerField(
+        default=100, min_value=1, max_value=1000, help_text="Maximum number of metrics to return."
+    )
+
+
+class _MetricQueryCountSerializer(serializers.Serializer):
+    metric_name = serializers.CharField(help_text="Metric name as it appears in the team's data.")
+    query_count = serializers.IntegerField(
+        help_text="Number of builder and PromQL queries that read the metric in the window. SQL mode queries do not count."
+    )
+    last_queried_at = serializers.DateTimeField(help_text="When a query last read the metric, ISO 8601.")
+
+
+class _MetricQueryCountsResponseSerializer(serializers.Serializer):
+    results = _MetricQueryCountSerializer(
+        many=True, help_text="Metrics that queries read in the window, the most queried first."
+    )
+
+
 class _MetricAttributeKeysParamsSerializer(serializers.Serializer):
     metricName = serializers.CharField(
         required=False,
@@ -1103,6 +1132,33 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             raise ParseError(str(exc))
 
         return Response({"results": results}, status=status.HTTP_200_OK)
+
+    @extend_schema(
+        parameters=[_MetricQueryCountsParamsSerializer],
+        responses={200: _MetricQueryCountsResponseSerializer},
+    )
+    @action(detail=False, methods=["GET"], required_scopes=["metrics:read"])
+    def query_counts(self, request: Request, *args, **kwargs) -> Response:
+        """How often queries read each metric of the team. A metric that no query reads is not in the list."""
+        params = _MetricQueryCountsParamsSerializer(data=request.query_params)
+        params.is_valid(raise_exception=True)
+
+        counts = list_metric_query_counts(
+            team=self.team, days=params.validated_data["days"], limit=params.validated_data["limit"]
+        )
+
+        report_user_action(
+            request.user,
+            "metrics query counts viewed",
+            {"days": params.validated_data["days"], "metric_count": len(counts)},
+            team=self.team,
+            request=request,
+        )
+
+        return Response(
+            _MetricQueryCountsResponseSerializer({"results": [asdict(count) for count in counts]}).data,
+            status=status.HTTP_200_OK,
+        )
 
     @extend_schema(
         parameters=[_MetricAttributeKeysParamsSerializer],
