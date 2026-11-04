@@ -219,7 +219,9 @@ The native build supports rotation; iOS builds use Xcode 27.1 for the full Duo d
   task: the agent's thread, its PR card, and a pending decision above the composer. The nav pill
   shows Chats selected. Loading, error, empty and "No matches" are separate screens.
 - **Nav menu** (More in the tabs header): project name (opens the Project card), then on Views a section with
-  Edit pins, then Settings and Sign out.
+  Edit pins, then Settings, Send feedback and Sign out. Send feedback shows only when signed in outside demo mode
+  in a build with analytics. It opens a bottom sheet with a text field and Send, and a toast thanks the person after
+  sending.
 - **Report**: top chrome, headline, the byline with the Owner and Priority chips (`ReportMeta`), lede,
   "Read the full report" (only when there is a summary or a signal), evidence (trace, quotes, replay), facts,
   the observation card, impact tiles, charts, activity, and the action bar.

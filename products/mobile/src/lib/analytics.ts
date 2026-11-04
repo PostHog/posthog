@@ -175,8 +175,16 @@ export type AnalyticsEvent =
 
 export type AnalyticsProperties = Record<string, string | number | boolean | null | undefined>
 
+/**
+ * PostHog's own survey events. They stay out of `AnalyticsEvent` because `survey sent` carries the text a person
+ * typed, and `track()` properties are ids, enums and counts only.
+ */
+export type SurveyEvent = 'survey shown' | 'survey dismissed' | 'survey sent'
+
 export interface AnalyticsClient {
-    capture: (event: AnalyticsEvent, properties?: AnalyticsProperties) => void
+    capture: (event: AnalyticsEvent | SurveyEvent, properties?: AnalyticsProperties) => void
+    /** Uploads the queued events now instead of on the SDK's timer. */
+    flush?: () => Promise<void>
     /** Sends a `$screen` event. Optional, so a test double needs only `capture`. */
     screen?: (name: string, properties?: AnalyticsProperties) => void
     captureError?: (error: Error) => void
@@ -217,6 +225,23 @@ export function trackWhenReady(event: AnalyticsEvent, properties?: AnalyticsProp
     } else if (pending.length < MAX_PENDING) {
         pending.push({ event, properties })
     }
+}
+
+/** False in a build without a project key, where every capture is dropped. */
+export function analyticsEnabled(): boolean {
+    return client !== null
+}
+
+/**
+ * Sends the event and uploads the queue at once. When the upload fails because the device has no network, the SDK
+ * keeps the event in its persisted queue and sends it with a later upload.
+ */
+export function captureSurveyEvent(event: SurveyEvent, properties: AnalyticsProperties): void {
+    if (!client) {
+        return
+    }
+    client.capture(event, properties)
+    client.flush?.().catch(() => undefined)
 }
 
 export function trackScreen(name: string, properties?: AnalyticsProperties): void {

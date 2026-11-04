@@ -5,12 +5,14 @@ import { Linking, View } from 'react-native'
 import { useAuthStore } from '@/auth/authStore'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { useViewer } from '@/auth/useViewer'
+import { useDemoMode } from '@/demo/demoMode'
 import type { ChatSheetEntry } from '@/features/chat/chatSheetEvents'
+import { FeedbackSheet } from '@/features/feedback/FeedbackSheet'
 import { usePostHogStatus } from '@/features/status/usePostHogStatus'
 import { useViewsOpenedEvent } from '@/features/views/list/useViewsOpenedEvent'
 import { useToasts, ViewsToast } from '@/features/views/ViewsToast'
 import { navListWebUrl } from '@/features/views/webLinks'
-import { track } from '@/lib/analytics'
+import { analyticsEnabled, track } from '@/lib/analytics'
 import { useMobileProductFlags } from '@/lib/featureFlags'
 import { safeHttpsUrl } from '@/lib/urls'
 import { NAV_RAIL_WIDTH } from '@/ui/adaptiveLayout'
@@ -100,10 +102,13 @@ function TabsChrome(): ReactElement {
     const viewer = useViewer()
     const { tab, slot } = useFocusedTabHeader()
     const signedIn = useAuthStore((state) => state.signedIn)
+    const email = useAuthStore((state) => state.user?.email)
+    const demo = useDemoMode((state) => state.enabled)
     const exitDemo = useExitDemo()
     const signOut = useSignOutAction()
     const [menuOpen, setMenuOpen] = useState(false)
     const [confirmingSignOut, setConfirmingSignOut] = useState(false)
+    const [feedbackOpen, setFeedbackOpen] = useState(false)
     const scope = useProjectScope()
     const status = usePostHogStatus(scope?.host)
     // The pinned list's tab has no menu of its own, so its Unpin toast draws from here, inside the tabs' overlay host.
@@ -171,6 +176,14 @@ function TabsChrome(): ReactElement {
                     setMenuOpen(false)
                     router.push('/settings')
                 }}
+                onSendFeedback={
+                    signedIn && !demo && email && analyticsEnabled()
+                        ? () => {
+                              setMenuOpen(false)
+                              setFeedbackOpen(true)
+                          }
+                        : null
+                }
                 onSignOut={startSignOut}
                 confirmingSignOut={confirmingSignOut}
                 signOutPending={signOut.pending}
@@ -181,6 +194,17 @@ function TabsChrome(): ReactElement {
                 }}
                 onConfirmSignOut={() => void signOut.run()}
             />
+            {email ? (
+                <FeedbackSheet
+                    visible={feedbackOpen}
+                    email={email}
+                    onClose={() => setFeedbackOpen(false)}
+                    onSent={() => {
+                        setFeedbackOpen(false)
+                        toasts.show('Thanks for your feedback.')
+                    }}
+                />
+            ) : null}
             <ViewsToast toast={toasts.toast} onHide={toasts.hide} />
         </>
     )

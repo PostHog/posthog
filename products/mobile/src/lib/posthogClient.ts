@@ -125,6 +125,7 @@ export function initAnalytics(): void {
     })
     setAnalyticsClient({
         capture: (event, properties) => posthog.capture(event, definedProperties(properties)),
+        flush: () => posthog.flush(),
         screen: (name, properties) => void posthog.screen(name, definedProperties(properties)),
         captureError: (error) => posthog.captureException(error),
         identify: (distinctId) => posthog.identify(distinctId),

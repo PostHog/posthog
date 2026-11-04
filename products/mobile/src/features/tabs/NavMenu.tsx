@@ -7,6 +7,7 @@ import { track } from '@/lib/analytics'
 import { FloatingCard } from '@/ui/FloatingCard'
 import { ChevronUpDownIcon } from '@/ui/icons/ChevronUpDownIcon'
 import { ExternalLinkIcon } from '@/ui/icons/ExternalLinkIcon'
+import { FeedbackIcon } from '@/ui/icons/FeedbackIcon'
 import { GlobeIcon } from '@/ui/icons/GlobeIcon'
 import { GripIcon } from '@/ui/icons/GripIcon'
 import { PinIcon } from '@/ui/icons/PinIcon'
@@ -33,6 +34,8 @@ interface NavMenuProps {
     status: PostHogStatus
     onOpenStatus: () => void
     onSettings: () => void
+    /** Null leaves the row out, for a session the team cannot reply to or a build that cannot send it. */
+    onSendFeedback: (() => void) | null
     onSignOut: () => void
     /** Replaces the rows with the sign-out confirmation. */
     confirmingSignOut: boolean
@@ -76,6 +79,7 @@ export function NavMenu({
     navList,
     onClose,
     onSettings,
+    onSendFeedback,
     status: { summary: statusUpdate, indicatorColor },
     onOpenStatus,
     onSignOut,
@@ -213,6 +217,14 @@ export function NavMenu({
                             </>
                         ) : null}
                         <MenuRow label="Settings" Icon={SettingsIcon} onPress={openSettings} testID="nav-settings" />
+                        {onSendFeedback ? (
+                            <MenuRow
+                                label="Send feedback"
+                                Icon={FeedbackIcon}
+                                onPress={onSendFeedback}
+                                testID="nav-feedback"
+                            />
+                        ) : null}
                         <MenuRow label="Sign out" Icon={SignOutIcon} onPress={onSignOut} testID="nav-sign-out" />
                     </>
                 )}
