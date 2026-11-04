@@ -196,7 +196,6 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         headers = {}
         query = ""
         viewer = f"u{self.user.pk}"
-        renderer_expires_at = None
         if auth == "export_renderer":
             asset = ExportedAsset.objects.create(
                 team=self.team,
@@ -207,9 +206,7 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
             renderer_token = mint_export_renderer_token(
                 user_id=self.user.id, team_id=self.team.id, exported_asset_id=asset.id, scope="session_recording:read"
             )
-            renderer_expires_at = decode_jwt(renderer_token, PosthogJwtAudience.EXPORT_RENDERER)["exp"]
             headers = {"authorization": f"Bearer {renderer_token}"}
-            viewer = f"e{asset.id}"
         if auth == "share_link":
             recording = SessionRecording.objects.create(session_id=session_id, team=self.team)
             sharing = SharingConfiguration.objects.create(team=self.team, recording=recording, enabled=True)
@@ -257,8 +254,6 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
             }
             assert isinstance(claims["iat"], int)
             assert body["block_token_expires_at"] is not None
-            if renderer_expires_at is not None:
-                assert claims["exp"] <= renderer_expires_at
         else:
             assert urls == [None, None]
             assert body["block_token"] is None
