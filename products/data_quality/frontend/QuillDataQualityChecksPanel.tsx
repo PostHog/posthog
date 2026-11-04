@@ -113,6 +113,7 @@ export function QuillDataQualityChecksPanel({
             <BindLogic logic={dataQualityCheckEditorLogic} props={editorProps}>
                 <div className={cn(CHECKS_CONTAINER, 'flex flex-col gap-3')} data-attr="data-quality-checks-panel">
                     {notice}
+                    <QuillChecksPanelBanners {...logicProps} />
                     <QuillRecentRunsStrip {...logicProps} />
                     {isMetric ? (
                         <QuillMetricChecksEmptyState

@@ -1,4 +1,4 @@
-import { escapePropertyAsHogQLIdentifier } from '~/queries/utils'
+import { escapeRawPropertyAsHogQLIdentifier } from '~/queries/utils'
 
 import type { DataQualityOutputColumnApi } from './generated/api.schemas'
 
@@ -37,7 +37,7 @@ const TIME_TYPE = /^(Nullable\()?Date/
 
 function firstColumnOfType(columns: DataQualityOutputColumnApi[], type: RegExp): string | null {
     const name = columns.find((column) => column.type && type.test(column.type))?.name
-    return name ? escapePropertyAsHogQLIdentifier(name) : null
+    return name ? escapeRawPropertyAsHogQLIdentifier(name) : null
 }
 
 export function metricStarterQuery(key: MetricStarterKey, columns: DataQualityOutputColumnApi[]): string {
