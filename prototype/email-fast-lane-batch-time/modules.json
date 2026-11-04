@@ -41,22 +41,36 @@
                         {
                             "id": "fleet-hpa",
                             "text": "earlier scale-up, more minPods",
-                            "change": "changed",
-                            "q": "Q3"
+                            "change": "changed"
                         }
                     ]
                 },
                 {
                     "id": "fastfleet",
                     "name": "Fast email fleet",
-                    "note": "priority 0 only",
+                    "note": "same image, priority 0 only",
                     "change": "added",
-                    "fork": true,
-                    "q": "Q1 B",
-                    "seam": ["maxPriority=0"],
+                    "seam": [
+                        {
+                            "name": "CDP_EMAIL_MAX_PRIORITY=0",
+                            "change": "added",
+                            "q": "Q5"
+                        }
+                    ],
                     "chips": [
                         {
                             "text": "own pods, own event loop"
+                        },
+                        {
+                            "id": "ff-size",
+                            "text": "small batch, minPods 2",
+                            "q": "Q7"
+                        },
+                        {
+                            "id": "ff-steps",
+                            "text": "runs workflow steps after the send",
+                            "q": "Q6",
+                            "wide": true
                         }
                     ]
                 }
@@ -77,9 +91,7 @@
                         },
                         {
                             "id": "q-claim",
-                            "text": "claimBatchLimit",
-                            "change": "changed",
-                            "q": "Q2"
+                            "text": "claimBatchLimit"
                         }
                     ]
                 },
@@ -100,19 +112,10 @@
                             "text": "rate-limited subclass"
                         },
                         {
-                            "id": "w-fast",
-                            "text": "fast lane: priority 0 poll while a batch runs",
-                            "change": "added",
-                            "fork": true,
-                            "q": "Q1 A",
-                            "wide": true
-                        },
-                        {
                             "id": "w-slots",
                             "text": "one slot loop, lanes as config",
                             "change": "added",
                             "followUp": true,
-                            "q": "Q4",
                             "wide": true
                         }
                     ]
@@ -187,8 +190,6 @@
             "to": "fastfleet-seam",
             "fromAt": 0.7,
             "change": "added",
-            "fork": true,
-            "q": "Q1 B",
             "label": "dequeue",
             "labelAt": 0.45
         },
@@ -219,20 +220,6 @@
             "bend": 30,
             "labelAt": 0.5,
             "labelOffset": [0, -12]
-        },
-        {
-            "from": "w-fast",
-            "to": "q-claim",
-            "fromSide": "left",
-            "toSide": "right",
-            "toAt": 0.8,
-            "change": "added",
-            "fork": true,
-            "q": "Q1 A",
-            "label": "claim",
-            "bend": 30,
-            "labelAt": 0.4,
-            "labelOffset": [0, 12]
         },
         {
             "from": "q-claim",
@@ -269,6 +256,15 @@
             "bend": 40,
             "labelAt": 0.6,
             "labelOffset": [0, 12]
+        },
+        {
+            "from": "fastfleet",
+            "to": "worker-seam",
+            "fromAt": 0.5,
+            "toAt": 0.85,
+            "change": "added",
+            "label": "runs, priority 0",
+            "labelAt": 0.5
         }
     ],
     "untouched": [
