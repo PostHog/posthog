@@ -5,6 +5,7 @@ from django.db.models import QuerySet
 from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import mixins, serializers, viewsets
 
+from posthog.api.organization_personal_api_key_actions import KeyReachResolver
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.constants import AvailableFeature
 from posthog.models.personal_api_key import PersonalAPIKey, get_organization_personal_api_keys
@@ -35,6 +36,7 @@ class OrganizationPersonalAPIKeyAccessScopeSerializer(serializers.Serializer):
 
 
 class OrganizationPersonalAPIKeySerializer(serializers.ModelSerializer):
+    id = serializers.CharField(read_only=True, help_text="Unique ID of the key.")
     owner = OrganizationPersonalAPIKeyOwnerSerializer(
         source="user", read_only=True, help_text="The organization member who owns this key."
     )
@@ -49,6 +51,9 @@ class OrganizationPersonalAPIKeySerializer(serializers.ModelSerializer):
         help_text="API scopes granted to the key, e.g. 'insight:read'. A single '*' means full access.",
     )
     access_scope = serializers.SerializerMethodField(help_text="Where the key's scopes apply within this organization.")
+    reaches_other_organizations = serializers.SerializerMethodField(
+        help_text="Whether the key also works in at least one other organization its owner belongs to."
+    )
     last_used_at = serializers.DateTimeField(
         read_only=True, allow_null=True, help_text="When the key was last used to authenticate, if ever."
     )
@@ -56,7 +61,16 @@ class OrganizationPersonalAPIKeySerializer(serializers.ModelSerializer):
 
     class Meta:
         model = PersonalAPIKey
-        fields = ["owner", "mask_value", "scopes", "access_scope", "last_used_at", "created_at"]
+        fields = [
+            "id",
+            "owner",
+            "mask_value",
+            "scopes",
+            "access_scope",
+            "reaches_other_organizations",
+            "last_used_at",
+            "created_at",
+        ]
         read_only_fields = fields
 
     @extend_schema_field(OrganizationPersonalAPIKeyAccessScopeSerializer)
@@ -75,6 +89,12 @@ class OrganizationPersonalAPIKeySerializer(serializers.ModelSerializer):
 
         return {"type": "organization"}
 
+    @extend_schema_field(serializers.BooleanField())
+    def get_reaches_other_organizations(self, key: PersonalAPIKey) -> bool:
+        resolver: KeyReachResolver = self.context["reach_resolver"]
+        organization_id = str(self.context["get_organization"]().id)
+        return bool(resolver.reach(key, organization_id).other_organization_ids)
+
 
 @extend_schema(extensions={"x-product": "platform_features"})
 class OrganizationPersonalAPIKeyViewSet(
@@ -92,6 +112,12 @@ class OrganizationPersonalAPIKeyViewSet(
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return get_organization_personal_api_keys(self.organization).order_by("-last_used_at", "-created_at")
+
+    def get_serializer(self, *args: Any, **kwargs: Any) -> serializers.BaseSerializer:
+        context = kwargs.setdefault("context", self.get_serializer_context())
+        if kwargs.get("many") and args:
+            context["reach_resolver"] = KeyReachResolver.for_keys(list(args[0]))
+        return super().get_serializer(*args, **kwargs)
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()
