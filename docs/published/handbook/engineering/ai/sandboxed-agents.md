@@ -359,9 +359,9 @@ await session.end()
 
 Sessions with the `scout_suggestions` origin hide the agent's `finish` tool so the caller can validate and save the result before closing the sandbox.
 
-Callers that need all work to finish within a turn can set `CustomPromptSandboxContext.disable_background_tasks=True`.
-This sets `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1` in the sandbox, keeping Claude's sub-agents and shell commands in the foreground.
-Repository selection enables this option so cache queries finish before the agent returns its decision.
+Unattended Claude sessions keep a turn open while background sub-agents run and while the parent processes their completion notifications.
+Shell tasks and persistent monitors do not delay turn completion.
+Cancellation and the caller's existing poll budget still bound the wait.
 Signals returns an empty selection when the agent's output cannot be parsed or its sandbox run fails, allowing the report to continue with manual repository selection.
 
 ### Reference implementation

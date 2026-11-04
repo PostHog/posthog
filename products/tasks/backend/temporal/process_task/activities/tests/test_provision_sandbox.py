@@ -72,18 +72,14 @@ def _context_for_desktop_bootstrap(
 
 
 @pytest.mark.parametrize("is_trial", [False, True])
-@pytest.mark.parametrize("disable_background_tasks", [False, True])
 @override_settings(
     DEBUG=False,
     SANDBOX_AGENT_OTEL_LOGS_URL="https://telemetry.example/logs",
     SANDBOX_AGENT_OTEL_LOGS_TOKEN="synthetic-token",
 )
-def test_private_trial_keeps_the_pinned_model_without_agent_telemetry(
-    mocker, is_trial: bool, disable_background_tasks: bool
-) -> None:
+def test_private_trial_keeps_the_pinned_model_without_agent_telemetry(mocker, is_trial: bool) -> None:
     context = _context_for_desktop_bootstrap()
     context.agent_otel_telemetry_enabled = True
-    context.state["disable_background_tasks"] = disable_background_tasks
     for name in ("run_gateway_env_vars", "mcp_exec_skills_env_vars", "get_git_identity_env_vars"):
         mocker.patch.object(provision_sandbox_module, name, return_value={})
     mocker.patch.object(provision_sandbox_module, "get_sandbox_jwt_public_key", return_value="public-key")
@@ -93,7 +89,6 @@ def test_private_trial_keeps_the_pinned_model_without_agent_telemetry(
 
     assert environment.get("POSTHOG_DISABLE_MODEL_FALLBACK") == ("1" if is_trial else None)
     assert environment.get("POSTHOG_AGENT_OTEL_LOGS_TOKEN") == (None if is_trial else "synthetic-token")
-    assert environment.get("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS") == ("1" if disable_background_tasks else None)
 
 
 class _ShellSandbox:

@@ -11,7 +11,7 @@ It is exercised locally via management commands, and it is also used by the prod
   - If 1 eligible repo passes the source-visibility check: returns it directly (no sandbox needed).
   - If multiple eligible repos pass the source-visibility check: spawns a sandbox agent that uses `gh` CLI to explore candidates and pick the best match. Uses `PostHog/.github` as a small dummy repo for the sandbox clone, since the agent only needs `gh` CLI access (not the repo itself).
   - Output: `RepoSelectionResult(repository: str | None, reason: str)`.
-  - Invalid agent output or a failed sandbox run returns a null repository so report generation can continue. Claude repository-selection sessions disable background tasks so cache queries finish within the turn.
+  - Invalid agent output or a failed sandbox run returns a null repository so report generation can continue. Unattended Claude sessions wait for pending sub-agents and their follow-up replies before completing the turn.
   - Persisted as a `repo_selection` artefact on the report (by the caller activity, not here).
   - On re-promotion, the activity reuses the previous artefact only when current source-visibility rules allow it. Data-only research preserves a saved target only while those rules allow it; implementation dispatch rechecks them too. Expired visibility requires refresh; a failed refresh cannot confirm privacy.
   - A source repository is the agent's default when eligible. Code ownership, applicable routing rules, and past corrections can override it; matching paths alone do not establish ownership. Equally plausible candidates favor the source. See `source_repository.py`.

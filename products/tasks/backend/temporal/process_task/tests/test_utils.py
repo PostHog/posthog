@@ -1650,23 +1650,6 @@ class TestBuildSandboxEnvironmentVariables(SimpleTestCase):
         super().setUp()
         self.enterContext(patch("products.tasks.backend.temporal.process_task.utils.record_gateway_routing"))
 
-    @parameterized.expand([("enabled", True, "1"), ("default", False, None)])
-    @patch(
-        "products.tasks.backend.logic.services.connection_token.get_sandbox_jwt_public_key",
-        return_value="pub",
-    )
-    @patch(
-        "products.tasks.backend.temporal.process_task.utils.get_sandbox_api_url",
-        return_value="https://api.example",
-    )
-    def test_caller_can_disable_background_tasks(self, _name, disabled: bool, expected: str | None, _api, _jwt) -> None:
-        ctx, task = _gateway_ctx_task()
-        ctx.state = {"disable_background_tasks": disabled}
-
-        env = build_sandbox_environment_variables(None, "access-token", ctx, task)
-
-        assert env.get("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS") == expected
-
     @parameterized.expand([False, True])
     @patch(
         "products.tasks.backend.logic.services.connection_token.get_sandbox_jwt_public_key",

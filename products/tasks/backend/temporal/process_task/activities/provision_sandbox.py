@@ -608,9 +608,6 @@ def _build_environment_variables(
     environment_variables.update(run_gateway_env_vars(ctx, task))
     environment_variables.update(mcp_exec_skills_env_vars(ctx))
 
-    if (ctx.state or {}).get("disable_background_tasks") is True:
-        environment_variables["CLAUDE_CODE_DISABLE_BACKGROUND_TASKS"] = "1"
-
     if settings.DEBUG or task.is_scout_experiment is True:
         # Pinned eval runs must not switch models after an overload.
         environment_variables["POSTHOG_DISABLE_MODEL_FALLBACK"] = "1"
