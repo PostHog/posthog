@@ -23,6 +23,8 @@ from products.cdp.backend.models.hog_invocation_results_sql import INSERT_HOG_IN
 from products.cdp.backend.services.invocation_replay import (
     ReplayCriteria,
     ReplayOverlapError,
+    _Failure,
+    _plan_function,
     claim_replay,
     execute_replay,
     get_replay_state,
@@ -136,6 +138,32 @@ class TestInvocationReplay(ClickhouseTestMixin, APIBaseTest):
         cache.clear()
         super().tearDown()
 
+    def test_person_sync_picks_the_same_run_when_timestamps_tie_in_any_row_order(self) -> None:
+        function = _function(self.team, "template-hubspot")
+        failures = [
+            _Failure(
+                function_id=str(function.id),
+                invocation_id=_invocation_id(suffix),
+                person_id="person-1",
+                event_uuid="",
+                scheduled_at=IN_WINDOW,
+                was_rerun=False,
+            )
+            for suffix in ("a1", "a2")
+        ]
+        plans = [
+            _plan_function(
+                function,
+                rows,
+                [],
+                succeeded_since_window=True,
+                failing_before_window=False,
+                criteria=_criteria(),
+            )
+            for rows in (failures, failures[::-1])
+        ]
+        assert plans[0].invocation_ids == plans[1].invocation_ids == (_invocation_id("a2"),)
+
     @parameterized.expand(
         [
             ("event_destination_failure", "template-google-ads", {}, [_row("a1", "failed")], ["a1"], {}),
@@ -178,6 +206,14 @@ class TestInvocationReplay(ClickhouseTestMixin, APIBaseTest):
                 [_row("a1", "failed", 0), _row("a2", "failed", 10), _row("a3", "failed", 20, person="person-2")],
                 ["a2", "a3"],
                 {"older_run_for_same_person": 1},
+            ),
+            (
+                "person_sync_superseded_by_a_success_at_the_same_time",
+                "template-hubspot",
+                {},
+                [_row("a1", "failed", 0), _row("a2", "succeeded", 0)],
+                [],
+                {"superseded_by_later_success": 1},
             ),
             (
                 "person_sync_superseded_by_a_later_success",

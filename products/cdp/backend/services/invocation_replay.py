@@ -465,7 +465,7 @@ def _plan_function(
 
     latest_per_person = (function.template_id or "") in criteria.latest_per_person_template_ids
     latest_failure_by_person: dict[str, str] = {}
-    for failure in sorted(failures, key=lambda f: f.scheduled_at):
+    for failure in sorted(failures, key=lambda f: (f.scheduled_at, f.invocation_id)):
         if failure.person_id:
             latest_failure_by_person[failure.person_id] = failure.invocation_id
 
@@ -477,7 +477,7 @@ def _plan_function(
             skipped["already_delivered"] += 1
         elif latest_per_person and failure.person_id:
             last_success = last_success_by_person.get(failure.person_id)
-            if last_success and last_success > failure.scheduled_at:
+            if last_success and last_success >= failure.scheduled_at:
                 skipped["superseded_by_later_success"] += 1
             elif latest_failure_by_person[failure.person_id] != failure.invocation_id:
                 skipped["older_run_for_same_person"] += 1
