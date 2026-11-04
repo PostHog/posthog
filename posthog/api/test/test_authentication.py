@@ -36,6 +36,7 @@ from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 from social_django.models import UserSocialAuth
 from two_factor.utils import totp_digits
+from two_factor.views.core import REMEMBER_COOKIE_PREFIX
 
 from posthog.api.authentication import password_reset_token_generator, social_login_notification
 from posthog.api.email_verification import is_email_verification_disabled
@@ -1076,6 +1077,42 @@ class TestTwoFactorAPI(APIBaseTest):
 
         response = self.client.get("/api/users/@me/")
         assert response.status_code == status.HTTP_401_UNAUTHORIZED, response.json()
+
+    def test_password_reauth_keeps_the_session_usable_until_the_2fa_step(self):
+        self.organization.enforce_2fa = True
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        device = self.user.totpdevice_set.create(name="default", key=random_hex(), digits=6)  # type: ignore
+        credentials = {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD}
+
+        now = datetime.now()
+        with time_machine.travel(now, tick=False):
+            assert self.client.post("/api/login", credentials).status_code == status.HTTP_401_UNAUTHORIZED
+            assert self.client.post("/api/login/token", {"token": totp_str(device.bin_key)}).status_code == 200
+
+        # A remembered device skips the 2FA step, so the re-auth below would never reach it.
+        for cookie_name in [name for name in self.client.cookies if name.startswith(REMEMBER_COOKIE_PREFIX)]:
+            del self.client.cookies[cookie_name]
+
+        with time_machine.travel(now + timedelta(seconds=settings.SESSION_SENSITIVE_ACTIONS_AGE + 10), tick=False):
+            response = self.client.patch("/api/organizations/@current", {"name": "new name"})
+            assert response.json()["code"] == "sensitive_action_required_reauth"
+
+            response = self.client.post("/api/login", credentials)
+            assert response.json()["code"] == "2fa_required"
+
+            response = self.client.get("/api/organizations/@current")
+            assert response.status_code == status.HTTP_200_OK, response.json()
+
+            response = self.client.patch("/api/organizations/@current", {"name": "new name"})
+            assert response.json()["code"] == "sensitive_action_required_reauth"
+
+            response = self.client.post("/api/login/token", {"token": totp_str(device.bin_key)})
+            assert response.status_code == status.HTTP_200_OK, response.json()
+
+            response = self.client.patch("/api/organizations/@current", {"name": "new name"})
+            assert response.status_code == status.HTTP_200_OK, response.json()
 
     @parameterized.expand([("authenticator_code", "000000"), ("backup_code", "zzzz7777")])
     def test_2fa_throttling(self, _name: str, wrong_token: str) -> None:
