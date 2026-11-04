@@ -2445,21 +2445,63 @@ describe('PersonhogPersonsStore', () => {
     })
 
     describe('convergence closures', () => {
-        it('a fence bounce counts as coordination, not on the flush error series', async () => {
+        it('a fence bounce waits for the fence to clear and then writes the lane', async () => {
             personhogStoreFlushCounter.reset()
             personhogStoreFlushErrorCounter.reset()
-            const bound = store.forBatch(0)
-            await bound.applyEventOps(person, ops({ $set: { mine: 'kept' } }), 'd1')
-            repository.updatePersonProperties.mockRejectedValue(
-                new PersonhogFencedError('PERSON_MERGING', '7', 'op-1') as never
-            )
+            jest.useFakeTimers()
+            try {
+                const bound = store.forBatch(0)
+                await bound.applyEventOps(person, ops({ $set: { mine: 'kept' } }), 'd1')
+                repository.updatePersonProperties.mockRejectedValueOnce(
+                    new PersonhogFencedError('PERSON_MERGING', '7', 'op-1') as never
+                )
 
-            await expect(bound.flush()).rejects.toThrow(PersonhogFencedError)
+                const flushing = bound.flush()
+                await jest.advanceTimersByTimeAsync(1_000)
+                await expect(flushing).resolves.toEqual([])
 
-            const outcomes = (await personhogStoreFlushCounter.get()).values
-            expect(outcomes.find((entry) => entry.labels.outcome === 'fenced')?.value).toBe(1)
-            expect(outcomes.find((entry) => entry.labels.outcome === 'error')?.value ?? 0).toBe(0)
-            expect(await counterTotal(personhogStoreFlushErrorCounter)).toBe(0)
+                expect(repository.updatePersonProperties).toHaveBeenCalledTimes(2)
+                expect((store as any).entries.get('1:7').segments).toHaveLength(0)
+                const outcomes = (await personhogStoreFlushCounter.get()).values
+                expect(outcomes.find((entry) => entry.labels.outcome === 'fenced')?.value).toBe(1)
+                expect(outcomes.find((entry) => entry.labels.outcome === 'error')?.value ?? 0).toBe(0)
+                expect(await counterTotal(personhogStoreFlushErrorCounter)).toBe(0)
+            } finally {
+                jest.useRealTimers()
+            }
+        })
+
+        it('a fence that outlasts the merge timeout fails the flush with the lane kept', async () => {
+            personhogStoreFlushCounter.reset()
+            jest.useFakeTimers()
+            try {
+                store = new PersonhogPersonsStore(repository, { requestTimeoutMs: 1_000, mergeTimeoutMs: 20_000 })
+                const bound = store.forBatch(0)
+                await bound.applyEventOps(person, ops({ $set: { mine: 'kept' } }), 'd1')
+                repository.updatePersonProperties.mockRejectedValue(
+                    new PersonhogFencedError('PERSON_MERGING', '7', 'op-1') as never
+                )
+
+                const flushing = bound.flush()
+                const settled = flushing.then(
+                    () => 'acked' as const,
+                    (error: Error) => error.message
+                )
+                let done = false
+                void settled.then(() => {
+                    done = true
+                })
+                await jest.advanceTimersByTimeAsync((store as any).flushWaitBudgetMs + 1_000)
+                expect(done).toBe(false)
+
+                await jest.advanceTimersByTimeAsync(20_000)
+                expect(await settled).toMatch(/still fenced by a lifecycle op/)
+                expect((store as any).entries.get('1:7').segments).toHaveLength(1)
+                const outcomes = (await personhogStoreFlushCounter.get()).values
+                expect(outcomes.find((entry) => entry.labels.outcome === 'fence_exhausted')?.value).toBe(1)
+            } finally {
+                jest.useRealTimers()
+            }
         })
 
         const mergeReq = (sources = ['anon-1']) => ({

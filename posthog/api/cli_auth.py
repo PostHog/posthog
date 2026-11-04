@@ -1,8 +1,15 @@
 """
-CLI Authentication API using OAuth2 Device Flow
+DEPRECATED: posthog-cli only. Do not add new clients to this flow.
 
-This implements the device authorization flow (RFC 8628) for the PostHog CLI.
-Users can authenticate without copying/pasting API keys.
+New clients, hog included, log in with the OAuth device authorization grant instead
+(`/oauth/device-authorization`, see `posthog/api/oauth/device.py`). That grant issues
+short-lived OAuth tokens scoped to one project. This flow mints a personal API key that never
+expires, and its codes live in the cache, not in the OAuth server. It stays only while PostHog
+supports the legacy posthog-cli. Remove it by July 1, 2027: move posthog-cli off this flow, or
+stop supporting posthog-cli, before then.
+
+CLI Authentication API, shaped like the device authorization flow (RFC 8628) but not built on
+the OAuth server. Users can authenticate without copying/pasting API keys.
 
 Flow:
 1. CLI requests device code
@@ -301,8 +308,8 @@ class CLIAuthViewSet(viewsets.ViewSet):
         device_data["authorized_at"] = timezone.now().isoformat()
         device_data["user_id"] = user.id
 
-        # An agent can resume `hog auth login --wait` long after the person approves, so the key
-        # stays until the code expires.
+        # A client can resume polling long after the person approves, so the key stays until the
+        # code expires.
         cache.set(device_cache_key, device_data, timeout=remaining_device_code_seconds(device_data))
 
         return Response(

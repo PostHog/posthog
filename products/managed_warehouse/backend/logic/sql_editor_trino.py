@@ -63,7 +63,11 @@ class ManagedTrinoAdapter:
                     debug=request.debug,
                     cancellation_token=request.cancellation_token,
                 ),
-                connect_managed_warehouse_trino(str(request.team.organization_id), principal=request.principal.value),
+                connect_managed_warehouse_trino(
+                    str(request.team.organization_id),
+                    principal=request.principal.value,
+                    canary=request.principal.trino_canary,
+                ),
             )
         except (ExposedHogQLError, ManagedWarehouseTrinoConnectionUnavailable) as error:
             if not isinstance(error, ManagedWarehouseTrinoConnectionUnavailable) and not isinstance(
