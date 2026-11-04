@@ -47,6 +47,7 @@ DEFAULT_ROW_LIMIT = 50
 MAX_ROW_LIMIT = 200
 MAX_ACCOUNT_IDS = 200
 MAX_DAILY_RANGE = timedelta(days=93)
+MAX_PERIODS = 104
 FIRST_USE_FLOOR = datetime(2020, 1, 1, tzinfo=UTC)
 
 
@@ -145,6 +146,15 @@ class BookActivityRangeQueryRunner(BookActivityQueryRunner[AR], Generic[AR]):
         )
         if self.query.interval.value == "day" and date_range.date_to() - date_range.date_from() > MAX_DAILY_RANGE:
             raise ValidationError("Daily buckets cover at most 3 months. Choose Week or Month for a longer range.")
+        first_bucket = self._bucket(date_range.date_from().astimezone(self.team.timezone_info).date())
+        last_bucket = self._bucket(date_range.date_to().astimezone(self.team.timezone_info).date())
+        if self.query.interval.value == "month":
+            periods = (last_bucket.year - first_bucket.year) * 12 + last_bucket.month - first_bucket.month + 1
+        else:
+            bucket_days = 7 if self.query.interval.value == "week" else 1
+            periods = (last_bucket - first_bucket).days // bucket_days + 1
+        if periods > MAX_PERIODS:
+            raise ValidationError(f"Book activity supports at most {MAX_PERIODS} periods. Choose a shorter range.")
         return date_range
 
     @cached_property

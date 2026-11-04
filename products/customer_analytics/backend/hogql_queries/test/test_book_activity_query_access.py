@@ -1,5 +1,6 @@
 from typing import Any
 
+import pytest
 import time_machine
 from posthog.test.base import flush_persons_and_events
 from unittest.mock import patch
@@ -14,7 +15,9 @@ from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import OrganizationMembership, PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.access_control.backend.models.access_control import AccessControl
+from products.customer_analytics.backend.facade.api import validate_book_activity_people_access
 from products.customer_analytics.backend.hogql_queries.test.book_activity_test_case import ANA, BookActivityTestCase
 
 KINDS = [("BookActivityMatrixQuery",), ("BookActivityPeopleQuery",), ("BookActivityFirstsQuery",)]
@@ -27,6 +30,42 @@ class TestBookActivityQueryAccess(BookActivityTestCase):
         if kind != "BookActivityFirstsQuery":
             query.update(dateRange={"date_from": "-4w"}, interval="week")
         return query
+
+    def test_people_status_rejects_missing_user(self) -> None:
+        with pytest.raises(UserAccessControlError):
+            validate_book_activity_people_access(self.team, None, str(self.user.id))
+
+    @parameterized.expand(
+        [
+            (kind, interval, date_from, date_to, expected)
+            for kind in ("BookActivityMatrixQuery", "BookActivityPeopleQuery")
+            for interval, date_from, date_to, expected in (
+                ("week", "2020-01-05", "2021-12-26", 200),
+                ("week", "2020-01-05", "2022-01-02", 400),
+                ("month", "2020-01-01", "2028-08-01", 200),
+                ("month", "2020-01-01", "2028-09-01", 400),
+                ("week", "1900-01-01", "2100-01-01", 400),
+                ("month", "1900-01-01", "2100-01-01", 400),
+            )
+        ]
+    )
+    def test_period_count_is_bounded_before_building_columns(
+        self, kind: str, interval: str, date_from: str, date_to: str, expected: int
+    ) -> None:
+        query = {
+            "kind": kind,
+            "accountIds": [],
+            "interval": interval,
+            "dateRange": {"date_from": date_from, "date_to": date_to},
+        }
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/query/", {"query": query, "refresh": "blocking"}, format="json"
+        )
+        assert response.status_code == expected, response.content
+        if expected == 200:
+            assert len(response.json()["results"]["columns"]) == 104
+        else:
+            assert "104 periods" in response.json()["detail"]
 
     @parameterized.expand(KINDS)
     def test_untagged_queries_run_with_rate_limits(self, kind: str) -> None:

@@ -427,6 +427,8 @@ def validate_book_activity_accounts_access(team: Team, user: "User | None", labe
 
 
 def validate_book_activity_people_access(team: Team, user: "User | None", labeled_user_id: str) -> None:
+    if user is None:
+        raise UserAccessControlError("account", "viewer")
     validate_book_activity_access(team, user, labeled_user_id)
     UserAccessControl(user=user, team=team).assert_access_level_for_resource("person", "viewer")
 
