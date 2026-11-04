@@ -266,7 +266,6 @@ export interface ExecToolOptions {
      */
     isInlineExecUiHost?: boolean
     mcpClientName?: string | undefined
-    /** The client's own tool result limit, from its profile. */
     toolResultTokenLimit?: number | undefined
     /**
      * Resolves the caller's third-party MCP tools (see `lib/gateway-tools.ts`). Awaited
@@ -2374,9 +2373,7 @@ export function createExecTool(
                         outputText = formatResponse(result)
                         bodySource = typeof result === 'string' ? undefined : toonResponseBody(result)
                     }
-                    // Bounded here, where the handler result is still available, so the projection
-                    // is re-serialized in the requested format. The executor's own cap then sees a
-                    // text that fits.
+                    // Bound here, where the handler result is still available to re-serialize.
                     const budget = responseTokenBudget(options.toolResultTokenLimit, input)
                     if (budget !== undefined) {
                         outputText = boundText(outputText, budget, bodySource)

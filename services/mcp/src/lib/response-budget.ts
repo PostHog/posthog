@@ -1,10 +1,6 @@
 /**
- * Bounds one tool result so a client never has to cut it.
- *
- * A client that receives an oversized tool result either cuts it mid-value (Codex) or
- * spends the agent's context on it. Shortening here keeps the output parseable: JSON and
- * TOON are re-serialized from a projected value with whole array items, and plain text is
- * cut at a line boundary. A notice at the start says what was left out and how to ask for less.
+ * Bounds one tool result so a client never has to cut it, which Codex does mid-value.
+ * JSON and TOON are re-serialized from a projection, so the output stays parseable.
  */
 
 import { formatResponse } from '@/lib/response'
@@ -19,10 +15,8 @@ const BYTES_PER_TOKEN = 4
  */
 export const DEFAULT_MAX_RESPONSE_TOKENS = 100_000
 
-/** Key the notice is stored under inside a projected JSON value. */
 export const RESPONSE_BUDGET_KEY = '_responseBudget'
 
-/** Room kept for the notice when the projection budget is derived from the byte limit. */
 const NOTICE_RESERVE_BYTES = 1_024
 /** Entries this small are kept before bulk fields, so ids, URLs, counts and tool notices survive. */
 const POINTER_ENTRY_BYTES = 512
@@ -36,10 +30,6 @@ const POINTER_LINE = /^(_posthogUrl|_agentNote): /
 const TRAILING_NOTICE_LINE = /^\[.*\]$/
 const INFORMATIONAL_OPEN_TAG = /<([A-Za-z0-9_-]+) informational="true" instructional="false">\n/
 
-/**
- * A serialized body and the value it was serialized from. The value lets the cap re-serialize a
- * projection in the same format, instead of cutting the serialized text.
- */
 export interface ResponseBodySource {
     value: unknown
     serialize: (value: unknown) => string
@@ -53,10 +43,7 @@ export function maxResponseBytes(maxTokens: number): number {
     return maxTokens * BYTES_PER_TOKEN
 }
 
-/**
- * Token budget for one call: the client's own limit when it truncates results, otherwise the default
- * ceiling. An explicit `truncate: false` asks for the complete result, so only a client limit applies.
- */
+/** `truncate: false` asks for the complete result, so only a client's own limit applies to it. */
 export function responseTokenBudget(clientLimit: number | undefined, args: unknown): number | undefined {
     if (clientLimit !== undefined) {
         return clientLimit
@@ -91,7 +78,6 @@ function overflowNotice(fullBytes: number, maxTokens: number, cuts: string[]): s
     )
 }
 
-/** Longest prefix of `text` within `maxBytes` UTF-8 bytes that does not split a surrogate pair. */
 function prefixWithinBytes(text: string, maxBytes: number): string {
     let end = Math.min(text.length, maxBytes)
     while (end > 0 && byteLength(text.slice(0, end)) > maxBytes) {
@@ -101,11 +87,7 @@ function prefixWithinBytes(text: string, maxBytes: number): string {
     return last >= 0xd800 && last <= 0xdbff ? text.slice(0, end - 1) : text.slice(0, end)
 }
 
-/**
- * Whole lines of `text` within `maxBytes`. An informational fence keeps both of its tags, and the
- * pointer lines an agent navigates by move to the end of the kept text. When not even one line
- * fits, the first line is cut and marked, so a single-line body still returns its head.
- */
+/** When no whole line fits, the first line is cut and marked, so a single-line body keeps its head. */
 export function clipLines(text: string, maxBytes: number): { text: string; cut: string } {
     let prefix = ''
     let body = text
@@ -259,11 +241,7 @@ function withNotice(value: unknown, notice: string): unknown {
     return { [RESPONSE_BUDGET_KEY]: notice, ...(value as Record<string, unknown>) }
 }
 
-/**
- * Projects `value` until its serialization fits `maxBytes`, and records the notice inside the value.
- * The projection budget is counted in JSON bytes, so it is scaled by how much larger or smaller the
- * real serializer is, then narrowed until the serialized result fits.
- */
+/** The projection counts JSON bytes, so its budget is scaled to the real serializer and then narrowed. */
 export function fitValue(
     value: unknown,
     serialize: (value: unknown) => string,
@@ -301,11 +279,6 @@ function parseJsonText(text: string): unknown {
     }
 }
 
-/**
- * `text` bounded to `maxTokens`, or `text` itself when it fits. A body with a known source, or one that
- * parses as JSON, is re-serialized from a projection so it stays valid in its format. Any other text
- * is cut at a line boundary.
- */
 export function boundText(
     text: string,
     maxTokens: number,

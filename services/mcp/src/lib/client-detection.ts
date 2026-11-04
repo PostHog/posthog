@@ -220,9 +220,7 @@ export type ClientCapabilities = {
     // clients inject into the model's system prompt. Codex discards it, so
     // we skip sending it (saving the payload cost) for those sessions.
     supportsInstructions: boolean
-    // Largest tool result the client passes to the model before it cuts the result itself.
-    // Set only for a client whose limit is documented in its source, because the response
-    // budget treats it as a hard limit that even `truncate: false` cannot lift.
+    // Set only from a client's documented limit: even `truncate: false` cannot lift it.
     toolResultTokenLimit?: number
 }
 

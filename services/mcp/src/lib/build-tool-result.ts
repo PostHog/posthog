@@ -91,7 +91,6 @@ interface BuiltResponseText {
     structuredContentOnly: boolean
     footers: string[]
     resultEmpty: boolean
-    /** Set when the body is a serialization of the handler result rather than a tool-formatted string. */
     bodySource?: ResponseBodySource | undefined
 }
 
