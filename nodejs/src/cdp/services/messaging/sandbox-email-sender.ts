@@ -273,6 +273,7 @@ export function sandboxBlockedEventRedisConfig(connection: RedisConnectionConfig
 export class SandboxEmailSender {
     public readonly canSend: boolean
     private storeSlots = new DeadlineSlots(MAX_OPEN_STORE_CALLS)
+    private dailyCaps: { team: number; recipient: number } | null
 
     constructor(
         public readonly config: SandboxEmailSenderConfig,
@@ -293,28 +294,37 @@ export class SandboxEmailSender {
             })
         }
         this.canSend = config.enabled && !emptySettings.length
+        const team = parseDailyCap(config.dailyTeamCap)
+        const recipient = parseDailyCap(config.dailyRecipientCap)
+        this.dailyCaps = dailyCapLimiter && team !== null && recipient !== null ? { team, recipient } : null
+        if (config.enabled && !this.dailyCaps) {
+            logger.error('Sandbox email daily caps are not configured correctly, so every cap check fails')
+        }
     }
 
     public async claimDailyCaps(teamId: number, recipients: string[]): Promise<SandboxDailyCapClaim> {
-        const dailyTeamCap = parseDailyCap(this.config.dailyTeamCap)
-        const dailyRecipientCap = parseDailyCap(this.config.dailyRecipientCap)
-        if (!this.dailyCapLimiter || dailyTeamCap === null || dailyRecipientCap === null) {
-            logger.error('Sandbox email daily caps are not configured correctly', { teamId })
+        if (!this.dailyCapLimiter || !this.dailyCaps) {
             return { type: 'check_failed' }
         }
-        const team = await this.teamManager.getTeam(teamId)
-        if (!team) {
-            return { type: 'check_failed' }
-        }
-        const prefix = dailyCapKeyPrefix(team.organization_id)
+        const { team: dailyTeamCap, recipient: dailyRecipientCap } = this.dailyCaps
         const addresses = distinctAddresses(recipients)
-        const buckets = [
-            dailyBucket(`${prefix}/project/${teamId}`, recipients.length, dailyTeamCap),
-            ...addresses.map((address) =>
-                dailyBucket(`${prefix}/recipient/${addressDigest(address)}`, 1, dailyRecipientCap)
-            ),
-        ]
-        const claim = await this.dailyCapLimiter.claimAllOrNothing(buckets)
+        let claim: Awaited<ReturnType<RateLimiterService['claimAllOrNothing']>>
+        try {
+            const team = await this.teamManager.getTeam(teamId)
+            if (!team) {
+                return { type: 'check_failed' }
+            }
+            const prefix = dailyCapKeyPrefix(team.organization_id)
+            claim = await this.dailyCapLimiter.claimAllOrNothing([
+                dailyBucket(`${prefix}/project/${teamId}`, addresses.length, dailyTeamCap),
+                ...addresses.map((address) =>
+                    dailyBucket(`${prefix}/recipient/${addressDigest(address)}`, 1, dailyRecipientCap)
+                ),
+            ])
+        } catch (error) {
+            logger.warn('Could not check sandbox email daily caps', { teamId, error: String(error) })
+            return { type: 'check_failed' }
+        }
         if (claim.granted) {
             return { type: 'granted', claim }
         }
