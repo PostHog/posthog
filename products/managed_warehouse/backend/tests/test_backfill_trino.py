@@ -1,15 +1,21 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 from datetime import date
 from typing import TYPE_CHECKING, cast
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 from trino.exceptions import Http503Error, TrinoConnectionError, TrinoExternalError, TrinoQueryError, TrinoUserError
 
-from products.managed_warehouse.backend.backfill_trino import ADD_FILES_MAX_FILES, TrinoBackfillCatalog
+from products.managed_warehouse.backend.backfill_trino import (
+    ADD_FILES_MAX_FILES,
+    BACKFILL_TRINO_PRINCIPAL,
+    TrinoBackfillCatalog,
+)
+from products.managed_warehouse.backend.facade.backfill_trino import connect_backfill_catalog
 from products.managed_warehouse.backend.facade.contracts import (
     DuckLakeDayReplacement,
     DuckLakeTableLayoutError,
@@ -64,6 +70,18 @@ def _catalog(
 ) -> tuple[TrinoBackfillCatalog, _FakeTrino]:
     connection = _FakeTrino(columns, failures)
     return TrinoBackfillCatalog(cast("Connection", connection)), connection
+
+
+@pytest.mark.parametrize("canary", [False, True])
+def test_the_backfill_connection_uses_the_canary_host_only_when_asked(canary: bool) -> None:
+    with patch(
+        "products.managed_warehouse.backend.backfill_trino.connect_managed_warehouse_trino",
+        return_value=nullcontext(MagicMock(catalog="example_catalog")),
+    ) as connect:
+        with connect_backfill_catalog("org-1", canary=canary):
+            pass
+
+    connect.assert_called_once_with("org-1", principal=BACKFILL_TRINO_PRINCIPAL, canary=canary)
 
 
 class TestRegisterFiles:

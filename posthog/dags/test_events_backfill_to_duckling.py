@@ -2812,7 +2812,7 @@ class TestBackfillThroughTrino:
 
         catalog, connect_catalog = self._run(run, partition_key, clickhouse, DucklingBackfillConfig())
 
-        connect_catalog.assert_called_with("org-1")
+        connect_catalog.assert_called_with("org-1", canary=False)
         assert catalog.tables == [(table, column_types)] * 2
         assert [(t, r) for t, _, _, r in catalog.registered] == [(table, replacement)] * 2
         first, second = catalog.registered
@@ -2919,6 +2919,20 @@ class TestBackfillThroughTrino:
         for insert, settings in clickhouse.inserts:
             assert cast_column in insert
             assert settings["output_format_parquet_string_as_string"] == 1
+
+    @parameterized.expand(
+        [
+            ("events", _run_duckling_events_backfill, "2_2026-06-17"),
+            ("persons", _run_duckling_persons_backfill, "2"),
+        ]
+    )
+    @time_machine.travel(datetime(2026, 7, 1, tzinfo=UTC), tick=False)
+    def test_opted_in_runs_register_through_the_canary_host(self, _name, run, partition_key):
+        _, connect_catalog = self._run(
+            run, partition_key, _FakeExportClickHouse(files_per_export=1), DucklingBackfillConfig(use_trino_canary=True)
+        )
+
+        connect_catalog.assert_called_with("org-1", canary=True)
 
     @time_machine.travel(datetime(2026, 7, 1, tzinfo=UTC), tick=False)
     def test_dry_runs_neither_export_nor_open_the_catalog(self):

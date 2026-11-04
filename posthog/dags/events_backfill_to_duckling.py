@@ -1044,6 +1044,8 @@ class DucklingBackfillConfig(Config):
     delete_tables: bool = False  # Danger: drops and recreates tables, losing all data
     rebuild_mismatched_table: bool = False  # A full Trino persons or groups run replaces a table with other types
     dry_run: bool = False
+    # Opt-in per run. A backfill never evaluates the canary feature flag.
+    use_trino_canary: bool = False
     events_parquet_row_group_size_bytes: int = pydantic.Field(
         default=DEFAULT_EVENTS_PARQUET_ROW_GROUP_SIZE_BYTES,
         gt=0,
@@ -2640,7 +2642,9 @@ def backfill_through_trino(
         and all(isinstance(item.replacement, DuckLakeTableReplacement) for item in exports)
     )
     rebuild = False
-    with connect_backfill_catalog(target.organization_id) if register else nullcontext() as catalog:
+    with (
+        connect_backfill_catalog(target.organization_id, canary=config.use_trino_canary) if register else nullcontext()
+    ) as catalog:
         if catalog is not None:
             try:
                 catalog.ensure_table(
