@@ -982,18 +982,20 @@ def test_pass_deletes_events_and_sessions_past_the_window_and_moves_only_a_compl
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "months,postponed,deleted_months",
+    "plan_months,months,postponed,deleted_months",
     [
-        pytest.param(12, False, [13, 20], id="unchanged"),
-        pytest.param(24, False, [], id="longer_window"),
-        pytest.param(6, True, [], id="shorter_window"),
+        pytest.param(12, 12, False, [13, 20], id="unchanged"),
+        pytest.param(12, 24, False, [], id="longer_window"),
+        pytest.param(12, 6, True, [], id="shorter_window"),
+        pytest.param(24, 12, False, [], id="plan_raised"),
     ],
 )
+@override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
 def test_plan_old_events_cleanup_uses_a_pass_changed_after_the_run_started(
-    cluster: ClickhouseCluster, months: int, postponed: bool, deleted_months: list[int]
+    cluster: ClickhouseCluster, plan_months: int, months: int, postponed: bool, deleted_months: list[int]
 ):
     team = Team.objects.create(
-        organization=Organization.objects.create(name="Due"), name="Due", event_retention_months=12
+        organization=Organization.objects.create(name="Due"), name="Due", event_retention_months=plan_months
     )
     _insert_events(cluster, _events(team.id, _mid_month(13), 0, 1) + _events(team.id, _mid_month(20), 100, 1))
     passes = PlanDeletionPasses(run_on=cleanup_date(), due_team_ids=[team.id])

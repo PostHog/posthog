@@ -124,7 +124,11 @@ def organization_events_retention(organization: Organization) -> OrganizationEve
 def _next_deletion(
     team_id: int, setting: TeamEventsRetention | None, window_months: int, scheduled_pass_on: date | None
 ) -> ScheduledEventsDeletion | None:
-    pass_on = scheduled_pass_on if should_enforce_events_retention(team_id) else None
+    pass_on = (
+        max(scheduled_pass_on, next_cleanup_on())
+        if scheduled_pass_on is not None and should_enforce_events_retention(team_id)
+        else None
+    )
     deletes_on = next_cleanup_on() if setting is not None else pass_on
     if deletes_on is None:
         return None
@@ -232,6 +236,7 @@ def set_project_events_retention(
     analytics_properties: dict[str, object] | None = None,
 ) -> None:
     with transaction.atomic():
+        lock_organization_retention(team.organization_id)
         config = TeamEventsRetentionConfig.objects.filter(team_id=team.id).first()
         before = config.events_retention_months if config else None
         if months == before:

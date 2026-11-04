@@ -111,6 +111,7 @@ class TestEventsRetentionAPI(APIBaseTest):
                 ("2026-10-03", "2025-10-01", "2026-10-03"),
                 date(2026, 10, 3),
             ),
+            ("overdue_pass", 24, 24, None, ("2026-10-03", "2024-10-01", "2026-09-03"), date(2026, 9, 3)),
         ]
     )
     @time_machine.travel("2026-09-22T20:00:00Z", tick=False)
