@@ -1,5 +1,6 @@
 import { Avatar, AvatarFallback, AvatarImage } from '@posthog/quill'
 
+import { cn } from 'lib/utils/css-classes'
 import { gravatarUrl } from 'lib/utils/gravatar'
 
 export interface AvatarUser {
@@ -31,7 +32,7 @@ export function QuillUserAvatar({
 }): JSX.Element {
     const email = user?.email ?? undefined
     return (
-        <Avatar size={size} className={className}>
+        <Avatar size={size} className={cn('ph-no-capture', className)}>
             {email && <AvatarImage src={gravatarUrl(email)} alt="" />}
             <AvatarFallback>{user ? initials(user) : '?'}</AvatarFallback>
         </Avatar>

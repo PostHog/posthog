@@ -34,7 +34,7 @@ export function QuillOverviewOtherWatchers(): JSX.Element {
                 </div>
             ) : (
                 <div className="flex flex-col gap-2 px-2 py-1">
-                    <div className="flex items-center justify-center gap-2">
+                    <div className="flex items-center justify-center gap-2 ph-no-capture">
                         <AvatarGroup stacked size="xs">
                             {otherViewers.slice(0, MAX_BUBBLES).map((email) => (
                                 <QuillUserAvatar key={email} user={{ email }} size="xs" />
@@ -57,7 +57,7 @@ export function QuillOverviewOtherWatchers(): JSX.Element {
                     {expanded && (
                         <div className="flex flex-col gap-1 mt-2 border-t border-border pt-2">
                             {otherViewers.map((email) => (
-                                <div key={email} className="flex items-center gap-2 text-sm">
+                                <div key={email} className="flex items-center gap-2 text-sm ph-no-capture">
                                     <QuillUserAvatar user={{ email }} size="xs" />
                                     <span className="truncate">{email === currentUser?.email ? 'you' : email}</span>
                                 </div>
