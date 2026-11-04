@@ -9,12 +9,10 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingActionKind,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
-    ExperimentHealthMeasurement,
-    ExperimentHealthMeasurementSide,
-    ExperimentHealthMeasurementUnit,
+    ExperimentHealthValueKey,
 )
 from products.experiments.backend.health.checks.forced_variant import assigns_nobody_by_split
-from products.experiments.backend.health.context import HealthContext
+from products.experiments.backend.health.context import ExposureTotals, HealthContext
 from products.experiments.backend.health.skips import (
     NEEDS_EXPOSURES,
     NEEDS_SPLIT_VARIANTS,
@@ -23,8 +21,8 @@ from products.experiments.backend.health.skips import (
     RUNS_AFTER_LAUNCH,
     SPLIT_ASSIGNS_NOBODY,
     CheckOutcome,
-    CheckPassed,
     CheckSkip,
+    CheckValues,
     not_applicable,
 )
 from products.feature_flags.backend.facade.edits import FlagVariant
@@ -87,6 +85,26 @@ def evaluate_bias_risk(
     return BiasRisk(multiple_variant_percentage=share)
 
 
+def multiple_variant_values(exposures: ExposureTotals) -> CheckValues:
+    """The users exposed to more than one variant, which the bias and the multiple variants checks read."""
+    values: dict[ExperimentHealthValueKey, int | float | str | None] = {
+        ExperimentHealthValueKey.EXPOSED_COUNT: exposures.total,
+        ExperimentHealthValueKey.MULTIPLE_VARIANT_HANDLING: exposures.multiple_variant_handling.value,
+    }
+    # Under "First seen" the exposure query gives each user their first variant, so it counts none of these users.
+    if exposures.multiple_variant_handling == MultipleVariantHandling.EXCLUDE:
+        multiple = exposures.total_exposures.get(MULTIPLE_VARIANT_KEY, 0)
+        values[ExperimentHealthValueKey.MULTIPLE_VARIANT_COUNT] = multiple
+        values[ExperimentHealthValueKey.MULTIPLE_VARIANT_PERCENTAGE] = (
+            multiple / exposures.total * 100 if exposures.total else None
+        )
+    return values
+
+
+def bias_risk_values(ctx: HealthContext) -> CheckValues:
+    return multiple_variant_values(ctx.exposures) if ctx.exposures else {}
+
+
 def bias_risk_multiple_excluded(ctx: HealthContext) -> CheckOutcome:
     if ctx.exposures is None:
         return not_applicable(RUNS_AFTER_LAUNCH)
@@ -105,17 +123,7 @@ def bias_risk_multiple_excluded(ctx: HealthContext) -> CheckOutcome:
     )
     if isinstance(share, CheckSkip):
         return share
-    if share <= MULTIPLE_VARIANT_BIAS_THRESHOLD:
-        return CheckPassed(
-            measurement=ExperimentHealthMeasurement(
-                value=share,
-                threshold=MULTIPLE_VARIANT_BIAS_THRESHOLD,
-                unit=ExperimentHealthMeasurementUnit.PERCENTAGE,
-                warns=ExperimentHealthMeasurementSide.ABOVE,
-            )
-        )
-    # The minimum count decides this pass, not the threshold, so it shows no measurement.
-    if _too_few_to_warn(ctx.exposures.total_exposures):
+    if share <= MULTIPLE_VARIANT_BIAS_THRESHOLD or _too_few_to_warn(ctx.exposures.total_exposures):
         return None
     return ExperimentHealthFinding(
         code=ExperimentHealthFindingCode.BIAS_RISK_MULTIPLE_EXCLUDED,

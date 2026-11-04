@@ -17,10 +17,9 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFinding,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
-    ExperimentHealthMeasurement,
-    ExperimentHealthMeasurementSide,
-    ExperimentHealthMeasurementUnit,
+    ExperimentHealthValueKey,
 )
+from products.experiments.backend.health.checks.bias_risk import MULTIPLE_VARIANT_KEY
 from products.experiments.backend.health.checks.forced_variant import (
     SOME_CONDITIONS_PINNED,
     assigns_nobody_by_split,
@@ -42,7 +41,7 @@ from products.experiments.backend.health.skips import (
     RUNS_AFTER_LAUNCH,
     SPLIT_ASSIGNS_NOBODY,
     CheckOutcome,
-    CheckPassed,
+    CheckValues,
     not_applicable,
 )
 from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureSegmentDimension
@@ -136,6 +135,29 @@ def segments_first_exposed_after(ctx: HealthContext) -> date | None:
     return _last_split_change_day(history)
 
 
+def srm_values(ctx: HealthContext) -> CheckValues:
+    exposures = ctx.exposures
+    if exposures is None:
+        return {}
+    # The test compares the variants of `sample_ratio_expected`. Below its minimum the test doesn't run and leaves that
+    # empty, so the variants come from the split, as the exposure query picks them.
+    compared = exposures.sample_ratio_expected.keys() or _variants_in_split(ctx)
+    return {
+        ExperimentHealthValueKey.P_VALUE: exposures.sample_ratio_mismatch_p_value,
+        ExperimentHealthValueKey.COMPARED_COUNT: sum(exposures.total_exposures.get(key, 0) for key in compared),
+        ExperimentHealthValueKey.MULTIPLE_VARIANT_COUNT: exposures.total_exposures.get(MULTIPLE_VARIANT_KEY, 0),
+    }
+
+
+def _variants_in_split(ctx: HealthContext) -> list[str]:
+    """The variants with a share of the split that the analysis keeps, which the exposure query compares."""
+    return [
+        variant.key
+        for variant in (ctx.flag.variants if ctx.flag else ())
+        if variant.key and (variant.rollout_percentage or 0) > 0 and variant.key not in ctx.excluded_variant_keys
+    ]
+
+
 def srm(ctx: HealthContext) -> CheckOutcome:
     exposures = ctx.exposures
     if exposures is None:
@@ -148,23 +170,11 @@ def srm(ctx: HealthContext) -> CheckOutcome:
     if p_value is None:
         # The exposure query compares only the variants with a share of the split that the analysis keeps, so after
         # a variant ships there is nothing to compare however many users are exposed.
-        variants_in_split = [
-            variant
-            for variant in (ctx.flag.variants if ctx.flag else ())
-            if variant.key and (variant.rollout_percentage or 0) > 0 and variant.key not in ctx.excluded_variant_keys
-        ]
-        if len(variants_in_split) < 2:
+        if len(_variants_in_split(ctx)) < 2:
             return not_applicable(NEEDS_SPLIT_VARIANTS)
         return not_applicable(NEEDS_EXPOSURES)
     if p_value >= SAMPLE_RATIO_MISMATCH_P_VALUE:
-        return CheckPassed(
-            measurement=ExperimentHealthMeasurement(
-                value=p_value,
-                threshold=SAMPLE_RATIO_MISMATCH_P_VALUE,
-                unit=ExperimentHealthMeasurementUnit.P_VALUE,
-                warns=ExperimentHealthMeasurementSide.BELOW,
-            )
-        )
+        return None
     share_off_split = _share_off_split(exposures.total_exposures, exposures.sample_ratio_expected)
     split_change = _split_change_warning(ctx)
     history = ctx.flag_history
