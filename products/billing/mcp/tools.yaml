@@ -193,7 +193,7 @@ tools:
             team_ids:
                 input_schema: BillingTeamIdsSchema
             usage_types:
-                input_schema: BillingUsageTypesSchema
+                input_schema: BillingSpendTypesSchema
             breakdowns:
                 input_schema: BillingSpendBreakdownsSchema
             interval:
