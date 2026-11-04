@@ -1,4 +1,5 @@
 import re
+from collections import Counter
 from html.parser import HTMLParser
 
 from posthog.dataclasses import frozen
@@ -66,6 +67,7 @@ class _TextParser(HTMLParser):
         super().__init__(convert_charrefs=True)
         self.parts: list[str] = []
         self.open_tags: list[str] = []
+        self.open_counts: Counter[str] = Counter()
         self.open_links: list[_OpenLink] = []
         self.hidden_from: int | None = None
         self.label_text: list[str] = []
@@ -76,21 +78,19 @@ class _TextParser(HTMLParser):
             self.handle_startendtag(tag, attrs)
             return
         self._start(tag, attrs)
-        self.open_tags.append(tag)
+        self._push(tag)
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         self._start(tag, attrs)
-        self.open_tags.append(tag)
+        self._push(tag)
         self._end_last()
 
     def handle_endtag(self, tag: str) -> None:
-        if tag in VOID_TAGS:
+        if tag in VOID_TAGS or not self.open_counts[tag]:
             return
-        for index in range(len(self.open_tags) - 1, -1, -1):
-            if self.open_tags[index] == tag:
-                while len(self.open_tags) > index:
-                    self._end_last()
-                return
+        while self.open_tags[-1] != tag:
+            self._end_last()
+        self._end_last()
 
     def handle_data(self, data: str) -> None:
         if self.hidden_from is not None:
@@ -121,8 +121,13 @@ class _TextParser(HTMLParser):
         if href is not None and href.startswith(LINK_SCHEMES):
             self.open_links.append(_OpenLink(depth=len(self.open_tags), href=href, label_start=self.label_length))
 
+    def _push(self, tag: str) -> None:
+        self.open_tags.append(tag)
+        self.open_counts[tag] += 1
+
     def _end_last(self) -> None:
         tag = self.open_tags.pop()
+        self.open_counts[tag] -= 1
         depth = len(self.open_tags)
         if self.hidden_from is not None:
             if depth == self.hidden_from:
