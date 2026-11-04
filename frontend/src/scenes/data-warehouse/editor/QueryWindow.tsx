@@ -14,6 +14,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { registerHogQLFormattingProvider } from 'lib/monaco/hogQLFormattingProvider'
 import { cn } from 'lib/utils/css-classes'
 import { SQLEditorMode } from 'scenes/data-warehouse/editor/sqlEditorModes'
 import { urls } from 'scenes/urls'
@@ -401,6 +402,7 @@ export function QueryWindow({
                             setQueryInput(v ?? '')
                         },
                         onMount: (editor, monaco) => {
+                            registerHogQLFormattingProvider(monaco)
                             onSetMonacoAndEditor(monaco, editor)
                         },
                         onPressCmdEnter: (value, selectionType) => {
