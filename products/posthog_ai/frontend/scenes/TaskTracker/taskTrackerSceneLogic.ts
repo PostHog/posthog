@@ -1303,6 +1303,9 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 if (error instanceof ApiError && error.code === 'warm_run_activation_unavailable') {
                     lemonToast.error("Couldn't start this run yet. Please try again.")
                 }
+                if (error instanceof ApiError && error.code === 'active_session_cap' && error.detail) {
+                    lemonToast.error(error.detail)
+                }
                 if (error instanceof CloudTargetUnresolvedError) {
                     lemonToast.error("Couldn't load your default environment. Please try again.")
                 }
