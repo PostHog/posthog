@@ -935,10 +935,12 @@ def call_llm_judge(
         # Decision endpoints raise this error for outages too (408, 503, 529). Only a 429 on the
         # customer's own key is a limit that the customer sets and PostHog cannot act on.
         customer_limited = is_byok and e.status == 429
-        if customer_limited and last and not backfill:
-            increment_user_errors("rate_limit_retries_exhausted", provider=provider)
-            return _build_rate_limit_skip_result(e, allows_na=allows_na, output_type=output_type)
-        increment_errors("rate_limit", provider=provider)
+        if customer_limited:
+            if last and not backfill:
+                increment_user_errors("rate_limit_retries_exhausted", provider=provider)
+                return _build_rate_limit_skip_result(e, allows_na=allows_na, output_type=output_type)
+        else:
+            increment_errors("rate_limit", provider=provider)
         # A retry usually gets through, so only an outage that outlasts every attempt reaches error tracking.
         error_class = ApplicationError if last and not customer_limited else NonReportableApplicationError
         raise error_class(
