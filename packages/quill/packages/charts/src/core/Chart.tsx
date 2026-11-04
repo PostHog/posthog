@@ -1,4 +1,4 @@
-import React, { useLayoutEffect, useMemo, useState } from 'react'
+import React, { useCallback, useLayoutEffect, useMemo, useState } from 'react'
 
 import {
     AxisLabels,
@@ -32,6 +32,7 @@ import { useResolvedChartTheme } from './theme'
 import type {
     AreaSelectData,
     ChartConfig,
+    ChartDimensions,
     ChartDrawArgs,
     ChartScales,
     ChartTheme,
@@ -43,7 +44,7 @@ import type {
     Series,
     TooltipContext,
 } from './types'
-import { computeYAxisGutters, type Gutter } from './y-axis-gutters'
+import { computeYAxisGutters, type Gutter, gutterOverflow } from './y-axis-gutters'
 
 const DEFAULT_AXIS_COLOR = 'rgba(0, 0, 0, 0.5)'
 const DEFAULT_HOVER_ANIMATION_MS = 150
@@ -218,44 +219,73 @@ export function Chart<Meta = unknown>({
         yAxisHidden,
     })
 
-    const { canvasRef, overlayCanvasRef, wrapperRef, dimensions, ctx, overlayCtx } = useChartCanvas({ margins })
-    const containerWidth = dimensions?.width ?? 0
+    const {
+        canvasRef,
+        overlayCanvasRef,
+        wrapperRef,
+        dimensions: canvasDimensions,
+        ctx,
+        overlayCtx,
+    } = useChartCanvas({ margins })
+    const containerWidth = canvasDimensions?.width ?? 0
     useLayoutEffect(() => setChartWidth(containerWidth), [containerWidth])
 
     const coloredSeries = useColoredSeries<Meta>(series, theme)
 
-    const scales = useMemo<ChartScales | null>(() => {
-        if (!dimensions) {
+    const canvasScales = useMemo<ChartScales | null>(() => {
+        if (!canvasDimensions) {
             return null
         }
-        return createScalesFn(coloredSeries, labels, dimensions)
-    }, [coloredSeries, labels, dimensions, createScalesFn])
+        return createScalesFn(coloredSeries, labels, canvasDimensions)
+    }, [coloredSeries, labels, canvasDimensions, createScalesFn])
 
-    const resolvedYFormatter = useResolvedYFormatter(scales, yTickFormatter)
+    const resolvedYFormatter = useResolvedYFormatter(canvasScales, yTickFormatter)
 
-    // Computed once and shared with AxisLabels and AxisTitles via context so they can't drift.
-    const yGutters = useMemo<Gutter[]>(
-        () =>
-            !scales || hideYAxis || axisOrientation === 'horizontal'
+    const showYGutters = !hideYAxis && axisOrientation !== 'horizontal'
+    const buildYGutters = useCallback(
+        (from: ChartScales | null): Gutter[] =>
+            !from || !showYGutters
                 ? []
-                : computeYAxisGutters(scales, {
-                      yTicks: scales.yTicks(),
+                : computeYAxisGutters(from, {
+                      yTicks: from.yTicks(),
                       yTickFormatter: resolvedYFormatter,
                       userYTickFormatter: yTickFormatter,
                       yAxisFormatters,
                       titles: yAxisTitles,
                       hiddenAxes: yAxisHidden,
                   }),
-        [
-            scales,
-            hideYAxis,
-            axisOrientation,
-            resolvedYFormatter,
-            yTickFormatter,
-            yAxisFormatters,
-            yAxisTitles,
-            yAxisHidden,
-        ]
+        [showYGutters, resolvedYFormatter, yTickFormatter, yAxisFormatters, yAxisTitles, yAxisHidden]
+    )
+    const canvasGutters = useMemo(() => buildYGutters(canvasScales), [buildYGutters, canvasScales])
+
+    const overflow = useMemo(
+        () => (canvasDimensions ? gutterOverflow(canvasGutters, canvasDimensions) : { left: 0, right: 0 }),
+        [canvasGutters, canvasDimensions]
+    )
+    const widenLeft = marginsOverride?.left === undefined ? overflow.left : 0
+    const widenRight = marginsOverride?.right === undefined ? overflow.right : 0
+    const dimensions = useMemo<ChartDimensions | null>(() => {
+        if (!canvasDimensions || (widenLeft === 0 && widenRight === 0)) {
+            return canvasDimensions
+        }
+        return {
+            ...canvasDimensions,
+            plotLeft: canvasDimensions.plotLeft + widenLeft,
+            plotWidth: Math.max(0, canvasDimensions.plotWidth - widenLeft - widenRight),
+        }
+    }, [canvasDimensions, widenLeft, widenRight])
+
+    const scales = useMemo<ChartScales | null>(() => {
+        if (!dimensions || dimensions === canvasDimensions) {
+            return canvasScales
+        }
+        return createScalesFn(coloredSeries, labels, dimensions)
+    }, [dimensions, canvasDimensions, canvasScales, coloredSeries, labels, createScalesFn])
+
+    // Computed once and shared with AxisLabels and AxisTitles via context so they can't drift.
+    const yGutters = useMemo<Gutter[]>(
+        () => (scales === canvasScales ? canvasGutters : buildYGutters(scales)),
+        [scales, canvasScales, canvasGutters, buildYGutters]
     )
 
     // Mirrors AxisLabels' visible-label computation (same pure helpers, same inputs) so every tick
