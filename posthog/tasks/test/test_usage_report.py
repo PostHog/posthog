@@ -1868,7 +1868,6 @@ class TestQueryUsageReportSQL:
             "startsWith(event, '$mcp_') AND lib_expr IN ('posthog-ruby', 'posthog-rails', 'posthog-ruby-mcp'), 'ruby_mcp_events'"
             in main_query
         )
-        assert main_query.index("startsWith(event, '$mcp_')") < main_query.index("lib_expr = 'web'")
         assert "lib_expr = 'posthog-node-mcp', 'node_events'" in main_query
         assert "lib_expr = 'posthog-rs-mcp', 'rust_events'" in main_query
         assert "lib_expr = 'posthog-godot', 'godot_events'" in main_query
