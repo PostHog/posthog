@@ -256,10 +256,10 @@ export function NativeEmailIntegrationChoice({
     onChange: (value: EmailTemplateFrom) => void
     value?: EmailTemplateFrom
 }): JSX.Element {
-    const { integrationsLoading, integrations } = useValues(integrationsLogic)
+    const { integrationsLoading, integrations, ownEmailIntegrations } = useValues(integrationsLogic)
     const { logicProps } = useValues(emailTemplaterLogic)
     const senderRotationEnabled = useFeatureFlag('WORKFLOWS_EMAIL_SENDER_ROTATION')
-    const integrationsOfKind = integrations?.filter((x) => x.kind === 'email')
+    const integrationsOfKind = integrations && ownEmailIntegrations
     const selectedIntegrationIds = value?.integrationIds?.length
         ? value.integrationIds
         : value?.integrationId
