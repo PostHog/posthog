@@ -287,7 +287,14 @@ describe('InsightDisplayConfig', () => {
                 {
                     tabs: [],
                     sections: {
-                        General: ['On dashboards', 'Cohort labels start at', 'Style', 'Cohort line colors', 'Overlays'],
+                        General: [
+                            'On dashboards',
+                            'Cohort labels start at',
+                            'Y-axis',
+                            'Style',
+                            'Cohort line colors',
+                            'Overlays',
+                        ],
                     },
                     overlayItems: ['Show trend lines', 'Show mean line'],
                 },
@@ -307,7 +314,7 @@ describe('InsightDisplayConfig', () => {
                 makeLifecycleQuery(),
                 {
                     tabs: [],
-                    sections: { General: [] },
+                    sections: { General: ['Y-axis'] },
                     displayItems: [
                         'Stack bars',
                         'Show values on series',
