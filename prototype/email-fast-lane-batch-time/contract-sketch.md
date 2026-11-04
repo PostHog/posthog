@@ -14,7 +14,7 @@ type CyclotronV2Lane = {
 //   fastLane?: CyclotronV2Lane   // absent = one loop, the current behavior (kill switch)
 
 class CyclotronV2RateLimitedWorker extends CyclotronV2Worker {
-  private bulkBatchInFlight = false
+  private mainBatchInFlight = false
 
   protected override async runConsumerLoop(processBatch: ProcessBatch): Promise<void> {
     await Promise.all([
@@ -25,8 +25,8 @@ class CyclotronV2RateLimitedWorker extends CyclotronV2Worker {
 
   private async runFastLane(processBatch: ProcessBatch, lane: CyclotronV2Lane): Promise<void> {
     while (this.isConsuming) {
-      if (!this.bulkBatchInFlight) {
-        await sleep(lane.pollDelayMs) // the bulk loop serves priority 0 first when it is idle
+      if (!this.mainBatchInFlight) {
+        await sleep(lane.pollDelayMs) // the main loop serves priority 0 first when it is idle
         continue
       }
       const visibleRows = await this.countWork(lane.batchMaxSize, lane.maxPriority)
@@ -71,3 +71,9 @@ class CyclotronV2RateLimitedWorker extends CyclotronV2Worker {
 - Zero extra queries while the pod is idle: the fast lane polls only while a bulk batch is in flight.
 - While a batch is in flight: one `countWork` per fast poll delay per pod, through the cyclotron pooler.
 - The fast batch shares the event loop with the bulk batch. When event loop use is high, fast rows still run slower. That part needs option B or C.
+
+## Bursts of fast jobs with bulk quiet
+
+`mainBatchInFlight` is set for any batch the main loop runs, including a batch made only of fast jobs.
+So a burst of fast jobs that arrives after the main loop dequeued is picked up by the fast lane, not by the next main poll.
+Rows inside one batch already run concurrently, so they do not wait for each other.
