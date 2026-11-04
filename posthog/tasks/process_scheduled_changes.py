@@ -105,8 +105,12 @@ def compute_next_run(current: datetime, interval: str, tz: tzinfo = UTC) -> date
 
     The arithmetic runs on the wall clock in `tz`, so a schedule holds its local fire time across
     a DST transition instead of drifting by the zone's offset change. A step therefore covers 23
-    or 25 hours on a transition day. A local time the transition skips resolves with the offset
-    in force before it, and a local time the transition repeats resolves to the first of the two.
+    or 25 hours on a transition day.
+
+    A local time the transition skips, such as 2:30am on a US spring-forward day, resolves with
+    the offset in force before it. The schedule then holds 3:30am from that day on, because a row
+    carries no anchor for its intended wall clock other than its own last instant. A local time
+    the transition repeats resolves to the first of the two and holds its wall clock.
 
     Uses relativedelta for reliable date arithmetic:
     - Daily: adds exactly 1 day
