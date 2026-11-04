@@ -77,7 +77,13 @@ describe('reusableWidgetLogic', () => {
         initKeaTests()
         jest.resetAllMocks()
         jest.mocked(reusableWidgetsRetrieve).mockResolvedValue(widget)
-        jest.mocked(reusableWidgetsVersions).mockResolvedValue({ results: [], count: 0, next_offset: null })
+        jest.mocked(reusableWidgetsVersions).mockResolvedValue({
+            results: [],
+            count: 0,
+            next: null,
+            previous: null,
+            next_offset: null,
+        })
         jest.mocked(reusableWidgetsStatus).mockResolvedValue(ready)
         jest.mocked(reusableWidgetsGenerate).mockResolvedValue({ ...ready, lifecycle_status: 'generating' })
         logic = reusableWidgetLogic({ widgetId: widget.id })

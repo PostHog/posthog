@@ -2,6 +2,7 @@ import type { XYPosition } from '@xyflow/react'
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -21,6 +22,7 @@ import {
     DataModelingEdge,
     DataModelingJobStatus,
     DataModelingNode,
+    DataModelingNodeType,
     DataWarehouseSavedQuery,
     DataWarehouseTable,
     ExternalDataSchemaWithSource,
@@ -35,6 +37,8 @@ import { catalogRestructureEnabled } from '../catalogRestructure'
 import { MATERIALIZING_TYPES } from '../freshness'
 import { dataModelingNodesRetrieve } from '../generated/api'
 import { DataModelingNodesRetrieveLookup, type NodeTypeEnumApi } from '../generated/api.schemas'
+import { HiddenNodeBridging, LineageGraphNode, bridgeHiddenNodes, nodesWithHubs } from '../lineage/lineageHiddenNodes'
+import { LINEAGE_FILTER_TYPES, LINEAGE_TYPE_FILTER_CHANGED_EVENT } from '../lineage/modelsLineageLogic'
 
 export const NODE_DETAIL_SCENE_TABS = ['query', 'lineage', 'materialization', 'data-quality', 'history'] as const
 export type NodeDetailSceneTab = (typeof NODE_DETAIL_SCENE_TABS)[number]
@@ -113,9 +117,12 @@ export interface nodeDetailSceneLogicValues {
     lineageGraph: LineageGraphData | null
     lineageGraphError: boolean
     lineageGraphLoading: boolean
+    lineageHiddenNodeBridging: HiddenNodeBridging | null
     lineageModalOpen: boolean
     lineageNodePositions: Record<string, XYPosition>
-    lineageNodes: DataModelingNode[]
+    lineageNodes: LineageGraphNode[]
+    lineageTypeFilter: NodeTypeEnumApi[]
+    lineageVisibleNodeIds: Set<string>
     modelListUrl: string
     modelMetadata: ModelMetadataFacts | null
     node: DataModelingNode | null
@@ -276,6 +283,9 @@ export interface nodeDetailSceneLogicActions {
     setCurrentTab: (tab: NodeDetailSceneTab | null) => {
         tab: 'data-quality' | 'history' | 'lineage' | 'materialization' | 'query' | null
     }
+    setLineageTypeFilter: (typeFilter: DataModelingNodeType[]) => {
+        typeFilter: NodeTypeEnumApi[]
+    }
     setQueryEditorState: (state: NodeDetailQueryEditorState | null) => {
         state: NodeDetailQueryEditorState | null
     }
@@ -332,11 +342,21 @@ export interface nodeDetailSceneLogicMeta {
             savedQuery: DataWarehouseSavedQuery | null
         ) => string | null
         canEditQuery: (node: DataModelingNode | null, savedQuery: DataWarehouseSavedQuery | null) => boolean
+        lineageVisibleNodeIds: (
+            lineageGraph: LineageGraphData | null,
+            lineageTypeFilter: NodeTypeEnumApi[]
+        ) => Set<string>
+        lineageHiddenNodeBridging: (
+            lineageGraph: LineageGraphData | null,
+            lineageVisibleNodeIds: Set<string>
+        ) => HiddenNodeBridging | null
         lineageNodes: (
             lineageGraph: LineageGraphData | null,
+            lineageVisibleNodeIds: Set<string>,
+            lineageHiddenNodeBridging: HiddenNodeBridging | null,
             effectiveLastRunAt: string | null,
             effectiveLastRunStatus: string | null
-        ) => DataModelingNode[]
+        ) => LineageGraphNode[]
         modelMetadata: (
             node: DataModelingNode | null,
             savedQuery: DataWarehouseSavedQuery | null,
@@ -376,6 +396,7 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
         closeLineageModal: true,
         lineageNodeDragStopped: (nodeId: string, position: XYPosition) => ({ nodeId, position }),
         resetLineageNodePositions: true,
+        setLineageTypeFilter: (typeFilter: DataModelingNodeType[]) => ({ typeFilter }),
         markSavedQueryDeleted: true,
     }),
     reducers({
@@ -475,6 +496,12 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
             {
                 lineageNodeDragStopped: (positions, { nodeId, position }) => ({ ...positions, [nodeId]: position }),
                 resetLineageNodePositions: () => ({}),
+            },
+        ],
+        lineageTypeFilter: [
+            LINEAGE_FILTER_TYPES,
+            {
+                setLineageTypeFilter: (_, { typeFilter }) => typeFilter,
             },
         ],
     }),
@@ -735,24 +762,60 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                     savedQuery.user_access_level
                 ),
         ],
+        lineageVisibleNodeIds: [
+            (s) => [s.lineageGraph, s.lineageTypeFilter],
+            (lineageGraph: LineageGraphData | null, lineageTypeFilter: DataModelingNodeType[]): Set<string> =>
+                new Set(
+                    (lineageGraph?.nodes ?? [])
+                        .filter(
+                            (node) => node.id === lineageGraph?.currentNodeId || lineageTypeFilter.includes(node.type)
+                        )
+                        .map((node) => node.id)
+                ),
+        ],
+        lineageHiddenNodeBridging: [
+            (s) => [s.lineageGraph, s.lineageVisibleNodeIds],
+            (lineageGraph: LineageGraphData | null, lineageVisibleNodeIds: Set<string>): HiddenNodeBridging | null =>
+                lineageGraph
+                    ? bridgeHiddenNodes(
+                          lineageGraph.edges,
+                          new Set(lineageGraph.nodes.map((node) => node.id)),
+                          lineageVisibleNodeIds
+                      )
+                    : null,
+        ],
         // The current node's freshest status/run come from its materialization jobs, not the graph payload
         lineageNodes: [
-            (s) => [s.lineageGraph, s.effectiveLastRunAt, s.effectiveLastRunStatus],
+            (s) => [
+                s.lineageGraph,
+                s.lineageVisibleNodeIds,
+                s.lineageHiddenNodeBridging,
+                s.effectiveLastRunAt,
+                s.effectiveLastRunStatus,
+            ],
             (
                 lineageGraph: LineageGraphData | null,
+                lineageVisibleNodeIds: Set<string>,
+                lineageHiddenNodeBridging: HiddenNodeBridging | null,
                 effectiveLastRunAt: string | null,
                 effectiveLastRunStatus: string | null
-            ): DataModelingNode[] =>
-                (lineageGraph?.nodes ?? []).map((node) =>
-                    node.id === lineageGraph?.currentNodeId
-                        ? {
-                              ...node,
-                              last_run_at: effectiveLastRunAt ?? node.last_run_at,
-                              last_run_status:
-                                  (effectiveLastRunStatus as DataModelingJobStatus) ?? node.last_run_status,
-                          }
-                        : node
-                ),
+            ): LineageGraphNode[] =>
+                lineageGraph
+                    ? nodesWithHubs(
+                          lineageGraph.nodes,
+                          lineageVisibleNodeIds,
+                          lineageHiddenNodeBridging?.hubNodeIds ?? new Set<string>()
+                      ).map((node) =>
+                          node.id === lineageGraph.currentNodeId
+                              ? {
+                                    ...node,
+                                    last_run_at: effectiveLastRunAt ?? node.last_run_at,
+                                    last_run_status:
+                                        (effectiveLastRunStatus as DataModelingJobStatus) ?? node.last_run_status,
+                                }
+                              : node
+                      )
+                    : [],
         ],
         // A node row's timestamps describe the node, not the table: the DAG sync bumps
         // updated_at when it stamps identity onto the node. So they stand in only for a
@@ -798,6 +861,13 @@ export const nodeDetailSceneLogic = kea<nodeDetailSceneLogicType>([
                   })
                 : null
         return {
+            setLineageTypeFilter: ({ typeFilter }) => {
+                posthog.capture(LINEAGE_TYPE_FILTER_CHANGED_EVENT, {
+                    surface: 'node_detail',
+                    visible_types: typeFilter,
+                    hidden_type_count: LINEAGE_FILTER_TYPES.length - typeFilter.length,
+                })
+            },
             loadNodeSuccess: () => {
                 const node = values.node
                 if (node && node.id !== props.id) {

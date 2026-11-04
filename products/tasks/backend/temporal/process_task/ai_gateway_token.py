@@ -79,7 +79,8 @@ _SCOUT_STAGE_PREFIX = "scout:"
 # Products whose runs may mint an internally funded token. Mint scope needs
 # server-side provenance: `internal` and some origin_product values are
 # API-settable, so an unmapped origin marked internal resolves to
-# background_agents and must never mint. Signals products qualify because their
+# background_agents and mints only from an origin validate_origin_product reserves
+# (BACKGROUND_AGENTS_ORIGINS). Signals products qualify because their
 # stages are set only by server flows: pipeline stages by the flows that start
 # them, `inbox` / `chat` by `Task.create_run`. A caller owning a report can reach
 # `signals_inbox`, so the per-run cap and the product's daily budget bound those two.
@@ -96,6 +97,8 @@ MINTABLE_PRODUCTS = frozenset(
     {
         "posthog_ai",
         "account_audit",
+        "onboarding",
+        "background_agents",
         "posthog_code",
         "review_hog",
         "slack_app",
@@ -110,6 +113,8 @@ MINTABLE_PRODUCTS = frozenset(
         "signals_scout_suggestions",
     }
 )
+
+BACKGROUND_AGENTS_ORIGINS = frozenset({"autoresearch", "business_knowledge", "context_layer", "task_analysis"})
 
 # Exempt from the background run-duration cap, so their tokens need the longer interactive
 # ceiling. Mirrors the stages `Task.create_run` stamps.
@@ -129,12 +134,7 @@ _MINT_ATTEMPTS = 2
 _MINT_TIMEOUT_SECONDS = 3
 
 
-def resolve_sandbox_ai_product(
-    origin_product: str | None, ai_stage: str | None, *, internal: bool = False, billing_product: str | None = None
-) -> str:
-    """The `ai_product` the agent server will resolve for this run."""
-    if origin_product in ("signal_report", "signals_scout") and billing_product == "posthog_ai":
-        return "posthog_ai"
+def _origin_gateway_product(origin_product: str | None, *, internal: bool) -> str:
     gateway_product = _ORIGIN_TO_GATEWAY_PRODUCT.get(origin_product or "")
     # Stored rows may carry a caller-set review_hog origin predating its
     # reservation; only the server-stamped `internal` flag admits the mintable product.
@@ -145,7 +145,22 @@ def resolve_sandbox_ai_product(
         logger.warning("account_audit origin without server-stamped internal flag; resolving posthog_code")
         return "posthog_code"
     if gateway_product is None:
-        gateway_product = "background_agents" if internal else "posthog_code"
+        return "background_agents" if internal else "posthog_code"
+    return gateway_product
+
+
+def resolve_sandbox_ai_product(
+    origin_product: str | None,
+    ai_stage: str | None,
+    *,
+    internal: bool = False,
+    billing_product: str | None = None,
+    profile_billing_product: str | None = None,
+) -> str:
+    """The `ai_product` the agent server will resolve for this run."""
+    if origin_product in ("signal_report", "signals_scout") and billing_product == "posthog_ai":
+        return "posthog_ai"
+    gateway_product = profile_billing_product or _origin_gateway_product(origin_product, internal=internal)
     if gateway_product == "signals" and ai_stage:
         stage = "scout" if ai_stage.startswith(_SCOUT_STAGE_PREFIX) else ai_stage
         if stage in _SIGNALS_STAGE_PRODUCTS:
@@ -246,6 +261,8 @@ def mint_refusal(
     """Why a routed run must not mint."""
     if ai_product == "account_audit" and (origin_product != "account_audit" or not internal):
         return "no_account_audit_provenance"
+    if ai_product == "background_agents" and (origin_product not in BACKGROUND_AGENTS_ORIGINS or not internal):
+        return "no_background_agents_provenance"
     if ai_product == "slack_app" and not has_slack_provenance(
         state, internal=internal, prior_slack_run=prior_slack_run
     ):
@@ -366,6 +383,7 @@ def mint_scoped_token(
     expires_in_seconds: int | None = None,
     gateway_config: "AIGatewayConfig | None" = None,
     raise_on_failure: bool = False,
+    run_id: str | None = None,
 ) -> str | None:
     """Mint a `phe_` scoped token pinned to (ai_product, obo=team_id), or None on failure.
 
@@ -393,6 +411,8 @@ def mint_scoped_token(
     }
     if user:
         body["user"] = user
+    if run_id:
+        body["run"] = run_id
     pin = allowed_models if allowed_models is not None else _PRODUCT_ALLOWED_MODELS.get(ai_product)
     if pin:
         body["allowed_models"] = gateway_pin(pin)

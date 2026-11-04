@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { Button, FieldLegend, FieldSet, Text } from '@posthog/quill'
+import { Button, FieldLegend, FieldSet, Skeleton, Text } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
@@ -25,9 +25,18 @@ function MaterializedSettings({
     blockedReason: string | undefined
 }): JSX.Element {
     const jobsLogic = materializationJobsLogic({ viewId: savedQuery.id, kind })
-    const { dataModelingJobs, startingMaterialization, incrementalCheck, incrementalDraft, syncFrequencyDraft } =
-        useValues(jobsLogic)
-    const { setIncrementalDraft, setSyncFrequencyDraft } = useActions(jobsLogic)
+    const {
+        dataModelingJobs,
+        startingMaterialization,
+        incrementalCheck,
+        incrementalDraft,
+        syncFrequencyDraft,
+        savingMaterialization,
+        cadencePin,
+        nodeFrequency,
+        nodeFrequencyLoading,
+    } = useValues(jobsLogic)
+    const { setIncrementalDraft, setSyncFrequencyDraft, setPinDraft } = useActions(jobsLogic)
     const { updatingDataWarehouseSavedQuery, materializationActionLoading } = useValues(dataWarehouseViewsLogic)
     const runningReason =
         dataModelingJobs?.results?.[0]?.status === 'Running'
@@ -46,15 +55,19 @@ function MaterializedSettings({
                     Updating new rows only, up to {formatWatermark(savedQuery.incremental_state?.watermark)}
                 </Text>
             )}
-            {kind !== 'endpoint' && (
+            {kind !== 'endpoint' && nodeFrequencyLoading && !nodeFrequency ? (
+                <Skeleton className="h-8 w-80 max-w-full" />
+            ) : kind !== 'endpoint' ? (
                 <QuillSyncFrequencySelect
                     bounds={savedQuery.sync_frequency_bounds}
                     disabledReason={frequencyReason}
                     value={syncFrequencyDraft ?? (savedQuery.sync_frequency as SyncFrequencyValue) ?? 'never'}
                     onChange={setSyncFrequencyDraft}
-                    loading={updatingDataWarehouseSavedQuery || materializationActionLoading}
+                    loading={savingMaterialization || updatingDataWarehouseSavedQuery || materializationActionLoading}
+                    pin={cadencePin}
+                    onUnpin={() => setPinDraft(false)}
                 />
-            )}
+            ) : null}
             {kind !== 'endpoint' && !savedQuery.managed_viewset_kind && incrementalCheck && (
                 <FieldSet className="max-w-160" disabled={!!frequencyReason}>
                     <FieldLegend>Refresh mode</FieldLegend>

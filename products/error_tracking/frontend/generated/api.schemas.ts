@@ -1109,14 +1109,14 @@ export interface ErrorTrackingIssueSplitResponseApi {
 
 /**
  * * `ready` - Ready
- * * `generating` - Generating
+ * * `not_generated` - Not Generated
  * * `unavailable` - Unavailable
  */
 export type IssueSummaryStatusEnumApi = (typeof IssueSummaryStatusEnumApi)[keyof typeof IssueSummaryStatusEnumApi]
 
 export const IssueSummaryStatusEnumApi = {
     Ready: 'ready',
-    Generating: 'generating',
+    NotGenerated: 'not_generated',
     Unavailable: 'unavailable',
 } as const
 
@@ -1161,19 +1161,39 @@ export interface ErrorTrackingStoredIssueSummaryApi {
     model: string
     /** When the summary was written. */
     generated_at: string
-    /** When generation last wrote the summary or confirmed it unchanged. The regenerate interval runs from it. */
+    /** When generation last wrote the summary. */
     checked_at: string
 }
 
+/**
+ * * `restricted` - Restricted
+ * * `disabled` - Disabled
+ * * `ai_not_approved` - Ai Not Approved
+ */
+export type IssueSummaryUnavailableReasonEnumApi =
+    (typeof IssueSummaryUnavailableReasonEnumApi)[keyof typeof IssueSummaryUnavailableReasonEnumApi]
+
+export const IssueSummaryUnavailableReasonEnumApi = {
+    Restricted: 'restricted',
+    Disabled: 'disabled',
+    AiNotApproved: 'ai_not_approved',
+} as const
+
 export interface ErrorTrackingIssueSummaryResponseApi {
-    /** ready: `summary` holds the stored summary. generating: a summary is being written in the background, so poll again. `summary` holds the previous one, if any. unavailable: no summary exists and none will be written, for example because the feature is off.
+    /** ready: `summary` holds the stored summary. not_generated: no summary is stored for this issue. A summary is written only when an issue is created. unavailable: no summary can be shown. `reason` says why.
      *
      * * `ready` - Ready
-     * * `generating` - Generating
+     * * `not_generated` - Not Generated
      * * `unavailable` - Unavailable */
     status: IssueSummaryStatusEnumApi
-    /** The stored summary, or null when none exists yet. */
+    /** The stored summary, or null when the status is not ready. */
     summary: ErrorTrackingStoredIssueSummaryApi | null
+    /** Why the status is unavailable, else null. restricted: the user may not read a property that the summary is written from. disabled: summaries are off for the project. ai_not_approved: the organization has not approved AI data processing.
+     *
+     * * `restricted` - Restricted
+     * * `disabled` - Disabled
+     * * `ai_not_approved` - Ai Not Approved */
+    reason: IssueSummaryUnavailableReasonEnumApi | null
 }
 
 /**
@@ -1482,14 +1502,20 @@ export interface ErrorTrackingIssueDetailApi {
     sparkline?: number[]
     /** Aggregate over matching events. Returned only when includeBreakdown is true. */
     breakdown?: ErrorTrackingIssueBreakdownApi
-    /** A model-written summary of the issue. Present only when summary_status is 'ready'. Treat likely_cause as a hypothesis, not a fact. */
+    /** An AI-written summary of the issue. Present only when summary_status is 'ready'. Treat likely_cause as a hypothesis, not a fact. */
     summary?: ErrorTrackingIssueSummaryApi
-    /** 'ready' means summary is present. 'generating' means a summary may still be written: call once more after a few seconds, and continue without it if the status does not change. 'unavailable' means no summary exists for this issue and none is being written.
+    /** 'ready' means summary is present. 'not_generated' means no summary exists for this issue. A summary is written only when an issue is created. 'unavailable' means no summary can be shown, and summary_reason says why.
      *
      * * `ready` - Ready
-     * * `generating` - Generating
+     * * `not_generated` - Not Generated
      * * `unavailable` - Unavailable */
     summary_status: IssueSummaryStatusEnumApi
+    /** Present only when summary_status is 'unavailable'. 'restricted': the user may not read a property that the summary is written from. 'disabled': summaries are off for the project. 'ai_not_approved': the organization has not approved AI data processing.
+     *
+     * * `restricted` - Restricted
+     * * `disabled` - Disabled
+     * * `ai_not_approved` - Ai Not Approved */
+    summary_reason?: IssueSummaryUnavailableReasonEnumApi
 }
 
 /**
@@ -2757,6 +2783,7 @@ export type ErrorTrackingFingerprintsListParams = {
     issue_id?: string
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2821,6 +2848,7 @@ export type ErrorTrackingGitProviderFileLinksResolveGitlabRetrieveParams = {
 export type ErrorTrackingIssuesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2893,6 +2921,7 @@ export const ErrorTrackingRecommendationsSourceMapsExamplesRetrievePlatform = {
 export type ErrorTrackingReleasesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2916,6 +2945,7 @@ export type ErrorTrackingSpikeEventsListParams = {
     issue_ids?: string
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2931,6 +2961,7 @@ export type ErrorTrackingSpikeEventsListParams = {
 export type ErrorTrackingStackFramesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2953,6 +2984,7 @@ export type ErrorTrackingSuppressionRulesListParams = {
 export type ErrorTrackingSymbolSetsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 100
      */
     limit?: number
     /**

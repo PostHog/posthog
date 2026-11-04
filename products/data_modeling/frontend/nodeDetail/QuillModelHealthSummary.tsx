@@ -104,7 +104,7 @@ export function QuillModelHealthSummary({
                 </QuillModelFact>
                 <QuillModelFact
                     label="Refresh schedule"
-                    hint="The refresh schedule saved for this model, including pauses and suspension."
+                    hint="How often this view refreshes, including pauses and suspension. A downstream view can make it refresh more often than its own setting."
                 >
                     {schedule ?? <Skeleton className="h-4 w-32" />}
                 </QuillModelFact>

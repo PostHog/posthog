@@ -91,8 +91,8 @@ export const getAvailableExperimentTabs = (
     })
 }
 
-// Staff only. While impersonating, the user is the customer, so superpowers are off for the staff member at the
-// keyboard and the impersonation itself counts.
+// Staff only. While impersonating, the user is the customer: superpowers are off for the staff member at the keyboard
+// and the flag evaluates on the customer, so the impersonation itself counts.
 export const canSeeHealthDebugTab = ({
     superpowersEnabled,
     isImpersonated,
@@ -101,7 +101,7 @@ export const canSeeHealthDebugTab = ({
     superpowersEnabled: boolean
     isImpersonated: boolean
     healthFindingsEnabled: boolean
-}): boolean => (superpowersEnabled || isImpersonated) && healthFindingsEnabled
+}): boolean => isImpersonated || (superpowersEnabled && healthFindingsEnabled)
 
 // kea-router coerces numeric-looking params to numbers, so check the type before membership
 const isExperimentTab = (tab: unknown): tab is ExperimentTab =>

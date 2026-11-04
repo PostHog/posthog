@@ -468,6 +468,9 @@ class TestPostgresSourceNonRetryableErrors:
             # Supavisor blocks a project for a short time after failed sign-ins from any client, so the
             # block alone does not prove that this source's credentials are wrong.
             'connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL:  (ECIRCUITBREAKER) too many authentication failures, new connections are temporarily blocked',
+            # The one "(EAUTHQUERY)" outcome that clears on its own, so a key on the bare code must
+            # not disable it along with the missing-user and secret-format outcomes.
+            'connection failed: connection to server at "10.0.0.1", port 5432 failed: FATAL:  (EAUTHQUERY) auth_query secret check timed out',
         ],
     )
     def test_transient_connection_errors_are_retryable(self, source, error_msg):
@@ -528,6 +531,17 @@ class TestPostgresSourceNonRetryableErrors:
             # so libpq can't load the file `tls_files` wrote for it. Permanent until the customer
             # fixes the field. Host and temp path are invented, not real values.
             'connection failed: connection to server at "203.0.113.7", port 5432 failed: could not read root certificate file "/tmp/source-tls-xxxxxxxx/ca.crt": no certificate or crl found',
+            # Supavisor's auth_query finds no such role. Repeated misses trip its credential-fetch
+            # circuit breaker, so the first address can report that block while a later one still
+            # names the missing user. Hosts and IPs are invented, not real values.
+            'connection failed: connection to server at "203.0.113.20", port 5432 failed: FATAL:  '
+            "(ECIRCUITBREAKER) failed to retrieve database credentials after multiple attempts, new "
+            "connections are temporarily blocked\n"
+            "Multiple connection attempts failed. All failures were:\n"
+            "- host: 'pooler.example.com', port: '5432', hostaddr: '203.0.113.21': connection failed: "
+            'connection to server at "203.0.113.21", port 5432 failed: FATAL:  (EAUTHQUERY) user not '
+            "found in the database",
+            'connection failed: connection to server at "203.0.113.20", port 5432 failed: FATAL:  (EAUTHQUERY) unsupported or invalid secret format',
         ],
     )
     def test_permanent_connection_errors_are_non_retryable(self, source, error_msg):
@@ -1827,6 +1841,28 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Raw psycopg message (what the activity-level check sees via str(e)) — a view/RLS
+            # policy's own PL/pgSQL function doing FOREACH over an array that is null for a row.
+            'FOREACH expression must not be null\nCONTEXT:  PL/pgSQL function ledger.holdout_hash(text,text) line 4 at FOREACH over array\nSQL function "is_holdout_domain" statement 1',
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            "NullValueNotAllowed: FOREACH expression must not be null",
+        ],
+    )
+    def test_foreach_over_null_array_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"FOREACH-over-null-array error should be non-retryable: {error_msg}"
+
+    def test_foreach_over_null_array_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = "FOREACH expression must not be null"
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "FOREACH-over-null-array error should surface an actionable message"
+        assert "FOREACH" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # Raw psycopg message (what the activity-level check sees via str(e)) — a view/trigger
             # function refreshing a materialized view during our read-only SELECT.
             'cannot execute REFRESH MATERIALIZED VIEW in a read-only transaction\nCONTEXT:  SQL statement "REFRESH MATERIALIZED VIEW CONCURRENTLY analyticssnapshot"',
@@ -2711,6 +2747,10 @@ class TestIsConnectionDroppedError:
             # error code, so it's matched on the full phrase including the ":closed" reason; same
             # transient class as the pooler drops above and recovers on reconnect.
             psycopg.errors.InternalError_("Internal error (authenticated): :closed"),
+            # Same Supavisor pooler-drop shape, but raised with Erlang's ":einval" (POSIX EINVAL)
+            # reason instead of ":closed" — gen_tcp returns it when an operation hits a backend
+            # socket the pooler has already torn down. Same transient class; recovers on reconnect.
+            psycopg.errors.InternalError_("Internal error (authenticated): :einval"),
             # Supavisor reports a transient timeout reaching the upstream backend as a
             # ConnectionFailure (08006, an OperationalError) carrying the Erlang-tuple reason
             # "{:error, :etimedout}" — a transient drop the in-process recovery must catch.
@@ -2767,6 +2807,12 @@ class TestIsConnectionDroppedError:
             # Supavisor XX000 InternalError_ codes above. Transient — a banned server rejoins on a
             # passing health check or once its ban expires — so the reconnect must catch it.
             psycopg.errors.SystemError("could not get connection from the pool - AllServersDown"),
+            # PgBouncer's own pool-checkout timeout: the client waits past `query_wait_timeout` for a
+            # backend to free up in transaction/statement-pooling mode. PgBouncer reports this as a
+            # bare "query_wait_timeout" over a raw error packet, which psycopg surfaces as
+            # ProtocolViolation rather than OperationalError. Same transient pool-capacity class as
+            # the pgcat/Supavisor checkout failures above; the reconnect must catch it.
+            psycopg.errors.ProtocolViolation("query_wait_timeout"),
             # psycopg's own message when `PQconnectStart` reports the connection BAD before the
             # handshake begins and libpq has no server-reported error text to attach — a purely
             # local pre-handshake failure (e.g. the worker briefly out of file descriptors), not a

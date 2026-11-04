@@ -1,5 +1,6 @@
 import type { Edge, Node } from '@xyflow/react'
 
+import { getEdgeId } from '../../edgeId'
 import type { HogFlow, HogFlowEdge } from '../../types'
 import {
     Box,
@@ -190,11 +191,20 @@ export function edgeLabelText(edge: VisibleEdge, routed: RoutedEdge): string | u
     return edge.label && routed.label ? edge.label : undefined
 }
 
-/** The arrow whose + is closest to the point, if one is within reach. */
-export function nearestInsertEdge(edges: TileEdgeType[], point: Point, reach: number): HogFlowEdge | null {
+/** The arrow whose + is closest to the point, if one is within reach and, when a set is given, in it. */
+export function nearestInsertEdge(
+    edges: TileEdgeType[],
+    point: Point,
+    reach: number,
+    placeableEdgeKeys: Set<string> | null = null
+): HogFlowEdge | null {
     let best: { edge: HogFlowEdge; distance: number } | null = null
     for (const { data } of edges) {
-        if (!data?.routed || !data.edge.insertEdge) {
+        if (
+            !data?.routed ||
+            !data.edge.insertEdge ||
+            (placeableEdgeKeys && !placeableEdgeKeys.has(getEdgeId(data.edge.insertEdge)))
+        ) {
             continue
         }
         const at = quickAddPoint(data.routed, edgeLabelText(data.edge, data.routed))

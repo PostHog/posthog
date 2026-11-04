@@ -1,5 +1,5 @@
 import type { CompiledMetricRule } from './compile-metric-rules'
-import type { BatchTallies, MetricTallyEntry } from './tally'
+import { type BatchTallies, DEFAULT_HISTOGRAM_BOUNDS, type MetricTallyEntry, SPAN_VALUE_DURATION_MS } from './tally'
 
 /**
  * Hand-built OTLP/JSON `ExportMetricsServiceRequest` for log-generated metrics.
@@ -19,6 +19,15 @@ const TIME_BUCKET_MS = 10_000
 const OTLP_TEMPORALITY_DELTA = 1
 
 const ATTRIBUTE_PREFIXES = ['attributes.', 'resource_attributes.']
+
+/** OTel SDK convention for the series that collects data points past a cardinality limit. */
+const OVERFLOW_ATTRIBUTE = { key: 'otel.metric.overflow', value: { boolValue: true } }
+
+/**
+ * Series identity does not include bucket bounds, and samples keep one bounds array per series-hour.
+ * This label gives each bucket layout its own series, so samples with different layouts never merge.
+ */
+const BUCKET_LAYOUT_ATTRIBUTE = { key: 'posthog.bucket_layout', value: { stringValue: 'otel_default_v1' } }
 
 /** Label name as it appears on the emitted series: map keys lose their prefix (Datadog drops `@` the same way). */
 function labelName(groupByKey: string): string {
@@ -53,7 +62,7 @@ export function buildMetricRulesOtlpPayload(
         }
         const serviceIndex = rule.groupBy.indexOf('service_name')
         for (const entry of ruleTallies.values()) {
-            const service = serviceIndex >= 0 ? (entry.labelValues[serviceIndex] ?? '') : ''
+            const service = serviceIndex >= 0 && !entry.overflow ? (entry.labelValues[serviceIndex] ?? '') : ''
             let ruleMap = byService.get(service)
             if (!ruleMap) {
                 ruleMap = new Map()
@@ -101,15 +110,14 @@ function serializeRuleMetric(
     if (rule.valueAttribute) {
         return {
             name: rule.metricName,
+            ...(rule.valueAttribute === SPAN_VALUE_DURATION_MS ? { unit: 'ms' } : {}),
             histogram: {
                 dataPoints: entries.map((entry) => ({
-                    ...dataPointBase(rule, entry, startTimeUnixNano, timeUnixNano),
+                    ...dataPointBase(rule, entry, startTimeUnixNano, timeUnixNano, BUCKET_LAYOUT_ATTRIBUTE),
                     count: entry.count,
                     sum: entry.sum,
-                    // No percentile buckets yet: a single catch-all bucket keeps the shape a
-                    // valid OTLP histogram while carrying only count + sum.
-                    bucketCounts: [entry.count],
-                    explicitBounds: [],
+                    bucketCounts: entry.bucketCounts,
+                    explicitBounds: DEFAULT_HISTOGRAM_BOUNDS,
                 })),
                 aggregationTemporality: OTLP_TEMPORALITY_DELTA,
             },
@@ -132,10 +140,14 @@ function dataPointBase(
     rule: CompiledMetricRule,
     entry: MetricTallyEntry,
     startTimeUnixNano: string,
-    timeUnixNano: string
+    timeUnixNano: string,
+    extraAttribute?: Record<string, unknown>
 ): Record<string, unknown> {
-    const attributes: Record<string, unknown>[] = []
-    for (let i = 0; i < rule.groupBy.length; i++) {
+    const attributes: Record<string, unknown>[] = entry.overflow ? [OVERFLOW_ATTRIBUTE] : []
+    if (extraAttribute) {
+        attributes.push(extraAttribute)
+    }
+    for (let i = 0; i < rule.groupBy.length && !entry.overflow; i++) {
         const key = rule.groupBy[i]!
         if (key === 'service_name') {
             continue // carried on the resource block instead

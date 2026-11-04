@@ -129,6 +129,74 @@ describe('indexRowsToParquet', () => {
             'REPEATED BYTE_ARRAY window_ids UTF8',
             'OPTIONAL BYTE_ARRAY urls UTF8',
             'REQUIRED BOOLEAN urls_truncated',
+            'OPTIONAL INT32 surfacing_event_count',
+            'OPTIONAL INT32 surfacing_click_count',
+            'OPTIONAL INT32 surfacing_keypress_count',
+            'OPTIONAL INT32 surfacing_mouse_activity_count',
+            'OPTIONAL INT32 surfacing_rage_click_count',
+            'OPTIONAL INT32 surfacing_dead_click_count',
+            'OPTIONAL INT32 surfacing_quick_back_count',
+            'OPTIONAL INT32 surfacing_page_visit_count',
+            'OPTIONAL INT32 surfacing_text_selection_count',
+            'OPTIONAL INT32 surfacing_scroll_event_count',
+            'OPTIONAL INT32 surfacing_console_error_count',
+            'OPTIONAL INT32 surfacing_console_error_after_click_count',
+            'OPTIONAL INT32 surfacing_console_warn_count',
+            'OPTIONAL INT32 surfacing_network_request_count',
+            'OPTIONAL INT32 surfacing_network_failed_request_count',
+            'OPTIONAL INT32 surfacing_network_4xx_count',
+            'OPTIONAL INT32 surfacing_network_5xx_count',
+            'OPTIONAL INT32 surfacing_network_request_duration_count',
+            'OPTIONAL INT32 surfacing_mouse_position_count',
+            'OPTIONAL INT32 surfacing_mouse_direction_change_count',
+            'OPTIONAL INT32 surfacing_mouse_velocity_count',
+            'OPTIONAL INT32 surfacing_scroll_direction_reversal_count',
+            'OPTIONAL INT32 surfacing_rapid_scroll_reversal_count',
+            'OPTIONAL INT32 surfacing_scroll_to_top_count',
+            'OPTIONAL INT32 surfacing_inter_action_gap_count',
+            'OPTIONAL INT32 surfacing_long_idle_gap_count',
+            'OPTIONAL INT32 surfacing_backspace_count',
+            'OPTIONAL INT32 surfacing_mutation_count',
+            'OPTIONAL INT32 surfacing_viewport_resize_count',
+            'OPTIONAL INT32 surfacing_touch_event_count',
+            'OPTIONAL INT32 surfacing_selection_copy_count',
+            'OPTIONAL INT32 surfacing_login_path_visit_count',
+            'OPTIONAL INT32 surfacing_signup_path_visit_count',
+            'OPTIONAL INT32 surfacing_checkout_path_visit_count',
+            'OPTIONAL INT32 surfacing_cart_path_visit_count',
+            'OPTIONAL INT32 surfacing_billing_path_visit_count',
+            'OPTIONAL INT32 surfacing_settings_path_visit_count',
+            'OPTIONAL INT32 surfacing_account_path_visit_count',
+            'OPTIONAL INT32 surfacing_error_path_visit_count',
+            'OPTIONAL INT32 surfacing_not_found_path_visit_count',
+            'OPTIONAL INT32 surfacing_admin_path_visit_count',
+            'OPTIONAL INT32 surfacing_dashboard_path_visit_count',
+            'OPTIONAL INT32 surfacing_onboarding_path_visit_count',
+            'OPTIONAL INT32 surfacing_cancel_path_visit_count',
+            'OPTIONAL INT32 surfacing_refund_path_visit_count',
+            'OPTIONAL INT64 surfacing_mouse_sum_x_millipx',
+            'OPTIONAL INT64 surfacing_mouse_sum_x_squared_px2',
+            'OPTIONAL INT64 surfacing_mouse_sum_y_millipx',
+            'OPTIONAL INT64 surfacing_mouse_sum_y_squared_px2',
+            'OPTIONAL INT64 surfacing_mouse_distance_traveled_millipx',
+            'OPTIONAL INT64 surfacing_mouse_velocity_sum_px_per_s',
+            'OPTIONAL INT64 surfacing_mouse_velocity_sum_of_squares_px2_per_s2',
+            'OPTIONAL INT64 surfacing_total_scroll_magnitude_millipx',
+            'OPTIONAL INT64 surfacing_inter_action_gap_sum_ms',
+            'OPTIONAL INT64 surfacing_inter_action_gap_sum_of_squares_ms2',
+            'OPTIONAL INT64 surfacing_network_request_duration_sum_us',
+            'OPTIONAL INT64 surfacing_network_request_duration_sum_of_squares_ms2',
+            'OPTIONAL INT64 surfacing_max_scroll_y_millipx',
+            'OPTIONAL INT64 surfacing_max_idle_gap_ms',
+            'OPTIONAL group surfacing_visited_url_fingerprints LIST',
+            'REPEATED group surfacing_visited_url_fingerprints.list',
+            'REQUIRED BYTE_ARRAY surfacing_visited_url_fingerprints.list.element UTF8',
+            'OPTIONAL group surfacing_click_target_ids LIST',
+            'REPEATED group surfacing_click_target_ids.list',
+            'REQUIRED INT64 surfacing_click_target_ids.list.element',
+            'OPTIONAL group surfacing_form_field_ids LIST',
+            'REPEATED group surfacing_form_field_ids.list',
+            'REQUIRED INT64 surfacing_form_field_ids.list.element',
         ],
     }
 
@@ -164,7 +232,7 @@ describe('indexRowsToParquet', () => {
                     ? moments
                     : 'list' in column
                       ? windowIds
-                      : column.optional
+                      : 'elements' in column || column.optional
                         ? null
                         : column.type === 'UTF8'
                           ? 'x'
@@ -204,6 +272,41 @@ describe('indexRowsToParquet', () => {
             [2n, 'b', 30n],
             [2n, 'b', null],
             [10n, 'a', 1n],
+        ])
+    })
+
+    it('reads the surfacing lists back as 3-level lists, and a row without them as null', async () => {
+        const surfacing = {
+            surfacing_click_count: 3,
+            surfacing_mouse_sum_x_millipx: -(2 ** 53 - 1),
+            surfacing_visited_url_fingerprints: ['0f1e2d3c4b5a6978', 'b08517cee3ff5ecc'],
+            surfacing_click_target_ids: [-1, 2 ** 53 - 1],
+            surfacing_form_field_ids: [],
+        }
+        const { rows } = await describeFile(
+            await indexRowsToParquet('blocks', [{ ...block([], []), ...surfacing }, block([], [])], 1_000)
+        )
+        const read = (rows as Record<string, unknown>[]).map((row) =>
+            Object.fromEntries(Object.keys(surfacing).map((name) => [name, row[name] ?? null]))
+        )
+        expect(read).toEqual([
+            {
+                surfacing_click_count: 3,
+                surfacing_mouse_sum_x_millipx: -(2n ** 53n - 1n),
+                surfacing_visited_url_fingerprints: {
+                    list: surfacing.surfacing_visited_url_fingerprints.map((element) => ({ element })),
+                },
+                surfacing_click_target_ids: { list: [{ element: -1n }, { element: 2n ** 53n - 1n }] },
+                // parquetjs reads an empty list as a null `list`; Arrow readers see an empty list.
+                surfacing_form_field_ids: { list: null },
+            },
+            {
+                surfacing_click_count: null,
+                surfacing_mouse_sum_x_millipx: null,
+                surfacing_visited_url_fingerprints: null,
+                surfacing_click_target_ids: null,
+                surfacing_form_field_ids: null,
+            },
         ])
     })
 

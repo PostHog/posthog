@@ -1,0 +1,202 @@
+name: Mobile CI
+
+# Typecheck, lint, unit tests and release metadata checks for the mobile app.
+# The app is its own pnpm workspace with its own lockfile, so this workflow never
+# installs the repo root workspace.
+#
+# "Mobile CI Pass" reports on every pull request so repository rules can require it.
+# PR housekeeping calls this workflow on each PR event. Change detection skips
+# validation when neither the app nor its imported API types changed. A trigger-level
+# paths filter would leave unrelated PRs waiting for a status that never arrives.
+
+on:
+    workflow_call:
+        secrets:
+            GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY:
+                required: true
+    # Master pushes refresh the pnpm store cache that PR runs restore.
+    push:
+        branches: [master]
+        paths:
+            - 'products/mobile/**'
+            - '!products/mobile/**/*.md'
+            - '.github/workflows/mobile-ci.yml'
+
+concurrency:
+    # github.workflow is the caller's name, so the release caller and the PR
+    # caller never cancel or wait on each other.
+    group: mobile-ci-${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+    contents: read
+
+jobs:
+    changes:
+        name: Detect mobile changes
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions:
+            contents: read
+            pull-requests: read
+        outputs:
+            # A push has no PR diff to filter: a master push already matched the
+            # trigger paths, and the release caller validates its exact commit.
+            mobile: ${{ steps.filter.outputs.mobile || 'true' }}
+            api_types: ${{ steps.filter.outputs.api_types || 'false' }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+                  sparse-checkout: .github/actions/paths-filter
+                  sparse-checkout-cone-mode: false
+            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              id: app-token
+              if: github.repository == 'PostHog/posthog' && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'
+              with:
+                  client-id: ${{ vars.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+                  permission-pull-requests: read
+            - uses: ./.github/actions/paths-filter
+              id: filter
+              if: github.event_name != 'push'
+              with:
+                  token: ${{ steps.app-token.outputs.token || github.token }}
+                  filters: |
+                      mobile:
+                          - 'products/mobile/**'
+                          - '!products/mobile/**/*.md'
+                          - '.github/workflows/mobile-ci.yml'
+                      api_types:
+                          - 'products/signals/frontend/generated/api.schemas.ts'
+                          - 'products/error_tracking/frontend/generated/api.schemas.ts'
+
+    check:
+        name: Check mobile
+        needs: changes
+        if: needs.changes.outputs.mobile == 'true' || needs.changes.outputs.api_types == 'true'
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 15
+        env:
+            # Reusable workflows keep the caller's name. Only the direct master
+            # trigger warms the cache; release callers must validate their commit.
+            MOBILE_RUN_CHECKS: ${{ github.event_name != 'push' || github.workflow != 'Mobile CI' }}
+            # The generated API files are type-only imports, so their changes need
+            # typechecking but cannot affect mobile lint, runtime or release policy.
+            MOBILE_RUN_FULL_CHECKS: ${{ needs.changes.outputs.mobile == 'true' && (github.event_name != 'push' || github.workflow != 'Mobile CI') }}
+        defaults:
+            run:
+                working-directory: products/mobile
+        steps:
+            - name: Checkout
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+                  sparse-checkout: |
+                      products/mobile
+                      products/signals/frontend/generated/api.schemas.ts
+                      products/error_tracking/frontend/generated/api.schemas.ts
+                  sparse-checkout-cone-mode: false
+
+            # Reads packageManager from the app's package.json, not the repo root's,
+            # so the pnpm that wrote products/mobile/pnpm-lock.yaml also installs it.
+            - name: Setup pnpm
+              uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+              with:
+                  package_json_file: products/mobile/package.json
+              env:
+                  # The action bootstraps pnpm with `npm ci`. A stalled npm audit or fetch
+                  # waits for npm's 300s default, so cap each attempt and skip the audit.
+                  # See .github/actions/setup-pnpm for the measured failure.
+                  NPM_CONFIG_FETCH_TIMEOUT: 45000
+                  NPM_CONFIG_FETCH_RETRIES: 2
+                  NPM_CONFIG_AUDIT: 'false'
+                  NPM_CONFIG_FUND: 'false'
+
+            # The app pins its own Node in .node-version, which EAS builds read too.
+            - name: Setup Node.js
+              uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+              with:
+                  node-version-file: products/mobile/.node-version
+                  token: ${{ github.token }}
+
+            - name: Get pnpm store path
+              id: pnpm-store
+              run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+            # Explicit restore and save instead of setup-node's `cache: pnpm`, which
+            # saves on every run, PRs included. Only master pushes write the cache.
+            - name: Restore pnpm store
+              id: pnpm-cache
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: mobile-pnpm-${{ runner.os }}-${{ hashFiles('products/mobile/pnpm-lock.yaml') }}
+                  restore-keys: mobile-pnpm-${{ runner.os }}-
+
+            - name: Install dependencies
+              run: pnpm install --frozen-lockfile
+
+            - name: Save pnpm store
+              if: github.ref == 'refs/heads/master' && steps.pnpm-cache.outputs.cache-hit != 'true'
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: mobile-pnpm-${{ runner.os }}-${{ hashFiles('products/mobile/pnpm-lock.yaml') }}
+
+            - name: Typecheck
+              if: env.MOBILE_RUN_CHECKS == 'true'
+              run: pnpm typecheck
+
+            - name: Lint
+              if: env.MOBILE_RUN_FULL_CHECKS == 'true'
+              run: pnpm lint
+
+            - name: Test
+              if: env.MOBILE_RUN_FULL_CHECKS == 'true'
+              run: pnpm test --ci
+
+            # Workflow changes also reach branches that have not rebased onto the
+            # release tooling yet. Those branches still run the existing checks.
+            - name: Fetch release validation base
+              if: env.MOBILE_RUN_FULL_CHECKS == 'true' && hashFiles('products/mobile/scripts/releases/release.mjs') != '' && (github.event.pull_request.base.sha != '' || github.event.before != '')
+              env:
+                  MOBILE_RELEASE_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+              run: git fetch --no-tags --depth=1 --filter=blob:none origin "$MOBILE_RELEASE_BASE"
+
+            - name: Validate release requests
+              if: env.MOBILE_RUN_FULL_CHECKS == 'true' && hashFiles('products/mobile/scripts/releases/release.mjs') != ''
+              env:
+                  MOBILE_RELEASE_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+              run: pnpm release:check
+
+            - name: Test release policy
+              if: env.MOBILE_RUN_FULL_CHECKS == 'true' && hashFiles('products/mobile/scripts/releases/release.mjs') != ''
+              run: pnpm release:test
+
+    mobile_checks:
+        name: Mobile CI Pass
+        needs: [changes, check]
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        if: ${{ !cancelled() }}
+        steps:
+            - name: Check all mobile jobs
+              run: |
+                  # Fail if change detection failed or was cancelled (outputs are empty on cancel, so a skipped check would report green).
+                  if [[ "${{ needs.changes.result }}" != "success" && "${{ needs.changes.result }}" != "skipped" ]]; then
+                    echo "Change detection did not succeed (result: ${{ needs.changes.result }})."
+                    exit 1
+                  fi
+
+                  if [[ "${{ needs.changes.outputs.mobile }}" != "true" && "${{ needs.changes.outputs.api_types }}" != "true" ]]; then
+                    echo "Mobile checks were skipped (no relevant changes)"
+                    exit 0
+                  fi
+
+                  if [[ "${{ needs.check.result }}" != "success" && "${{ needs.check.result }}" != "skipped" ]]; then
+                    echo "Mobile typecheck, lint, test or release checks failed."
+                    exit 1
+                  fi
+
+                  echo "All mobile checks passed."

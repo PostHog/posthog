@@ -27,6 +27,7 @@ from products.business_knowledge.backend import learning_settings, logic
 from products.business_knowledge.backend.constants import BK_EMBEDDING_MODEL, BK_QUERY_EMBEDDING_TIMEOUT
 from products.business_knowledge.backend.learning.contracts import EvidenceBundle, EvidenceRef
 from products.business_knowledge.backend.learning.providers import get_learning_provider
+from products.business_knowledge.backend.llm_telemetry import RetrievalTrace, stable_trace_id
 from products.business_knowledge.backend.models import KnowledgeLearningRun, LearningRunResult, LearningRunStatus
 
 from ..constants import (
@@ -475,7 +476,7 @@ def _contradiction_gate_rejection(
     return "none"
 
 
-def _search_existing_knowledge(team: Team, query: str) -> list[logic.KnowledgeSearchResult]:
+def _search_existing_knowledge(team: Team, query: str, *, run_id: UUID) -> list[logic.KnowledgeSearchResult]:
     embedding = generate_embedding(
         team,
         query,
@@ -490,6 +491,8 @@ def _search_existing_knowledge(team: Team, query: str) -> list[logic.KnowledgeSe
         limit=LEARNING_SEARCH_LIMIT,
         use_semantic=True,
         query_embedding=embedding,
+        # Keyed on the run, so a retried analysis is counted once.
+        trace=RetrievalTrace(surface="learning", trace_id=stable_trace_id("learning", run_id)),
     )
 
 
@@ -762,7 +765,7 @@ def _analyze(run: KnowledgeLearningRun, input: AnalyzeLearningEvidenceInput) -> 
         return _finish_without_knowledge(run, rejection_code="pii")
 
     try:
-        results = _search_existing_knowledge(run.team, generated_text)
+        results = _search_existing_knowledge(run.team, generated_text, run_id=run.id)
     except Exception:
         raise LearningAnalysisError("knowledge_search_failed") from None
     retrieved = _render_search_context(results)

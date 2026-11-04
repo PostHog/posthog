@@ -10,6 +10,7 @@ import { ExplainChartView } from 'products/product_analytics/mcp/apps/explainCha
 
 import { capture } from '../analytics/posthog'
 import { useEvidenceCharts } from '../hooks/useEvidenceCharts'
+import { ExplainChartFeedback } from './ExplainChartFeedback'
 import { TrendsVisualizer } from './TrendsVisualizer'
 import type { TrendsQuery, TrendsResult } from './types'
 
@@ -79,6 +80,7 @@ export function ExplainChart({ data, openLink, app = null }: ExplainChartProps):
                         })
                     }
                 />
+                <ExplainChartFeedback />
             </CardContent>
         </Card>
     )

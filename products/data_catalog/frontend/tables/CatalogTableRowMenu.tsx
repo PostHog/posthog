@@ -23,14 +23,20 @@ import { deleteDisabledReason, viewsTabLogic } from 'products/data_modeling/fron
 import { dataQualityCheckEditorLogic } from 'products/data_quality/frontend/dataQualityCheckEditorLogic'
 import { dataQualityOverviewLogic } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
 
-import { CatalogTableRow } from '../catalogTableRows'
+import { CatalogTableRow, hasPendingProposal } from '../catalogTableRows'
 import { catalogTablesLogic } from '../catalogTablesLogic'
 import { certificationsLogic } from '../certificationsLogic'
 import { confirmRevokeCertification } from '../confirmRevokeCertification'
+import { CatalogReviewAccess } from './CatalogReviewAccess'
 
 const CHECKS_RUNNING_REASON = 'Checks are already running'
 const SYNC_RUNNING_REASON = 'Materialization is already running'
 const CERTIFICATION_WORKING_REASON = 'Saving the last change'
+
+const REMOVE_LABELS: Record<string, string> = {
+    certified: 'Remove certification',
+    deprecated: 'Remove deprecation',
+}
 
 function NextStepItem({ row }: { row: CatalogTableRow }): JSX.Element | null {
     const { startedRefreshSavedQueryIds } = useValues(modelsOverviewLogic)
@@ -123,35 +129,44 @@ function SyncNowItem({ row }: { row: CatalogTableRow }): JSX.Element | null {
 
 function TrustItems({ row }: { row: CatalogTableRow }): JSX.Element | null {
     const { actionsInFlight } = useValues(certificationsLogic)
-    const { certifyCertification, deprecateCertification } = useActions(certificationsLogic)
-    const { proposeCertification } = useActions(catalogTablesLogic)
+    const { reviewingRows } = useValues(catalogTablesLogic)
+    const { deprecateCertification } = useActions(certificationsLogic)
+    const { reviewProposals, certifyRows } = useActions(catalogTablesLogic)
     const certification = row.certification
     if (!row.certificationTarget) {
         return null
     }
-    if (!certification) {
+    const working =
+        reviewingRows[row.key] || (certification && actionsInFlight[certification.id])
+            ? CERTIFICATION_WORKING_REASON
+            : undefined
+    if (hasPendingProposal(row)) {
         return (
-            <DropdownMenuItem
-                onClick={() => proposeCertification(row)}
-                data-attr="data-catalog-tables-propose-certification"
-            >
-                Propose certification
-            </DropdownMenuItem>
+            <>
+                <CatalogReviewAccess>
+                    <DropdownMenuItem
+                        onClick={() => reviewProposals([row.key], 'accept', 'menu')}
+                        disabledReason={working}
+                        data-attr="data-catalog-tables-accept-proposal"
+                    >
+                        Accept proposal
+                    </DropdownMenuItem>
+                </CatalogReviewAccess>
+                <CatalogReviewAccess>
+                    <DropdownMenuItem
+                        onClick={() => reviewProposals([row.key], 'reject', 'menu')}
+                        disabledReason={working}
+                        data-attr="data-catalog-tables-reject-proposal"
+                    >
+                        Reject proposal
+                    </DropdownMenuItem>
+                </CatalogReviewAccess>
+            </>
         )
     }
-    const working = actionsInFlight[certification.id] ? CERTIFICATION_WORKING_REASON : undefined
-    return (
-        <>
-            {certification.status !== 'certified' && (
-                <DropdownMenuItem
-                    onClick={() => certifyCertification(certification.id)}
-                    disabledReason={working}
-                    data-attr="data-catalog-tables-certify"
-                >
-                    Certify
-                </DropdownMenuItem>
-            )}
-            {certification.status !== 'deprecated' && (
+    if (certification?.status === 'certified') {
+        return (
+            <CatalogReviewAccess>
                 <DropdownMenuItem
                     onClick={() => deprecateCertification(certification.id)}
                     disabledReason={working}
@@ -159,8 +174,19 @@ function TrustItems({ row }: { row: CatalogTableRow }): JSX.Element | null {
                 >
                     Deprecate
                 </DropdownMenuItem>
-            )}
-        </>
+            </CatalogReviewAccess>
+        )
+    }
+    return (
+        <CatalogReviewAccess>
+            <DropdownMenuItem
+                onClick={() => certifyRows([row.key], 'menu')}
+                disabledReason={working}
+                data-attr="data-catalog-tables-certify"
+            >
+                Certify
+            </DropdownMenuItem>
+        </CatalogReviewAccess>
     )
 }
 
@@ -190,23 +216,30 @@ function DestructiveItems({ row }: { row: CatalogTableRow }): JSX.Element | null
     const { revokeCertification } = useActions(certificationsLogic)
     const { deleteView } = useActions(viewsTabLogic)
     const { certification, savedQuery } = row
-    if (!certification && !savedQuery) {
+    const settledCertification = certification && !hasPendingProposal(row) ? certification : null
+    if (!settledCertification && !savedQuery) {
         return null
     }
     return (
         <>
             <DropdownMenuSeparator />
-            {certification && (
-                <DropdownMenuItem
-                    variant="destructive"
-                    onClick={() =>
-                        confirmRevokeCertification(certification, () => revokeCertification(certification.id))
-                    }
-                    disabledReason={actionsInFlight[certification.id] ? CERTIFICATION_WORKING_REASON : undefined}
-                    data-attr="data-catalog-tables-revoke"
-                >
-                    Revoke certification
-                </DropdownMenuItem>
+            {settledCertification && (
+                <CatalogReviewAccess>
+                    <DropdownMenuItem
+                        variant="destructive"
+                        onClick={() =>
+                            confirmRevokeCertification(settledCertification, () =>
+                                revokeCertification(settledCertification.id)
+                            )
+                        }
+                        disabledReason={
+                            actionsInFlight[settledCertification.id] ? CERTIFICATION_WORKING_REASON : undefined
+                        }
+                        data-attr="data-catalog-tables-revoke"
+                    >
+                        {REMOVE_LABELS[settledCertification.status] ?? 'Remove certification'}
+                    </DropdownMenuItem>
+                </CatalogReviewAccess>
             )}
             {savedQuery && (
                 <AccessControlAction

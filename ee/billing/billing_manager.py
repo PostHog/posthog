@@ -10,7 +10,9 @@ from uuid import UUID
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db.models import F
+from django.core.exceptions import ValidationError
+from django.core.validators import validate_email
+from django.db.models import F, Q
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
@@ -93,6 +95,11 @@ class BillingAPIErrorCodes(Enum):
     OPEN_INVOICES_ERROR = "open_invoices_error"
 
 
+class OrganizationHasNoOwnerError(Exception):
+    def __init__(self) -> None:
+        super().__init__("No owner membership found for organization")
+
+
 class BillingServiceOpenInvoicesError(Exception):
     def __init__(self, message: str):
         self.message = message
@@ -138,6 +145,23 @@ def _free_trial_active(customer: CustomerInfo) -> bool:
     if timezone.is_naive(expires):
         expires = expires.replace(tzinfo=UTC)
     return expires > timezone.now()
+
+
+def _is_valid_email(email: str) -> bool:
+    try:
+        validate_email(email)
+    except ValidationError:
+        return False
+    return True
+
+
+def get_most_recent_owner(organization: Organization) -> User | None:
+    membership = (
+        OrganizationMembership.objects.filter(organization=organization, level=OrganizationMembership.Level.OWNER)
+        .order_by("-joined_at")
+        .first()
+    )
+    return membership.user if membership else None
 
 
 def _get_user_organization_role(user: User, organization: Organization) -> Optional[str]:
@@ -447,7 +471,7 @@ class BillingManager:
 
     def update_billing(
         self, organization: Organization, data: dict[str, Any], authorizer_actor: Optional[User] = None
-    ) -> None:
+    ) -> requests.Response:
         res = http_session.patch(
             f"{BILLING_SERVICE_URL}/api/billing/",
             headers=self.get_auth_headers(organization, authorizer_actor=authorizer_actor),
@@ -455,6 +479,7 @@ class BillingManager:
         )
 
         handle_billing_service_error(res)
+        return res
 
     def update_available_product_features(self, organization: Organization) -> list[dict[str, Any]]:
         res = http_session.get(
@@ -492,56 +517,62 @@ class BillingManager:
 
     def update_billing_organization_users(self, organization: Organization) -> None:
         """
-        Updates the register of users in the Billing service.
+        Updates the register of users in the Billing service, reporting any failure to error
+        tracking instead of raising.
+        """
+        try:
+            self.sync_organization_users(organization)
+        except Exception as e:
+            capture_exception(e, {"organization_id": organization.id})
+
+    def sync_organization_users(self, organization: Organization) -> requests.Response:
+        """
+        Sends the organization's members to the Billing service and returns its response.
+        A 401 or 404 from billing is returned rather than raised, so a caller that needs to know
+        whether the sync landed checks the status code.
         Since this can be called with users that are not ADMINs and update_billing requires
         an ADMIN role, we do a privilege escalation using the owner.
         """
-        try:
-            distinct_ids = list(organization.members.values_list("distinct_id", flat=True))
+        first_owner = get_most_recent_owner(organization)
+        if not first_owner:
+            raise OrganizationHasNoOwnerError()
 
-            first_owner_membership = (
-                OrganizationMembership.objects.filter(organization=organization, level=15)
-                .order_by("-joined_at")
-                .first()
-            )
-            if not first_owner_membership:
-                capture_exception(
-                    Exception(f"No owner membership found for organization"),
-                    {"organization_id": organization.id},
-                )
-                return
-            first_owner = first_owner_membership.user
+        # Billing rejects the whole update when one value fails its validation, so values it would
+        # reject are left out: a NULL or empty distinct_id, and an admin email that is not valid.
+        members_with_distinct_id = organization.members.exclude(Q(distinct_id__isnull=True) | Q(distinct_id=""))
 
-            admin_emails = list(
-                organization.members.filter(
-                    organization_membership__level__gte=OrganizationMembership.Level.ADMIN
-                ).values_list("email", flat=True)
-            )
+        distinct_ids = list(members_with_distinct_id.values_list("distinct_id", flat=True))
 
-            org_users = list(
-                organization.members.values("email", "distinct_id", "organization_membership__level")
-                .order_by("email")  # Deterministic order for tests
-                .annotate(role=F("organization_membership__level"))
-                .filter(role__gte=OrganizationMembership.Level.ADMIN)
-                .values(
-                    "email",
-                    "distinct_id",
-                    "role",
-                )
-            )
+        admin_emails = [
+            email
+            for email in organization.members.filter(
+                organization_membership__level__gte=OrganizationMembership.Level.ADMIN
+            ).values_list("email", flat=True)
+            if _is_valid_email(email)
+        ]
 
-            self.update_billing(
-                organization,
-                {
-                    "distinct_ids": distinct_ids,
-                    "org_customer_email": first_owner.email,
-                    "org_admin_emails": admin_emails,
-                    "org_users": org_users,
-                },
-                authorizer_actor=first_owner,
+        org_users = list(
+            members_with_distinct_id.values("email", "distinct_id", "organization_membership__level")
+            .order_by("email")  # Deterministic order for tests
+            .annotate(role=F("organization_membership__level"))
+            .filter(role__gte=OrganizationMembership.Level.ADMIN)
+            .values(
+                "email",
+                "distinct_id",
+                "role",
             )
-        except Exception as e:
-            capture_exception(e, {"organization_id": organization.id})
+        )
+
+        return self.update_billing(
+            organization,
+            {
+                "distinct_ids": distinct_ids,
+                "org_customer_email": first_owner.email,
+                "org_admin_emails": admin_emails,
+                "org_users": org_users,
+            },
+            authorizer_actor=first_owner,
+        )
 
     def activate_subscription(self, organization: Organization, data: dict[str, Any]) -> dict[str, Any]:
         res = http_session.post(
@@ -723,6 +754,7 @@ class BillingManager:
                 feature_flag_requests=usage_summary.get("feature_flag_requests", {}),
                 api_queries_read_bytes=usage_summary.get("api_queries_read_bytes", {}),
                 llm_events=usage_summary.get("llm_events", {}),
+                mcp_events=usage_summary.get("mcp_events", {}),
                 ai_credits=usage_summary.get("ai_credits", {}),
                 signals_credits=usage_summary.get("signals_credits", {}),
                 posthog_code_credits=usage_summary.get("posthog_code_credits", {}),

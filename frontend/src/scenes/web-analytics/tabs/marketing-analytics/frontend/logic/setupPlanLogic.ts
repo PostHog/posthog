@@ -31,6 +31,22 @@ const AUDIT_AFFECTING_OPS = new Set([
     'set_campaign_field_preference',
 ])
 
+/** Ops that `apply_setup_ops` writes to the marketing config, so they need edit access.
+ * Mirrors `APPLICABLE_OPS` in `products/marketing_analytics/backend/services/setup_types.py`.
+ * The other ops open a page, a wizard or a warehouse action that carries its own permissions. */
+export const CONFIG_WRITE_OPS = new Set([
+    'add_custom_source_mapping',
+    'remove_custom_source_mapping',
+    'set_campaign_field_preference',
+    'add_campaign_name_mapping',
+    'remove_campaign_name_mapping',
+    'create_conversion_goal',
+    'update_conversion_goal',
+    'delete_conversion_goal',
+    'set_source_column_mapping',
+    'set_customer_analytics_event',
+])
+
 const teamId = window.POSTHOG_APP_CONTEXT?.current_team?.id
 /** Suggestion ids are semantic and project-independent — `connect_source:google_ads`
  * is the same string in every project — so an unprefixed bucket would hide a finding

@@ -7,8 +7,10 @@ from products.warehouse_sources.backend.self_managed_migration import (
     DEFAULT_ABANDON_REASON,
     MigrationOptions,
     abandon_tables,
+    describe_merge,
     describe_status,
     evaluate_tables,
+    merge_duplicate_sources,
     migrate_self_managed_tables,
 )
 
@@ -54,14 +56,29 @@ class Command(BaseCommand):
             help="The reason recorded for each abandoned table.",
         )
         parser.add_argument(
+            "--merge-sources",
+            action="store_true",
+            help="Move the tables of extra sources for one bucket and key into the oldest source, and delete "
+            "the extra sources. A source with a table that started to sync stays as it is.",
+        )
+        parser.add_argument(
             "--live-run", action="store_true", help="Act. Without this the command only reports what it would do."
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
         if options["limit"] is not None and options["limit"] < 1:
             raise CommandError("--limit must be at least 1.")
-        if options["status"] and options["abandon"] is not None:
-            raise CommandError("Pass only one of --status and --abandon.")
+        modes = [
+            flag
+            for flag, chosen in (
+                ("--status", options["status"]),
+                ("--abandon", options["abandon"] is not None),
+                ("--merge-sources", options["merge_sources"]),
+            )
+            if chosen
+        ]
+        if len(modes) > 1:
+            raise CommandError(f"Pass only one of {', '.join(modes)}.")
 
         team_id: int | None = options["team_id"]
         table_ids = _split_ids(options["table_ids"])
@@ -71,6 +88,8 @@ class Command(BaseCommand):
             self._report_status(team_id, table_ids)
         elif options["abandon"] is not None:
             self._abandon(_split_ids(options["abandon"]), options["abandon_reason"], team_id, live_run)
+        elif options["merge_sources"]:
+            self._merge_sources(team_id, live_run)
         else:
             self._migrate(team_id, table_ids, live_run, options["limit"])
 
@@ -89,6 +108,19 @@ class Command(BaseCommand):
             self.stdout.write(f"table={outcome.table_id} {outcome.action}{detail}")
         if not live_run:
             self.stdout.write(self.style.WARNING("\nDry run. Pass --live-run to abandon these tables."))
+
+    def _merge_sources(self, team_id: int | None, live_run: bool) -> None:
+        outcomes = merge_duplicate_sources(team_id=team_id, live_run=live_run)
+        for outcome in outcomes:
+            self.stdout.write(describe_merge(outcome))
+        actions = Counter(outcome.action for outcome in outcomes)
+        moved = sum(outcome.moved_schemas for outcome in outcomes)
+        self.stdout.write(
+            f"\n{len(outcomes)} duplicate source(s), {moved} schema(s): "
+            + ", ".join(f"{n} {a}" for a, n in sorted(actions.items()))
+        )
+        if not live_run:
+            self.stdout.write(self.style.WARNING("\nDry run. Pass --live-run to merge these sources."))
 
     def _migrate(self, team_id: int | None, table_ids: list[str], live_run: bool, limit: int | None) -> None:
         outcomes = migrate_self_managed_tables(

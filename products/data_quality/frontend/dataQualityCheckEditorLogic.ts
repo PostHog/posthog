@@ -1170,10 +1170,12 @@ export const dataQualityCheckEditorLogic = kea<dataQualityCheckEditorLogicType>(
                 if (!starterKey || checkForm.customSql !== metricStarterQuery(starterKey, [])) {
                     return
                 }
-                actions.resetCheckForm({
-                    ...checkForm,
-                    customSql: metricStarterQuery(starterKey, availableOutputSchema),
-                })
+                const customSql = metricStarterQuery(starterKey, availableOutputSchema)
+                if (values.checkFormChanged) {
+                    actions.setCheckFormValues({ customSql })
+                    return
+                }
+                actions.resetCheckForm({ ...checkForm, customSql })
             },
             submitCheckFormFailure: () => {
                 if (ADVANCED_OPTION_FIELDS.some((field) => !!values.checkFormAllErrors[field])) {

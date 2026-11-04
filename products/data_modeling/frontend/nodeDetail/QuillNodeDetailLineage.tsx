@@ -22,6 +22,7 @@ import { QuillCheckCallout } from 'products/data_quality/frontend/QuillCheckCall
 import { LineageGraph } from '../lineage/LineageGraph'
 import { LINEAGE_FIT_VIEW_OPTIONS, nodeLineageUrl } from './NodeDetailLineage'
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
+import { QuillNodeDetailLineageTypeFilter } from './QuillNodeDetailLineageTypeFilter'
 
 export function QuillNodeDetailLineage({ id }: { id: string }): JSX.Element {
     const {
@@ -29,6 +30,7 @@ export function QuillNodeDetailLineage({ id }: { id: string }): JSX.Element {
         lineageGraphLoading,
         lineageGraphError,
         lineageNodes: nodes,
+        lineageHiddenNodeBridging,
         lineageModalOpen,
         lineageNodePositions,
         node,
@@ -36,6 +38,7 @@ export function QuillNodeDetailLineage({ id }: { id: string }): JSX.Element {
     const { openLineageModal, closeLineageModal, loadLineageGraph, lineageNodeDragStopped, resetLineageNodePositions } =
         useActions(nodeDetailSceneLogic({ id }))
     const fullLineageUrl = urls.dataCatalog('lineage')
+    const edges = lineageHiddenNodeBridging?.edges ?? []
 
     if (!lineageGraphLoading && lineageGraphError) {
         return (
@@ -45,7 +48,7 @@ export function QuillNodeDetailLineage({ id }: { id: string }): JSX.Element {
         )
     }
 
-    if (!lineageGraphLoading && nodes.length <= 1 && !nodes[0]?.lineage_issue) {
+    if (!lineageGraphLoading && (lineageGraph?.nodes.length ?? 0) <= 1 && !nodes[0]?.lineage_issue) {
         return (
             <Empty className="min-h-64 rounded-lg border border-border">
                 <EmptyHeader>
@@ -66,11 +69,12 @@ export function QuillNodeDetailLineage({ id }: { id: string }): JSX.Element {
     }
 
     return (
-        <>
+        <div className="flex flex-col gap-2">
+            <QuillNodeDetailLineageTypeFilter id={id} />
             <div className="h-[calc(100vh-20rem)] min-h-100 w-full overflow-hidden rounded-lg border border-border">
                 <LineageGraph
                     nodes={nodes}
-                    edges={lineageGraph?.edges ?? []}
+                    edges={edges}
                     currentNodeId={lineageGraph?.currentNodeId}
                     loading={lineageGraphLoading}
                     loadingCenter={lineageGraphLoading && node ? { name: node.name, type: node.type } : undefined}
@@ -116,7 +120,7 @@ export function QuillNodeDetailLineage({ id }: { id: string }): JSX.Element {
                     <div className="h-[calc(100vh-12rem)]">
                         <LineageGraph
                             nodes={nodes}
-                            edges={lineageGraph?.edges ?? []}
+                            edges={edges}
                             currentNodeId={lineageGraph?.currentNodeId}
                             variant="full"
                             interactive
@@ -130,6 +134,6 @@ export function QuillNodeDetailLineage({ id }: { id: string }): JSX.Element {
                     </div>
                 </DialogContent>
             </Dialog>
-        </>
+        </div>
     )
 }

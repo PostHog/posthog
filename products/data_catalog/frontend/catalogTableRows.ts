@@ -412,3 +412,22 @@ export function nextTablesSort(current: TablesSort | null, column: TablesSortCol
     }
     return current.direction === 'asc' ? { column, direction: 'desc' } : null
 }
+
+export type ProposalDecision = 'accept' | 'reject'
+export type ReviewSource = 'inline' | 'menu' | 'bulk'
+
+export function hasPendingProposal(row: CatalogTableRow): boolean {
+    return row.certification?.status === 'proposed'
+}
+
+export function proposalAcceptsAsDeprecation(certification: DataCatalogCertificationApi): boolean {
+    return certification.proposed_status === 'deprecated'
+}
+
+export function canCertify(row: CatalogTableRow): boolean {
+    return !!row.certificationTarget && row.certification?.status !== 'certified'
+}
+
+export function rowIsExpandable(row: CatalogTableRow): boolean {
+    return !!row.checkGroup
+}

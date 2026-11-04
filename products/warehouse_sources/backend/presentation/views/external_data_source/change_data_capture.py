@@ -36,10 +36,10 @@ from products.warehouse_sources.backend.facade.source_management import (
     CDCSourceAdapter,
     PostgresSource,
     get_cdc_adapter,
+    history_table_ids,
     repair_cdc_source,
     source_type_supports_cdc,
 )
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 from products.warehouse_sources.backend.presentation.history_tracking import report_history_toggled
 
 from . import base
@@ -186,7 +186,7 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
 
         # Dispatch to the actual source class so subclasses (Supabase, Neon) can run
         # their own pre-connection checks, e.g. rejecting pooled hosts for CDC.
-        source_impl = base.SourceRegistry.get_source(ExternalDataSourceType(source_type))
+        source_impl = base.SourceRegistry.get_source(source_type)
         if not isinstance(source_impl, PostgresSource):
             return Response(
                 status=status.HTTP_400_BAD_REQUEST,
@@ -535,20 +535,16 @@ class ExternalDataSourceCDCMixin(base.ExternalDataSourceViewSetBase):
                 except ExternalDataSchema.DoesNotExist:
                     pass
 
+            table_ids = history_table_ids(instance)
+
             # Force CDC schemas to pick a new strategy by clearing sync_type and pausing.
             ExternalDataSchema.objects.filter(
                 source=instance,
                 sync_type=ExternalDataSchema.SyncType.CDC,
             ).exclude(deleted=True).update(sync_type=None, should_sync=False)
 
-            # Soft-delete `_cdc` companion DataWarehouseTable rows so the next sync
-            # rebuilds them once the user picks a new strategy.
-            DataWarehouseTable.objects.filter(
-                external_data_source_id=instance.id,
-                team_id=self.team_id,
-                deleted=False,
-                name__endswith="_cdc",
-            ).update(deleted=True)
+            # Soft-delete the history tables so the next sync rebuilds them once the user picks a new strategy.
+            DataWarehouseTable.objects.filter(id__in=table_ids, team_id=self.team_id).update(deleted=True)
 
             # Clear ALL cdc_* keys from job_inputs — leaving stale engine identifiers
             # behind (e.g. `cdc_consistent_point`) would corrupt resume tracking if

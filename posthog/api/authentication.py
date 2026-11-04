@@ -62,6 +62,7 @@ from posthog.event_usage import report_user_logged_in, report_user_password_rese
 from posthog.exceptions_capture import capture_exception
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.dev_login import is_dev_login_allowed
+from posthog.helpers.dev_oauth_connectors import seeded_dev_oauth_connector_links
 from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.helpers.sso import (
     GITHUB_EMAIL_LOOKUP_ERROR,
@@ -729,9 +730,31 @@ class DevLoginUserSerializer(serializers.Serializer):
     )
 
 
+class DevOAuthConnectorSerializer(serializers.Serializer):
+    client_id = serializers.CharField(
+        read_only=True, help_text="Client ID of the connector application, which is its CIMD document URL."
+    )
+    client_name = serializers.CharField(read_only=True, help_text="Application name, shown on the auth screens.")
+    logo_uri = serializers.CharField(
+        read_only=True, allow_null=True, help_text="HTTPS logo from the connector's CIMD document, or null."
+    )
+    redirect_host = serializers.CharField(
+        read_only=True, allow_null=True, help_text="Host of the application's redirect URI."
+    )
+    authorize_path = serializers.CharField(
+        read_only=True,
+        help_text="The /oauth/authorize path the connector sends people to, for the login page's next parameter.",
+    )
+
+
 class DevLoginUserListSerializer(serializers.Serializer):
     users = DevLoginUserSerializer(
         many=True, read_only=True, help_text="Every active user, seeded accounts first, then most recently used."
+    )
+    oauth_connectors = DevOAuthConnectorSerializer(
+        many=True,
+        read_only=True,
+        help_text="Connector applications registered by generate_demo_data, to start a pending OAuth connection.",
     )
 
 
@@ -763,7 +786,9 @@ class DevLoginViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
         for entry in users:
             entry["label"] = DEV_LOGIN_KNOWN_EMAIL_LABELS.get(entry["email"])
 
-        return Response({"users": users})
+        return Response(
+            DevLoginUserListSerializer({"users": users, "oauth_connectors": seeded_dev_oauth_connector_links()}).data
+        )
 
 
 class TwoFactorSerializer(serializers.Serializer):

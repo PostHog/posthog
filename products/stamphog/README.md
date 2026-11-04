@@ -99,8 +99,8 @@ A repository that only wants a bigger size gate and one more pattern in a deny c
 
 ```yaml
 size_gate:
-  max_lines: 1000
-  max_files: 40
+  max_lines: 1500
+  max_files: 60
 deny:
   infra_cicd:
     match:

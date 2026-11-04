@@ -1,13 +1,24 @@
 import { VimMode } from 'monaco-vim'
 
 import { parseVimrc } from './vimrc'
-import { VimrcMappingSession, createNonrecursiveVimMapping } from './vimrcMappings'
+import {
+    RUN_QUERY_ACTION,
+    VimrcMappingSession,
+    createNonrecursiveVimMapping,
+    holdVimrcMappingPrefixes,
+} from './vimrcMappings'
 
 jest.mock('monaco-editor', () => ({ KeyCode: {}, editor: {}, SelectionDirection: {} }))
 
 interface Cursor {
     line: number
     ch: number
+}
+
+interface VimState {
+    insertMode: boolean
+    visualMode?: boolean
+    sel?: { anchor: Cursor; head: Cursor }
 }
 
 const Vim = (
@@ -17,12 +28,13 @@ const Vim = (
             handleKey: (cm: unknown, key: string) => void
             handleEx: (cm: unknown, input: string) => void
             maybeInitVimState_: (cm: unknown) => void
+            defineAction: (name: string, fn: () => void) => void
         }
     }
 ).Vim
 
 function createAdapter(): {
-    state: { vim: { insertMode: boolean } | undefined }
+    state: { vim: VimState | undefined }
     curOp: Record<string, unknown>
     operation: (callback: () => unknown) => unknown
     dispatch: () => void
@@ -35,6 +47,8 @@ function createAdapter(): {
     charCoords: () => { left: number }
     listSelections: () => { head: Cursor; anchor: Cursor }[]
     replaceRange: () => void
+    setSelections: () => void
+    setBookmark: (position: Cursor) => { find: () => Cursor }
     getInputField: () => HTMLInputElement
     off: () => void
     setOption: () => void
@@ -44,7 +58,7 @@ function createAdapter(): {
     let cursor = { line: 1, ch: 2 }
     const input = document.createElement('input')
     const cm = {
-        state: { vim: undefined as { insertMode: boolean } | undefined },
+        state: { vim: undefined as VimState | undefined },
         curOp: {},
         operation: (callback: () => unknown): unknown => callback(),
         dispatch: (): void => {},
@@ -59,6 +73,8 @@ function createAdapter(): {
         charCoords: (): { left: number } => ({ left: 0 }),
         listSelections: (): { head: Cursor; anchor: Cursor }[] => [{ head: cursor, anchor: cursor }],
         replaceRange: (): void => {},
+        setSelections: (): void => {},
+        setBookmark: (position: Cursor): { find: () => Cursor } => ({ find: () => position }),
         getInputField: (): HTMLInputElement => input,
         off: (): void => {},
         setOption: (): void => {},
@@ -70,6 +86,9 @@ function createAdapter(): {
 }
 
 describe('createNonrecursiveVimMapping', () => {
+    const prefixSession = new VimrcMappingSession()
+    holdVimrcMappingPrefixes(prefixSession)
+
     beforeEach(() => {
         jest.useFakeTimers()
         Vim.mapclear()
@@ -127,6 +146,39 @@ describe('createNonrecursiveVimMapping', () => {
         session.getCommandsToApply(commands).forEach(({ command }) => Vim.handleEx(nextEditor, command))
         Vim.handleKey(nextEditor, 'H')
         expect(nextEditor.getCursor().line).toBe(2)
+    })
+
+    it.each([
+        ['noremap', undefined, ['normal', 'visual']],
+        ['nnoremap', 'normal' as const, ['normal']],
+        ['vnoremap', 'visual' as const, ['visual']],
+    ])('makes %s <Space>r :run<CR> run the query in the mapped modes only', (name, context, expectedModes) => {
+        const runQuery = jest.fn()
+        Vim.defineAction(RUN_QUERY_ACTION, runQuery)
+        prefixSession.retainEditor()
+        prefixSession.getCommandsToApply(parseVimrc(`${name} <Space>r :run<CR>`).commands)
+        createNonrecursiveVimMapping('<Space>r', ':run<CR>', context)
+
+        const ranModes = (['normal', 'visual', 'insert'] as const).filter((mode) => {
+            const cm = createAdapter()
+            const cursor = cm.getCursor()
+            cm.state.vim = {
+                ...cm.state.vim!,
+                insertMode: mode === 'insert',
+                visualMode: mode === 'visual',
+                sel: { anchor: cursor, head: cursor },
+            }
+            runQuery.mockClear()
+            Vim.handleKey(cm, '<Space>')
+            Vim.handleKey(cm, 'r')
+            return runQuery.mock.calls.length > 0
+        })
+
+        expect(ranModes).toEqual(expectedModes)
+    })
+
+    it('rejects a :run<CR> mapping in insert mode', () => {
+        expect(() => createNonrecursiveVimMapping('<C-r>', ':run<CR>', 'insert')).toThrow('insert mode')
     })
 
     it('rejects unsupported key sequences instead of making them recursive', () => {

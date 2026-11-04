@@ -21,15 +21,17 @@ continues where it stopped.
 """
 
 import re
+import hmac
 import uuid
+import hashlib
 import dataclasses
 from collections import defaultdict
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from enum import StrEnum
 from typing import Any, Literal, cast
 
 from django.conf import settings
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.models import CharField, Q, Value
 from django.db.models.functions import Cast, Concat
 
@@ -84,6 +86,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     StorageService,
     UnmappableTableError,
     needs_preserved_column_names,
+    nested_text_columns,
     parse_self_managed_url,
     refuse_columns_an_import_changes,
     table_definition_for,
@@ -102,7 +105,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.file_uploa
     UploadedFileFormat,
     read_format,
 )
-from products.warehouse_sources.backend.types import ExternalDataJobStatus, ExternalDataSourceType
+from products.warehouse_sources.backend.types import ExternalDataJobStatus
 
 logger = structlog.get_logger(__name__)
 
@@ -127,6 +130,7 @@ class TableMigrationState(StrEnum):
 
 MigrationAction = Literal["none", "would_link", "linked", "link_failed", "limit_reached"]
 AbandonAction = Literal["would_abandon", "abandoned", "refused"]
+MergeAction = Literal["would_merge", "merged", "skipped"]
 
 
 @frozen
@@ -138,6 +142,7 @@ class TableMigrationStatus:
     reason: str | None = None
     source_id: str | None = None
     schema_id: str | None = None
+    nested_text_column_types: dict[str, str] | None = None
 
 
 @frozen
@@ -151,6 +156,16 @@ class TableMigrationOutcome:
 class AbandonOutcome:
     table_id: str
     action: AbandonAction
+    reason: str | None = None
+
+
+@frozen
+class SourceMergeOutcome:
+    source_id: str
+    team_id: int
+    kept_source_id: str
+    action: MergeAction
+    moved_schemas: int = 0
     reason: str | None = None
 
 
@@ -170,13 +185,14 @@ class _TablePlan:
     source: ObjectStorageSource[Any] | FileUploadSource
     schema_metadata: dict[str, Any]
     inputs: dict[str, Any] = dataclasses.field(repr=False)
-    # Tables with the same group key and credential share one source.
+    # Tables with the same group key and credential fingerprint share one source.
     group_key: str
     description: str
     # An uploaded table has no credential, and gets a source of its own.
     shares_source: bool = True
     # The bucket a shared source reads, which names its table prefix when one is needed.
     bucket: str = ""
+    credential_fingerprint: str = dataclasses.field(default="", repr=False)
 
 
 @frozen
@@ -232,7 +248,69 @@ def _credential_of(table: DataWarehouseTable) -> SelfManagedCredential | None:
     credential = table.credential
     if credential is None:
         return None
+    return _self_managed_credential(credential)
+
+
+def _self_managed_credential(credential: DataWarehouseCredential) -> SelfManagedCredential:
     return SelfManagedCredential(access_key=credential.access_key or "", access_secret=credential.access_secret or "")
+
+
+def _credential_fingerprint(credential: SelfManagedCredential) -> str:
+    """Identifies a key pair by its value, so tables whose credential rows hold the same key share one source.
+
+    The app saves a new credential row for each table, also when the key is the same, so the row id
+    can't group them. An HMAC keeps the key pair itself out of the stored marker.
+    """
+    message = f"{credential.access_key.strip()}\n{credential.access_secret.strip()}".encode()
+    return hmac.new(settings.SECRET_KEY.encode(), message, hashlib.sha256).hexdigest()
+
+
+def _marker(source: ExternalDataSource) -> dict[str, Any]:
+    marker = (source.connection_metadata or {}).get(MIGRATION_MARKER_KEY)
+    return marker if isinstance(marker, dict) else {}
+
+
+def _source_fingerprints(sources: Sequence[ExternalDataSource]) -> dict[uuid.UUID, str]:
+    """The credential fingerprint of each migration source.
+
+    A source made before the marker held a fingerprint names its credential row instead. When that
+    row is gone, the source has no fingerprint and no table joins it.
+    """
+    fingerprints: dict[uuid.UUID, str] = {}
+    legacy: dict[uuid.UUID, tuple[int, uuid.UUID]] = {}
+    for source in sources:
+        marker = _marker(source)
+        fingerprint = marker.get("credential_fingerprint")
+        if isinstance(fingerprint, str) and fingerprint:
+            fingerprints[source.pk] = fingerprint
+            continue
+        try:
+            legacy[source.pk] = (source.team_id, uuid.UUID(str(marker.get("credential_id"))))
+        except ValueError:
+            continue
+    credential_ids_by_team: dict[int, set[uuid.UUID]] = defaultdict(set)
+    for team_id, credential_id in legacy.values():
+        credential_ids_by_team[team_id].add(credential_id)
+    credentials: dict[tuple[int, uuid.UUID], DataWarehouseCredential] = {}
+    for team_id, credential_ids in credential_ids_by_team.items():
+        for credential in DataWarehouseCredential.objects.filter(team_id=team_id, pk__in=credential_ids):
+            credentials[(team_id, credential.pk)] = credential
+    for source_id, key in legacy.items():
+        if (found := credentials.get(key)) is not None:
+            fingerprints[source_id] = _credential_fingerprint(_self_managed_credential(found))
+    return fingerprints
+
+
+def _lock_group(team_id: int, source_type: str, group_key: str, fingerprint: str) -> None:
+    """Hold the group's lock until the transaction ends.
+
+    Every table of one source shares the lock, so two runs can't create two sources for the group,
+    and a merge can't move schemas while a run adds to the group.
+    """
+    name = "\n".join((MIGRATION_MARKER_KEY, str(team_id), source_type, group_key, fingerprint))
+    lock_id = int.from_bytes(hashlib.blake2b(name.encode(), digest_size=8).digest(), "big", signed=True)
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_xact_lock(%s)", [lock_id])
 
 
 class _Planner:
@@ -266,6 +344,7 @@ class _Planner:
         if hosted is not None:
             return self._plan_upload(table, hosted)
         assert credential is not None
+        fingerprint = _credential_fingerprint(credential)
         try:
             location = parse_self_managed_url(table.url_pattern)
             source = self._sources.get(location.service)
@@ -274,7 +353,7 @@ class _Planner:
             if self._team_lacks_flag(table.team, source):
                 return f"the team doesn't have the '{source.requires_team_feature_flag}' feature flag"
             if location.service == "s3" and location.region is None:
-                region = self._region(table, location, credential)
+                region = self._region(table, location, credential, fingerprint)
                 if region is None:
                     return "the URL doesn't name the bucket's region, and S3 didn't return it"
                 location = dataclasses.replace(location, region=region)
@@ -291,6 +370,7 @@ class _Planner:
             group_key=location.group_key,
             description=f"Self-managed tables in {location.bucket}",
             bucket=location.bucket,
+            credential_fingerprint=fingerprint,
         )
 
     def _plan_upload(self, table: DataWarehouseTable, hosted: HostedUpload) -> _TablePlan | str:
@@ -346,9 +426,13 @@ class _Planner:
         return self._flag_missing[key]
 
     def _region(
-        self, table: DataWarehouseTable, location: SelfManagedLocation, credential: SelfManagedCredential
+        self,
+        table: DataWarehouseTable,
+        location: SelfManagedLocation,
+        credential: SelfManagedCredential,
+        fingerprint: str,
     ) -> str | None:
-        key = (str(table.credential_id), location.bucket)
+        key = (fingerprint, location.bucket)
         if key not in self._regions:
             try:
                 self._regions[key] = self._resolve_region(location.bucket, credential)
@@ -459,7 +543,7 @@ def _latest_jobs(schemas: Iterable[ExternalDataSchema]) -> dict[str, ExternalDat
 def _idle_reason(schema: ExternalDataSchema) -> str:
     if schema.should_sync:
         return "syncing is on; waiting for the first sync"
-    if SourceRegistry.get_source(ExternalDataSourceType(schema.source.source_type)).syncs_on_demand:
+    if SourceRegistry.get_source(schema.source.source_type).syncs_on_demand:
         return "waiting for the next upload of the file"
     return "syncing is off"
 
@@ -497,6 +581,11 @@ def _evaluate(
             reason=reason,
             source_id=str(named.source_id) if named is not None else None,
             schema_id=str(named.id) if named is not None else None,
+            nested_text_column_types=(
+                nested_text_columns(table.columns)
+                if state in (TableMigrationState.PENDING, TableMigrationState.AWAITING_SYNC)
+                else None
+            ),
         )
 
     if table.external_data_source_id is not None:
@@ -552,22 +641,25 @@ def _free_prefix(team_id: int, plan: _TablePlan) -> str | None:
 
 
 def _find_or_create_source(table: DataWarehouseTable, plan: _TablePlan) -> ExternalDataSource:
-    """The group's source for the table's team, credential and bucket. Runs under the group lock."""
+    """The group's source for the table's team, bucket and key pair, the oldest when there are more.
+
+    Runs under the group lock.
+    """
     if not plan.shares_source:
         return create_source_for_upload(
             table, plan.inputs, connection_metadata={MIGRATION_MARKER_KEY: {"group_key": plan.group_key}}
         )
-    existing = (
+    candidates = list(
         ExternalDataSource.objects.filter(
             team_id=table.team_id,
             source_type=plan.source.source_type,
             connection_metadata__self_managed_migration__group_key=plan.group_key,
-            connection_metadata__self_managed_migration__credential_id=str(table.credential_id),
         )
         .exclude(deleted=True)
-        .order_by("created_at")
-        .first()
+        .order_by("created_at", "id")
     )
+    fingerprints = _source_fingerprints(candidates)
+    existing = next((s for s in candidates if fingerprints.get(s.pk) == plan.credential_fingerprint), None)
     if existing is not None:
         return existing
     source = SourceInputsStore.create(
@@ -585,6 +677,7 @@ def _find_or_create_source(table: DataWarehouseTable, plan: _TablePlan) -> Exter
         connection_metadata={
             MIGRATION_MARKER_KEY: {
                 "group_key": plan.group_key,
+                "credential_fingerprint": plan.credential_fingerprint,
                 "credential_id": str(table.credential_id),
             }
         },
@@ -595,22 +688,16 @@ def _find_or_create_source(table: DataWarehouseTable, plan: _TablePlan) -> Exter
     return source
 
 
-def _credential_id(table: DataWarehouseTable) -> uuid.UUID:
-    if table.credential_id is None:
-        raise ValueError(f"Table {table.id} has no credential to migrate with")
-    return table.credential_id
-
-
 def _ensure_schema(table: DataWarehouseTable, plan: _TablePlan) -> ExternalDataSchema:
     """The table's migration schema, created with its source when there is none yet.
 
-    The credential row is the group lock: every table of one source shares it, and nothing else
-    locks it, so two runs can't create two sources or two schemas for the same table. An uploaded
-    table has no credential and a source of its own, so its own row is the lock.
+    A shared source takes the group's advisory lock (see `_lock_group`), so two runs can't create
+    two sources or two schemas for the same table. An uploaded table has no credential and a source
+    of its own, so its own row is the lock.
     """
     with transaction.atomic():
         if plan.shares_source:
-            DataWarehouseCredential.objects.select_for_update().get(team_id=table.team_id, pk=_credential_id(table))
+            _lock_group(table.team_id, str(plan.source.source_type), plan.group_key, plan.credential_fingerprint)
         else:
             DataWarehouseTable.raw_objects.select_for_update().get(team_id=table.team_id, pk=table.pk)
         schemas = _migration_schemas(table.team_id, [str(table.id)]).get(str(table.id), [])
@@ -797,6 +884,169 @@ def _abandon(evaluation: _Evaluation, reason: str) -> None:
     )
 
 
+_GroupId = tuple[int, str, str, str]
+
+
+def merge_duplicate_sources(team_id: int | None = None, live_run: bool = False) -> list[SourceMergeOutcome]:
+    """Move the schemas of each extra migration source of a group into the group's oldest source.
+
+    Earlier runs grouped tables by credential row, so tables with the same key in one bucket got a
+    source each. A duplicate moves only while all of its tables still wait for their first sync,
+    because nothing has read through it then. The empty duplicate is then deleted. An uploaded
+    table's source never merges.
+    """
+    queryset = (
+        ExternalDataSource.objects.filter(connection_metadata__has_key=MIGRATION_MARKER_KEY)
+        .exclude(deleted=True)
+        .order_by("created_at", "id")
+    )
+    if team_id is not None:
+        queryset = queryset.filter(team_id=team_id)
+    sources = list(queryset)
+    fingerprints = _source_fingerprints(sources)
+    groups: dict[_GroupId, list[ExternalDataSource]] = defaultdict(list)
+    for source in sources:
+        group_key = _marker(source).get("group_key")
+        fingerprint = fingerprints.get(source.pk)
+        if not isinstance(group_key, str) or group_key.startswith("upload/") or fingerprint is None:
+            continue
+        groups[(source.team_id, str(source.source_type), group_key, fingerprint)].append(source)
+
+    outcomes: list[SourceMergeOutcome] = []
+    for group, (kept, *duplicates) in groups.items():
+        for duplicate in duplicates:
+            outcomes.append(_merge_source(group, kept, duplicate, live_run))
+    return outcomes
+
+
+def _merge_refusal(
+    kept: ExternalDataSource, duplicate: ExternalDataSource, schemas: list[ExternalDataSchema]
+) -> str | None:
+    if ExternalDataJob.objects.filter(team_id=duplicate.team_id, pipeline_id=duplicate.pk).exists():
+        return "a sync already ran for the source"
+    table_ids: list[str] = []
+    for schema in schemas:
+        ref = self_managed_table_ref(schema)
+        if ref is None:
+            return f"the schema '{schema.name}' doesn't wait for a self-managed table"
+        if schema.should_sync:
+            return f"syncing is on for '{schema.name}'"
+        if schema.table_id is not None:
+            return f"the schema '{schema.name}' syncs a separate table"
+        table_ids.append(ref.table_id)
+    adopted = (
+        DataWarehouseTable.raw_objects.filter(team_id=duplicate.team_id, id__in=table_ids)
+        .exclude(external_data_source__isnull=True)
+        .values_list("name", flat=True)
+        .first()
+    )
+    if adopted is not None:
+        return f"the table '{adopted}' is already adopted by a source"
+    if object_ids_with_rules(team_id=kept.team_id, resource="external_data_source") & {
+        str(kept.pk),
+        str(duplicate.pk),
+    }:
+        # A moved schema would take the kept source's rules, so the duplicate's rules would stop applying.
+        return "the kept or the duplicate source has its own access rules"
+    if _destination_ids(kept) != _destination_ids(duplicate):
+        return "the kept and the duplicate source send data to different destinations"
+    if SourceInputsStore.load(kept) != SourceInputsStore.load(duplicate):
+        # The marker stays when a user edits the connection, so the inputs are the real check.
+        return "the kept and the duplicate source connect with different settings"
+    clash = (
+        ExternalDataSchema.objects.filter(
+            team_id=kept.team_id, source_id=kept.pk, name__in=[schema.name for schema in schemas]
+        )
+        .exclude(deleted=True)
+        .order_by("name")
+        .values_list("name", flat=True)
+        .first()
+    )
+    if clash is not None:
+        return f"the kept source already has a table named '{clash}'"
+    return None
+
+
+def _destination_ids(source: ExternalDataSource) -> set[Any]:
+    return set(
+        ExternalDataSourceDestination.objects.for_team(source.team_id)
+        .filter(source_id=source.pk)
+        .values_list("destination_id", flat=True)
+    )
+
+
+def _merge_source(
+    group: _GroupId, kept: ExternalDataSource, duplicate: ExternalDataSource, live_run: bool
+) -> SourceMergeOutcome:
+    def outcome(action: MergeAction, moved: int = 0, reason: str | None = None) -> SourceMergeOutcome:
+        return SourceMergeOutcome(
+            source_id=str(duplicate.pk),
+            team_id=duplicate.team_id,
+            kept_source_id=str(kept.pk),
+            action=action,
+            moved_schemas=moved,
+            reason=reason,
+        )
+
+    def live_schemas(lock: bool) -> list[ExternalDataSchema]:
+        queryset = ExternalDataSchema.objects.filter(team_id=duplicate.team_id, source_id=duplicate.pk)
+        if lock:
+            queryset = queryset.select_for_update()
+        return list(queryset.exclude(deleted=True).order_by("created_at", "id"))
+
+    if not live_run:
+        schemas = live_schemas(lock=False)
+        refusal = _merge_refusal(kept, duplicate, schemas)
+        return outcome("skipped", reason=refusal) if refusal else outcome("would_merge", len(schemas))
+    try:
+        with transaction.atomic():
+            _lock_group(*group)
+            if (
+                ExternalDataSource.objects.filter(
+                    team_id=duplicate.team_id, pk__in=[kept.pk, duplicate.pk], deleted=False
+                ).count()
+                != 2
+            ):
+                return outcome("skipped", reason="the kept or the duplicate source was deleted during the run")
+            schemas = live_schemas(lock=True)
+            refusal = _merge_refusal(kept, duplicate, schemas)
+            if refusal is not None:
+                return outcome("skipped", reason=refusal)
+            for schema in schemas:
+                # Turning syncing on resumes a paused schedule, which still names the duplicate source.
+                # With no schedule, it makes a new one from the schema's current source.
+                delete_external_data_schedule(str(schema.id))
+                schema.source = kept
+                schema.save(update_fields=["source", "updated_at"])
+            ExternalDataSourceDestination.objects.for_team(duplicate.team_id).filter(source_id=duplicate.pk).delete()
+            duplicate.soft_delete()
+    except Exception as e:
+        # A failure on one source must not stop the batch or hide its outcomes.
+        logger.warning("Could not merge a duplicate migration source", source_id=str(duplicate.pk), exc_info=True)
+        return outcome("skipped", reason=f"{type(e).__name__}: {e}")
+    logger.info(
+        "Merged a duplicate self-managed migration source",
+        team_id=duplicate.team_id,
+        source_id=str(duplicate.pk),
+        kept_source_id=str(kept.pk),
+        moved_schemas=len(schemas),
+    )
+    return outcome("merged", len(schemas))
+
+
+def describe_merge(outcome: SourceMergeOutcome) -> str:
+    detail = f" ({outcome.reason})" if outcome.reason else ""
+    return (
+        f"source={outcome.source_id} team={outcome.team_id} kept={outcome.kept_source_id} "
+        f"{outcome.action} schemas={outcome.moved_schemas}{detail}"
+    )
+
+
 def describe_status(status: TableMigrationStatus) -> str:
     reason = f" ({status.reason})" if status.reason else ""
-    return f"table={status.table_id} team={status.team_id} name={status.name} state={status.state}{reason}"
+    columns = status.nested_text_column_types or {}
+    note = ""
+    if columns:
+        changed = ", ".join(f"{name} ({column_type})" for name, column_type in columns.items())
+        note = f" note=(after the first sync these columns are stored as JSON text: {changed})"
+    return f"table={status.table_id} team={status.team_id} name={status.name} state={status.state}{reason}{note}"

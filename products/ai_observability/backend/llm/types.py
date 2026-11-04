@@ -5,6 +5,8 @@ from pydantic import BaseModel
 
 from posthog.dataclasses import frozen
 
+ReasoningLevel = Literal["minimal", "low", "medium", "high"]
+
 
 @dataclass
 class Usage:
@@ -42,7 +44,7 @@ class CompletionRequest:
     response_format: type[BaseModel] | None = None
     output_schema: OutputSchema | None = None
     thinking: bool = False
-    reasoning_level: str | None = None
+    reasoning_level: ReasoningLevel | None = None
 
 
 @dataclass

@@ -10,6 +10,7 @@ import { DataModelingNode } from '~/types'
 
 import { LineageGraph } from '../lineage/LineageGraph'
 import { lineageNodeUrl } from '../lineage/lineageNodeUrl'
+import { LineageTypeFilter } from '../lineage/LineageTypeFilter'
 import { nodeDetailSceneLogic } from './nodeDetailSceneLogic'
 
 export function nodeLineageUrl(node: DataModelingNode): string {
@@ -27,10 +28,20 @@ export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
         lineageNodes: nodes,
         lineageModalOpen,
         lineageNodePositions,
+        lineageTypeFilter,
+        lineageHiddenNodeBridging,
         node,
     } = useValues(nodeDetailSceneLogic({ id }))
-    const { openLineageModal, closeLineageModal, loadLineageGraph, lineageNodeDragStopped, resetLineageNodePositions } =
-        useActions(nodeDetailSceneLogic({ id }))
+    const {
+        openLineageModal,
+        closeLineageModal,
+        loadLineageGraph,
+        lineageNodeDragStopped,
+        resetLineageNodePositions,
+        setLineageTypeFilter,
+    } = useActions(nodeDetailSceneLogic({ id }))
+
+    const edges = lineageHiddenNodeBridging?.edges ?? []
 
     if (!lineageGraphLoading && lineageGraphError) {
         return (
@@ -40,7 +51,7 @@ export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
         )
     }
 
-    if (!lineageGraphLoading && nodes.length <= 1 && !nodes[0]?.lineage_issue) {
+    if (!lineageGraphLoading && (lineageGraph?.nodes.length ?? 0) <= 1 && !nodes[0]?.lineage_issue) {
         return (
             <div className="flex min-h-64 flex-col items-center justify-center gap-3 rounded border bg-bg-light p-6 text-center">
                 <div className="max-w-120">
@@ -58,11 +69,16 @@ export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
     }
 
     return (
-        <>
+        <div className="flex flex-col items-start gap-2">
+            <LineageTypeFilter
+                value={lineageTypeFilter}
+                onChange={setLineageTypeFilter}
+                dataAttr="node-detail-lineage-type-filter"
+            />
             <div className="h-[calc(100vh-20rem)] min-h-[400px] w-full border rounded bg-bg-light overflow-hidden">
                 <LineageGraph
                     nodes={nodes}
-                    edges={lineageGraph?.edges ?? []}
+                    edges={edges}
                     currentNodeId={lineageGraph?.currentNodeId}
                     loading={lineageGraphLoading}
                     loadingCenter={lineageGraphLoading && node ? { name: node.name, type: node.type } : undefined}
@@ -106,7 +122,7 @@ export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
                 <div className="h-[calc(100vh-12rem)]">
                     <LineageGraph
                         nodes={nodes}
-                        edges={lineageGraph?.edges ?? []}
+                        edges={edges}
                         currentNodeId={lineageGraph?.currentNodeId}
                         variant="full"
                         interactive
@@ -119,6 +135,6 @@ export function NodeDetailLineage({ id }: { id: string }): JSX.Element {
                     />
                 </div>
             </LemonModal>
-        </>
+        </div>
     )
 }

@@ -7,11 +7,13 @@ export function modelScheduleLabel({
     nodeType,
     savedQuery,
     savedQueryError,
+    cadence,
 }: {
     suspended: boolean
     nodeType: DataModelingNodeType
     savedQuery: DataWarehouseSavedQuery | null
     savedQueryError: boolean
+    cadence: string | null | undefined
 }): string | null {
     if (suspended) {
         return 'Suspended after repeated failures'
@@ -25,7 +27,6 @@ export function modelScheduleLabel({
     if (!savedQuery) {
         return savedQueryError ? 'Schedule unavailable' : null
     }
-    const cadence = savedQuery.sync_frequency
     if (!cadence || cadence === 'never') {
         return 'Paused'
     }

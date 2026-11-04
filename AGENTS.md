@@ -67,7 +67,7 @@ Invoke `/writing-pr-descriptions` before writing the body — it carries the sha
 Always fill the `## 🤖 Agent context` section, including the exact model that wrote the code.
 NEVER put sensitive information in a PR description or comment. A user may share sensitive data in an agent session; none of it belongs on the PR.
 
-**Screenshots:** Show frontend/visual changes with a screenshot, or with a feature reel when `/writing-pr-descriptions` calls for one. Upload with `hogli pr:upload-image <file>` and embed the printed markdown. The first run only warns and uploads nothing; re-run with `--yes` to confirm. Only PostHog employees can upload, but the public can permanently view these assets, so only upload the image if you're certain it doesn't contain customer data (including customer names), secrets, or sensitive internal info.
+**Screenshots:** Show frontend/visual changes with a screenshot, or with a feature reel when `/writing-pr-descriptions` calls for one. Run `hogli pr:upload-image <file>`: with an open PR it attaches the image to the description, otherwise it prints markdown to embed. The first run only warns and uploads nothing; re-run with `--yes` to confirm. Only PostHog employees can upload, but the public can permanently view these assets, so only upload the image if you're certain it doesn't contain customer data (including customer names), secrets, or sensitive internal info.
 
 ### Rules
 
@@ -97,6 +97,17 @@ See [Public open source repo guidance](#public-open-source-repo-guidance) for wh
 GitHub's native stacked PRs are enabled here. Use the `gh stack` CLI and `/stacking-prs` rather than hand-managing branch chains.
 Keep stacks shallow and merge the base before extending: restacking force-pushes every branch, and a deep stack pushed at once can exceed GitHub's dispatch cap and fail unrelated runs with it.
 Never `gh stack merge` — it lands the chain through GitHub's API, outside the queue.
+
+### The CI report
+
+Every PR gets a `🤖 CI report` comment.
+Its warn-only sections, such as eager graph budgets, bundle size, complexity and duplication, never fail a check, so a green PR can still carry open warnings.
+
+- **An agent reads the CI report after every push, and before it calls a PR ready.** Run `gh pr view <number> --comments`. A section that is not ✅ is an open finding.
+- **An agent considers each open finding.** It fixes the finding in its own diff, states in the PR body why the finding does not apply, or escalates to a person when it cannot decide. A positive "Δ vs base" counts against the PR even when the base branch already shows the warning.
+- **An agent never silences a finding.** Do not raise a budget, add an ignore, or drop a check. A budget goes up only in a reviewed PR that needs the bytes.
+
+These rules bind agents. A person reads the same report and decides for themselves.
 
 ### Merging PRs
 
@@ -226,7 +237,7 @@ Same tags as above: `[lint: <id>]` is machine-enforced, `[review]` is not.
 
 ### Python
 
-- **Write as if mypy `--strict` were on.** `[review]` Annotate every signature, avoid `Any`, put type-only references under `TYPE_CHECKING`. The config is not fully strict yet; new code should be. When a change is type-risky run mypy the way CI does — `uv run mypy --cache-fine-grained .`, repo-wide, never a file subset. It follows imports, so a subset misses reverse-dependency breakage.
+- **Write as if mypy `--strict` were on.** `[review]` Annotate every signature, avoid `Any`, put type-only references under `TYPE_CHECKING`. The config is not fully strict yet; new code should be. When a change is type-risky run mypy the way CI does — `uv run mypy .`, repo-wide, never a file subset. It follows imports, so a subset misses reverse-dependency breakage.
 - **Imports stay at module level.** `[review]` ruff's `PLC0415` catches this, but `posthog/**`, `ee/**`, `common/**`, `tools/**` and most of `products/` are on grandfathered exemption lists, so CI does not block it in the trees you are most likely to be editing. Defer one only to break a true unavoidable circular import, to reference types under `TYPE_CHECKING`, or to keep a heavy or optional dependency off the import path. For the last case add a justified `# noqa: PLC0415 — keeps the heavy dep off the import path` on the line. Never blanket-suppress the rule.
 - **A stdlib `@dataclass` must declare `frozen=` explicitly.** `[lint: prefer-frozen-dataclasses, test_dataclass_defaults.py]` A bare `@dataclass` fails the ratchet; `@dataclass(frozen=False)` passes it, so intentional mutability is a choice you state.
 - **The house decorator is `@frozen` from `posthog.dataclasses`.** `[review]` Neither check prefers it over a declared stdlib `@dataclass`. Invoke `/writing-dataclasses` before adding or changing one, before returning or passing several values together, and before passing a dataclass through layers.
@@ -236,7 +247,7 @@ Same tags as above: `[lint: <id>]` is machine-enforced, `[review]` is not.
 
 ### Frontend
 
-- **Follow [frontend/src/AGENTS.md](frontend/src/AGENTS.md) for all frontend work** — the main app and `products/*/frontend/` alike, since they share components and generated types. `[review]` It covers reusing Lemon/quill components instead of hand-rolling tables, badges and labels, importing generated `*Api` types instead of handwriting them, and when to run typecheck and typegen.
+- **Follow [frontend/src/AGENTS.md](frontend/src/AGENTS.md) for all frontend work** — the main app and `products/*/frontend/` alike, since they share components and generated types. `[review]` It covers reusing Lemon/quill components instead of hand-rolling tables, badges and labels, importing generated `*Api` types instead of handwriting them, when to run typecheck and typegen, and when to read [frontend/src/platform-ux.md](frontend/src/platform-ux.md) (before you build, edit, simplify or redesign any UI).
 - **TypeScript with explicit return types. Business logic goes in the kea logic file, not a React hook.** `[review]`
 - **Guard every network-triggering button against double submission.** `[review]` Disable it and show a loading state (`loading` / `disabledReason` on `LemonButton`, or equivalent) while the request is in flight, and reset in both the success and error paths. Applies to `<form onSubmit>`, any `onClick` that calls `api.*`, and any kea `listener` that issues a request. Wire in the in-flight state from a loader `*Loading` selector, a reducer, or local `useState`.
 - **Every surface must hold up narrow.** `[review]` The nav sidebar plus an open side panel leave a 1280px window about 520px of scene. Break on container queries, not `md:`/`lg:`/`xl:`. Wrap or truncate rather than clip, and stack halves that no longer fit. Render at a few widths before calling it done. We do not support mobile — no phone-width layouts, no touch-sized targets. See "Rule 6" in [frontend/src/AGENTS.md](frontend/src/AGENTS.md).

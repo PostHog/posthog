@@ -4,7 +4,6 @@ import { IconRefresh } from '@posthog/icons'
 import {
     Badge,
     Button,
-    Heading,
     Skeleton,
     Table,
     TableBody,
@@ -118,16 +117,8 @@ export function QuillSuiteRunsHistory(props: DataQualityChecksLogicProps): JSX.E
     const expandedRows = useExpandedRowIds(loadSuiteRunCheckRuns)
 
     return (
-        <section className="flex flex-col gap-2 border-t pt-4" aria-label="Check run history">
-            <div className="flex items-start justify-between gap-2">
-                <div className="flex flex-col gap-1">
-                    <Heading size="sm" render={<h3 className="m-0" />}>
-                        Check run history
-                    </Heading>
-                    <Text size="xs" variant="muted" className="m-0">
-                        Results from checks run together. Expand a run to see each check's result.
-                    </Text>
-                </div>
+        <div className="flex flex-col gap-2">
+            <div className="flex justify-end">
                 <Button
                     size="icon"
                     loading={suiteRunsLoading}
@@ -184,6 +175,6 @@ export function QuillSuiteRunsHistory(props: DataQualityChecksLogicProps): JSX.E
                     </TableBody>
                 )}
             </Table>
-        </section>
+        </div>
     )
 }

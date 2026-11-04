@@ -17,7 +17,11 @@ import subprocess
 
 # Approved new files, one exact path each, added by hand after a human agreed in the pull
 # request. Never add a glob, because it approves files nobody reviewed.
-EXEMPT: frozenset[str] = frozenset()
+EXEMPT: frozenset[str] = frozenset(
+    {
+        "ee/migrations/0068_drop_dashboardprivilege_table.py",
+    }
+)
 
 
 def _git(*args: str) -> str:

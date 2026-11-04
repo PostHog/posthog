@@ -1,13 +1,19 @@
 import json
+from datetime import datetime, timedelta
+from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
 import pytest
+import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.core.cache import cache
 from django.db import connection
+from django.http import HttpResponse
 from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
@@ -17,6 +23,7 @@ from rest_framework.response import Response
 from posthog.constants import AvailableFeature
 from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal
 
@@ -36,6 +43,10 @@ from products.warehouse_sources.backend.models.external_data_destination import 
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.presentation.destination_connect_tokens import (
+    CONNECT_TOKEN_TTL,
+    issue_connect_token,
+)
 from products.warehouse_sources.backend.presentation.destination_connection_check import (
     FAILURE_MESSAGES,
     CheckFailure,
@@ -1290,10 +1301,205 @@ class TestDestinationConnectLink(DestinationAPITestBase):
         data = response.json()
         assert data["destination_type"] == destination_type
         assert data["integration_kind"] == kind
-        assert data["connect_url"].endswith(f"/project/{self.team.pk}/data-warehouse/connect-destination?kind={kind}")
-        assert f"kind='{kind}'" in data["instructions"]
+        url = urlparse(data["connect_url"])
+        assert url.path == f"/project/{self.team.pk}/data-warehouse/connect-destination"
+        assert parse_qs(url.query) == {"kind": [kind], "token": [data["connect_token"]]}
+        assert len(data["connect_token"]) >= 40
+        assert "external-data-destinations-connect-link-status" in data["instructions"]
         assert f"type='{destination_type}'" in data["instructions"]
         assert ("tests the connection" in data["instructions"]) == tested_on_create
+
+    @time_machine.travel("2026-03-01T12:00:00Z", tick=False)
+    def test_each_link_gets_its_own_token_that_expires_after_the_ttl(self) -> None:
+        first = self.client.get(f"{self.base}/connect_link?destination_type=Snowflake").json()
+        second = self.client.get(f"{self.base}/connect_link?destination_type=Snowflake").json()
+
+        assert first["connect_token"] != second["connect_token"]
+        assert datetime.fromisoformat(first["expires_at"]) == datetime.fromisoformat("2026-03-01T12:00:00+00:00") + (
+            CONNECT_TOKEN_TTL
+        )
+
+
+class TestDestinationConnectToken(DestinationAPITestBase):
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+        self.integration = Integration.objects.create(
+            team=self.team,
+            kind=Integration.IntegrationKind.SNOWFLAKE,
+            integration_id="acme-account",
+            config={"account": "acme", "user": "loader", "warehouse": "wh-config-only"},
+            sensitive_config={"password": "hunter2-secret"},
+        )
+
+    def _link(self, destination_type: str = "Snowflake", **params: str) -> str:
+        query = "&".join(f"{key}={value}" for key, value in {"destination_type": destination_type, **params}.items())
+        response = self.client.get(f"{self.base}/connect_link?{query}")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        return response.json()["connect_token"]
+
+    def _complete(self, token: str, integration_id: int) -> HttpResponse:
+        return self.client.post(
+            f"{self.base}/connect_link_complete",
+            {"connect_token": token, "integration_id": integration_id},
+            format="json",
+        )
+
+    def _status(self, token: str) -> dict:
+        response = self.client.get(f"{self.base}/connect_link_status", {"connect_token": token})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        return response.json()
+
+    def test_status_is_pending_until_the_page_reports_the_integration(self) -> None:
+        token = self._link()
+
+        assert self._status(token) == {
+            "status": "pending",
+            "integration_id": None,
+            "integration_kind": "snowflake",
+            "display_name": None,
+        }
+
+        completed = self._complete(token, self.integration.pk)
+
+        assert completed.status_code == status.HTTP_200_OK, completed.content
+        expected = {
+            "status": "connected",
+            "integration_id": self.integration.pk,
+            "integration_kind": "snowflake",
+            "display_name": self.integration.display_name,
+        }
+        assert json.loads(completed.content) == expected
+        assert self._status(token) == expected
+
+    def test_status_never_contains_integration_config_or_secrets(self) -> None:
+        token = self._link()
+        self._complete(token, self.integration.pk)
+
+        body = self.client.get(f"{self.base}/connect_link_status", {"connect_token": token}).content.decode()
+
+        for secret_or_config in ("hunter2-secret", "loader", "wh-config-only", "config"):
+            assert secret_or_config not in body
+
+    def test_s3_compatible_link_accepts_only_an_s3_compatible_integration(self) -> None:
+        token = self._link("S3", integration_kind="s3-compatible")
+        aws = self._integration(Integration.IntegrationKind.AWS_S3)
+        compatible = self._integration(Integration.IntegrationKind.S3_COMPATIBLE)
+
+        assert self._complete(token, aws.pk).status_code == status.HTTP_400_BAD_REQUEST
+        assert self._complete(token, compatible.pk).status_code == status.HTTP_200_OK
+        assert self._status(token)["integration_id"] == compatible.pk
+
+    @parameterized.expand(
+        [
+            ("wrong_kind", status.HTTP_400_BAD_REQUEST),
+            ("other_team_integration", status.HTTP_400_BAD_REQUEST),
+            ("unknown_integration", status.HTTP_400_BAD_REQUEST),
+            ("unknown_token", status.HTTP_404_NOT_FOUND),
+            ("other_team_token", status.HTTP_404_NOT_FOUND),
+            ("other_user_token", status.HTTP_403_FORBIDDEN),
+            ("expired_token", status.HTTP_404_NOT_FOUND),
+        ]
+    )
+    def test_complete_rejects(self, case: str, expected_status: int) -> None:
+        token = self._link()
+        integration_id = self.integration.pk
+        other_team = Team.objects.create(organization=self.organization, name="Other")
+        other_user = User.objects.create_and_join(self.organization, "teammate@posthog.com", "testtest")
+        if case == "wrong_kind":
+            integration_id = self._integration(Integration.IntegrationKind.POSTGRESQL).pk
+        elif case == "other_team_integration":
+            integration_id = Integration.objects.create(
+                team=other_team, kind=Integration.IntegrationKind.SNOWFLAKE, integration_id="theirs", config={}
+            ).pk
+        elif case == "unknown_integration":
+            integration_id = 987654
+        elif case == "unknown_token":
+            token = "not-a-real-token"
+        elif case == "other_team_token":
+            token = issue_connect_token(team_id=other_team.pk, user_id=self.user.pk, integration_kind="snowflake").token
+        elif case == "other_user_token":
+            token = issue_connect_token(team_id=self.team.pk, user_id=other_user.pk, integration_kind="snowflake").token
+
+        if case == "expired_token":
+            with time_machine.travel(timezone.now() + CONNECT_TOKEN_TTL + timedelta(seconds=1), tick=False):
+                response = self._complete(token, integration_id)
+        else:
+            response = self._complete(token, integration_id)
+
+        assert response.status_code == expected_status, response.content
+        if case in ("other_team_token", "other_user_token"):
+            return
+        assert self._status(token)["status"] in ("pending", "expired")
+        assert self._status(token)["integration_id"] is None
+
+    def test_complete_is_idempotent_and_does_not_switch_integrations(self) -> None:
+        token = self._link()
+        other = Integration.objects.create(
+            team=self.team, kind=Integration.IntegrationKind.SNOWFLAKE, integration_id="other-account", config={}
+        )
+
+        first = self._complete(token, self.integration.pk)
+        repeat = self._complete(token, self.integration.pk)
+        switch = self._complete(token, other.pk)
+
+        assert first.status_code == repeat.status_code == status.HTTP_200_OK
+        assert json.loads(repeat.content) == json.loads(first.content)
+        assert switch.status_code == status.HTTP_400_BAD_REQUEST
+        assert self._status(token)["integration_id"] == self.integration.pk
+
+    def test_concurrent_completions_with_different_integrations_keep_the_first(self) -> None:
+        token = self._link()
+        other = Integration.objects.create(
+            team=self.team, kind=Integration.IntegrationKind.SNOWFLAKE, integration_id="other-account", config={}
+        )
+        record_key = f"wh_dest_connect:{self.team.pk}:{token}"
+        pending = cache.get(record_key)
+
+        first = self._complete(token, other.pk)
+        # The second tab read the token before the first save landed, so it still sees it pending.
+        cache.set(record_key, pending)
+        second = self._complete(token, self.integration.pk)
+
+        assert first.status_code == status.HTTP_200_OK, first.content
+        assert second.status_code == status.HTTP_400_BAD_REQUEST, second.content
+        assert self._status(token)["integration_id"] is None
+
+    @parameterized.expand([("unknown",), ("other_user",), ("other_team",), ("evicted",)])
+    def test_status_of_a_token_the_user_cannot_read_is_expired(self, case: str) -> None:
+        token = self._link()
+        if case == "unknown":
+            token = "not-a-real-token"
+        elif case == "other_user":
+            other_user = User.objects.create_and_join(self.organization, "teammate@posthog.com", "testtest")
+            token = issue_connect_token(team_id=self.team.pk, user_id=other_user.pk, integration_kind="snowflake").token
+        elif case == "other_team":
+            other_team = Team.objects.create(organization=self.organization, name="Other")
+            token = issue_connect_token(team_id=other_team.pk, user_id=self.user.pk, integration_kind="snowflake").token
+        else:
+            cache.clear()
+
+        assert self._status(token) == {
+            "status": "expired",
+            "integration_id": None,
+            "integration_kind": None,
+            "display_name": None,
+        }
+
+    def test_status_expires_while_pending_but_a_connection_outlives_the_link(self) -> None:
+        pending_token = self._link()
+        connected_token = self._link()
+        with time_machine.travel(timezone.now() + CONNECT_TOKEN_TTL - timedelta(minutes=1), tick=False):
+            assert self._complete(connected_token, self.integration.pk).status_code == status.HTTP_200_OK
+
+        with time_machine.travel(timezone.now() + CONNECT_TOKEN_TTL + timedelta(minutes=1), tick=False):
+            assert self._status(pending_token)["status"] == "expired"
+            assert self._status(connected_token)["status"] == "connected"
+
+    def test_status_needs_a_token(self) -> None:
+        response = self.client.get(f"{self.base}/connect_link_status")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
 
 class TestDestinationAPIKeyScopes(DestinationAPITestBase):
@@ -1309,6 +1515,10 @@ class TestDestinationAPIKeyScopes(DestinationAPITestBase):
     @parameterized.expand(
         [
             ("external_data_source:read", "GET", "connect_link?destination_type=Postgres", status.HTTP_200_OK),
+            ("external_data_source:read", "GET", "connect_link_status?connect_token=unknown", status.HTTP_200_OK),
+            ("external_data_source:read", "POST", "connect_link_complete", status.HTTP_403_FORBIDDEN),
+            # The write scope passes, then the body (which has no token) fails validation.
+            ("external_data_source:write", "POST", "connect_link_complete", status.HTTP_400_BAD_REQUEST),
             ("external_data_source:read", "POST", "{destination}/add_sources", status.HTTP_403_FORBIDDEN),
             ("external_data_source:write", "POST", "{destination}/add_sources", status.HTTP_200_OK),
             ("external_data_source:read", "POST", "{destination}/test_connection", status.HTTP_403_FORBIDDEN),
