@@ -312,6 +312,16 @@ class TestBudgetedQueryMetering(ClickhouseTestMixin, BaseTest):
         assert properties["product"] == "api"
         assert properties["remaining_cpu_seconds"] <= 0
 
+    @override_settings(**CPU_BUDGET_SETTINGS)
+    def test_analytics_failure_on_an_exhausted_cpu_budget_does_not_fail_the_query(self):
+        debit_org_cpu(str(self.organization.pk), 100 * CPU_CAPACITY_US)
+        errors = API_QUERIES_BUDGET_ERRORS_COUNTER.labels(op="cpu_check")
+        before = errors._value.get()
+        self._tag_api_key_query()
+        with patch("posthog.api_queries_budget.ph_background_capture", side_effect=RuntimeError("analytics down")):
+            assert sync_execute(self.BOUNDED_QUERY) == [(49995000,)]
+        assert errors._value.get() == before + 1
+
     def test_budgeted_query_debits_the_team_budget(self):
         spec = budget_spec_for(self.organization)
         refill_and_read(str(self.team.pk), spec)

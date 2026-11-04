@@ -384,6 +384,8 @@ class ClickHouseClient(SyncClient):
     already read rows, and the query scan reports them. The record is kept here until read once.
     """
 
+    last_query: Any
+
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         # Set before the base constructor, which calls reset_last_query.
         self.last_query_before_reset: Any = None
