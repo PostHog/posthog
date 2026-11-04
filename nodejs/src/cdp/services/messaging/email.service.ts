@@ -26,6 +26,7 @@ import { WorkflowsActivationReporter } from '../monitoring/workflows-activation-
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { EmailHandoffObserver } from './email-handoff-observer'
 import { EMAIL_QUEUE_PRIORITY_CLASSES, EmailQueuePriorityClass, getEmailQueuePriorityClass } from './email-priority'
+import { EmailSendStageTimer } from './email-send-stages'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
 import { EmailStatusService, isTransactionalEmailSend } from './email-status.service'
 import { EmailSuppressionService, SuppressionCheckOptions } from './email-suppression.service'
@@ -146,8 +147,17 @@ function emailSource(invocation: CyclotronJobInvocationHogFunction): EmailSource
     return invocation.state.globals.event?.event === TRANSACTIONAL_EMAIL_EVENT ? 'transactional_api' : 'workflow'
 }
 
+type EmailLane = { source: EmailSource; priority_class: EmailQueuePriorityClass }
+
+function emailLane(invocation: CyclotronJobInvocationHogFunction): EmailLane {
+    return {
+        source: emailSource(invocation),
+        priority_class: getEmailQueuePriorityClass(invocation.hogFunction.metadata),
+    }
+}
+
 // The API inserts every job fast while its label follows the step's category, so an API send is fast-lane either way.
-function isFastLane(lane: { source: EmailSource; priority_class: EmailQueuePriorityClass }): boolean {
+function isFastLane(lane: EmailLane): boolean {
     return lane.source === 'transactional_api' || lane.priority_class === 'fast'
 }
 
@@ -519,13 +529,14 @@ export class EmailService {
             }
         )
         const addLog = createAddLogFunction(result.logs)
+        const stages = new EmailSendStageTimer(invocation)
 
         // Read from the incoming invocation: result.invocation is a clone, and a clone drops the scheduled time.
         const queueWait = invocation.queue === 'email' && !isTest ? emailQueueWait(invocation) : undefined
 
         const params = invocation.queueParameters
         const integrationId = selectEmailSenderIntegrationId(invocation.id, params.from)
-        const integration = await this.integrationManager.get(integrationId)
+        const integration = await stages.time('integration', () => this.integrationManager.get(integrationId))
 
         let success: boolean = false
         let throttled: boolean = false
@@ -539,7 +550,9 @@ export class EmailService {
             // below so no upstream route can bypass either. Test sends are blocked too — they hit
             // SES and count against the tenant all the same. A paused tenant rejects every send, so
             // gating here turns wasted invocations into one clear skip.
-            const suspensionCause = await this.teamWorkflowsConfigService.getEmailSendingSuspension(invocation.teamId)
+            const suspensionCause = await stages.time('suspension', () =>
+                this.teamWorkflowsConfigService.getEmailSendingSuspension(invocation.teamId)
+            )
             if (suspensionCause) {
                 const skipReason =
                     suspensionCause === 'staff'
@@ -657,8 +670,10 @@ export class EmailService {
             const suppressionOptions: SuppressionCheckOptions = {
                 transactional: invocation.hogFunction?.metadata?.message_category_type === 'transactional',
             }
-            const suppression = await removeSuppressedRecipients(params, (email) =>
-                this.emailSuppressionService.isSuppressed(invocation.teamId, email, suppressionOptions)
+            const suppression = await stages.time('suppression', () =>
+                removeSuppressedRecipients(params, (email) =>
+                    this.emailSuppressionService.isSuppressed(invocation.teamId, email, suppressionOptions)
+                )
             )
             if (suppression.skip) {
                 const skipReason = `Skipping send: ${suppression.removed.join(', ')} ${suppression.removed.length === 1 ? 'is' : 'are'} on the suppression list and no cc address can receive the email instead`
@@ -701,7 +716,9 @@ export class EmailService {
 
             // Like suppression, the tracking decision lives at this choke point so every send path
             // (workflow action or email destination hog function) resolves it the same way.
-            trackingEnabled = await this.resolveTrackingEnabled(result.invocation, deliverableParams)
+            trackingEnabled = await stages.time('tracking', () =>
+                this.resolveTrackingEnabled(result.invocation, deliverableParams)
+            )
 
             // User-configured per-workflow pacing. Claimed last, after every skip gate, so a
             // suspended or suppressed send never spends a token. Test sends bypass it. When the
@@ -717,14 +734,17 @@ export class EmailService {
                 // A near-empty bucket keeps every window at ~count and spreads sends evenly, which
                 // is what the pacing is for.
                 const capacity = Math.max(1, Math.ceil(refillPerSecond))
-                const claim = await this.workflowEmailRateLimiter.claimOrReserve(
-                    {
-                        key: `@posthog/workflow-email-rate/${invocation.teamId}/${invocation.functionId}`,
-                        requested: 1,
-                        capacity,
-                        refillPerSecond,
-                    },
-                    CAP_RETRY_MAX_MS
+                const limiter = this.workflowEmailRateLimiter
+                const claim = await stages.time('workflow_rate_limit', () =>
+                    limiter.claimOrReserve(
+                        {
+                            key: `@posthog/workflow-email-rate/${invocation.teamId}/${invocation.functionId}`,
+                            requested: 1,
+                            capacity,
+                            refillPerSecond,
+                        },
+                        CAP_RETRY_MAX_MS
+                    )
                 )
                 if (claim.granted === 0) {
                     workflowEmailRateLimitedTotal.inc()
@@ -756,7 +776,9 @@ export class EmailService {
                 1 +
                 extractEmailsFromAddressList(deliverableParams.cc).length +
                 extractEmailsFromAddressList(deliverableParams.bcc).length
-            const capDelay = await this.claimTeamSendingBudget(invocation, isTest, capRecipients)
+            const capDelay = await stages.time('team_cap', () =>
+                this.claimTeamSendingBudget(invocation, isTest, capRecipients)
+            )
             if (capDelay) {
                 result.finished = false
                 // Re-attach the email payload before rescheduling, for the same reason as the
@@ -814,7 +836,9 @@ export class EmailService {
                     await this.sendEmailWithMaildev(result, sendParams, from, trackingEnabled, isTest)
                     break
                 case 'ses':
-                    await this.sendEmailWithSES(result, sendParams, from, trackingEnabled, isTest, queueWait)
+                    await stages.time('ses_call', () =>
+                        this.sendEmailWithSES(result, sendParams, from, trackingEnabled, isTest, queueWait)
+                    )
                     break
 
                 case 'unsupported':
@@ -832,6 +856,10 @@ export class EmailService {
             addLog('info', `Email sent to ${sendParams.to.email} from ${from.name} <${from.email}>${viewEmailToken}`)
             success = true
             result.emailSendResult = { status: 'accepted' }
+            const lane = emailLane(invocation)
+            if (!isTest && isFastLane(lane)) {
+                stages.record(lane.source)
+            }
         } catch (error) {
             if (error instanceof SESThrottleError) {
                 // Treat as a transient delivery delay — reschedule rather than fail
@@ -1383,10 +1411,7 @@ export class EmailService {
             sendEmailParams.Destination!.BccAddresses = bccAddresses
         }
 
-        const lane = {
-            source: emailSource(result.invocation),
-            priority_class: getEmailQueuePriorityClass(result.invocation.hogFunction.metadata),
-        }
+        const lane = emailLane(result.invocation)
         const sendStartedAt = performance.now()
         try {
             const response = await this.sesV2Client.send(new SendEmailCommand(sendEmailParams))

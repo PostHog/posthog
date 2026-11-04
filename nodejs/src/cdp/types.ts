@@ -348,6 +348,8 @@ export type CyclotronJobInvocation = {
     queueCreatedAt?: DateTime
     // The scheduled time this job had when it was dequeued. A clone resets queueScheduledAt but keeps this.
     queueDueAt?: DateTime
+    // When this worker dequeued the job. Kept in memory only, so a stored job never carries it.
+    queueDequeuedAt?: DateTime
     // Metadata for the invocation - TODO: check when this gets cleared
     queueMetadata?: Record<string, any> | null
     // Where the invocation came from (kafka or postgres)

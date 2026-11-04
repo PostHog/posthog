@@ -695,7 +695,7 @@ describe('EmailService', () => {
             )
         })
 
-        describe('queue-to-send latency of a rescheduled send', () => {
+        describe('a paced send', () => {
             let claimOrReserve: jest.Mock
             let claimAllOrNothingPair: jest.Mock
             let pacedService: EmailService
@@ -704,6 +704,7 @@ describe('EmailService', () => {
             beforeEach(() => {
                 claimOrReserve = jest.fn().mockResolvedValue({ granted: 1, retryAfterMs: null, reserved: false })
                 claimAllOrNothingPair = jest.fn().mockResolvedValue({ granted: true })
+                const claimUpTo = jest.fn().mockResolvedValue(1)
                 const configService = new TeamWorkflowsConfigService(hub.postgres, hub.pubSub)
                 jest.spyOn(configService, 'getEmailSendingTier').mockResolvedValue(0)
                 pacedService = new EmailService(
@@ -729,7 +730,7 @@ describe('EmailService', () => {
                     { report: jest.fn() },
                     undefined,
                     { claimOrReserve } as unknown as RateLimiterService,
-                    { claimAllOrNothingPair } as unknown as RateLimiterService
+                    { claimAllOrNothingPair, claimUpTo } as unknown as RateLimiterService
                 )
                 pacedSendSpy = jest.spyOn(pacedService.sesV2Client!, 'send') as any
                 pacedSendSpy.mockResolvedValue({ MessageId: 'test-message-id' })
@@ -806,6 +807,42 @@ describe('EmailService', () => {
                     const waitMs = (await metricValue(name, labels, `${name}_sum`)) - sumBefore
                     expect(waitMs).toBeGreaterThanOrEqual(5_000)
                     expect(waitMs).toBeLessThan(60_000)
+                }
+            )
+
+            it.each([
+                ['fast', 'transactional', 1],
+                ['bulk', 'marketing', 0],
+            ])(
+                'records each stage of an accepted %s send, %s message, %i times',
+                async (_priorityClass, messageCategoryType, expectedCount) => {
+                    invocation.queueDequeuedAt = DateTime.utc().minus({ seconds: 1 })
+                    invocation.hogFunction.metadata = {
+                        message_category_type: messageCategoryType,
+                        email_sending_rate_limit: { count: 60, period: 'minute' },
+                    }
+                    const name = 'cdp_email_send_stage_ms'
+                    const stages = [
+                        'queue',
+                        'pre_send',
+                        'integration',
+                        'suspension',
+                        'suppression',
+                        'tracking',
+                        'workflow_rate_limit',
+                        'team_cap',
+                        'ses_call',
+                    ]
+                    const stageCounts = (): Promise<number[]> =>
+                        Promise.all(
+                            stages.map((stage) => metricValue(name, { source: 'workflow', stage }, `${name}_count`))
+                        )
+                    const before = await stageCounts()
+
+                    const result = await pacedService.executeSendEmail(invocation)
+
+                    expect(result.emailSendResult).toEqual({ status: 'accepted' })
+                    expect(await stageCounts()).toEqual(before.map((count) => count + expectedCount))
                 }
             )
 

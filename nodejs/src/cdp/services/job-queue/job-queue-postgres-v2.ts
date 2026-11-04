@@ -1,4 +1,5 @@
 import { chunk } from 'lodash'
+import { DateTime } from 'luxon'
 import { Gauge, Histogram } from 'prom-client'
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
@@ -108,7 +109,7 @@ export class CyclotronJobQueuePostgresV2 implements JobQueue {
 
             for (const job of jobs) {
                 this.pendingJobs.set(job.id, job)
-                invocations.push(v2JobToInvocation(job))
+                invocations.push({ ...v2JobToInvocation(job), queueDequeuedAt: DateTime.fromMillis(now) })
                 jobLateness.observe(Math.max(0, now - job.scheduled.toMillis()) / 1000)
             }
 
