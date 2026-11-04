@@ -340,8 +340,9 @@ def prepare_ast_for_printing(
         )
 
         if get_instance_setting("HOGQL_PROJECTION_OPTIMIZATION_ENABLED"):
+            narrow_properties = dialect == "clickhouse" and get_instance_setting("HOGQL_PROPERTIES_NARROWING_ENABLED")
             with context.timings.measure("projection_pushdown"):
-                node = pushdown_projections(node, context, narrow_properties=dialect == "clickhouse")
+                node = pushdown_projections(node, context, narrow_properties=narrow_properties)
             # Pushdown mutates SelectQueryType.columns, staling cached CTE tables. Drop them so a
             # wrongly pruned column fails loudly at compile time instead of emitting broken SQL.
             context.cte_database_table_cache.clear()

@@ -5,6 +5,7 @@ Quick-reference for AI agents using `@posthog/quill-components` — composed com
 ## Exports
 
 - `DataTable` — TanStack Table wired onto quill `Table` + `Pagination`
+- `FilterMenuTrigger`, `FilterRadioSubMenu`, `FilterCheckboxSubMenu`, `FilterSearchSubMenu`, `FilterSubMenu`, `FilterClearItem`, `filterSummary` — the parts of a list's one filter menu
 - `DateTimePicker` — calendar range picker with quick-range presets (`quickRanges`, `CUSTOM_RANGE`)
 - `DatePicker` — single-date picker (one calendar, optional time, no quick ranges)
 - `useCalendar` — headless calendar grid hook (`Day`, `Month` enums)
@@ -39,11 +40,54 @@ Rules:
 
 - Column defs are standard TanStack `ColumnDef`s; quill-specific options go in `meta`: `align: 'left' | 'center' | 'right'` (header + cells) and `expand: true` (absorb leftover width).
 - `fullWidth` needs exactly one column with `meta: { expand: true }` to decide which column stretches.
-- Sorting is client-side and on by default — click header toggles asc → desc → off. Opt out per column with `enableSorting: false`.
+- Sorting is client-side and on by default — click header toggles asc → desc → off. Opt out per column with `enableSorting: false`. A column needs an `accessorKey` or `accessorFn` to sort.
+- A list sorted on the server passes `sorting` and `onSortingChange`. The table then keeps the rows in the order of `data`, only reports the clicks, and has no "off" state. Use `sortDescFirst` on a column to start at desc. `meta: { sortDataAttr }` sets the `data-attr` of the column's sort button.
+- `resizableColumns` lets the user drag a column's edge, or focus it and use the arrow keys. Its line shows while the header is hovered, and its handle while that header cell is. Columns fit their content until the first resize, then stay fixed. Bound a column with `minSize` and `maxSize` (the default minimum is 64px), and opt it out with `enableResizing: false`, as an actions column should. `columnSizing` and `onColumnSizingChange` control the widths, in pixels by column id, so a caller can save and restore them. A drag never renders: the handle moves the column in the DOM and `onColumnSizingChange` fires once, when it ends, so a table of any size stays smooth. A double click on an edge resets that column. A resize changes the dragged column and no other, including an `expand` column, which stops stretching at the first resize. A `fullWidth` table fills any space left over with an empty column, and scrolls once the columns no longer fit. Touch screens have no resizing.
+- `viewportRef` reaches the scrolling viewport, and `viewportEndRef` a marker at the end of it. Observe the marker, with the viewport as the root, to load more rows near the end.
 - Pagination is opt-in via `pageSize`; the component owns page state, reports user navigation through `onPageChange`, and resets to page 0 when `pageSize` changes. The pager is suppressed when the table has no rows — an empty table shows only its empty state, never a "0–0 of 0" pager.
 - Custom empty state via the `empty` prop (ReactNode); default is a minimal "No results".
+- `rowClassName` accepts a class string or a function of the row data to style matching rows.
 - `onRowClick` makes non-interactive parts of each row clickable and keyboard accessible. Links, buttons, form controls, editable content, and custom controls keep their own behavior. Add `data-row-click-ignore` to a custom descendant that must not activate the row.
 - Don't rebuild tables from `Table` primitives when the data is row/column shaped and needs sorting or pagination — that's what DataTable is for. Drop to the `Table` primitive only for fully custom layouts.
+
+## FilterMenu
+
+A list's sort, filters and display choices live in one `DropdownMenu`, opened by a funnel button beside its search field.
+
+```tsx
+<DropdownMenu>
+  <FilterMenuTrigger active={active} dataAttr="my-list-filter" />
+  <DropdownMenuContent align="start" className="min-w-64">
+    <FilterRadioSubMenu label="Sort by" options={sorts} value={sort} onChange={setSort} />
+    <DropdownMenuSeparator />
+    <FilterCheckboxSubMenu
+      label="Type"
+      allLabel="All types"
+      pluralNoun="types"
+      options={types}
+      selected={picked}
+      onChange={setPicked}
+    />
+    <FilterSearchSubMenu
+      label="Tags"
+      allLabel="Any tag"
+      pluralNoun="tags"
+      options={tags}
+      selected={tagged}
+      onChange={setTagged}
+      searchPlaceholder="Search tags"
+      emptyText="No tag matches"
+    />
+    <FilterClearItem active={active} onClear={clear} />
+  </DropdownMenuContent>
+</DropdownMenu>
+```
+
+Rules:
+
+- One choice → `FilterRadioSubMenu`. Several from a short list → `FilterCheckboxSubMenu`. Several from a long list → `FilterSearchSubMenu`.
+- An empty selection means all of them. Pass `defaultValue` on a radio filter so that a change takes the primary color. Leave it out on a row that isn't a filter, such as a sort.
+- `active` covers filters only. A sort, a display choice or the search text never lights the dot.
 
 ## DateTimePicker
 

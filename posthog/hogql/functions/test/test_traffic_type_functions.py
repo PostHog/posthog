@@ -1079,6 +1079,8 @@ class TestServerAndMobileSdkClassification(ClickhouseTestMixin, BaseTest):
         [
             ("node", "posthog-node", {}),
             ("python_empty_user_agent", "posthog-python", {"$raw_user_agent": ""}),
+            ("laravel", "posthog-laravel", {}),
+            ("laravel_empty_user_agent", "posthog-laravel", {"$raw_user_agent": ""}),
             ("react_native", "posthog-react-native", {}),
             ("ios", "posthog-ios", {}),
         ]
