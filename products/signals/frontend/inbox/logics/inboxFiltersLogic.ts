@@ -348,6 +348,7 @@ export interface inboxFiltersLogicValues {
     sortField: InboxSortField
     sourceFilterAvailable: boolean
     sourceProductFilter: string[]
+    visibleSourceOptions: typeof INBOX_SOURCE_OPTIONS
     stateFilter: (
         | 'closed'
         | 'dismissed'
@@ -492,6 +493,10 @@ export interface inboxFiltersLogicMeta {
         sourceFilterAvailable: (featureFlags: FeatureFlagsSet) => boolean
         activeSourceProductFilter: (sourceProductFilter: string[], sourceFilterAvailable: boolean) => string[]
         activeScoutFilter: (scoutFilter: string[], sourceFilterAvailable: boolean) => string[]
+        visibleSourceOptions: (
+            featureFlags: FeatureFlagsSet,
+            sourceProductFilter: string[]
+        ) => typeof INBOX_SOURCE_OPTIONS
         visibleStateFilter: (
             stateFilter: (
                 | 'closed'
@@ -883,6 +888,17 @@ export const inboxFiltersLogic = kea<inboxFiltersLogicType>([
         sourceFilterAvailable: [
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.INBOX_SOURCE_FILTER],
+        ],
+        // Hides the Team member option until people can file reports through the MCP, but keeps it
+        // while selected so a shared link can still clear it. Remove this check with the flag.
+        visibleSourceOptions: [
+            (s) => [s.featureFlags, s.sourceProductFilter],
+            (featureFlags: FeatureFlagsSet, sourceProductFilter: string[]): typeof INBOX_SOURCE_OPTIONS =>
+                featureFlags[FEATURE_FLAGS.INBOX_REPORTS_CREATE_MCP]
+                    ? INBOX_SOURCE_OPTIONS
+                    : INBOX_SOURCE_OPTIONS.filter(
+                          (option) => option.value !== 'user_authored' || sourceProductFilter.includes(option.value)
+                      ),
         ],
         // The source and scout selection the lists request with. Like the created window, a stored or
         // shared selection does nothing while its flag is off, so it cannot narrow a list that has no

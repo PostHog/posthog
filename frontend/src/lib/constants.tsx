@@ -359,6 +359,7 @@ export const FEATURE_FLAGS = {
     INBOX_INTERVIEW_INVITE: 'inbox-interview-invite', // owner: #team-self-driving, gates the interview invite after report feedback
     INBOX_MCP_USED: 'inbox-mcp-used', // owner: #team-self-driving, hides the MCP banner after confirmed Inbox tool use
     INBOX_MODEL_SORT: 'inbox-model-sort', // owner: #team-self-driving, gates the ranking model sort options and the score tag on inbox cards
+    INBOX_REPORTS_CREATE_MCP: 'inbox-reports-create-mcp', // owner: #team-self-driving, gates filing inbox reports through the MCP and the Team member option in the inbox Source filter
     INBOX_REPORT_FEEDBACK_BANG: 'inbox-report-feedback-bang', // owner: #team-self-driving, gates the party hog that pops on a report thumbs-up in the inbox and on the Today home page
     INBOX_SLACK_NOTIFICATIONS: 'inbox-slack-notifications', // owner: #team-self-driving, gates the Slack notifications config card in the inbox
     INBOX_SOURCE_FILTER: 'inbox-source-filter', // owner: #team-self-driving, gates the Source filter on the inbox report list

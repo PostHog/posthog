@@ -338,6 +338,19 @@ describe('inboxFiltersLogic', () => {
         })
 
         it.each([
+            ['hides it with the flag off', false, [], false],
+            ['keeps it while selected with the flag off', false, ['user_authored'], true],
+            ['shows it with the flag on', true, [], true],
+        ])('Team member source option %s', (_name, flagOn, sourceProductFilter, expected) => {
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REPORTS_CREATE_MCP], {
+                [FEATURE_FLAGS.INBOX_REPORTS_CREATE_MCP]: flagOn,
+            })
+            logic.actions.setFilters({ ...DEFAULT_STATE, sourceProductFilter })
+
+            expect(logic.values.visibleSourceOptions.some((o) => o.value === 'user_authored')).toBe(expected)
+        })
+
+        it.each([
             ['the default view', () => {}, null, 0],
             ['a ranking sort with its automatic window', () => logic.actions.setSort('ranking_fix', 'desc'), '7d', 0],
             [

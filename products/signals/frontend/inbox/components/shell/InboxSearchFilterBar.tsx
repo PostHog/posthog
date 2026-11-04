@@ -7,7 +7,6 @@ import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 import {
     INBOX_PRIORITY_OPTIONS,
     INBOX_SORT_OPTIONS,
-    INBOX_SOURCE_OPTIONS,
     PRIORITY_ACCENT,
     PRIORITY_MEANING,
     inboxPriorityFilterLabel,
@@ -107,6 +106,7 @@ export function InboxSearchFilterBar({
         sourceProductFilter,
         scoutFilter,
         priorityFilter,
+        visibleSourceOptions,
     } = useValues(inboxFiltersLogic)
     const { setSearchQuery, setSort, toggleSourceProduct, toggleScout, clearScoutFilter, togglePriority } =
         useActions(inboxFiltersLogic)
@@ -159,7 +159,7 @@ export function InboxSearchFilterBar({
                     icon={<IconTarget />}
                     active={sourceProductFilter.length > 0 || scoutFilter.length > 0}
                 >
-                    {INBOX_SOURCE_OPTIONS.map((option) => (
+                    {visibleSourceOptions.map((option) => (
                         <div key={option.value}>
                             <FilterItem
                                 icon={option.icon}
