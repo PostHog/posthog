@@ -50,7 +50,9 @@ _RETRYABLE_SLACK_ERRORS = frozenset(
     }
 )
 
-MAX_SLACK_UPLOAD_BYTES = 1 * 1024 * 1024
+# Slack accepts uploads up to 1 GB. This lower cap guards the delivery activity, which holds
+# every chart in memory at once, not the Slack API. Keep it well above a normal chart render.
+MAX_SLACK_UPLOAD_BYTES = 25 * 1024 * 1024
 
 
 @dataclass
@@ -64,19 +66,24 @@ class SlackMessage:
     unfurl: bool = True
 
 
-@dataclass
+@frozen
 class SlackDeliveryResult:
     main_message_sent: bool
     total_thread_messages: int
     failed_thread_message_indices: list[int]
+    undelivered_asset_count: int = 0
 
     @property
     def is_partial_failure(self) -> bool:
-        return self.main_message_sent and len(self.failed_thread_message_indices) > 0
+        return self.main_message_sent and not self.is_complete_success
 
     @property
     def is_complete_success(self) -> bool:
-        return self.main_message_sent and len(self.failed_thread_message_indices) == 0
+        return (
+            self.main_message_sent
+            and len(self.failed_thread_message_indices) == 0
+            and self.undelivered_asset_count == 0
+        )
 
 
 @frozen
@@ -85,6 +92,7 @@ class SlackGallery:
     initial_comment: str
     file_uploads: list[dict[str, Any]] = field(default_factory=list)
     blocks: list[dict[str, Any]] = field(default_factory=list)
+    undelivered_asset_count: int = 0
 
 
 def _ai_data_processing_approved(subscription: Subscription, integration: IntegrationRecord | None) -> bool:
@@ -320,6 +328,7 @@ def _prepare_slack_gallery(
         initial_comment="\n\n".join(lines),
         file_uploads=file_uploads,
         blocks=blocks,
+        undelivered_asset_count=len(unattached_assets),
     )
 
 
@@ -652,6 +661,7 @@ async def deliver_slack_gallery(
                 main_message_sent=True,
                 total_thread_messages=0,
                 failed_thread_message_indices=[],
+                undelivered_asset_count=gallery.undelivered_asset_count,
             )
 
         for attempt in range(3):
@@ -678,7 +688,12 @@ async def deliver_slack_gallery(
         subscription_id=subscription.id,
         file_count=len(gallery.file_uploads),
     )
-    return SlackDeliveryResult(main_message_sent=True, total_thread_messages=0, failed_thread_message_indices=[])
+    return SlackDeliveryResult(
+        main_message_sent=True,
+        total_thread_messages=0,
+        failed_thread_message_indices=[],
+        undelivered_asset_count=gallery.undelivered_asset_count,
+    )
 
 
 async def send_slack_message_with_integration_async(

@@ -348,6 +348,21 @@ impl Decline {
     }
 }
 
+/// The URL as a reference names it, or why the policy declines it. It checks the host and path again as `Url` serializes them.
+pub fn checked_url(raw: &str) -> Result<CanonicalUrl, Decline> {
+    let url = try_canonicalize(raw)?;
+    let path = Url::parse(&url.fetch)
+        .map(|u| u.path().to_owned())
+        .unwrap_or_default();
+    if !is_public_host(&url.host) {
+        return Err(Decline::NonPublicHost);
+    }
+    if is_tracking_beacon(&url.host, &path) {
+        return Err(Decline::TrackingBeacon);
+    }
+    Ok(url)
+}
+
 /// Canonicalize a remote image URL into its fetch and dedup forms, or say why it was refused.
 pub fn canonicalize(raw: &str) -> Option<CanonicalUrl> {
     try_canonicalize(raw).ok()

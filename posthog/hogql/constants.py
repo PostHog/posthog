@@ -214,6 +214,7 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     max_expanded_ast_elements: Optional[int] = 4_000_000
     max_bytes_before_external_group_by: Optional[int] = 0  # default value means we don't swap ordering by to disk
     enable_analyzer: Optional[bool] = None
+    enable_materialized_cte: Optional[bool] = None
     transform_null_in: Optional[bool] = True
     # A bugfix workaround that stops clauses that look like
     # `or(event = '1', event = '2', event = '3')` from being optimized into `event IN ('1', '2', '3')`

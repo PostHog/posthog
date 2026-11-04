@@ -6,6 +6,7 @@ import {
     useIsFetching,
     useQueryClient,
 } from '@tanstack/react-query'
+import { NetworkStateType } from 'expo-network'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { ViewabilityConfig, ViewToken } from 'react-native'
 
@@ -95,7 +96,11 @@ export function usePrefetchReports(items: InboxItem[] | undefined, focused: bool
     const accountRef = useRef(account)
     accountRef.current = account
     const active = useAppActive()
-    const connected = useConnectivity((state) => state.status === 'connected' && state.isConnectionExpensive === false)
+    const connected = useConnectivity(
+        (state) =>
+            state.status === 'connected' &&
+            (state.type === NetworkStateType.WIFI || state.type === NetworkStateType.ETHERNET)
+    )
     const foregroundFetching = useIsFetching({ predicate: (query) => query.getObserversCount() > 0 })
     const enabled = live && scope !== null && focused && active && connected && foregroundFetching === 0
     const scopeKey = scope ? JSON.stringify([scope.host, scope.projectId, account]) : ''

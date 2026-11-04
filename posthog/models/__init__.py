@@ -10,6 +10,7 @@ from .activity_logging.activity_log import ActivityLog
 from .activity_logging.notification_viewed import NotificationViewed
 from .async_deletion import AsyncDeletion, DeletionType
 from .async_migration import AsyncMigration, AsyncMigrationError, MigrationStatus
+from .workload_trust_policy import WorkloadTrustPolicy
 from .column_configuration import ColumnConfiguration
 from .comment import Comment, CommentSlackThread
 from .core_event import CoreEvent
@@ -85,6 +86,7 @@ from .oauth import (
     CIMDVerificationToken,
     OAuthAccessToken,
     OAuthApplication,
+    OAuthDeviceGrant,
     OAuthGrant,
     OAuthIDToken,
     OAuthRefreshToken,
@@ -95,6 +97,7 @@ __all__ = [
     "AsyncDeletion",
     "AsyncMigration",
     "AsyncMigrationError",
+    "WorkloadTrustPolicy",
     "CIMDVerificationToken",
     "ColumnConfiguration",
     "CoreEvent",
@@ -140,6 +143,7 @@ __all__ = [
     "OrganizationProvisioning",
     "OAuthAccessToken",
     "OAuthApplication",
+    "OAuthDeviceGrant",
     "OAuthGrant",
     "OAuthIDToken",
     "OAuthRefreshToken",

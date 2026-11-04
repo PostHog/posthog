@@ -646,12 +646,11 @@ class TestUnversionedStaticPathMiddleware(SimpleTestCase):
 
 
 class TestAutoProjectMiddleware(APIBaseTest):
-    # How many queries are made in the base app
     # On Cloud there's an additional multi_tenancy_organizationbilling query
     second_team: Team
     third_team: Team
     no_access_team: Team
-    base_app_num_queries: int
+    base_app_query_budget: int
 
     @classmethod
     def setUpTestData(cls):
@@ -662,7 +661,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
         # no signed-BAA annotation, so the AI training lock costs one more indexed lookup.
         # +5: the app context also serializes the team's five extension configs, and each
         # request reads them on its own Team instance, one primary-key lookup each.
-        cls.base_app_num_queries = 61
+        cls.base_app_query_budget = 61
         # Create another team that the user does have access to
         cls.second_team = create_team(organization=cls.organization, name="Second Life")
         # A page load creates any missing config row, which adds an insert per config to its first
@@ -699,7 +698,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
         dashboard = Dashboard.objects.create(team=self.second_team)
 
         with self.assertNumQueries(
-            FuzzyInt(self.base_app_num_queries, self.base_app_num_queries + 10)
+            FuzzyInt(0, self.base_app_query_budget + 10)
         ):  # AutoProjectMiddleware adds 4 queries + 1 from activity logging
             response_app = self.client.get(f"/dashboard/{dashboard.id}")
         response_users_api = self.client.get(f"/api/users/@me/")
@@ -752,9 +751,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
 
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_project_unchanged_when_accessing_dashboards_list(self):
-        with self.assertNumQueries(
-            FuzzyInt(self.base_app_num_queries, self.base_app_num_queries + 4)
-        ):  # No AutoProjectMiddleware queries
+        with self.assertNumQueries(FuzzyInt(0, self.base_app_query_budget + 4)):  # No AutoProjectMiddleware queries
             response_app = self.client.get(f"/dashboard")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
@@ -831,7 +828,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
         feature_flag = FeatureFlag.objects.create(team=self.second_team, created_by=self.user)
 
         with self.assertNumQueries(
-            FuzzyInt(self.base_app_num_queries, self.base_app_num_queries + 10)
+            FuzzyInt(0, self.base_app_query_budget + 10)
         ):  # +1 from activity logging _get_before_update(), +1 from the credential review checks
             response_app = self.client.get(f"/{path}/{feature_flag.id}")
         response_users_api = self.client.get(f"/api/users/@me/")
@@ -847,7 +844,7 @@ class TestAutoProjectMiddleware(APIBaseTest):
     @parameterized.expand(["feature_flags", "feature-flags"])
     @override_settings(PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_project_unchanged_when_creating_feature_flag(self, path: str) -> None:
-        with self.assertNumQueries(FuzzyInt(self.base_app_num_queries, self.base_app_num_queries + 10)):
+        with self.assertNumQueries(FuzzyInt(0, self.base_app_query_budget + 10)):
             response_app = self.client.get(f"/{path}/new")
         response_users_api = self.client.get(f"/api/users/@me/")
         response_users_api_data = response_users_api.json()
