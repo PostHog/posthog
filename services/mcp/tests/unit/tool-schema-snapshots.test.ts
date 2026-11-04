@@ -123,6 +123,7 @@ async function loadSnapshotTools(): Promise<Tool<ZodObjectAny>[]> {
         'anomalies-search': true,
         'warehouse-multi-destination': true,
         'feature-flag-rules-v2-mcp': true,
+        'mcp-decision-request': true,
         'support-macros': true,
     }
     return [...(await getToolsFromContext(createMockContext(), { featureFlags }))].sort((a, b) =>

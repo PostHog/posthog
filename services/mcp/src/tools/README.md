@@ -53,6 +53,21 @@ Each entry in `schema/tool-definitions.json` needs a clear description, a featur
 
 If you add a new feature, also list it in the feature list in `services/mcp/README.md` and add it to `tests/unit/tool-filtering.test.ts`.
 
+## Asking the user for input
+
+A handler can ask the user to fill in a form during a call, using the 2026-07-28 multi-round-trip flow.
+`context.inputExchange` is set only when the request uses that protocol version.
+It carries the client capabilities, plus `requestState` and `inputResponses` on the retry.
+Return `inputRequired(...)` from `@/lib/stateless-protocol` to ask, and the client retries the same call with the answers.
+The executor and `exec` pass that result through unchanged.
+
+- Sign `requestState` with the signed-state codec and bind it to the user, because the client controls everything it sends back.
+- Validate every answer against what you asked, because the client renders the form.
+- Give clients without form elicitation a result that tells the model to ask in chat. Do not hold the request open.
+- Read the unsolicited elicitation policy in `services/mcp/AGENTS.md` first. Ask only for input the user's task needs.
+
+`decisionRequest/request.ts` is the reference.
+
 ## Schema Design Philosophy
 
 ### Input Schemas

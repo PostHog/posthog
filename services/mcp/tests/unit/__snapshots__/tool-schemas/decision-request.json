@@ -1,0 +1,46 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "context": {
+            "description": "Evidence the human needs to decide: what was found, what is at stake.",
+            "maxLength": 2000,
+            "type": "string"
+        },
+        "options": {
+            "description": "The choices. The agent must handle every option, plus a decline or dismissal.",
+            "items": {
+                "properties": {
+                    "description": {
+                        "description": "What happens if the human picks this option.",
+                        "maxLength": 300,
+                        "type": "string"
+                    },
+                    "id": {
+                        "description": "Stable id the agent branches on, such as \"ship\" or \"hold\".",
+                        "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+                        "type": "string"
+                    },
+                    "label": {
+                        "description": "Short label the human sees.",
+                        "maxLength": 100,
+                        "minLength": 1,
+                        "type": "string"
+                    }
+                },
+                "required": ["id", "label"],
+                "type": "object"
+            },
+            "maxItems": 6,
+            "minItems": 2,
+            "type": "array"
+        },
+        "question": {
+            "description": "One question the human can answer without reading the transcript.",
+            "maxLength": 500,
+            "minLength": 1,
+            "type": "string"
+        }
+    },
+    "required": ["question", "options"],
+    "type": "object"
+}

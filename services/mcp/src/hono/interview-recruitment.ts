@@ -7,6 +7,7 @@ import {
     META_CLIENT_CAPABILITIES,
     parseRequestProtocolMeta,
     STATELESS_PROTOCOL_VERSION,
+    supportsFormElicitation,
 } from '@/lib/stateless-protocol'
 import { isPrivateScoutTrialTool } from '@/lib/tool-privacy'
 import { parseExecCallInnerToolName } from '@/tools/exec'
@@ -499,11 +500,7 @@ export class InterviewRecruitment {
                 ? z.object({ elicitation: z.object({ url: z.object({}) }) }).safeParse(capabilities).success
                 : (state.sessionContext?.mcpElicitationUrlSupported ?? null),
             formSupported: capabilitiesAvailable
-                ? z
-                      .object({
-                          elicitation: z.union([z.object({ form: z.object({}) }), z.object({}).strict()]),
-                      })
-                      .safeParse(capabilities).success
+                ? supportsFormElicitation(capabilities as Record<string, unknown>)
                 : null,
             ...(state.interviewRecruitmentConfig ? { campaignId: state.interviewRecruitmentConfig.campaign_id } : {}),
         }

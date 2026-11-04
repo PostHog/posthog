@@ -7,6 +7,8 @@ import parserRecipeCreate from './aiObservability/parserRecipeCreate'
 import parserRecipeReference from './aiObservability/parserRecipeReference'
 // Debug
 import debugMcpUiApps from './debug/debugMcpUiApps'
+// Decisions
+import decisionRequest from './decisionRequest/request'
 // Experiments (hand-written — CRUD + lifecycle are codegen in generated/experiments.ts)
 import experimentGetByFlagKey from './experiments/getByFlagKey'
 import getExperimentResults from './experiments/getResults'
@@ -129,6 +131,9 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 
     // Feedback
     'agent-feedback': submitFeedback,
+
+    // Decisions (inline form elicitation; no storage)
+    'decision-request': decisionRequest,
 
     // Current-task comments. The model never supplies a task id; the host-stamped MCP context does.
     'tasks-artifacts-list': tasksArtifactsList,

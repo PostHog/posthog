@@ -20,6 +20,7 @@ import { findIgnoredInputKeys, withIgnoredInputKeys } from '@/lib/ignored-input-
 import { isChatGptAppConnection } from '@/lib/oauth-constants'
 import type { RequestProperties } from '@/lib/request-properties'
 import { formatResponse } from '@/lib/response'
+import { isInputRequiredResult } from '@/lib/stateless-protocol'
 import { API_KEY_CACHE_TTL_MS } from '@/lib/StateManager'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
@@ -2261,6 +2262,16 @@ export function createExecTool(
                         throw err
                     }
                     const durationMs = Date.now() - startedAt
+                    if (isInputRequiredResult(result)) {
+                        trackInnerCall?.(tool.name, {
+                            duration_ms: durationMs,
+                            success: true,
+                            output_format: 'structured',
+                            input_tokens: estimateTokens(input),
+                            input,
+                        })
+                        return result
+                    }
                     // The text path below builds no payload, so emptiness is reported from here.
                     const resultShape = isEmptyToolResult(result, tool.name) ? { result_empty: true } : {}
                     const formattedOverride =

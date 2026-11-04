@@ -8,7 +8,7 @@
 // header (SEP-2243 requires the operation headers below on every modern request,
 // and requires servers that process the body to reject header/body mismatches).
 
-import { ErrorCode } from '@modelcontextprotocol/sdk/types.js'
+import { type ElicitRequestFormParams, ErrorCode } from '@modelcontextprotocol/sdk/types.js'
 
 export const STATELESS_PROTOCOL_VERSION = '2026-07-28'
 
@@ -88,6 +88,55 @@ export function parseRequestProtocolMeta(params: unknown): RequestProtocolMeta {
         clientName: typeof clientInfoRecord?.name === 'string' ? clientInfoRecord.name : undefined,
         clientVersion: typeof clientInfoRecord?.version === 'string' ? clientInfoRecord.version : undefined,
     }
+}
+
+export interface ToolCallInputExchange {
+    clientCapabilities: Record<string, unknown>
+    requestState: string | undefined
+    inputResponses: Record<string, unknown> | undefined
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return !!value && typeof value === 'object' && !Array.isArray(value)
+}
+
+/** Undefined for a legacy request, which cannot carry an `input_required` round trip. */
+export function parseToolCallInputExchange(params: unknown): ToolCallInputExchange | undefined {
+    if (parseRequestProtocolMeta(params).protocolVersion !== STATELESS_PROTOCOL_VERSION) {
+        return undefined
+    }
+    const record = params as Record<string, unknown>
+    const capabilities = requestMetaRecord(params)?.[META_CLIENT_CAPABILITIES]
+    return {
+        clientCapabilities: isRecord(capabilities) ? capabilities : {},
+        requestState: typeof record.requestState === 'string' ? record.requestState : undefined,
+        inputResponses: isRecord(record.inputResponses) ? record.inputResponses : undefined,
+    }
+}
+
+/** An empty `elicitation` capability means form mode, the only mode before URL mode existed. */
+export function supportsFormElicitation(capabilities: Record<string, unknown>): boolean {
+    const elicitation = capabilities.elicitation
+    return isRecord(elicitation) && (Object.keys(elicitation).length === 0 || isRecord(elicitation.form))
+}
+
+export type InputRequiredResult = {
+    resultType: 'input_required'
+    requestState: string
+    inputRequests: Record<string, { method: 'elicitation/create'; params: ElicitRequestFormParams }>
+}
+
+// A brand rather than a shape check, so an API response that happens to carry `resultType` is never passed through raw.
+const inputRequiredResults = new WeakSet<object>()
+
+export function inputRequired(result: Omit<InputRequiredResult, 'resultType'>): InputRequiredResult {
+    const branded: InputRequiredResult = { resultType: 'input_required', ...result }
+    inputRequiredResults.add(branded)
+    return branded
+}
+
+export function isInputRequiredResult(value: unknown): value is InputRequiredResult {
+    return typeof value === 'object' && value !== null && inputRequiredResults.has(value)
 }
 
 export function isSupportedProtocolVersion(version: string): boolean {

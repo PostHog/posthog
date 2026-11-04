@@ -231,6 +231,7 @@ Available features:
 | `data_schema`            | Data schema exploration                                                                         |
 | `data_warehouse`         | [Data warehouse](https://posthog.com/docs/data-warehouse)                                       |
 | `debug`                  | Debug and diagnostic tools                                                                      |
+| `decisions`              | Ask the user to choose between options                                                          |
 | `docs`                   | PostHog documentation search                                                                    |
 | `early_access_features`  | [Early access features](https://posthog.com/docs/feature-flags/early-access-feature-management) |
 | `endpoints`              | [Endpoints](https://posthog.com/docs/endpoints)                                                 |
