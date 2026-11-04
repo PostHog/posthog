@@ -12255,9 +12255,9 @@ snapshots:
     scenes-app-inbox-cards--skeleton--light:
         hash: v1.k794b7964.d74decf0d1eec3cb7e66535e5071bbe8026b34fe398c355dedf63124eb91cd9e.zZmTI-hkVOKyADi7R2mvJyeYSzxT0HpvXctUwJQuFXg
     scenes-app-inbox-detail--activity-notes--dark:
-        hash: v1.k794b7964.e77a7499ce8ab88390d2c275ed4c9da9543bae27079c9d3abb588dc7945f5d1d.Fgn0ELJR1E7YmAJgNFOjf0cwNuet1pR9FsN95qWo_pw
+        hash: v1.k794b7964.5ea52d068ec7edbb0790aa554cbde001d08487fd58aa37817fee955afdb051df.ZeiGHmprlF7Wum82e9hH7oKR3B7-uqxPSdvAE83fOt4
     scenes-app-inbox-detail--activity-notes--light:
-        hash: v1.k794b7964.b78f0a2293ac9ae1b1b06e29064f9d763bfd96206310519053ae9f1b81df7a59.5Uj_J_RVayr6snSkOAAiZkyFS2zmFWeQlCIZCMfpAzw
+        hash: v1.k794b7964.40c66686ccfe3fe947605b545c2fd6bf9a1e6ac337a5605c20f61fef6da6f14f.oYK9koJGkdcaO0qjh_wCzfAwnLTW6dnhy815xGpzq0c
     scenes-app-inbox-detail--pull-request--dark:
         hash: v1.k794b7964.51280499a41683257d9e73732602c06a3d24ddb3ce5ed1593682a2d0fc985ede.kOXk8NNGyuQAQ0ERaBjcygzunDspJ19jLRIr4ugnEtA
     scenes-app-inbox-detail--pull-request--light:
@@ -12294,6 +12294,10 @@ snapshots:
         hash: v1.k794b7964.c4e555471b01104fdd11e1e7c68ccd13e7a2429111a6e7f6fe4ae322676e0c1a.bVuGlznqrR1iHoALy6uSHeE2xjzh2AHbfTnO05OhXFw
     scenes-app-inbox-detail--report-minimal--light:
         hash: v1.k794b7964.8856ba9efc8521132842a7a11b9635e83600b55582a50e144a2a8595e829aedc.UQ-krMEfd3qR4Es6nVNNq4hR3AeEj3jKN1v7017Uy0A
+    scenes-app-inbox-detail--report-notes--dark:
+        hash: v1.k794b7964.0a9e067e462cdea50bb0967ee6d377e5be85a1e2684ac7eaf4f21bde982fadba.o6ErGGCdWAG7ppbTzSTmlGxd15u7WTvo_4lZ0K-fey4
+    scenes-app-inbox-detail--report-notes--light:
+        hash: v1.k794b7964.48a1f6aa62677763e65ff4bb57a0aff0aa4222bee1d83f3a23109857beb6d4e1.DsrNZEDSDVw8TFnn1nA6nYQvC9Z0UMCZ7qm7XwZqx1M
     scenes-app-inbox-detail--report-plan--dark:
         hash: v1.k794b7964.094e8e01c3919420e636fab86f6975ce5f49f0a4c33680936869483de7268fed.CSl1ad3TwfA_2-M7Pa5XrLOncyFQty8w90IJM2yXmeM
     scenes-app-inbox-detail--report-plan--light:
