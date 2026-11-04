@@ -435,17 +435,30 @@ describe('EmailSuppressionService', () => {
             expect(await newService(true).isSuppressed(team.id, email)).toBe(false)
         })
 
-        it("releases a team's copied block once a delivery clears the global entry", async () => {
-            const email = `recovered-${team.id}@example.com`
-            const otherTeamId = await bounceForAnotherTeam(email)
-            expect(await newService(true).isSuppressed(team.id, email)).toBe(true)
-            expect(await newService(true).isSuppressed(team.id, email)).toBe(true)
+        it.each([
+            ['no other event', false],
+            ['a delayed soft bounce for an earlier send', true],
+        ])(
+            "releases a team's copied block once a delivery clears the global entry after %s",
+            async (_label, softBounce) => {
+                const email = `recovered-${softBounce ? 'soft' : 'plain'}-${team.id}@example.com`
+                const otherTeamId = await bounceForAnotherTeam(email)
+                expect(await newService(true).isSuppressed(team.id, email)).toBe(true)
+                expect(await newService(true).isSuppressed(team.id, email)).toBe(true)
+                if (softBounce) {
+                    await newService(true).recordTransientBounces(team.id, [email], 'smtp; 421 try again later')
+                }
 
-            await newService(true).recordDeliveries(otherTeamId, [email], new Date(Date.now() + 60_000).toISOString())
+                await newService(true).recordDeliveries(
+                    otherTeamId,
+                    [email],
+                    new Date(Date.now() + 60_000).toISOString()
+                )
 
-            expect(await newService(true).isSuppressed(team.id, email, { transactional: true })).toBe(false)
-            expect(await readRow(email)).toMatchObject({ suppressed: false, deleted: false })
-        })
+                expect(await newService(true).isSuppressed(team.id, email, { transactional: true })).toBe(false)
+                expect(await readRow(email)).toMatchObject({ suppressed: false, deleted: false })
+            }
+        )
 
         it('does not undo a removal that a lagging read missed', async () => {
             const email = `removed-${team.id}@example.com`

@@ -160,6 +160,7 @@ export class EmailSuppressionService {
             this.threshold,
             diag,
             LEGACY_HARD_BOUNCE_REASONS,
+            GLOBAL_HARD_BOUNCE_DIAGNOSTIC,
         ]
         identifiers.forEach((identifier, i) => {
             const p = params.length + 1 + i
@@ -179,7 +180,12 @@ export class EmailSuppressionService {
             ON CONFLICT (team_id, identifier) DO UPDATE SET
                 transient_bounce_count = posthog_messagesuppression.transient_bounce_count + 1,
                 last_bounce_at = NOW(),
-                last_bounce_diagnostic = EXCLUDED.last_bounce_diagnostic,
+                -- The diagnostic marks a copy of a global hard bounce, which a delivery must still be able to release.
+                last_bounce_diagnostic = CASE
+                    WHEN posthog_messagesuppression.source = 'BOUNCE'
+                        AND posthog_messagesuppression.last_bounce_diagnostic = $6
+                        THEN posthog_messagesuppression.last_bounce_diagnostic
+                    ELSE EXCLUDED.last_bounce_diagnostic END,
                 -- Never downgrade or re-key a manual entry; only auto (BOUNCE) rows can cross the threshold.
                 suppressed = CASE
                     WHEN posthog_messagesuppression.source = 'MANUAL' THEN posthog_messagesuppression.suppressed
