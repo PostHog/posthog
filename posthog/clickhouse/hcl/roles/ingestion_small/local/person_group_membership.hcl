@@ -44,7 +44,7 @@ database "posthog" {
 SELECT
   team_id,
   group_type_index,
-  JSONExtractString(properties, concat('$group_', toString(group_type_index))) AS group_key,
+  replaceRegexpAll(JSONExtractRaw(properties, concat('$group_', toString(group_type_index))), '^"|"$', '') AS group_key,
   distinct_id,
   min(timestamp) AS first_seen,
   max(timestamp) AS last_seen

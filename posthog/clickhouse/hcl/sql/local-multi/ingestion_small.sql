@@ -799,7 +799,11 @@ WHERE version > 0;
 CREATE MATERIALIZED VIEW posthog.person_group_membership_mv TO posthog.writable_person_group_membership (team_id Int64, group_type_index UInt8, group_key String, distinct_id String, first_seen DateTime64(6, 'UTC'), last_seen DateTime64(6, 'UTC')) AS SELECT
   team_id,
   group_type_index,
-  JSONExtractString(properties, concat('$group_', toString(group_type_index))) AS group_key,
+  replaceRegexpAll(
+    JSONExtractRaw(properties, concat('$group_', toString(group_type_index))),
+    '^"|"$',
+    ''
+  ) AS group_key,
   distinct_id,
   min(timestamp) AS first_seen,
   max(timestamp) AS last_seen

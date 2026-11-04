@@ -243,7 +243,8 @@ def test_distributed_writes_and_reads_aggregate_overlap() -> None:
         )
     assert sync_execute(
         f"""SELECT team_id, group_type_index, group_key, distinct_id, min(first_seen), max(last_seen)
-        FROM {PERSON_GROUP_MEMBERSHIP_TABLE} GROUP BY team_id, group_type_index, group_key, distinct_id"""
+        FROM {PERSON_GROUP_MEMBERSHIP_TABLE} GROUP BY team_id, group_type_index, group_key, distinct_id
+        ORDER BY distinct_id"""
     ) == [
         (
             1001,
@@ -300,6 +301,7 @@ def test_ingestion_admits_only_eligible_events(group_type_index: int) -> None:
         (2001, "identified", every_group, datetime(2024, 1, 2, tzinfo=UTC), "full"),
         (2001, "identified", every_group, datetime(2024, 1, 1, tzinfo=UTC), "force_upgrade"),
         (2001, "identified", every_group, datetime(2024, 1, 3, tzinfo=UTC), "full"),
+        (2001, "numeric-key", json.dumps({f"$group_{group_type_index}": 42}), datetime(2024, 1, 1, tzinfo=UTC), "full"),
         (2001, "personless", every_group, datetime(2024, 1, 1, tzinfo=UTC), "propertyless"),
         (2001, "empty-key", configured_empty, datetime(2024, 1, 1, tzinfo=UTC), "full"),
         (2001, "no-properties", "", datetime(2024, 1, 1, tzinfo=UTC), "full"),
@@ -319,7 +321,8 @@ def test_ingestion_admits_only_eligible_events(group_type_index: int) -> None:
         sync_execute(f"DROP TABLE IF EXISTS {SOURCE_TABLE}")
     assert sync_execute(
         f"""SELECT team_id, group_type_index, group_key, distinct_id, min(first_seen), max(last_seen)
-        FROM {PERSON_GROUP_MEMBERSHIP_TABLE} GROUP BY team_id, group_type_index, group_key, distinct_id"""
+        FROM {PERSON_GROUP_MEMBERSHIP_TABLE} GROUP BY team_id, group_type_index, group_key, distinct_id
+        ORDER BY distinct_id"""
     ) == [
         (
             2001,
@@ -328,5 +331,13 @@ def test_ingestion_admits_only_eligible_events(group_type_index: int) -> None:
             "identified",
             datetime(2024, 1, 1, tzinfo=UTC),
             datetime(2024, 1, 3, tzinfo=UTC),
-        )
+        ),
+        (
+            2001,
+            group_type_index,
+            "42",
+            "numeric-key",
+            datetime(2024, 1, 1, tzinfo=UTC),
+            datetime(2024, 1, 1, tzinfo=UTC),
+        ),
     ]

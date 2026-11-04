@@ -3,7 +3,7 @@ from django.conf import settings
 from posthog.hogql.escape_sql import escape_clickhouse_identifier, escape_clickhouse_string
 
 from posthog.clickhouse.client.connection import ClickHouseUser, get_clickhouse_creds
-from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_PERSON_GROUP_MEMBERSHIP, kafka_engine
+from posthog.clickhouse.kafka_engine import CONSUMER_GROUP_PERSON_GROUP_MEMBERSHIP, kafka_engine, trim_quotes_expr
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplacingMergeTree, ReplicationScheme
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 
@@ -174,6 +174,10 @@ SETTINGS
 """
 
 
+# Matches the events $group_N columns the backfill reads, so numeric keys become strings in both paths.
+GROUP_KEY_EXPR = trim_quotes_expr("JSONExtractRaw(properties, concat('$group_', toString(group_type_index)))")
+
+
 def PERSON_GROUP_MEMBERSHIP_MV_SELECT_SQL(source_table: str) -> str:
     # Filter on the dictionary before extracting the group key, so ineligible events skip JSON parsing.
     # The dictionary holds only enabled, valid configs, so dictHas fails closed for every other team.
@@ -183,7 +187,7 @@ def PERSON_GROUP_MEMBERSHIP_MV_SELECT_SQL(source_table: str) -> str:
     return f"""SELECT
     team_id,
     group_type_index,
-    JSONExtractString(properties, concat('$group_', toString(group_type_index))) AS group_key,
+    {GROUP_KEY_EXPR} AS group_key,
     distinct_id,
     min(timestamp) AS first_seen,
     max(timestamp) AS last_seen
