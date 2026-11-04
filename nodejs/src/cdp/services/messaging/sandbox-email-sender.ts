@@ -288,12 +288,13 @@ function conditionHolds(condition: string, client: ConditionalClient): boolean {
     return value
 }
 
-function conditionalMarker(data: string): ConditionalMarker | null {
+function conditionalMarker(comment: string): ConditionalMarker | null {
+    const data = comment.trim()
     const hidden = /^\[if\b([^\]]*)\]>([\s\S]*)<!\[endif\]$/i.exec(data)
     if (hidden) {
         return { kind: 'hidden', condition: hidden[1], content: hidden[2] }
     }
-    const open = /^\[if\b([^\]]*)\](?:><!)?$/i.exec(data)
+    const open = /^\[if\b([^\]]*)\](?:><!(?:--)?)?$/i.exec(data)
     if (open) {
         return { kind: 'open', condition: open[1] }
     }
