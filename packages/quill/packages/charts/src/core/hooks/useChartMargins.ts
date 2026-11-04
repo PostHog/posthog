@@ -225,8 +225,8 @@ export function useChartMargins({
     const rangeSeries = isPercent ? series : (valueRangeSeries ?? series)
     const tickLabelRotation = isHorizontal ? 0 : normalizeTickLabelRotation(xTickLabelRotation)
     // A single axis pinned right draws its gutter on the right, so it needs the per-side layout too.
-    const usesPerSideGutters =
-        orderedAxisPositions(series).length > 1 || Object.values(yAxisPositions ?? {}).includes('right')
+    const axisCount = useMemo(() => orderedAxisPositions(series).length, [series])
+    const usesPerSideGutters = axisCount > 1 || Object.values(yAxisPositions ?? {}).includes('right')
     const perAxis = !hideYAxis && !isHorizontal && usesPerSideGutters
     const needsWidestValue = isHorizontal ? !hideXAxis : !hideYAxis && !perAxis
 
