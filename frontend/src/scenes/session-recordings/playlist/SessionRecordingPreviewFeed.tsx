@@ -42,8 +42,8 @@ export const SessionRecordingPreviewFeed = memo(
 
         const order = filters.order || DEFAULT_RECORDING_FILTERS_ORDER_BY
         const recordingProperties = recordingPropertiesById[recording.id]
-        const loading = !recordingProperties && recordingPropertiesLoading
         const iconProperties = gatherIconProperties(recordingProperties, recording)
+        const loading = iconProperties.length === 0 && !recordingProperties && recordingPropertiesLoading
         const errorCount = recording.console_error_count ?? 0
         const startUrl = recording.start_url?.replace(/https?:\/\//g, '').split(/[?|#]/)[0]
         // nextSessionRecording is undefined while autoplay is off, so the label disappears with it

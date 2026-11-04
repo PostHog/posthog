@@ -140,7 +140,7 @@ export const sessionRecordingsListPropertiesLogic = kea<sessionRecordingsListPro
         markExtraPropertiesUnqueryable: (properties: string[]) => ({ properties }),
     }),
 
-    loaders(({ actions, values }) => ({
+    loaders(({ actions, values, cache }) => ({
         recordingProperties: [
             [] as SessionRecordingPropertiesType[],
             {
@@ -153,58 +153,67 @@ export const sessionRecordingsListPropertiesLogic = kea<sessionRecordingsListPro
                     if (!sessionIds.length) {
                         return values.recordingProperties
                     }
-
-                    const chronological = (a: string, b: string): number =>
-                        new Date(a).getTime() - new Date(b).getTime()
-                    const oldestTimestamp = sessions.map((x) => x.start_time).sort(chronological)[0]
-                    const newestTimestamp = sessions.map((x) => x.end_time).sort(chronological)[sessions.length - 1]
-
+                    const inFlight: Map<string, string[]> = (cache.inFlight ??= new Map())
                     const extraSessionProperties = values.extraSessionProperties
-                    let response
+                    sessionIds.forEach((id) => inFlight.set(id, extraSessionProperties))
                     try {
-                        response = await api.queryHogQL(
-                            buildPropertiesQuery(sessionIds, oldestTimestamp, newestTimestamp, extraSessionProperties),
-                            QUERY_TAGS
-                        )
-                    } catch (e) {
-                        if (!extraSessionProperties.length) {
-                            // These are supplementary columns on the recordings list. A backend blip shouldn't
-                            // toast, it should just leave this batch's rows without properties.
-                            posthog.captureException(e)
-                            return values.recordingProperties
-                        }
+                        const chronological = (a: string, b: string): number =>
+                            new Date(a).getTime() - new Date(b).getTime()
+                        const oldestTimestamp = sessions.map((x) => x.start_time).sort(chronological)[0]
+                        const newestTimestamp = sessions.map((x) => x.end_time).sort(chronological)[sessions.length - 1]
+
+                        let response
                         try {
                             response = await api.queryHogQL(
-                                buildPropertiesQuery(sessionIds, oldestTimestamp, newestTimestamp, []),
+                                buildPropertiesQuery(
+                                    sessionIds,
+                                    oldestTimestamp,
+                                    newestTimestamp,
+                                    extraSessionProperties
+                                ),
                                 QUERY_TAGS
                             )
-                        } catch (fallbackError) {
-                            posthog.captureException(fallbackError)
-                            return values.recordingProperties
+                        } catch (e) {
+                            if (!extraSessionProperties.length) {
+                                // These are supplementary columns on the recordings list. A backend blip shouldn't
+                                // toast, it should just leave this batch's rows without properties.
+                                posthog.captureException(e)
+                                return values.recordingProperties
+                            }
+                            try {
+                                response = await api.queryHogQL(
+                                    buildPropertiesQuery(sessionIds, oldestTimestamp, newestTimestamp, []),
+                                    QUERY_TAGS
+                                )
+                            } catch (fallbackError) {
+                                posthog.captureException(fallbackError)
+                                return values.recordingProperties
+                            }
+                            // only a 400 (a pin missing from this project's session table) blacklists the pin set — transient errors retry next batch
+                            if (e instanceof ApiError && e.status === 400) {
+                                actions.markExtraPropertiesUnqueryable(extraSessionProperties)
+                            }
                         }
-                        // only a 400 (a pin missing from this project's session table) blacklists the pin set — transient errors retry next batch
-                        if (e instanceof ApiError && e.status === 400) {
-                            actions.markExtraPropertiesUnqueryable(extraSessionProperties)
-                        }
+                        const loadTimeMs = performance.now() - startTime
+
+                        actions.reportRecordingsListPropertiesFetched(loadTimeMs)
+
+                        return (response.results || []).map((row: any[]): SessionRecordingPropertiesType => {
+                            const cachedProperties = values.recordingPropertiesById[row[0]]
+                            const properties: Record<string, any> = {}
+                            BASE_PROPERTIES.forEach((property, index) => {
+                                properties[property] = row[index + 1]
+                            })
+                            // fallback rows have no extra columns — keep cached values (or null) so entries read as complete
+                            extraSessionProperties.forEach((property, index) => {
+                                properties[property] =
+                                    row[BASE_PROPERTIES.length + 1 + index] ?? cachedProperties?.[property] ?? null
+                            })
+                            return { id: row[0], properties }
+                        })
+                    } finally {
+                        sessionIds.forEach((id) => inFlight.delete(id))
                     }
-                    const loadTimeMs = performance.now() - startTime
-
-                    actions.reportRecordingsListPropertiesFetched(loadTimeMs)
-
-                    breakpoint()
-                    return (response.results || []).map((row: any[]): SessionRecordingPropertiesType => {
-                        const cachedProperties = values.recordingPropertiesById[row[0]]
-                        const properties: Record<string, any> = {}
-                        BASE_PROPERTIES.forEach((property, index) => {
-                            properties[property] = row[index + 1]
-                        })
-                        // fallback rows have no extra columns — keep cached values (or null) so entries read as complete
-                        extraSessionProperties.forEach((property, index) => {
-                            properties[property] =
-                                row[BASE_PROPERTIES.length + 1 + index] ?? cachedProperties?.[property] ?? null
-                        })
-                        return { id: row[0], properties }
-                    })
                 },
             },
         ],
@@ -255,10 +264,15 @@ export const sessionRecordingsListPropertiesLogic = kea<sessionRecordingsListPro
         ],
     }),
 
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
         maybeLoadPropertiesForSessions: ({ sessions }) => {
             const wantedSessionProperties = values.extraSessionProperties
+            const inFlight: Map<string, string[]> | undefined = cache.inFlight
             const newSessions = sessions.filter((session) => {
+                const requested = inFlight?.get(session.id)
+                if (requested && wantedSessionProperties.every((property) => requested.includes(property))) {
+                    return false
+                }
                 const cached = values.recordingPropertiesById[session.id]
                 return !cached || wantedSessionProperties.some((property) => !(property in cached))
             })
