@@ -422,10 +422,14 @@ describe('RateLimiterService', () => {
     })
 
     it('shares recipient allowances across projects in an organization while keeping project allowances separate', async () => {
-        const organizations = { 1: randomUUID(), 3: randomUUID() }
+        const organizations = { 1: randomUUID(), 3: randomUUID(), 4: randomUUID() }
         const teamManager = {
             getTeam: (id: number) =>
-                Promise.resolve({ organization_id: id === 3 ? organizations[3] : organizations[1] }),
+                id === 5
+                    ? Promise.reject(new Error('Postgres is unreachable'))
+                    : Promise.resolve({
+                          organization_id: id in organizations ? organizations[id as 3 | 4] : organizations[1],
+                      }),
         } as unknown as TeamManager
         const sender = new SandboxEmailSender(
             {
@@ -442,8 +446,11 @@ describe('RateLimiterService', () => {
             { isPaused: () => Promise.resolve(false) }
         )
 
+        const claimAllOrNothing = jest.spyOn(limiter, 'claimAllOrNothing')
         try {
             expect(await sender.claimDailyCaps(1, ['member@example.com'])).toMatchObject({ type: 'granted' })
+            const spentOverADay = expect.objectContaining({ capacity: 1, refillPerSecond: 1 / 86_400 })
+            expect(claimAllOrNothing).toHaveBeenCalledWith([spentOverADay, spentOverADay])
             expect(await sender.claimDailyCaps(2, ['member@example.com'])).toEqual({
                 type: 'recipient_cap_reached',
                 addresses: ['member@example.com'],
@@ -451,6 +458,11 @@ describe('RateLimiterService', () => {
             expect(await sender.claimDailyCaps(2, ['other@example.com'])).toMatchObject({ type: 'granted' })
             expect(await sender.claimDailyCaps(3, ['member@example.com'])).toMatchObject({ type: 'granted' })
             expect(await sender.claimDailyCaps(2, ['third@example.com'])).toEqual({ type: 'project_cap_reached' })
+            // One recipient written twice is one email for the project allowance too.
+            expect(await sender.claimDailyCaps(4, ['twice@example.com', ' TWICE@example.com'])).toMatchObject({
+                type: 'granted',
+            })
+            expect(await sender.claimDailyCaps(5, ['member@example.com'])).toEqual({ type: 'check_failed' })
         } finally {
             for (const organizationId of Object.values(organizations)) {
                 await deleteKeysWithPrefix(redis, `@posthog/workflows-sandbox-daily/{${organizationId}}`)
@@ -459,6 +471,15 @@ describe('RateLimiterService', () => {
     })
 
     describe('claimAllOrNothing', () => {
+        it('refills a bucket that a claim emptied', async () => {
+            const bucket = { key: `${KEY}/refill`, requested: 1, capacity: 1, refillPerSecond: 5 }
+
+            expect(await limiter.claimAllOrNothing([bucket])).toMatchObject({ granted: true })
+            expect(await limiter.claimAllOrNothing([bucket])).toMatchObject({ granted: false })
+            await new Promise((resolve) => setTimeout(resolve, 300))
+            expect(await limiter.claimAllOrNothing([bucket])).toMatchObject({ granted: true })
+        })
+
         it('spends an unanswered claim once when the same EVAL is replayed', async () => {
             const bucket = { key: `${KEY}/claim-replay`, requested: 1, capacity: 2, refillPerSecond: 0 }
             const replayingRedis: RedisV2 = {
@@ -482,10 +503,28 @@ describe('RateLimiterService', () => {
             expect(await replayingLimiter.claimAllOrNothing([bucket])).toMatchObject({ granted: true })
             expect(await limiter.claimAllOrNothing([bucket])).toMatchObject({ granted: true })
             expect(await limiter.claimAllOrNothing([bucket])).toEqual({ granted: false, deniedIndexes: [0] })
-            const claimRecords = await redis.useClient({ name: 'claim-records' }, (client) =>
-                client.keys(`${bucket.key}/claimed/*`)
-            )
-            expect(claimRecords).toHaveLength(2)
+        })
+
+        it('takes no tokens for a claim that reaches Valkey after its caller gave up', async () => {
+            const bucket = { key: `${KEY}/claim-too-late`, requested: 1, capacity: 1, refillPerSecond: 0 }
+            const issuedAt = Date.now() - 5000
+            const lateClock = jest.spyOn(Date, 'now').mockReturnValue(issuedAt)
+            try {
+                expect(await limiter.claimAllOrNothing([bucket])).toEqual({ granted: false, deniedIndexes: null })
+            } finally {
+                lateClock.mockRestore()
+            }
+
+            expect(await limiter.claimAllOrNothing([bucket])).toMatchObject({ granted: true })
+        })
+
+        it.each([
+            ['no buckets', []],
+            ['the same bucket twice', [`${KEY}/twice`, `${KEY}/twice`]],
+        ])('refuses a claim with %s', async (_name, keys) => {
+            await expect(
+                limiter.claimAllOrNothing(keys.map((key) => ({ key, requested: 1, capacity: 1, refillPerSecond: 0 })))
+            ).rejects.toThrow('every bucket key only once')
         })
 
         it('fails closed through an optional pool whose Valkey is unreachable', async () => {
@@ -510,18 +549,21 @@ describe('RateLimiterService', () => {
             ).toEqual({ granted: false, deniedIndexes: null })
         })
 
-        it('fails a command at once while an optional pool reconnects instead of queueing it', async () => {
+        it.each([
+            ['a fail-fast pool fails the command at once', { optional: true, failFast: true }, 'rejects'],
+            ['an optional pool queues the command until it reconnects', { optional: true }, 'resolves'],
+        ] as const)('while the connection drops, %s', async (_name, options, outcome) => {
             const optionalValkey = createSesRateLimiterValkeyPool(
                 {
-                    SES_RATE_LIMITER_VALKEY_HOST: '127.0.0.1',
-                    SES_RATE_LIMITER_VALKEY_PORT: 6379,
+                    SES_RATE_LIMITER_VALKEY_HOST: hub.CDP_REDIS_HOST || '127.0.0.1',
+                    SES_RATE_LIMITER_VALKEY_PORT: hub.CDP_REDIS_PORT,
                     SES_RATE_LIMITER_VALKEY_PASSWORD: '',
                     SES_RATE_LIMITER_VALKEY_TLS: false,
                     REDIS_POOL_MIN_SIZE: 1,
                     REDIS_POOL_MAX_SIZE: 1,
                 },
                 'reconnect-test',
-                { optional: true }
+                options
             )!
             expect(await optionalValkey.useClient({ name: 'warm-up' }, (client) => client.ping())).toBe('PONG')
 
@@ -530,7 +572,11 @@ describe('RateLimiterService', () => {
                 return client.get(`${KEY}/during-outage`)
             })
 
-            await expect(duringOutage).rejects.toThrow('enableOfflineQueue')
+            if (outcome === 'rejects') {
+                await expect(duringOutage).rejects.toThrow('enableOfflineQueue')
+            } else {
+                await expect(duringOutage).resolves.toBeNull()
+            }
         })
 
         it.each([
@@ -582,8 +628,12 @@ describe('RateLimiterService', () => {
                     await expect(
                         sender.returnDailyCaps({
                             type: 'granted',
-                            claim: { granted: true, claimId: 'stalled-claim', returnBy: Date.now() + 60_000 },
-                            buckets: [bucket],
+                            claim: {
+                                granted: true,
+                                claimId: 'stalled-claim',
+                                returnBy: Date.now() + 60_000,
+                                buckets: [bucket],
+                            },
                         })
                     ).resolves.toBeUndefined()
                 } finally {
@@ -624,8 +674,8 @@ describe('RateLimiterService', () => {
             const claim = await grantedClaim(bucket)
             await grantedClaim(bucket)
 
-            await limiter.returnClaim(claim, [bucket])
-            await limiter.returnClaim(claim, [bucket])
+            await limiter.returnClaim(claim)
+            await limiter.returnClaim(claim)
 
             expect(await limiter.claimAllOrNothing([bucket])).toMatchObject({ granted: true })
             expect(await limiter.claimAllOrNothing([bucket])).toEqual({ granted: false, deniedIndexes: [0] })
@@ -635,7 +685,7 @@ describe('RateLimiterService', () => {
             const bucket = { key: `${KEY}/late-return`, requested: 1, capacity: 1, refillPerSecond: 0 }
             const claim = await grantedClaim(bucket)
 
-            await limiter.returnClaim({ ...claim, returnBy: Date.now() - 1000 }, [bucket])
+            await limiter.returnClaim({ ...claim, returnBy: Date.now() - 1000 })
 
             expect(await limiter.claimAllOrNothing([bucket])).toEqual({ granted: false, deniedIndexes: [0] })
         })

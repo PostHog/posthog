@@ -105,8 +105,8 @@ describe('OrganizationMembersService', () => {
 
         expect(check).toEqual(
             expected === 'allowed'
-                ? { blocked: [], deliverTo: [memberEmail] }
-                : { blocked: [{ address, unverifiedMember: expected === 'unverified' }], deliverTo: [] }
+                ? { blocked: [], deliverTo: new Map([[address, memberEmail]]) }
+                : { blocked: [{ address, unverifiedMember: expected === 'unverified' }], deliverTo: new Map() }
         )
     })
 
@@ -118,8 +118,22 @@ describe('OrganizationMembersService', () => {
 
         expect(await service.checkRecipients(team.id, [memberEmail, outsider])).toEqual({
             blocked: [{ address: outsider, unverifiedMember: false }],
-            deliverTo: [memberEmail],
+            deliverTo: new Map([[memberEmail, memberEmail]]),
         })
+    })
+
+    it.each([
+        ['delivers to the address that matches one exactly', 'Member', true],
+        ['blocks an address that matches neither', 'MEMBER', false],
+    ])('%s of two members whose addresses differ only in case', async (_case, written, delivered) => {
+        await createMember(`Member-${team.id}@example.com`, organizationId, true)
+        await createMember(`member-${team.id}@example.com`, organizationId, true)
+        const address = `${written}-${team.id}@example.com`
+
+        const check = await service.checkRecipients(team.id, [address])
+
+        expect(check.deliverTo.get(address)).toBe(delivered ? address : undefined)
+        expect(check.blocked).toEqual(delivered ? [] : [{ address, unverifiedMember: false }])
     })
 
     type FakeClient = EventEmitter & { query: jest.Mock; release: jest.Mock }
@@ -178,7 +192,7 @@ describe('OrganizationMembersService', () => {
                 await jest.advanceTimersByTimeAsync(0)
                 await expect(next).resolves.toEqual({
                     blocked: [{ address: memberEmail, unverifiedMember: false }],
-                    deliverTo: [],
+                    deliverTo: new Map(),
                 })
             } finally {
                 jest.useRealTimers()
@@ -258,13 +272,20 @@ describe('OrganizationMembersService', () => {
             }
         })
 
-        it('shares one member lookup across sends and reloads it after a minute', async () => {
+        it('shares one member lookup across concurrent and later sends and reloads it after a minute', async () => {
             let now = 0
             let member = 'member@example.com'
             const query = jest.fn(() => Promise.resolve({ rows: [memberRow(member)] }))
             const service = new OrganizationMembersService(routerFor(query), () => now)
 
-            expect((await service.checkRecipients(1, ['member@example.com'])).blocked).toEqual([])
+            expect(
+                (
+                    await Promise.all([
+                        service.checkRecipients(1, ['member@example.com']),
+                        service.checkRecipients(1, ['member@example.com']),
+                    ])
+                ).map((check) => check.blocked)
+            ).toEqual([[], []])
             expect((await service.checkRecipients(1, ['member@example.com'])).blocked).toEqual([])
             expect(query).toHaveBeenCalledTimes(1)
 
