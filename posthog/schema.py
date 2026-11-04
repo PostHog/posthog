@@ -17498,6 +17498,10 @@ class ChartSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    annotationsScope: AnnotationScope | None = Field(
+        default=None,
+        description=("Shows only the annotations saved at this level. Unset shows every level."),
+    )
     barGap: float | None = None
     boxPlot: BoxPlotSettings | None = None
     chartStyle: ChartStyle | None = Field(
