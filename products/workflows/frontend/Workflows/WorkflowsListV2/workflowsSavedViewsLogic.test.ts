@@ -778,6 +778,51 @@ describe('workflowsSavedViewsLogic', () => {
         expect(requests.some((url) => url.includes('/998/'))).toBe(true)
     })
 
+    it('ignores a save that resolves after the list closed and reopened, without ending the newer save', async () => {
+        const releases: (() => void)[] = []
+        let started: (() => void) | undefined
+        let requestStarted = new Promise<void>((resolve) => {
+            started = resolve
+        })
+        useMocks({
+            post: {
+                '/api/projects/:team_id/workflow_views/': async ({ request }) => {
+                    const body = (await request.json()) as WorkflowViewCreateApi
+                    await new Promise<void>((resolve) => {
+                        releases.push(resolve)
+                        started!()
+                    })
+                    return [201, { ...savedView, ...body, id: `00000000-0000-4000-8000-00000000000${releases.length}` }]
+                },
+            },
+        })
+        router.actions.push(urls.workflows())
+        logic = workflowsSavedViewsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSavedViewsSuccess'])
+        const closedSave = logic.asyncActions.saveViewAs('Closed list view')
+        await requestStarted
+        logic.unmount()
+
+        requestStarted = new Promise<void>((resolve) => {
+            started = resolve
+        })
+        logic = workflowsSavedViewsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSavedViewsSuccess'])
+        const newerSave = logic.asyncActions.saveViewAs('Reopened list view')
+        await requestStarted
+        releases[0]()
+        await closedSave
+        expect(logic.values.views.some((view) => view.name === 'Closed list view')).toBe(false)
+        expect(logic.values.saving).toBe(true)
+
+        releases[1]()
+        await newerSave
+        expect(logic.values.views.some((view) => view.name === 'Reopened list view')).toBe(true)
+        expect(logic.values.saving).toBe(false)
+    })
+
     it('keeps a late conflict attached to the edited view after switching tabs', async () => {
         let release: (() => void) | undefined
         let started: (() => void) | undefined

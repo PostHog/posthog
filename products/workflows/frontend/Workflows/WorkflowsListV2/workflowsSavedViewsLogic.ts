@@ -1,4 +1,15 @@
-import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import {
+    MakeLogicType,
+    actions,
+    afterMount,
+    beforeUnmount,
+    connect,
+    kea,
+    listeners,
+    path,
+    reducers,
+    selectors,
+} from 'kea'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 
@@ -376,7 +387,10 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
             'all',
             { setActiveViewId: (_, { id }) => id, applyView: (_, { view }) => view.id, clearSavedViews: () => 'all' },
         ],
-        pendingAction: [null as SavedViewAction | null, { setPendingAction: (_, { action }) => action }],
+        pendingAction: [
+            null as SavedViewAction | null,
+            { setPendingAction: (_, { action }) => action, clearSavedViews: () => null },
+        ],
         mutationFailure: [
             null as unknown,
             {
@@ -594,8 +608,9 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
             cache.filterKeysAddedWhileSaving = new Set<string>()
             const teamId = values.currentTeamId
             const generation = cache.contextGeneration ?? 0
+            // Check the generation first: after an unmount, `values` reads whichever list mounted next.
             const stillCurrent = (): boolean =>
-                values.enabled && values.currentTeamId === teamId && (cache.contextGeneration ?? 0) === generation
+                (cache.contextGeneration ?? 0) === generation && values.enabled && values.currentTeamId === teamId
             try {
                 await run(stillCurrent)
             } catch (error) {
@@ -603,7 +618,9 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
                     actions.setMutationFailure(handleFailure(action, error, target))
                 }
             } finally {
-                actions.setPendingAction(null)
+                if (stillCurrent()) {
+                    actions.setPendingAction(null)
+                }
             }
         }
         return {
@@ -871,5 +888,8 @@ export const workflowsSavedViewsLogic = kea<workflowsSavedViewsLogicType>([
     afterMount(({ actions, values, cache }) => {
         cache.loadedTeamId = values.currentTeamId
         actions.loadSavedViews()
+    }),
+    beforeUnmount(({ cache }) => {
+        cache.contextGeneration = (cache.contextGeneration ?? 0) + 1
     }),
 ])
