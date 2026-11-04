@@ -43,16 +43,18 @@ export class SandboxSenderStateService {
 
     // `fresh` reads the row itself, for the check right before delivery: a worker that missed the
     // reload message would otherwise answer from a cached state until the next refresh.
+    // A reload message during a read means the row changed after the read began, so both paths read again.
     public async isPaused(tenantName: string, { fresh = false }: { fresh?: boolean } = {}): Promise<boolean> {
-        if (fresh) {
-            return isDisabled((await this.fetchStatesWithRetry([tenantName]))[tenantName])
-        }
         for (let attempt = 0; attempt < 2; attempt++) {
-            const state = await this.lazyLoader.get(tenantName)
+            const state = fresh
+                ? (await this.fetchStatesWithRetry([tenantName]))[tenantName]
+                : await this.lazyLoader.get(tenantName)
             if (state?.generation === this.generation) {
                 return isDisabled(state)
             }
-            this.lazyLoader.markForRefresh(tenantName)
+            if (!fresh) {
+                this.lazyLoader.markForRefresh(tenantName)
+            }
         }
         throw new Error('Sandbox sender state changed during lookup')
     }

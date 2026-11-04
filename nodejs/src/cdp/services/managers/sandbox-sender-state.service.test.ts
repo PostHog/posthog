@@ -69,6 +69,42 @@ describe('SandboxSenderStateService', () => {
         }
     })
 
+    it.each([
+        ['arrives while the read runs', true],
+        ['arrives after the state was cached', false],
+    ])('reads the pause state again when a reload message %s', async (_case, duringRead) => {
+        for (const fresh of [false, true]) {
+            let reload!: (message: { tenantName: string }) => void
+            const reloads = {
+                on: (_channel: string, handler: typeof reload) => {
+                    reload = handler
+                },
+            } as unknown as PubSub
+            const statuses = ['ENABLED', 'DISABLED']
+            const postgres = {
+                connect: () => Promise.resolve(idleClient()),
+                query: (_tx: unknown, sql: string) => {
+                    if (sql.startsWith('SET LOCAL')) {
+                        return Promise.resolve({ rows: [] })
+                    }
+                    const status = statuses.shift()!
+                    if (duringRead && status === 'ENABLED') {
+                        reload({ tenantName: 'sandbox-tenant' })
+                    }
+                    return Promise.resolve(row(status))
+                },
+            } as unknown as PostgresRouter
+            const service = new SandboxSenderStateService(postgres, reloads)
+
+            if (!duringRead) {
+                await expect(service.isPaused('sandbox-tenant', { fresh })).resolves.toBe(false)
+                reload({ tenantName: 'sandbox-tenant' })
+            }
+
+            await expect(service.isPaused('sandbox-tenant', { fresh })).resolves.toBe(true)
+        }
+    })
+
     it('fails fresh checks at their deadline while the pool has no connection, keeps at most five lookups open, and runs no query for them later', async () => {
         jest.useFakeTimers()
         try {
