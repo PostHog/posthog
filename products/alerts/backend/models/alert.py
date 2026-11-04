@@ -343,16 +343,15 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     def check_alert_limit(cls, team_id: int, organization: Organization) -> str | None:
         """Return an error message if the team has reached its alert limit, else None."""
         alerts_feature = organization.get_available_feature(AvailableFeature.ALERTS)
-        existing_count = cls._counted(team_id)
 
         if alerts_feature:
             allowed = alerts_feature.get("limit")
             # If allowed is None then the user is allowed unlimited alerts
-            if allowed is not None and existing_count >= allowed:
+            if allowed is not None and cls._counted(team_id) >= allowed:
                 return f"Your team has reached the limit of {allowed} alerts on your plan."
         else:
             # If the org doesn't have alerts feature, limit to that on free tier
-            if existing_count >= cls.ALERTS_ALLOWED_ON_FREE_TIER:
+            if cls._counted(team_id) >= cls.ALERTS_ALLOWED_ON_FREE_TIER:
                 return f"Your plan is limited to {cls.ALERTS_ALLOWED_ON_FREE_TIER} alerts."
 
         return None

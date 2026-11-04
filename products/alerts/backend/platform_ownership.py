@@ -13,7 +13,6 @@ from datetime import datetime
 from uuid import UUID
 
 from posthog.models.team.team import Team
-from posthog.schema_enums import AlertCalculationInterval
 
 from products.alerts.backend.evaluation.validation import validate_alert_config
 from products.alerts.backend.facade.contracts import PlatformCannotOwn
@@ -27,7 +26,7 @@ from products.alerts.backend.platform_cutover import (
     has_begun_cutover,
     in_an_environment,
 )
-from products.alerts.backend.platform_source_cycle import platform_upsert_of
+from products.alerts.backend.platform_source_cycle import interval_of, platform_upsert_of
 from products.alerts_platform.backend.facade.api import close_owned_firings_now, delete_owned_copy, update_owned_copy
 from products.alerts_platform.backend.facade.contracts import (
     SOURCE_CONDITION_KEY,
@@ -37,20 +36,10 @@ from products.alerts_platform.backend.facade.contracts import (
     PlatformAlertUpsert,
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
-from products.alerts_platform.backend.facade.scheduling import (
-    EVERY_15_MINUTES_CADENCE_MINUTES,
-    REAL_TIME_CADENCE_MINUTES,
-)
 
 # What an edit through either API can change on both rows. The cadence is a schedule, which the
 # platform's edit leaves out, so an insight edit writes it onto the copy separately.
 _EDITED_FIELDS = ("name", "source_config", "schedule_restriction")
-
-# The cadences a plan has to include. Every other cadence is on every plan.
-_PLAN_GATED_INTERVALS: dict[int, AlertCalculationInterval] = {
-    REAL_TIME_CADENCE_MINUTES: AlertCalculationInterval.REAL_TIME,
-    EVERY_15_MINUTES_CADENCE_MINUTES: AlertCalculationInterval.EVERY_15_MINUTES,
-}
 
 
 def on_created(alert: AlertConfiguration, at: datetime) -> bool:
@@ -211,26 +200,24 @@ def admit_platform_write(
     edit: PlatformAlertConfigurationEdit,
     check_interval_minutes: int | None,
 ) -> None:
-    """The plan limits on an insight alert written through the platform, the same ones the insight API
-    and the Max tool check. A create counts against the plan's alerts. A write that turns an alert on
-    needs the plan to include its cadence, and a real-time one counts against the active real-time limit.
-    Without these, the next evaluation would switch the alert off again."""
-    turns_on = edit.enabled and (current is None or not current.enabled)
-    interval = _PLAN_GATED_INTERVALS.get(check_interval_minutes) if turns_on and check_interval_minutes else None
-    if current is not None and interval is None:
-        return
+    """The plan limits on an insight alert created or turned on through the platform, the same ones the
+    insight API and the Max tool check. A create counts against the plan's alerts. An enabled alert
+    needs the plan to include its cadence, and a real-time one counts against the active real-time
+    limit. Without these, the next evaluation would switch the alert off again."""
     organization = Team.objects.select_related("organization").get(id=team_id).organization
-    if current is None and (error := AlertConfiguration.check_alert_limit(team_id, organization)):
-        raise PlatformAlertCreateRefused(error)
-    if interval is None:
+    interval = interval_of(check_interval_minutes) if edit.enabled and check_interval_minutes else None
+    error = (
+        (AlertConfiguration.check_alert_limit(team_id, organization) if current is None else None)
+        or AlertConfiguration.interval_entitlement_error(calculation_interval=interval, organization=organization)
+        or AlertConfiguration.real_time_alert_validation_error(
+            team_id=team_id, organization=organization, calculation_interval=interval, enabled=True
+        )
+    )
+    if error is None:
         return
-    error = AlertConfiguration.interval_entitlement_error(calculation_interval=interval, organization=organization)
-    if error is None and interval == AlertCalculationInterval.REAL_TIME:
-        error = AlertConfiguration.check_real_time_alert_limit(team_id, organization)
-    if error is not None:
-        if current is None:
-            raise PlatformAlertCreateRefused(error)
-        raise InvalidPlatformAlertEdit("enabled", error)
+    if current is None:
+        raise PlatformAlertCreateRefused(error)
+    raise InvalidPlatformAlertEdit("enabled", error)
 
 
 def _threshold_of(alert: AlertConfiguration) -> dict | None:

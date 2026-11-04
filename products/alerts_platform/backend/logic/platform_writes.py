@@ -470,8 +470,8 @@ def _apply(
     admit: bool = False,
 ) -> tuple[PlatformAlertConfigurationEdit, control_plane.PendingClose | None]:
     """Validates and writes an edit onto a configuration locked by the caller, and ends the firings it
-    makes meaningless. With `admit`, the source's admission decides first: an edit the source made on
-    its own row has already passed its own checks."""
+    makes meaningless. With `admit`, the source's admission decides first on an edit that turns the
+    alert on: an edit the source made on its own row has already passed its own checks."""
     if configuration.owner != PlatformAlertOwner.PLATFORM:
         raise PlatformAlertNotEditable(
             f"This alert is managed by the {configuration.source_kind} product. Edit it there."
@@ -479,7 +479,7 @@ def _apply(
     source_kind = SourceKind(configuration.source_kind)
     current = edit_of(configuration)
     edit = _validated(source_kind, current, change(current), team_id=configuration.team_id)
-    if admit:
+    if admit and edit.enabled and not current.enabled:
         _admit(
             team_id=configuration.team_id,
             source_kind=source_kind,
