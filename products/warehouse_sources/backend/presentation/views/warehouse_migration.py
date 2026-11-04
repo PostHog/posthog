@@ -15,7 +15,7 @@ from posthog.api.pagination import PrecountedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.models.user import User
-from posthog.rate_limit import WarehouseMigrationCrawlThrottle
+from posthog.rate_limit import PersonalApiKeyOrUserRateThrottle, WarehouseMigrationCrawlThrottle
 
 from products.warehouse_sources.backend.facade import (
     contracts,
@@ -259,6 +259,14 @@ class WarehouseMigrationConnectLinkSerializer(serializers.Serializer):
     instructions = serializers.CharField(help_text="What the agent should tell the user and do next.")
 
 
+class WarehouseMigrationUploadThrottle(PersonalApiKeyOrUserRateThrottle):
+    """Each upload loads, plans again and rewrites the stored snapshot under the migration row lock. The budget sits
+    far above an agent sending batches one after another, and stops a scripted flood."""
+
+    scope = "warehouse_migration_upload"
+    rate = "60/minute"
+
+
 _ITEM_ID = OpenApiParameter("item_id", str, OpenApiParameter.PATH, description="Item ID.")
 
 
@@ -339,7 +347,7 @@ class WarehouseMigrationViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
         request_serializer=WarehouseMigrationUploadConnectionsSerializer,
         responses={200: WarehouseMigrationUploadResponseSerializer},
     )
-    @action(methods=["POST"], detail=True)
+    @action(methods=["POST"], detail=True, throttle_classes=[WarehouseMigrationUploadThrottle])
     def connections(self, request: ValidatedRequest, pk: str, *args: Any, **kwargs: Any) -> Response:
         """Plan vendor connections an agent read, and add them to an uploaded migration."""
         data = request.validated_data

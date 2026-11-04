@@ -1,7 +1,7 @@
 import re
 from collections.abc import Mapping
 from typing import Any
-from urllib.parse import unquote_plus
+from urllib.parse import unquote, unquote_plus
 
 # Vendors mask secrets on read, but we do not rely on it: a field that is not masked
 # (a vendor bug or a new field) must still never reach storage.
@@ -71,8 +71,8 @@ def _has_url_password(value: str) -> bool:
     while start >= 0:
         authority = _URL_AUTHORITY.match(value, start + 3)
         userinfo, at, _host = (authority.group() if authority else "").partition("@")
-        # A colon with a non-empty password after it.
-        if at and ":" in userinfo[:-1]:
+        # A colon with a non-empty password after it, also percent-encoded as `%3A`.
+        if at and (":" in userinfo[:-1] or ":" in unquote(userinfo)[:-1]):
             return True
         start = value.find("://", start + 3)
     return False

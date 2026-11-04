@@ -3,6 +3,7 @@ from typing import Any
 from uuid import UUID
 
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from posthog.models import Team
@@ -135,13 +136,17 @@ def _save_items(migration: WarehouseMigration, planned: tuple[PlannedItem, ...],
     touched = items if delete_missing else items.filter(vendor_connection_id__in=planned_ids)
     # Locked so an apply cannot claim an item between this read and the save below.
     existing = {item.vendor_connection_id: item for item in touched.select_for_update()}
-    # Kept items keep their sources, so a refreshed connection must not reuse one of their prefixes. Read from all
-    # items, because an upload locks only its own batch.
+    # Kept items keep their sources, so a refreshed connection must not reuse one of their prefixes. An upload also
+    # keeps every item outside its batch, with the prefix its earlier plan gave it.
+    keeps = (
+        Q(status__in=_KEEP_ON_REFRESH)
+        if delete_missing
+        else Q(status__in=_KEEP_ON_REFRESH) | ~Q(vendor_connection_id__in=planned_ids)
+    )
     reserved = {
         (ExternalDataSourceType(proposal["source_type"]), proposal["prefix"])
-        for proposal in items.filter(status__in=_KEEP_ON_REFRESH, proposal__isnull=False).values_list(
-            "proposal", flat=True
-        )
+        for proposal in items.filter(keeps, proposal__isnull=False).values_list("proposal", flat=True)
+        if proposal
     }
     planned = with_unique_prefixes(planned, reserved)
 

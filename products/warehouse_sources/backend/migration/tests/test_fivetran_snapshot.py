@@ -270,6 +270,7 @@ class TestStripSecrets(SimpleTestCase):
                 {"host": "https://" + ":" * 100_000},
             ),
             ("password_in_url_without_user", {"uri": "redis://:fake@cache.example.com:6379"}, {}),
+            ("percent_encoded_password_in_url", {"jdbc_url": "postgres://reader%3Afake@db.example.com/app"}, {}),
             (
                 "credential_in_url_query",
                 {
