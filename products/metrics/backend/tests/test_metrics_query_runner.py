@@ -233,6 +233,24 @@ class TestMetricsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert update_response.status_code == 200, update_response.json()
         assert update_response.json()["query"] == response.json()["query"]
 
+        with_values = {**query, "variables": {"job": {"values": ["api"]}}}
+        rejected_create = self.client.post(
+            f"/api/projects/{self.team.pk}/insights/",
+            {"name": "queue depth", "saved": True, "query": with_values},
+            format="json",
+            headers=client_headers,
+        )
+        rejected_update = self.client.patch(
+            f"/api/projects/{self.team.pk}/insights/{response.json()['id']}/",
+            {"query": with_values},
+            format="json",
+            headers=client_headers,
+        )
+
+        for rejected in (rejected_create, rejected_update):
+            assert rejected.status_code == 400, rejected.json()
+            assert "can't store variable values" in str(rejected.json())
+
     def test_validate_query_runner_access_granted(self) -> None:
         query = MetricsQuery(clauses=[MetricsQueryClause(name="a", metricName="queue_depth", aggregation="sum")])
 
