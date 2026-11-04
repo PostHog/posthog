@@ -2,6 +2,8 @@ from django.db.models import F, QuerySet
 from django.db.models.functions import Coalesce, Now
 from django.utils import timezone
 
+from posthog.models.scoping.manager import resolve_effective_team_id
+
 from products.messaging.backend.models.email_hard_bounce import EmailHardBounce
 from products.messaging.backend.models.message_suppression import MessageSuppression, SuppressionSource
 
@@ -42,6 +44,47 @@ def add_manual_suppression(team_id: int, identifier: str, created_by_id: int | N
         suppression.refresh_from_db()
 
     return suppression, created
+
+
+IMPORTED_SUPPRESSION_REASONS: dict[SuppressionSource, str] = {
+    SuppressionSource.BOUNCE: "Imported (bounced)",
+    SuppressionSource.COMPLAINT: "Imported (spam complaint)",
+    SuppressionSource.MANUAL: "Imported (manually suppressed)",
+}
+
+
+def bulk_add_suppressions(
+    team_id: int, sources_by_identifier: dict[str, SuppressionSource], created_by_id: int | None
+) -> int:
+    """Suppress the identifiers that have no row yet, and return how many rows it added.
+
+    An existing row is left alone. It can be a manual entry, an address someone removed from the list on purpose,
+    or a row the bounce feedback already manages.
+    """
+    # bulk_create skips the save() that moves a child environment's rows to its parent project.
+    team_id = resolve_effective_team_id(team_id)
+    suppressions = MessageSuppression.objects.for_team(team_id, canonical=True)
+    existing = set(suppressions.filter(identifier__in=list(sources_by_identifier)).values_list("identifier", flat=True))
+    now = timezone.now()
+    new_rows = [
+        MessageSuppression(
+            team_id=team_id,
+            identifier=identifier,
+            source=source,
+            reason=IMPORTED_SUPPRESSION_REASONS[source],
+            suppressed=True,
+            suppressed_at=now,
+            # A provider lists a bounce only for an address that can't receive mail, so it blocks transactional email.
+            hard_bounced_at=now if source == SuppressionSource.BOUNCE else None,
+            created_by_id=created_by_id,
+        )
+        # Sorted so concurrent imports take the unique-index locks in the same order and can't deadlock.
+        for identifier, source in sorted(sources_by_identifier.items())
+        if identifier not in existing
+    ]
+    # ignore_conflicts skips an address inserted after the read above, and the count by pk leaves it out.
+    suppressions.bulk_create(new_rows, ignore_conflicts=True)
+    return suppressions.filter(pk__in=[row.pk for row in new_rows]).count()
 
 
 def remove_suppression(team_id: int, identifier: str) -> bool:

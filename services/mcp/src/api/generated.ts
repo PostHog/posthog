@@ -21033,6 +21033,48 @@ export namespace Schemas {
     }
 
     /**
+     * * `bounce` - Bounce
+     * * `complaint` - Complaint
+     * * `manual` - Manual
+     */
+    export type BulkSuppressionReasonEnum = typeof BulkSuppressionReasonEnum[keyof typeof BulkSuppressionReasonEnum];
+
+
+    export const BulkSuppressionReasonEnum = {
+      Bounce: 'bounce',
+      Complaint: 'complaint',
+      Manual: 'manual',
+    } as const;
+
+    export interface BulkSuppressionEntry {
+      /**
+         * The email address to suppress. Matched case-insensitively.
+         * @maxLength 512
+         */
+      identifier: string;
+      /** Why the address is suppressed. `bounce` blocks every email, transactional included, because the address can't receive mail. `complaint` (the recipient reported spam) and `manual` block marketing email only. Defaults to `manual`.
+       *
+       * * `bounce` - Bounce
+       * * `complaint` - Complaint
+       * * `manual` - Manual */
+      reason?: BulkSuppressionReasonEnum;
+    }
+
+    export interface BulkAddSuppressionsRequest {
+      /** Addresses to suppress, at most 1000 per request. */
+      suppressions: BulkSuppressionEntry[];
+    }
+
+    export interface BulkAddSuppressionsResult {
+      /** Number of distinct addresses received, after lowercasing. */
+      total: number;
+      /** Number of addresses added to the suppression list. */
+      created: number;
+      /** Number of addresses that already had an entry. Their entry is left unchanged, even when someone removed it from the list. */
+      already_present: number;
+    }
+
+    /**
      * * `fully_rolled_out` - fully_rolled_out
      * * `not_rolled_out` - not_rolled_out
      * * `partial` - partial

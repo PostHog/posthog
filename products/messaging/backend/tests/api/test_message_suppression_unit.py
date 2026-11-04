@@ -17,5 +17,6 @@ class TestMessageSuppressionViewSetScope(SimpleTestCase):
         # listed here they'd default to a read scope and slip past hog_flow:write enforcement.
         assert set(MessageSuppressionViewSet.scope_object_write_actions) == {
             "add_suppression",
+            "bulk_add_suppressions",
             "remove_suppression",
         }
