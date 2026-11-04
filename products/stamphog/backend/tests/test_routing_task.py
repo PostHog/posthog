@@ -402,25 +402,36 @@ def test_fallback_approval_requests_only_pinned_owners(
 
 
 @pytest.mark.parametrize(
-    "name,verdict,expected_trigger,expected_requests",
+    "name,verdict,changed_files,expected_trigger,expected_requests,expected_nets",
     [
-        ("approval", ReviewVerdict.APPROVED, "verdict:approved", (set(), {"team-alpha"})),
-        ("refusal", ReviewVerdict.REFUSED, "verdict:refused", ({"carol"}, {"team-alpha", "team-beta"})),
+        ("approval", ReviewVerdict.APPROVED, None, "verdict:approved", (set(), {"team-alpha"}), 0),
+        ("refusal", ReviewVerdict.REFUSED, None, "verdict:refused", ({"carol"}, {"team-alpha", "team-beta"}), 0),
+        # The pins come from a partial file list, so the head still owes a full routing from the safety net.
+        (
+            "approval_on_a_truncated_file_list",
+            ReviewVerdict.APPROVED,
+            5000,
+            "verdict:approved",
+            (set(), {"team-alpha"}),
+            1,
+        ),
     ],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_a_verdict_before_the_opening_event_routes_when_the_pull_request_opens(
     name: str,
     verdict: ReviewVerdict,
+    changed_files: int | None,
     expected_trigger: str,
     expected_requests: tuple[set[str], set[str]],
+    expected_nets: int,
     team,
     user,
     routing_chain,
     safety_net,
 ) -> None:
     # A fast verdict beats the opening task, so the verdict task finds no record and drops it.
-    repo_config = _setup(routing_chain, team, user, routing_mode="fallback")
+    repo_config = _setup(routing_chain, team, user, routing_mode="fallback", changed_files=changed_files)
     with team_scope(team.id):
         pr_obj = PullRequest.objects.for_team(team.id).create(
             team_id=team.id, repo_config=repo_config, pr_number=PR_NUMBER
@@ -433,7 +444,7 @@ def test_a_verdict_before_the_opening_event_routes_when_the_pull_request_opens(
 
     _route()
 
-    safety_net.assert_not_called()
+    assert safety_net.call_count == expected_nets
     assert _requested(routing_chain) == expected_requests
     assert _stored(team.id)["trigger"] == expected_trigger
 

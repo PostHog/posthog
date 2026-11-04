@@ -207,6 +207,14 @@ def _event_step(client: StamphogGitHubClient, state: _State, *, action: str, rev
     return _Step(pr=pr, head_sha=head_sha, mode=mode, trigger=action, wait=wait)
 
 
+def _schedule_net_after_partial_pins(repo_config: StamphogRepoConfig, pr_number: int, review_path: ReviewPath) -> None:
+    # The net of the opening event can be gone already, so a pinned routing that can have missed a
+    # pin needs a net of its own to route the head in full.
+    record = stored_routing(repo_config, pr_number)
+    if record is not None and record.get("status") == STATUS_DONE and pinned_on_partial_data(record):
+        review_path.schedule_safety_net(repo_config, pr_number)
+
+
 def route_on_pull_request_event(
     repo_config: StamphogRepoConfig, *, action: str, pr_number: int, task_id: str, review_path: ReviewPath
 ) -> None:
@@ -219,10 +227,12 @@ def route_on_pull_request_event(
         return
     client = StamphogGitHubClient(repo_config.installation_id)
     state = _load_state(repo_config, pr_number, task_id)
-    if _resume(client, state):
-        return
-    step = _event_step(client, state, action=action, review_path=review_path)
-    _execute(client, state, step, review_path, retry_when_busy=True)
+    if not _resume(client, state):
+        step = _event_step(client, state, action=action, review_path=review_path)
+        _execute(client, state, step, review_path, retry_when_busy=True)
+    # An approval that came before this event routes the pinned owners here, and the verdict task found no
+    # record to give that routing a safety net.
+    _schedule_net_after_partial_pins(repo_config, pr_number, review_path)
 
 
 def _fallback_repo_config(team_id: int, repo_config_id: str) -> StamphogRepoConfig | None:
@@ -274,14 +284,6 @@ def _verdict_step(client: StamphogGitHubClient, state: _State, *, head_sha: str,
         wait=outcome == ReviewVerdict.WAIT,
         scope=SCOPE_PINNED if outcome == ReviewVerdict.APPROVED else SCOPE_FULL,
     )
-
-
-def _schedule_net_after_partial_pins(repo_config: StamphogRepoConfig, pr_number: int, review_path: ReviewPath) -> None:
-    # The net of the opening event can be gone already, so a pinned routing that can have missed a
-    # pin needs a net of its own to route the head in full.
-    record = stored_routing(repo_config, pr_number)
-    if record is not None and record.get("status") == STATUS_DONE and pinned_on_partial_data(record):
-        review_path.schedule_safety_net(repo_config, pr_number)
 
 
 def route_after_verdict(
