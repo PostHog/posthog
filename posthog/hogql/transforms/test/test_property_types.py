@@ -36,6 +36,7 @@ from posthog.schema import HogQLQueryModifiers, MaterializationMode
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.escape_sql import escape_hogql_string
 from posthog.hogql.functions.clickhouse.json import JSON_FUNCTIONS
 from posthog.hogql.functions.udfs import JSON_DROP_KEYS_CLICKHOUSE_NAME
 from posthog.hogql.parser import parse_select
@@ -140,6 +141,22 @@ class _NewEventsSchemaArraySubcolumnsHelpers:
 
 @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
 class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers, SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("extract", "JSONExtractString(properties, '')"),
+            ("has", "JSONHas(properties, '')"),
+            ("property", "properties['']"),
+            ("nested_property", "properties.parent[''].child"),
+            ("numeric", "toFloat(properties[''])"),
+            ("person", "JSONExtract(poe.properties, '', 'String')"),
+            ("wrapped", "JSONExtractString(toString(properties), '')"),
+        ]
+    )
+    def test_empty_property_keys_do_not_print_empty_identifiers(self, _name: str, expression: str) -> None:
+        printed = self._print_select(f"SELECT {expression} AS value FROM events")
+        assert ".``" not in printed
+        assert "getSubcolumn(" in printed
+
     def test_json_function_rewrites_ignore_property_metadata(self) -> None:
         printed = self._print_select(
             "SELECT JSONExtractRaw(properties, 'value') AS value FROM events",
@@ -612,7 +629,17 @@ class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers,
 @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
 @pytest.mark.usefixtures("clickhouse_database")
 class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolumnsHelpers, SimpleTestCase):
-    def test_json_function_conversions_and_defaults_match_the_blob(self) -> None:
+    @parameterized.expand(
+        [
+            ("ordinary", ["value"]),
+            ("empty", [""]),
+            ("empty_first", ["", "child"]),
+            ("empty_middle", ["parent", "", "child"]),
+            ("empty_last", ["parent", ""]),
+            ("nested_percent", ["parent", "value%"]),
+        ]
+    )
+    def test_json_function_conversions_and_defaults_match_the_blob(self, _name: str, keys: list[str]) -> None:
         documents = [
             "{}",
             '{"value":null}',
@@ -631,6 +658,13 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
             '{"value":[1,"two"]}',
             '{"value":{"name":"example"}}',
         ]
+        for index, document in enumerate(documents):
+            parsed = json.loads(document)
+            if "value" in parsed:
+                value = parsed["value"]
+                for key in reversed(keys):
+                    value = {key: value}
+                documents[index] = json.dumps(value)
         expressions = [
             "JSONExtractString(properties, 'value')",
             "JSONExtractInt(properties, 'value')",
@@ -647,6 +681,7 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
             "JSONType(properties, 'value')",
         ]
         query = "SELECT distinct_id, " + ", ".join(expressions) + " FROM events ORDER BY distinct_id"
+        query = query.replace("'value'", ", ".join(escape_hogql_string(key) for key in keys))
         results = []
         for native in (False, True):
             context = self._context(use_new_events_schema=native)

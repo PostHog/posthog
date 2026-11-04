@@ -28,9 +28,9 @@ from posthog.hogql.database.schema.util.where_clause_extractor import (
 )
 from posthog.hogql.errors import ImpossibleASTError, InternalHogQLError, QueryError
 from posthog.hogql.escape_sql import (
+    backquote_clickhouse_identifier,
     escape_clickhouse_identifier,
     escape_clickhouse_string,
-    quote_clickhouse_identifier,
     safe_identifier,
 )
 from posthog.hogql.functions import ADD_OR_NULL_DATETIME_FUNCTIONS, FIRST_ARG_DATETIME_FUNCTIONS
@@ -1529,10 +1529,12 @@ class ClickHousePrinter(BasePrinter):
         # branch below, as `%` would otherwise break the SQL's own parameter placeholders.
         keys = [key.replace(".", "%2E") for key in node.keys]
 
-        if any("%" in key for key in keys):
+        # getSubcolumn accepts empty keys, but SQL identifiers cannot be empty.
+        if any(key == "" or "%" in key for key in keys):
             if node.access_type == "sub_object":
                 for key in keys:
-                    subcolumn = f"^{quote_clickhouse_identifier(key)}"
+                    # The sub-object syntax inside getSubcolumn requires quotes even for simple names.
+                    subcolumn = f"^{backquote_clickhouse_identifier(key)}"
                     expr = f"getSubcolumn({expr}, {self.context.add_value(subcolumn)})"
                 return expr
             subcolumn = ".".join(keys)
