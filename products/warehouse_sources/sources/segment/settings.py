@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Literal, Optional
 
 from products.warehouse_sources.sources.sdk import IncrementalField
 
@@ -23,7 +23,7 @@ class SegmentEndpointConfig:
     # rather than a paginated list. Such endpoints yield exactly one row.
     single_object_key: Optional[str] = None
     # A stable, immutable datetime field to partition on. Segment's config/admin objects carry no
-    # timestamps, so only audit events (immutable `timestamp`) set this.
+    # timestamps, so only audit events (`timestamp`) and Reverse ETL syncs (`startedAt`) set this.
     partition_key: Optional[str] = None
     incremental_fields: list[IncrementalField] = field(default_factory=list)
     should_sync_default: bool = True
@@ -33,6 +33,9 @@ class SegmentEndpointConfig:
     # no reliable allowlist of safe sub-keys; we drop the whole field rather than risk leaking
     # secrets into a queryable warehouse table.
     redacted_fields: frozenset[str] = field(default_factory=frozenset)
+    # Child resources read once per parent row. `path` then holds the parent placeholders, and
+    # `segment.py` lists the parents and resumes per parent.
+    fanout: Optional[Literal["tracking_plan_rules", "delivery_metrics", "reverse_etl_syncs"]] = None
 
 
 # The Segment Public API is a workspace configuration/admin/usage API (not the event/Profile data
@@ -60,7 +63,36 @@ SEGMENT_ENDPOINTS: dict[str, SegmentEndpointConfig] = {
     "iam_groups": SegmentEndpointConfig(name="iam_groups", path="/groups"),
     "labels": SegmentEndpointConfig(name="labels", path="/labels", primary_keys=["key", "value"]),
     "audit_events": SegmentEndpointConfig(name="audit_events", path="/audit-events", partition_key="timestamp"),
+    # Segment-wide catalogs that resolve the `metadata.id` carried on sources, destinations and warehouses.
+    "destinations_catalog": SegmentEndpointConfig(name="destinations_catalog", path="/catalog/destinations"),
+    "sources_catalog": SegmentEndpointConfig(name="sources_catalog", path="/catalog/sources"),
+    "warehouses_catalog": SegmentEndpointConfig(name="warehouses_catalog", path="/catalog/warehouses"),
+    # Rules have no id. A plan holds one rule per (type, key, version), and keyless rule types
+    # (identify, group, common) get an empty `key`.
+    "tracking_plan_rules": SegmentEndpointConfig(
+        name="tracking_plan_rules",
+        path="/tracking-plans/{tracking_plan_id}/rules",
+        primary_keys=["trackingPlanId", "type", "key", "version"],
+        fanout="tracking_plan_rules",
+    ),
+    # One row per destination and metric, with totals over the last DELIVERY_METRICS_WINDOW_DAYS full days.
+    "destination_delivery_metrics": SegmentEndpointConfig(
+        name="destination_delivery_metrics",
+        path="/destinations/{destination_id}/delivery-metrics",
+        primary_keys=["destinationId", "metricName"],
+        fanout="delivery_metrics",
+    ),
+    # A sync can load into several subscriptions of one model, so the sync id is unique only per subscription.
+    "reverse_etl_syncs": SegmentEndpointConfig(
+        name="reverse_etl_syncs",
+        path="/reverse-etl-models/{model_id}/subscriptionId/{subscription_id}/syncs",
+        primary_keys=["subscriptionId", "syncId"],
+        partition_key="startedAt",
+        fanout="reverse_etl_syncs",
+    ),
 }
+
+DELIVERY_METRICS_WINDOW_DAYS = 30
 
 ENDPOINTS = tuple(SEGMENT_ENDPOINTS.keys())
 
