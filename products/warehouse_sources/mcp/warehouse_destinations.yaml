@@ -92,14 +92,15 @@ tools:
         description: >
             Create a place where warehouse sources write synced rows, from an integration that holds the credentials.
             Get the integration id with external-data-destinations-connect-link first. Pass type, a name, the
-            integration id and the target config for the type: Postgres and Redshift take database and schema; Snowflake
-            takes database, schema, warehouse and optional role; BigQuery takes dataset and optional project; Databricks
-            takes http_path, catalog, schema and volume; S3 takes bucket, region and optional prefix and compression;
-            Azure Blob takes container_name and optional prefix and compression. Every type except Redshift tests the
-            connection on create, and a failed test returns a 400 that names the field to fix. Redshift has no test, so
-            a wrong target only shows up when the first sync fails. The target cannot change after creation, so confirm
-            it with the user first. A new destination receives nothing until a source is attached with
-            external-data-destinations-add-sources.
+            integration id and the target config for the type: Postgres takes database and schema; Redshift takes
+            database and schema, plus host and optional port (default 5439) when the integration uses an IAM role or
+            access keys instead of a username and password; Snowflake takes database, schema, warehouse and optional
+            role; BigQuery takes dataset and optional project; Databricks takes http_path, catalog, schema and volume;
+            S3 takes bucket, region and optional prefix and compression; Azure Blob takes container_name and optional
+            prefix and compression. Every type except Redshift tests the connection on create, and a failed test returns
+            a 400 that names the field to fix. Redshift has no test, so a wrong target only shows up when the first sync
+            fails. The target cannot change after creation, so confirm it with the user first. A new destination
+            receives nothing until a source is attached with external-data-destinations-add-sources.
         feature_flag: warehouse-multi-destination
     external-data-destinations-list:
         operation: external_data_destinations_list
