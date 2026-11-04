@@ -158,11 +158,11 @@ function monthYear(date: Date): string {
     return `${month} ${date.getFullYear()}`
 }
 
-export function formatAxisDate(at: number, interval: ChartInterval): string {
+export function formatAxisDate(at: number, interval: ChartInterval, uses24hourClock?: boolean): string {
     const date = new Date(at)
     switch (interval) {
         case 'hour':
-            return formatClock(date)
+            return formatClock(date, uses24hourClock)
         case 'day':
         case 'week':
             return formatMonthDay(date)

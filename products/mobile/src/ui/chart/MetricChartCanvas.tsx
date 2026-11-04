@@ -1,7 +1,9 @@
+import { useCalendars } from 'expo-localization'
 import { type ReactElement, useCallback, useMemo, useRef, useState } from 'react'
 import { type LayoutChangeEvent, Text, View } from 'react-native'
 import type { PointsArray } from 'victory-native'
 
+import { prefers24HourClock } from '@/lib/dates'
 import { createStyles, useTheme } from '@/ui/theme'
 import { fonts } from '@/ui/tokens'
 
@@ -71,6 +73,8 @@ export function MetricChartCanvas(props: MetricChartProps): ReactElement {
         accessibilityActions,
         testID,
     } = props
+    const [calendar] = useCalendars()
+    const uses24hourClock = prefers24HourClock(calendar.uses24hourClock)
     const theme = useTheme()
     const styles = useStyles()
     const height = chartHeight(variant, props.height)
@@ -88,8 +92,19 @@ export function MetricChartCanvas(props: MetricChartProps): ReactElement {
         const values = visible.flatMap((s) =>
             kind === 'bar' && isCompareSeries(s) ? [] : s.points.map((p) => p.value)
         )
-        return chartGeometry({ width, height, kind, variant, count, values, dates, interval, formatValue })
-    }, [width, height, kind, variant, count, visible, dates, interval, formatValue])
+        return chartGeometry({
+            width,
+            height,
+            kind,
+            variant,
+            count,
+            values,
+            dates,
+            interval,
+            formatValue,
+            uses24hourClock,
+        })
+    }, [width, height, kind, variant, count, visible, dates, interval, formatValue, uses24hourClock])
 
     const plotted = useMemo<PlottedSeries[]>(
         () =>
