@@ -31,7 +31,8 @@ The `workflows-sandbox-sender` flag enables a PostHog-managed email integration 
 The endpoint requires `integration:write` and project membership. Repeated requests keep the same integration and refresh its display name from the organization name.
 Staff turn the sandbox sender off for one organization by adding a `SandboxSenderOrganizationBlock` row in the Django admin, and lift the block by deleting the row.
 While the block exists, the endpoint returns 404 for the organization's projects. Existing sandbox senders stay, but their sends skip.
-Set `WORKFLOWS_SANDBOX_SENDER_DOMAIN`, `SES_SANDBOX_FROM_ADDRESS`, and `SES_SANDBOX_TENANT_NAME` in Django; any empty value leaves the endpoint unavailable and lets every team register any domain as before.
+Set `WORKFLOWS_SANDBOX_SENDER_DOMAIN`, `SES_SANDBOX_FROM_ADDRESS`, and `SES_SANDBOX_TENANT_NAME` in Django; any empty value leaves the endpoint unavailable.
+Teams can't register an integration on `WORKFLOWS_SANDBOX_SENDER_DOMAIN` or its subdomains while that setting has a value, even when the other two are empty.
 The worker sends from the same `SES_SANDBOX_FROM_ADDRESS`, so set it once for Django and the worker. The address the UI shows is then the address the worker sends from.
 With the flag on, opening the Channels page creates the sender and shows it in its own row.
 Workflow email steps and template test sends offer it as a sender. In a step it replaces any other selected sender and has no Reply-To or custom sender. Broadcasts and other email surfaces do not offer it.
