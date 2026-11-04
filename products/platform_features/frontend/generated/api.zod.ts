@@ -44,7 +44,7 @@ export const createBodyMemberNoticeOneActionOneLabelMax = 40
 export const createBodyMemberNoticeOneActionOneUrlMax = 2000
 
 export const CreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(createBodyNameMax),
+    name: zod.string().max(createBodyNameMax).describe('Name of the organization.'),
     logo_media_id: zod.uuid().nullish(),
     enforce_2fa: zod.boolean().nullish(),
     enforce_verified_domains: zod
@@ -128,7 +128,7 @@ export const updateBodyMemberNoticeOneActionOneLabelMax = 40
 export const updateBodyMemberNoticeOneActionOneUrlMax = 2000
 
 export const UpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(updateBodyNameMax),
+    name: zod.string().max(updateBodyNameMax).describe('Name of the organization.'),
     logo_media_id: zod.uuid().nullish(),
     enforce_2fa: zod.boolean().nullish(),
     enforce_verified_domains: zod
@@ -212,7 +212,7 @@ export const partialUpdateBodyMemberNoticeOneActionOneLabelMax = 40
 export const partialUpdateBodyMemberNoticeOneActionOneUrlMax = 2000
 
 export const PartialUpdateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(partialUpdateBodyNameMax).optional(),
+    name: zod.string().max(partialUpdateBodyNameMax).optional().describe('Name of the organization.'),
     logo_media_id: zod.uuid().nullish(),
     enforce_2fa: zod.boolean().nullish(),
     enforce_verified_domains: zod
