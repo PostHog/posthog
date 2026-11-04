@@ -59,9 +59,10 @@ import {
     TransactionalEmailRequest,
     TransactionalEmailRequestSchema,
     TransactionalEmailStageTimer,
+    TransactionalSendRefusal,
     transactionalEmailRequestsTotal,
 } from './services/hogflows/transactional-email'
-import { TransactionalSendRefusal, TransactionalSends } from './services/hogflows/transactional-sends'
+import { TransactionalSends } from './services/hogflows/transactional-sends'
 import { InvocationResultsService } from './services/invocation-results.service'
 import { JobQueue } from './services/job-queue/job-queue.interface'
 import { GroupsManagerService } from './services/managers/groups-manager.service'
@@ -1232,7 +1233,7 @@ export class CdpApi {
                     return reply('not_sendable', 400, { error: 'not_sendable' })
                 }
 
-                const result = await this.transactionalSends().accept(team, hogFlow, parsed.data, stages)
+                const result = await this.transactionalSendsForRequest().accept(team, hogFlow, parsed.data, stages)
                 if ('invocationId' in result) {
                     const replayed = result.outcome === 'replayed'
                     return reply(result.outcome, 202, {
@@ -1254,8 +1255,7 @@ export class CdpApi {
             }
         }
 
-    // Built per request from the current fields, so a test that swaps the queue or the idempotency store reaches it.
-    private transactionalSends(): TransactionalSends {
+    private transactionalSendsForRequest(): TransactionalSends {
         return new TransactionalSends({
             siteUrl: this.config.SITE_URL ?? 'http://localhost:8000',
             idempotencyKeys: this.transactionalEmailIdempotencyKeys,

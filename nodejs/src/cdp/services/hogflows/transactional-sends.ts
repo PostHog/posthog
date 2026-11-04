@@ -20,9 +20,9 @@ import { checkHogFlowQuotaLimits } from './hogflow-quota-limiting'
 import { TRANSACTIONAL_EMAIL_EVENT } from './hogflow-sensitivity'
 import { IdempotencyKeys } from './idempotency-keys'
 import {
-    TransactionalEmailOutcome,
     TransactionalEmailRequest,
     TransactionalEmailStageTimer,
+    TransactionalSendRefusal,
 } from './transactional-email'
 
 const ACCEPTED_SEND_FINGERPRINT_MARKER = 'accepted_send'
@@ -49,11 +49,6 @@ export type TransactionalSendsDeps = {
     emailValidation: EmailValidationService
     quotaLimiting: QuotaLimiting
 }
-
-export type TransactionalSendRefusal = Exclude<
-    TransactionalEmailOutcome,
-    'queued' | 'replayed' | 'not_configured' | 'unauthorized' | 'invalid_request' | 'not_found' | 'error'
->
 
 export type TransactionalSendResult =
     | { outcome: 'queued' | 'replayed'; invocationId: string }
