@@ -158,6 +158,11 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
             if (sql.includes('SELECT id, team_id, function_id')) {
                 return Promise.resolve({ rows: this.findRows, rowCount: this.findRows.length })
             }
+            // Every fixture row lives in cyclotron_jobs, so the per-table statements on the
+            // transactional table find nothing, as they would in production.
+            if (sql.includes('cyclotron_jobs_transactional')) {
+                return Promise.resolve({ rows: [], rowCount: 0 })
+            }
             if (sql.includes('SELECT id, state FROM cyclotron_jobs')) {
                 return Promise.resolve({ rows: this.wakeRows, rowCount: this.wakeRows.length })
             }

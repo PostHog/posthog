@@ -206,6 +206,9 @@ export class CyclotronV2Manager {
                RETURNING id`
             : 'RETURNING id'
         const table = tableForQueue(job.queueName)
+        if (job.overwriteExisting) {
+            await this.clearRerunFromOtherTable(table, [id])
+        }
         let result: { rows: { id: string }[] }
         try {
             result = await this.pool.query<{ id: string }>(
@@ -318,6 +321,10 @@ export class CyclotronV2Manager {
         // regardless of size) and then derives a unique dequeue_seq per job.
         const dequeueSeqs = await this.computeEmailDequeueSeqs(jobs)
 
+        if (overwriteExisting) {
+            await this.clearRerunFromOtherTable(table, ids)
+        }
+
         const upsertClause = overwriteExisting
             ? `ON CONFLICT (id) DO UPDATE SET
                  status = 'available',
@@ -395,6 +402,28 @@ export class CyclotronV2Manager {
         }
 
         return ids
+    }
+
+    /**
+     * A rerun reuses its run's id but can land in the other table (a transactional run
+     * is rerun on `hogflow`). Deletes the replaced run's finished row there, so one id
+     * never lives in both tables and a later lane move cannot collide on it. A live row
+     * there is refused, as the upsert refuses one in its own table.
+     */
+    private async clearRerunFromOtherTable(table: CyclotronJobTable, ids: string[]): Promise<void> {
+        const otherTable = CYCLOTRON_JOB_TABLES.find((t) => t !== table)!
+        const live = await this.pool.query<{ id: string }>(
+            `SELECT id FROM ${otherTable}
+             WHERE id = ANY($1::uuid[]) AND status NOT IN ('completed', 'failed', 'canceled')`,
+            [ids]
+        )
+        if (live.rows.length > 0) {
+            throw new CyclotronJobConflictError(live.rows.map((r) => r.id))
+        }
+        await this.pool.query(
+            `DELETE FROM ${otherTable} WHERE id = ANY($1::uuid[]) AND status IN ('completed', 'failed', 'canceled')`,
+            [ids]
+        )
     }
 
     /**

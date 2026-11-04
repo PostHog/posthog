@@ -517,6 +517,9 @@ export class CyclotronV2Janitor {
                 `DELETE FROM conversion_watchers
                  WHERE id IN (
                      SELECT id FROM conversion_watchers WHERE expires_at <= NOW() LIMIT $1
+                     -- Both janitors run this sweep; skipping rows the other holds keeps it from
+                     -- delaying this janitor's stalled-job recovery.
+                     FOR UPDATE SKIP LOCKED
                  )`,
                 [this.cleanupBatchSize]
             )

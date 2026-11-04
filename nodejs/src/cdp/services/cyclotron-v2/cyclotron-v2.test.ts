@@ -724,6 +724,29 @@ describe('Cyclotron V2', () => {
                 expect(row.transition_count).toBeGreaterThan(0)
             })
 
+            it.each([
+                ['completed', 1],
+                ['available', 'conflict'],
+            ] as const)('a rerun on another table than its %s run leaves %s', async (status, expected) => {
+                const id = uuidv7()
+                await manager.createJob({ id, teamId: 1, queueName: 'emailtransactional' })
+                await assertPool.query(
+                    `UPDATE cyclotron_jobs_transactional SET status = $2::CyclotronJobStatus WHERE id = $1`,
+                    [id, status]
+                )
+
+                const rerun = manager.createJob({ id, teamId: 1, queueName: QUEUE, overwriteExisting: true })
+
+                if (expected === 'conflict') {
+                    await expect(rerun).rejects.toThrow(/overwrite refused/)
+                    expect(await queryTransactionalJobs(id)).toHaveLength(1)
+                } else {
+                    await rerun
+                    expect(await countJobRows(id)).toBe(expected)
+                    expect((await queryJob(id)).status).toBe('available')
+                }
+            })
+
             it('createJob with overwriteExisting=true reruns a row whose transition_count is at the smallint ceiling', async () => {
                 const id = uuidv7()
                 await manager.createJob({ id, teamId: 1, queueName: QUEUE })
