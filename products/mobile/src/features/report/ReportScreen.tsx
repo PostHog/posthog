@@ -42,6 +42,8 @@ import { useGithubOnlyReviewerCount, useReportReviewersQuery } from '../reviewer
 import { ReportNavigation } from '../tabs/ReportNavigation'
 import { VerdictSheet } from '../verdict/VerdictSheet'
 import { dismissCopy, hasOpenPullRequest, resolveCopy } from '../verdict/verdictCopy'
+import { useFeatureAccess } from '../views/useViewsAccess'
+import { ViewsReauthState } from '../views/ViewsReauthState'
 import { Activity } from './Activity'
 import { hasReportDetail } from './details/hasReportDetail'
 import { Evidence } from './Evidence'
@@ -145,6 +147,7 @@ function ReportContent({ reportId, from }: ReportScreenProps): ReactElement {
     const colors = useColors()
     const router = useRouter()
     const viewer = useViewer()
+    const access = useFeatureAccess('inbox')
     const query = useReportWithLiveRun(reportId)
     // The same filters as the inbox, so Previous and Next follow the order the inbox shows.
     const inbox = useInboxItems({ filters: useInboxFilters() })
@@ -192,6 +195,15 @@ function ReportContent({ reportId, from }: ReportScreenProps): ReactElement {
     const completeOverlay = (): void => {
         sheets.completed()
         closeOverlay()
+    }
+
+    if (access.state !== 'ok') {
+        return (
+            <View style={styles.screen}>
+                <TopChrome onBack={goBack} />
+                <ViewsReauthState access={access} feature="inbox" />
+            </View>
+        )
     }
 
     const report = query.data
