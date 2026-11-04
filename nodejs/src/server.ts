@@ -249,7 +249,9 @@ export class PluginServer implements NodeServer {
                     {
                         ...cdpDeps!,
                         idempotencyValkey: createIdempotencyValkeyPool(this.config),
-                        emailValidationValkey: createSesRateLimiterValkeyPool(this.config, 'email-mx-validation'),
+                        emailValidationValkey: createSesRateLimiterValkeyPool(this.config, 'email-mx-validation', {
+                            optional: true,
+                        }),
                     },
                     { hogQueue: kafkaQueue, hogflowQueue: postgresV2Queue },
                     batchResolverProducer
