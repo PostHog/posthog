@@ -100,6 +100,16 @@ describe('sandbox email content', () => {
         ['an unclosed string', 'height:30px!important;font-family:"Arial', 'height:30px!important'],
         ['an unclosed bracket', 'overflow:hidden!important;background:url(x.png', 'overflow:hidden!important'],
         [
+            'a quote inside an unquoted url',
+            'height:400px!important;overflow:hidden!important;background:url(a"b);c:d")',
+            'height:400px!important;overflow:hidden!important',
+        ],
+        [
+            'an unquoted url',
+            'background:url( x.png );height:30px!important',
+            'background:url( x.png );height:30px!important',
+        ],
+        [
             'an escaped quote',
             'height:30px!important;content:"a\\";overflow:hidden!important;"',
             'height:30px!important',
@@ -184,6 +194,7 @@ describe('sandbox email content', () => {
             '<td>Hello</td>',
             '<textarea>Preview text',
         ],
+        ['<body><p>Hello</p></body>', '<p>Hello</p>', '<plaintext>Preview text'],
         ['<body><p>Hello</p><noscript><style></noscript><!--', '<p>Hello</p>', null],
         [
             '<body><p>Hello</p><noscript><style>/* </noscript><plaintext> */ p {color:blue}</style></noscript>',

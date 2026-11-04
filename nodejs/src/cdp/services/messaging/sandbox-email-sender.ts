@@ -1,4 +1,12 @@
-import { type DefaultTreeAdapterMap, defaultTreeAdapter, parse, parseFragment, serialize } from 'parse5'
+import {
+    type DefaultTreeAdapterMap,
+    defaultTreeAdapter,
+    html as htmlSpec,
+    parse,
+    parseFragment,
+    serialize,
+    serializeOuter,
+} from 'parse5'
 
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
 import { logger } from '~/common/utils/logger'
@@ -63,6 +71,15 @@ function scanDeclarations(style: string): string[] {
             // A comment separates tokens, so it becomes a space: dropping it could join a slash and a star.
             current += ' '
             index = end + 1
+        } else if (char === '(' && /url$/i.test(current) && !/^\s*["']/.test(style.slice(index + 1))) {
+            // An unquoted url() is one token that ends at `)`. A quote, bracket, escape or inner space
+            // makes it a bad url, which a browser reads differently from this scanner.
+            const token = /^\s*[^"'()\\\s]*\s*\)/.exec(style.slice(index + 1))
+            if (!token) {
+                return declarations
+            }
+            current += char + token[0]
+            index += token[0].length
         } else if (char === ';' && !closers.length) {
             declarations.push(current)
             current = ''
@@ -100,8 +117,31 @@ function protectFooterAncestors(
     }
 }
 
+// A plaintext element swallows everything after it, and noscript content parses differently once scripting
+// is on, so neither may reach the delivered email in a form that can hide the footer.
+function neutralizeRawTextElements(roots: DefaultTreeAdapterMap['childNode'][]): void {
+    const nodes = [...roots]
+    for (const node of nodes) {
+        if (defaultTreeAdapter.isElementNode(node)) {
+            if (node.tagName === 'plaintext' && node.namespaceURI === htmlSpec.NS.HTML) {
+                node.tagName = 'pre'
+            }
+            if (node.tagName === 'noscript' && node.namespaceURI === htmlSpec.NS.HTML) {
+                node.tagName = 'div'
+            }
+            nodes.push(...node.childNodes)
+            if (node.tagName === 'template' && node.namespaceURI === htmlSpec.NS.HTML) {
+                nodes.push(
+                    ...defaultTreeAdapter.getTemplateContent(node as DefaultTreeAdapterMap['template']).childNodes
+                )
+            }
+        }
+    }
+}
+
 function appendHtmlFooter(html: string, footer: string, preheader?: string): string {
     const preheaderText = parseFragment(preheader ?? '', { scriptingEnabled: false })
+    neutralizeRawTextElements(preheaderText.childNodes)
     const document = parse(maybeAddPreheaderToEmail(html, serialize(preheaderText, { scriptingEnabled: false })), {
         scriptingEnabled: false,
     })
@@ -109,23 +149,7 @@ function appendHtmlFooter(html: string, footer: string, preheader?: string): str
     if (!body) {
         throw new Error('The sandbox email template must have an HTML body. Update the template and try again.')
     }
-    const nodes: DefaultTreeAdapterMap['childNode'][] = [...document.childNodes]
-    for (const node of nodes) {
-        if (defaultTreeAdapter.isElementNode(node)) {
-            if (node.tagName === 'plaintext' && node.namespaceURI === body.namespaceURI) {
-                node.tagName = 'pre'
-            }
-            if (node.tagName === 'noscript' && node.namespaceURI === body.namespaceURI) {
-                node.tagName = 'div'
-            }
-            nodes.push(...node.childNodes)
-            if (node.tagName === 'template' && node.namespaceURI === body.namespaceURI) {
-                nodes.push(
-                    ...defaultTreeAdapter.getTemplateContent(node as DefaultTreeAdapterMap['template']).childNodes
-                )
-            }
-        }
-    }
+    neutralizeRawTextElements(document.childNodes)
     protectFooterAncestors(document, body)
     const paragraph = defaultTreeAdapter.createElement('div', body.namespaceURI, [
         {
@@ -141,12 +165,8 @@ function appendHtmlFooter(html: string, footer: string, preheader?: string): str
         if (
             !deliveredFooter ||
             !defaultTreeAdapter.isElementNode(deliveredFooter) ||
-            deliveredFooter.tagName !== 'div' ||
             deliveredFooter.namespaceURI !== body.namespaceURI ||
-            deliveredFooter.attrs.find((attribute) => attribute.name === 'style')?.value !== paragraph.attrs[0].value ||
-            deliveredFooter.childNodes.length !== 1 ||
-            !defaultTreeAdapter.isTextNode(deliveredFooter.childNodes[0]) ||
-            deliveredFooter.childNodes[0].value !== footer
+            serializeOuter(deliveredFooter) !== serializeOuter(paragraph)
         ) {
             throw new Error(
                 'The sandbox email template could not retain its identification footer. Update the template and try again.'
