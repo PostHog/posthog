@@ -2000,10 +2000,11 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
 
     @parameterized.expand(
         [
-            ("first_day", "2024-01-01T23:00:00Z", None, []),
+            ("first_day", "2024-01-01T23:00:00Z", None, None, []),
             (
                 "after_a_day",
                 "2024-01-02T01:00:00Z",
+                None,
                 None,
                 [(ExperimentExposureHealthFindingCode.ZERO_EXPOSURES, "flag_not_called")],
             ),
@@ -2011,7 +2012,16 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
                 "after_a_day_with_flag_calls",
                 "2024-01-02T01:00:00Z",
                 datetime(2024, 1, 1, 12, tzinfo=UTC),
+                None,
                 [(ExperimentExposureHealthFindingCode.ZERO_EXPOSURES, "calls_not_counted")],
+            ),
+            ("first_day_after_a_launch_with_an_earlier_start_date", "2024-01-02T01:00:00Z", None, 12, []),
+            (
+                "after_a_day_from_a_launch_with_an_earlier_start_date",
+                "2024-01-02T13:00:00Z",
+                None,
+                12,
+                [(ExperimentExposureHealthFindingCode.ZERO_EXPOSURES, "flag_not_called")],
             ),
         ]
     )
@@ -2020,10 +2030,21 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         _name: str,
         now: str,
         last_called_at: datetime | None,
+        launched_hours_after_start: int | None,
         expected: list[tuple[ExperimentExposureHealthFindingCode, str]],
     ) -> None:
         self.feature_flag.last_called_at = last_called_at
         self.feature_flag.save()
+        if launched_hours_after_start is not None:
+            launched_at = datetime(2024, 1, 1, tzinfo=UTC) + timedelta(hours=launched_hours_after_start)
+            ActivityLog.objects.create(
+                team_id=self.team.id,
+                scope="Experiment",
+                item_id=str(self.experiment.id),
+                activity="updated",
+                detail={"changes": [{"field": "start_date", "before": None, "after": launched_at.isoformat()}]},
+                created_at=launched_at,
+            )
         query = ExperimentExposureQuery(
             kind="ExperimentExposureQuery",
             experiment_id=self.experiment.id,
