@@ -793,6 +793,12 @@
                         "required": ["title", "start"]
                     },
                     "description": "The moments that stand out, in the order to read them. At most 8."
+                },
+                "explanationId": {
+                    "description": "The id an earlier `explain-chart` call on this chart returned, when you are fixing that explanation. Its link then shows the fix. Omit it for a new explanation.",
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$"
                 }
             },
             "required": ["headline", "chapters"]

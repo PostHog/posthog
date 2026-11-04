@@ -15,6 +15,7 @@ import type {
     StoryTrendsQuery,
 } from 'products/product_analytics/mcp/apps/explainChart/explainChartTypes'
 import { sqlEvidenceChart } from 'products/product_analytics/mcp/apps/explainChart/sqlEvidenceChart'
+import { insightPageShowsStory } from 'products/product_analytics/mcp/apps/explainChart/storyDisplays'
 
 import { analyzeQuery } from '../shared'
 import { findStoryRange, lastBucketInProgress } from './storyRanges'
@@ -139,6 +140,7 @@ function sqlProblems(chapters: Params['chapters'], sqlEvidence: Map<string, SqlE
 
 interface StoryChart {
     query: StoryTrendsQuery
+    linkableInsightId: number | null
     insightName: string | null
     path: string
 }
@@ -175,7 +177,7 @@ async function loadChart(context: Context, projectId: string, params: Params): P
     if (params.insightId === undefined) {
         const query = asTrendsQuery(params.query)
         await applyProjectTestAccountDefault(context, query)
-        return { query, insightName: null, path: newInsightPath(query) }
+        return { query, linkableInsightId: null, insightName: null, path: newInsightPath(query) }
     }
     const insight = await context.api.insights({ projectId }).get({ insightId: params.insightId })
     if (!insight.success) {
@@ -183,6 +185,11 @@ async function loadChart(context: Context, projectId: string, params: Params): P
     }
     return {
         query: asTrendsQuery(insight.data.query),
+        linkableInsightId: insightPageShowsStory(
+            (analyzeQuery(insight.data.query).innerQuery as StoryTrendsQuery | undefined)?.trendsFilter?.display
+        )
+            ? insight.data.id
+            : null,
         insightName: insight.data.name || insight.data.derived_name || null,
         path: `/insights/${insight.data.short_id}`,
     }
@@ -194,16 +201,55 @@ function warningMessages(warnings: unknown[]): string[] {
     )
 }
 
+type SavedExplanation = { id: string; path: string } | { error: string } | null
+
+async function saveExplanation(
+    context: Context,
+    projectId: string,
+    chart: StoryChart,
+    data: ExplainChartData,
+    explanationId: string | undefined
+): Promise<SavedExplanation> {
+    if (chart.linkableInsightId === null) {
+        return null
+    }
+    const insightId = chart.linkableInsightId
+    const insights = context.api.insights({ projectId })
+    try {
+        // An id from another chart or another person cannot be updated, so the fix becomes a new explanation.
+        const updated = explanationId ? await insights.updateExplanation({ insightId, explanationId, data }) : null
+        const saved = updated?.success ? updated : await insights.saveExplanation({ insightId, data })
+        return saved.success
+            ? { id: saved.data.id, path: `${chart.path}?explanation=${saved.data.id}` }
+            : { error: saved.error.message }
+    } catch (error) {
+        return { error: error instanceof Error ? error.message : String(error) }
+    }
+}
+
 function describeResult(
     chart: StoryChart,
     series: StorySeriesResult,
     chapters: Params['chapters'],
     missed: string[],
     warnings: unknown[],
-    evidenceProblems: string[]
+    evidenceProblems: string[],
+    saved: SavedExplanation,
+    baseUrl: string
 ): string {
     const name = chart.insightName ?? series.label ?? 'the chart'
     const lines = [`The explanation of "${name}" has ${chapters.length} chapters.`]
+    if (saved && 'path' in saved) {
+        lines.push(
+            `Where the person cannot see it rendered inline, give them this link, which opens it beside the chart in PostHog: ${baseUrl}${saved.path}`,
+            `To fix this explanation, call explain-chart again with explanationId "${saved.id}", so the link shows the fix.`
+        )
+    }
+    if (saved && 'error' in saved) {
+        lines.push(
+            `The explanation was not saved, so there is no link to it. Where the person cannot see it rendered inline, give the findings in text and tell them why: ${saved.error}`
+        )
+    }
     if (warnings.length) {
         lines.push(`The query came with warnings the person should hear about: ${warningMessages(warnings).join(' ')}`)
     }
@@ -259,7 +305,7 @@ export const explainChartHandler: ToolBase<typeof schema, Result>['handler'] = a
                 return {
                     text: item.text,
                     url: item.query ? `${baseUrl}${newInsightPath(item.query)}` : (item.url ?? null),
-                    query: queryTool ? item.query : null,
+                    query: item.query ?? null,
                     queryTool,
                     chart: sql && 'chart' in sql ? sql.chart : null,
                 }
@@ -267,7 +313,8 @@ export const explainChartHandler: ToolBase<typeof schema, Result>['handler'] = a
         }
     })
 
-    return {
+    const data: ExplainChartData = {
+        shape: 'time_series',
         query: chart.query,
         results,
         seriesIndex: params.series,
@@ -276,14 +323,22 @@ export const explainChartHandler: ToolBase<typeof schema, Result>['handler'] = a
         ...(warnings?.length ? { warnings } : {}),
         headline: params.headline,
         chapters,
-        _posthogUrl: `${baseUrl}${chart.path}`,
+    }
+    const saved = await saveExplanation(context, projectId, chart, data, params.explanationId)
+    const explanationUrl = saved && 'path' in saved ? `${baseUrl}${saved.path}` : null
+
+    return {
+        ...data,
+        _posthogUrl: explanationUrl ?? `${baseUrl}${chart.path}`,
         [POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]: describeResult(
             chart,
             series,
             params.chapters,
             missed,
             warnings ?? [],
-            sqlProblems(params.chapters, sqlEvidence)
+            sqlProblems(params.chapters, sqlEvidence),
+            saved,
+            baseUrl
         ),
     }
 }
