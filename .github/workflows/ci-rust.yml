@@ -566,7 +566,7 @@ jobs:
         # changes, so unrelated rust PRs skip the job entirely.
         if: needs.changes.outputs.rust == 'true' && contains(needs.affected.outputs.affected_crates, 'personhog-test-harness')
         runs-on: depot-ubuntu-24.04-4
-        timeout-minutes: 25
+        timeout-minutes: 35
         permissions:
             contents: read
         env:
@@ -590,14 +590,15 @@ jobs:
                   username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-            - name: Start Postgres, Kafka, and etcd
+            # kafka-secondary is a second, empty cluster for the cross-cluster changelog tests.
+            - name: Start Postgres, two Kafka clusters, and etcd
               env:
                   COMPOSE_FILE: ../docker-compose.dev.yml:../docker-compose.profiles.yml
-                  COMPOSE_PROFILES: etcd
+                  COMPOSE_PROFILES: etcd,personhog-secondary
                   WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 10
               run: |
-                  ../bin/ci-wait-for-docker launch --down db kafka etcd
-                  ../bin/ci-wait-for-docker wait --only db kafka etcd
+                  ../bin/ci-wait-for-docker launch --down db kafka kafka-secondary etcd
+                  ../bin/ci-wait-for-docker wait --only db kafka kafka-secondary etcd
 
                   echo "127.0.0.1 db kafka" | sudo tee -a /etc/hosts
 
@@ -635,6 +636,16 @@ jobs:
             # they run here rather than in the plain test job.
             - name: Test the harness verification logic
               run: cargo test -p personhog-test-harness -- --include-ignored
+
+            # The leader warming, pruning, recovering and sealing a changelog generation
+            # on another cluster, against the second broker only this job
+            # starts. Elsewhere these tests run their single-cluster cases.
+            - name: Test the leader across two Kafka clusters
+              env:
+                  PERSONHOG_TEST_SECONDARY_KAFKA: 127.0.0.1:29092
+              run: >-
+                  cargo test -p personhog-leader --features test-support
+                  --test warming_integration --test fencing_integration --test integration
 
             - name: Run the e2e gate
               run: |
@@ -788,11 +799,23 @@ jobs:
                     --migrate-after 8s --migrate-to-partitions 4 \
                     --migrate-kill-leader-at-sealing --migrate-slow-coordinator-ms 500
 
+            # A migration onto the second cluster: the leaders seal the old
+            # topic on the first and produce on the second, and the writer
+            # exits once it drains the old topic and is restarted onto the
+            # new cluster, as its pod would be. The gate fails if it never does.
+            - name: Run the e2e gate migrating the changelog onto another cluster
+              run: |
+                  ./target/debug/personhog-test-harness gate \
+                    --leaders 2 --partitions 4 --persons 200 --concurrency 10 --duration 30s \
+                    --migrate-after 10s --migrate-to-partitions 8 \
+                    --migrate-to-kafka-hosts 127.0.0.1:29092
+
             - name: Dump service logs on failure
               if: failure()
               run: |
                   docker ps -a || true
                   docker logs --tail=200 rust-kafka-1 || true
+                  docker logs --tail=200 rust-kafka-secondary-1 || true
                   docker logs --tail=200 rust-etcd-1 || true
 
             - name: Upload harness logs on failure

@@ -309,6 +309,7 @@ pub async fn start_migration(
         id: format!("m-{now_ms}"),
         from: live.target(),
         to: ChangelogTarget {
+            cluster: live.cluster.clone(),
             topic: topic.to_string(),
             partitions,
         },

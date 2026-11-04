@@ -952,6 +952,30 @@ services:
             timeout: 5s
             retries: 10
 
+    # A second, empty Kafka cluster for personhog's cross-cluster changelog
+    # tests; only the PersonHog e2e gate CI job starts it.
+    kafka-secondary:
+        image: docker.io/redpandadata/redpanda:v25.1.9
+        profiles: [personhog-secondary]
+        restart: on-failure
+        command:
+            - redpanda
+            - start
+            - --kafka-addr 0.0.0.0:29092
+            - --advertise-kafka-addr 127.0.0.1:29092
+            - --mode dev-container
+            - --smp 1
+            - --memory 1G
+            - --overprovisioned
+            - --set redpanda.auto_create_topics_enabled=true
+        ports:
+            - '127.0.0.1:29092:29092'
+        healthcheck:
+            test: curl -f http://localhost:9644/v1/status/ready || exit 1
+            interval: 3s
+            timeout: 10s
+            retries: 10
+
 networks:
     otel_network:
         driver: bridge

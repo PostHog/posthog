@@ -46,7 +46,7 @@ use personhog_leader::recovery::{ChangelogRecovery, RecoveryConfig};
 use personhog_leader::service::{sweep_idle_locks, PersonHogLeaderService, PropertySizeLimits};
 use personhog_leader::settle::{prune_and_settle_tick, retired_topic};
 use personhog_leader::warming::{
-    changelog_partition_count, WarmClientPools, WarmingConfig, WarmingRetryPolicy,
+    changelog_kafka, changelog_partition_count, WarmClientPools, WarmingConfig, WarmingRetryPolicy,
 };
 use personhog_leader::warnings;
 
@@ -378,10 +378,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     let changelog_topic = loaded.topic.clone();
     let num_partitions = loaded.partitions;
-    let topic_partitions =
-        changelog_partition_count(&config.kafka, &changelog_topic, Duration::from_secs(10))
-            .await
-            .expect("Failed to read the changelog topic's metadata");
+    let live_cluster = loaded.cluster.clone();
+    let topic_partitions = changelog_partition_count(
+        &changelog_kafka(&config.kafka, live_cluster.as_ref()),
+        &changelog_topic,
+        Duration::from_secs(10),
+    )
+    .await
+    .expect("Failed to read the changelog topic's metadata");
     assert_eq!(
         topic_partitions, num_partitions,
         "changelog topic {changelog_topic} has {topic_partitions} partitions but the config says {num_partitions}"
@@ -660,10 +664,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // this stays best-effort.
     {
         let warm_slots = pod_config.warm_concurrency;
+        let live_pools = warm_pools.on(live_cluster.as_ref());
         let warm_up = async {
             tokio::join!(
-                warm_pools.offsets.warm_up(warm_slots),
-                warm_pools.warming.warm_up(warm_slots),
+                live_pools.offsets.warm_up(warm_slots),
+                live_pools.warming.warm_up(warm_slots),
             );
         };
         if timeout(POOL_WARM_UP_DEADLINE, warm_up).await.is_err() {
@@ -834,7 +839,7 @@ async fn run_dirty_index_prune_loop(
             &dirty_index,
             &cache,
             &locks,
-            &pools.offsets,
+            &pools,
             offsets_timeout,
             |topic| retired_topic(&changelog.current(), &writer_group, topic),
         )

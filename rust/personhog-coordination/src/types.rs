@@ -323,6 +323,9 @@ pub struct LeaderInfo {
 pub struct ChangelogConfig {
     pub topic: String,
     pub partitions: u32,
+    /// The Kafka cluster holding `topic`; unset is each process's own `KAFKA_HOSTS`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cluster: Option<ClusterEndpoint>,
     /// Monotonic from 1.
     pub epoch: u64,
     /// The writer's consumer group; a generation retires only once it has read it to the end.
@@ -340,6 +343,8 @@ pub struct Generation {
     pub topic: String,
     pub partitions: u32,
     pub epoch: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cluster: Option<ClusterEndpoint>,
 }
 
 impl ChangelogConfig {
@@ -348,6 +353,7 @@ impl ChangelogConfig {
         Self {
             topic: topic.to_string(),
             partitions,
+            cluster: None,
             epoch: 1,
             writer_group: String::new(),
             retire_groups: Vec::new(),
@@ -365,6 +371,7 @@ impl ChangelogConfig {
         ChangelogTarget {
             topic: self.topic.clone(),
             partitions: self.partitions,
+            cluster: self.cluster.clone(),
         }
     }
 
@@ -383,6 +390,17 @@ impl ChangelogConfig {
 pub struct ChangelogTarget {
     pub topic: String,
     pub partitions: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cluster: Option<ClusterEndpoint>,
+}
+
+/// Carried in the record so every process reads the same endpoint.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ClusterEndpoint {
+    pub name: String,
+    pub hosts: String,
+    #[serde(default)]
+    pub tls: bool,
 }
 
 /// Sealing is the point of no return: the old topic's ids are re-initialized there.
@@ -517,8 +535,27 @@ mod tests {
     }
 
     #[test]
+    fn pre_cluster_changelog_records_read_as_the_default_cluster() {
+        let config: ChangelogConfig = serde_json::from_str(
+            r#"{"topic":"t2","partitions":8,"epoch":2,"writer_group":"w",
+                "draining":[{"topic":"t1","partitions":4,"epoch":1}]}"#,
+        )
+        .unwrap();
+        assert_eq!(config.cluster, None);
+        assert_eq!(config.draining[0].cluster, None);
+        let request: MigrationRequest = serde_json::from_str(
+            r#"{"id":"m","from":{"topic":"t2","partitions":8},
+                "to":{"topic":"t3","partitions":8},"requested_at_ms":1}"#,
+        )
+        .unwrap();
+        assert_eq!(request.from, config.target());
+        assert!(!serde_json::to_string(&config).unwrap().contains("cluster"));
+    }
+
+    #[test]
     fn a_config_supersedes_by_epoch_then_by_retired_generations() {
         let generation = |epoch| Generation {
+            cluster: None,
             topic: format!("g{epoch}"),
             partitions: 64,
             epoch,
