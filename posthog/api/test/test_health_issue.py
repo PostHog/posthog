@@ -201,15 +201,37 @@ class TestHealthIssueAPI(APIBaseTest):
         response = self.client.get(self._url("/00000000-0000-0000-0000-000000000000"))
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
-    def test_resolve_action(self):
+    @parameterized.expand(
+        [
+            ("session", None),
+            ("personal_api_key_with_write_scope", ["health_issue:write"]),
+        ]
+    )
+    def test_resolve_action(self, _name, scopes):
         issue = self._create_issue()
+        headers = {}
+        if scopes is not None:
+            headers["HTTP_AUTHORIZATION"] = f"Bearer {self.create_personal_api_key_with_scopes(scopes)}"
+            self.client.logout()
 
-        response = self.client.post(self._url(f"/{issue.id}/resolve"))
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        response = self.client.post(self._url(f"/{issue.id}/resolve"), **headers)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         self.assertEqual(response.json()["status"], "resolved")
 
         issue.refresh_from_db()
         self.assertEqual(issue.status, HealthIssue.Status.RESOLVED)
+
+    def test_resolve_action_rejects_personal_api_key_with_read_scope_only(self):
+        issue = self._create_issue()
+        api_key = self.create_personal_api_key_with_scopes(["health_issue:read"])
+        self.client.logout()
+
+        response = self.client.post(self._url(f"/{issue.id}/resolve"), HTTP_AUTHORIZATION=f"Bearer {api_key}")
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.json()["detail"], "API key missing required scope 'health_issue:write'")
+
+        issue.refresh_from_db()
+        self.assertEqual(issue.status, HealthIssue.Status.ACTIVE)
 
     def test_patch_dismiss(self):
         issue = self._create_issue()
