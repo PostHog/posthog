@@ -380,10 +380,11 @@ class SignupIPThrottle(IPThrottle):
             return
         self.reserved = False
         try:
+            _, duration = self.parse_rate(self.rate)
             history = self.cache.get(self.key, [])
             with suppress(ValueError):
                 history.remove(self.now)
-            self.cache.set(self.key, history, self.duration)
+            self.cache.set(self.key, history, duration)
         except Exception as e:
             # The request is already failing, so a cache error here must not replace its original error.
             capture_exception(e)

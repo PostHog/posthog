@@ -548,7 +548,7 @@ class SignupViewset(generics.CreateAPIView):
             self._throttles = super().get_throttles()
         return self._throttles
 
-    def perform_create(self, serializer: SignupSerializer) -> None:
+    def perform_create(self, serializer: serializers.BaseSerializer) -> None:
         try:
             super().perform_create(serializer)
         finally:
