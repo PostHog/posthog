@@ -10,6 +10,7 @@ import { IntegrationAccessRequest } from 'scenes/integrations/components/Integra
 import { urls } from 'scenes/urls'
 
 import { inboxSetupLogic } from '../../logics/inboxSetupLogic'
+import { InboxGithubAccessExplanation } from './InboxGithubAccessExplanation'
 import { InboxSetupImplementation } from './InboxSetupImplementation'
 
 export function InboxSetupGithubStep(): JSX.Element {
@@ -43,6 +44,7 @@ export function InboxSetupGithubStep(): JSX.Element {
                     />
                 )}
             </GuidedWizardSection>
+            {!hasGithubIntegration && <InboxGithubAccessExplanation />}
             {featureFlags[FEATURE_FLAGS.SELF_DRIVING_UBP] && <InboxSetupImplementation />}
         </>
     )
