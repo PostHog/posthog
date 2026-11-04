@@ -12,7 +12,8 @@ import { engineeringAnalyticsEnable, engineeringAnalyticsSources } from '../gene
  *
  * Opening the product with a source connected is the opt-in: it enables the project, which
  * is what lets the background work (view sync, test census, CI failure logs) run for it.
- * The call is idempotent, so repeating it on every detection costs one request and nothing else.
+ * The call is idempotent and does nothing for an enabled project. It needs editor access, so
+ * a viewer's failure is ignored: the scene still renders, and the next editor enables it.
  */
 export const engineeringAnalyticsSetupLogic = createSetupDetectionLogic({
     productKey: ProductKey.ENGINEERING_ANALYTICS,
@@ -25,7 +26,7 @@ export const engineeringAnalyticsSetupLogic = createSetupDetectionLogic({
         if (sources.length === 0) {
             return 'needs-setup'
         }
-        await engineeringAnalyticsEnable(projectId)
+        void engineeringAnalyticsEnable(projectId).catch(() => undefined)
         return 'has-data'
     },
 })

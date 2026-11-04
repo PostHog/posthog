@@ -1,10 +1,6 @@
-"""Which teams opted into engineering analytics.
+"""Which teams opted into engineering analytics: the ones with the product's managed viewset row.
 
-The product's ``DataWarehouseManagedViewSet`` row is the opt-in, the same way revenue analytics
-reads its own row. A user action creates it; nothing in the background does. Every sweep that
-works on behalf of a team (view sync after a warehouse load, the test census, the job-log
-fetchers) asks this module first, so a team with a GitHub source it connected for another
-reason never gets views, events or Logs from this product.
+A user action creates the row; no background job does. See SPEC.md, "Exposed warehouse views".
 """
 
 from django.db.models import QuerySet
@@ -12,26 +8,36 @@ from django.db.models import QuerySet
 from posthog.models.team import Team
 
 from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet
-from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
+from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
+
+_KIND = DataWarehouseManagedViewSetKind.ENGINEERING_ANALYTICS
+_enrollments = DataWarehouseManagedViewSet.objects.filter(kind=_KIND)
 
 
-def enrolled_team_ids() -> QuerySet[DataWarehouseManagedViewSet, int]:
-    """Team ids of every enrolled team, as a subquery for ``team_id__in`` filters."""
-    return DataWarehouseManagedViewSet.objects.filter(
-        kind=DataWarehouseManagedViewSetKind.ENGINEERING_ANALYTICS
-    ).values_list("team_id", flat=True)
+def enrolled_sources(source_type: ExternalDataSourceType) -> QuerySet[ExternalDataSource]:
+    """Every enrolled team's non-deleted sources of ``source_type``, with the team: the root of each
+    cross-team sweep."""
+    return (
+        ExternalDataSource.objects.filter(
+            source_type=source_type, team_id__in=_enrollments.values_list("team_id", flat=True)
+        )
+        .exclude(deleted=True)
+        .select_related("team")
+    )
 
 
 def get_enrollment(team: Team) -> DataWarehouseManagedViewSet | None:
-    return DataWarehouseManagedViewSet.objects.filter(
-        team=team, kind=DataWarehouseManagedViewSetKind.ENGINEERING_ANALYTICS
-    ).first()
+    return _enrollments.filter(team=team).first()
 
 
-def enroll(team: Team) -> DataWarehouseManagedViewSet:
-    """Create the opt-in row if missing and sync the views. Safe to call again on an enrolled team."""
-    managed_viewset, _ = DataWarehouseManagedViewSet.objects.get_or_create(
-        team=team, kind=DataWarehouseManagedViewSetKind.ENGINEERING_ANALYTICS
-    )
-    managed_viewset.sync_views()
-    return managed_viewset
+def enroll(team: Team) -> None:
+    """Create the opt-in row if missing and sync the views once, on creation.
+
+    The post-load hook re-syncs an enrolled team's views after every relevant warehouse load, so a
+    repeat call does nothing: the UI calls this on every product open, and a sync here would hold
+    the team's sync lock and reach Temporal inside a web request each time.
+    """
+    managed_viewset, created = DataWarehouseManagedViewSet.objects.get_or_create(team=team, kind=_KIND)
+    if created:
+        managed_viewset.sync_views()

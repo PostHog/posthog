@@ -67,7 +67,6 @@ import type {
     EngineeringAnalyticsWorkflowRunParams,
     EngineeringAnalyticsWorkflowRunnerCostsParams,
     EngineeringAnalyticsWorkflowRunsParams,
-    EnrollmentApi,
     FlakyTestListApi,
     GitHubSourceApi,
     JobLogInsightsApi,
@@ -638,8 +637,8 @@ export const getEngineeringAnalyticsEnableUrl = (projectId: string) => {
 /**
  * Enable engineering analytics for this project. Creates the project's managed warehouse views and opts it into the background work (view sync after each GitHub or Depot load, the daily test census, CI failure log collection). Safe to call again: an enabled project stays enabled.
  */
-export const engineeringAnalyticsEnable = async (projectId: string, options?: RequestInit): Promise<EnrollmentApi> => {
-    return apiMutator<EnrollmentApi>(getEngineeringAnalyticsEnableUrl(projectId), {
+export const engineeringAnalyticsEnable = async (projectId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getEngineeringAnalyticsEnableUrl(projectId), {
         ...options,
         method: 'POST',
     })

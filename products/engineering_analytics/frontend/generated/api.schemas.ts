@@ -1070,11 +1070,6 @@ export interface DoraOverviewApi {
     series_granularity: string
 }
 
-export interface EnrollmentApi {
-    /** Whether this project has enabled engineering analytics, so its warehouse views, test census and CI failure logs are kept up to date. */
-    enabled: boolean
-}
-
 /**
  * * `pytest` - Pytest
  * * `jest` - Jest

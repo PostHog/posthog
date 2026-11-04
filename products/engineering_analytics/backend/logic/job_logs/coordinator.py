@@ -15,7 +15,6 @@ once the Logs endpoint is deployed, regardless of deploy order.
 import re
 import json
 import dataclasses
-from collections.abc import Iterator
 from datetime import timedelta
 from typing import Any
 
@@ -39,7 +38,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 
 from products.engineering_analytics.backend.facade.contracts import GitHubSourceNotConnectedError
-from products.engineering_analytics.backend.logic.enrollment import enrolled_team_ids
+from products.engineering_analytics.backend.logic.enrollment import enrolled_sources
 from products.engineering_analytics.backend.logic.job_logs.activity import (
     FetchDepotJobLogInputs,
     FetchDepotJobLogWorkflow,
@@ -122,16 +121,6 @@ def _query_jobs_with_diagnostics(team: Team, prefix: str, cutoff_iso: str, repo:
     return [dict(zip(response.columns or [], row)) for row in response.results]
 
 
-def _live_sources(source_type: ExternalDataSourceType) -> Iterator[ExternalDataSource]:
-    """Every enrolled team's non-deleted sources of ``source_type``, with the team, for the cross-team sweep."""
-    sources = (
-        ExternalDataSource.objects.filter(source_type=source_type, team_id__in=enrolled_team_ids())
-        .exclude(deleted=True)
-        .select_related("team")
-    )
-    return sources.iterator()
-
-
 def _github_source_params(job_inputs: dict[str, Any] | None) -> tuple[int, str] | None:
     """``(integration_id, repo)`` from a GitHub source's ``job_inputs``, or None if unusable.
 
@@ -169,7 +158,7 @@ def _discover_jobs_with_diagnostics(cutoff_iso: str) -> list[dict[str, Any]]:
     found: list[dict[str, Any]] = []
     eligible_sources = 0
     skipped_sources = 0
-    for source in _live_sources(ExternalDataSourceType.GITHUB):
+    for source in enrolled_sources(ExternalDataSourceType.GITHUB).iterator():
         try:
             inputs = SourceInputsStore.load(source)
         except UnreadableSourceInputsError:
@@ -376,7 +365,7 @@ def _discover_failed_depot_attempts(inputs: DepotDiscoveryInputs) -> DepotDiscov
         return DepotDiscovery(attempts=[], cursors={})
     attempts: list[FetchDepotJobLogInputs] = []
     cursors: dict[str, DepotAttemptCursor] = {}
-    for source in _live_sources(ExternalDataSourceType.DEPOT):
+    for source in enrolled_sources(ExternalDataSourceType.DEPOT).iterator():
         source_id = str(source.id)
         cursor = inputs.cursors.get(source_id)
         limit = MAX_DISCOVERED_JOBS - len(attempts)

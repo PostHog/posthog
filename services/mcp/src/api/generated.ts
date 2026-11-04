@@ -38151,11 +38151,6 @@ export namespace Schemas {
       window_days: number;
     }
 
-    export interface Enrollment {
-      /** Whether this project has enabled engineering analytics, so its warehouse views, test census and CI failure logs are kept up to date. */
-      enabled: boolean;
-    }
-
     /**
      * * `allow` - Allow
      * * `reject` - Reject

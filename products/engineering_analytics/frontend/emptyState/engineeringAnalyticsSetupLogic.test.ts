@@ -14,7 +14,7 @@ describe('engineeringAnalyticsSetupLogic', () => {
 
     beforeEach(() => {
         sourcesSpy = jest.spyOn(generatedApi, 'engineeringAnalyticsSources')
-        enableSpy = jest.spyOn(generatedApi, 'engineeringAnalyticsEnable').mockResolvedValue({ enabled: true })
+        enableSpy = jest.spyOn(generatedApi, 'engineeringAnalyticsEnable').mockResolvedValue()
         initKeaTests()
     })
 
@@ -35,5 +35,14 @@ describe('engineeringAnalyticsSetupLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(productSetupStatusLogic({ productKey: ProductKey.ENGINEERING_ANALYTICS }).values.status).toBe(expected)
         expect(enableSpy).toHaveBeenCalledTimes(enableCalls)
+    })
+
+    it('still shows the product when the viewer cannot enable it', async () => {
+        sourcesSpy.mockResolvedValue([{ id: 's1', repo: 'acme/web', prefix: '', synced: true }])
+        enableSpy.mockRejectedValue(new Error('403'))
+        const logic = engineeringAnalyticsSetupLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        expect(productSetupStatusLogic({ productKey: ProductKey.ENGINEERING_ANALYTICS }).values.status).toBe('has-data')
     })
 })

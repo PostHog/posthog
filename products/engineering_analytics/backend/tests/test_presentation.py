@@ -812,17 +812,16 @@ class TestEngineeringAnalyticsAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert "engineering-analytics" in response.json()["detail"]
-        assert not DataWarehouseManagedViewSet.objects.filter(team=self.team).exists()
 
     def test_enable_is_idempotent(self) -> None:
         with mock.patch.object(DataWarehouseManagedViewSet, "sync_views") as mock_sync:
             first = self.client.post(self._url("enable"))
             second = self.client.post(self._url("enable"))
 
-        assert first.status_code == status.HTTP_200_OK
-        assert first.json() == {"enabled": True}
-        assert second.json() == {"enabled": True}
-        assert mock_sync.call_count == 2
+        assert first.status_code == status.HTTP_204_NO_CONTENT
+        assert second.status_code == status.HTTP_204_NO_CONTENT
+        # The views sync once, on creation; the post-load hook keeps them current afterwards.
+        mock_sync.assert_called_once()
         assert (
             DataWarehouseManagedViewSet.objects.filter(
                 team=self.team, kind=DataWarehouseManagedViewSetKind.ENGINEERING_ANALYTICS

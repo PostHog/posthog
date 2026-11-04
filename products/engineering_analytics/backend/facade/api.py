@@ -43,7 +43,6 @@ from products.engineering_analytics.backend.facade.contracts import (
     DeliverySummary,
     DepotCIRepoUsage,
     DoraOverview,
-    Enrollment,
     FlakyTestList,
     GitHubSource,
     GitHubTeamRoster,
@@ -102,10 +101,9 @@ def _authorized_source(
     )
 
 
-def enable(*, team: Team) -> Enrollment:
-    """Opt the team in: create its managed viewset and sync the views. Idempotent."""
+def enable(*, team: Team) -> None:
+    """Opt the team in: create its managed viewset and sync the views once. Idempotent."""
     logic.enroll(team)
-    return Enrollment(enabled=True)
 
 
 def get_ci_signals_config(*, team: Team, user_access_control: "UserAccessControl | None" = None) -> CISignalsConfig:

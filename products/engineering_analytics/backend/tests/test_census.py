@@ -9,11 +9,9 @@ from owners_yaml import TeamTestCensus
 
 from posthog.models.team import Team
 
-from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet
 from products.engineering_analytics.backend.logic.census import CENSUS_EVENT, collect_repo_census, emit_census_events
 from products.engineering_analytics.backend.tasks.tasks import emit_test_ownership_census
-from products.engineering_analytics.backend.tests._github_fixtures import create_github_source
-from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
+from products.engineering_analytics.backend.tests._github_fixtures import create_github_source, enroll_team
 
 
 def _tarball(files: dict[str, bytes]) -> bytes:
@@ -98,9 +96,7 @@ class TestCensusFanOut(BaseTest):
         unenrolled = Team.objects.create(organization=self.organization, name="unenrolled")
         create_github_source(self.team)
         create_github_source(unenrolled)
-        DataWarehouseManagedViewSet.objects.create(
-            team=self.team, kind=DataWarehouseManagedViewSetKind.ENGINEERING_ANALYTICS
-        )
+        enroll_team(self.team)
 
         emit_test_ownership_census()
 
