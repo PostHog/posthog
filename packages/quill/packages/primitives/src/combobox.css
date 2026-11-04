@@ -154,18 +154,6 @@
         opacity: 0.5;
     }
 
-    /*
-     * No focus ring on options — the `[data-highlighted]` background fill is the
-     * sole active indicator (combobox uses virtual focus: the input keeps focus,
-     * so options never get `:focus-visible`). Suppress every ring Button can
-     * paint on an option. Scoped under `.quill-combobox__content` so the (0,4,0)
-     * specificity outranks Button's base rules regardless of stylesheet order.
-     */
-    .quill-combobox__content .quill-button--variant-default:is([data-highlighted], :focus-visible) {
-        border-color: transparent;
-        box-shadow: none;
-    }
-
     /* `data-keep-color` opts a child out, for example a product icon that carries its own color. */
     .quill-combobox__item:not([data-variant='destructive'])[data-highlighted]
         *:not([data-keep-color], [data-keep-color] *) {
