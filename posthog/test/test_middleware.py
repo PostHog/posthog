@@ -347,7 +347,7 @@ class TestIPRestrictionsMiddleware(APIBaseTest):
                 secure_value=hash_key_value(token),
                 scopes=["organization:read", "organization_member:read", "project:read", "feature_flag:read"],
             )
-            headers["HTTP_AUTHORIZATION"] = f"Bearer {token}"
+            headers["Authorization"] = f"Bearer {token}"
         response = self.client.get(
             path.format(
                 restricted_org=self.organization.id,
@@ -357,7 +357,7 @@ class TestIPRestrictionsMiddleware(APIBaseTest):
                 other_team=other_team.id,
             ),
             REMOTE_ADDR="198.51.100.7",
-            **headers,
+            headers=headers,
         )
         self.assertEqual(response.status_code, expected, response.content)
 
