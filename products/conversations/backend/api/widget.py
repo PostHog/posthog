@@ -51,6 +51,7 @@ from products.conversations.backend.api.serializers import (
 )
 from products.conversations.backend.cache import (
     get_cached_messages,
+    get_cached_session_has_tickets,
     get_cached_tickets,
     get_identity_tickets_cache_namespace,
     get_person_distinct_ids,
@@ -58,6 +59,7 @@ from products.conversations.backend.cache import (
     invalidate_tickets_cache,
     invalidate_unread_count_cache,
     set_cached_messages,
+    set_cached_session_has_tickets,
     set_cached_tickets,
 )
 from products.conversations.backend.models import SigningSecret, Ticket
@@ -296,12 +298,29 @@ def _identity_tickets_cache_key(cache_namespace: str, verified_distinct_id: str,
     return f"{base_key}:email:{email_digest}"
 
 
-def _is_anonymous_session_without_tickets(request: Request) -> bool:
-    team = request.auth
-    widget_session_id = request.query_params.get("widget_session_id")
-    if not isinstance(team, Team) or not widget_session_id or request.query_params.get("identity_distinct_id"):
-        return False
-    return not Ticket.objects.filter(team=team, widget_session_id=widget_session_id).exists()
+def _anonymous_widget_session_id(request: Request) -> str | None:
+    """Canonical widget_session_id of an anonymous request, or None.
+
+    The tickets view parses the parameter as a UUID, so the lookup here must use the same
+    spelling. Otherwise an uppercase or hyphenless form of a session that has tickets would
+    look like a new session.
+    """
+    raw_session_id = request.query_params.get("widget_session_id")
+    if not raw_session_id or request.query_params.get("identity_distinct_id"):
+        return None
+    try:
+        return str(uuid.UUID(raw_session_id))
+    except ValueError:
+        return None
+
+
+def _session_has_tickets(team: Team, widget_session_id: str) -> bool:
+    if get_cached_session_has_tickets(team.id, widget_session_id):
+        return True
+    has_tickets = Ticket.objects.filter(team=team, widget_session_id=widget_session_id).exists()
+    if has_tickets:
+        set_cached_session_has_tickets(team.id, widget_session_id)
+    return has_tickets
 
 
 class WidgetTicketsTeamThrottle(WidgetTeamPollThrottle):
@@ -316,12 +335,30 @@ class WidgetTicketsTeamThrottle(WidgetTeamPollThrottle):
     new_session_rate = "36000/hour"
 
     def allow_request(self, request: Request, view: APIView) -> bool:
-        if _is_anonymous_session_without_tickets(request):
-            # DRF makes new throttle instances for each request, so this does not leak to other requests.
-            self.scope = self.new_session_scope
-            self.rate = self.new_session_rate
-            self.num_requests, self.duration = self.parse_rate(self.rate)
+        team = request.auth
+        widget_session_id = _anonymous_widget_session_id(request)
+        if isinstance(team, Team) and widget_session_id is not None:
+            poll_scope, poll_rate = self.scope, self.rate
+            # DRF makes new throttle instances for each request, so changing the bucket here
+            # does not leak to other requests.
+            self._use_bucket(self.new_session_scope, self.new_session_rate)
+            # Check for room before the ticket lookup. DRF runs every throttle, also after an
+            # earlier one rejected the request, so a full bucket must not cause database queries.
+            if not self._has_room(request, view) or _session_has_tickets(team, widget_session_id):
+                self._use_bucket(poll_scope, poll_rate)
         return super().allow_request(request, view)
+
+    def _use_bucket(self, scope: str, rate: str) -> None:
+        self.scope = scope
+        self.rate = rate
+        self.num_requests, self.duration = self.parse_rate(rate)
+
+    def _has_room(self, request: Request, view: APIView) -> bool:
+        if self.num_requests is None or self.duration is None:
+            return True
+        history = self.cache.get(self.get_cache_key(request, view), [])
+        oldest_counted = self.timer() - self.duration
+        return sum(1 for timestamp in history if timestamp > oldest_counted) < self.num_requests
 
 
 class WidgetMessageView(APIView):
