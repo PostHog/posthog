@@ -97,8 +97,7 @@ export function AddDeliveryWebhookModal(): JSX.Element {
                         emptyStateComponent={
                             !transactionalEmailOptionsLoading && transactionalEmailOptions.length === 0 ? (
                                 <p className="text-secondary italic p-1 m-0">
-                                    You have no transactional emails yet. This webhook gets updates for every one you
-                                    add.
+                                    No transactional emails yet. This webhook gets updates for every one you add.
                                 </p>
                             ) : undefined
                         }
