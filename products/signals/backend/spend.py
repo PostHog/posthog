@@ -8,7 +8,7 @@ from decimal import Decimal
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from django.conf import settings
-from django.db import transaction
+from django.db import connection, transaction
 from django.db.models import F, Func, JSONField, Value
 from django.db.models.functions import Coalesce
 from django.utils import timezone
@@ -26,6 +26,7 @@ from products.signals.backend.spend_billing import (
     trial_spend_exempt,
     uses_spend_billing,
 )
+from products.signals.backend.trial.funding import TrialFunding
 
 
 @frozen
@@ -129,7 +130,16 @@ async def submit_signal_metadata_updates(
         )
 
 
+def lock_signal_spend(*, team_id: int, signal_id: str) -> None:
+    # Report admission must serialize with settlement even before the spend row exists.
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"signals-spend:{team_id}:{UUID(signal_id)}"]
+        )
+
+
 def _locked_ad_hoc_spend(*, team_id: int, signal_id: str, trial_grant_id: str | None = None) -> SignalSpend:
+    lock_signal_spend(team_id=team_id, signal_id=signal_id)
     spend, _ = SignalSpend.objects.for_team(team_id).get_or_create(
         team_id=team_id,
         signal_id=signal_id,
@@ -387,11 +397,16 @@ def complete_signal_pipeline(
 
 def begin_report_spend(*, team_id: int, report_id: str, signal_id: str, billing_exempt: bool = False) -> None:
     with transaction.atomic():
-        spend = _locked_ad_hoc_spend(team_id=team_id, signal_id=signal_id)
+        report = SignalReport.objects.get(team_id=team_id, id=report_id)
+        funding = TrialFunding.from_dict(report.self_driving_funding)
+        spend = _locked_ad_hoc_spend(
+            team_id=team_id,
+            signal_id=signal_id,
+            trial_grant_id=str(funding.grant_id) if funding and funding.grant_id else None,
+        )
         if spend.finalized_at is not None:
             return
         spend.billing_exempt = spend.billing_exempt or billing_exempt
-        report = SignalReport.objects.get(team_id=team_id, id=report_id)
         apply_report_billing(spend, report)
         _save_ad_hoc_spend(spend)
 
