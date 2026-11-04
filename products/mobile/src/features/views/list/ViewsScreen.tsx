@@ -2,7 +2,6 @@ import { useIsFocused, useRouter } from 'expo-router'
 import { type ReactElement, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import type { ViewInstance } from 'react-native'
 import { Linking, type ListViewToken, Platform, RefreshControl, SectionList, Text, View } from 'react-native'
-import { useReservedRegions } from 'react-native-reserved-regions'
 import type { RowAnchor } from '@/features/inbox/contextMenuPlacement'
 import { useMobileProductFlags } from '@/lib/featureFlags'
 import { useNow } from '@/lib/useNow'
@@ -10,6 +9,7 @@ import type { BrowseRow, InsightSnapshot, PinDisplayMode, PinView, RecentView, V
 import { ChartCanvasBudget, useCanvasBudgetViewport } from '@/ui/chart/budget/ChartCanvasBudget'
 import { ChartSelectionProvider, useChartListMotion } from '@/ui/chart/selection/ChartSelectionProvider'
 import type { ChartTooltipPoint } from '@/ui/chart/types'
+import { useDisplayRegions } from '@/ui/displayRegionContext'
 import { Eyebrow } from '@/ui/Eyebrow'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { Pressable44 } from '@/ui/Pressable44'
@@ -160,7 +160,7 @@ function ViewsBody(): ReactElement {
     const demo = context.mode === 'demo'
     const list = useViewsList()
     const { width } = useSceneDimensions()
-    const regions = useReservedRegions()
+    const regions = useDisplayRegions()
     const fold = regions.find((region) => region.kind === 'division' && region.frame.height > region.frame.width)?.frame
     const grid = fold ? fold.x >= 300 && width - fold.x - fold.width >= 300 : width >= 740
     const pinAnchor = useRef({

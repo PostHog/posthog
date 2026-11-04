@@ -45,8 +45,6 @@ export function OverlayHost({ children }: OverlayHostProps): ReactElement {
             )
         })
     }, [])
-    // biome-ignore lint/correctness/useExhaustiveDependencies: safe-area changes can move the host without changing its size.
-    useLayoutEffect(measure, [measure, width, height, left, right, top, bottom])
     const [dismissals, setDismissals] = useState<ReadonlyMap<string, () => void>>(() => new Map())
     const setDismissal = useCallback((key: string, close: (() => void) | null): void => {
         setDismissals((previous) => {
@@ -77,6 +75,9 @@ export function OverlayHost({ children }: OverlayHostProps): ReactElement {
             return next
         })
     }, [])
+
+    // biome-ignore lint/correctness/useExhaustiveDependencies: measure again when an overlay opens after a navigator transition.
+    useLayoutEffect(measure, [measure, width, height, left, right, top, bottom, nodes.size])
 
     return (
         <OverlayContext.Provider value={setOverlay}>

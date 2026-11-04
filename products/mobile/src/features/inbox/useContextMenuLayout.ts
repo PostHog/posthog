@@ -1,5 +1,5 @@
 import { useContext, useLayoutEffect, useRef } from 'react'
-import { useReservedRegions } from 'react-native-reserved-regions'
+import { useDisplayRegions } from '@/ui/displayRegionContext'
 
 import { overlayPane } from '@/ui/displayRegions'
 import { OverlayFrameContext } from '@/ui/overlayFrame'
@@ -18,11 +18,11 @@ export function useContextMenuLayout(
     const scene = useSceneDimensions()
     const host = useContext(OverlayFrameContext)
     const frame = host ?? { x: 0, y: 0, width: scene.width, height: scene.height }
-    const regions = useReservedRegions()
+    const regions = useDisplayRegions()
     const insets = useScreenInsets()
     const close = useRef(onClose)
     close.current = onClose
-    const layoutKey = JSON.stringify([frame, regions, insets])
+    const layoutKey = JSON.stringify([frame.width, frame.height, regions, insets])
     const previous = useRef(layoutKey)
     useLayoutEffect(() => {
         if (previous.current !== layoutKey && visible) close.current()
