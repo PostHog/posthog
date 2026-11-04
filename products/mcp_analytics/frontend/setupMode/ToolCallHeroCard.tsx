@@ -46,7 +46,9 @@ export function ToolCallHeroCard({ call }: { call: MCPActivityRecentCallApi }): 
                 </span>
                 <div className="flex min-w-0 flex-1 flex-col">
                     <span className="text-sm text-secondary">{COPY.called(client)}</span>
-                    <span className="truncate font-mono text-2xl font-semibold">{call.tool}</span>
+                    <span className="truncate font-mono text-2xl font-semibold" title={call.tool}>
+                        {call.tool}
+                    </span>
                 </div>
                 <span className="shrink-0 text-xs text-secondary">
                     <TZLabel time={call.timestamp} />

@@ -1,23 +1,18 @@
 import { useActions, useValues } from 'kea'
-import type { ComponentType, ReactNode } from 'react'
+import type { ReactNode } from 'react'
 
-import * as lifeguardPng from '@posthog/brand/hoggies/png/lifeguard'
-import * as mailboxPng from '@posthog/brand/hoggies/png/mailbox'
-import { IconArrowRight, IconSparkles } from '@posthog/icons'
+import { IconArrowRight, IconBell, IconLetter, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonCard, Spinner } from '@posthog/lemon-ui'
 
-import { type HoggiePngProps, pngHoggie } from 'lib/brand/hoggies'
 import { urls } from 'scenes/urls'
 
 import { mcpEarlyDataLogic } from '../earlyData/mcpEarlyDataLogic'
 import { weeklyReportStep } from '../earlyData/nextSteps'
 import { WeeklyReportActions } from '../earlyData/WeeklyReportActions'
+import { mcpSetupModeLogic } from './mcpSetupModeLogic'
 import { SetupCallsPanel } from './SetupCallsPanel'
 import { SetupStepHero } from './SetupStepHero'
 import { SetupStepLayout } from './SetupStepLayout'
-
-const HedgehogMailbox = pngHoggie(mailboxPng)
-const HedgehogLifeguard = pngHoggie(lifeguardPng)
 
 const COPY = {
     title: 'Hear from your server without opening PostHog',
@@ -50,13 +45,13 @@ const COPY = {
 }
 
 function OptionCard({
-    Hedgehog,
+    icon,
     title,
     detail,
     error,
     actions,
 }: {
-    Hedgehog: ComponentType<Pick<HoggiePngProps, 'className'>>
+    icon: ReactNode
     title: string
     detail: string
     error?: string
@@ -64,7 +59,9 @@ function OptionCard({
 }): JSX.Element {
     return (
         <LemonCard hoverEffect={false} className="flex flex-col gap-4 p-5">
-            <Hedgehog className="h-20 w-auto self-start" />
+            <span className="flex size-10 items-center justify-center rounded border border-primary bg-surface-secondary text-xl">
+                {icon}
+            </span>
             <div className="flex flex-1 flex-col gap-1">
                 <h3 className="m-0 text-base font-semibold">{title}</h3>
                 <p className="m-0 text-sm text-secondary">{detail}</p>
@@ -87,7 +84,7 @@ function WeeklyReportOption(): JSX.Element {
     if (weeklyReportOffer.state === 'loading') {
         return (
             <OptionCard
-                Hedgehog={HedgehogMailbox}
+                icon={<IconLetter />}
                 title={COPY.report.title}
                 detail={COPY.report.detail}
                 actions={<Spinner />}
@@ -98,7 +95,7 @@ function WeeklyReportOption(): JSX.Element {
         const reportStep = weeklyReportStep(weeklyReportOffer)
         return (
             <OptionCard
-                Hedgehog={HedgehogMailbox}
+                icon={<IconLetter />}
                 title={reportStep.title}
                 detail={reportStep.detail}
                 error={reportStep.error}
@@ -109,7 +106,7 @@ function WeeklyReportOption(): JSX.Element {
     const hasReport = weeklyReportOffer.reason === 'has-report'
     return (
         <OptionCard
-            Hedgehog={HedgehogMailbox}
+            icon={<IconLetter />}
             title={COPY.report.title}
             detail={hasReport ? COPY.report.hasReport : COPY.report.detail}
             actions={
@@ -128,12 +125,13 @@ function WeeklyReportOption(): JSX.Element {
 }
 
 function FailureAlertOption(): JSX.Element {
-    const { overview, hasFailureNotification } = useValues(mcpEarlyDataLogic)
+    const { hasFailureNotification } = useValues(mcpEarlyDataLogic)
+    const { recentCalls } = useValues(mcpSetupModeLogic)
     const { nextStepClicked } = useActions(mcpEarlyDataLogic)
-    const failedTool = overview?.recent_calls.find((call) => call.is_error)?.tool
+    const failedTool = recentCalls?.find((call) => call.is_error)?.tool
     return (
         <OptionCard
-            Hedgehog={HedgehogLifeguard}
+            icon={<IconBell />}
             title={COPY.alert.title}
             detail={
                 hasFailureNotification
@@ -164,9 +162,10 @@ export function SetupUsefulStep({
     onFinish: () => void
     onAskPostHogAI: (prompt: string) => void
 }): JSX.Element {
-    const { overview } = useValues(mcpEarlyDataLogic)
+    // Setup mode's own calls, because the activity overview is served from a cache that can predate them.
+    const { recentCalls } = useValues(mcpSetupModeLogic)
     return (
-        <SetupStepLayout aside={<SetupCallsPanel calls={overview?.recent_calls ?? null} />}>
+        <SetupStepLayout aside={<SetupCallsPanel calls={recentCalls} />}>
             <SetupStepHero title={COPY.title} lead={COPY.lead} />
             <div className="@container">
                 <div className="grid gap-4 @min-[34rem]:grid-cols-2">

@@ -1,4 +1,4 @@
-import { connectStateFor, parseSetupPath, setupStepFor } from './setupMode'
+import { connectStateFor, isSetupOpen, setupStepFor } from './setupMode'
 
 describe('setupMode', () => {
     it.each([
@@ -24,12 +24,10 @@ describe('setupMode', () => {
     })
 
     it.each([
-        { value: 'wizard', expected: 'wizard' },
-        { value: 'agent', expected: 'agent' },
-        { value: 'manual', expected: null },
-        { value: undefined, expected: null },
-        { value: 1, expected: null },
-    ])('parses the setup param $value as $expected', ({ value, expected }) => {
-        expect(parseSetupPath(value)).toBe(expected)
+        { value: 'open', expected: true },
+        { value: 'agent', expected: false },
+        { value: undefined, expected: false },
+    ])('reads the setup param $value as open: $expected', ({ value, expected }) => {
+        expect(isSetupOpen({ setup: value })).toBe(expected)
     })
 })

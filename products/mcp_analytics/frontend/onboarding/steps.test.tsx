@@ -46,7 +46,7 @@ describe('mcpAnalyticsOnboarding install step', () => {
         jest.spyOn(api, 'get').mockResolvedValue({ recent_calls: [] } as any)
         // Hold the completion request open, so the redirect to the scene never happens during the test.
         jest.spyOn(api, 'update').mockReturnValue(new Promise(() => {}))
-        router.actions.push('/onboarding/mcp_analytics', { step: 'install', setup: 'agent' })
+        router.actions.push('/onboarding/mcp_analytics', { step: 'install', setup: 'open' })
         const [installStep] = mcpAnalyticsOnboarding.steps({
             featureFlags: { [FEATURE_FLAGS.MCP_ANALYTICS_SETUP_MODE]: true },
         } as any)

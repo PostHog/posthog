@@ -1,4 +1,5 @@
 import * as errorPng from '@posthog/brand/hoggies/png/error'
+import * as magnifyingGlassPng from '@posthog/brand/hoggies/png/magnifying-glass'
 import * as partyPng from '@posthog/brand/hoggies/png/party'
 import { IconArrowRight } from '@posthog/icons'
 import { LemonBanner, LemonButton, Spinner } from '@posthog/lemon-ui'
@@ -14,6 +15,7 @@ import { ToolCallRevealCard } from './ToolCallRevealCard'
 
 const HedgehogParty = pngHoggie(partyPng)
 const HedgehogError = pngHoggie(errorPng)
+const HedgehogSearching = pngHoggie(magnifyingGlassPng)
 
 /** The newest call as a hero card and the one before it as a smaller card. Later calls go to the panel. */
 const REVEALED_CALLS = 2
@@ -81,7 +83,7 @@ function FirstCallBody({ calls, loadFailed, onNext }: SetupFirstCallStepProps): 
     if (calls.length === 0) {
         return (
             <>
-                <SetupStepHero Hedgehog={HedgehogParty} title={COPY.none.title} lead={COPY.none.lead} />
+                <SetupStepHero Hedgehog={HedgehogSearching} title={COPY.none.title} lead={COPY.none.lead} />
                 {next}
             </>
         )
