@@ -2,14 +2,11 @@
 
 Mirrors the inbox Reports tab's actionability gate: a report notifies only if it's actionable
 (its latest actionability judgment is immediately_actionable or requires_human_input) — READY is
-enforced upstream — and has at least one suggested reviewer that resolves to a destination.
-Each reviewer is routed to one destination: their own configured target if set (filtered by
-their min-priority), otherwise the team-default channel. A personal target is either a channel or
-the reviewer's own Slack account, which Slack delivers as a direct message. Reviewers sharing a
-destination get a single post mentioning only the reviewers routed there. When no suggested
-reviewer resolves, the report is still delivered to the team-default channel (if one is
-configured) with no mentions, so a team is notified even when none of its members are linked to a
-resolvable GitHub identity.
+enforced upstream. The team-default channel (if configured) receives every such report. Each
+suggested reviewer is also routed to one destination: their own configured target if set (filtered
+by their min-priority), otherwise the team-default channel. A personal target is either a channel
+or the reviewer's own Slack account, which Slack delivers as a direct message. Reviewers sharing a
+destination get a single post mentioning only the reviewers routed there.
 All sends are best-effort.
 """
 
@@ -18,7 +15,7 @@ from __future__ import annotations
 import re
 import json
 import logging
-from collections.abc import Callable, Collection, Iterable
+from collections.abc import Collection, Iterable
 
 from django.conf import settings
 
@@ -27,8 +24,9 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.dataclasses import frozen
 from posthog.event_usage import groups
+from posthog.integrations import IntegrationManager, IntegrationRecord
 from posthog.models import User
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.integration import SlackIntegration
 from posthog.ph_client import ph_scoped_capture
 from posthog.slack.formatting import (
     channel_id_from_target as _channel_id_from_target,
@@ -57,7 +55,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
 from products.signals.backend.report_urls import ReportLinkSource, build_report_url
 from products.signals.backend.scout_authorship import report_is_hidden_from_inbox
 from products.signals.backend.slack_formatting import (
-    is_safe_slack_http_url as _is_safe_http_url,
+    first_sentence as _first_sentence,
     prepare_slack_markdown as _prepare_markdown,
     strip_chart_references as _strip_chart_references,
 )
@@ -73,7 +71,7 @@ _ACTIONABLE_VALUES = frozenset(
 
 logger = logging.getLogger(__name__)
 
-_SUMMARY_EXCERPT_MAX_LEN = 600
+_SUMMARY_EXCERPT_MAX_LEN = 280
 _SLACK_HEADER_MAX_LEN = 150
 _INBOX_INVITE_UTM_TAGS = "utm_source=posthog&utm_campaign=signals_inbox&utm_medium=slack"
 # Bound message size / avoid pinging a crowd.
@@ -245,17 +243,25 @@ def _own_target_configs_by_user(team_id: int, user_ids: set[int]) -> dict[int, S
     return {config.user_id: config for config in configs}
 
 
-def _get_team_slack_integration(team_id: int) -> Integration | None:
-    # Standard `slack` kind (not `slack-posthog-code`), matching the per-user path.
-    return Integration.objects.filter(team_id=team_id, kind="slack").first()
-
-
-def _team_notification_channel(team_id: int) -> str | None:
-    config = SignalTeamConfig.objects.filter(team_id=team_id).only("default_slack_notification_channel").first()
-    if config is None:
+def _team_notification_target(team_id: int) -> tuple[IntegrationRecord, str] | None:
+    """The team-default channel and the Slack workspace that owns it."""
+    config = (
+        SignalTeamConfig.objects.filter(team_id=team_id)
+        .only("default_slack_notification_channel", "default_slack_notification_integration_id")
+        .first()
+    )
+    channel = ((config.default_slack_notification_channel if config else None) or "").strip()
+    if config is None or not channel:
         return None
-    channel = (config.default_slack_notification_channel or "").strip()
-    return channel or None
+    # Standard `slack` kind (not `slack-posthog-code`), matching the per-user path.
+    slack_rows = IntegrationManager.slack.any
+    bound_id = config.default_slack_notification_integration_id
+    if bound_id is not None and (integration := slack_rows.get_many(team_id, [bound_id]).get(bound_id)):
+        return integration, channel
+    # A channel saved before the binding existed, or bound to a removed workspace, keeps the old
+    # routing through the oldest workspace.
+    legacy = slack_rows.find(team_id)
+    return (legacy, channel) if legacy is not None else None
 
 
 def _channel_display_name(value: str) -> str:
@@ -303,18 +309,18 @@ def _cap_excerpt(text: str) -> str:
 
 
 def _summary_excerpt(summary: str) -> str:
-    """First line of the report description only, capped at 600 characters."""
+    """First sentence of the report description's first line, capped at 280 characters."""
     text = summary.strip()
     if not text:
         return ""
     first_line = text.splitlines()[0].strip()
     if not first_line:
         return ""
-    return _cap_excerpt(first_line)
+    return _cap_excerpt(_first_sentence(first_line))
 
 
 def _impact_excerpt(summary: str) -> str:
-    """First paragraph of the summary's `## Impact` section, capped at 600 characters."""
+    """First sentence of the summary's `## Impact` section, capped at 280 characters."""
     match = _IMPACT_SECTION.search(summary)
     if match is None:
         return ""
@@ -322,7 +328,7 @@ def _impact_excerpt(summary: str) -> str:
     if not section:
         return ""
     first_paragraph = re.split(r"\n\s*\n", section, maxsplit=1)[0]
-    return _cap_excerpt(" ".join(line.strip() for line in first_paragraph.splitlines()))
+    return _cap_excerpt(_first_sentence(" ".join(line.strip() for line in first_paragraph.splitlines())))
 
 
 def _display_title(title: str | None) -> str:
@@ -381,166 +387,13 @@ def _build_message_blocks(report: SignalReport, *, reviewer_mentions: list[str])
     return blocks, _escape_mrkdwn(title_line)
 
 
-# Bound how many evidence signals we post into a thread so a large report can't flood a channel.
-_MAX_THREAD_SIGNALS = 30
-# Explicit "Product · Signal type" labels, mirroring `signalCardSourceLine` in the canonical Inbox UI
-# (PostHog Desktop's apps/code/.../detail/SignalCard.tsx). Keep in sync with it.
-_SIGNAL_SOURCE_LINES: dict[tuple[str, str], str] = {
-    ("error_tracking", "issue_created"): "Error tracking · New issue",
-    ("error_tracking", "issue_reopened"): "Error tracking · Issue reopened",
-    ("error_tracking", "issue_spiking"): "Error tracking · Volume spike",
-    ("session_replay", "session_problem"): "Session replay · Session problem",
-    ("session_replay", "session_segment_cluster"): "Session replay · Session segment cluster",
-    ("session_replay", "session_analysis_cluster"): "Session replay · Session analysis cluster",
-    ("replay_vision", "scanner_finding"): "Replay Vision · Scanner finding",
-    ("llm_analytics", "evaluation"): "AI observability · Evaluation",
-    ("llm_analytics", "evaluation_report"): "AI observability · Evaluation report",
-    ("zendesk", "ticket"): "Zendesk · Ticket",
-    ("github", "issue"): "GitHub · Issue",
-    ("linear", "issue"): "Linear · Issue",
-    ("pganalyze", "issue"): "pganalyze · Issue",
-}
-
-
-def _prettify_scout_name(skill_name: str) -> str:
-    """Turn a scout's skill_name (e.g. "signals-scout-error-tracking") into a label (e.g. "Error tracking")."""
-    cleaned = skill_name.removeprefix("signals-scout-").replace("-", " ").replace("_", " ").strip()
-    return cleaned[:1].upper() + cleaned[1:] if cleaned else ""
-
-
-def _signal_source_line(source_product: str, source_type: str, extra: dict | None = None) -> str:
-    """Human-readable "Product · Signal type" line, mirroring `signalCardSourceLine` in the canonical Inbox UI."""
-    explicit = _SIGNAL_SOURCE_LINES.get((source_product, source_type))
-    if explicit is not None:
-        return explicit
-    if source_product == "error_tracking":
-        type_label = source_type.replace("_", " ")
-        return f"Error tracking · {type_label}" if type_label else "Error tracking"
-    if source_product == "signals_scout" and source_type == "cross_source_issue":
-        skill_name = extra.get("skill_name") if isinstance(extra, dict) else None
-        pretty = _prettify_scout_name(skill_name) if isinstance(skill_name, str) else ""
-        return f"Scout · {pretty}" if pretty else "Scout · Cross-source issue"
-    product_label = source_product.replace("_", " ")
-    type_label = source_type.replace("_", " ")
-    return f"{product_label} · {type_label}" if type_label else product_label
-
-
-def _labelled_detail_parts(extra: dict, fields: tuple[tuple[str, str], ...]) -> list[str]:
-    """`Label: value` parts for each named key that carries a truthy value, in the given order."""
-    return [f"{label}: {_escape_mrkdwn(str(extra[key]))}" for key, label in fields if extra.get(key)]
-
-
-def _github_detail_parts(extra: dict) -> list[str]:
-    parts: list[str] = []
-    number = extra.get("number")
-    if number is not None:
-        parts.append(f"#{_escape_mrkdwn(str(number))}")
-    labels = extra.get("labels")
-    if isinstance(labels, list) and labels:
-        parts.append(", ".join(_escape_mrkdwn(str(label)) for label in labels[:5]))
-    if _is_safe_http_url(extra.get("html_url")):
-        parts.append(f"<{extra['html_url']}|View on GitHub>")
-    return parts
-
-
-def _zendesk_detail_parts(extra: dict) -> list[str]:
-    parts = _labelled_detail_parts(extra, (("priority", "Priority"), ("status", "Status")))
-    if _is_safe_http_url(extra.get("url")):
-        parts.append(f"<{extra['url']}|Open ticket>")
-    return parts
-
-
-def _llm_analytics_detail_parts(extra: dict) -> list[str]:
-    parts = _labelled_detail_parts(extra, (("model", "Model"), ("provider", "Provider")))
-    trace_id = extra.get("trace_id")
-    if trace_id:
-        parts.append(f"Trace: `{_escape_mrkdwn(str(trace_id)[:12])}…`")
-    return parts
-
-
-def _session_replay_detail_parts(extra: dict) -> list[str]:
-    problem_type = extra.get("problem_type")
-    if not problem_type:
-        return []
-    return [f"Problem: {_escape_mrkdwn(str(problem_type).replace('_', ' '))}"]
-
-
-_SIGNAL_DETAIL_BUILDERS: dict[str, Callable[[dict], list[str]]] = {
-    "github": _github_detail_parts,
-    "zendesk": _zendesk_detail_parts,
-    "llm_analytics": _llm_analytics_detail_parts,
-    "session_replay": _session_replay_detail_parts,
-}
-
-
-def _signal_detail_parts(source_product: str, extra: dict) -> list[str]:
-    """A compact, source-specific metadata line mirroring the inbox SignalCard footer."""
-    builder = _SIGNAL_DETAIL_BUILDERS.get(source_product)
-    return builder(extra) if builder is not None else []
-
-
-def _build_signal_thread_blocks(signal: dict) -> tuple[list[dict], str]:
-    """Render one evidence signal as Slack blocks, mirroring an inbox SignalCard."""
-    source_product = str(signal.get("source_product") or "")
-    source_type = str(signal.get("source_type") or "")
-    raw_extra = signal.get("extra")
-    extra = raw_extra if isinstance(raw_extra, dict) else {}
-
-    source_line = _escape_mrkdwn(_signal_source_line(source_product, source_type, extra))
-    header_line = f"*{source_line}*"
-    blocks: list[dict] = [{"type": "context", "elements": [{"type": "mrkdwn", "text": header_line}]}]
-
-    content = (signal.get("content") or "").strip()
-    if content:
-        # Slack renders the signal's Markdown itself, so the content goes out as written. Escaping
-        # comes first: a trailing cut can then only shorten an already-inert token, never leave a
-        # live mention behind.
-        blocks.append(_markdown_block(_prepare_markdown(content)))
-
-    detail_parts = _signal_detail_parts(source_product, extra)
-    if detail_parts:
-        blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": "  ·  ".join(detail_parts)}]})
-
-    # Slack parses mrkdwn mentions in `text` (push notifications, search) even with blocks present, so both
-    # the source line (escaped above) and content are escaped here too.
-    fallback = source_line if not content else f"{source_line}: {_escape_mrkdwn(content[:120])}"
-    return blocks, fallback
-
-
-def _post_signal_evidence_thread(
-    slack: SlackIntegration,
-    channel_id: str,
-    thread_ts: str,
-    signals: list[dict],
-) -> None:
-    """Post each evidence signal as a reply in the notification's Slack thread. Best-effort."""
-    for signal in signals[:_MAX_THREAD_SIGNALS]:
-        blocks, text = _build_signal_thread_blocks(signal)
-        try:
-            slack.client.chat_postMessage(channel=channel_id, thread_ts=thread_ts, blocks=blocks, text=text)
-        except Exception:
-            logger.exception("Failed to post signal evidence to inbox notification thread")
-
-    # The overflow note reflects signals intentionally withheld by the cap — not transient post failures.
-    overflow = max(0, len(signals) - _MAX_THREAD_SIGNALS)
-    if overflow > 0:
-        try:
-            slack.client.chat_postMessage(
-                channel=channel_id,
-                thread_ts=thread_ts,
-                text=f"+{overflow} more {'signal' if overflow == 1 else 'signals'} in PostHog",
-            )
-        except Exception:
-            logger.exception("Failed to post signal evidence overflow note to inbox notification thread")
-
-
 class _ChannelRoute:
     """One Slack destination and the reviewers routed to it (mentioned only there).
 
     The destination is a channel, or a member whose id Slack turns into a direct message.
     """
 
-    def __init__(self, integration: Integration, channel: str, *, is_team_channel: bool) -> None:
+    def __init__(self, integration: IntegrationRecord, channel: str, *, is_team_channel: bool) -> None:
         self.integration = integration
         self.channel = channel
         self.is_team_channel = is_team_channel
@@ -550,7 +403,7 @@ class _ChannelRoute:
 
 @frozen
 class _Destination:
-    integration: Integration
+    integration: IntegrationRecord
     channel: str
     is_team_channel: bool
 
@@ -586,7 +439,7 @@ def _reviewer_destination(
     *,
     own_config: SignalUserAutonomyConfig | None,
     priority: str | None,
-    team_integration: Integration | None,
+    team_integration: IntegrationRecord | None,
     team_channel: str | None,
 ) -> _Destination | None:
     """Where one suggested reviewer is notified: their own target if set, else the team default.
@@ -596,7 +449,7 @@ def _reviewer_destination(
     if own_config is not None:
         if not _meets_min_priority(priority, own_config.slack_notification_min_priority):
             return None
-        integration = own_config.slack_notification_integration
+        integration: IntegrationRecord | None = own_config.slack_notification_integration
         channel = own_config.slack_notification_channel
         is_team_channel = False
     elif team_integration is not None and team_channel:
@@ -613,17 +466,16 @@ def _build_reviewer_routes(
     report: SignalReport,
     *,
     priority: str | None,
-    team_integration: Integration | None,
+    team_integration: IntegrationRecord | None,
     team_channel: str | None,
 ) -> list[_ChannelRoute]:
     """Route resolvable suggested reviewers to a destination, mentioning them there.
 
     Own target (filtered by the reviewer's min-priority) if set, else the team default. A reviewer
-    filtered out of their own target does not fall back to the team channel — that was their choice.
+    filtered out of their own target is not mentioned in the team channel — that was their choice.
     Reviewers sharing a destination are grouped so each channel is posted to once, mentioning only
-    its own reviewers. When no suggested reviewer resolves, the report is still delivered to the
-    team-default channel (if configured) with no mentions, so a team is notified even when none of
-    its members are linked to a resolvable GitHub identity.
+    its own reviewers. The team-default channel (if configured) receives every report, with no
+    mentions when no reviewer is routed there.
     """
     reviewer_user_ids = resolve_suggested_reviewer_user_ids(report)
     reviewer_users = {user.id: user for user in User.objects.filter(id__in=reviewer_user_ids)}
@@ -644,11 +496,9 @@ def _build_reviewer_routes(
             continue
         table.add(destination, user=user)
 
-    # No suggested reviewer resolved to a PostHog user: deliver to the team-default channel (if
-    # configured) so the team is still notified, without @-mentions — the message omits the
-    # suggested-reviewers section when there is nobody to tag. Per-user own channels are reviewer
-    # notifications, so they are not used here.
-    if not reviewer_user_ids and team_integration is not None and team_channel:
+    # The team channel gets every report. It mentions only the reviewers routed there, so a reviewer
+    # with their own target is not pinged twice.
+    if team_integration is not None and team_channel:
         table.add(_Destination(integration=team_integration, channel=team_channel, is_team_channel=True))
 
     return table.routes()
@@ -659,9 +509,8 @@ def _deliver_route_notification(
     route: _ChannelRoute,
     *,
     trigger: str,
-    signals: list[dict] | None = None,
 ) -> bool:
-    """Post one report notification to a route's destination (with optional evidence thread).
+    """Post one report notification to a route's destination.
 
     Shared by the report-ready and reviewer-added dispatchers. Returns True if the top-level
     message was sent. Best-effort: Slack errors are logged, not raised.
@@ -699,11 +548,9 @@ def _deliver_route_notification(
         # A member target opens a direct message, so the conversation Slack posted into is not the
         # id we sent. An inbound mention names the conversation, so that is what the link records.
         posted_channel = response.get("channel") if hasattr(response, "get") else None
-        if thread_ts:
-            # Recorded before the evidence replies, so a failure posting those still leaves the
-            # thread resolvable back to the report.
+        if thread_ts and (slack_workspace_id := route.integration.integration_id):
             record_report_slack_thread(
-                slack_workspace_id=route.integration.integration_id,
+                slack_workspace_id=slack_workspace_id,
                 team_id=report.team_id,
                 report_id=str(report.id),
                 integration_id=route.integration.id,
@@ -711,8 +558,6 @@ def _deliver_route_notification(
                 thread_ts=str(thread_ts),
                 kind=SignalReportSlackThread.Kind.INBOX_NOTIFICATION,
             )
-        if signals and thread_ts:
-            _post_signal_evidence_thread(slack, channel_id, str(thread_ts), signals)
     except Exception:
         logger.exception("Failed to deliver signals inbox-item Slack notification", extra=log_context)
     _capture_notification_delivered(report, route, trigger=trigger, delivered=delivered)
@@ -724,12 +569,11 @@ def _deliver_to_routes(
     routes: list[_ChannelRoute],
     *,
     trigger: str,
-    signals: list[dict] | None = None,
 ) -> int:
     """Post the report to every route, returning how many top-level messages were sent."""
     sent = 0
     for route in routes:
-        if _deliver_route_notification(report, route, trigger=trigger, signals=signals):
+        if _deliver_route_notification(report, route, trigger=trigger):
             sent += 1
     return sent
 
@@ -766,18 +610,11 @@ def _capture_notification_delivered(
         logger.exception("Failed to capture signals_inbox_notification_delivered for report %s", report.id)
 
 
-def dispatch_inbox_item_notifications(
-    report_id: str,
-    team_id: int,
-    signals: list[dict] | None = None,
-) -> int:
+def dispatch_inbox_item_notifications(report_id: str, team_id: int) -> int:
     """Send Slack notifications for a newly-ready report.
 
-    Returns the number of top-level notification messages sent (one per destination
-    channel); threaded evidence replies are not included in the count.
-
-    When ``signals`` is provided, each evidence signal is posted as a reply in the
-    notification's thread, mirroring the inbox UI so reviewers can scan it from Slack.
+    Returns the number of notification messages sent (one per destination channel). Evidence is
+    not posted to Slack: the report shows it in a normalized form, so the message links there.
 
     Best-effort: per-destination Slack errors are logged, not raised.
     """
@@ -811,8 +648,8 @@ def dispatch_inbox_item_notifications(
         return 0
 
     priority = _latest_priority(report)
-    team_integration = _get_team_slack_integration(team_id)
-    team_channel = _team_notification_channel(team_id) if team_integration is not None else None
+    team_target = _team_notification_target(team_id)
+    team_integration, team_channel = team_target if team_target is not None else (None, None)
 
     routes = _build_reviewer_routes(
         report,
@@ -836,7 +673,7 @@ def dispatch_inbox_item_notifications(
         )
         return 0
 
-    sent = _deliver_to_routes(report, routes, trigger="report_ready", signals=signals)
+    sent = _deliver_to_routes(report, routes, trigger="report_ready")
     logger.info(
         "dispatch_inbox_item_notifications: complete",
         extra={"report_id": report_id, "team_id": team_id, "messages_sent": sent, "routes": len(routes)},

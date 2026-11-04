@@ -92,7 +92,12 @@ from posthog.models.flag_evaluations.sql import (
     FLAG_EVALUATIONS_SOURCE_EVENT,
     FLAG_EVALUATIONS_TTL_DAYS,
 )
-from posthog.models.person.bulk_delete import PersonDeletionFailure, PersonDeletionStep, PersonProfileDeletionResult
+from posthog.models.person.bulk_delete import (
+    DeletionRun,
+    PersonDeletionFailure,
+    PersonDeletionStep,
+    PersonProfileDeletionResult,
+)
 from posthog.test.persons import create_person
 
 TEAM_ID = 99999
@@ -3285,10 +3290,13 @@ def test_delete_person_profiles_op_calls_helper_when_enabled():
         drop_events=False,
         drop_recordings=False,
     )
+    op_context = build_op_context()
     with patch("posthog.dags.data_deletion_requests.delete_persons_profile") as deleter:
         deleter.return_value = PersonProfileDeletionResult(deleted_count=1)
-        delete_person_profiles_op(build_op_context(), ctx)
+        delete_person_profiles_op(op_context, ctx)
         deleter.assert_called_once()
+        # The Dagster run id keeps a retried run on the saga op it started.
+        assert deleter.call_args.kwargs["run"] == DeletionRun(run_id=op_context.run_id)
 
 
 @pytest.mark.django_db

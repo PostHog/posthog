@@ -1,8 +1,8 @@
 import api from 'lib/api'
 import { createSetupDetectionLogic } from 'lib/components/ProductEmptyState/setupDetectionLogic'
+import { hogql } from 'lib/utils/hogql'
 
 import { ProductKey } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
 
 import { CLUSTERING_RUNS_LOOKBACK_DAYS } from '../clusters/constants'
 import { hasRecentAIEvents } from '../utils/aiEvents'

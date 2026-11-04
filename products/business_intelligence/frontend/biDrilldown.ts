@@ -1,4 +1,5 @@
 import { dayjs } from 'lib/dayjs'
+import { escapeHogQLString } from 'lib/utils/hogql'
 
 import { BIConfig, BIFilter, BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
 import {
@@ -8,7 +9,6 @@ import {
     VisualizationNode,
     NodeKind,
 } from '~/queries/schema/schema-general'
-import { escapeHogQLString } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
 import { decodeBIComparisonCategory, decodeBIComparisonSeries, getBIComparisonDateExpression } from './biComparison'

@@ -24,7 +24,8 @@ from products.signals.backend.ranking.features import (
 from products.signals.backend.ranking.model_store import ONNX_OUTPUT_HEADS_KEY
 from products.signals.backend.ranking.serving_manifest import ONNX_MODEL_FILE, ONNX_MODEL_KIND
 from products.signals.dags.inbox_ranking.common import DATASET_VERSION
-from products.signals.dags.inbox_ranking.dataset.project_vectors import USER_HISTORY_LIMIT, VECTOR_KINDS
+from products.signals.dags.inbox_ranking.dataset.project_vectors import USER_HISTORY_LIMIT
+from products.signals.dags.inbox_ranking.dataset.queries import LABELS_TEAM_ID
 from products.signals.dags.inbox_ranking.multihead.inputs import ONNX_INPUTS, ONNX_OUTPUT, NetworkConfig, NetworkInputs
 from products.signals.dags.inbox_ranking.multihead.prototype import ExampleTable
 from products.signals.dags.inbox_ranking.nn.examples import NN_HEAD_NAMES, NN_HEADS
@@ -64,7 +65,7 @@ class TrainedNetwork:
 
 def network_vector_kinds(inputs: NetworkInputs) -> tuple[str, ...]:
     """The project-vector kinds a network fit on `inputs` takes, empty for a report-only network."""
-    return VECTOR_KINDS if inputs.context is not None else ()
+    return inputs.context.kinds if inputs.context is not None else ()
 
 
 def network_user_kinds(inputs: NetworkInputs) -> tuple[str, ...]:
@@ -258,7 +259,8 @@ def vs_baseline_block(
     Each seed fits both arms on the same train rows, so the two AUCs of one seed form a pair. One
     seed's gap can be noise from the network's initialization alone, so the block keeps the range
     of the gaps across seeds. `within_team` is the read the inbox order depends on, and `pooled` is
-    there for reference. A seed where either arm has no AUC drops out of the pairs.
+    there for reference. `within_team_non_dogfood` leaves out PostHog's own project, whose inbox use
+    is not a customer's. A seed where either arm has no AUC drops out of the pairs.
     """
     train_rows = table.network_train_rows()
     heads: dict[str, dict[str, Any]] = {}
@@ -266,6 +268,7 @@ def vs_baseline_block(
         rows = table.head_rows(index, holdout=True)
         y = table.labels[rows, index].astype(int)
         team_ids = table.team_ids(rows)
+        customer = team_ids != LABELS_TEAM_ID
         heads[name] = {
             "train_rows": int((~np.isnan(table.labels[train_rows, index])).sum()),
             "holdout_rows": len(rows),
@@ -273,6 +276,16 @@ def vs_baseline_block(
             "within_team": _paired(
                 [within_team_auc(y, scores[rows, index], team_ids).auc for scores in experiment_scores],
                 [within_team_auc(y, scores[rows, index], team_ids).auc for scores in baseline_scores],
+            ),
+            "within_team_non_dogfood": _paired(
+                [
+                    within_team_auc(y[customer], scores[rows, index][customer], team_ids[customer]).auc
+                    for scores in experiment_scores
+                ],
+                [
+                    within_team_auc(y[customer], scores[rows, index][customer], team_ids[customer]).auc
+                    for scores in baseline_scores
+                ],
             ),
             "pooled": _paired(
                 [_auc(y, scores[rows, index]) for scores in experiment_scores],

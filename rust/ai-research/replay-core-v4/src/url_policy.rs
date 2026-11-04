@@ -312,6 +312,18 @@ pub enum Decline {
 }
 
 impl Decline {
+    pub const ALL: [Decline; 9] = [
+        Decline::TooLong,
+        Decline::NotAbsolute,
+        Decline::BadScheme,
+        Decline::BadPort,
+        Decline::NoHost,
+        Decline::NonPublicHost,
+        Decline::Credential,
+        Decline::InvalidQuery,
+        Decline::TrackingBeacon,
+    ];
+
     /// True for a URL the policy refuses because nobody wants it fetched, not because it is
     /// malformed or unsafe. A consumer that reads jobs from a queue drops only that job for such a
     /// decline, and rejects the whole record for every other one.
@@ -319,7 +331,8 @@ impl Decline {
         matches!(self, Decline::TrackingBeacon)
     }
 
-    /// The metric label. Stable, because a dashboard and an alert both key on it.
+    /// The metric label, and the reason in a v4 URL decline marker. Stable, because a dashboard, an
+    /// alert and a reader of v4 blocks all key on it.
     pub fn label(self) -> &'static str {
         match self {
             Decline::TooLong => "too_long",
@@ -333,6 +346,21 @@ impl Decline {
             Decline::TrackingBeacon => "tracking_beacon",
         }
     }
+}
+
+/// The URL as a reference names it, or why the policy declines it. It checks the host and path again as `Url` serializes them.
+pub fn checked_url(raw: &str) -> Result<CanonicalUrl, Decline> {
+    let url = try_canonicalize(raw)?;
+    let path = Url::parse(&url.fetch)
+        .map(|u| u.path().to_owned())
+        .unwrap_or_default();
+    if !is_public_host(&url.host) {
+        return Err(Decline::NonPublicHost);
+    }
+    if is_tracking_beacon(&url.host, &path) {
+        return Err(Decline::TrackingBeacon);
+    }
+    Ok(url)
 }
 
 /// Canonicalize a remote image URL into its fetch and dedup forms, or say why it was refused.
@@ -362,7 +390,7 @@ pub fn is_remote(url: &str) -> bool {
     }
 }
 
-/// The media types the image fetcher stores, the `ALLOWED_CONTENT_TYPES` of `image-fetch-v4/image-fetcher.ts`.
+/// The media types the image fetcher stores, the `SUPPORTED_IMAGE_MEDIA_TYPES` of `image-fetch-v4/image-transport.ts`.
 pub const FETCHED_IMAGE_TYPES: [&str; 5] = [
     "image/png",
     "image/jpeg",

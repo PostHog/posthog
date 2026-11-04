@@ -15,7 +15,14 @@ import { buildUserScopedPersistenceConfig } from 'lib/logic/persistence'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { productEnablementCreate } from '~/generated/core/api'
-import { ExternalDataSource, ExternalDataSourceSchema, IntegrationType, TeamPublicType, TeamType } from '~/types'
+import {
+    ExternalDataSource,
+    ExternalDataSourceSchema,
+    type ExternalDataSourceType,
+    IntegrationType,
+    TeamPublicType,
+    TeamType,
+} from '~/types'
 
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 import {
@@ -29,11 +36,11 @@ import { visionScannersList, visionScannersPartialUpdate } from 'products/replay
 import type { ReplayScannerApi } from 'products/replay_vision/frontend/generated/api.schemas'
 import { SignalSourceProduct, SignalSourceType } from 'products/signals/frontend/inbox/types'
 import { externalDataSchemasPartialUpdate } from 'products/warehouse_sources/frontend/generated/api'
-import { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
-import { signalsOnboardingList } from '../generated/api'
+import { signalsOnboardingList, signalsSourceConfigsCreate, signalsSourceConfigsPartialUpdate } from '../generated/api'
 import type {
     InboxOnboardingStateApi,
+    PatchedSignalSourceConfigApi,
     SignalSourceTypeApi,
     SignalSourceConfigSourceTypeEnumApi,
 } from '../generated/api.schemas'
@@ -177,7 +184,7 @@ type WarehouseSourceCompletion =
  * once connected. Keyed by signal source, not warehouse product — GitHub backs more than one source.
  */
 interface WarehouseSourceSetup {
-    dwSourceType: ExternalDataSourceTypeEnumApi
+    dwSourceType: ExternalDataSourceType
     requiredTables: string[]
     requiredTableSyncType?: 'full_refresh'
     completion: WarehouseSourceCompletion
@@ -2013,7 +2020,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             // No breakpoint here: every call settles its own source, and a breakpoint would let a
             // toggle on another source cancel this one, leaving its spinner up and its error unshown.
             toggleSignalSource: async ({ params }) => {
-                const { sourceProduct, sourceType, enabled, config } = params
+                const { sourceProduct, sourceType, enabled, config, configSet } = params
                 if (values.sourceConfigs === null) {
                     actions.toggleSignalSourceFailure(params, SOURCE_CONFIGS_UNAVAILABLE_MESSAGE)
                     failSignalSourceToggle(
@@ -2032,17 +2039,24 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     )
 
                     if (existing && !existing.id.startsWith('new_')) {
-                        const updateData: Partial<SignalSourceConfig> = { enabled }
+                        const updateData: PatchedSignalSourceConfigApi = { enabled }
                         if (config !== undefined) {
                             updateData.config = config
                         }
-                        await api.signalSourceConfigs.update(existing.id, updateData)
+                        if (configSet !== undefined) {
+                            updateData.config_set = configSet
+                        }
+                        await signalsSourceConfigsPartialUpdate(
+                            String(ApiConfig.getCurrentProjectId()),
+                            existing.id,
+                            updateData
+                        )
                     } else if (enabled) {
-                        await api.signalSourceConfigs.create({
+                        await signalsSourceConfigsCreate(String(ApiConfig.getCurrentProjectId()), {
                             source_product: sourceProduct,
-                            source_type: sourceType,
+                            source_type: sourceType as SignalSourceConfigSourceTypeEnumApi,
                             enabled,
-                            config: config ?? {},
+                            config: config ?? configSet ?? {},
                         })
                     }
                     actions.toggleSignalSourceSuccess(params)

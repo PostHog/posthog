@@ -1,6 +1,7 @@
 from datetime import timedelta
 from typing import Optional, cast
 
+import pytest
 from unittest.mock import MagicMock, patch
 
 from django.db import connection
@@ -21,6 +22,7 @@ from posthog.helpers.email_utils import (
     ESPSuppressionReason,
     _get_esp_suppression_cache_key,
     check_esp_suppression,
+    reject_lookalike_email_characters,
     reject_plus_addressed_email,
     sanitize_display_name,
     sanitize_email_string,
@@ -236,6 +238,46 @@ class TestRejectPlusAddressedEmail(SimpleTestCase):
     def test_allows_email_without_plus(self):
         # Should not raise.
         reject_plus_addressed_email("someuser@domain.com")
+
+
+class TestRejectLookalikeEmailCharacters(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("ideographic_full_stop", "user@ph\u3002example.com"),
+            ("fullwidth_full_stop", "user@ph\uff0eexample.com"),
+            ("small_full_stop", "user@ph\ufe52example.com"),
+            ("one_dot_leader", "user@ph\u2024example.com"),
+            ("halfwidth_ideographic_full_stop", "user@ph\uff61example.com"),
+            ("zero_width_space", "user@example\u200b.com"),
+            ("zero_width_joiner_in_local_part", "us\u200der@example.com"),
+            ("word_joiner", "user@exam\u2060ple.com"),
+            ("byte_order_mark", "\ufeffuser@example.com"),
+            ("soft_hyphen", "user@exa\u00admple.com"),
+            ("right_to_left_mark", "user@example.com\u200f"),
+            ("right_to_left_override", "user@\u202eexample.com"),
+        ]
+    )
+    def test_rejects_lookalike_dots_and_hidden_characters(self, _name: str, email: str) -> None:
+        with self.assertRaises(serializers.ValidationError) as ctx:
+            reject_lookalike_email_characters(email)
+        self.assertEqual(ctx.exception.get_codes(), ["lookalike_characters_not_allowed"])
+
+    @parameterized.expand(
+        [
+            ("ascii", "user@example.com"),
+            ("idn_domain", "user@ex\u00e4mple.com"),
+            ("non_latin_domain", "user@\u4f8b\u3048.jp"),
+            ("vietnamese", "nguy\u1ec5n@v\u00ed-d\u1ee5.vn"),
+            ("polish", "\u0142ukasz@\u017c\u00f3\u0142w.pl"),
+            ("russian", "\u0438\u0432\u0430\u043d@\u043f\u0440\u0438\u043c\u0435\u0440.\u0440\u0444"),
+            (
+                "greek",
+                "user@\u03c0\u03b1\u03c1\u03ac\u03b4\u03b5\u03b9\u03b3\u03bc\u03b1.\u03b4\u03bf\u03ba\u03b9\u03bc\u03ae",
+            ),
+        ]
+    )
+    def test_allows_addresses_without_lookalike_characters(self, _name: str, email: str) -> None:
+        reject_lookalike_email_characters(email)
 
 
 class TestUserExistsWithStrippedAlias(TestCase):
@@ -613,6 +655,8 @@ class TestValidateMessageBody(SimpleTestCase):
             ("bracket", "hello <there>", "invalid_bracket"),
             ("invisible", "foo\u200bbar", "invalid_invisible_char"),
             ("rtl_override", "foo\u202ebar", "invalid_invisible_char"),
+            ("lone_surrogate", "foo\ud83dbar", "invalid_invisible_char"),
+            ("long_scheme_of_digits", "a" + "1" * 40 + "://x", "invalid_url"),
             ("non_newline_control", "foo\x01bar", "invalid_control_char"),
             ("carriage_return", "foo\rbar", "invalid_control_char"),
             ("del", "foo\x7fbar", "invalid_control_char"),
@@ -760,6 +804,16 @@ class TestSanitizeEmailString(SimpleTestCase):
                 '<img src="x" onerror="javascript:alert(1)">',
                 "&lt;img src=&quot;x&quot; onerror=&quot;javascript:​alert(1)&quot;&gt;",
             ),
+            ("uppercase_domain", "join EVIL.COM now", "join EVIL.\u200bCOM now"),
+            ("long_domain_chain", "pad." * 200 + "evil.com", "pad.\u200b" * 200 + "evil.\u200bcom"),
+            ("long_scheme", "a" * 100 + "://x", "a" * 100 + ":\u200b//x"),
+            ("long_scheme_of_digits", "a" + "1" * 40 + "://x", "a" + "1" * 40 + ":\u200b//x"),
+            ("dotless_i_in_label", "paypa\u0131.com", "paypa\u0131.\u200bcom"),
+            ("dotless_i_only_label", "\u0131\u0131.com", "\u0131\u0131.\u200bcom"),
+            ("dotted_capital_i_in_tld", "evil.\u0130\u0130", "evil.\u200b\u0130\u0130"),
+            ("cjk_before_keyword", "\u65e5data:x", "\u65e5data:x"),
+            ("accented_letter_before_domain", "\u00e9vil.com", "\u00e9vil.\u200bcom"),
+            ("lone_surrogate", "evil.com \ud83d", "evil.\u200bcom "),
         ]
     )
     def test_sanitizes(self, _name: str, value: str, expected: str) -> None:
@@ -773,3 +827,17 @@ class TestSanitizeEmailString(SimpleTestCase):
         # the entity, which is the existing trade-off of running sanitize_email_string
         # over already-sanitized data. Documented as a guardrail.
         self.assertEqual(sanitize_email_string("&amp;"), "&amp;amp;")
+
+
+# A regex that backtracks quadratically cannot finish these inputs inside this limit.
+@pytest.mark.timeout(60)
+class TestEmailTextChecksOnLongInput(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("dotted_run", "a." * 500_000),
+            ("letter_run", "a" * 1_000_000 + "."),
+        ]
+    )
+    def test_returns_long_input_unchanged(self, _name: str, value: str) -> None:
+        self.assertTrue(sanitize_email_string(value) == value)
+        self.assertTrue(validate_message_body(value) == value)

@@ -33,6 +33,7 @@ import { SearchConsoleSource } from 'products/marketing_analytics/frontend/dashb
 import { SourceOnboarding } from 'products/marketing_analytics/frontend/dashboard/SourceOnboarding'
 import { SourceSetupPanel } from 'products/marketing_analytics/frontend/dashboard/SourceSetupPanel'
 import { marketingAnalyticsEmptyState } from 'products/marketing_analytics/frontend/emptyState/marketingAnalyticsEmptyState'
+import { RecommendationsSection } from 'products/marketing_analytics/frontend/recommendations/RecommendationsSection'
 import { SearchPerformanceTab } from 'products/marketing_analytics/frontend/search/SearchPerformanceTab'
 import { DashboardConversionRecommendations } from 'products/marketing_analytics/frontend/setup/DashboardConversionRecommendations'
 import { DashboardSetupPrompt } from 'products/marketing_analytics/frontend/setup/DashboardSetupPrompt'
@@ -145,7 +146,7 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
     if (!dataWarehouseSources) {
         return (
             <>
-                <h2 className="max-w-3xl w-full mx-auto mt-6 mb-0">Ad performance</h2>
+                <h2 className="mt-6 mb-0">Ad performance</h2>
                 <SourceSetupPanel
                     state={sourcesLoadError ? 'error' : 'checking'}
                     onRetry={loadSources}
@@ -178,22 +179,8 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
                 />
             )}
             <LegacyOAuthReconnectBanner />
-            <h2
-                className={
-                    hasSyncedMarketingSources || hasSearchConsole ? 'mt-6 mb-0' : 'max-w-3xl w-full mx-auto mt-6 mb-0'
-                }
-            >
-                Ad performance
-            </h2>
+            <h2 className="mt-6 mb-0">Ad performance</h2>
             <DetectedSources compact={hasSearchConsole && !hasSyncedMarketingSources} dismissible />
-            {!!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS] &&
-                !dataWarehouseSources?.results.some((source) =>
-                    ['GoogleAds', 'BingAds', 'GoogleSearchConsole'].includes(source.source_type)
-                ) && (
-                    <DashboardSetupPrompt kind="sources">
-                        {(dismissButton) => <SearchConsoleSource headerAction={dismissButton} />}
-                    </DashboardSetupPrompt>
-                )}
             <DashboardConversionRecommendations />
             {hasSources && hasSyncedMarketingSources && (
                 <div className="mt-4 grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-x-4 gap-y-12">
@@ -202,6 +189,14 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
                     ))}
                 </div>
             )}
+            {!!featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS] &&
+                !dataWarehouseSources?.results.some((source) =>
+                    ['GoogleAds', 'BingAds', 'GoogleSearchConsole'].includes(source.source_type)
+                ) && (
+                    <DashboardSetupPrompt kind="sources">
+                        {(dismissButton) => <SearchConsoleSource headerAction={dismissButton} />}
+                    </DashboardSetupPrompt>
+                )}
         </>
     )
 }
@@ -220,11 +215,18 @@ const MarketingAnalyticsContent = (): JSX.Element => {
             ['GoogleAds', 'BingAds', 'GoogleSearchConsole'].includes(source.source_type)
         )
 
+    const recommendations = featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_RECOMMENDATIONS] ? (
+        <div className="mb-6">
+            <RecommendationsSection />
+        </div>
+    ) : null
+
     const dashboard = (
         <>
             {(hasSyncedMarketingSources || hasConnectedSearchSource) && (
                 <MarketingAnalyticsFilters tabs={<></>} searchOnly={!hasSyncedMarketingSources} />
             )}
+            {recommendations}
             <MarketingAnalyticsDashboard />
             {hasConnectedSearchSource && (
                 <div className="mt-8">

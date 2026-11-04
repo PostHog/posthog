@@ -4,6 +4,8 @@ import { type MutableRefObject, useEffect, useMemo, useRef } from 'react'
 import { cn } from 'lib/utils/css-classes'
 import { userLogic } from 'scenes/userLogic'
 
+import type { AttachedContextItem } from '~/layout/ai/attachedContext'
+
 import { runInteractionLogic, type RunInteractionLogicProps } from 'products/posthog_ai/frontend/api/logics'
 // Eager, NOT the lazy `api/readableRun` facade: the runner scene is already a route-split chunk and the run
 // surface is its primary content, so a second `lazy()` would only add a redundant chunk fetch + Suspense
@@ -17,7 +19,6 @@ import { useThreadSkin } from '../../../hooks/useThreadSkin'
 import { resolveRunStreamKey } from '../../../logics/retainedLogics'
 import { runCancellationLogic } from '../../../logics/runCancellationLogic'
 import type { RunContinuationHandoff } from '../../../logics/runInteractionLogic'
-import type { AttachedContextItem } from '../../../types/contextTypes'
 import { taskDetailSceneLogic } from '../taskDetailSceneLogic'
 import { TaskRunComposer } from './TaskRunComposer'
 

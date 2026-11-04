@@ -1,5 +1,5 @@
 import type { ReplayObservationApi } from '../generated/api.schemas'
-import { momentCount, recordingTimeline, surroundingMoments, timelineMoments, timelineRows } from './recordingTimeline'
+import { citedMoments, momentCount, recordingTimeline, timelineRows } from './recordingTimeline'
 
 function summary(
     output: Record<string, unknown> | null,
@@ -34,6 +34,14 @@ const chapter = (start: number, end: number, title: string, kind = 'activity'): 
     end_ms: end,
     title,
 })
+
+function withReasoning(observation: ReplayObservationApi, reasoning: string): ReplayObservationApi {
+    const result = observation.scanner_result as { model_output: Record<string, unknown> }
+    return {
+        ...observation,
+        scanner_result: { ...result, model_output: { ...result.model_output, reasoning } },
+    } as ReplayObservationApi
+}
 
 describe('recordingTimeline', () => {
     it.each<{
@@ -177,31 +185,32 @@ describe('recordingTimeline', () => {
     })
 
     it.each([
-        { name: 'nothing', observations: [], count: 0, at: 5_000, current: null, next: null },
+        { name: 'nothing', observations: [], count: 0 },
         {
-            name: 'chapters and a cited moment, interleaved by time',
+            name: 'chapters and a cited moment',
             observations: [
                 summary({ chapters: [chapter(0, 10_000, 'A'), chapter(10_000, 20_000, 'B')] }),
                 monitor('m1', 5_000),
             ],
             count: 3,
-            at: 6_000,
-            current: 'm1: Yes',
-            next: 'B',
         },
-        {
-            name: 'before the first moment',
-            observations: [summary({ chapters: [chapter(1_000, 10_000, 'A')] })],
-            count: 1,
-            at: 0,
-            current: null,
-            next: 'A',
-        },
-    ])('counts and surrounds the moments of $name', ({ observations, count, at, current, next }) => {
-        const timeline = recordingTimeline(observations)
-        expect(momentCount(timeline)).toBe(count)
-        const around = surroundingMoments(timelineMoments(timeline), at)
-        expect(around.current?.label ?? null).toBe(current)
-        expect(around.next?.label ?? null).toBe(next)
+    ])('counts the moments of $name', ({ observations, count }) => {
+        expect(momentCount(recordingTimeline(observations))).toBe(count)
+    })
+
+    it.each([
+        ['a failed run', { ...monitor('m', 5_000), status: 'failed' } as ReplayObservationApi, []],
+        [
+            'a key moment with cited and repeated timestamps',
+            withReasoning(monitor('m', 9_000), '(t 3) then (t 3) and (t 12)'),
+            [3_000, 9_000, 12_000],
+        ],
+        [
+            'a summary, as its chapter starts',
+            summary({ chapters: [chapter(0, 60_000, 'Intro'), chapter(60_000, 90_000, 'Checkout')] }),
+            [0, 60_000],
+        ],
+    ])('lists the moments of %s in order without repeats', (_name, observation, expected) => {
+        expect(citedMoments(observation)).toEqual(expected)
     })
 })

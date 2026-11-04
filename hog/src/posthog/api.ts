@@ -1,8 +1,9 @@
 import { HogError } from '@/core/errors'
 import { parseLossless } from '@/core/raw-json'
+import type { RuntimeFetch } from '@/core/runtime'
 import { VERSION } from '@/version'
 
-import type { Credentials } from './credentials'
+import type { AccessKey } from './access-key'
 
 export const USER_AGENT = `hog/${VERSION}`
 // Generous, because a HogQL query can run for minutes. It only stops a connection that hangs.
@@ -26,7 +27,7 @@ export interface HttpResponse {
 
 // Sends one JSON request to PostHog. Any failure before the whole body arrives, including the
 // deadline, is a `network_error`, so callers handle a dropped connection in one place.
-export async function sendRequest(fetchFn: typeof fetch, url: URL, request: HttpRequest): Promise<HttpResponse> {
+export async function sendRequest(fetchFn: RuntimeFetch, url: URL, request: HttpRequest): Promise<HttpResponse> {
     const headers: Record<string, string> = { 'Content-Type': 'application/json', 'User-Agent': USER_AGENT }
     if (request.apiKey) {
         headers.Authorization = `Bearer ${request.apiKey}`
@@ -38,7 +39,7 @@ export async function sendRequest(fetchFn: typeof fetch, url: URL, request: Http
             method: request.method,
             headers,
             body: request.body === undefined ? undefined : JSON.stringify(request.body),
-            signal: AbortSignal.timeout(request.timeoutMs ?? REQUEST_TIMEOUT_MS),
+            timeoutMs: request.timeoutMs ?? REQUEST_TIMEOUT_MS,
         })
         text = await response.text()
     } catch (error) {
@@ -68,20 +69,24 @@ export class ApiError extends HogError {
     ) {
         super(code, message, hint)
     }
+
+    override withHint(hint: string): ApiError {
+        return new ApiError(this.status, this.type, this.code, this.message, hint)
+    }
 }
 
 export class PostHogApi {
     constructor(
-        private readonly credentials: Credentials,
-        private readonly fetchFn: typeof fetch
+        private readonly key: AccessKey,
+        private readonly fetchFn: RuntimeFetch
     ) {}
 
     // Paths are relative to the project, so `query` is /api/environments/<project id>/query. A path
     // that starts with `/`, like `/api/users/@me/`, is relative to the host instead.
     private url(path: string): URL {
         const base = path.startsWith('/')
-            ? this.credentials.host
-            : new URL(`api/environments/${this.credentials.projectId}/`, this.credentials.host)
+            ? this.key.host
+            : new URL(`api/environments/${this.key.projectId}/`, this.key.host)
         return new URL(path, base)
     }
 
@@ -105,7 +110,7 @@ export class PostHogApi {
         const response = await sendRequest(this.fetchFn, this.url(path), {
             method,
             body,
-            apiKey: this.credentials.apiKey,
+            apiKey: this.key.token,
         })
         if (response.text && response.json === undefined) {
             throw new HogError(

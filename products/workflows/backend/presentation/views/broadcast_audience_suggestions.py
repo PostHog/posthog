@@ -16,7 +16,6 @@ from posthog.rate_limit import AIBurstRateThrottle, AISustainedRateThrottle
 from products.workflows.backend.facade.audience_suggestions import (
     can_read_email,
     get_audience_suggestions,
-    is_enabled,
     needs_new_generation,
     start_audience_suggestions,
 )
@@ -97,7 +96,7 @@ class BroadcastAudienceSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewS
     )
     @action(detail=False, methods=["get"])
     def current(self, request: Request, **kwargs: Any) -> Response:
-        self._user_with_feature(request)
+        self._user_with_email_access(request)
         return Response(AudienceSuggestionsResponseSerializer(get_audience_suggestions(team=self.team)).data)
 
     @extend_schema(
@@ -107,15 +106,15 @@ class BroadcastAudienceSuggestionsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewS
     )
     @action(detail=False, methods=["post"])
     def generate(self, request: Request, **kwargs: Any) -> Response:
-        user = self._user_with_feature(request)
+        user = self._user_with_email_access(request)
         payload = DataSuggestionGenerateRequestSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         result = start_audience_suggestions(team=self.team, user=user, refresh=payload.validated_data["refresh"])
         return Response(AudienceSuggestionsResponseSerializer(result).data)
 
-    def _user_with_feature(self, request: Request) -> User:
+    def _user_with_email_access(self, request: Request) -> User:
         user = request.user
-        if not isinstance(user, User) or not is_enabled(user, str(self.organization.id)):
+        if not isinstance(user, User):
             raise PermissionDenied("This feature is not available.")
         # The cards are shared by the whole project and count people by email, so they stay hidden from anyone
         # whose access hides email addresses.

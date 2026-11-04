@@ -14,16 +14,10 @@ export interface marketingOnboardingLogicActions {
     completeOnboarding: () => {
         value: true
     }
-    resetOnboarding: () => {
-        value: true
-    }
     setManualSourceSearch: (search: string) => {
         search: string
     }
     setShowManualSources: (show: boolean) => {
-        show: boolean
-    }
-    setShowOnboarding: (show: boolean) => {
         show: boolean
     }
 }
@@ -40,26 +34,21 @@ export const marketingOnboardingLogic = kea<marketingOnboardingLogicType>([
         setManualSourceSearch: (search: string) => ({ search }),
         setShowManualSources: (show: boolean) => ({ show }),
         completeOnboarding: true,
-        resetOnboarding: true,
-        setShowOnboarding: (show: boolean) => ({ show }),
     }),
 
     reducers({
-        manualSourceSearch: ['', { setManualSourceSearch: (_, { search }) => search, resetOnboarding: () => '' }],
+        manualSourceSearch: ['', { setManualSourceSearch: (_, { search }) => search }],
         showManualSources: [
             false,
             {
                 setShowManualSources: (_, { show }) => show,
-                resetOnboarding: () => false,
                 completeOnboarding: () => false,
             },
         ],
         showOnboarding: [
             localStorage.getItem(MARKETING_ONBOARDING_STORAGE_KEYS.COMPLETED) !== 'true',
             {
-                setShowOnboarding: (_, { show }) => show,
                 completeOnboarding: () => false,
-                resetOnboarding: () => true,
             },
         ],
     }),
@@ -67,9 +56,6 @@ export const marketingOnboardingLogic = kea<marketingOnboardingLogicType>([
     listeners(() => ({
         completeOnboarding: () => {
             localStorage.setItem(MARKETING_ONBOARDING_STORAGE_KEYS.COMPLETED, 'true')
-        },
-        resetOnboarding: () => {
-            localStorage.removeItem(MARKETING_ONBOARDING_STORAGE_KEYS.COMPLETED)
         },
     })),
 ])

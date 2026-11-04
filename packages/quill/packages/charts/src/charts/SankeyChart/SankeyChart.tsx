@@ -7,7 +7,7 @@ import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import { resolveCssColor } from '../../core/color-utils'
 import { useChartCanvas } from '../../core/hooks/useChartCanvas'
 import { useChartDraw } from '../../core/hooks/useChartDraw'
-import { applyMarginOverride } from '../../core/hooks/useChartMargins'
+import { applyMarginOverride, useStableMargins } from '../../core/hooks/useChartMargins'
 import { useResolvedChartTheme } from '../../core/theme'
 import type { ChartDrawArgs, ChartMargins, ChartScales } from '../../core/types'
 import { defaultResolveValue } from '../../core/types'
@@ -110,11 +110,12 @@ function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
         [showNodeLabels, lastColumnLabels, nodes, links, nodeAlign, showNodeValues, valueFormatter]
     )
 
+    const stableMarginsOverride = useStableMargins(marginsOverride)
     const margins = useMemo<ChartMargins>(() => {
-        const applied = marginsOverride ? applyMarginOverride(BASE_MARGINS, marginsOverride) : BASE_MARGINS
+        const applied = applyMarginOverride(BASE_MARGINS, stableMarginsOverride)
         // Column headers are sized for their room, so an override cannot take it away.
         return { ...applied, top: applied.top + (hasColumnLabels ? COLUMN_LABEL_HEIGHT : 0) }
-    }, [hasColumnLabels, marginsOverride])
+    }, [hasColumnLabels, stableMarginsOverride])
 
     const { canvasRef, overlayCanvasRef, wrapperRef, dimensions, ctx, overlayCtx } = useChartCanvas({ margins })
 

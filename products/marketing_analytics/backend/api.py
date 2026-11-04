@@ -318,7 +318,7 @@ class ConversionGoalsListResponseSerializer(serializers.Serializer):
 
 
 _CONVERSION_GOAL_ADAPTER: TypeAdapter[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3] = (
-    TypeAdapter(ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3)
+    TypeAdapter(cast(Any, ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3))
 )
 
 
@@ -1240,10 +1240,9 @@ class ConversionRecordingsResponseSerializer(serializers.Serializer):
 
 
 class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
-    # `marketing_analytics` is gated by the API scope of the same name and inherits
-    # RBAC from `web_analytics` (see RESOURCE_INHERITANCE_MAP). Custom @action methods
-    # below are not standard CRUD names, so each declares its own `required_scopes`;
-    # actions without it stay session-only (not reachable via API key / OAuth / MCP).
+    # `marketing_analytics` is gated by the API scope and the RBAC resource of the same
+    # name. Custom @action methods below are not standard CRUD names, so each declares
+    # its own `required_scopes`; actions without it stay session-only (not reachable via API key / OAuth / MCP).
     scope_object = "marketing_analytics"
     serializer_class = _FallbackSerializer
     permission_classes = [IsAuthenticated]
@@ -1782,7 +1781,6 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 response=SetupPlanResponseSerializer,
                 description="Ranked, machine-applicable setup suggestions plus per-capability readiness",
             ),
-            404: OpenApiResponse(description="Marketing Setup and new dashboard feature flags are both off"),
         },
         summary="Get the marketing analytics setup plan",
         description=(
@@ -1836,7 +1834,7 @@ class MarketingAnalyticsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
                 description="The applied operations and the ops that reverse them",
             ),
             400: OpenApiResponse(description="An operation was malformed, unsupported, or not applicable"),
-            404: OpenApiResponse(description="Marketing Setup and new dashboard feature flags are both off"),
+            404: OpenApiResponse(description="Marketing analytics setup is not enabled for this project"),
         },
         summary="Apply setup operations",
         description=(

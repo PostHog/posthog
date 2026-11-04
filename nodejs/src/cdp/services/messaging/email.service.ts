@@ -1,6 +1,7 @@
 import { MessageHeader, SESv2Client, SendEmailCommand, SendEmailCommandInput } from '@aws-sdk/client-sesv2'
 import { DateTime } from 'luxon'
 import { SendMailOptions } from 'nodemailer'
+import * as mimeFuncs from 'nodemailer/lib/mime-funcs'
 import { Counter, Histogram } from 'prom-client'
 
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
@@ -14,12 +15,14 @@ import {
 } from '~/cdp/types'
 import { createAddLogFunction, logEntry } from '~/cdp/utils'
 import { createInvocationResult } from '~/cdp/utils/invocation-utils'
+import { buildIntegerMatcher } from '~/common/config/matchers'
 import { logger } from '~/common/utils/logger'
 
 import { TRANSACTIONAL_EMAIL_EVENT } from '../hogflows/hogflow-sensitivity'
 import { IntegrationManagerService } from '../managers/integration-manager.service'
 import { RecipientManagerRecipient, RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
+import { WorkflowsActivationReporter } from '../monitoring/workflows-activation-reporter'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { getEmailQueuePriorityClass } from './email-priority'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
@@ -27,8 +30,8 @@ import { EmailStatusService, isTransactionalEmailSend } from './email-status.ser
 import { EmailSuppressionService, SuppressionCheckOptions } from './email-suppression.service'
 import {
     addTrackingToEmail,
-    resolveEmailEngagementDistinctId,
     resolveEmailSendingVersion,
+    resolveEmailTrackingDistinctId,
 } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
@@ -118,12 +121,12 @@ const sesSendDurationMs = new Histogram({
 
 const emailQueueToSendMs = new Histogram({
     name: 'cdp_email_queue_to_send_ms',
-    help: 'Milliseconds an email waits on the email queue before its handoff to SES. For source="transactional_api" the wait starts when cdp-api created the job, so it is the time from the API\'s 202 to SES and includes every throttled or rate-limited retry. For source="workflow" the wait starts at the job\'s scheduled time: when the job joined the email queue, or when a delayed or rescheduled send became due, so a retried send measures only its last wait. priority_class is the email queue lane.',
-    labelNames: ['source', 'priority_class'],
+    help: 'Milliseconds an email waits on the email queue before its handoff to SES. For source="transactional_api" the wait starts when cdp-api created the job, so it is the time from the API\'s 202 to SES and includes every throttled or rate-limited retry. For source="workflow" the wait starts at the job\'s scheduled time: when the job joined the email queue, or when a delayed or rescheduled send became due, so a retried send measures only its last wait. priority_class is the email queue lane. team_capped is true when the team sending cap delayed the send, so that alerts can leave out a wait that the cap causes on purpose.',
+    labelNames: ['source', 'priority_class', 'team_capped'],
     buckets: [100, 250, 500, 1_000, 2_500, 5_000, 10_000, 30_000, 60_000, 120_000, 300_000],
 })
 
-type EmailQueueWait = { source: 'transactional_api' | 'workflow'; startedAt: DateTime }
+type EmailQueueWait = { source: 'transactional_api' | 'workflow'; startedAt: DateTime; teamCapped: boolean }
 
 // A transactional API job is created on the email queue, so its creation time is when the caller got its 202. A
 // workflow job can join the email queue long after it was created, so its wait starts at the time it became due.
@@ -132,7 +135,7 @@ function emailQueueWait(invocation: CyclotronJobInvocationHogFunction): EmailQue
     const source =
         invocation.state.globals.event?.event === TRANSACTIONAL_EMAIL_EVENT ? 'transactional_api' : 'workflow'
     const startedAt = source === 'transactional_api' ? invocation.queueCreatedAt : invocation.queueDueAt
-    return startedAt ? { source, startedAt } : undefined
+    return startedAt ? { source, startedAt, teamCapped: invocation.queueMetadata?.teamCapped === true } : undefined
 }
 
 /**
@@ -152,6 +155,16 @@ export class SESThrottleError extends Error {
         this.retryAfterMs = retryAfterMs
     }
 }
+
+class UnverifiedEmailDomainError extends Error {
+    constructor() {
+        super('The selected email integration domain is not verified')
+        this.name = 'UnverifiedEmailDomainError'
+    }
+}
+
+const isRealWorkflowSend = (invocation: CyclotronJobInvocationHogFunction, isTest: boolean): boolean =>
+    !isTest && 'hogFlow' in invocation
 
 function pickThrottleRetryDelayMs(): number {
     // Constant 500–1000ms jitter is plenty: the local Valkey bucket already
@@ -345,6 +358,7 @@ export interface EmailServiceConfig {
     teamEmailCapMode?: TeamEmailCapMode
     teamEmailTierHourlyCaps?: number[]
     teamEmailTierDailyCaps?: number[]
+    utmLinkScannerTeams?: string
 }
 
 /**
@@ -379,19 +393,32 @@ export function extractEmailsFromAddressList(value: string | undefined): string[
 // characters that would let a templated value smuggle a second address or break out of the
 // RFC-822 `"Name" <email>` framing (whitespace, quotes, angle brackets, list separators).
 const FROM_OVERRIDE_EMAIL_REGEX = /^[^\s@"<>,;]+@[^\s@"<>,;]+\.[^\s@"<>,;]+$/
+const MAX_FROM_OVERRIDE_EMAIL_LENGTH = 254
 
-// The display name is embedded as `"${name}" <email>`, so strip the characters that would
-// terminate the quoted phrase or start the address part, plus control characters.
-function sanitizeFromName(name: string): string {
-    return name.replace(/[\x00-\x1F\x7F"<>\\]/g, '').trim()
+const PRINTABLE_ASCII = /^[\x20-\x7E]*$/
+const RFC_2047_MAX_ENCODED_WORD_LENGTH = 75
+
+function cleanDisplayName(name: string | undefined): string {
+    return (name ?? '').replace(/[\x00-\x1F\x7F]/g, '').trim()
 }
 
-// A display name can come from Liquid output, so it may hold quotes, backslashes or line breaks.
-// Escape it as an RFC 5322 quoted string and drop control characters, which also stops a templated
-// name from injecting a header.
+function encodeDisplayName(name: string): string {
+    return PRINTABLE_ASCII.test(name)
+        ? quoteDisplayName(name)
+        : mimeFuncs.encodeWord(name, 'Q', RFC_2047_MAX_ENCODED_WORD_LENGTH)
+}
+
+function quoteDisplayName(name: string): string {
+    return `"${name.replace(/[\\"]/g, '\\$&')}"`
+}
+
 export function formatMailbox(name: string | undefined, email: string): string {
-    const cleaned = (name ?? '').replace(/[\x00-\x1F\x7F]/g, '').trim()
-    return cleaned ? `"${cleaned.replace(/[\\"]/g, '\\$&')}" <${email}>` : email
+    const displayName = cleanDisplayName(name)
+    return displayName ? `${encodeDisplayName(displayName)} <${email}>` : email
+}
+
+function toNodemailerAddress(name: string | undefined, email: string): { name: string; address: string } {
+    return { name: cleanDisplayName(name), address: email }
 }
 
 export function parseAddressList(value?: string): string[] | undefined {
@@ -423,6 +450,7 @@ export class EmailService {
         // Required, so that a caller which builds the service without it fails to compile. Pass null
         // only where no email status is recorded.
         private emailStatusService: EmailStatusService | null,
+        private workflowsActivationReporter: Pick<WorkflowsActivationReporter, 'report'>,
         private messageAssetsService?: MessageAssetsService,
         private workflowEmailRateLimiter: RateLimiterService | null = null,
         private teamEmailRateLimiter: RateLimiterService | null = null
@@ -561,10 +589,10 @@ export class EmailService {
             // so record a skip with its own metric instead of an `email_failed`. Otherwise one project
             // with bad data inflates the platform send failure rate.
             if (!params.to?.email?.trim()) {
-                addLog(
-                    'warn',
+                const skipReason =
                     'Skipping send: the recipient has no email address. Add a filter so only people with an email address reach this step.'
-                )
+                addLog('warn', skipReason)
+                result.emailSendResult = { status: 'skipped', reason: skipReason }
                 if (!isTest) {
                     result.metrics.push({
                         team_id: invocation.teamId,
@@ -576,6 +604,13 @@ export class EmailService {
                     })
                 }
                 this.emailStatusService?.queueSkippedSend(invocation, 'missing_recipient', isTest)
+                if (isRealWorkflowSend(invocation, isTest)) {
+                    void this.workflowsActivationReporter.report(invocation.teamId, 'workflows send blocked', {
+                        reason: 'missing_recipient',
+                        channel: 'email',
+                        workflow_id: invocation.functionId,
+                    })
+                }
                 result.skipped = true
                 result.invocation.state.vmState?.stack.push({ success: false })
                 return result
@@ -667,6 +702,7 @@ export class EmailService {
                     // send. Mirrors the fetch-retry (`result.invocation.queueParameters = params`) and
                     // queue-routing paths, which re-attach the same way.
                     result.invocation.queueParameters = params
+                    result.invocation.queueMetadata = invocation.queueMetadata
                     const retryDelayMs = pickReservedRetryDelayMs(claim.retryAfterMs, refillPerSecond, claim.reserved)
                     emailReservedParkMs.labels('workflow-email').observe(retryDelayMs)
                     result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: retryDelayMs })
@@ -693,6 +729,7 @@ export class EmailService {
                 // per-workflow limit above: createInvocationResult cleared queueParameters, and
                 // without them the rescheduled dequeue resumes the Hog VM and drops the send.
                 result.invocation.queueParameters = params
+                result.invocation.queueMetadata = { ...invocation.queueMetadata, teamCapped: true }
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: capDelay.retryDelayMs })
                 const capRetrySeconds = Math.round(capDelay.retryDelayMs / 1000)
                 addLog(
@@ -732,7 +769,8 @@ export class EmailService {
                                       )
                                   )
                               ),
-                              this.siteUrl
+                              this.siteUrl,
+                              buildIntegerMatcher(this.sesConfig.utmLinkScannerTeams, true)(invocation.teamId)
                           ),
                       }
                     : paramsWithReplyTo
@@ -768,6 +806,7 @@ export class EmailService {
                 throttled = true
                 result.finished = false
                 result.invocation.queueParameters = params
+                result.invocation.queueMetadata = invocation.queueMetadata
                 result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: error.retryAfterMs })
                 addLog('warn', `SES rate-limited (${error.errorCode}); rescheduling email in ${error.retryAfterMs}ms`)
             } else {
@@ -775,6 +814,13 @@ export class EmailService {
                 result.error = error.message
                 result.emailSendResult = { status: 'failed', reason: error.message }
                 result.finished = true
+                if (error instanceof UnverifiedEmailDomainError && isRealWorkflowSend(invocation, isTest)) {
+                    void this.workflowsActivationReporter.report(invocation.teamId, 'workflows send failed', {
+                        reason: 'unverified_domain',
+                        channel: 'email',
+                        workflow_id: invocation.functionId,
+                    })
+                }
             }
         }
 
@@ -832,7 +878,7 @@ export class EmailService {
             }
         }
 
-        const distinctId = resolveEmailEngagementDistinctId(invocation)
+        const distinctId = resolveEmailTrackingDistinctId(invocation)
         if (
             distinctId &&
             !isTest &&
@@ -1057,7 +1103,7 @@ export class EmailService {
         addLog: ReturnType<typeof createAddLogFunction>
     ): { email: string; name: string } {
         if (!integration.config.verified) {
-            throw new Error('The selected email integration domain is not verified')
+            throw new UnverifiedEmailDomainError()
         }
 
         if (!integration.config.email || !integration.config.name) {
@@ -1066,7 +1112,7 @@ export class EmailService {
 
         // Overrides arrive already rendered by the templating engine, so a template that
         // resolved to nothing means "no override" and the integration's stored sender applies.
-        const overrideName = from.name ? sanitizeFromName(from.name) : ''
+        const overrideName = cleanDisplayName(from.name)
 
         return {
             email: this.resolveFromEmailAddress(integration, from.email?.trim(), addLog),
@@ -1083,6 +1129,14 @@ export class EmailService {
         addLog: ReturnType<typeof createAddLogFunction>
     ): string {
         if (!overrideEmail) {
+            return integration.config.email
+        }
+
+        if (overrideEmail.length > MAX_FROM_OVERRIDE_EMAIL_LENGTH) {
+            addLog(
+                'warn',
+                `Ignoring the custom sender address because it is too long. Sending from ${integration.config.email} instead. Use a From address with ${MAX_FROM_OVERRIDE_EMAIL_LENGTH} characters or fewer.`
+            )
             return integration.config.email
         }
 
@@ -1125,8 +1179,8 @@ export class EmailService {
     ): Promise<void> {
         // This can timeout but there is no native timeout so we do our own one
         const mailOptions: SendMailOptions = {
-            from: formatMailbox(from.name, from.email),
-            to: formatMailbox(params.to.name, params.to.email),
+            from: toNodemailerAddress(from.name, from.email),
+            to: toNodemailerAddress(params.to.name, params.to.email),
             subject: sanitizeEmailSubject(params.subject),
             ...(params.text ? { text: params.text } : {}),
             headers: { [AUTO_SUBMITTED_HEADER.Name!]: AUTO_SUBMITTED_HEADER.Value! },
@@ -1173,7 +1227,7 @@ export class EmailService {
         if (!this.sesV2Client) {
             throw new Error('SES is not configured - set SES_REGION and AWS credentials')
         }
-        const distinctId = resolveEmailEngagementDistinctId(result.invocation)
+        const distinctId = resolveEmailTrackingDistinctId(result.invocation)
         // Full signed code (with distinct_id + isTest) rides in the header; the short unsigned
         // carrier (no distinct_id/isTest) goes in the SES EmailTag, guaranteed under the 256-char
         // tag-value limit. The webhook reads the header first and only falls back to the tag.
@@ -1284,6 +1338,7 @@ export class EmailService {
                 .labels({
                     source: queueWait.source,
                     priority_class: getEmailQueuePriorityClass(result.invocation.hogFunction.metadata),
+                    team_capped: queueWait.teamCapped ? 'true' : 'false',
                 })
                 .observe(Math.max(0, Date.now() - queueWait.startedAt.toMillis()))
         }

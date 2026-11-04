@@ -110,7 +110,7 @@ The realtime membership serves two readers: feature flags on teams enabled in th
 
 ### Shape hashes
 
-For realtime, non-static, non-deleted cohorts on teams in `REALTIME_COHORT_TEAM_ALLOWLIST`, every save that includes `filters` also maintains three hash columns on the cohort row.
+For realtime, non-static, non-deleted cohorts on teams the pipeline processes ([gates](backfill-coordination.md#gates)), every save that includes `filters` also maintains three hash columns on the cohort row.
 
 | Column                          | What it fingerprints                                                                           | Read by                                                                                                                      |
 | ------------------------------- | ---------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
@@ -183,8 +183,9 @@ Every Rust service that needs definitions builds a **catalog**: an immutable, pe
 The shared `cohort-core` crate owns the parsing, classification and indexing, so the processor and the seeder interpret a definition with the same code.
 
 - The **processor** loads every row with `cohort_type = 'realtime' AND deleted = false AND filters IS NOT NULL`, joined to the team's timezone.
-  It keeps only teams in its own copy of `REALTIME_COHORT_TEAM_ALLOWLIST`, builds the catalog off the async runtime, and swaps it in atomically.
-  It refreshes every few minutes with jitter.
+  It keeps only the teams in its own copy of `REALTIME_COHORT_TEAM_ALLOWLIST` and the teams that a `cohort_realtime_team_access` row grants, builds the catalog off the async runtime, and swaps it in atomically.
+  A refresh whose read of that table fails builds nothing, so the catalog never misses a team that the table granted before the refresh began, as long as the database it reads is current.
+  It refreshes every few minutes with jitter, and within about 15 seconds of a grant or a revoke.
   A failed refresh keeps the previous catalog, so a database outage freezes definitions instead of emptying them.
 - The **seeder** never loads the live definitions.
   It builds a catalog from the filters Django pinned into each backfill run, so a run's seeds replay exactly the definition it was created for.

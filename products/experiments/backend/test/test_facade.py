@@ -20,11 +20,14 @@ from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
+from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
 from posthog.models.organization import Organization
 from posthog.models.team import Team
+from posthog.models.team.team import DEPRECATED_ATTRS
 from posthog.models.user import User
+from posthog.test.db_context_capturing import capture_db_queries
 from posthog.test.persons import create_person
 
 from products.experiments.backend.facade import api, count_running_experiments_on_feature_flag_called, create_experiment
@@ -34,8 +37,11 @@ from products.experiments.backend.facade.contracts import (
     DigestCompletedExperiment,
     DigestLaunchedExperiment,
     EndedExperiment,
+    ExperimentAssistantContext,
     ExperimentChanged,
+    ExperimentFlagVariantSplit,
     ExperimentValidationError,
+    LinkedExperiment,
     StoredPrimaryResult,
     TeamExperimentsSettings,
     TeamExperimentsSettingsUpdate,
@@ -491,6 +497,97 @@ class TestTeamHasLaunchedExperiments(BaseTest):
         assert api.team_has_launched_experiments(self.team.id) is expected
 
 
+class TestExperimentAssistantContext(BaseTest):
+    def _create_experiment(self, team: Team, *, deleted: bool = False) -> Experiment:
+        flag = FeatureFlag.objects.create(
+            team=team,
+            key="checkout",
+            created_by=self.user,
+            filters={
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                }
+            },
+        )
+        return Experiment.objects.create(
+            team=team,
+            name="Checkout test",
+            description="Does the new checkout convert better?",
+            feature_flag=flag,
+            created_by=self.user,
+            start_date=datetime(2026, 9, 1, tzinfo=UTC),
+            conclusion="won",
+            variants={"control": {"name": "Old checkout"}, "test": {}},
+            stats_config={"method": "frequentist"},
+            deleted=deleted,
+        )
+
+    @parameterized.expand([("by_id", True), ("by_flag_key", False)])
+    def test_reads_the_experiment_with_its_flag(self, _name: str, by_id: bool) -> None:
+        experiment = self._create_experiment(self.team)
+
+        context = async_to_sync(api.aget_experiment_assistant_context)(
+            self.team.id,
+            experiment_id=experiment.id if by_id else None,
+            feature_flag_key=None if by_id else "checkout",
+        )
+
+        assert context == ExperimentAssistantContext(
+            id=experiment.id,
+            team_id=self.team.id,
+            created_by_id=self.user.id,
+            name="Checkout test",
+            description="Does the new checkout convert better?",
+            type="product",
+            start_date=datetime(2026, 9, 1, tzinfo=UTC),
+            end_date=None,
+            created_at=experiment.created_at,
+            conclusion="won",
+            conclusion_comment=None,
+            stats_method="frequentist",
+            variant_names={"control": "Old checkout", "test": "test"},
+            feature_flag_key="checkout",
+            feature_flag_variants=(
+                ExperimentFlagVariantSplit(key="control", rollout_percentage=50),
+                ExperimentFlagVariantSplit(key="test", rollout_percentage=50),
+            ),
+        )
+
+    @parameterized.expand(
+        [
+            ("deleted", "own", "own", True),
+            ("another_team", "other", "own", False),
+            # Experiments save on the project's root team. An environment's id must not match them, because the
+            # caller checks object access against its own team.
+            ("environment_of_the_project", "own", "environment", False),
+        ]
+    )
+    def test_does_not_read(self, _name: str, experiment_team: str, lookup_team: str, deleted: bool) -> None:
+        teams = {
+            "own": self.team,
+            "other": Team.objects.create(organization=self.organization, name="Other"),
+            "environment": Team.objects.create(organization=self.organization, name="Env", parent_team=self.team),
+        }
+        experiment = self._create_experiment(teams[experiment_team], deleted=deleted)
+        aget_context = async_to_sync(api.aget_experiment_assistant_context)
+
+        assert aget_context(teams[lookup_team].id, experiment_id=experiment.id) is None
+        assert aget_context(teams[lookup_team].id, feature_flag_key="checkout") is None
+
+
+class TestGetExperimentTeamId(BaseTest):
+    def test_reads_the_team_of_any_experiment_including_a_deleted_one(self) -> None:
+        other_team = Team.objects.create(organization=Organization.objects.create(name="Other"), name="Other")
+        flag = FeatureFlag.objects.create(team=other_team, key="experiment-flag")
+        experiment = Experiment.objects.create(team=other_team, name="Experiment", feature_flag=flag, deleted=True)
+
+        assert api.get_experiment_team_id(experiment.id) == other_team.id
+        assert api.get_experiment_team_id(-1) is None
+
+
 class TestExperimentFlagIds(BaseTest):
     @parameterized.expand(
         [
@@ -518,6 +615,54 @@ class TestExperimentFlagIds(BaseTest):
 
         assert api.experiment_flag_ids([self.team.id, listed_team.id], include_deleted=include_deleted) == {
             flag_ids[key] for key in expected
+        }
+
+
+class TestFlagLiveExperiments(BaseTest):
+    def test_lists_the_experiments_that_are_not_deleted_per_listed_flag(self) -> None:
+        now = timezone.now()
+        flag_ids: dict[str, int] = {}
+        experiment_ids: dict[str, int] = {}
+        for flag_key, name, start_date, end_date, deleted, archived in [
+            ("running", "running", now, None, False, False),
+            ("running", "draft on the same flag", None, None, False, False),
+            ("stopped", "stopped", now - timedelta(days=1), now, False, False),
+            ("archived", "archived", now, None, False, True),
+            ("deleted", "deleted", now, None, True, False),
+            ("deleted_null", "deleted_null", now, None, None, False),
+            ("unlisted", "unlisted", now, None, False, False),
+        ]:
+            if flag_key not in flag_ids:
+                flag_ids[flag_key] = FeatureFlag.objects.create(team=self.team, key=flag_key, created_by=self.user).id
+            experiment_ids[name] = Experiment.objects.create(
+                team=self.team,
+                name=name,
+                feature_flag_id=flag_ids[flag_key],
+                start_date=start_date,
+                end_date=end_date,
+                deleted=deleted,
+                archived=archived,
+            ).id
+        flag_ids["no_experiment"] = FeatureFlag.objects.create(team=self.team, key="none", created_by=self.user).id
+        listed = {key: flag_id for key, flag_id in flag_ids.items() if key != "unlisted"}
+
+        def linked(name: str, is_running: bool) -> LinkedExperiment:
+            return LinkedExperiment(id=experiment_ids[name], name=name, is_running=is_running)
+
+        experiments = api.live_experiments_by_flag(listed.values())
+
+        assert {flag_id: set(linked_experiments) for flag_id, linked_experiments in experiments.items()} == {
+            flag_ids["running"]: {linked("running", True), linked("draft on the same flag", False)},
+            flag_ids["stopped"]: {linked("stopped", False)},
+            flag_ids["archived"]: {linked("archived", True)},
+        }
+        assert {key: api.flag_has_live_experiment(flag_id) for key, flag_id in listed.items()} == {
+            "running": True,
+            "stopped": True,
+            "archived": True,
+            "deleted": False,
+            "deleted_null": False,
+            "no_experiment": False,
         }
 
 
@@ -635,7 +780,13 @@ class TestTeamExperimentsSettings(BaseTest):
             flag_cleanup_repository="posthog/posthog",
         )
 
-        assert api.get_team_experiments_settings(self.team.id) == TeamExperimentsSettings(
+        with self.assertNumQueries(1), capture_db_queries() as queries:
+            settings = api.get_team_experiments_settings(self.team.id)
+
+        # A team join must keep the deprecated taxonomy columns deferred, as `TeamManager` does.
+        selected = " ".join(query["sql"] for query in queries.captured_queries)
+        assert [attr for attr in DEPRECATED_ATTRS if f'"{attr}"' in selected] == []
+        assert settings == TeamExperimentsSettings(
             experiment_recalculation_times=("02:00:00", "14:00:00"),
             default_experiment_confidence_level=Decimal("0.90"),
             default_experiment_stats_method="frequentist",

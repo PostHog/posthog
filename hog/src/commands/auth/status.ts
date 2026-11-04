@@ -1,12 +1,18 @@
 import { defineCommand } from '@/core/command'
 import { escapeControls } from '@/core/output'
 import { checkAuthStatus } from '@/posthog/auth-status'
+import type { StoreChoice } from '@/posthog/credential-store/types'
 import type { CredentialSource } from '@/posthog/credentials'
 
-const SOURCE_LABELS: Record<CredentialSource, string> = {
-    env: 'the POSTHOG_CLI_API_KEY environment variable',
-    'dotenv-file': 'the --dotenv-file file',
-    'credentials-file': 'the credentials file',
+function sourceLabel(source: CredentialSource, store: StoreChoice | null, path: string | null): string {
+    switch (source) {
+        case 'env':
+            return 'the HOG_PERSONAL_API_KEY environment variable'
+        case 'dotenv-file':
+            return `HOG_PERSONAL_API_KEY in ${path}`
+        case 'store':
+            return store === 'keychain' ? 'the system keychain' : `${path}`
+    }
 }
 
 export default defineCommand({
@@ -27,7 +33,7 @@ export default defineCommand({
         out.line(`${out.style('Logged in', 'green', 'bold')} to ${escapeControls(result.host)}${who}.`)
         const name = result.projectName ? escapeControls(result.projectName) : null
         out.line(`Project: ${name ? `${name} (${result.projectId})` : result.projectId}`)
-        out.line(out.style(`Key from ${result.credentialsPath ?? SOURCE_LABELS[result.source]}`, 'dim'))
+        out.line(out.style(`Key from ${sourceLabel(result.source, result.store, result.credentialsPath)}`, 'dim'))
     },
 
     exitCode: (result) => (result.authenticated ? 0 : 1),

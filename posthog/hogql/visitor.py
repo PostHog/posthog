@@ -4,6 +4,7 @@ from typing import Any, Generic, Optional, TypeVar
 from posthog.hogql import ast
 from posthog.hogql.ast import SelectSetNode
 from posthog.hogql.base import AST, Expr
+from posthog.hogql.compilation import compilation_budget
 from posthog.hogql.errors import BaseHogQLError
 from posthog.hogql.utils import is_simple_value
 
@@ -27,6 +28,9 @@ def clear_locations(expr: T_AST) -> T_AST:
 
 class Visitor(Generic[T]):
     def visit(self, node: AST | None) -> T:
+        budget = compilation_budget.get()
+        if budget is not None:
+            budget.check_time()
         if node is None:
             return node  # type: ignore
 
@@ -902,6 +906,8 @@ class CloningVisitor(Visitor[Any]):
             end=None if self.clear_locations else node.end,
             type=None if self.clear_types else node.type,
             table=self.visit(node.table),
+            table_schema=node.table_schema,
+            cte_name=node.cte_name,
             table_args=[self.visit(expr) for expr in node.table_args] if node.table_args is not None else None,
             next_join=self.visit(node.next_join),
             table_final=node.table_final,

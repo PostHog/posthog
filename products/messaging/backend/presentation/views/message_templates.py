@@ -1,5 +1,5 @@
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from contextlib import AbstractContextManager, nullcontext
 from dataclasses import fields as dataclass_fields
 from types import SimpleNamespace
@@ -31,10 +31,10 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.event_usage import groups, report_user_action
+from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import User
-from posthog.models.integration import Integration
 from posthog.models.tag import tagify
-from posthog.permissions import is_authenticated_via_project_secret_api_key
+from posthog.permissions import is_authenticated_via_project_secret_api_key, legacy_scope_object_used
 from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
 
 from products.cdp.backend.presentation.hog_functions import build_html_wrap_design
@@ -146,8 +146,12 @@ class EmailTemplateSenderSerializer(serializers.Serializer):
         integration_id = data.get("integrationId")
         if integration_id is None:
             raise serializers.ValidationError({"integrationId": "Choose an email sender."})
-        if not Integration.objects.filter(team_id=self.context["team_id"], kind="email", id=integration_id).exists():
-            raise serializers.ValidationError({"integrationId": "No email sender with this ID in this project."})
+        try:
+            IntegrationManager.email.credentials.get(self.context["team_id"], integration_id)
+        except IntegrationNotFound:
+            raise serializers.ValidationError(
+                {"integrationId": "No email sender with this ID in this project."}
+            ) from None
         return data
 
 
@@ -394,23 +398,21 @@ IDEMPOTENCY_KEY_PARAMETER = OpenApiParameter(
 TRANSACTIONAL_EMAIL_API_FLAG = "workflows-transactional-email-api"
 
 
+DISTINCT_ID_HELP_TEXT = (
+    "Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, "
+    "bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. "
+    "The template can't read the person's properties, so pass everything it needs in `message_data`."
+)
+
+
 class TransactionalEmailIdentifiersSerializer(serializers.Serializer):
     distinct_id = serializers.CharField(
-        required=False,
-        allow_null=True,
-        allow_blank=True,
-        max_length=400,
-        help_text="Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, "
-        "clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email "
-        "address. The template can't read the person's properties, so pass everything it needs in `message_data`.",
+        required=False, allow_null=True, allow_blank=True, max_length=400, help_text=DISTINCT_ID_HELP_TEXT
     )
 
 
-class SendTransactionalEmailSerializer(serializers.Serializer):
+class TransactionalEmailMessageSerializer(serializers.Serializer):
     to = serializers.EmailField(help_text="Email address of the recipient.")
-    identifiers = TransactionalEmailIdentifiersSerializer(
-        required=False, help_text="Who the email is for, used to attribute engagement events."
-    )
     message_data = serializers.DictField(
         child=serializers.JSONField(allow_null=True),
         required=False,
@@ -420,14 +422,30 @@ class SendTransactionalEmailSerializer(serializers.Serializer):
     )
 
 
-class SendEmailTemplateSerializer(serializers.Serializer):
-    id = serializers.UUIDField(
-        help_text="ID of the email template to send. The template must be made transactional first."
+class SendTransactionalEmailSerializer(TransactionalEmailMessageSerializer):
+    identifiers = TransactionalEmailIdentifiersSerializer(
+        required=False, help_text="Who the email is for, used to attribute engagement events."
     )
 
 
-class SendEmailSerializer(SendTransactionalEmailSerializer):
-    template = SendEmailTemplateSerializer(help_text="The transactional email template to send.")
+class SendEmailSerializer(TransactionalEmailMessageSerializer):
+    template_id = serializers.UUIDField(
+        help_text="ID of the email template to send. The template must be made transactional first."
+    )
+    distinct_id = serializers.CharField(
+        required=False, allow_null=True, allow_blank=True, max_length=400, help_text=DISTINCT_ID_HELP_TEXT
+    )
+
+    def to_internal_value(self, data: Any) -> Any:
+        # posthog-node 5.61.0 and posthog 7.81.0 send `template.id` and `identifiers.distinct_id`, so that shape
+        # stays accepted. It is left out of the schema so that new callers use the flat fields.
+        if isinstance(data, Mapping):
+            template, identifiers = data.get("template"), data.get("identifiers")
+            if "template_id" not in data and isinstance(template, Mapping):
+                data = {**data, "template_id": template.get("id")}
+            if "distinct_id" not in data and isinstance(identifiers, Mapping):
+                data = {**data, "distinct_id": identifiers.get("distinct_id")}
+        return super().to_internal_value(data)
 
 
 class MakeTransactionalSerializer(serializers.Serializer):
@@ -493,6 +511,15 @@ class TransactionalEmailTeamBurstThrottle(ProjectSecretApiKeyTeamRateThrottle):
 class TransactionalEmailTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottle):
     scope = "transactional_email_psak_team_sustained"
     rate = "20000/hour"
+
+
+# LEGACY_SCOPE_FALLBACKS lets a `hog_flow` key satisfy these scopes too.
+TRANSACTIONAL_EMAIL_SEND_SCOPE = "transactional_email:write"
+TRANSACTIONAL_EMAIL_STATUS_SCOPE = "transactional_email:read"
+
+
+def transactional_email_authorized_by(request: Any, required_scope: str) -> str:
+    return legacy_scope_object_used(request, required_scope) or "transactional_email"
 
 
 def require_transactional_email_api(team: Any) -> None:
@@ -603,7 +630,7 @@ class TransactionalEmailSendMixin:
                 self.team,
                 template.id,
                 to=data["to"],
-                distinct_id=(data.get("identifiers") or {}).get("distinct_id") or None,
+                distinct_id=data.get("distinct_id") or (data.get("identifiers") or {}).get("distinct_id") or None,
                 message_data=data["message_data"],
                 idempotency_key=idempotency_key,
             )
@@ -624,7 +651,8 @@ class TransactionalEmailSendMixin:
 
     def _require_workflow_editor(self, hog_flow_id: Any) -> None:
         # The template's own access rules don't cover the workflow it sends through, which can carry its own.
-        # A project secret API key has no user to check, and its scope already limits it to sending.
+        # A project secret API key has no user to check. Its scope limits it to sending and to setting recipient
+        # topic preferences.
         if is_authenticated_via_project_secret_api_key(self.request):
             return
         try:
@@ -655,6 +683,7 @@ class TransactionalEmailSendMixin:
                     "auth_method": "project_secret_api_key"
                     if is_authenticated_via_project_secret_api_key(request)
                     else "user",
+                    "authorized_by": transactional_email_authorized_by(request, TRANSACTIONAL_EMAIL_SEND_SCOPE),
                     **outcome,
                 },
                 groups=groups(self.organization, self.team),
@@ -677,8 +706,8 @@ class MessageTemplatesViewSet(
 ):
     scope_object = "hog_flow"
     permission_classes = [IsAuthenticated]
-    # `design` and `send` are custom write actions; list them so programmatic callers (MCP/personal API key)
-    # get hog_flow:write checked instead of being rejected as an action with no declared scope.
+    # `design` and `make_transactional` are custom write actions; list them so programmatic callers (MCP/personal
+    # API key) get hog_flow:write checked instead of being rejected as an action with no declared scope.
     scope_object_write_actions = [
         "create",
         "update",
@@ -686,7 +715,6 @@ class MessageTemplatesViewSet(
         "patch",
         "destroy",
         "design",
-        "send",
         "make_transactional",
     ]
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
@@ -893,11 +921,12 @@ class MessageTemplatesViewSet(
             "Send one transactional email from this template to one recipient. The template must be made "
             "transactional first. `message_data` fills the template's `{{ variables.* }}` placeholders. "
             "Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry "
-            "safely without sending the email twice."
+            "safely without sending the email twice. Needs the `transactional_email:write` scope. A key with "
+            "`hog_flow:write` also works, but that scope reaches the rest of Workflows too."
         ),
         parameters=[TEMPLATE_ID_PARAMETER, IDEMPOTENCY_KEY_PARAMETER],
     )
-    @action(detail=True, methods=["POST"], pagination_class=None)
+    @action(detail=True, methods=["POST"], pagination_class=None, required_scopes=[TRANSACTIONAL_EMAIL_SEND_SCOPE])
     def send(self, request: Any, *args: Any, **kwargs: Any) -> Response:
         self._end_request_validation()
         with transactional_email_stage("feature_flag"):
@@ -959,7 +988,6 @@ class MessageTemplatesViewSet(
 
 class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "hog_flow"
-    scope_object_write_actions = ["email"]
     permission_classes = [IsAuthenticated]
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
     psak_allowed_actions = ["email"]
@@ -973,21 +1001,22 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
         responses=SEND_RESPONSES,
         summary="Send a transactional email",
         description=(
-            "Send one transactional email to one recipient from the template named in `template.id`. The template "
+            "Send one transactional email to one recipient from the template named in `template_id`. The template "
             "must be made transactional first. `message_data` fills the template's `{{ variables.* }}` placeholders. "
             "Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry "
-            "safely without sending the email twice."
+            "safely without sending the email twice. Needs the `transactional_email:write` scope. A key with "
+            "`hog_flow:write` also works, but that scope reaches the rest of Workflows too."
         ),
         parameters=[IDEMPOTENCY_KEY_PARAMETER],
     )
-    @action(detail=False, methods=["POST"])
+    @action(detail=False, methods=["POST"], required_scopes=[TRANSACTIONAL_EMAIL_SEND_SCOPE])
     def email(self, request: Any, *args: Any, **kwargs: Any) -> Response:
         self._end_request_validation()
         with transactional_email_stage("feature_flag"):
             self._require_transactional_email_flag()
         with transactional_email_stage("template_lookup"):
             try:
-                template = get_template(self.team_id, request.validated_data["template"]["id"])
+                template = get_template(self.team_id, request.validated_data["template_id"])
             except MessageTemplateMissing:
                 raise NotFound()
             self.check_object_permissions(request, template)

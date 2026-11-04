@@ -19,7 +19,7 @@ from contextlib import contextmanager, suppress
 from enum import Enum
 from functools import lru_cache, wraps
 from operator import itemgetter
-from typing import TYPE_CHECKING, Any, Optional, Union, cast
+from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 from urllib.parse import unquote, urljoin, urlparse
 from zoneinfo import ZoneInfo
 
@@ -79,6 +79,8 @@ TEMPLATE_CONTEXT_DURATION_HISTOGRAM = Histogram(
 
 if TYPE_CHECKING:
     from django.contrib.auth.models import AbstractBaseUser, AnonymousUser
+
+    from rest_framework.serializers import Serializer
 
     from posthog.models import Organization, Team, User
 
@@ -490,19 +492,16 @@ def _read_preload_manifest(manifest_path: str, include_authenticated_shell: bool
 APP_EVALUATION_CONTEXT = "posthog-web-app"
 
 
-def flags_for_app_evaluation_context(
-    flags: dict[str, Any] | None, definitions: list[dict[str, Any]] | None
-) -> dict[str, Any] | None:
+def app_flag_keys(definitions: list[dict[str, Any]] | None) -> list[str] | None:
     """
-    Drops flags that /flags leaves out for the app, which sends `evaluation_contexts: ['posthog-web-app']`
+    The flags /flags returns for the app, which sends `evaluation_contexts: ['posthog-web-app']`
     from `loadPostHogJS.tsx`. The Python SDK evaluates locally without applying evaluation contexts, and it
     also returns disabled flags and server-only flags, which /flags never sends to a browser.
+    None means the definitions have not loaded yet.
     """
-    # The SDK returns no flags at all when analytics is disabled, for example in tests or with OPT_OUT_CAPTURE.
-    if flags is None:
+    if definitions is None:
         return None
-    excluded = {definition["key"] for definition in definitions or [] if not _app_evaluates_flag(definition)}
-    return {key: value for key, value in flags.items() if key not in excluded}
+    return [definition["key"] for definition in definitions if _app_evaluates_flag(definition)]
 
 
 def _app_evaluates_flag(definition: dict[str, Any]) -> bool:
@@ -875,18 +874,51 @@ def feature_flag_bootstrap(user: "User", current_user: dict[str, Any]) -> Option
     )
     if identity is None:
         return None
+    flag_keys = app_flag_keys(posthoganalytics.feature_flag_definitions())
+    # Without definitions the SDK loads them and evaluates every flag, server-only flags included.
+    if flag_keys is None:
+        return None
+    # The SDK reads an empty list as "evaluate every flag".
+    if not flag_keys:
+        return {}
     with tracer.start_as_current_span("template.feature_flag_bootstrap"):
-        feature_flags = posthoganalytics.get_all_flags(
+        return posthoganalytics.get_all_flags(
             identity.distinct_id,
             only_evaluate_locally=True,
             person_properties=identity.person_properties,
             groups=identity.groups,
             group_properties=identity.group_properties,
+            flag_keys_to_evaluate=flag_keys,
         )
-    return flags_for_app_evaluation_context(feature_flags, posthoganalytics.feature_flag_definitions())
 
 
-def add_user_app_context(request: HttpRequest, posthog_app_context: dict[str, Any]) -> None:
+# Fields the first screen does not read. A deferred page fetches them with `stage=full` after the app boots.
+FULL_STAGE_USER_FIELDS = frozenset({"is_2fa_enabled", "has_sso_enforcement"})
+FULL_STAGE_TEAM_FIELDS = frozenset({"product_intents"})
+FULL_STAGE_PROJECT_FIELDS = FULL_STAGE_TEAM_FIELDS
+
+AppContextStage = Literal["inline", "boot", "full"]
+
+
+def _serialize_app_context_stage(
+    serializer: "Serializer", full_stage_fields: frozenset[str], stage: AppContextStage
+) -> dict[str, Any]:
+    if stage == "inline":
+        return serializer.data
+
+    def in_stage(name: str) -> bool:
+        return (name in full_stage_fields) == (stage == "full")
+
+    for name in list(serializer.fields):
+        if not in_stage(name):
+            serializer.fields.pop(name)
+    # A `to_representation` hook can add a field back, such as the `shortcut_position` backfill, so filter the output too.
+    return {name: value for name, value in serializer.data.items() if in_stage(name)}
+
+
+def add_user_app_context(
+    request: HttpRequest, posthog_app_context: dict[str, Any], stage: Literal["inline", "boot"] = "inline"
+) -> None:
     """Adds the signed-in user's user, team, project and access data to the app context."""
     from posthog.api.project import ProjectSerializer
     from posthog.api.team.team_serializer import TeamSerializer
@@ -895,6 +927,7 @@ def add_user_app_context(request: HttpRequest, posthog_app_context: dict[str, An
     from posthog.user_permissions import UserPermissions
 
     from products.access_control.backend.facade.user_access_control import ACCESS_CONTROL_RESOURCES, UserAccessControl
+    from products.tasks.backend.facade.access import get_cached_posthog_ai_access_decision
 
     user = cast("User", request.user)
 
@@ -931,7 +964,9 @@ def add_user_app_context(request: HttpRequest, posthog_app_context: dict[str, An
             },
             many=False,
         )
-        posthog_app_context["current_user"] = user_serialized.data
+        posthog_app_context["current_user"] = _serialize_app_context_stage(
+            user_serialized, FULL_STAGE_USER_FIELDS, stage
+        )
 
     if user.team:
         with tracer.start_as_current_span("template.team_serializer"):
@@ -944,7 +979,9 @@ def add_user_app_context(request: HttpRequest, posthog_app_context: dict[str, An
                 },
                 many=False,
             )
-            posthog_app_context["current_team"] = team_serialized.data
+            posthog_app_context["current_team"] = _serialize_app_context_stage(
+                team_serialized, FULL_STAGE_TEAM_FIELDS, stage
+            )
 
         with tracer.start_as_current_span("template.project_serializer"):
             project_serialized = ProjectSerializer(
@@ -952,17 +989,56 @@ def add_user_app_context(request: HttpRequest, posthog_app_context: dict[str, An
                 context={"request": request, "user_permissions": user_permissions},
                 many=False,
             )
-            posthog_app_context["current_project"] = project_serialized.data
-        posthog_app_context["frontend_apps"] = get_frontend_apps(user.team.pk)
+            posthog_app_context["current_project"] = _serialize_app_context_stage(
+                project_serialized, FULL_STAGE_PROJECT_FIELDS, stage
+            )
         event_info = get_default_event_info(user.team)
         posthog_app_context["default_event_name"] = event_info["default_event_name"]
         posthog_app_context["has_pageview"] = event_info["has_pageview"]
         posthog_app_context["has_screen"] = event_info["has_screen"]
-        posthog_app_context["has_person_email"] = get_has_person_email(user.team)
+        if stage == "inline":
+            posthog_app_context["has_person_email"] = get_has_person_email(user.team)
+
+        with tracer.start_as_current_span("template.posthog_ai_access"):
+            try:
+                posthog_ai_access = get_cached_posthog_ai_access_decision(user, user.team.organization).allowed
+            except Exception as error:
+                capture_exception(error)
+                posthog_ai_access = False
+            posthog_app_context["posthog_ai_access"] = posthog_ai_access
 
         with tracer.start_as_current_span("template.user_home_settings"):
             home_settings = UserHomeSettings.objects.filter(team=user.team, user=user).first()
             posthog_app_context["homepage"] = (home_settings.homepage or None) if home_settings else None
+
+
+def full_stage_user_app_context(request: HttpRequest) -> dict[str, Any]:
+    """The app context fields that `add_user_app_context` leaves out of the boot stage."""
+    from posthog.api.project import ProjectSerializer
+    from posthog.api.team.team_serializer import TeamSerializer
+    from posthog.api.user import UserSerializer
+
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
+
+    user = cast("User", request.user)
+    full_stage: dict[str, Any] = {
+        "current_user": _serialize_app_context_stage(
+            UserSerializer(user, context={"request": request}), FULL_STAGE_USER_FIELDS, "full"
+        )
+    }
+    if user.team and UserAccessControl(user=user, team=user.team).has_project_access:
+        # The id lets the page skip fields for a team it no longer shows.
+        full_stage["current_team"] = {
+            "id": user.team.id,
+            **_serialize_app_context_stage(
+                TeamSerializer(user.team, context={"request": request}), FULL_STAGE_TEAM_FIELDS, "full"
+            ),
+        }
+        full_stage["current_project"] = _serialize_app_context_stage(
+            ProjectSerializer(user.team.project, context={"request": request}), FULL_STAGE_PROJECT_FIELDS, "full"
+        )
+        full_stage["has_person_email"] = get_has_person_email(user.team)
+    return full_stage
 
 
 def render_template(
@@ -1255,45 +1331,6 @@ def get_has_person_email(team: "Team") -> bool:
 
 def invalidate_has_person_email_cache(project_id: int) -> None:
     safe_cache_delete(_has_person_email_cache_key(project_id))
-
-
-@tracer.start_as_current_span("template.frontend_apps")
-def get_frontend_apps(team_id: int) -> dict[int, dict[str, Any]]:
-    from products.cdp.backend.models.plugin import Plugin, PluginSourceFile, get_secret_fields
-
-    plugin_configs = (
-        Plugin.objects.filter(pluginconfig__team_id=team_id, pluginconfig__enabled=True)
-        .filter(
-            pluginsourcefile__status=PluginSourceFile.Status.TRANSPILED,
-            pluginsourcefile__filename="frontend.tsx",
-        )
-        .values(
-            "pluginconfig__id",
-            "pluginconfig__config",
-            "config_schema",
-            "id",
-            "plugin_type",
-            "name",
-        )
-        .all()
-    )
-
-    frontend_apps = {}
-    for p in plugin_configs:
-        config = p["pluginconfig__config"] or {}
-        for key in get_secret_fields(p["config_schema"] or {}):
-            if key in config:
-                config[key] = "** SECRET FIELD **"
-        frontend_apps[p["pluginconfig__id"]] = {
-            "pluginConfigId": p["pluginconfig__id"],
-            "pluginId": p["id"],
-            "pluginType": p["plugin_type"],
-            "name": p["name"],
-            "url": f"/app/{p['pluginconfig__id']}/",
-            "config": config,
-        }
-
-    return frontend_apps
 
 
 def friendly_time(seconds: float):

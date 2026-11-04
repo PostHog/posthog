@@ -5,6 +5,9 @@ from dataclasses import asdict
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from posthog.paging import Page, PageRequest
+from posthog.queryset_paging import select_page
+
 from products.warehouse_sources.backend.facade.api import source_locations_for_tables
 from products.warehouse_sources.backend.facade.contracts import TableSourceLocation
 
@@ -23,7 +26,6 @@ from .contracts import (
     Suggestion,
     SuggestionDraft,
     SuggestionNotFoundError,
-    SuggestionPage,
     SuggestionPayloadView,
     SuggestionReviewer,
     SuggestionStatus,
@@ -67,9 +69,8 @@ def list_suggestions(
     subject_id: UUID | None,
     assignee_id: int | None = None,
     subject_kinds: SubjectKinds,
-    limit: int,
-    offset: int,
-) -> SuggestionPage:
+    page: PageRequest,
+) -> Page[Suggestion]:
     visible, access = visible_suggestions(
         team_id,
         user_access_control,
@@ -79,8 +80,8 @@ def list_suggestions(
         assignee_id=assignee_id,
         subject_kinds=subject_kinds,
     )
-    page = list(visible[offset : offset + limit])
-    return SuggestionPage(count=visible.count(), results=_to_contracts(team_id, user_access_control, page, access))
+    rows = select_page(visible, page)
+    return Page(results=_to_contracts(team_id, user_access_control, rows.results, access), count=rows.count)
 
 
 def suggestion_status(team_id: int) -> SuggestionStatus:

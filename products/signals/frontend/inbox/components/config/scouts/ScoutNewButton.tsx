@@ -47,11 +47,11 @@ export function ScoutNewButton({
     size = 'small',
 }: ScoutNewButtonProps): JSX.Element {
     const [openModal, setOpenModal] = useState<OpenScoutModal | null>(null)
-    const { runningChatType, aiConsentDisabledReason } = useValues(scoutFleetLogic)
+    const { runningChatType, scoutChatDisabledReason } = useValues(scoutFleetLogic)
     const creationDisabledReason = useScoutCreateDisabledReason()
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const chatDisabledReason =
-        aiConsentDisabledReason ?? (runningChatType !== null ? 'Starting another task…' : undefined)
+        scoutChatDisabledReason ?? (runningChatType !== null ? 'Starting another task…' : undefined)
 
     const openChat = (): void => {
         captureScoutCreatePathChosen({ path: 'chat', surface })
