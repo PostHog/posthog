@@ -497,6 +497,22 @@ class SignalReport(UUIDModel):
     # key is what makes the retry that follows return this report instead of authoring a second one.
     scout_idempotency_key = models.CharField(max_length=255, null=True, blank=True)
 
+    # A project member filed this report through the report API rather than a scout or the pipeline.
+    # Automatic start never runs for it, on creation or on any later re-evaluation, because the
+    # create endpoint needs only `inbox:write` while an implementation run acts on the text. The
+    # flag carries the gate, so deleting the user behind `created_by` does not reopen it.
+    user_authored = models.BooleanField(default=False, db_default=False)
+    # No field index: `signals_report_created_by` leads with this column and serves the user-delete lookup too.
+    created_by = models.ForeignKey(
+        "posthog.User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_constraint=False,
+        db_index=False,
+        related_name="+",
+    )
+
     # Video segment clustering fields
     cluster_centroid = deprecate_field(
         ArrayField(
@@ -533,6 +549,12 @@ class SignalReport(UUIDModel):
                 fields=["team", "first_visible_at"],
                 condition=models.Q(first_visible_at__isnull=False),
                 name="signals_report_first_visible",
+            ),
+            # Partial: the per-user daily create cap counts one member's reports from the start of the day.
+            models.Index(
+                fields=["created_by", "created_at"],
+                condition=models.Q(created_by__isnull=False),
+                name="signals_report_created_by",
             ),
             # Back the inbox `search` filter. On UPPER(...) because icontains compiles to
             # UPPER(col) LIKE UPPER(pattern) on Postgres. Direct updates avoid pending-list
