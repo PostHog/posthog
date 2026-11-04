@@ -3,7 +3,6 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from django.db import transaction
-from django.db.models import Case, F, Value, When
 from django.utils import timezone
 
 from asgiref.sync import async_to_sync
@@ -22,6 +21,7 @@ from products.signals.backend.github_recovery import (
 )
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportTask
 from products.signals.backend.quota import self_driving_quota_gate
+from products.signals.backend.report_monitoring_provenance import monitoring_repository_allowed
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.github_readiness import get_team_github_readiness
 from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
@@ -78,6 +78,7 @@ def _manual_implementation_may_retry(team_id: int, report_id: str, task_id: str,
         and report.run_count == link.report_run_count
         and (report.content_revision_count or 0) == link.report_content_revision_count
         and (named_repository is None or named_repository.casefold() == repository.casefold())
+        and monitoring_repository_allowed(team_id, report_id, repository)
     )
 
 
@@ -101,16 +102,11 @@ def implementation_may_retry(
 
 
 def record_implementation_github_blocker(team_id: int, report_id: str, reason: str | None) -> None:
-    now = timezone.now()
-    # A blocker inside the recovery window keeps its start time. An expired one belongs to an earlier
-    # attempt, so the new attempt starts its own window.
-    blocked_at = Case(
-        When(implementation_blocked_at__gte=now - GITHUB_RECOVERY_WINDOW, then=F("implementation_blocked_at")),
-        default=Value(now),
-    )
+    # The recovery sweep selects reports by this timestamp, so it follows the latest attempt. Each run
+    # holds its own absolute deadline, and a later block cannot extend that deadline.
     SignalReport.objects.filter(team_id=team_id, id=report_id).update(
         implementation_blocked_reason=reason,
-        implementation_blocked_at=blocked_at if reason else None,
+        implementation_blocked_at=timezone.now() if reason else None,
     )
 
 

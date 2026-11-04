@@ -72,6 +72,7 @@ class TestImplementationGitHubRecovery(BaseTest):
         )
         self.readiness = self.enterContext(patch(f"{MODULE}.get_team_github_readiness", return_value=ready))
         self.enterContext(patch(f"{MODULE}.self_driving_free_trial_enabled", return_value=False))
+        self.source_privacy = self.enterContext(patch(f"{MODULE}.monitoring_repository_allowed", return_value=True))
         self.dispatch = self.enterContext(
             patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None)
         )
@@ -97,12 +98,17 @@ class TestImplementationGitHubRecovery(BaseTest):
         self.report.refresh_from_db()
         assert self.report.implementation_blocked_reason == "not_connected"
 
-    @parameterized.expand(["fresh", "expired_earlier_blocker", "no_named_selection"])
+    @parameterized.expand(["fresh", "expired_earlier_blocker", "recent_earlier_blocker", "no_named_selection"])
     def test_reconnect_creates_one_new_run_on_the_same_task(self, case: str) -> None:
         if case == "expired_earlier_blocker":
             SignalReport.objects.filter(id=self.report.id).update(
                 implementation_blocked_reason="not_connected",
                 implementation_blocked_at=timezone.now() - timedelta(days=8),
+            )
+        elif case == "recent_earlier_blocker":
+            SignalReport.objects.filter(id=self.report.id).update(
+                implementation_blocked_reason="not_connected",
+                implementation_blocked_at=timezone.now() - timedelta(days=6),
             )
         elif case == "no_named_selection":
             SignalReportArtefact.objects.filter(report=self.report, type="repo_selection").delete()
@@ -110,8 +116,11 @@ class TestImplementationGitHubRecovery(BaseTest):
         self.task_run.save(update_fields=["state"])
         self._block()
         self._fail()
-        retry_github_blocked_implementations(self.team.id)
-        retry_github_blocked_implementations(self.team.id)
+        # The earlier blocker leaves the sweep's window here, while this attempt's deadline is still ahead.
+        retry_at = timezone.now() + timedelta(days=3 if case == "recent_earlier_blocker" else 0)
+        with time_machine.travel(retry_at, tick=False):
+            retry_github_blocked_implementations(self.team.id)
+            retry_github_blocked_implementations(self.team.id)
         runs = list(self.task.runs.order_by("created_at", "id"))
         assert len(runs) == 2
         previous = next(run for run in runs if run.id == self.task_run.id)
@@ -166,6 +175,7 @@ class TestImplementationGitHubRecovery(BaseTest):
             "repository",
             "revoked",
             "task_access_revoked",
+            "source_privacy",
             "cancelled",
             "ordinary_failure",
             "newer_attempt",
@@ -194,6 +204,8 @@ class TestImplementationGitHubRecovery(BaseTest):
                 level=OrganizationMembership.Level.MEMBER
             )
             AccessControl.objects.create(team=self.team, resource="task", access_level="viewer")
+        elif case == "source_privacy":
+            self.source_privacy.return_value = False
         elif case == "cancelled":
             self.task_run.status = TaskRun.Status.CANCELLED
         elif case == "ordinary_failure":
