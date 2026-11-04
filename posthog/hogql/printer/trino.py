@@ -34,6 +34,7 @@ from posthog.hogql.printer.trino_functions import (
     TRINO_VECTOR_REWRITES,
     TRINO_WINDOW_ONLY_FUNCTIONS,
 )
+from posthog.hogql.printer.trino_json import empty_keys_and_values, keys_and_values, parse_keys_and_values_type
 from posthog.hogql.printer.types import JoinExprResponse
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 from posthog.hogql.transforms.trino.expressions import constant_integer
@@ -89,24 +90,6 @@ _TRINO_PARAMETERIZED_TYPE_RE = re.compile(
     r"^(decimal|numeric|varchar|char|fixedstring|datetime64|timestamp)\s*\((\d+(?:\s*,\s*\d+)?)\)$",
     re.IGNORECASE,
 )
-# JSONExtractKeysAndValues value types: the Trino type, and the ClickHouse range a number must fall in.
-# ClickHouse reads a Bool as a UInt8 and then tests it against zero.
-_JSON_KEYS_AND_VALUES_TYPES: dict[str, tuple[str, tuple[int, int] | None]] = {
-    "bool": ("BOOLEAN", (0, 255)),
-    "float": ("REAL", None),
-    "float32": ("REAL", None),
-    "float64": ("DOUBLE", None),
-    "int": ("INTEGER", (-(2**31), 2**31 - 1)),
-    "int8": ("TINYINT", (-(2**7), 2**7 - 1)),
-    "int16": ("SMALLINT", (-(2**15), 2**15 - 1)),
-    "int32": ("INTEGER", (-(2**31), 2**31 - 1)),
-    "int64": ("BIGINT", (-(2**63), 2**63 - 1)),
-    "uint8": ("SMALLINT", (0, 2**8 - 1)),
-    "uint16": ("INTEGER", (0, 2**16 - 1)),
-    "uint32": ("BIGINT", (0, 2**32 - 1)),
-    "uint64": ("DECIMAL(20, 0)", (0, 2**64 - 1)),
-    "string": ("VARCHAR", None),
-}
 _TRINO_JOIN_TYPES = frozenset(
     {
         "JOIN",
@@ -2321,20 +2304,15 @@ class TrinoPrinter(PostgresPrinter):
             self._invalid_function_arguments(
                 node, "JSONExtractKeysAndValues requires a constant target type in Trino mode."
             )
-        type_name = type_arg.value.strip()
-        nullable = type_name.lower().startswith("nullable(") and type_name.endswith(")")
-        if nullable:
-            type_name = type_name[len("nullable(") : -1].strip()
-        spec = _JSON_KEYS_AND_VALUES_TYPES.get(type_name.lower())
-        if spec is None:
+        value_type = parse_keys_and_values_type(type_arg.value)
+        if value_type is None:
             self._unsupported(
                 "TRINO_JSON_TARGET_TYPE_UNSUPPORTED",
                 f"JSONExtractKeysAndValues target type '{type_arg.value}' is not supported in Trino mode.",
                 node,
             )
-        target, integer_range = spec
         # json_parse rejects trailing text after the document, as ClickHouse does; json_extract would accept it.
-        extracted = f"json_parse(CAST({self.visit(node.args[0])} AS VARCHAR))"
+        document = f"json_parse(CAST({self.visit(node.args[0])} AS VARCHAR))"
         for key in node.args[1:-1]:
             if (
                 not isinstance(key, ast.Constant)
@@ -2347,119 +2325,10 @@ class TrinoPrinter(PostgresPrinter):
                     node,
                 )
             if isinstance(key.value, int):
-                extracted = f"TRY(element_at(CAST({extracted} AS ARRAY(JSON)), {key.value}))"
+                document = f"TRY(element_at(CAST({document} AS ARRAY(JSON)), {key.value}))"
             else:
-                extracted = f"json_extract({extracted}, {self._json_path([key.value])})"
-        entry = "__hogql_json_entry"
-        converted = self._convert_json_keys_and_values_value(f"{entry}[2]", target, integer_range)
-        # A JSON null is kept as NULL for a Nullable type; every other value that does not convert is dropped.
-        kept = f"{entry}.v IS NOT NULL OR {entry}.n" if nullable else f"{entry}.v IS NOT NULL"
-        # CAST to MAP keeps document order, but fails on a duplicate key, so such an object gives an empty array.
-        rows = (
-            f"transform(map_entries(CAST({extracted} AS MAP(VARCHAR, JSON))), {entry} -> "
-            f"CAST(ROW({entry}[1], {converted}, json_format({entry}[2]) = 'null') AS ROW(k VARCHAR, v {target}, n BOOLEAN)))"
-        )
-        result = f"transform(filter({rows}, {entry} -> {kept}), {entry} -> ROW({entry}.k, {entry}.v))"
-        return self._json_default(node, result, f"CAST(ARRAY[] AS ARRAY(ROW(VARCHAR, {target})))")
-
-    def _convert_json_keys_and_values_value(
-        self, value: str, target: str, integer_range: tuple[int, int] | None
-    ) -> str:
-        text = "__hogql_json_text"
-        if target == "VARCHAR":
-            converted = (
-                f"CASE WHEN starts_with({text}, '\"') THEN CAST({value} AS VARCHAR) "
-                f"WHEN regexp_like({text}, '^-?[0-9]') THEN {self._clickhouse_number_text(text)} "
-                f"WHEN {text} <> 'null' THEN {text} END"
-            )
-            return f"element_at(transform(ARRAY[json_format({value})], {text} -> {converted}), 1)"
-        # ClickHouse converts a number, a boolean, or a numeric string, and drops anything else.
-        number_text = (
-            f"CASE json_format({value}) WHEN 'true' THEN '1' WHEN 'false' THEN '0' "
-            f"ELSE IF(starts_with(json_format({value}), '\"'), CAST({value} AS VARCHAR), "
-            f"IF(regexp_like(json_format({value}), '^-?[0-9]'), json_format({value}))) END"
-        )
-        if integer_range is None:
-            converted = f"CAST({self._clickhouse_float(text)} AS {target})"
-        else:
-            integer_target = "SMALLINT" if target == "BOOLEAN" else target
-            converted = self._clickhouse_integer(text, integer_target, integer_range)
-            if target == "BOOLEAN":
-                converted = f"({converted} <> 0)"
-        return f"element_at(transform(ARRAY[{number_text}], {text} -> {converted}), 1)"
-
-    @staticmethod
-    def _clickhouse_float(text: str) -> str:
-        return (
-            f"CASE WHEN regexp_like({text}, '^[+-]?([0-9]+\\.?[0-9]*|\\.[0-9]+)([eE][+-]?[0-9]+)?$') "
-            f"THEN CAST({text} AS DOUBLE) "
-            f"WHEN regexp_like(lower({text}), '^[+-]?inf(inity)?$') "
-            f"THEN IF(starts_with({text}, '-'), -infinity(), infinity()) "
-            f"WHEN regexp_like(lower({text}), '^[+-]?nan$') THEN nan() END"
-        )
-
-    def _clickhouse_integer(self, text: str, target: str, integer_range: tuple[int, int]) -> str:
-        low, high = integer_range
-        number = "__hogql_json_number"
-        parsed = (
-            f"CAST(ROW(IF(regexp_like({text}, '^[+-]?[0-9]+$'), TRY_CAST({text} AS DECIMAL(38, 0))), "
-            f"{self._clickhouse_float(text)}) AS ROW(i DECIMAL(38, 0), d DOUBLE))"
-        )
-        # A 64-bit upper bound is not exact as a double, so compare against the next power of two instead.
-        upper = f"{number}.d < {high + 1}E0" if high >= 2**63 - 1 else f"{number}.d <= {high}E0"
-        truncated = f"CAST(truncate({number}.d) AS {target})"
-        if target.startswith("DECIMAL"):
-            # Trino casts a DOUBLE to DECIMAL through its shortest decimal text, which rounds large
-            # integers, so convert through BIGINT, which is exact.
-            truncated = (
-                f"IF({number}.d >= {2**63}E0, "
-                f"CAST(CAST({number}.d - {2**63}E0 AS BIGINT) AS {target}) + DECIMAL '{2**63}', "
-                f"CAST(CAST(truncate({number}.d) AS BIGINT) AS {target}))"
-            )
-        # ClickHouse reads an integer exactly when it fits in Int64 or UInt64, and reads anything else as a
-        # double. A double converts only when it is inside the type's range, and NaN converts to zero.
-        converted = (
-            f"CASE WHEN {number}.i BETWEEN DECIMAL '{-(2**63)}' AND DECIMAL '{2**64 - 1}' "
-            f"THEN IF({number}.i BETWEEN DECIMAL '{low}' AND DECIMAL '{high}', CAST({number}.i AS {target})) "
-            f"WHEN is_nan({number}.d) THEN CAST(0 AS {target}) "
-            f"WHEN {number}.d >= {low}E0 AND {upper} THEN {truncated} END"
-        )
-        return f"element_at(transform(ARRAY[{parsed}], {number} -> {converted}), 1)"
-
-    @staticmethod
-    def _clickhouse_number_text(text: str) -> str:
-        # ClickHouse prints a JSON integer as written and any other number as the shortest text of its double,
-        # laid out like JavaScript's Number#toString. Trino prints that double as Java does (1.0E-7), so
-        # rebuild the JavaScript layout from its digits and exponent.
-        parts = "__hogql_number_parts"
-        shape = "__hogql_number_shape"
-        shortest = f"CAST(CAST({text} AS DOUBLE) AS VARCHAR)"
-        split = (
-            f"CAST(ROW(regexp_extract({shortest}, '^-?([0-9]*)', 1), "
-            f"coalesce(regexp_extract({shortest}, '\\.([0-9]*)', 1), ''), "
-            f"coalesce(CAST(regexp_extract({shortest}, '[eE]([+-]?[0-9]+)$', 1) AS INTEGER), 0)) "
-            "AS ROW(i VARCHAR, f VARCHAR, e INTEGER))"
-        )
-        significant = f"regexp_replace({parts}.i || {parts}.f, '^0+', '')"
-        normalized = (
-            f"CAST(ROW(regexp_replace({significant}, '0+$', ''), "
-            f"length({parts}.i) + {parts}.e - length({parts}.i || {parts}.f) + length({significant})) "
-            "AS ROW(d VARCHAR, n INTEGER))"
-        )
-        digits, point, size = f"{shape}.d", f"{shape}.n", f"length({shape}.d)"
-        layout = (
-            f"CASE WHEN {digits} = '' THEN '0' "
-            f"WHEN {size} <= {point} AND {point} <= 21 THEN {digits} || lpad('', {point} - {size}, '0') "
-            f"WHEN 0 < {point} AND {point} <= 21 THEN substr({digits}, 1, {point}) || '.' || substr({digits}, {point} + 1) "
-            f"WHEN -6 < {point} AND {point} <= 0 THEN '0.' || lpad('', -{point}, '0') || {digits} "
-            f"ELSE substr({digits}, 1, 1) || IF({size} > 1, '.' || substr({digits}, 2), '') "
-            f"|| 'e' || CAST({point} - 1 AS VARCHAR) END"
-        )
-        signed = f"IF(starts_with({text}, '-') AND {digits} <> '', '-', '') || {layout}"
-        return (
-            f"IF(regexp_like({text}, '^-?[0-9]+$'), {text}, element_at(transform(ARRAY[{split}], {parts} -> "
-            f"element_at(transform(ARRAY[{normalized}], {shape} -> {signed}), 1)), 1))"
-        )
+                document = f"json_extract({document}, {self._json_path([key.value])})"
+        return self._json_default(node, keys_and_values(document, value_type), empty_keys_and_values(value_type))
 
     def _visit_json_type(self, node: ast.Call) -> str:
         if not 1 <= len(node.args) <= 6:
