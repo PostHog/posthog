@@ -54,14 +54,6 @@ def _sandbox_sender_enabled(team: Team) -> bool:
     )
 
 
-def sandbox_sender_enabled_for_team(team_id: int) -> bool:
-    """Whether the project has the sandbox sender flag. Runs no query while the deployment has no sandbox sender."""
-    if not sandbox_sender_configured():
-        return False
-    team = Team.objects.only("id", "uuid", "organization_id").get(id=team_id)
-    return _sandbox_sender_enabled(team)
-
-
 def _organization_blocked(team: Team) -> bool:
     return SandboxSenderOrganizationBlock.objects.filter(organization_id=team.organization_id).exists()
 
