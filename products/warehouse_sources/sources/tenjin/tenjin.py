@@ -7,6 +7,7 @@ import requests
 
 from products.warehouse_sources.sources.sdk import (
     JSONResponsePaginator,
+    Resource,
     RESTAPIConfig,
     ResumableSourceManager,
     SourceResponse,
@@ -215,9 +216,18 @@ def tenjin_source(
                 raise
             raise requests.HTTPError(rejected_request_message(e.response, api_key), response=e.response) from e
 
+    # As a `Resource` the walk keeps framework checkpoints, so a hand-off never reads a page twice.
+    hints = rest_api_resource(
+        _report_config(api_key, endpoint, report, {}, should_use_incremental_field),
+        team_id,
+        job_id,
+        db_incremental_field_last_value,
+    )._hints
+    walk = Resource(pages, name=endpoint, hints=hints)
+
     return SourceResponse(
         name=endpoint,
-        items=pages,
+        items=lambda: walk,
         primary_keys=list(report.primary_keys),
         partition_count=1,
         partition_size=1,

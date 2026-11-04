@@ -143,6 +143,19 @@ class TestPaginationAndResume:
         assert len(result.requests) == 2
         assert result.requests[1].param("page") == "2"
 
+    def test_failed_page_leaves_a_resume_point_at_that_page(self) -> None:
+        next_url = f"{TENJIN_BASE_URL}/reports/spend?group_by=app&page=2&per_page=1000"
+        result = _drive(
+            [
+                _report_page([{"date": "2026-06-29", "app_id": "a1"}], next_url=next_url),
+                ScriptedResponse(status=400, json={"error": "Invalid request"}),
+            ],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value="2026-06-28",
+        )
+
+        assert result.final_state == TenjinResumeConfig(next_url=next_url, window_end="2026-06-30")
+
     def test_resume_finishes_the_saved_window_then_requests_only_later_windows(self) -> None:
         saved_url = f"{TENJIN_BASE_URL}/reports/spend?group_by=app&page=7&per_page=1000"
 
