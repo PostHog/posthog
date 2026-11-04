@@ -3,7 +3,6 @@ import type { RedisLike } from '@/hono/cache/RedisCache'
 export interface GuidanceRedisStub extends RedisLike {
     store: Map<string, string>
     evalCalls: (string | number)[][]
-    /** Moves the stub's clock forward and drops every key whose TTL has run out. */
     advance(seconds: number): void
 }
 

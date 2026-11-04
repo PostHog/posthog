@@ -17,7 +17,6 @@ const CALLER_TTL_SECONDS = 30 * 60
 interface CountingScopes {
     primary: string
     ttl: number
-    /** Records a minted-handle call under its handle, in case the client echoes that handle later. */
     mirror?: string
 }
 
@@ -240,11 +239,8 @@ export class GuidanceEngine {
     }
 }
 
-// A call that carries no handle counts under the caller, because the SDK mints a handle on every
-// such call and a client that never echoes one would otherwise never reach a threshold. The same
-// call also records under the minted handle, so a client that does echo it continues with the
-// counters and suppression of its own conversation, on the longer TTL, and apart from the caller's
-// other conversations.
+// A call with a minted handle counts under the caller, because a client that never echoes gets a new
+// handle on every call. It also records under the handle, so a client that echoes keeps its own counters.
 function countingScopes(state: ResolvedState): CountingScopes {
     const handle = resolveSessionKey(state.requestContext)
     const callerScope = scopeKey(state.distinctId, undefined)
