@@ -17507,13 +17507,21 @@ snapshots:
     warehouse-suggestions-suggested-certifications--review-dialog-narrow--light:
         hash: v1.k794b7964.b50eac0dbd82aa276d178cebb9041a89ba689f376f3b8509b910aa3a291a4441.6LJGfUarId3i8ZJYqoBfGZ1zaK_btz8bo1q6t4RSs38
     warehouse-suggestions-suggested-models-strip--banner--dark:
-        hash: v1.k794b7964.f4b1753fb8f7f72bc726754edc2af9890d58bad769aef29e0535aaaa9862a0cb.DJOIQ1B3uve853HT-qkIbooHSJMhcVHE1F0DGqrTQ0g
+        hash: v1.k794b7964.e41e8bff3b758748a7367867efda63cc1f67c4802e5c6d0ec48a6c9995afde1d.ouAdc1h3LVaL0xJuDClMty02GrHtPO3Ic9W3BIXaCMY
     warehouse-suggestions-suggested-models-strip--banner--light:
-        hash: v1.k794b7964.067b7d595dfb3c45861e60e1c479bcf3b1093e748f996ae628b60d8e3582449a.e4cUdU_PGjeC9mqyBHwozZ8UhuFadtIVbU2HV2_d9tA
+        hash: v1.k794b7964.f76babe5fd4b2545ffee23243b5f8f2f461a551f546f45498d772376027e7f53.pvGZDWnhkHwYifhzYWP_T0rDpCB1pB4gK9FMkXp1p1w
     warehouse-suggestions-suggested-models-strip--banner-narrow--dark:
-        hash: v1.k794b7964.6d5603167d875c5dd2e3a48a329e18d5ac951d63471d833ed1384d1c18761212.4UrtyPwOVvgs4Kl-9zJsXXgzYwJs8d1IIanHEcjCMes
+        hash: v1.k794b7964.6c6b4b973ae5c34f1529e062b67d084091195df54dc0a5e909739d9006cc4295.6923ZP7HANmYu-Ex_W3T3VjD8-O-P9NasQ0Lac1_1mU
     warehouse-suggestions-suggested-models-strip--banner-narrow--light:
-        hash: v1.k794b7964.4e1894a911c620104b0cb8a776ccaab6b31818a2733caa0a6cb5ea414e5c009c.qOnUdghMNhGn8b9VTGLfRwpF5XA5e6TKTfAv97cFjeo
+        hash: v1.k794b7964.8c8767da31c266976023564b4b9386e3090735a26238c4d3c393eb4b07005555.b_7AGmtoP0CxSmjlICvZSaVKqpUJpGVQq3HtAiuezBk
+    warehouse-suggestions-suggested-models-strip--banner-only-unused-views--dark:
+        hash: v1.k794b7964.76743b55c1028b1c7e38da8a5de81f9183c254393077d1230b6fbd2d0d11eac3.Qy7i57Rpp-Iv-RT9s5C2GFt8shOHOh69gXwop9Hrmho
+    warehouse-suggestions-suggested-models-strip--banner-only-unused-views--light:
+        hash: v1.k794b7964.a6e1659dc0f0ab61aa58d59b693abce554b0cf6fceb86ee201eef02bece5c8d2.NiDGIw_3v_8WlASuCbYc40qwoGPANEZY9QMNpC8t5dM
+    warehouse-suggestions-suggested-models-strip--deprecate-dialog--dark:
+        hash: v1.k794b7964.af4db1942d749b712d8fc5f84904ad4794779e1c6092ab4a02ca8a6077838aa0.FWGXoZOh8vJxyzQzA9buipVncdjOadieQwcUlHzhEg4
+    warehouse-suggestions-suggested-models-strip--deprecate-dialog--light:
+        hash: v1.k794b7964.4b6f6ea963d6d689f2b3e471ad1e20af85d81b2a2dddea0a04445c745afd372b.J6Laj881jdUETbhvv5pJHRCoR6l1EcnCX16_3AWi7js
     warehouse-suggestions-suggested-models-strip--load-failed--dark:
         hash: v1.k794b7964.d93ab3575b7bebf7f869bc5b41c0a8e0581679f22bd0251c31f031b0f43ee7c0.iXXukenkQJA0ayAlRoqei_RQx1XW-b9MLaTjdhxfkoM
     warehouse-suggestions-suggested-models-strip--load-failed--light:
@@ -17531,9 +17539,9 @@ snapshots:
     warehouse-suggestions-suggested-models-strip--not-eligible--light:
         hash: v1.k794b7964.a66ac5be916b459b6f8b15621e3bdeb12226d34c1e24feb15900940652fc238b.gzxwnKSQkZQfg5wdIMriKJO-aaxIteiXVzfSx1R7w8c
     warehouse-suggestions-suggested-models-strip--review-dialog--dark:
-        hash: v1.k794b7964.3ce6732f7e7e53eed4c1b97ae82d929f55597946c16dc485a44033e87c0d812e.jXmFDVw5SUPT6kShyBsznWyAfdlqs0kK1RFF8SJFxsY
+        hash: v1.k794b7964.e38b8a7b93ed61e6eb2cadd6084054b4bc36b90733239e56296b019a914ecbd2.i0bFtzmKZGc491w7NhsyPbTkV5-0BCGrdoVMljpgxb0
     warehouse-suggestions-suggested-models-strip--review-dialog--light:
-        hash: v1.k794b7964.a3626ebfb53ca9f53ee5e6437d50163c686a5fcc56a2fa3a7223751d110462c9.hVKPaFbueFpouk0eaqw0FHLM_tXQFyAomVQCr9vxYfs
+        hash: v1.k794b7964.7bb063f441497d7450405e81db40fe06e522af0ef73f117e3400610ef9d3c7e9.8H5nTOySUs4OpkpKTQ0TqqWt07A-rh9UDmsU0VlzfAw
     warehouse-suggestions-suggested-models-strip--review-dialog-many-suggestions--dark:
         hash: v1.k794b7964.825b125bcc53a5c7f1141c6b51fb2bd4f0d5afdf70858a557571f30d619241d8.q0jvTBZUDDrMwbWchF-gUZ1_QRtCdguQA0xWIZvIjiU
     warehouse-suggestions-suggested-models-strip--review-dialog-many-suggestions--light:
@@ -17543,9 +17551,9 @@ snapshots:
     warehouse-suggestions-suggested-models-strip--review-dialog-viewer-without-edit-access--light:
         hash: v1.k794b7964.384d979d79f514d57c0437cb8537aa33c3cb9605bae6b4232bfb6a0d0780ab1f.mpr7tkufxhbHtPc7hVRiYubOViBJqijmVf_V0Fud2vU
     warehouse-suggestions-suggested-models-strip--stop-materializing-dialog--dark:
-        hash: v1.k794b7964.3de8918a7d4549c7b94f1880811300aa0be9ad3b43f0ca0ddbf7ce4263cbff5f.JEGq_DJuFHfCX_EXG0nFvX009s0vOUZj8_mSnZTXKEE
+        hash: v1.k794b7964.ab21d8969f6d8ab3f060364500d9cbffab46d3ce8b6636ccfd48eccc43ae1d5b.8Oz67H_QqJVyCcqWuAyHmdkfpfHgKjn4k_f91EW7f3M
     warehouse-suggestions-suggested-models-strip--stop-materializing-dialog--light:
-        hash: v1.k794b7964.2d92023ad6d3dc2226605434a4ae789ddae657f3f8a5750a6279a55780ad4139.DnwVKCy6Pmp3hY9LRaIzCtirVwlhWxThIosF4FZV35g
+        hash: v1.k794b7964.ccdcc6c3bf48edcdf8f6c8189d5bf9c79a5bafbca81f70c1bc3e14012f6125f1.HE_-Gp5rsmRGdbcX4vjdZ4TYOVpbn3oNnWouM8BpEes
     warehouse-suggestions-suggested-models-strip--warming-up--dark:
         hash: v1.k794b7964.860407091149fedd6c4e056cda79d92213e59dd9e00886e0cedee320fc267c48.x5QcsRUSRT66uOc237oq_n4D-eQWpY2GzsTRTC-SL6w
     warehouse-suggestions-suggested-models-strip--warming-up--light:
