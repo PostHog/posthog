@@ -204,26 +204,31 @@ def list_configurations(
 
 
 def count_configurations(
-    *, team_id: int, source_kind: SourceKind, enabled_only: bool = False, check_interval_minutes: int | None = None
+    *,
+    team_id: int,
+    source_kind: SourceKind,
+    native_only: bool = False,
+    enabled_only: bool = False,
+    check_interval_minutes: int | None = None,
 ) -> int:
-    """How many alerts of a kind a team has on the platform, copies included. For a source's admission."""
+    """How many alerts of a kind a team has on the platform. For a source's admission.
+
+    A source that keeps rows counts them and adds `native_only`, because a copy outlives its source
+    row when the source deletes an alert the platform does not own.
+    """
     return platform_reads.count_configurations(
         team_id=team_id,
         source_kind=source_kind.value,
+        native_only=native_only,
         enabled_only=enabled_only,
         check_interval_minutes=check_interval_minutes,
     )
 
 
-def copied_legacy_ids(*, team_id: int, source_kind: SourceKind) -> frozenset[UUID]:
-    """The ids of a team's source rows of a kind that have a platform copy."""
-    return platform_reads.copied_legacy_ids(team_id=team_id, source_kind=source_kind.value)
-
-
-def hold_admission_lock(*, team_id: int, source_kind: SourceKind) -> None:
-    """The lock the platform's admission holds, for a source creating an alert outside the platform.
-    Call it inside the create's transaction."""
-    platform_writes.hold_admission_lock(team_id, source_kind)
+def hold_cap_lock(*, team_id: int, source_kind: SourceKind) -> None:
+    """The lock the platform holds while a source checks its caps, for a source creating an alert
+    outside the platform. Call it inside the create's transaction."""
+    platform_writes.hold_cap_lock(team_id, source_kind)
 
 
 def get_configuration(

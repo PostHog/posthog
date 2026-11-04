@@ -128,29 +128,25 @@ def list_configurations(
 
 
 def count_configurations(
-    *, team_id: int, source_kind: str, enabled_only: bool = False, check_interval_minutes: int | None = None
+    *,
+    team_id: int,
+    source_kind: str,
+    native_only: bool = False,
+    enabled_only: bool = False,
+    check_interval_minutes: int | None = None,
 ) -> int:
-    """How many alerts of a kind a team has on the platform, copies included, whoever owns them."""
+    """How many alerts of a kind a team has on the platform, whoever owns them. With `native_only`, only
+    the ones with no source row."""
     configurations = PlatformAlertConfiguration.objects.for_team(team_id, canonical=True).filter(
         source_kind=source_kind
     )
+    if native_only:
+        configurations = configurations.filter(legacy_configuration_id__isnull=True)
     if enabled_only:
         configurations = configurations.filter(enabled=True)
     if check_interval_minutes is not None:
         configurations = configurations.filter(check_interval_minutes=check_interval_minutes)
     return configurations.count()
-
-
-def copied_legacy_ids(*, team_id: int, source_kind: str) -> frozenset[UUID]:
-    """The ids of a team's source rows of a kind that have a platform copy, so a source counting its
-    alerts can add only the rows the platform does not already count."""
-    return frozenset(
-        legacy_id
-        for legacy_id in PlatformAlertConfiguration.objects.for_team(team_id, canonical=True)
-        .filter(source_kind=source_kind, legacy_configuration_id__isnull=False)
-        .values_list("legacy_configuration_id", flat=True)
-        if legacy_id is not None
-    )
 
 
 def get_configuration(
