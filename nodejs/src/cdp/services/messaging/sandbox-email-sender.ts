@@ -252,10 +252,132 @@ function leavesOutlookConditionalOpen(roots: DefaultTreeAdapterMap['childNode'][
     return depth > 0
 }
 
-function outlookView(html: string): DefaultTreeAdapterMap['document'] {
+type ConditionalClient = { mso: number | null; ie: number | null }
+
+const CONDITIONAL_CLIENTS: ConditionalClient[] = [
+    ...[9, 10, 11, 12, 14, 15, 16].map((mso) => ({ mso, ie: null })),
+    ...[5, 6, 7, 8, 9].map((ie) => ({ mso: null, ie })),
+]
+
+type ConditionalMarker =
+    | { kind: 'hidden'; condition: string; content: string }
+    | { kind: 'open'; condition: string }
+    | { kind: 'close' }
+
+class UnreadableConditional extends Error {}
+
+function conditionHolds(condition: string, client: ConditionalClient): boolean {
+    const tokens = condition.match(/\(|\)|!|&|\||[a-z]+|\d+(?:\.\d+)?/gi) ?? []
+    if (tokens.join('') !== condition.replace(/\s+/g, '')) {
+        throw new UnreadableConditional()
+    }
+    let position = 0
+    const next = (): string | undefined => tokens[position]
+    const take = (): string => {
+        const token = tokens[position++]
+        if (token === undefined) {
+            throw new UnreadableConditional()
+        }
+        return token
+    }
+    const comparison = (): boolean => {
+        let operator = take().toLowerCase()
+        let feature = operator
+        if (['gt', 'gte', 'lt', 'lte'].includes(operator)) {
+            feature = take().toLowerCase()
+        } else {
+            operator = 'eq'
+        }
+        const version =
+            feature === 'mso'
+                ? client.mso
+                : feature === 'ie'
+                  ? client.ie
+                  : feature === 'vml'
+                    ? client.mso && 1
+                    : undefined
+        if (version === undefined) {
+            throw new UnreadableConditional()
+        }
+        const wanted = /^\d/.test(next() ?? '') ? Number(take()) : null
+        if (version === null) {
+            return false
+        }
+        if (wanted === null) {
+            if (operator !== 'eq') {
+                throw new UnreadableConditional()
+            }
+            return true
+        }
+        const comparisons: Record<string, boolean> = {
+            eq: Math.floor(version) === Math.floor(wanted),
+            gt: version > wanted,
+            gte: version >= wanted,
+            lt: version < wanted,
+            lte: version <= wanted,
+        }
+        return comparisons[operator]
+    }
+    const unary = (): boolean => {
+        if (next() === '!') {
+            take()
+            return !unary()
+        }
+        if (next() === '(') {
+            take()
+            const value = either()
+            if (take() !== ')') {
+                throw new UnreadableConditional()
+            }
+            return value
+        }
+        return comparison()
+    }
+    const both = (): boolean => {
+        let value = unary()
+        while (next() === '&') {
+            take()
+            value = unary() && value
+        }
+        return value
+    }
+    const either = (): boolean => {
+        let value = both()
+        while (next() === '|') {
+            take()
+            value = both() || value
+        }
+        return value
+    }
+    const value = either()
+    if (position !== tokens.length) {
+        throw new UnreadableConditional()
+    }
+    return value
+}
+
+function conditionalMarker(data: string): ConditionalMarker | null {
+    const hidden = /^\[if\b([^\]]*)\]>([\s\S]*)<!\[endif\]$/i.exec(data)
+    if (hidden) {
+        return { kind: 'hidden', condition: hidden[1], content: hidden[2] }
+    }
+    const open = /^\[if\b([^\]]*)\](?:><!)?$/i.exec(data)
+    if (open) {
+        return { kind: 'open', condition: open[1] }
+    }
+    if (/^(?:<!)?\[endif\]$/i.test(data)) {
+        return { kind: 'close' }
+    }
+    if (/\[(?:if\b|endif\])/i.test(data)) {
+        throw new UnreadableConditional()
+    }
+    return null
+}
+
+function outlookViews(html: string): DefaultTreeAdapterMap['document'][] {
     const document = parse(html, { scriptingEnabled: false })
     const marker = `outlook-conditional-${randomUUID()}-`
-    const contents: string[] = []
+    const markers: ConditionalMarker[] = []
     const parents: DefaultTreeAdapterMap['parentNode'][] = [document]
     while (parents.length) {
         const parent = parents.pop()!
@@ -267,22 +389,39 @@ function outlookView(html: string): DefaultTreeAdapterMap['document'] {
                 : parent
         for (const node of [...children.childNodes]) {
             if (defaultTreeAdapter.isCommentNode(node)) {
-                const hidden = /^\[if\b[^\]]*\]>([\s\S]*)<!\[endif\]$/i.exec(node.data)
-                if (hidden) {
-                    defaultTreeAdapter.insertTextBefore(children, `${marker}${contents.length}-end`, node)
+                const found = conditionalMarker(node.data)
+                if (found) {
+                    defaultTreeAdapter.insertTextBefore(children, `${marker}${markers.length}-end`, node)
                     defaultTreeAdapter.detachNode(node)
-                    contents.push(hidden[1])
+                    markers.push(found)
                 }
             } else if (defaultTreeAdapter.isElementNode(node)) {
                 parents.push(node)
             }
         }
     }
-    let unwrapped = serialize(document, { scriptingEnabled: false })
-    contents.forEach((content, index) => {
-        unwrapped = unwrapped.replace(`${marker}${index}-end`, () => content)
-    })
-    return parse(unwrapped, { scriptingEnabled: false })
+    const marked = serialize(document, { scriptingEnabled: false })
+    const pieces = marked.split(new RegExp(`${marker}(\\d+)-end`))
+    const views = new Set<string>()
+    for (const client of CONDITIONAL_CLIENTS) {
+        let view = pieces[0]
+        let skipping = false
+        for (let index = 1; index < pieces.length; index += 2) {
+            const found = markers[Number(pieces[index])]
+            if (found.kind === 'close') {
+                skipping = false
+            } else if (skipping) {
+                continue
+            } else if (found.kind === 'open') {
+                skipping = !conditionHolds(found.condition, client)
+            } else if (conditionHolds(found.condition, client)) {
+                view += found.content
+            }
+            view += skipping ? '' : pieces[index + 1]
+        }
+        views.add(view)
+    }
+    return [...views].map((view) => parse(view, { scriptingEnabled: false }))
 }
 
 function appendHtmlFooter(html: string, footer: string, preheader?: string): string {
@@ -311,10 +450,21 @@ function appendHtmlFooter(html: string, footer: string, preheader?: string): str
             'The sandbox email template could not retain its identification footer. Update the template and try again.'
         )
     }
+    let conditionalRenderings: DefaultTreeAdapterMap['document'][]
+    try {
+        conditionalRenderings = outlookViews(serialized)
+    } catch (error) {
+        if (error instanceof UnreadableConditional) {
+            throw new Error(
+                'The sandbox email template could not retain its identification footer. Update the template and try again.'
+            )
+        }
+        throw error
+    }
     const renderings = [
         parse(serialized, { scriptingEnabled: false }),
         parse(serialized, { scriptingEnabled: true }),
-        outlookView(serialized),
+        ...conditionalRenderings,
     ]
     for (const rendering of renderings) {
         const deliveredFooter = htmlBody(rendering)?.childNodes.at(-1)
