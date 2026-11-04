@@ -1378,6 +1378,12 @@ describe('EmailService', () => {
             it.each([
                 ['no row is stored', async () => {}],
                 [
+                    'the files under this job id belong to another team',
+                    async () => {
+                        await attachments.store(invocation.id, team.id + 1, files)
+                    },
+                ],
+                [
                     'a stored file does not match its checksum',
                     async () => {
                         await attachments.store(invocation.id, team.id, files)

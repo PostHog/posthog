@@ -83,14 +83,18 @@ export class EmailAttachmentsService {
         emailAttachmentBytesPerSend.observe(files.reduce((total, file) => total + file.sizeBytes, 0))
     }
 
-    public async load(jobId: string, expected: readonly EmailAttachmentMetadata[]): Promise<DecodedAttachment[]> {
+    public async load(
+        jobId: string,
+        teamId: number,
+        expected: readonly EmailAttachmentMetadata[]
+    ): Promise<DecodedAttachment[]> {
         const pool = this.pool.get()
         const rows = pool
             ? (
                   await pool.query<AttachmentRow>(
                       `SELECT position, filename, content_type, content_id, content, sha256
-                       FROM cyclotron_email_attachments WHERE job_id = $1 ORDER BY position`,
-                      [jobId]
+                       FROM cyclotron_email_attachments WHERE job_id = $1 AND team_id = $2 ORDER BY position`,
+                      [jobId, teamId]
                   )
               ).rows
             : []
@@ -115,13 +119,16 @@ export class EmailAttachmentsService {
         return rows.map((row, i) => ({ ...expected[i], content: row.content }))
     }
 
-    public async delete(jobId: string): Promise<void> {
+    public async delete(jobId: string, teamId: number): Promise<void> {
         try {
             const pool = this.pool.get()
             if (!pool) {
                 return
             }
-            const result = await pool.query(`DELETE FROM cyclotron_email_attachments WHERE job_id = $1`, [jobId])
+            const result = await pool.query(
+                `DELETE FROM cyclotron_email_attachments WHERE job_id = $1 AND team_id = $2`,
+                [jobId, teamId]
+            )
             emailAttachmentOutcomesTotal.inc({ outcome: 'deleted' }, result.rowCount ?? 0)
         } catch (err) {
             logger.warn('⚠️', 'Failed to delete email attachment rows', {

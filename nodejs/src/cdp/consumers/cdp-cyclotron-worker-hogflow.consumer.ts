@@ -64,7 +64,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                         (result.invocation.state as CyclotronJobInvocationHogFlow['state'] | null)?.send?.attachments
                             ?.length
                 )
-                .map((result) => this.emailAttachmentsService.delete(result.invocation.id))
+                .map((result) => this.emailAttachmentsService.delete(result.invocation.id, result.invocation.teamId))
         )
     }
 

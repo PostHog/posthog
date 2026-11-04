@@ -794,7 +794,7 @@ export class EmailService {
                       }
                     : paramsWithReplyTo
 
-            const files = await this.loadAttachments(invocation.id, params.attachments)
+            const files = await this.loadAttachments(invocation.id, invocation.teamId, params.attachments)
 
             switch (integration.config.provider ?? 'ses') {
                 case 'maildev':
@@ -1209,6 +1209,7 @@ export class EmailService {
 
     private async loadAttachments(
         jobId: string,
+        teamId: number,
         expected: CyclotronInvocationQueueParametersEmailType['attachments']
     ): Promise<DecodedAttachment[]> {
         if (!expected?.length) {
@@ -1218,7 +1219,7 @@ export class EmailService {
             throw new EmailAttachmentsMissingError()
         }
         try {
-            return await this.emailAttachmentsService.load(jobId, expected)
+            return await this.emailAttachmentsService.load(jobId, teamId, expected)
         } catch (error) {
             if (error instanceof EmailAttachmentsMissingError) {
                 throw error

@@ -3641,6 +3641,12 @@ if (not res.success) { throw Error(res.error) }`,
                 send: (): QueuedSend => ({ tracking: { captureEngagement: false }, attachments: [attachmentFile] }),
                 expected: () => ({ type: 'email', ...storedStep(), attachments: [attachmentFile] }),
             },
+            {
+                name: 'a step whose own email input lists files without them, because only an accepted send has files',
+                step: () => ({ ...storedStep(), attachments: [attachmentFile] }),
+                send: (): QueuedSend | undefined => undefined,
+                expected: () => ({ type: 'email', ...storedStep() }),
+            },
         ])('hands the email queue $name', async ({ step, send, expected }) => {
             await insertEmailSetup('ses')
             const invocation = flowInvocation(emailFlow(step()))
