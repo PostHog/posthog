@@ -240,9 +240,9 @@ export function SearchPerformanceTab({
                                 </>
                             )}
                         </div>
-                        {readySources.length === 0 && !hasActiveFilters && (
+                        {readySources.length === 0 && sources.length > 0 && (
                             <p className="text-secondary text-sm mb-0 px-3 pb-3">
-                                No search source is ready yet. Data appears here after the first sync finishes.
+                                No search source is ready yet. Check the sources above to see your search data.
                             </p>
                         )}
                         {readySources.length > 0 && (
