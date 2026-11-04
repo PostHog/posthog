@@ -146,17 +146,20 @@ A scheduled run has that approval only if the person's words are in its prompt. 
 
 **Nothing in the flag watches the gates.**
 A flag has no concept of a soak or a gate, and you cannot wake yourself up, so a recurring check needs a schedule outside the flag.
-Tell the person this when you agree the plan, and record the plan somewhere a later run can read it, such as a notebook from `posthog:notebooks-create`.
-A later run has no memory of this conversation.
+A soak usually outlasts your session. In PostHog AI, the sandbox stops soon after your turn ends, and nothing restarts it until the person sends a message.
+Tell the person this when you agree the plan: the rollout runs as separate sessions, and it does not watch the flag between them.
+Record the plan somewhere a later run can read it, such as a notebook from `posthog:notebooks-create`.
+A later run may have no memory of this conversation.
 
 Pick the first option that is available and that the person accepts. Each one needs their agreement before you create it:
 
-| Option                                      | What it does                                                              | Limit                                                                                                    |
-| ------------------------------------------- | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| A scheduler in the person's own agent or CI | Runs a check prompt on a schedule                                         | Only if their tools have one. Check what you actually have rather than assuming.                         |
-| A scout, with `posthog:scout-create`        | Runs an agent in PostHog on a schedule, and reports to the inbox or Slack | Scouts cannot hold `feature_flag:write`, so it checks gates and a person widens. See `authoring-scouts`. |
-| A reminder, with `posthog:reminder-create`  | Sends the person an in-app notification, linked to the flag               | No agent runs. The person starts the check. See `managing-reminders`.                                    |
-| An alert, with `posthog:alert-create`       | Notifies people when a metric crosses a bound, between checks             | It catches failure and does not approve a step. Add one on flagged volume so silence also alerts.        |
+| Option                                                                   | What it does                                                              | Limit                                                                                                    |
+| ------------------------------------------------------------------------ | ------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| A scheduler in the person's own agent or CI                              | Runs a check prompt on a schedule                                         | Only if their tools have one. PostHog AI has none. Check what you actually have rather than assuming.    |
+| A scheduled task run, with `posthog:tasks-run-create` and `scheduled_at` | Starts one agent run at a set time, within 30 days                        | One run per check, and not every project has this tool.                                                  |
+| A scout, with `posthog:scout-create`                                     | Runs an agent in PostHog on a schedule, and reports to the inbox or Slack | Scouts cannot hold `feature_flag:write`, so it checks gates and a person widens. See `authoring-scouts`. |
+| A reminder, with `posthog:reminder-create`                               | Sends the person an in-app notification, linked to the flag               | No agent runs. The person starts the check. See `managing-reminders`.                                    |
+| An alert, with `posthog:alert-create`                                    | Notifies people when a metric crosses a bound, between checks             | It catches failure and does not approve a step. Add one on flagged volume so silence also alerts.        |
 
 `posthog:scheduled-changes-create` is not a gate.
 It applies its change at the set time, whatever the metrics say, and it can add a condition or change status but cannot set the percentage on an existing condition.

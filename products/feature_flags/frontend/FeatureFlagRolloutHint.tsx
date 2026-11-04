@@ -28,8 +28,9 @@ function FeatureFlagRolloutHintContent({
             <strong>Rolling this flag out gradually?</strong>
             <span>
                 An AI agent can plan the steps with you. It asks which insights or dashboards show whether the feature
-                is healthy, offers to create a dashboard if you have none, and checks them before each step. You approve
-                every step.
+                is healthy and offers to create a dashboard if you have none. It doesn't keep running between steps, so
+                come back to it, or ask it to set a reminder. It checks the results each time, and you approve every
+                step.
             </span>
             <span>
                 The copied prompt works in any agent connected to the{' '}
