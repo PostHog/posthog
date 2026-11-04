@@ -12,6 +12,7 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, PropertyMock, patch
 
+from django.db import IntegrityError
 from django.db.models import F
 from django.test import SimpleTestCase
 from django.utils import timezone
@@ -67,9 +68,11 @@ from products.experiments.backend.models.experiment import (
     ExperimentMetricResult,
     ExperimentSavedMetric,
     ExperimentTimeseriesRecalculation,
+    ExperimentToSavedMetric,
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.test.utils import patch_exposure_event_flag
+from products.experiments.backend.timeseries_backfill import backfill_experiment_timeseries
 from products.feature_flags.backend.facade.api import set_flag_active, update_flag
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.models import Survey
@@ -5664,43 +5667,109 @@ class TestExperimentService(APIBaseTest):
             name="Recalc",
             feature_flag_key="ts-recalc",
             start_date=timezone.now(),
+            metrics=[self._DEFAULT_METRIC],
+            allow_unknown_events=True,
         )
 
-        result = service.request_timeseries_recalculation(
-            experiment, metric={"uuid": "m1", "kind": "ExperimentMetric"}, fingerprint="fp1"
-        )
+        result = service.request_timeseries_recalculation(experiment, metric_uuid="m1")
 
         assert result["experiment_id"] == experiment.id
         assert result["metric_uuid"] == "m1"
         assert result["status"] == ExperimentTimeseriesRecalculation.Status.PENDING
         assert result["is_existing"] is False
+        request = ExperimentTimeseriesRecalculation.objects.get(id=result["id"])
+        assert (request.fingerprint, request.metric["source"]["event"]) == (
+            _calculation_key(experiment, "m1"),
+            "$pageview",
+        )
 
-    def test_request_timeseries_recalculation_idempotent(self):
-        self._create_flag(key="ts-idempotent")
+    @parameterized.expand(
+        [
+            ("same_request", False, False, False),
+            # A backfill under the other key version writes the same days, so a second one would race it.
+            ("backfill_requested_under_the_other_key_version", True, False, False),
+            # A settings edit changes the key, but the running backfill still writes the same days.
+            ("settings_edited_while_the_backfill_runs", False, True, False),
+            # A Temporal retry can start a failed backfill again, beside its replacement under the same key.
+            ("backfill_failed_before_the_request", False, False, True),
+        ]
+    )
+    def test_request_timeseries_recalculation_idempotent(
+        self, _name: str, first_under_other_key_version: bool, edit_settings_after_first: bool, first_failed: bool
+    ) -> None:
+        self._create_flag(key=f"ts-idempotent-{_name}")
         service = self._service()
         experiment = service.create_experiment(
             name="Idempotent",
-            feature_flag_key="ts-idempotent",
+            feature_flag_key=f"ts-idempotent-{_name}",
             start_date=timezone.now(),
+            metrics=[self._DEFAULT_METRIC],
+            allow_unknown_events=True,
+        )
+        if first_under_other_key_version:
+            calculation_config = get_metric_calculation_config(experiment, "m1")
+            assert calculation_config is not None
+            first_id = ExperimentTimeseriesRecalculation.objects.create(
+                team=self.team,
+                experiment=experiment,
+                metric=calculation_config.definition,
+                fingerprint=calculation_config.key_for_version(2),
+                status=ExperimentTimeseriesRecalculation.Status.IN_PROGRESS,
+            ).id
+        else:
+            first_id = service.request_timeseries_recalculation(experiment, metric_uuid="m1")["id"]
+        if first_failed:
+            ExperimentTimeseriesRecalculation.objects.filter(id=first_id).update(
+                status=ExperimentTimeseriesRecalculation.Status.FAILED
+            )
+        if edit_settings_after_first:
+            key_before_edit = _calculation_key(experiment, "m1")
+            experiment.stats_config = {**(experiment.stats_config or {}), "method": "frequentist"}
+            experiment.save()
+            assert _calculation_key(experiment, "m1") != key_before_edit
+
+        second = service.request_timeseries_recalculation(experiment, metric_uuid="m1")
+
+        superseded = first_under_other_key_version or edit_settings_after_first or first_failed
+        assert second["is_existing"] is not superseded
+        assert (second["id"] == first_id) is not superseded
+        assert second["fingerprint"] == _calculation_key(experiment, "m1")
+        assert ExperimentTimeseriesRecalculation.objects.filter(experiment=experiment).count() == (
+            2 if superseded else 1
+        )
+        if superseded:
+            assert ExperimentTimeseriesRecalculation.objects.get(id=first_id).status == "canceled"
+            retried = backfill_experiment_timeseries(str(first_id))
+            assert (retried["status"], retried["days_processed"]) == ("canceled", 0)
+            assert ExperimentTimeseriesRecalculation.objects.get(id=first_id).status == "canceled"
+        chart = service.get_timeseries_results(experiment, metric_uuid="m1")
+        assert chart["recalculation_status"] is not None
+
+    @parameterized.expand(
+        [("not_started", False, "m1", "hasn't started"), ("unknown_metric", True, "nope", "not on the experiment")]
+    )
+    def test_request_timeseries_recalculation_rejects(
+        self, _name: str, launched: bool, metric_uuid: str, message: str
+    ) -> None:
+        self._create_flag(key=f"ts-{_name}")
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Rejected",
+            feature_flag_key=f"ts-{_name}",
+            start_date=timezone.now() if launched else None,
+            metrics=[self._DEFAULT_METRIC],
+            allow_unknown_events=True,
         )
 
-        result1 = service.request_timeseries_recalculation(experiment, metric={"uuid": "m1"}, fingerprint="fp1")
-        result2 = service.request_timeseries_recalculation(experiment, metric={"uuid": "m1"}, fingerprint="fp1")
-
-        assert result1["id"] == result2["id"]
-        assert result2["is_existing"] is True
-
-    def test_request_timeseries_recalculation_not_started_raises(self):
-        self._create_flag(key="ts-not-started")
-        service = self._service()
-        experiment = service.create_experiment(name="Not Started", feature_flag_key="ts-not-started")
-
         with self.assertRaises(ValidationError) as ctx:
-            service.request_timeseries_recalculation(experiment, metric={"uuid": "m1"}, fingerprint="fp1")
+            service.request_timeseries_recalculation(experiment, metric_uuid=metric_uuid)
 
-        assert "hasn't started" in str(ctx.exception)
+        assert message in str(ctx.exception)
 
-    def test_request_timeseries_recalculation_deletes_old_results(self):
+    @parameterized.expand([("created", False), ("creation_failed", True)])
+    def test_request_timeseries_recalculation_deletes_old_results_only_when_created(
+        self, _name: str, creation_fails: bool
+    ) -> None:
         self._create_flag(key="ts-delete-old")
         service = self._service()
         now = timezone.now()
@@ -5708,12 +5777,14 @@ class TestExperimentService(APIBaseTest):
             name="Delete Old",
             feature_flag_key="ts-delete-old",
             start_date=now,
+            metrics=[self._DEFAULT_METRIC],
+            allow_unknown_events=True,
         )
 
         ExperimentMetricResult.objects.create(
             experiment=experiment,
             metric_uuid="m1",
-            fingerprint="fp1",
+            fingerprint=_calculation_key(experiment, "m1"),
             query_from=now,
             query_to=now + timedelta(days=1),
             status="completed",
@@ -5722,9 +5793,54 @@ class TestExperimentService(APIBaseTest):
         )
         assert ExperimentMetricResult.objects.filter(experiment=experiment, metric_uuid="m1").count() == 1
 
-        service.request_timeseries_recalculation(experiment, metric={"uuid": "m1"}, fingerprint="fp1")
+        if creation_fails:
+            with (
+                patch.object(
+                    ExperimentTimeseriesRecalculation.objects, "create", side_effect=IntegrityError("insert failed")
+                ),
+                self.assertRaises(IntegrityError),
+            ):
+                service.request_timeseries_recalculation(experiment, metric_uuid="m1")
+        else:
+            service.request_timeseries_recalculation(experiment, metric_uuid="m1")
 
-        assert ExperimentMetricResult.objects.filter(experiment=experiment, metric_uuid="m1").count() == 0
+        assert ExperimentMetricResult.objects.filter(experiment=experiment, metric_uuid="m1").count() == int(
+            creation_fails
+        )
+        assert ExperimentTimeseriesRecalculation.objects.filter(experiment=experiment).count() == int(
+            not creation_fails
+        )
+
+    @parameterized.expand([("inline", False), ("saved", True)])
+    def test_request_timeseries_recalculation_distinguishes_equivalent_metrics(self, _name: str, saved: bool) -> None:
+        self._create_flag(key="ts-equivalent")
+        service = self._service()
+        second_metric = {**self._DEFAULT_METRIC, "uuid": "m2"}
+        experiment = service.create_experiment(
+            name="Equivalent metrics",
+            feature_flag_key="ts-equivalent",
+            start_date=timezone.now(),
+            metrics=[self._DEFAULT_METRIC] if saved else [self._DEFAULT_METRIC, second_metric],
+            allow_unknown_events=True,
+        )
+        if saved:
+            saved_metric = ExperimentSavedMetric.objects.create(
+                team=self.team, name="Equivalent metric", query=second_metric
+            )
+            ExperimentToSavedMetric.objects.create(
+                experiment=experiment, saved_metric=saved_metric, metadata={"type": "secondary"}
+            )
+
+        first = service.request_timeseries_recalculation(experiment, metric_uuid="m1")
+        second = service.request_timeseries_recalculation(experiment, metric_uuid="m2")
+
+        assert first["fingerprint"] == second["fingerprint"]
+        assert first["id"] != second["id"]
+        assert (first["metric_uuid"], second["metric_uuid"]) == ("m1", "m2")
+        assert not second["is_existing"]
+        assert service.request_timeseries_recalculation(experiment, metric_uuid="m1")["id"] == first["id"]
+        assert service.request_timeseries_recalculation(experiment, metric_uuid="m2")["id"] == second["id"]
+        assert ExperimentTimeseriesRecalculation.objects.filter(experiment=experiment).count() == 2
 
     # ------------------------------------------------------------------
     # Experiment list/querying
@@ -7962,11 +8078,16 @@ class TestExperimentServiceWarehouseMetricAccess(APIBaseTest):
             filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
         )
         experiment = Experiment.objects.create(
-            team=self.team, created_by=self.user, name="E", feature_flag=flag, start_date=timezone.now()
+            team=self.team,
+            created_by=self.user,
+            name="E",
+            feature_flag=flag,
+            start_date=timezone.now(),
+            metrics=[{**self._dw_metric(), "uuid": "dw-metric"}],
         )
         service = ExperimentService(team=self.team, user=self.user)
         with pytest.raises(PermissionDenied):
-            service.request_timeseries_recalculation(experiment, metric=self._dw_metric(), fingerprint="fp1")
+            service.request_timeseries_recalculation(experiment, metric_uuid="dw-metric")
         assert not ExperimentTimeseriesRecalculation.objects.filter(experiment=experiment).exists()
 
 
