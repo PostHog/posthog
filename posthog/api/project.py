@@ -84,6 +84,7 @@ from posthog.exceptions import Conflict
 from posthog.filters import PhraseSearchFilter
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import is_impersonated
+from posthog.ip_restrictions import enforce_ip_restrictions
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import (
     ActivityLog,
@@ -2296,6 +2297,9 @@ class ProjectViewSet(
             if project.organization_id == target_organization.id:
                 raise exceptions.ValidationError("Project is already in the target organization.")
 
+            enforce_ip_restrictions(
+                request, user, request.successful_authenticator, organization_id=str(target_organization.id)
+            )
             teams = list(project.teams.all())
             was_impersonated = is_impersonated(request)
             project_change = Change(
