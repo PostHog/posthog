@@ -1,7 +1,8 @@
 # AI event limits
 
 `ai_event_limits.json` holds the size limits and thresholds for AI events (`$ai_*`).
-Every value is in decimal bytes: 100 KB is `100000` and 12 MB is `12000000`.
+Every value is in decimal bytes: 100 KB is `100000` and 48 MB is `48000000`.
+`max_event_bytes_default` is the exception. It stays at the binary 8 MiB (`8388608`) that deployments run today, until the infrastructure around capture accepts larger events.
 
 | Key                            | Meaning                                                                                                                         |
 | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |

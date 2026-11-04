@@ -1,5 +1,5 @@
 {
-    "max_event_bytes_default": 12000000,
+    "max_event_bytes_default": 8388608,
     "max_event_bytes_overrides": [24000000, 48000000],
     "max_event_bytes_ceiling": 48000000,
     "included_bytes_per_event": 100000,

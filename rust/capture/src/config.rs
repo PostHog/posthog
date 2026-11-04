@@ -385,7 +385,7 @@ pub struct Config {
     ///
     /// The default is `AI_MAX_EVENT_BYTES_DEFAULT`. envconfig takes only a
     /// literal here, so a test holds the two equal.
-    #[envconfig(default = "12000000")]
+    #[envconfig(default = "8388608")]
     pub ai_max_event_bytes: u64,
 
     // HMAC-SHA256 key shared with the AI gateway. When set, $ai_generation events
