@@ -78,7 +78,7 @@ export function RankingHoverCard({
                                 {lift !== null ? RANKING_STRENGTH_LABELS[rankingStrength(lift)] : 'no comparison'}
                             </span>
                         </div>
-                        <div className="opacity-70">{active.description}</div>
+                        <div className="opacity-70">{active.hoverCardDescription ?? active.description}</div>
                     </div>
                     {lift !== null && (
                         <div>
@@ -88,7 +88,10 @@ export function RankingHoverCard({
                     )}
                 </>
             ) : (
-                <div className="font-semibold">Compared with the average report</div>
+                <div>
+                    <div className="text-sm font-semibold">We trained an ML model. Yay!</div>
+                    <div className="opacity-70">How likely, compared with the average report</div>
+                </div>
             )}
             <div className="flex flex-col gap-1">
                 {scores.map((score) => {
@@ -113,14 +116,22 @@ export function RankingHoverCard({
                                     </span>
                                 )}
                             </div>
-                            {!active && <div className="opacity-70">{score.description}</div>}
+                            {!active && (
+                                <div className="opacity-70">{score.hoverCardDescription ?? score.description}</div>
+                            )}
                         </div>
                     )
                 })}
             </div>
             <div className="opacity-70">
-                Very likely means 2x the average or more. The model estimates this from past reports.
+                Very likely means 2x the average or more. Every report people open, act on or fix helps train the next
+                version.
             </div>
+            {!active && (
+                <div className="opacity-70">
+                    Here to help you find the good stuff faster. Your agent gets these too, through the inbox MCP tools.
+                </div>
+            )}
             {isStaff && ranking.model && (
                 <div className="border-t border-primary pt-1 font-mono opacity-70">{ranking.model}</div>
             )}

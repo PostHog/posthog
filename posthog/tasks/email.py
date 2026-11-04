@@ -59,6 +59,7 @@ from posthog.models.organization_notification_lock import (
     pipeline_lock_for_team,
 )
 from posthog.models.scoping import with_team_scope
+from posthog.models.workload_trust_policy import workload_trust_policies_settings_url
 from posthog.ph_client import feature_enabled_or_false, get_client, ph_scoped_capture
 from posthog.scoping_audit import skip_team_scope_audit
 from posthog.user_permissions import UserPermissions
@@ -3140,6 +3141,67 @@ def send_posthog_ai_access_request(organization_id: str, requesting_user_id: int
             **get_email_team_and_org_context(organization=organization),
         },
         reply_to=requester.email or "",
+    )
+    for user in recipients:
+        message.add_user_recipient(user)
+    message.send()
+
+
+WorkloadTrustPolicyChange = Literal["created", "updated", "deleted"]
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
+def send_workload_trust_policy_changed(
+    team_id: int, policy_id: str, policy_name: str, change: WorkloadTrustPolicyChange, actor_user_id: int | None
+) -> None:
+    """Tell every organization admin and owner that a workload trust policy changed.
+
+    A policy hands out tokens that act as the organization owner, so each change reaches every admin,
+    the one who made it included.
+    """
+    if not is_email_available(with_absolute_urls=True):
+        return
+    team = Team.objects.select_related("organization").filter(id=team_id).first()
+    if team is None:
+        return
+    actor = User.objects.filter(id=actor_user_id).first() if actor_user_id is not None else None
+
+    log_context = {"team_id": team_id, "policy_id": policy_id}
+    actor_name = sanitize_display_name(
+        actor.first_name if actor else "",
+        fallback="Someone",
+        context={"task": "send_workload_trust_policy_changed", "field": "actor_first_name", **log_context},
+    )
+    sanitized_policy_name = sanitize_display_name(
+        policy_name,
+        fallback="a trust policy",
+        context={"task": "send_workload_trust_policy_changed", "field": "policy_name", **log_context},
+    )
+
+    memberships = OrganizationMembership.objects.select_related("user").filter(
+        organization_id=team.organization_id,
+        level__gte=OrganizationMembership.Level.ADMIN,
+        user__is_active=True,
+    )
+    recipients = [membership.user for membership in memberships if membership.user.email]
+    if not recipients:
+        return
+
+    team_and_org_context = get_email_team_and_org_context(team=team)
+    message = EmailMessage(
+        campaign_key=f"workload_trust_policy_{change}_{policy_id}_{timezone.now().timestamp()}",
+        subject=f"A workload trust policy was {change} in {team_and_org_context.get('team_name', 'your project')}",
+        template_name="workload_trust_policy_changed",
+        use_http=True,
+        template_context={
+            "actor_name": actor_name,
+            "actor_email": actor.email if actor else "",
+            "policy_name": sanitized_policy_name,
+            "change": change,
+            "policies_url": workload_trust_policies_settings_url(team.id),
+            **team_and_org_context,
+        },
     )
     for user in recipients:
         message.add_user_recipient(user)

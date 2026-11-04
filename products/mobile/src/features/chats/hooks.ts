@@ -8,9 +8,10 @@ import { useAuthStore } from '@/auth/authStore'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { useDataMode, useDemoMode } from '@/demo/demoMode'
 import { useDemoChatsQuery } from '@/demo/hooks'
+import { useConnectivity } from '@/lib/connectivity'
 import { toError } from '@/lib/errors'
 import { chatListFromSessions } from '@/model/adapters/chats'
-import { errorQuery, loadingQuery, successQuery } from '@/model/queryStates'
+import { connectionLoadingQuery, errorQuery, loadingQuery, successQuery } from '@/model/queryStates'
 import type { ChatListItem, QueryState } from '@/model/types'
 
 const CHAT_LIST_STALE_MS = 30_000
@@ -24,6 +25,7 @@ export const sessionListKeys = {
 
 function useLiveChatList(enabled: boolean): QueryState<ChatListItem[]> {
     const scope = useProjectScope()
+    const offline = useConnectivity((state) => state.status === 'offline')
     const userId = useAuthStore((state) => state.user?.id)
     const accountLoading = useAuthStore((state) => state.accountLoading)
     const accountError = useAuthStore((state) => state.accountError)
@@ -35,7 +37,7 @@ function useLiveChatList(enabled: boolean): QueryState<ChatListItem[]> {
     const [accountChecked, setAccountChecked] = useState(false)
 
     useEffect(() => {
-        if (!missingUserId || accountChecked) {
+        if (!missingUserId || accountChecked || offline) {
             return undefined
         }
         let current = true
@@ -47,7 +49,7 @@ function useLiveChatList(enabled: boolean): QueryState<ChatListItem[]> {
         return () => {
             current = false
         }
-    }, [missingUserId, accountChecked, reloadAccount])
+    }, [missingUserId, accountChecked, reloadAccount, offline])
 
     const sessions = useQuery({
         queryKey: sessionListKeys.mine(scope, userId),
@@ -81,7 +83,7 @@ function useLiveChatList(enabled: boolean): QueryState<ChatListItem[]> {
     }
     if (missingUserId) {
         if (!accountChecked || accountLoading) {
-            return { ...loadingQuery<ChatListItem[]>(), refetch: reloadAccount }
+            return connectionLoadingQuery<ChatListItem[]>(offline, reloadAccount)
         }
         if (accountError) {
             return errorQuery(new Error(accountError), reloadAccount)
@@ -92,7 +94,7 @@ function useLiveChatList(enabled: boolean): QueryState<ChatListItem[]> {
         return errorQuery(toError(sessions.error), refetch)
     }
     if (sessions.data === undefined && !unavailable) {
-        return { ...loadingQuery<ChatListItem[]>(), refetch }
+        return connectionLoadingQuery<ChatListItem[]>(offline, refetch)
     }
     return {
         data: items,

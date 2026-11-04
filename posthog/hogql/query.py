@@ -1,4 +1,5 @@
 import dataclasses
+from collections.abc import Sequence
 from datetime import datetime
 from time import sleep
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, Optional, Union, cast
@@ -85,6 +86,7 @@ from posthog.hogql.warehouse_warnings import record_warnings
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
 from posthog.dataclasses import frozen
 from posthog.direct_query_cancellation import build_direct_query_cancellation_token
@@ -113,6 +115,49 @@ tracer = trace.get_tracer(__name__)
 
 TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS = 1.0
 MAIN_CLUSTER_WORKLOADS = (Workload.DEFAULT, Workload.ONLINE, Workload.OFFLINE)
+
+
+def _contains_raw_bytes(value: object) -> bool:
+    if value is None or isinstance(value, str):
+        return False
+    if isinstance(value, bytes):
+        return True
+    if isinstance(value, list):
+        return any(_contains_raw_bytes(item) for item in value)
+    if isinstance(value, tuple):
+        return any(_contains_raw_bytes(item) for item in value)
+    if isinstance(value, dict):
+        return any(_contains_raw_bytes(key) or _contains_raw_bytes(item) for key, item in value.items())
+    return False
+
+
+def _raise_for_raw_bytes_in_string_results(
+    rows: Sequence[Sequence[object]], types: Sequence[tuple[str, str]], query_type: str
+) -> None:
+    """Reject raw bytes in String results because query responses and their cache use JSON."""
+    columns_with_bytes: list[str] = []
+    for column, (column_name, column_type) in enumerate(types):
+        if "String" not in column_type:
+            continue
+        if any(_contains_raw_bytes(row[column]) for row in rows):
+            columns_with_bytes.append(column_name)
+
+    if not columns_with_bytes:
+        return
+
+    if query_type == "HogQLQuery":
+        column_names = ", ".join(repr(column_name) for column_name in columns_with_bytes)
+        raise QueryError(
+            f"Query result column(s) {column_names} contain raw bytes that cannot be returned as JSON. "
+            "Encode the affected values with `hex()` or `base64Encode()` in your query to preserve the original bytes."
+        )
+
+    error = QueryError(
+        "Some values in these results aren't valid text, so the results can't be shown. "
+        "Check the event and person properties used here for values with invalid characters."
+    )
+    capture_exception(error, {"query_type": query_type, "columns": columns_with_bytes})
+    raise error
 
 
 @frozen
@@ -158,12 +203,14 @@ class HogQLQueryExecutor:
     direct_dialect: Optional[HogQLDialect] = None
     connection_id: Optional[str] = None
     expected_direct_engine: str | None = None
+    trino_canary: bool = False
     send_raw_query: bool = False
     user: Optional[User] = None
     bypass_warehouse_access_control: bool = False
     user_access_control: Optional[UserAccessControl] = None
     resolver_factory: Optional[ResolverFactory] = None
     refresh_stale_view_columns: bool = True
+    returned_row_limit: int | None = None
 
     __uninitialized_context: ClassVar[HogQLContext] = HogQLContext()
 
@@ -569,8 +616,8 @@ class HogQLQueryExecutor:
         if self._references_information_schema(direct_context):
             return None
 
-        from posthog.hogql.transforms.trino.manifest import (  # noqa: PLC0415 -- load the optional backend only for Trino queries
-            transpile_hogql_to_trino_with_database,
+        from posthog.hogql.transforms.trino.manifest import (
+            transpile_hogql_to_trino_with_database,  # noqa: PLC0415 -- load the optional backend only for Trino queries
         )
 
         transpiled = transpile_hogql_to_trino_with_database(
@@ -714,7 +761,10 @@ class HogQLQueryExecutor:
                 query_type=self.query_type,
                 debug=bool(self.debug),
                 principal=(
-                    DirectQueryPrincipal(value=f"posthog:sql-editor:team:{self.team.pk}:user:{self.user.pk}")
+                    DirectQueryPrincipal(
+                        value=f"posthog:sql-editor:team:{self.team.pk}:user:{self.user.pk}",
+                        trino_canary=self.trino_canary,
+                    )
                     if isinstance(self.user, User) and self.user.pk is not None
                     else None
                 ),
@@ -1022,6 +1072,9 @@ class HogQLQueryExecutor:
                     # Files backing a warehouse table can be replaced mid-read; one retry re-lists them
                     sleep(TRANSIENT_S3_ERROR_RETRY_DELAY_SECONDS)
                     self.results, self.types = run_clickhouse_query()
+                _raise_for_raw_bytes_in_string_results(
+                    self.results[: self.returned_row_limit], self.types, self.query_type
+                )
             except Exception as e:
                 if self.debug:
                     self.results = []
@@ -1096,12 +1149,14 @@ class HogQLQueryExecutor:
 
     def _refreshed_stale_view_columns(self, started_at: datetime) -> bool:
         view_ids = self.context.referenced_saved_query_ids
-        if not self.refresh_stale_view_columns or not view_ids:
+        if not self.refresh_stale_view_columns or not view_ids or self.user is None:
             return False
         try:
             if data_modeling_api.refresh_view_columns(self.team, view_ids, self.user):
                 return True
             return data_modeling_api.views_updated_since(self.team, view_ids, started_at)
+        except ConcurrencyLimitExceeded:
+            return False
         except Exception as e:
             capture_exception(e, {"team_id": self.team.pk})
             return False

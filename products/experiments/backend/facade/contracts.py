@@ -251,6 +251,7 @@ class ExperimentHealthFindingCode(LabeledStrEnum):
     NEW_FLAG_NO_TRAFFIC = "new_flag_no_traffic"
     EARLY_SIGNIFICANCE = "early_significance"
     METRICS_NOT_MATURED = "metrics_not_matured"
+    FLAG_SHARED = "flag_shared"
 
 
 class ExperimentHealthMetricCompileErrorKind(LabeledStrEnum):
@@ -336,6 +337,7 @@ class ExperimentHealthCheckKey(LabeledStrEnum):
     # names the check, not a problem: `flag_state` reports four finding codes, and `flag_history` reports its finding
     # under `split_changed_mid_run`.
     FLAG_STATE = "flag_state"
+    FLAG_SHARED = "flag_shared"
     FLAG_HISTORY = "flag_history"
     SPLIT_CHANGED_MID_RUN = "split_changed_mid_run"
     BUCKETING_CHANGED_MID_RUN = "bucketing_changed_mid_run"

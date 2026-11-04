@@ -110,6 +110,8 @@ export interface LemonTableProps<T extends Record<string, any>, K extends BulkSe
     sorting?: Sorting | null
     /** Sorting change handler for controlled sort order. */
     onSort?: (newSorting: Sorting | null) => void
+    /** Called with every row in display order, on mount and whenever those rows change. */
+    onSortedRowsChange?: (rows: T[]) => void
     /** Defaults to true. Used if you don't want to use the URL to store sort order **/
     useURLForSorting?: boolean
     /** How many skeleton rows should be used for the empty loading state. The default value is 1. */
@@ -191,6 +193,7 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
     defaultSorting = null,
     sorting,
     onSort,
+    onSortedRowsChange,
     useURLForSorting = true,
     loadingSkeletonRows = 1,
     emptyState,
@@ -315,6 +318,20 @@ export function LemonTable<T extends Record<string, any>, K extends BulkSelectio
         }
         return dataSource
     }, [dataSource, currentSorting, baseColumns])
+
+    // Inline columns give sortedDataSource a new identity on each render, so compare the rows themselves. Otherwise a
+    // parent that stores them would render again and report again without end.
+    const reportedRowsRef = useRef<T[] | null>(null)
+    useEffect(() => {
+        const reported = reportedRowsRef.current
+        const isUnchanged =
+            reported?.length === sortedDataSource.length &&
+            sortedDataSource.every((row, index) => row === reported[index])
+        if (onSortedRowsChange && !isUnchanged) {
+            reportedRowsRef.current = sortedDataSource
+            onSortedRowsChange(sortedDataSource)
+        }
+    }, [sortedDataSource, onSortedRowsChange])
 
     const paginationState = usePagination(sortedDataSource, pagination, id)
     const virtualizeRows = virtualized && allowContentScroll && !expandable

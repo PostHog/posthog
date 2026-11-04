@@ -1,9 +1,10 @@
 from typing import Any
 
 import pytest
+from unittest.mock import MagicMock
 
 from products.warehouse_sources.sources.coda._config import CodaSourceConfig
-from products.warehouse_sources.sources.coda.coda import coda_source, validate_credentials
+from products.warehouse_sources.sources.coda.coda import CodaResumeConfig, coda_source, validate_credentials
 from products.warehouse_sources.sources.coda.settings import CODA_ENDPOINTS, ENDPOINTS
 from products.warehouse_sources.sources.coda.source import CodaSource
 from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
@@ -161,6 +162,55 @@ class TestGetRows:
         key_column, parent_id = key
         assert [row[key_column] for row in result.rows] == [parent_id]
 
+    @pytest.mark.parametrize(
+        "endpoint, saved, responses, expected_paths, expected_tokens, expected_ids",
+        [
+            (
+                "docs",
+                {"cursor": "token-2"},
+                [_response([{"id": "doc2"}])],
+                ["/apis/v1/docs"],
+                ["token-2"],
+                ["doc2"],
+            ),
+            (
+                "pages",
+                {"completed": ["/docs/doc1/pages"], "current": None, "child_state": None},
+                [_response([{"id": "doc1"}, {"id": "doc2"}]), _response([{"id": "canvas-2"}])],
+                ["/apis/v1/docs", "/apis/v1/docs/doc2/pages"],
+                [None, None],
+                ["canvas-2"],
+            ),
+        ],
+    )
+    def test_resumes_from_saved_state(
+        self,
+        endpoint: str,
+        saved: dict[str, Any],
+        responses: list[ScriptedResponse],
+        expected_paths: list[str],
+        expected_tokens: list[str | None],
+        expected_ids: list[str],
+    ) -> None:
+        result = _driver().run(endpoint, responses, resume_state=CodaResumeConfig(paginator_state=saved))
+
+        assert result.raised is None
+        assert result.paths == expected_paths
+        assert result.params("pageToken") == expected_tokens
+        assert [row["id"] for row in result.rows] == expected_ids
+
+    def test_list_endpoint_marks_completion_before_its_last_page(self) -> None:
+        result = _driver().run("docs", [_response([{"id": "doc1"}])])
+
+        assert result.raised is None
+        assert result.saved_states[-1] == CodaResumeConfig(completed=True)
+
+        resumed = _driver().run("docs", [], resume_state=CodaResumeConfig(completed=True))
+
+        assert resumed.raised is None
+        assert resumed.paths == []
+        assert resumed.rows == []
+
     def test_table_without_id_fails_fast_in_rows(self) -> None:
         result = _driver().run("rows", [_response([{"id": "doc1"}]), _response([{"name": "broken"}])])
 
@@ -174,7 +224,9 @@ class TestCodaSourceResponse:
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_response_metadata_per_endpoint(self, endpoint: str) -> None:
         config = CODA_ENDPOINTS[endpoint]
-        response = coda_source("token", endpoint, team_id=1, job_id="j")
+        manager = MagicMock()
+        manager.can_resume.return_value = False
+        response = coda_source("token", endpoint, team_id=1, job_id="j", resumable_source_manager=manager)
 
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
