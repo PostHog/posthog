@@ -82,6 +82,7 @@ def _canned_query_payload(query_name: str, team_a_id: int, team_b_id: int, *extr
             "ruby_events": [],
             "python_events": [(team_a_id, 3)],
             "php_events": [],
+            "laravel_events": [(team_a_id, 5)],
             "dotnet_events": [],
             "elixir_events": [],
             "unity_events": [],
@@ -271,6 +272,9 @@ async def test_aggregate_writes_chunks_and_manifest(minio_workflow_ctx: Workflow
     # destination key on each org's report.
     assert by_org[str(org_a.id)]["web_events_count_in_period"] == 7
     assert by_org[str(org_b.id)]["web_events_count_in_period"] == 11
+    assert by_org[str(org_a.id)]["laravel_events_count_in_period"] == 5
+    assert by_org[str(org_a.id)]["teams"][str(team_a.id)]["laravel_events_count_in_period"] == 5
+    assert by_org[str(org_b.id)]["laravel_events_count_in_period"] == 0
     assert by_org[str(org_a.id)]["mcp_tool_call_events_count_in_period"] == 2
     assert by_org[str(org_b.id)]["mcp_tool_call_events_count_in_period"] == 3
 

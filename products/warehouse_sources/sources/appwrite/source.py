@@ -23,7 +23,7 @@ class AppwriteSource(SimpleSource[AppwriteSourceConfig]):
             name=ExternalDataSourceType.APPWRITE,
             category=DataWarehouseSourceCategory.DATABASES,
             label="Appwrite",
-            iconPath="/static/services/appwrite.png",
+            iconPath="/static/services/appwrite.svg",
             keywords=["baas", "backend", "database", "auth"],
             fields=cast(list[FieldType], []),
             unreleasedSource=True,

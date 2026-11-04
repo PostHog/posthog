@@ -1,6 +1,6 @@
 from contextlib import ExitStack
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from uuid import UUID
 
@@ -36,7 +36,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
 )
 from products.alerts_platform.backend.facade.enums import HoldRelease, PlatformAlertOwner
-from products.alerts_platform.backend.models import PlatformAlertConfiguration, PlatformAlertDeliveryHold
+from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration, PlatformAlertDeliveryHold
 from products.alerts_platform.backend.tests.recorded_metrics import recorded_metrics
 
 _MODULE = "products.alerts_platform.backend.delivery.evaluation"
@@ -536,6 +536,61 @@ class TestDeliverEvaluation(APIBaseTest):
         )
 
         assert outcome.sent == sent
+
+    @parameterized.expand(
+        [
+            ("still_firing", "firing", FIRING, FIRING, [IncidentAction.TRIGGER]),
+            # ClickHouse returns the episode start without a zone.
+            (
+                "still_firing_read_without_a_zone",
+                "firing",
+                FIRING,
+                FIRING.replace(tzinfo=None),
+                [IncidentAction.TRIGGER],
+            ),
+            ("resolved_since", "not_firing", None, FIRING, []),
+            ("firing_again_since", "firing", FIRING + timedelta(hours=1), FIRING, []),
+        ]
+    )
+    def test_a_released_hold_opens_an_incident_only_inside_the_firing_it_held(
+        self,
+        _name: str,
+        state: str,
+        firing_started_at: datetime | None,
+        episode_started_at: datetime,
+        incident: list[IncidentAction],
+    ) -> None:
+        configuration = PlatformAlertConfiguration.objects.for_team(self.team.id).create(
+            id=CONFIGURATION_ID,
+            team=self.team,
+            name="API errors",
+            source_kind=PlatformAlertConfiguration.SourceKind.LOGS,
+            check_interval_minutes=10,
+        )
+        PlatformAlert.objects.for_team(self.team.id).create(
+            team=self.team, configuration=configuration, state=state, firing_started_at=firing_started_at
+        )
+        PlatformAlertDeliveryHold.objects.for_team(self.team.id).create(
+            team=self.team,
+            configuration=configuration,
+            evaluation_key="eval-1",
+            reason="investigation",
+            request={},
+            held_at=FIRING,
+            release_after=FIRING,
+            released_at=FIRING,
+            release_action=HoldRelease.SEND,
+        )
+
+        self._run(
+            _announcement(_transition(AlertEventKind.FIRING, episode_started_at=episode_started_at)),
+            {FIRING_EVENT: [_group(SLACK)], OPENED_EVENT: [_group(PAGERDUTY)]},
+            incident_actions={"": IncidentAction.TRIGGER},
+            owned_by_platform=True,
+        )
+
+        assert [channel for channel, _ in RecordingTransport.sends if channel == "C-1"] == ["C-1"]
+        assert [m.incident_action for channel, m in RecordingTransport.sends if channel == "R-1"] == incident
 
     def test_a_team_without_the_flag_is_not_contacted(self) -> None:
         outcome = self._run(

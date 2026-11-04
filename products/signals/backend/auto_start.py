@@ -68,6 +68,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     resolve_org_users_by_uuid,
 )
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.report_monitoring_provenance import monitoring_repository_allowed
 from products.signals.backend.report_steering import NO_STEERING, ReportSteering, load_report_steering
 from products.signals.backend.report_urls import ReportLinkSource, build_report_url
 from products.signals.backend.reviewer_rules import ReviewerRules, contains_reviewer
@@ -1047,6 +1048,9 @@ def start_requested_implementation(
     if repo_selection is None or repo_selection.repository is None or not report.title or not report.summary:
         raise RequestedImplementationUnavailable("The completed research has no implementation repository or summary")
 
+    if not monitoring_repository_allowed(request.team_id, request.report_id, repo_selection.repository):
+        raise RequestedImplementationUnavailable("The selected repository does not satisfy source privacy requirements")
+
     linked_tasks = {
         entry.task_id
         for entry in SignalReport.associated_task_runs(
@@ -1509,6 +1513,13 @@ async def maybe_autostart_implementation_task(
     )(team_id, repository, priority=EgressPriority.BATCH):
         return AutostartOutcome(status="blocked", reason="Connect or repair GitHub access to the selected repository")
 
+    if not await database_sync_to_async(monitoring_repository_allowed, thread_sensitive=False)(
+        team_id, report_id, repository
+    ):
+        return AutostartOutcome(
+            status="blocked", reason="The selected repository does not satisfy source privacy requirements"
+        )
+
     # Dependency lines in the report's GitHub issues become `depends_on` links first, so the link
     # gates below already see them. A dependency issue that no report holds yet holds the report too.
     unresolved_issues = await database_sync_to_async(resolve_issue_dependencies, thread_sensitive=False)(
@@ -1739,7 +1750,20 @@ async def maybe_autostart_from_report_artefacts(
 
     A report that a background-enrolled scout authored never auto-starts. Nobody on the project
     asked for that scout, so its findings must not open pull requests on their own.
+
+    A report a member filed by hand (`user_authored`) never auto-starts either, on creation or on any
+    later reviewer edit, repository edit, or dispatcher retry. Its create endpoint needs only
+    `inbox:write`, while every other write that automatic start reads needs `task:write`. A person
+    who wants a run presses Implement, which carries its own authorization.
     """
+    if await SignalReport.objects.filter(id=report_id, team_id=team_id, user_authored=True).aexists():
+        logger.info(
+            "signals auto-start re-eval skipped",
+            report_id=report_id,
+            team_id=team_id,
+            reason="user-authored report",
+        )
+        return AutostartOutcome(status="blocked", reason="Reports filed by a person do not auto-start")
     if await database_sync_to_async(report_is_from_background_scout)(team_id, report_id):
         logger.info(
             "signals auto-start re-eval skipped",

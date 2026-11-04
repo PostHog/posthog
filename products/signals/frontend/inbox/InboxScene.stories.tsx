@@ -1,18 +1,16 @@
 import type { Decorator, Meta, StoryObj } from '@storybook/react'
-import { within } from '@testing-library/dom'
+import { waitFor, within } from '@testing-library/dom'
 import { useMountedLogic } from 'kea'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { wizardActiveSessionDetectorLogic } from 'scenes/onboarding/shared/wizard-sync/wizardActiveSessionDetectorLogic'
-import { SELF_DRIVING_WORKFLOW_ID } from 'scenes/onboarding/shared/wizard-sync/workflows'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 import { billingJson } from '~/mocks/fixtures/_billing'
 
-import { expect } from 'storybook/test'
+import { expect, userEvent } from 'storybook/test'
 
 import {
     allReports,
@@ -132,6 +130,22 @@ const valueSummaryMocks = mswDecorator({
     },
 })
 
+export const ReportsNarrow: Story = {
+    parameters: {
+        featureFlags: {
+            ...meta.parameters?.featureFlags,
+            [FEATURE_FLAGS.INBOX_TIME_WINDOW]: true,
+            [FEATURE_FLAGS.INBOX_SOURCE_FILTER]: true,
+        },
+        testOptions: { viewport: { width: 390, height: 844 }, waitForLoadersToDisappear: false },
+    },
+    play: async ({ canvas }) => {
+        await userEvent.click(await canvas.findByLabelText('Filters'))
+        // The panel renders in a popover outside the story root, and fades in after the click.
+        await waitFor(() => expect(within(document.body).getByText('Reset to default')).toBeVisible())
+    },
+}
+
 export const WithValueSummary: Story = {
     parameters: {
         featureFlags: {
@@ -248,26 +262,6 @@ export const EmptyWithManyScouts: Story = {
                 '/api/projects/:id/signals/reports': () => [200, { results: [], count: 0, next: null, previous: null }],
                 '/api/projects/:id/signals/source_configs': () => [200, mockSourceConfigs],
                 '/api/projects/:id/signals/scout/configs': () => [200, mockLargeScoutFleet],
-            },
-        }),
-    ],
-}
-
-export const InstallingSelfDriving: Story = {
-    decorators: [
-        (Story) => {
-            useMountedLogic(wizardActiveSessionDetectorLogic)
-            useEffect(() => {
-                wizardActiveSessionDetectorLogic.actions.markActive(SELF_DRIVING_WORKFLOW_ID)
-                return () => wizardActiveSessionDetectorLogic.actions.markInactive()
-            }, [])
-            return <Story />
-        },
-        mswDecorator({
-            get: {
-                '/api/projects/:id/signals/reports': () => [200, { results: [], count: 0, next: null, previous: null }],
-                '/api/projects/:id/signals/source_configs': () => [200, { results: [], count: 0 }],
-                '/api/projects/:id/signals/scout/configs': () => [200, []],
             },
         }),
     ],

@@ -3,6 +3,7 @@ import { AppState } from 'react-native'
 import { ApiError } from '@/api/client'
 import type { TaskApi, TaskCreateResponseApi, TaskRunApi } from '@/api/tasks'
 import * as tasks from '@/api/tasks'
+import { TransportError } from '@/api/transport'
 import { useAuthStore } from '@/auth/authStore'
 import { getSessionTokens, setSessionTokens } from '@/auth/tokens'
 import { useAiApproval } from '@/features/ai/aiApproval'
@@ -179,8 +180,7 @@ describe('useSession', () => {
         'session bootstrap resumes after %s when the link returns',
         async (initial) => {
             if (initial === 'offline') useConnectivity.setState({ status: 'offline' })
-            else if (initial === 'failed-read')
-                mocked.getTask.mockRejectedValueOnce(new TypeError('Network request failed'))
+            else if (initial === 'failed-read') mocked.getTask.mockRejectedValueOnce(new TransportError())
             else
                 mocked.getTask.mockImplementationOnce(
                     (_id, signal) =>

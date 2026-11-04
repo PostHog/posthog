@@ -347,6 +347,7 @@ QUERIES: list[QuerySpec] = [
             "ruby_events": "teams_with_ruby_events_count_in_period",
             "python_events": "teams_with_python_events_count_in_period",
             "php_events": "teams_with_php_events_count_in_period",
+            "laravel_events": "teams_with_laravel_events_count_in_period",
             "dotnet_events": "teams_with_dotnet_events_count_in_period",
             "elixir_events": "teams_with_elixir_events_count_in_period",
             "unity_events": "teams_with_unity_events_count_in_period",
