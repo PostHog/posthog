@@ -10,10 +10,7 @@ import { getEdgeId } from '../../edgeId'
 import type { HogFlowEdge } from '../../types'
 import { StepPalette } from './StepPalette'
 import { tileCanvasLogic } from './tileCanvasLogic'
-import { Point } from './tileCanvasModel'
-
-/** Marks the + button, so a drop can tell a release on it from one snapped to it. */
-export const QUICK_ADD_ATTR = 'workflow-tile-quick-add'
+import { Point, QUICK_ADD_ATTR } from './tileCanvasModel'
 
 function buttonLook(isDropTarget: boolean, isActive: boolean, revealed: boolean): string {
     if (isDropTarget) {

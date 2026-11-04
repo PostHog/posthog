@@ -13,12 +13,11 @@ import { PathChip } from './PathChip'
 import { PathFrame } from './PathFrame'
 import { PathTrail } from './PathTrail'
 import { PlacementHint } from './PlacementHint'
-import { QUICK_ADD_ATTR } from './QuickAddButton'
 import { TileCanvasControls } from './TileCanvasControls'
 import { TileCanvasLayoutError } from './TileCanvasLayoutError'
 import { tileCanvasLogic } from './tileCanvasLogic'
 import { TileCanvasMeasureLayer } from './TileCanvasMeasureLayer'
-import { CANVAS_MIN_ZOOM, hasStepMenu, STEP_DRAG_DATA_TYPE } from './tileCanvasModel'
+import { CANVAS_MIN_ZOOM, hasStepMenu, isOnQuickAdd, isStepDrag } from './tileCanvasModel'
 import {
     buildCanvasEdges,
     buildCanvasNodes,
@@ -114,17 +113,14 @@ export function TileCanvasContent(): JSX.Element {
     const hasMenu = (nodeId: string): boolean =>
         drawnGraph.nodes.some((node) => node.id === nodeId && node.kind === 'step' && hasStepMenu(node.action))
 
-    const isStepDrag = (event: DragEvent<HTMLDivElement>): boolean =>
-        (!!nodeToBeAdded || isDraggingStep) && event.dataTransfer.types.includes(STEP_DRAG_DATA_TYPE)
+    const isCanvasStepDrag = (event: DragEvent<HTMLDivElement>): boolean =>
+        isStepDrag(event.dataTransfer.types, !!nodeToBeAdded || isDraggingStep)
 
     const dropEdgeAt = (event: DragEvent<HTMLDivElement>): HogFlowEdge | null =>
         nearestInsertEdge(edges, screenToFlowPosition({ x: event.clientX, y: event.clientY }), placeableEdgeKeys)
 
-    const isOnPlus = (event: DragEvent<HTMLDivElement>): boolean =>
-        event.target instanceof Element && !!event.target.closest(`[data-attr="${QUICK_ADD_ATTR}"]`)
-
     const onDragOver = (event: DragEvent<HTMLDivElement>): void => {
-        if (!isStepDrag(event)) {
+        if (!isCanvasStepDrag(event)) {
             return
         }
         const edge = dropEdgeAt(event)
@@ -146,14 +142,14 @@ export function TileCanvasContent(): JSX.Element {
     }
 
     const onDrop = (event: DragEvent<HTMLDivElement>): void => {
-        if (!isStepDrag(event)) {
+        if (!isCanvasStepDrag(event)) {
             return
         }
         const edge = dropEdgeAt(event)
         setDropTargetEdgeKey(null)
         if (edge) {
             event.preventDefault()
-            dropAt(edge, !isOnPlus(event))
+            dropAt(edge, !isOnQuickAdd(event.target))
         }
     }
 
