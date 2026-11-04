@@ -13,7 +13,7 @@ inside them, so what appeared then is announced by the first check after them.
 
 from collections.abc import Sequence
 from datetime import datetime, timedelta
-from typing import Final
+from typing import Any, Final
 
 import structlog
 from pydantic import ValidationError
@@ -55,6 +55,7 @@ from products.alerts_platform.backend.facade.lifecycle import (
     evaluate_alert_check,
 )
 from products.alerts_platform.backend.facade.payload import MAX_BATCH_PAYLOAD_BYTES, payload_bytes
+from products.alerts_platform.backend.facade.scheduling import is_utc_datetime_blocked, parse_blocked_windows_tuples
 from products.alerts_platform.backend.logic import occurrences, source_configs
 from products.alerts_platform.backend.logic.platform_lifecycle import due_checks, slot_of
 
@@ -63,6 +64,9 @@ logger = structlog.get_logger(__name__)
 # How many occurrences a check reads before its filters run. More than this in one window are left
 # out and the overflow is marked as a lower bound. `max_instances` caps what is announced.
 MAX_OCCURRENCES_READ: Final = 1000
+# A group's source detail at most this large. With `MAX_INSTANCES_CEILING` groups, one check stays well
+# inside `MAX_BATCH_PAYLOAD_BYTES`, so a check is never too large to record on its own.
+MAX_DETAIL_BYTES: Final = 4096
 
 _UNEXPECTED_ERROR: Final = "Alert check failed unexpectedly. PostHog has been notified."
 _INVALID_CONFIG: Final = "The alert's configuration is no longer valid. Edit the alert to fix it."
@@ -99,7 +103,8 @@ class _Reader:
 
 def evaluate_appearance_batch(source: SourceKind, team_id: int, slot: str, cutoff: datetime) -> SourceBatchEvaluation:
     checks = due_checks(team_id, source.value, slot, cutoff, alert_kind=PlatformAlertKind.APPEARANCE)
-    if not checks or not Team.objects.filter(id=team_id).exists():
+    tz_name = Team.objects.filter(id=team_id).values_list("timezone", flat=True).first() if checks else None
+    if tz_name is None:
         return SourceBatchEvaluation(outcomes=(), deliveries=())
     store = occurrences.store_for(source)
     if store is None:
@@ -111,15 +116,27 @@ def evaluate_appearance_batch(source: SourceKind, team_id: int, slot: str, cutof
     except Exception:
         logger.exception("Failed to read an occurrence store", source=source.value, team_id=team_id)
         return _collect([_failed(source, check, _UNEXPECTED_ERROR, transient=True, now=cutoff) for check in checks])
-    return _collect([_evaluate(source, reader, check, now=cutoff) for check in checks])
+    return _collect([_evaluate(source, reader, check, now=cutoff, tz_name=tz_name) for check in checks])
 
 
-def _evaluate(source: SourceKind, reader: _Reader, check: PlatformAlertCheckInput, *, now: datetime) -> Decision:
+def _evaluate(
+    source: SourceKind, reader: _Reader, check: PlatformAlertCheckInput, *, now: datetime, tz_name: str
+) -> Decision:
     try:
         config = AppearanceAlertConfig.model_validate(check.source_config)
     except ValidationError:
         return _failed(source, check, _INVALID_CONFIG, transient=False, now=now)
     since = check.evaluated_until or check.created_at or now
+    if _in_quiet_hours(check, now, tz_name):
+        # A late check that runs inside quiet hours announces nothing and keeps its window, so the
+        # first check after them announces what appeared.
+        held = PlatformAlertOutcome(
+            configuration_id=check.id,
+            evaluation_key=f"window:{since.isoformat()}",
+            consecutive_failures=0,
+            grouping=check.grouping,
+        )
+        return held, None
     try:
         window = reader.window(since)
     except Exception:
@@ -144,6 +161,15 @@ def _evaluate(source: SourceKind, reader: _Reader, check: PlatformAlertCheckInpu
         evaluated_until=checked_until,
     )
     return outcome, _request(source, check, outcome)
+
+
+def _in_quiet_hours(check: PlatformAlertCheckInput, now: datetime, tz_name: str) -> bool:
+    try:
+        return is_utc_datetime_blocked(now, tz_name, parse_blocked_windows_tuples(check.schedule_restriction))
+    except Exception:
+        # A restriction that cannot be read must not hold back every announcement.
+        logger.exception("Unparseable schedule restriction on an appearance alert", check_id=str(check.id))
+        return False
 
 
 def _one_per_identity(found: Sequence[Occurrence]) -> list[Occurrence]:
@@ -173,12 +199,17 @@ def _group(check: PlatformAlertCheckInput, key: str, occurrence: Occurrence, *, 
         labels=bounded_labels({APPEARANCE_IDENTITY_LABEL: occurrence.identity_key, **occurrence.labels}),
         muted_notification=NotificationAction.FIRE.value if held else "",
         source_detail={
-            **occurrence.detail,
+            **_bounded_detail(occurrence.detail),
             APPEARANCE_DETAIL_KEY: occurrence.kind.value,
             "first_seen_at": occurrence.first_seen_at.isoformat(),
             "occurred_at": occurrence.occurred_at.isoformat(),
         },
     )
+
+
+def _bounded_detail(detail: dict[str, Any]) -> dict[str, Any]:
+    """The source's detail, or none of it when it is too large, so one check always fits a batch payload."""
+    return detail if payload_bytes(detail) <= MAX_DETAIL_BYTES else {}
 
 
 def _failed(
@@ -238,6 +269,7 @@ def _request(
         overflowed=outcome.overflowed,
         overflow_is_lower_bound=outcome.overflow_is_lower_bound,
         parts=delivery_parts(outcome),
+        alert_kind=PlatformAlertKind.APPEARANCE,
     )
 
 

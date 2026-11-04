@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import BaseTest
@@ -80,13 +81,29 @@ class TestAppearanceAlerts(BaseTest):
         assert outcome.groups == ()
         assert deliveries == ()
 
-        occurrences.resolve(SOURCE, team_id=self.team.id, identity_key="fresh", at=T0 + timedelta(minutes=31))
-        self.sightings.append(_seen("fresh", T0 + timedelta(minutes=40)))
+        # Resolved inside the window the registry has not read yet, and seen on both sides of it.
+        occurrences.resolve(SOURCE, team_id=self.team.id, identity_key="fresh", at=T0 + timedelta(minutes=27))
+        self.sightings.append(
+            replace(_seen("fresh", T0 + timedelta(minutes=26)), last_seen_at=T0 + timedelta(minutes=40))
+        )
         outcome, _ = self._tick(T0 + timedelta(minutes=50))
         (group,) = outcome.groups
         assert group.source_detail[APPEARANCE_DETAIL_KEY] == "reappeared"
         # A reappearance threads under the message that announced the identity.
         assert group.firing_episode is not None and group.firing_episode.started_at == T0 + timedelta(minutes=10)
+
+    def test_a_late_check_in_quiet_hours_keeps_its_window_for_the_first_check_after_them(self) -> None:
+        self.sightings = [_seen("fresh", T0 + timedelta(minutes=10))]
+        PlatformAlertConfiguration.objects.for_team(self.team.id).filter(id=self.configuration.id).update(
+            schedule_restriction={"blocked_windows": [{"start": "12:15", "end": "12:25"}]}
+        )
+
+        held, _ = self._tick(T0 + timedelta(minutes=20))
+        announced, deliveries = self._tick(T0 + timedelta(minutes=30))
+
+        assert held.groups == ()
+        assert [group.grouping_key for group in announced.groups] == ["fresh"]
+        assert len(deliveries) == 1
 
     @parameterized.expand(
         [
