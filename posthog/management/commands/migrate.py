@@ -245,7 +245,7 @@ def load_removed_dependencies() -> list[MigrationKey]:
     cycles between squashes. For a `dependencies` entry the edited file is the side
     that lost its prerequisite. For a `run_before` entry the target is.
     """
-    path = Path(settings.BASE_DIR) / settings.NEXTGENSQUASH["REMOVED_DEPENDENCIES_FILE"]
+    path = Path(settings.BASE_DIR) / str(settings.NEXTGENSQUASH["REMOVED_DEPENDENCIES_FILE"])
     dependents = set()
     for removed in json.loads(path.read_text())["removed"]:
         side = removed["file"] if removed["attribute"] == "dependencies" else removed["entry"]
@@ -399,7 +399,9 @@ class Command(DjangoMigrateCommand):
         connection = connections[database]
 
         check_database_version(connection)
-        check_migration_history_is_supported(connection, options.get("app_label"), options.get("migration_name"))
+        # A fake run records history without running operations, so the removed ordering cannot break it.
+        if not options.get("fake"):
+            check_migration_history_is_supported(connection, options.get("app_label"), options.get("migration_name"))
 
         # Check for orphaned migrations before proceeding
         if not skip_orphan_check and not options.get("check_unapplied"):
