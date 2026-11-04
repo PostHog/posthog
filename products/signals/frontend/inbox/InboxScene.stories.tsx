@@ -1,12 +1,9 @@
 import type { Decorator, Meta, StoryObj } from '@storybook/react'
 import { waitFor, within } from '@testing-library/dom'
-import { useMountedLogic } from 'kea'
 import { router } from 'kea-router'
 import { useEffect } from 'react'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { wizardActiveSessionDetectorLogic } from 'scenes/onboarding/shared/wizard-sync/wizardActiveSessionDetectorLogic'
-import { SELF_DRIVING_WORKFLOW_ID } from 'scenes/onboarding/shared/wizard-sync/workflows'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -223,26 +220,6 @@ export const EmptyWithManyScouts: Story = {
                 '/api/projects/:id/signals/reports': () => [200, { results: [], count: 0, next: null, previous: null }],
                 '/api/projects/:id/signals/source_configs': () => [200, mockSourceConfigs],
                 '/api/projects/:id/signals/scout/configs': () => [200, mockLargeScoutFleet],
-            },
-        }),
-    ],
-}
-
-export const InstallingSelfDriving: Story = {
-    decorators: [
-        (Story) => {
-            useMountedLogic(wizardActiveSessionDetectorLogic)
-            useEffect(() => {
-                wizardActiveSessionDetectorLogic.actions.markActive(SELF_DRIVING_WORKFLOW_ID)
-                return () => wizardActiveSessionDetectorLogic.actions.markInactive()
-            }, [])
-            return <Story />
-        },
-        mswDecorator({
-            get: {
-                '/api/projects/:id/signals/reports': () => [200, { results: [], count: 0, next: null, previous: null }],
-                '/api/projects/:id/signals/source_configs': () => [200, { results: [], count: 0 }],
-                '/api/projects/:id/signals/scout/configs': () => [200, []],
             },
         }),
     ],
