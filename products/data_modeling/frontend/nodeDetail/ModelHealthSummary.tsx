@@ -118,7 +118,7 @@ export function ModelHealthSummary({
                     </div>
                     <div>
                         <dt className="text-secondary mb-1">
-                            <Tooltip title="The refresh schedule saved for this model, including pauses and suspension.">
+                            <Tooltip title="How often this view refreshes, including pauses and suspension. A downstream view can make it refresh more often than its own setting.">
                                 <span className="border-b border-dashed border-secondary cursor-help">
                                     Refresh schedule
                                 </span>

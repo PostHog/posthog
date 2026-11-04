@@ -24,6 +24,7 @@ from posthog.hogql.database.schema.duckdb_table_functions import (
     is_dangerous_table_function,
 )
 from posthog.hogql.database.schema.events import EventsTable
+from posthog.hogql.database.schema.events_with_flag_calls import EventsWithFlagCallsTable
 from posthog.hogql.database.schema.log_entries import (
     BatchExportLogEntriesTable,
     LogEntriesTable,
@@ -138,7 +139,11 @@ def _string_constants(node: ast.Expr) -> list[ast.Constant]:
 # cluster (log_entries is a Distributed over the aux cluster, so a plain IN makes every shard
 # of the outer query issue its own remote read against aux).
 _GLOBAL_IN_TABLES: tuple[type, ...] = (EventsTable, LogEntriesTable)
-_GLOBAL_IN_LAZY_TABLES: tuple[type, ...] = (ReplayConsoleLogsLogEntriesTable, BatchExportLogEntriesTable)
+_GLOBAL_IN_LAZY_TABLES: tuple[type, ...] = (
+    ReplayConsoleLogsLogEntriesTable,
+    BatchExportLogEntriesTable,
+    EventsWithFlagCallsTable,
+)
 
 
 class _ShardedTableFinder(TraversingVisitor):
@@ -452,6 +457,18 @@ class FieldCollector(TraversingVisitor):
     def visit_field(self, node: ast.Field):
         self.fields.append(node)
         return node
+
+
+class CteReferenceBinder(TraversingVisitor):
+    def __init__(self, names: set[str]) -> None:
+        self.names = names
+
+    def visit_join_expr(self, node: ast.JoinExpr) -> None:
+        if isinstance(node.table, ast.Field) and node.table_schema is None:
+            name = ".".join(str(part) for part in node.table.chain)
+            if name in self.names:
+                node.cte_name = name
+        super().visit_join_expr(node)
 
 
 class Resolver(CloningVisitor):
@@ -1517,7 +1534,17 @@ class Resolver(CloningVisitor):
                 if self.dialect == "trino" and node.table_args is not None
                 else None
             )
-            cte_table = self.ctes.get(".".join(table_name_chain)) if internal_table_function is None else None
+            cte_table = (
+                self.ctes.get(".".join(table_name_chain))
+                if internal_table_function is None and node.table_schema is None
+                else None
+            )
+            # Only bound references can carry an outer CTE into a generated lazy query.
+            if cte_table is None and node.cte_name is not None:
+                for inherited_scope in reversed(self.scopes):
+                    cte_table = (inherited_scope.ctes or {}).get(node.cte_name)
+                    if cte_table is not None:
+                        break
             if cte_table:
                 assert isinstance(cte_table.expr.type, ast.SelectQueryType | ast.SelectSetQueryType)
                 # Use CTETableType so that fields are properly qualified with the CTE name when printed
@@ -1543,6 +1570,7 @@ class Resolver(CloningVisitor):
                 node.type = node_type
                 node.table = clone_expr(cast(ast.Field, node.table))
                 node.table.type = cte_table_type
+                node.cte_name = cte_table.name
                 node.next_join = self.visit(node.next_join)
                 node.alias = table_alias
 
@@ -1558,7 +1586,7 @@ class Resolver(CloningVisitor):
                     or resolve_internal_trino_logical_table(table_name_chain, self.context)
                 )
             else:
-                database_table = None
+                database_table = node.table_schema
 
             if database_table is None:
                 try:
@@ -1602,6 +1630,9 @@ class Resolver(CloningVisitor):
 
             if isinstance(database_table, LazyTable):
                 if isinstance(database_table, PersonsTable):
+                    # Promotion moves predicates before resolution, so preserve their CTE bindings first.
+                    if node.constraint is not None:
+                        CteReferenceBinder(set(self.ctes)).visit(node.constraint)
                     # Check for inlineable exprs in the join on the persons table
                     database_table = database_table.create_new_table_with_filter(node)
                 node_table_type: ast.TableType | ast.LazyTableType = ast.LazyTableType(table=database_table)

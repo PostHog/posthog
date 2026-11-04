@@ -248,6 +248,10 @@ class DataWarehouseSavedQuerySerializer(
     has_incremental_history = serializers.SerializerMethodField(
         help_text="Whether incremental settings participated in any materialization run."
     )
+    is_raw_managed_trino = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it.",
+    )
 
     class Meta:
         model = DataWarehouseSavedQuery
@@ -281,6 +285,7 @@ class DataWarehouseSavedQuerySerializer(
             "expires_at",
             "user_access_level",
             "suspended",
+            "is_raw_managed_trino",
         ]
         read_only_fields = [
             "id",
@@ -628,15 +633,7 @@ class DataWarehouseSavedQuerySerializer(
             if frequency_changed and previous_target != target:
                 # The cadence lives on the DAG node, so changes_between() sees nothing and
                 # log_activity would discard the whole updated entry as a no-op.
-                changes.append(
-                    Change(
-                        type="DataWarehouseSavedQuery",
-                        action="changed",
-                        field="sync_frequency_interval",
-                        before=str(previous_target) if previous_target is not None else None,
-                        after=str(target) if target is not None else None,
-                    )
-                )
+                changes.extend(modeling_api.cadence_changes((previous_target, target)))
             log_activity(
                 organization_id=team.organization_id,
                 team_id=team.id,

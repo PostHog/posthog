@@ -17,6 +17,7 @@ interface DashboardTileGroupProps {
     tileCount: number
     collapsed: boolean
     onToggle: () => void
+    onRename?: (title: string) => void
     copyToDestinations?: DashboardWidgetPlacementDestination[]
     onCopyToDashboard?: (dashboardId: number, dashboardName: string) => void
     copyLoading?: boolean
@@ -29,6 +30,7 @@ export function DashboardTileGroup({
     tileCount,
     collapsed,
     onToggle,
+    onRename,
     copyToDestinations,
     onCopyToDashboard,
     copyLoading,
@@ -63,9 +65,11 @@ export function DashboardTileGroup({
                 </LemonButton>
                 {group.title && collapsed && <span className="shrink-0 text-secondary text-xs">{tileCountLabel}</span>}
                 <div className="min-w-4 flex-1 border-t border-primary" />
-                {(onChangeGroupDisplay || onCopyToDashboard) && (
+                {(onRename || onChangeGroupDisplay || onCopyToDashboard) && (
                     <DashboardTileGroupMenu
                         groupDisplay="sections"
+                        title={group.title}
+                        onRename={onRename}
                         onChangeGroupDisplay={onChangeGroupDisplay}
                         copyToDestinations={copyToDestinations}
                         onCopyToDashboard={onCopyToDashboard}
