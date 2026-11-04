@@ -106,10 +106,11 @@ A project appearing there often is spending more on transactional than its tier 
 
 The worker sends through a `sandbox` email integration only when `WORKFLOWS_SANDBOX_SENDER_ENABLED` is on and `SES_SANDBOX_TENANT_NAME`, `SES_SANDBOX_CONFIGURATION_SET`, and `SES_SANDBOX_FROM_ADDRESS` are set.
 Otherwise every send through it skips with a reason in the run log and a `workflows sandbox email blocked` event with reason `switch_off`.
+It sends workflow email steps and test sends only: a broadcast or a transactional API email through it skips with a reason in the run log.
 Every To, CC, and BCC address must belong to an active member of the team's active organization with a verified email address.
 The check ignores case, and the worker delivers to the address as the member stored it, not as the step wrote it.
-Membership snapshots expire within one minute, and the worker checks recipients again right before delivery.
-A failed or stale membership check skips the send and lists the blocked addresses in the run log.
+The worker checks recipients against a membership snapshot at most one minute old when it prepares the send, and reads membership fresh right before delivery.
+A membership check that fails or takes longer than 3 seconds skips the send and lists the blocked addresses in the run log.
 The blocked event fires at most once an hour per team, reason, and send kind (workflow or test).
 A send that passes every check goes out through the fixed SES tenant, configuration set, and From address, whatever the step's custom sender and Reply-To say.
 Sandbox sends skip the team's tier budget, click and open tracking, and unsubscribe headers, because they reach only members of the sending organization.
@@ -117,9 +118,10 @@ The worker parses and normalizes the HTML, then appends a footer that names the 
 It overrides root clipping and visibility styles, drops any root style declaration it cannot parse cleanly, and keeps the template's typography, so malformed markup may render differently from an own-domain send.
 A template whose HTML cannot keep the footer fails the send.
 The visible footer is best effort across email clients and template CSS; the signed tracking header still attributes the message.
-Right before delivery, every sandbox send, test sends included, claims a daily allowance per project (`WORKFLOWS_SANDBOX_DAILY_TEAM_CAP`, one token per recipient copy) and per recipient address across the organization (`WORKFLOWS_SANDBOX_DAILY_RECIPIENT_CAP`).
+Right before delivery, every sandbox send, test sends included, claims a daily allowance per project (`WORKFLOWS_SANDBOX_DAILY_TEAM_CAP`, one token per distinct recipient address) and per recipient address across the organization (`WORKFLOWS_SANDBOX_DAILY_RECIPIENT_CAP`).
 The allowances are token buckets that refill their capacity over 24 hours, not calendar-day counters.
 A reached allowance skips the send instead of delaying it. A limiter error, or an empty or invalid cap value, skips every sandbox send.
+The `workflows sandbox email blocked` event names the outcome: `project_cap_reached`, `recipient_cap_reached`, or `cap_check_failed`.
 The worker checks members after the claim and gives the claim back when that check skips the send.
 An SES throttle response also gives the claim back before the delivery retry. Returns are deduplicated, and Valkey ignores a return that arrives more than five minutes after it was issued.
 Test sends run inline in the CDP API, so a sandbox-enabled CDP API opens the SES Valkey pool (`SES_RATE_LIMITER_VALKEY_*`) for the allowances. Without it, every sandbox test send skips.

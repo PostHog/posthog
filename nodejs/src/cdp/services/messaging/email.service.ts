@@ -5,7 +5,7 @@ import * as mimeFuncs from 'nodemailer/lib/mime-funcs'
 import { Counter, Histogram } from 'prom-client'
 
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
-import { HogFlowEmailSendingRateLimit, HogFlowEmailSendingRateLimitSchema } from '~/cdp/schema/hogflow'
+import { HogFlow, HogFlowEmailSendingRateLimit, HogFlowEmailSendingRateLimitSchema } from '~/cdp/schema/hogflow'
 import {
     CyclotronJobInvocationHogFunction,
     CyclotronJobInvocationResult,
@@ -132,6 +132,17 @@ type EmailQueueWait = { source: 'transactional_api' | 'workflow'; startedAt: Dat
 
 // A transactional API job is created on the email queue, so its creation time is when the caller got its 202. A
 // workflow job can join the email queue long after it was created, so its wait starts at the time it became due.
+// Broadcasts (batch-triggered flows) and transactional API email also run as hog flows, so a hog flow alone
+// does not make a send a workflow email step.
+function isWorkflowEmailStep(invocation: CyclotronJobInvocationHogFunction): boolean {
+    const hogFlow = (invocation as { hogFlow?: Partial<HogFlow> }).hogFlow
+    return (
+        !!hogFlow &&
+        hogFlow.trigger?.type !== 'batch' &&
+        invocation.state.globals.event?.event !== TRANSACTIONAL_EMAIL_EVENT
+    )
+}
+
 // Both come from fields a clone keeps: running the email step clones the invocation and resets queueScheduledAt.
 function emailQueueWait(invocation: CyclotronJobInvocationHogFunction): EmailQueueWait | undefined {
     const source =
@@ -490,7 +501,8 @@ function sandboxRecipientsOf(params: CyclotronInvocationQueueParametersEmailType
     return [params.to.email.trim(), ...sandboxAddressList(params.cc), ...sandboxAddressList(params.bcc)]
 }
 
-type SandboxRecipientBlockReason = Exclude<SandboxEmailBlockReason, 'switch_off'>
+type SandboxCapSkipReason = Extract<SandboxEmailBlockReason, 'project_cap_reached' | 'cap_check_failed'>
+type SandboxRecipientBlockReason = Exclude<SandboxEmailBlockReason, 'switch_off' | SandboxCapSkipReason>
 
 type SesRoute = {
     tenantName: string
@@ -500,40 +512,52 @@ type SesRoute = {
     bccAddresses?: string[]
 }
 
-const SANDBOX_RECIPIENT_BLOCK_COPY: Record<
+// A check that could not run maps to the same email status as a blocked recipient, not to
+// `sending_suspended`, which means staff or billing turned sending off for the project.
+const SANDBOX_RECIPIENT_BLOCKS: Record<
     SandboxRecipientBlockReason,
-    { explanation: string; label: string; guidance: string }
+    { explanation: string; label: string; guidance: string; statusReason: EmailSkipReason }
 > = {
     recipient_not_member: {
         explanation:
             'Skipping send: the sandbox sender only sends to active organization members with verified email addresses',
         label: '. Blocked addresses: ',
         guidance: 'Verify your own domain to send to anyone.',
+        statusReason: 'recipient_unreachable',
     },
     recipient_unverified: {
         explanation:
             'Skipping send: the sandbox sender only sends to organization members with verified email addresses',
         label: '. Unverified addresses: ',
         guidance: 'Verify your email address in PostHog, or ask these members to verify theirs.',
+        statusReason: 'recipient_unreachable',
     },
     check_failed: {
         explanation: 'Skipping send: could not check organization members',
         label: ' for these addresses: ',
         guidance: 'Try again, or verify your own domain to send to anyone.',
+        statusReason: 'recipient_unreachable',
     },
-    cap_reached: {
+    recipient_cap_reached: {
         explanation: "Skipping send: these addresses reached the sandbox sender's daily limit per address",
         label: ': ',
         guidance: 'Verify your own domain to send more.',
+        statusReason: 'frequency_capped',
     },
 }
 
-const SANDBOX_CAP_SKIP_MESSAGES = {
-    project_cap_reached:
-        "Skipping send: this email would go over the sandbox sender's daily limit for this project. Verify your own domain to send more.",
-    check_failed:
-        "Skipping send: could not check the sandbox sender's daily limit. Try again later, or verify your own domain to send more.",
-} as const
+const SANDBOX_CAP_SKIPS: Record<SandboxCapSkipReason, { message: string; statusReason: EmailSkipReason }> = {
+    project_cap_reached: {
+        message:
+            "Skipping send: this email would go over the sandbox sender's daily limit for this project. Verify your own domain to send more.",
+        statusReason: 'frequency_capped',
+    },
+    cap_check_failed: {
+        message:
+            "Skipping send: could not check the sandbox sender's daily limit. Try again later, or verify your own domain to send more.",
+        statusReason: 'recipient_unreachable',
+    },
+}
 
 export class EmailService {
     sesV2Client: SESv2Client | null
@@ -689,11 +713,11 @@ export class EmailService {
                 )
             }
 
-            if (isSandbox && !isTest && !('hogFlow' in invocation)) {
+            if (isSandbox && !isTest && !isWorkflowEmailStep(invocation)) {
                 this.skipSandboxSend(
                     result,
                     isTest,
-                    'Skipping send: the sandbox sender is only available for workflows and test sends.',
+                    'Skipping send: the sandbox sender only sends workflow email steps and test sends. Verify your own domain to send broadcasts and transactional email.',
                     'sending_suspended'
                 )
                 return result
@@ -946,13 +970,15 @@ export class EmailService {
                         return result
                     }
                     // The member check ignores case, so deliver to the stored member addresses, not the supplied ones.
-                    const [toAddress, ...copyAddresses] = deliverTo
-                    const ccCount = route.ccAddresses?.length ?? 0
-                    deliveryParams = { ...deliveryParams, to: { ...deliveryParams.to, email: toAddress } }
+                    const stored = (address: string): string => deliverTo.get(address)!
+                    deliveryParams = {
+                        ...deliveryParams,
+                        to: { ...deliveryParams.to, email: stored(deliveryRecipients[0]) },
+                    }
                     const memberRoute: SesRoute = {
                         ...route,
-                        ccAddresses: copyAddresses.slice(0, ccCount),
-                        bccAddresses: copyAddresses.slice(ccCount),
+                        ccAddresses: route.ccAddresses?.map(stored),
+                        bccAddresses: route.bccAddresses?.map(stored),
                     }
                     await this.sendSandboxEmail(result, deliveryParams, from, isTest, queueWait, memberRoute, capGrant)
                     await this.sandboxSender!.captureSent(invocation.teamId, isTest, deliveryRecipients.length)
@@ -971,7 +997,10 @@ export class EmailService {
                 assetRow = this.messageAssetsService.buildRowForEmail(invocation, deliveryParams ?? sendParams)
             }
             const viewEmailToken = assetRow ? ` [Email:${invocation.id}:${invocation.state.actionId ?? ''}]` : ''
-            addLog('info', `Email sent to ${sendParams.to.email} from ${from.name} <${from.email}>${viewEmailToken}`)
+            addLog(
+                'info',
+                `Email sent to ${(deliveryParams ?? sendParams).to.email} from ${from.name} <${from.email}>${viewEmailToken}`
+            )
             success = true
             result.emailSendResult = { status: 'accepted' }
         } catch (error) {
@@ -1237,17 +1266,17 @@ export class EmailService {
     // Runs once before the send is prepared and again right before delivery, because a member can
     // leave the organization while the send waits on suppression checks and rate limits. The check
     // right before delivery passes `fresh`, so it reads membership again instead of the cached snapshot.
-    // Returns the stored address of each recipient, in order, or null when the send is skipped.
+    // Returns each recipient's stored address, keyed by the recipient as it came in, or null when the send is skipped.
     private async checkSandboxRecipients(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         recipients: string[],
         isTest: boolean,
         { fresh = false }: { fresh?: boolean } = {}
-    ): Promise<string[] | null> {
+    ): Promise<ReadonlyMap<string, string> | null> {
         const { teamId } = result.invocation
         let blockedRecipients: string[]
         let reason: SandboxRecipientBlockReason
-        let deliverTo: string[] = []
+        let deliverTo: ReadonlyMap<string, string> = new Map()
         try {
             if (!this.organizationMembers) {
                 throw new Error('Organization member checks are not configured')
@@ -1280,12 +1309,12 @@ export class EmailService {
         reason: SandboxRecipientBlockReason,
         isTest: boolean
     ): Promise<void> {
-        const { explanation, label, guidance } = SANDBOX_RECIPIENT_BLOCK_COPY[reason]
+        const { explanation, label, guidance, statusReason } = SANDBOX_RECIPIENT_BLOCKS[reason]
         this.skipSandboxSend(
             result,
             isTest,
             `${explanation}${label}${blockedRecipients.join(', ')}. ${guidance}`,
-            reason === 'cap_reached' ? 'frequency_capped' : 'recipient_unreachable'
+            statusReason
         )
         await this.sandboxSender?.captureBlocked(result.invocation.teamId, isTest, reason, blockedRecipients.length)
     }
@@ -1300,16 +1329,12 @@ export class EmailService {
             return claim
         }
         if (claim.type === 'recipient_cap_reached') {
-            await this.blockSandboxRecipients(result, claim.addresses, 'cap_reached', isTest)
+            await this.blockSandboxRecipients(result, claim.addresses, 'recipient_cap_reached', isTest)
             return null
         }
-        this.skipSandboxSend(
-            result,
-            isTest,
-            SANDBOX_CAP_SKIP_MESSAGES[claim.type],
-            claim.type === 'check_failed' ? 'sending_suspended' : 'frequency_capped'
-        )
-        const reason = claim.type === 'check_failed' ? 'check_failed' : 'cap_reached'
+        const reason = claim.type === 'check_failed' ? 'cap_check_failed' : claim.type
+        const { message, statusReason } = SANDBOX_CAP_SKIPS[reason]
+        this.skipSandboxSend(result, isTest, message, statusReason)
         await this.sandboxSender!.captureBlocked(result.invocation.teamId, isTest, reason, recipients.length)
         return null
     }
@@ -1390,15 +1415,14 @@ export class EmailService {
         }
     }
 
-    // The tracked and untracked configuration sets share the same delivery/bounce/complaint event
-    // destination (suppression and the Metrics tab depend on those events); they differ only in
-    // ESP-level open/click tracking.
     private teamSesRoute(
         invocation: CyclotronJobInvocationHogFunction,
         trackingEnabled: boolean,
         params: CyclotronInvocationQueueParametersEmailType
     ): SesRoute {
         return {
+            // `team-<id>` is the provisioning convention (products/workflows/backend/providers/ses.py and
+            // posthog/management/commands/migrate_ses_tenants.py).
             tenantName: `team-${invocation.teamId}`,
             configurationSetName: this.resolveConfigurationSetName(trackingEnabled, invocation),
             unsubscribeHeaders: true,
@@ -1420,6 +1444,9 @@ export class EmailService {
         }
     }
 
+    // The tracked and untracked configuration sets share the same delivery/bounce/complaint event
+    // destination (suppression and the Metrics tab depend on those events); they differ only in
+    // ESP-level open/click tracking.
     private resolveConfigurationSetName(
         trackingEnabled: boolean,
         invocation: CyclotronJobInvocationHogFunction
@@ -1639,11 +1666,9 @@ export class EmailService {
             FeedbackForwardingEmailAddress: from.email,
         }
 
-        // Attributes the send to the team's SES tenant so AWS tracks reputation per team and
-        // its reputation policy can pause one tenant instead of the shared account. `team-<id>`
-        // is the provisioning convention (products/workflows/backend/providers/ses.py and
-        // posthog/management/commands/migrate_ses_tenants.py). Deliberately NOT gated on
-        // isTest: test-panel sends are real over-the-wire SES sends, so leaving them
+        // Attributes the send to the route's SES tenant so AWS tracks reputation per tenant and
+        // its reputation policy can pause one tenant instead of the shared account. Deliberately
+        // NOT gated on isTest: test-panel sends are real over-the-wire SES sends, so leaving them
         // unattributed would (a) push their bounces onto the shared account's reputation and
         // (b) let a paused tenant keep sending via "Run test". The isTest skips elsewhere in
         // this class only shield our internal metrics, a separate concern from SES-side
