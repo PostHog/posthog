@@ -85,6 +85,15 @@ async function buildTLSConfig() {
     }
 }
 
+function buildPayloadCodec(): EncryptionCodec {
+    if (!config.secretKey) {
+        throw new Error(
+            'TEMPORAL_SECRET_KEY must be set: every activity input is encrypted, so a worker without the key fails every render'
+        )
+    }
+    return new EncryptionCodec(config.secretKey, config.fallbackKeys)
+}
+
 function startMetricsServer(): http.Server {
     let ready = false
 
@@ -112,6 +121,7 @@ function startMetricsServer(): http.Server {
 }
 
 async function main(): Promise<void> {
+    const payloadCodec = buildPayloadCodec()
     const metricsServer = startMetricsServer() as http.Server & { setReady: (value: boolean) => void }
 
     const address = `${config.temporalHost}:${config.temporalPort}`
@@ -147,9 +157,7 @@ async function main(): Promise<void> {
                 rampThrottle: config.tunerRampThrottleMs,
             },
         },
-        dataConverter: config.secretKey
-            ? { payloadCodecs: [new EncryptionCodec(config.secretKey, config.fallbackKeys)] }
-            : undefined,
+        dataConverter: { payloadCodecs: [payloadCodec] },
         // Throttle heartbeat *server flushes* (not heartbeat() calls) to 2s. Without
         // this override, the SDK throttles to 80% of the activity's heartbeat_timeout
         // (30s → 24s), which means capture-phase frame progress never reaches the
