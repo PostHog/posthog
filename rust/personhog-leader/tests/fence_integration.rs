@@ -604,8 +604,7 @@ async fn a_revival_is_served_over_the_death_document() {
         .expect_err("the death document still answers");
     assert_eq!(status.code(), Code::NotFound);
 
-    // A stub-create revived the row in place: same id and uuid, version
-    // above the death document's. It is served while the death mark stands.
+    // A stub-create revival: same id and uuid, version above the death document's.
     set_row(death.version + 1).await;
     let revived = harness
         .client
@@ -618,8 +617,6 @@ async fn a_revival_is_served_over_the_death_document() {
     assert_eq!(revived.version, death.version + 1);
     assert_eq!(revived.uuid, person_uuid);
 
-    // A miss while the mark stands recovers the death document from the
-    // changelog, and the revival is served over that too.
     harness.cache.remove(partition, &key);
     let recovered = harness
         .client
@@ -631,7 +628,6 @@ async fn a_revival_is_served_over_the_death_document() {
         .unwrap();
     assert_eq!(recovered.version, death.version + 1);
 
-    // The settle leaves the revived entry in place.
     let mark = harness
         .dirty_index
         .get(&key)
