@@ -520,6 +520,55 @@ class TestOAuthDeviceGrant(APIBaseTest):
         lookup = self.client.post("/api/oauth_device/lookup/", {"user_code": started["user_code"]})
 
         self.assertEqual(lookup.json()["scopes"], ["dashboard:write", "insight:read"])
+        self.assertEqual(lookup.json()["required_scopes"], ["insight:read"])
+
+    def test_the_token_carries_only_the_scopes_the_person_kept(self) -> None:
+        with time_machine.travel(START, tick=False) as clock:
+            started = self._start()
+            approved = self.client.post(
+                "/api/oauth_device/approve/",
+                {"user_code": started["user_code"], "project_id": self.team.id, "scopes": ["insight:read"]},
+                format="json",
+            )
+            clock.shift(timedelta(seconds=6))
+
+            token = self._poll(started["device_code"])
+
+        self.assertEqual(approved.status_code, status.HTTP_200_OK, approved.content)
+        self.assertEqual(token.json()["scope"], "insight:read")
+
+    @parameterized.expand(
+        [
+            ("a scope the client never asked for", ["insight:read", "feature_flag:read"], "only keep scopes"),
+            ("without a scope the client requires", ["dashboard:write"], "needs some of the scopes"),
+        ]
+    )
+    def test_approval_refuses_a_scope_list(self, _name: str, kept: list[str], description: str) -> None:
+        OAuthApplication.objects.create(
+            name="required",
+            client_id="required-scopes-client",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_DEVICE_CODE,
+            is_verified=True,
+            redirect_uris="",
+            algorithm="RS256",
+            scopes=["insight:read"],
+            optional_scopes=["dashboard:write"],
+        )
+        started = self._start(client_id="required-scopes-client", scope="dashboard:write")
+
+        response = self.client.post(
+            "/api/oauth_device/approve/",
+            {"user_code": started["user_code"], "project_id": self.team.id, "scopes": kept},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["error"], "invalid_scope")
+        self.assertIn(description, response.json()["error_description"])
+        self.assertEqual(
+            OAuthDeviceGrant.objects.get(user_code=started["user_code"]).status, OAuthDeviceGrant.AUTHORIZATION_PENDING
+        )
 
     def test_disconnecting_the_app_drops_an_approved_device_grant_the_client_has_not_redeemed(self) -> None:
         with time_machine.travel(START, tick=False) as clock:
