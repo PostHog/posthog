@@ -81,6 +81,24 @@ describe('accountDotMatrixTileLogic', () => {
         logic.unmount()
     })
 
+    it('requests first use only after an explicit action and keeps the choice out of the saved view', async () => {
+        mockPerformQuery.mockResolvedValue({ results: BOOK_ACTIVITY_MATRIX_MOCK })
+        const save = jest.fn()
+        const logic = accountDotMatrixTileLogic({
+            instanceId: 'first-use',
+            accountId: 'account-1',
+            initialConfig: { source: { kind: 'product_usage' } },
+            onConfigChange: save,
+        })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadMatrixSuccess'])
+        expect(mockPerformQuery.mock.calls[0][0].includeFirstUse).toBe(false)
+        await expectLogic(logic, () => logic.actions.setIncludeFirstUse(true)).toDispatchActions(['loadMatrixSuccess'])
+        expect(mockPerformQuery.mock.calls[1][0].includeFirstUse).toBe(true)
+        expect(save).not.toHaveBeenCalled()
+        logic.unmount()
+    })
+
     it('runs SQL explicitly and saves only a mapping for the executed draft', async () => {
         const save = jest.fn()
         const logic = accountDotMatrixTileLogic({

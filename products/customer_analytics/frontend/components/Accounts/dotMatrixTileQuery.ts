@@ -17,6 +17,7 @@ export interface DotMatrixQueryContext {
     accountId: string
     externalId?: string
     groupTypeIndex?: number | null
+    includeFirstUse?: boolean
     weekStartDay?: number
     weeks: DotMatrixWeeks
 }
@@ -89,7 +90,7 @@ export async function queryDotMatrixSource(
                     accountIds: [context.accountId],
                     dateRange: { date_from: `-${context.weeks - 1}wStart`, date_to: null },
                     interval: 'week',
-                    includeFirstUse: false,
+                    includeFirstUse: context.includeFirstUse ?? false,
                 },
                 { signal },
                 'blocking',
