@@ -1,7 +1,8 @@
 {% extends "admin/base_site.html" %}
-{% load i18n admin_urls %}
+{% load i18n admin_urls static %}
 {% block extrastyle %}
     {{ block.super }}
+    <link rel="stylesheet" href="{% static "admin/css/forms.css" %}">
     <style>
         .replay { max-width: 1100px; }
         .replay .intro { color: var(--body-quiet-color); margin: 0 0 16px; max-width: 760px; }
@@ -52,10 +53,24 @@
                     <fieldset class="module aligned">
                         <h2>{{ title }}</h2>
                         {% for field in fields %}
-                            <div class="form-row">
+                            <div class="form-row field-{{ field.name }}{% if field.errors %} errors{% endif %}">
                                 {{ field.errors }}
-                                {{ field.label_tag }} {{ field }}
-                                {% if field.help_text %}<div class="help">{{ field.help_text }}</div>{% endif %}
+                                <div>
+                                    {% if field.widget_type == "checkbox" %}
+                                        <div class="flex-container checkbox-row">
+                                            <div class="checkbox">
+                                                {{ field }}<label class="vCheckboxLabel" for="{{ field.id_for_label }}">{{ field.label }}</label>
+                                            </div>
+                                        </div>
+                                    {% else %}
+                                        <div class="flex-container">{{ field.label_tag }} {{ field }}</div>
+                                    {% endif %}
+                                    {% if field.help_text %}
+                                        <div class="help" id="{{ field.id_for_label }}_helptext">
+                                            <div>{{ field.help_text }}</div>
+                                        </div>
+                                    {% endif %}
+                                </div>
                             </div>
                         {% endfor %}
                     </fieldset>
