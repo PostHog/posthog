@@ -25,6 +25,7 @@ from products.signals.backend.report_generation.select_repo import (
     resolve_team_github_integration,
     select_repository_for_report,
 )
+from products.signals.backend.report_monitoring_provenance import monitoring_repository_sources
 from products.signals.backend.temporal.agentic import (
     SIGNALS_REPO_DISCOVERY_ENV_NAME,
     get_or_create_signals_sandbox_env,
@@ -40,7 +41,10 @@ from products.tasks.backend.facade.agents import (
     TruncatedAgentOutputError,
     TurnPollTimeout,
 )
-from products.tasks.backend.facade.repo_selection import RepoSelectionUsageLimitError
+from products.tasks.backend.facade.repo_selection import (
+    RepoSelectionUsageLimitError,
+    filter_repository_candidates_for_sources,
+)
 from products.tasks.backend.facade.repo_selection_types import ReportResearchContext
 
 # Repo discovery only runs `gh` CLI commands — limit egress to GitHub hosts.
@@ -209,6 +213,9 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
 
     try:
         async with Heartbeater():
+            sources = await database_sync_to_async(monitoring_repository_sources, thread_sensitive=False)(
+                input.team_id, input.signals
+            )
             # Check for a previous selection from an earlier run, if any
             previous = await aretry_on_db_connection_drop(
                 lambda: database_sync_to_async(persisted_repo_selection, thread_sensitive=False)(input.report_id)
@@ -230,6 +237,12 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
                     repository=previous.repository,
                 )
                 previous = None
+            if previous is not None and previous.repository is not None and sources is not None:
+                allowed = await database_sync_to_async(
+                    filter_repository_candidates_for_sources, thread_sensitive=False
+                )(input.team_id, [previous.repository], sources.repositories, sources.require_private_destination)
+                if previous.repository not in allowed:
+                    previous = None
             if previous is not None and previous.repository is not None:
                 logger.info(
                     "signals repo selection reused from previous run",
@@ -299,6 +312,7 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
                 signal_report_id=input.report_id,
                 spend_signal_id=input.signal_id,
                 sandbox_environment_id=sandbox_env_id,
+                monitoring_sources=sources,
                 on_research_session=capture_research_session,
             )
             # The shared selector takes a sole eligible repository without reading corrections.
