@@ -334,17 +334,10 @@ def worktrees_clean(
     if not stale:
         return
 
-    building = worktrees_running_cargo([wt.path for wt in stale])
-    if building:
-        click.echo(f"Skipping {len(building)} worktree(s) where cargo is running:")
-        for wt in stale:
-            if wt.path in building:
-                click.echo(f"  {wt.source}  {_display_path(wt.path)}")
-        click.echo()
-        stale = [wt for wt in stale if wt.path not in building]
-        if not stale:
-            click.echo("Nothing left to remove.")
-            return
+    stale = _without_cargo_builds(stale)
+    if not stale:
+        click.echo("Nothing left to remove.")
+        return
 
     # Full mode is destructive of working-tree state, so refuse worktrees with
     # unsaved work — or whose git state we can't verify — unless the user opts in.
@@ -404,6 +397,14 @@ def worktrees_clean(
         f"\nProceed to {action} these {len(stale)} worktree(s){box_prompt}?", default=False
     ):
         click.echo("Aborted.")
+        return
+
+    # A build can start, or finish, while the prompt waits.
+    stale = _without_cargo_builds(stale)
+    for wt in stale:
+        wt.deps_items = [item for item in wt.deps_items if not _cargo_built_since(item, cutoff)]
+    if not stale:
+        click.echo("Nothing left to remove.")
         return
 
     _stop_worktree_mirrors(registered_boxes)
@@ -1136,6 +1137,20 @@ def _looks_like_cargo_target(path: Path) -> bool:
     return (path / "CACHEDIR.TAG").exists() or (path / "debug").exists() or (path / "release").exists()
 
 
+def _without_cargo_builds(worktrees: list[Worktree]) -> list[Worktree]:
+    building = worktrees_running_cargo([wt.path for wt in worktrees])
+    if building is None:
+        click.echo("Could not find the directory of every running cargo or rustc process, so no worktree is changed.\n")
+        return []
+    if building:
+        click.echo(f"Skipping {len(building)} worktree(s) where cargo is running:")
+        for wt in worktrees:
+            if wt.path in building:
+                click.echo(f"  {wt.source}  {_display_path(wt.path)}")
+        click.echo()
+    return [wt for wt in worktrees if wt.path not in building]
+
+
 def _cargo_built_since(path: Path, cutoff: float) -> bool:
     return path.name == "target" and _looks_like_cargo_target(path) and last_cargo_build_epoch(path) >= cutoff
 
@@ -1155,6 +1170,9 @@ def _clean_legacy_cargo_target(cutoff: float, dry_run: bool, yes: bool) -> None:
         return
     if not yes and not click.confirm("Delete it?", default=False):
         click.echo()
+        return
+    if unused_legacy_cargo_target(cutoff) is None:
+        click.echo("A build used it while the prompt waited, so it is kept.\n")
         return
     if _delete_paths([target]) == 0:
         click.echo(f"✓ Deleted {_display_path(target)}.")

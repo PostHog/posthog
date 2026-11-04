@@ -304,7 +304,7 @@ def doctor_disk(
                 f"Deleted only when CARGO_TARGET_DIR is not set and no build used it in {STALE_RUST_TARGET_DAYS} days.",
             ],
             estimate=_estimate_legacy_cargo_target,
-            cleanup=_cleanup_items,
+            cleanup=_cleanup_legacy_cargo_target,
             confirmation_prompt="Delete the old shared Cargo target?",
             default_confirm=False,
         ),
@@ -1441,6 +1441,13 @@ def _estimate_legacy_cargo_target(_repo_root: Path) -> CleanupEstimate:
         items=[CleanupItem(target, size, is_dir=True)],
         details=[f"   {target} ({_format_size(size)})", pointer],
     )
+
+
+def _cleanup_legacy_cargo_target(estimate: CleanupEstimate, repo_root: Path) -> CleanupStats:
+    if unused_legacy_cargo_target(time.time() - STALE_RUST_TARGET_DAYS * 24 * 60 * 60) is None:
+        click.echo("   A build used it while the prompt waited, so it is kept.")
+        return CleanupStats()
+    return _cleanup_items(estimate, repo_root)
 
 
 def _find_cargo_workspaces(repo_root: Path) -> list[Path]:

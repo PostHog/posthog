@@ -198,6 +198,7 @@ class TestCollectDepsItems:
         stale_target = _write_cargo_target(worktree / "rust" / "target", cutoff - 86400)
         # Cargo rewrites fingerprint files in place, so a fresh build leaves the directory mtimes old.
         _write_cargo_target(worktree / "cli" / "target", time.time())
+        _write_cargo_target(worktree / "plugin" / "target", time.time(), profile=Path("wasm32-wasip1") / "release")
         wt = _make_worktree(worktree)
 
         _populate_sizes([wt], "deps", cutoff)
@@ -205,43 +206,63 @@ class TestCollectDepsItems:
         assert sorted(wt.deps_items) == sorted([(worktree / "node_modules").resolve(), stale_target.resolve()])
 
 
-def _write_cargo_target(target: Path, last_build_epoch: float) -> Path:
-    unit = target / "debug" / ".fingerprint" / "posthog-unit"
+def _write_cargo_target(target: Path, last_build_epoch: float, profile: Path = Path("debug")) -> Path:
+    unit = target / profile / ".fingerprint" / "posthog-unit"
     unit.mkdir(parents=True)
     (unit / "lib-posthog").write_bytes(b"x" * 1024)
     os.utime(unit / "lib-posthog", (last_build_epoch, last_build_epoch))
+    (target / "CACHEDIR.TAG").write_text("Signature: 8a477f597d28d172789f06886806bc55\n")
     month_ago = time.time() - 30 * 86400
-    for directory in (unit, unit.parent, unit.parent.parent, target):
+    directory = unit
+    while directory != target.parent:
         os.utime(directory, (month_ago, month_ago))
+        directory = directory.parent
     return target
 
 
+def _fake_cargo_processes(monkeypatch, cargo_cwd: Path | None, lsof_available: bool = True) -> None:
+    def fake_run(args, **kwargs):
+        if args[0] == "pgrep":
+            return subprocess.CompletedProcess(
+                args, 0 if cargo_cwd else 1, stdout=f"{os.getpid()}\n" if cargo_cwd else ""
+            )
+        if not lsof_available:
+            raise FileNotFoundError("lsof")
+        return subprocess.CompletedProcess(args, 0, stdout=f"p{os.getpid()}\nn{cargo_cwd}\n")
+
+    monkeypatch.setattr("hogli_commands.cargo_targets.subprocess.run", fake_run)
+
+
 class TestCargoTargets:
-    def test_worktree_with_cargo_running_below_its_root_is_busy(self, tmp_path, monkeypatch) -> None:
+    @pytest.mark.parametrize("lsof_available", [True, False], ids=["traced", "lsof_unavailable"])
+    def test_worktree_with_cargo_running_below_its_root_is_busy(self, tmp_path, monkeypatch, lsof_available) -> None:
         idle, building = tmp_path / "idle", tmp_path / "building"
         cargo_cwd = building / "rust" / "capture"
         cargo_cwd.mkdir(parents=True)
         idle.mkdir()
+        _fake_cargo_processes(monkeypatch, cargo_cwd, lsof_available)
 
-        def fake_run(args, **kwargs):
-            stdout = {"pgrep": "4242\n", "lsof": f"p4242\nn{cargo_cwd}\n"}[args[0]]
-            return subprocess.CompletedProcess(args, 0, stdout=stdout, stderr="")
-
-        monkeypatch.setattr("hogli_commands.cargo_targets.subprocess.run", fake_run)
-
-        assert worktrees_running_cargo([idle, building]) == {building}
+        # A live cargo process that cannot be traced to a directory must block every worktree, not none.
+        assert worktrees_running_cargo([idle, building]) == ({building} if lsof_available else None)
 
     @pytest.mark.parametrize(
-        "cargo_target_dir_set,days_since_build,expected_offered",
-        [(False, 10, True), (True, 10, False), (False, 1, False)],
-        ids=["unused", "cargo_target_dir_set", "built_recently"],
+        "cargo_target_dir_set,days_since_build,cargo_running,expected_offered",
+        [(False, 10, False, True), (True, 10, False, False), (False, 1, False, False), (False, 10, True, False)],
+        ids=["unused", "cargo_target_dir_set", "built_recently", "cargo_running_elsewhere"],
     )
     def test_legacy_cargo_target_is_offered_only_when_nothing_builds_there(
-        self, tmp_path, monkeypatch, cargo_target_dir_set: bool, days_since_build: int, expected_offered: bool
+        self,
+        tmp_path,
+        monkeypatch,
+        cargo_target_dir_set: bool,
+        days_since_build: int,
+        cargo_running: bool,
+        expected_offered: bool,
     ) -> None:
         home = tmp_path / "home"
         target = _write_cargo_target(home / ".cargo" / "target", time.time() - days_since_build * 86400)
         monkeypatch.setattr(Path, "home", lambda: home)
+        _fake_cargo_processes(monkeypatch, tmp_path if cargo_running else None)
         if cargo_target_dir_set:
             monkeypatch.setenv("CARGO_TARGET_DIR", str(target))
         else:

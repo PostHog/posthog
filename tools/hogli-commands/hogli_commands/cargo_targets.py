@@ -25,18 +25,42 @@ def inode_key(path: Path) -> InodeKey | None:
     return InodeKey(device=stat.st_dev, inode=stat.st_ino)
 
 
-def worktrees_running_cargo(worktrees: Sequence[Path]) -> set[Path]:
+def _cargo_pids() -> list[int] | None:
     try:
         result = subprocess.run(["pgrep", "-x", "cargo|rustc"], capture_output=True, text=True, timeout=5, check=False)
     except (OSError, subprocess.SubprocessError):
-        return set()
-    pids = [int(pid) for pid in result.stdout.split() if pid.isdigit()]
+        return None
+    if result.returncode not in (0, 1):
+        return None
+    return [int(pid) for pid in result.stdout.split() if pid.isdigit()]
+
+
+def _is_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        pass
+    return True
+
+
+def worktrees_running_cargo(worktrees: Sequence[Path]) -> set[Path] | None:
+    """The worktrees where cargo or rustc runs, or None when a running build cannot be traced to a directory."""
+
+    pids = _cargo_pids()
+    if pids is None:
+        return None
     if not pids:
         return set()
 
+    cwd_by_pid = process_cwds(pids)
+    if any(pid not in cwd_by_pid and _is_alive(pid) for pid in pids):
+        return None
+
     worktree_by_key = {key: worktree for worktree in worktrees if (key := inode_key(worktree)) is not None}
     busy: set[Path] = set()
-    for cwd in process_cwds(pids).values():
+    for cwd in cwd_by_pid.values():
         for directory in (Path(cwd), *Path(cwd).parents):
             key = inode_key(directory)
             if key in worktree_by_key:
@@ -46,10 +70,10 @@ def worktrees_running_cargo(worktrees: Sequence[Path]) -> set[Path]:
 
 
 def last_cargo_build_epoch(target: Path) -> float:
-    """Newest mtime under each profile's .fingerprint, which Cargo rewrites for every unit it builds."""
+    """Newest mtime under each .fingerprint dir, at <profile>/ or at <target-triple>/<profile>/, which Cargo rewrites for every unit it builds."""
 
     newest = 0.0
-    for fingerprint_dir in target.glob("*/.fingerprint"):
+    for fingerprint_dir in (*target.glob("*/.fingerprint"), *target.glob("*/*/.fingerprint")):
         try:
             with os.scandir(fingerprint_dir) as units:
                 unit_dirs = [Path(unit.path) for unit in units if unit.is_dir(follow_symlinks=False)]
@@ -78,4 +102,7 @@ def unused_legacy_cargo_target(built_before_epoch: float) -> Path | None:
     target = Path.home() / ".cargo" / "target"
     if os.environ.get("CARGO_TARGET_DIR") or not target.is_dir() or target.is_symlink():
         return None
-    return target if last_cargo_build_epoch(target) < built_before_epoch else None
+    if last_cargo_build_epoch(target) >= built_before_epoch:
+        return None
+    # A shell with an older Flox env can still build here, and its CARGO_TARGET_DIR is not visible from this process.
+    return target if _cargo_pids() == [] else None
