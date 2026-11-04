@@ -1055,7 +1055,14 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             }),
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions, values, cache }) => ({
+        // The scene can mount before /flags answers, so the first reload may have skipped the topics card.
+        [featureFlagLogic.actionTypes.setFeatureFlags]: () => {
+            if (cache.intentTopicsSkipped && values.featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_INTENT_TOPICS]) {
+                cache.intentTopicsSkipped = false
+                actions.loadIntentTopics()
+            }
+        },
         setDateFilter: () => {
             actions.reloadAll()
         },
@@ -1081,7 +1088,8 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
         },
         reloadAll: () => {
             actions.loadKPIs()
-            if (values.featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_INTENT_TOPICS]) {
+            cache.intentTopicsSkipped = !values.featureFlags[FEATURE_FLAGS.MCP_ANALYTICS_INTENT_TOPICS]
+            if (!cache.intentTopicsSkipped) {
                 actions.loadIntentTopics()
             }
             actions.loadUsers()
