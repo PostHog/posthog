@@ -160,9 +160,6 @@ from ee.billing.salesforce_enrichment.constants import DEFAULT_CHUNK_SIZE
 
 logger = structlog.get_logger(__name__)
 
-# The retired summarization sweep created one schedule per team under this prefix.
-LEGACY_SUMMARIZATION_TEAM_SCHEDULE_PREFIX = "session-summarization-team-"
-
 
 async def cleanup_sync_vectors_schedule(client: Client):
     """Disabled: delete the actions embedding sync schedule. Any in-flight runs die on their own execution_timeout."""
@@ -685,16 +682,6 @@ async def cleanup_legacy_session_summarization_schedules(client: Client):
     for schedule_id in legacy_schedule_ids:
         if await a_schedule_exists(client, schedule_id):
             await a_delete_schedule(client, schedule_id)
-
-    # The sweep also created one schedule per team, and the reconciler that used to reap them is gone.
-    # Left alone they fire every few minutes forever against a workflow type no worker registers.
-    try:
-        async for schedule in await client.list_schedules():
-            if schedule.id.startswith(LEGACY_SUMMARIZATION_TEAM_SCHEDULE_PREFIX):
-                await a_delete_schedule(client, schedule.id)
-    except Exception:
-        # Reaping is best effort: a listing failure must not stop the rest of schedule setup.
-        logger.exception("temporal.cleanup_legacy_summarization_team_schedules_failed")
 
 
 async def cleanup_cohort_calculation_schedules(client: Client):
