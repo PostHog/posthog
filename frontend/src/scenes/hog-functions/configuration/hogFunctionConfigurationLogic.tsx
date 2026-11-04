@@ -29,6 +29,7 @@ import {
     CyclotronJobInputsValidation,
     CyclotronJobInputsValidationResult,
 } from 'lib/components/CyclotronJob/CyclotronJobInputsValidation'
+import { MASKED_SECRET_VALUE, secretEntries } from 'lib/components/CyclotronJob/dictionarySecretRows'
 import { dayjs } from 'lib/dayjs'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -198,6 +199,39 @@ export function sanitizeInputs(
     })
 
     return sanitizedInputs
+}
+
+// The API returns each stored secret masked: an input flagged `secret`, or `********` for each stored row of a
+// secret dictionary that the user edited. A new function has no stored secret to keep, so the backend rejects a
+// mask on create. A copy keeps only the values the user typed, and drops an input with nothing typed left so a
+// required secret still asks for a value.
+function withoutStoredSecrets<T extends Pick<HogFunctionMappingType, 'inputs' | 'inputs_schema'>>(
+    config: T
+): { config: T; dropped: boolean } {
+    if (!config.inputs) {
+        return { config, dropped: false }
+    }
+    const secretDictionaryKeys = new Set(
+        config.inputs_schema
+            ?.filter((schema) => schema.secret && schema.type === 'dictionary')
+            .map((schema) => schema.key)
+    )
+    const inputs: Record<string, CyclotronJobInputType> = {}
+    let dropped = false
+    for (const [key, input] of Object.entries(config.inputs)) {
+        const entries = secretDictionaryKeys.has(key) ? secretEntries(input) : undefined
+        const typed = Object.entries(entries ?? {}).filter(([, value]) => value !== MASKED_SECRET_VALUE)
+        const masked = Object.keys(entries ?? {}).length - typed.length
+        if (input?.secret || (masked > 0 && typed.length === 0)) {
+            dropped = true
+        } else if (masked > 0) {
+            dropped = true
+            inputs[key] = { ...input, value: Object.fromEntries(typed) }
+        } else {
+            inputs[key] = input
+        }
+    }
+    return { config: { ...config, inputs }, dropped }
 }
 
 export function sanitizeConfiguration(data: HogFunctionConfigurationType): HogFunctionConfigurationType {
@@ -2109,8 +2143,16 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
 
         duplicate: async () => {
             if (values.hogFunction) {
+                const copied = withoutStoredSecrets(values.configuration)
+                const copiedMappings = values.configuration.mappings?.map(withoutStoredSecrets)
+                if (copied.dropped || copiedMappings?.some((mapping) => mapping.dropped)) {
+                    lemonToast.info('Secret values are not copied. Enter them again before you save.')
+                }
                 const newConfig = {
-                    ...values.configuration,
+                    ...copied.config,
+                    mappings: copiedMappings
+                        ? copiedMappings.map((mapping) => mapping.config)
+                        : values.configuration.mappings,
                     name: `${values.configuration.name} (copy)`,
                 }
                 // TODO: What to do if no template?
