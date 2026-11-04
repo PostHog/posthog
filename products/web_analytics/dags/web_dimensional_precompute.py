@@ -333,13 +333,17 @@ def _ensure_for_team(
     `chunk_days` of raw data), so no single query scans the whole window. Failures
     per (table, chunk) are caught so one bad chunk doesn't poison the rest;
     already-fresh chunks are cheap PG cache-checks with no INSERT.
+
+    Chunks run newest first, and each chunk builds both tables before the next one starts. A read
+    needs both tables for every day it covers, so after a full rebuild (a new job identity) the
+    recent ranges become servable after a few chunks instead of after a whole pass over one table.
     """
     failures = 0
-    for table_label, ensure_fn in (
-        (STATS_TABLE, ensure_web_stats_dimensional_precomputed),
-        (BOUNCES_TABLE, ensure_web_bounces_dimensional_precomputed),
-    ):
-        for chunk_start, chunk_end in chunk_ranges(window.start, window.end, chunk_days):
+    for chunk_start, chunk_end in chunk_ranges(window.start, window.end, chunk_days):
+        for table_label, ensure_fn in (
+            (STATS_TABLE, ensure_web_stats_dimensional_precomputed),
+            (BOUNCES_TABLE, ensure_web_bounces_dimensional_precomputed),
+        ):
             try:
                 result = ensure_fn(team, chunk_start, chunk_end)
             except Exception as exc:

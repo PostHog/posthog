@@ -277,6 +277,9 @@ class TestEnsureWebDimensionalPrecomputeOp(APIBaseTest):
         # Chunking bounds each ensure call to <= chunk_days so no single INSERT
         # scans the whole window. Exercised here with a 7-day chunk for clarity.
         t1 = self._make_team("A")
+        calls: list[tuple[str, datetime]] = []
+        stats_mock.side_effect = lambda _team, start, _end: calls.append(("stats", start)) or _READY
+        bounces_mock.side_effect = lambda _team, start, _end: calls.append(("bounces", start)) or _READY
         with (
             time_machine.travel("2026-10-14T20:21:00Z", tick=False),
             patch(_SINGLE_CHUNK, 7),
@@ -285,6 +288,11 @@ class TestEnsureWebDimensionalPrecomputeOp(APIBaseTest):
             ensure_web_dimensional_precompute_op(dagster.build_op_context())
         chunks = [(s, e) for _t, s, e in (c.args for c in stats_mock.call_args_list)]
         assert len(chunks) > 1
+        # A read needs both tables for a day, so each chunk builds both before the next, newest first.
+        starts = [start for _table, start in calls[::2]]
+        assert [table for table, _start in calls] == ["stats", "bounces"] * len(chunks)
+        assert [start for _table, start in calls[1::2]] == starts
+        assert starts == sorted(starts, reverse=True)
         assert all((e - s).days <= 7 for s, e in chunks)
         # A chunk that straddles UTC midnight makes the framework merge two missing days into one
         # INSERT, so every boundary must sit on a UTC midnight even when the run starts mid-day.
