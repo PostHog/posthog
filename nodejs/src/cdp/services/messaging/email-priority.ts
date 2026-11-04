@@ -39,6 +39,10 @@ export function getEmailQueuePriorityClass(metadata: HogFunctionType['metadata']
     return metadata?.message_category_type === 'transactional' ? 'fast' : 'bulk'
 }
 
+export function getEmailQueuePriority(metadata: HogFunctionType['metadata']): number {
+    return EMAIL_QUEUE_PRIORITY[getEmailQueuePriorityClass(metadata)]
+}
+
 export const cdpEmailQueuedTotal = new Counter({
     name: 'cdp_email_queued_total',
     help: 'Total emails routed to the dedicated email queue',
