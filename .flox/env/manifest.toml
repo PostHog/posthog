@@ -61,7 +61,7 @@ watchman = { pkg-path = "watchman" } # Fast file watching for Django/Celery auto
 trunk-io = { pkg-path = "trunk-io", version = "^1.3.4" } # Launcher for the Trunk merge queue CLI; the CLI version itself is pinned in .trunk/trunk.yaml
 # depot-cli has its own group because the toplevel group's version pins cannot resolve with it.
 # Keep its version floor current: flox puts its bin first on PATH, so an old lock shadows a newer host `depot`.
-depot-cli = { pkg-path = "depot-cli", pkg-group = "depot", version = "^2.102" }
+depot-cli = { pkg-path = "depot-cli", pkg-group = "depot", version = "^2.102.19" }
 # hog (hog/) needs Bun 1.3.3+ to turn off .env and bunfig.toml autoloading. 1.4.2 is the newest in the catalog.
 bun = { pkg-path = "bun", pkg-group = "bun", version = "^1.4.2" }
 
