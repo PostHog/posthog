@@ -771,6 +771,47 @@ async fn a_write_lands_on_the_revival_without_a_prior_read() {
         .expect("cleanup person");
 }
 
+/// Persons created before personhog from a client's zero `DateTime` carry
+/// year 1 as `created_at`. A write to one lands, keeps the value, and a
+/// `last_seen_at` in the same year floors to its hour rather than rounding up.
+#[tokio::test]
+async fn a_write_to_a_person_created_in_year_one_lands() {
+    const YEAR_ONE_MS: i64 = -62_135_596_800_000;
+    let mut harness = start_fence_harness(
+        CachedPerson {
+            created_at: YEAR_ONE_MS,
+            ..test_cached_person()
+        },
+        None,
+    )
+    .await;
+    let team_id = harness.team_id;
+    let partition = harness.partition;
+    let person_id = harness.person_id;
+
+    let written = harness
+        .client
+        .update_person_properties(with_partition(
+            UpdatePersonPropertiesRequest {
+                last_seen_at: Some(YEAR_ONE_MS + 1234),
+                ..update_request(team_id, person_id)
+            },
+            partition,
+        ))
+        .await
+        .expect("a write to a year-one person lands")
+        .into_inner();
+    assert!(written.updated);
+    let person = written.person.expect("the written person is returned");
+    assert_eq!(person.created_at, YEAR_ONE_MS);
+    assert_eq!(person.last_seen_at, Some(YEAR_ONE_MS));
+
+    let records = changelog_records(&harness);
+    assert_eq!(records.len(), 1);
+    assert_eq!(records[0].created_at, YEAR_ONE_MS);
+    assert_eq!(records[0].last_seen_at, Some(YEAR_ONE_MS));
+}
+
 /// A pre-fence write with an indeterminate produce outcome spends a
 /// version the cache never learned of. The seal must cover it: sealed
 /// below the spent version, the death document would derive at a version

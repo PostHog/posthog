@@ -1772,7 +1772,20 @@ async def maybe_autostart_from_report_artefacts(
 
     A report that a background-enrolled scout authored never auto-starts. Nobody on the project
     asked for that scout, so its findings must not open pull requests on their own.
+
+    A report a member filed by hand (`user_authored`) never auto-starts either, on creation or on any
+    later reviewer edit, repository edit, or dispatcher retry. Its create endpoint needs only
+    `inbox:write`, while every other write that automatic start reads needs `task:write`. A person
+    who wants a run presses Implement, which carries its own authorization.
     """
+    if await SignalReport.objects.filter(id=report_id, team_id=team_id, user_authored=True).aexists():
+        logger.info(
+            "signals auto-start re-eval skipped",
+            report_id=report_id,
+            team_id=team_id,
+            reason="user-authored report",
+        )
+        return AutostartOutcome(status="blocked", reason="Reports filed by a person do not auto-start")
     if await database_sync_to_async(report_is_from_background_scout)(team_id, report_id):
         logger.info(
             "signals auto-start re-eval skipped",
