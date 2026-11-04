@@ -21,6 +21,7 @@ import {
     broadcastWizardLogic,
     getPickerSenderIds,
     getSenderIds,
+    keepSandboxSenderOnEdit,
 } from '../broadcastWizardLogic'
 import { BroadcastChannelSwitch } from './BroadcastChannelSwitch'
 import { BroadcastPushComposer } from './BroadcastPushComposer'
@@ -46,7 +47,7 @@ export function BroadcastContentStep(): JSX.Element {
 
     const hasSenders = ownEmailIntegrations.length > 0
     const senderUnverified = !!selectedSender && selectedSender.config?.verified !== true
-    // A deleted sender would otherwise show as its bare id, so the picker leaves it out.
+    // A deleted sender would otherwise show as its bare id. A sandbox sender empties the picker, so any choice replaces it.
     const remainingSenderIds = getPickerSenderIds(email.from, integrations)
     const editorValue =
         remainingSenderIds.length === getSenderIds(email.from).length
@@ -166,7 +167,9 @@ export function BroadcastContentStep(): JSX.Element {
                 liveChanges
                 value={editorValue as unknown as EmailTemplate}
                 defaultValue={DEFAULT_BROADCAST_EMAIL as unknown as EmailTemplate}
-                onChange={(value) => setEmail(value as unknown as BroadcastEmailValue)}
+                onChange={(value) =>
+                    setEmail(keepSandboxSenderOnEdit(email, value as unknown as BroadcastEmailValue, integrations))
+                }
                 variables={buildSampleGlobals({ type: 'batch' }, null)}
                 fieldErrors={fieldErrors}
             />

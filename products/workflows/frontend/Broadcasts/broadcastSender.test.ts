@@ -1,11 +1,14 @@
 import type { IntegrationType } from '~/types'
 
 import {
+    DEFAULT_BROADCAST_EMAIL,
     DELETED_SENDER_ERROR,
     SANDBOX_SENDER_BROADCAST_ERROR,
     SENDERS_LOAD_FAILED_ERROR,
     getPickerSenderIds,
+    getSenderIds,
     getSenderLaunchError,
+    keepSandboxSenderOnEdit,
 } from './broadcastWizardLogic'
 
 const sender = (id: number, verified: boolean, provider = 'ses'): IntegrationType => ({
@@ -56,5 +59,18 @@ describe('broadcast senders', () => {
     ])('shows the picker the right senders for %s', (_, ids, integrations, expected) => {
         const from = { integrationId: ids[0], integrationIds: ids.length > 1 ? ids : undefined }
         expect(getPickerSenderIds(from, integrations)).toEqual(expected)
+    })
+
+    it.each([
+        ['a subject edit keeps the sandbox rotation', [1, 3], {}, [1, 3]],
+        ['a sender pick replaces the sandbox rotation', [1, 3], { integrationId: 1 }, [1]],
+        ['a subject edit with own senders keeps the edit', [1, 2], {}, []],
+    ])('%s', (_, storedIds, editedFrom, expected) => {
+        const integrations = [sender(1, true), sender(2, true), sender(3, true, 'sandbox')]
+        const stored = { ...DEFAULT_BROADCAST_EMAIL, from: { integrationId: storedIds[0], integrationIds: storedIds } }
+        const edited = { ...DEFAULT_BROADCAST_EMAIL, subject: 'Spring sale', from: editedFrom }
+        const result = keepSandboxSenderOnEdit(stored, edited, integrations)
+        expect(result.subject).toBe('Spring sale')
+        expect(getSenderIds(result.from)).toEqual(expected)
     })
 })
