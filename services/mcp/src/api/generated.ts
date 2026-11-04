@@ -11231,6 +11231,8 @@ export namespace Schemas {
     export type ChartSettingsResultCustomizations = {[key: string]: ResultCustomizationByValue} | null;
 
     export interface ChartSettings {
+      /** Shows only the annotations saved at this level. Unset shows every level. */
+      annotationsScope?: AnnotationScope | null;
       barGap?: number | null;
       boxPlot?: BoxPlotSettings | null;
       /** Chart rendering style overrides (line shape). Only applies to line and area charts. */
@@ -60645,6 +60647,7 @@ export namespace Schemas {
      * * `posthog-node` - posthog-node
      * * `posthog-python` - posthog-python
      * * `posthog-php` - posthog-php
+     * * `posthog-laravel` - posthog-laravel
      * * `posthog-ruby` - posthog-ruby
      * * `posthog-go` - posthog-go
      * * `posthog-flutter` - posthog-flutter
@@ -60680,6 +60683,7 @@ export namespace Schemas {
       PosthogNode: 'posthog-node',
       PosthogPython: 'posthog-python',
       PosthogPhp: 'posthog-php',
+      PosthogLaravel: 'posthog-laravel',
       PosthogRuby: 'posthog-ruby',
       PosthogGo: 'posthog-go',
       PosthogFlutter: 'posthog-flutter',
@@ -103696,6 +103700,7 @@ export namespace Schemas {
        * * `posthog-node` - posthog-node
        * * `posthog-python` - posthog-python
        * * `posthog-php` - posthog-php
+       * * `posthog-laravel` - posthog-laravel
        * * `posthog-ruby` - posthog-ruby
        * * `posthog-go` - posthog-go
        * * `posthog-flutter` - posthog-flutter
@@ -125784,9 +125789,9 @@ export namespace Schemas {
 
     export type ExperimentsTimeseriesResultsRetrieveParams = {
     /**
-     * Fingerprint of the metric configuration. Available alongside metric_uuid on each metric in the experiment's metrics array.
+     * Ignored. The server derives the metric's calculation key from the experiment's current settings. Accepted so that existing clients keep working.
      */
-    fingerprint: string;
+    fingerprint?: string;
     /**
      * UUID of the metric to fetch timeseries for. Available on each metric in the experiment's metrics array.
      */
@@ -132213,7 +132218,7 @@ export namespace Schemas {
      */
     skill_name?: string;
     /**
-     * ILIKE substring match against `content`. Omit to return the most recent entries.
+     * ILIKE substring match against `content` and `key`. Must contain 3 letters or digits in a row, or 2 next to a symbol such as `ai_` or `pr:`. Omit to return the most recent entries.
      */
     text?: string;
     };
