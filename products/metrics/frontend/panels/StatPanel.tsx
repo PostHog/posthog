@@ -37,6 +37,9 @@ export function StatPanel({ series, display, fallbackName }: MetricsPanelProps):
     const rows = flattenSeriesRows(series, [reducer]).filter((row) => row.values[reducer] !== null)
     // A single card fills the tile, and the tile title already names it. Grouped cards need their labels.
     const single = rows.length === 1
+    const valueColor = display.thresholds?.length
+        ? (v: number): string => getColorVar(thresholdColor(v, display.thresholds, FALLBACK_COLOR))
+        : undefined
 
     if (rows.length === 0) {
         return <div className="flex h-full w-full items-center justify-center text-secondary text-sm">No data</div>
@@ -51,7 +54,6 @@ export function StatPanel({ series, display, fallbackName }: MetricsPanelProps):
             row.metricName ||
             fallbackName
         const color = getColorVar(thresholdColor(value, display.thresholds, FALLBACK_COLOR))
-        const headlineColor = value !== null && display.thresholds?.length ? color : undefined
         const data = row.series.points.map((p) => p.value ?? 0)
         // The headline shows the hovered sparkline point, so it shares one scale with every point.
         const formatValue = metricValuesFormatter(row.series.unit ?? undefined, [...data, value ?? 0])
@@ -68,16 +70,14 @@ export function StatPanel({ series, display, fallbackName }: MetricsPanelProps):
                 theme={theme}
                 color={color}
                 formatValue={formatValue}
+                valueColor={valueColor}
                 sparklineFill={single}
                 sparklineHeight={GROUPED_SPARKLINE_HEIGHT}
                 className="@container w-full min-w-0 px-0"
             >
                 {!single && <MetricTitle>{name}</MetricTitle>}
                 <MetricHeader className={cn('flex-wrap items-center', !single && 'mt-2')}>
-                    <MetricValue
-                        className="text-2xl @min-[13rem]:text-3xl @min-[16rem]:text-4xl"
-                        style={{ color: headlineColor }}
-                    />
+                    <MetricValue className="text-2xl @min-[13rem]:text-3xl @min-[16rem]:text-4xl" />
                     <MetricDelta />
                 </MetricHeader>
                 <MetricSubtitle className="mt-1" />

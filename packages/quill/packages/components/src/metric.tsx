@@ -24,6 +24,7 @@ export type { ChangeColor, MetricChange }
 interface MetricContextValue {
     /** Formatted headline — already follows the hovered sparkline point. */
     headlineDisplay: string
+    headlineColor?: string
     /** Resolved caption (subtitle override → resting subtitle at rest → hovered label). */
     subtitle: React.ReactNode
     /** The change pill's resolved state, or null when there is nothing to show. */
@@ -96,6 +97,8 @@ interface MetricBaseProps {
     /** Tooltip renderer for the sparkline. Off by default — hovering already scrubs the headline. */
     sparklineTooltip?: (ctx: TooltipContext) => React.ReactNode
     formatValue?: (value: number) => string
+    /** Headline color for the value it shows, so a hovered point gets its own color (a threshold status). */
+    valueColor?: (value: number) => string | undefined
     formatChange?: (percent: number) => string
     showChange?: boolean
     /** Fixed comparison pill. Supplied → no hover-driven fallback. Pass `null` to suppress. */
@@ -185,6 +188,7 @@ function MetricInner({
     sparklineDashedFromIndex,
     sparklineTooltip,
     formatValue = DEFAULT_FORMAT_VALUE,
+    valueColor,
     formatChange = DEFAULT_FORMAT_CHANGE,
     showChange = true,
     change,
@@ -252,6 +256,7 @@ function MetricInner({
 
         return {
             headlineDisplay: sparklineData ? formatValue(animatedValue) : formatValue(restingValue),
+            headlineColor: valueColor?.(liveValue),
             subtitle: subtitle ?? (intentIndex < 0 && restingSubtitle != null ? restingSubtitle : labelCaption),
             change:
                 delta != null
@@ -296,6 +301,7 @@ function MetricInner({
         positiveColor,
         negativeColor,
         formatValue,
+        valueColor,
         animatedValue,
         subtitle,
         restingSubtitle,
@@ -346,14 +352,15 @@ export const MetricTitle = React.forwardRef<HTMLDivElement, React.ComponentProps
 /** Headline number. Follows the hovered sparkline point; pass `children` to render your own, or a
  *  `text-*` class to resize it (cn lets your size win over the default `text-4xl`). */
 export const MetricValue = React.forwardRef<HTMLDivElement, React.ComponentProps<'div'>>(function MetricValue(
-    { className, children, ...props },
+    { className, children, style, ...props },
     ref
 ) {
-    const { headlineDisplay } = useMetric('MetricValue')
+    const { headlineDisplay, headlineColor } = useMetric('MetricValue')
     return (
         <div
             ref={ref}
             className={cn('min-w-0 truncate text-4xl font-bold tracking-tight tabular-nums', className)}
+            style={{ color: headlineColor, ...style }}
             {...props}
         >
             {children ?? headlineDisplay}
