@@ -1599,15 +1599,9 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertIn(ancient.id, hard_capped)
         self.assertNotIn(resuming.id, hard_capped)
 
-    @parameterized.expand(
-        [
-            ("no_recovery", None, True),
-            ("recovery_pending", timedelta(days=1), False),
-            ("recovery_expired", -timedelta(days=1), True),
-        ]
-    )
-    def test_stale_queued_sweep_skips_only_pending_github_recovery(
-        self, _name: str, deadline_offset: timedelta | None, swept: bool
+    @parameterized.expand([("no_recovery", None), ("recovery_pending", timedelta(days=1))])
+    def test_stale_queued_sweep_includes_signal_report_runs(
+        self, _name: str, deadline_offset: timedelta | None
     ) -> None:
         task = self._make_task(origin_product=Task.OriginProduct.SIGNAL_REPORT)
         now = django_timezone.now()
@@ -1617,7 +1611,7 @@ class TestFacadeReadsAndMappers(TestCase):
 
         stale_ids = facade.get_stale_queued_task_run_ids(older_than=timedelta(hours=24), limit=100)
 
-        self.assertEqual(run.id in stale_ids, swept)
+        self.assertIn(run.id, stale_ids)
 
     def test_cloud_sweep_guard_uses_dispatch_enqueue_time(self):
         task = self._make_task()

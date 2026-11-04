@@ -46,6 +46,7 @@ from products.signals.backend.auto_start import (
 from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
 from products.signals.backend.github_optional import RepositoryAccessTemporarilyUnavailable
 from products.signals.backend.github_readiness import (
+    RESEARCH_SUSPENDED_FOR_GITHUB_ERROR_TYPE,
     CheckReportGitHubReadinessInput,
     check_report_github_readiness_activity,
 )
@@ -943,6 +944,12 @@ class SignalReportSummaryWorkflow:
                     )
             return has_new_signals
         except Exception as e:
+            if (
+                workflow.patched("signals-research-suspended-for-github")
+                and _activity_error_type(e) == RESEARCH_SUSPENDED_FOR_GITHUB_ERROR_TYPE
+            ):
+                log.info("Research suspended until GitHub access returns")
+                return False
             startup_failure = research_startup_failure(e)
             await workflow.execute_activity(
                 mark_report_failed_activity,

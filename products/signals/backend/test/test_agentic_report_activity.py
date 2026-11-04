@@ -39,6 +39,7 @@ from products.signals.backend.artefact_schemas import (
     ReportLink,
 )
 from products.signals.backend.enums import ReportLinkKind, SignalSourceProduct, SignalSourceType
+from products.signals.backend.github_readiness import RESEARCH_SUSPENDED_FOR_GITHUB_ERROR_TYPE
 from products.signals.backend.models import (
     ArtefactAttribution,
     SignalReport,
@@ -2759,6 +2760,10 @@ async def test_unresolved_selection_lets_research_choose_repository(
         patch("products.signals.backend.temporal.agentic.report.run_multi_turn_research", side_effect=research),
         patch("posthog.models.integration.GitHubIntegration.installation_can_access_repository", return_value=True),
         patch("products.signals.backend.temporal.agentic.report.tasks_facade.get_task_run", return_value=lost_run),
+        patch(
+            "products.signals.backend.github_readiness.get_team_github_readiness",
+            return_value=GitHubReadiness(status=GitHubReadinessStatus.NOT_CONNECTED),
+        ),
     ):
         selection = await select_repository_activity(
             SelectRepositoryInput(
@@ -2776,7 +2781,11 @@ async def test_unresolved_selection_lets_research_choose_repository(
                         github_optional=github_optional,
                     )
                 )
-            assert error.value.type == RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE
+            assert error.value.type == RESEARCH_SUSPENDED_FOR_GITHUB_ERROR_TYPE
+            assert error.value.non_retryable
+            await report.arefresh_from_db()
+            assert report.status == SignalReport.Status.CANDIDATE
+            assert report.research_blocked_reason == GitHubReadinessStatus.NOT_CONNECTED
             return
         result = await run_agentic_report_activity(
             RunAgenticReportInput(

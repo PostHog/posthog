@@ -21,6 +21,7 @@ from posthog.models import Organization, Team
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.daily_limit import DailyReportLimitGate
+from products.signals.backend.github_readiness import RESEARCH_SUSPENDED_FOR_GITHUB_ERROR_TYPE
 from products.signals.backend.models import SignalReport
 from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.report_generation.research import ActionabilityChoice
@@ -480,6 +481,19 @@ async def test_research_retries_after_a_sandbox_outage_instead_of_failing_the_re
     assert recorder.failures == 0
     assert recorder.marks_in_progress == 1
     assert recorder.spend_publications == 1
+
+
+@pytest.mark.asyncio
+async def test_research_suspended_for_github_ends_the_run_without_failing_the_report():
+    recorder = _Recorder(
+        research_errors=[
+            ApplicationError("Read access lost", type=RESEARCH_SUSPENDED_FOR_GITHUB_ERROR_TYPE, non_retryable=True)
+        ]
+    )
+    await _run_summary_workflow(recorder)
+    assert recorder.researches == 1
+    assert recorder.failures == 0
+    assert recorder.ready_inputs == []
 
 
 @pytest.mark.asyncio

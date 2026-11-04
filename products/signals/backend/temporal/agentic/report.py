@@ -36,6 +36,10 @@ from products.signals.backend.auto_start import ReviewerContent
 from products.signals.backend.contracts import MonitoringUnresolvedSignalExtra
 from products.signals.backend.enums import ReportLinkKind, SignalSourceProduct, SignalSourceType, SuggestedSourceProduct
 from products.signals.backend.github_optional import ResearchAccessPolicy
+from products.signals.backend.github_readiness import (
+    RESEARCH_SUSPENDED_FOR_GITHUB_ERROR_TYPE,
+    suspend_research_after_lost_read_access,
+)
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalReportCheck
 from products.signals.backend.receivers import _is_safety_suppressed
 from products.signals.backend.recurrence import fixed_dismissal_at, recurrence_rejects_repository
@@ -1460,11 +1464,16 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
                 )
                 if run and run.state.get("github_read_access_available") is False:
                     if not input.github_optional:
-                        # Only GitHub-optional projects may keep project-data research. Retry so the
-                        # next attempt can read the code once GitHub access is back.
+                        # Only GitHub-optional projects may keep project-data research. Suspend rather
+                        # than retry: each retry repeats a full research session, and a failed report
+                        # never recovers on reconnect.
+                        await database_sync_to_async(suspend_research_after_lost_read_access, thread_sensitive=False)(
+                            input.team_id, input.report_id
+                        )
                         raise ApplicationError(
                             "GitHub read access was unavailable during repository discovery",
-                            type=RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE,
+                            type=RESEARCH_SUSPENDED_FOR_GITHUB_ERROR_TYPE,
+                            non_retryable=True,
                         )
                     input = replace(
                         input,
