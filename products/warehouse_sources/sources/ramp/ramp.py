@@ -5,7 +5,7 @@ from typing import Any, Optional
 import requests
 from requests import Request, Response
 
-from products.warehouse_sources.sources.ramp.settings import PAGE_SIZE, RAMP_ENDPOINTS, TOKEN_SCOPES
+from products.warehouse_sources.sources.ramp.settings import RAMP_ENDPOINTS, TOKEN_SCOPES
 from products.warehouse_sources.sources.sdk import (
     ClientConfig,
     Endpoint,
@@ -155,7 +155,7 @@ def ramp_source(
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
-    params: dict[str, Any] = {"page_size": PAGE_SIZE}
+    params: dict[str, Any] = {"page_size": config.page_size}
     if (
         config.incremental_param is not None
         and should_use_incremental_field
@@ -236,7 +236,5 @@ def ramp_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
-        # Result ordering within a from_date window is not documented, so the
-        # pipeline defers incremental watermark commits until a run completes.
-        sort_mode="desc" if config.incremental_fields else "asc",
+        sort_mode=config.sort_mode,
     )

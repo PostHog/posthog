@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, TimeZone, Utc};
 use common::{
     cleanup_team, create_local_kafka_producer, create_mock_kafka, create_test_pool, make_person,
     unique_team_id, KAFKA_BOOTSTRAP, TARGET_TABLE, TOPIC,
@@ -80,6 +80,70 @@ async fn writer_upserts_person_to_pg() {
     assert_eq!(row.0, 1); // id
     assert_eq!(row.1, 1); // version
     assert!(!row.2); // is_identified
+
+    cleanup_team(&pool, team_id).await;
+}
+
+/// Persons created before personhog from a client's zero `DateTime` carry
+/// year 1 as `created_at`; the leader admits what this upsert binds, so
+/// the bind has to hold at the far end of the range.
+#[tokio::test]
+async fn writer_upserts_a_year_one_created_at() {
+    const YEAR_ONE_MS: i64 = -62_135_596_800_000;
+    let pool = create_test_pool().await;
+    let team_id: i32 = unique_team_id();
+
+    let writer = PersonWriteStore::new(
+        PgStore::new(pool.clone(), TARGET_TABLE.to_string()),
+        common::test_store_config(),
+        common::test_permits(),
+    );
+    let person = Person {
+        created_at: YEAR_ONE_MS,
+        last_seen_at: Some(YEAR_ONE_MS),
+        ..make_person(team_id as i64, 1, 1)
+    };
+
+    assert!(matches!(
+        writer.upsert_batch(vec![person]).await,
+        BatchOutcome::Success
+    ));
+
+    let row: (DateTime<Utc>, Option<DateTime<Utc>>) = sqlx::query_as(
+        "SELECT created_at, last_seen_at FROM personhog_person_tmp WHERE team_id = $1 AND id = $2",
+    )
+    .bind(team_id)
+    .bind(1_i64)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let year_one = Utc.timestamp_millis_opt(YEAR_ONE_MS).unwrap();
+    assert_eq!(row.0, year_one);
+    assert_eq!(row.1, Some(year_one));
+
+    // The leader admits down to Postgres's own floor, Julian day 0, so
+    // that exact instant has to bind as well.
+    const PG_TIMESTAMPTZ_MIN_MS: i64 = -210_866_803_200_000;
+    let floor_person = Person {
+        created_at: PG_TIMESTAMPTZ_MIN_MS,
+        ..make_person(team_id as i64, 2, 1)
+    };
+    assert!(matches!(
+        writer.upsert_batch(vec![floor_person]).await,
+        BatchOutcome::Success
+    ));
+    let floor: (DateTime<Utc>,) = sqlx::query_as(
+        "SELECT created_at FROM personhog_person_tmp WHERE team_id = $1 AND id = $2",
+    )
+    .bind(team_id)
+    .bind(2_i64)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        floor.0,
+        Utc.timestamp_millis_opt(PG_TIMESTAMPTZ_MIN_MS).unwrap()
+    );
 
     cleanup_team(&pool, team_id).await;
 }
