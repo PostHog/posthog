@@ -306,10 +306,10 @@ export interface workflowsListV2LogicActions {
         errorObject?: any
     }
     searchWorkflowsSuccess: (
-        serverSearch: ServerSearchResult,
+        serverSearch: ServerSearchResult | null,
         payload?: string
     ) => {
-        serverSearch: ServerSearchResult
+        serverSearch: ServerSearchResult | null
         payload?: string
     }
     setRowActionPending: (
