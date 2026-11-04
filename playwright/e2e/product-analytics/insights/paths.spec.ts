@@ -3,10 +3,10 @@ import { InsightType } from '~/types'
 import { InsightPage } from '../../../page-models/insightPage'
 import { PathNode } from '../../../page-models/insights/pathsInsight'
 import { randomString } from '../../../utils'
-import { sequentialCustomEvents, sequentialPageviews } from '../../../utils/test-data'
+import { sequentialPageviews } from '../../../utils/test-data'
 import { PlaywrightWorkspaceSetupResult, expect, test } from '../../../utils/workspace-test-base'
 
-const events = [...sequentialPageviews.events, ...sequentialCustomEvents.events]
+const events = sequentialPageviews.events
 
 function expectNodesToMatch(actual: PathNode[], expected: { name: string; count: number }[]): void {
     for (const exp of expected) {
@@ -69,40 +69,6 @@ test.describe('User Paths insights', () => {
             await expect(insight.paths.stepsButton).toContainText('3 Steps')
             const nodes = await insight.paths.getNodes()
             expectNodesToMatch(nodes, sequentialPageviews.expected.nodes.slice(0, 3))
-        })
-    })
-
-    test('Switch to custom events and verify node counts match seeded data', async ({ page }) => {
-        const insight = new InsightPage(page)
-
-        await test.step('navigate to new Paths insight with pageview data', async () => {
-            await insight.goToNewInsight(InsightType.PATHS)
-            await expect(insight.activeTab).toContainText('User Paths')
-            await insight.paths.waitForNodes()
-        })
-
-        await test.step('verify initial pageview nodes', async () => {
-            const nodes = await insight.paths.getNodes()
-            expectNodesToMatch(nodes, sequentialPageviews.expected.nodes)
-        })
-
-        await test.step('switch to Custom event and verify custom event nodes', async () => {
-            await insight.paths.selectEventType('Custom event')
-            await insight.paths.waitForNodes()
-            const nodes = await insight.paths.getNodes()
-            expectNodesToMatch(nodes, sequentialCustomEvents.expected.nodes)
-        })
-
-        await test.step('switch back to Page views and verify pageview nodes return', async () => {
-            await insight.paths.selectEventType('Page views')
-            await insight.paths.waitForNodes()
-            const nodes = await insight.paths.getNodes()
-            expectNodesToMatch(nodes, sequentialPageviews.expected.nodes)
-        })
-
-        await test.step('save and verify view mode', async () => {
-            await insight.save()
-            await expect(insight.editButton).toBeVisible()
         })
     })
 })

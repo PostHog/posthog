@@ -554,6 +554,35 @@ describe('Hono MCP analytics contexts', () => {
                 { id: '1', method: 'GET', path: 'api/projects/1/persons/' },
                 false,
             ],
+            [
+                'preparing an email send',
+                'workflows-send-email-prepare',
+                { to: 'ada@example.com', html: '<a href="https://example.com/reset?t=1">Reset</a>' },
+                false,
+            ],
+            ['executing an email send', 'workflows-send-email-execute', { confirmation: 'confirm' }, false],
+            [
+                'an email send through exec',
+                'exec',
+                { command: 'call workflows-send-email-prepare {"to":"ada@example.com","html":"<p>code 123456</p>"}' },
+                false,
+            ],
+            [
+                'an email send forwarded through a PostHog connection',
+                'exec',
+                {
+                    command:
+                        'call posthog-connection-call {"connection_id":"1","tool":"workflows-send-email-prepare","arguments":{"html":"<p>code 123456</p>"}}',
+                },
+                false,
+            ],
+            [
+                'an email send exec rejects for a missing verb',
+                'exec',
+                { command: 'workflows-send-email-prepare {"html":"<p>code 123456</p>"}' },
+                false,
+            ],
+            ['another tool through exec', 'exec', { command: 'call feature-flag-get-all {}' }, true],
         ])('gates capture for %s', async (_case, toolName, input, captured) => {
             await trackToolSpan(toolName, makeState(), { durationMs: 100, isError: false, input, output: 'rows' })
 
