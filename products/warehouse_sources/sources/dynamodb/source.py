@@ -57,14 +57,11 @@ class DynamoDBSource(ResumableSource[DynamoDBSourceConfig, DynamoDBResumeConfig]
     api_docs_url = "https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/Welcome.html"
 
     flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    credential_kind = "dynamodb"
 
     @property
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.DYNAMODB
-
-    @property
-    def credential_kind(self) -> str | None:
-        return "dynamodb"
 
     @property
     def connection_host_fields(self) -> list[str]:
