@@ -222,8 +222,10 @@ def _integration_credentials(integration_id: int, team_id: int, session_actions:
             sts.assume_role(
                 RoleArn=aws_role_arn, RoleSessionName=session_name, ExternalId=f"posthog-{secrets.token_hex(16)}"
             )
-        except ClientError:
-            pass
+        except ClientError as e:
+            # Only a denial proves the role checks the external ID. Any other failure proves nothing.
+            if e.response.get("Error", {}).get("Code") != "AccessDenied":
+                raise AwsAuthError(ROLE_CREDENTIALS_RETRY_ERROR) from e
         except BotoCoreError as e:
             raise AwsAuthError(ROLE_CREDENTIALS_RETRY_ERROR) from e
         else:
