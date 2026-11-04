@@ -84,6 +84,22 @@ def reschedule_hold(address: HeldDeliveryAddress, *, release_after: datetime) ->
     return delivery_holds.reschedule_hold(address, release_after=release_after)
 
 
+def delivery_held_back(address: HeldDeliveryAddress) -> bool:
+    """Whether an evaluation's delivery is held and not released with a send, so it has not gone out."""
+    return delivery_holds.blocks_delivery(address.team_id, address.configuration_id, address.evaluation_key)
+
+
+def record_verdict_changed(
+    address: HeldDeliveryAddress, *, episode_started_at: datetime | None, now: datetime
+) -> AlertDeliveryRequest | None:
+    """Announces that a source's later verdict contradicts the one a delivered firing carried, in
+    that firing's thread. Returns the request the caller starts, or None when nothing is to be sent.
+
+    The platform has no verdict-changed kind to record it under, so this records nothing and returns None.
+    """
+    return None
+
+
 def hold_released_by(address: HeldDeliveryAddress) -> HoldReleasedBy | None:
     """Who released an evaluation's held delivery, so a source can word the message that the release sent.
     None when the evaluation was never held or is still held."""
