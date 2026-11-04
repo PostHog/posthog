@@ -921,7 +921,7 @@ export class EmailService {
                         ...(route.ccAddresses ?? []),
                         ...(route.bccAddresses ?? []),
                     ]
-                    if (!(await this.checkSandboxRecipients(result, deliveryRecipients, isTest))) {
+                    if (!(await this.checkSandboxRecipients(result, deliveryRecipients, isTest, { fresh: true }))) {
                         return result
                     }
                     await this.sendEmailWithSES(result, deliveryParams, from, false, isTest, queueWait, route)
@@ -1176,11 +1176,13 @@ export class EmailService {
     }
 
     // Runs once before the send is prepared and again right before delivery, because a member can
-    // leave the organization while the send waits on suppression checks and rate limits.
+    // leave the organization while the send waits on suppression checks and rate limits. The check
+    // right before delivery passes `fresh`, so it reads membership again instead of the cached snapshot.
     private async checkSandboxRecipients(
         result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>,
         recipients: string[],
-        isTest: boolean
+        isTest: boolean,
+        { fresh = false }: { fresh?: boolean } = {}
     ): Promise<boolean> {
         const { teamId } = result.invocation
         let blockedRecipients: string[]
@@ -1189,7 +1191,7 @@ export class EmailService {
             if (!this.organizationMembers) {
                 throw new Error('Organization member checks are not configured')
             }
-            const blocked = await this.organizationMembers.getBlockedRecipients(teamId, recipients)
+            const blocked = await this.organizationMembers.getBlockedRecipients(teamId, recipients, { fresh })
             blockedRecipients = blocked.map(({ address }) => address)
             reason = blocked.every(({ unverifiedMember }) => unverifiedMember)
                 ? 'recipient_unverified'
