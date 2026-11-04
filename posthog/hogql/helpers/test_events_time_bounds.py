@@ -68,6 +68,48 @@ class TestReadsEventsWithoutLowerBound(BaseTest):
             ("lazy_person_join", f"select person.properties.email from events where timestamp > {RECENT}", False),
             ("uuid_lookup", f"select * from events where uuid = '{EVENT_UUID}'", False),
             ("uuid_in_lookup", f"select * from events where uuid in ('{EVENT_UUID}')", False),
+            ("constant_to_date", "select count() from events where timestamp >= toDate('2026-01-01')", False),
+            ("constant_subtract_days", "select count() from events where timestamp >= subtractDays(now(), 7)", False),
+            ("constant_uppercase_now", "select count() from events where timestamp > NOW() - interval 7 day", False),
+            (
+                "column_date_trunc",
+                "select count() from events where dateTrunc('day', timestamp) >= '2026-01-01'",
+                False,
+            ),
+            (
+                "column_unix_timestamp",
+                "select count() from events where toUnixTimestamp(timestamp) >= 1700000000",
+                False,
+            ),
+            (
+                "column_interval_subtracted",
+                f"select count() from events where timestamp - interval 1 day > {RECENT}",
+                False,
+            ),
+            ("column_interval_added", f"select count() from events where interval 1 day + timestamp > {RECENT}", False),
+            (
+                "outer_bound_on_aliased_cte",
+                f"with e as (select timestamp from events) select count() from e as x where x.timestamp > {RECENT}",
+                False,
+            ),
+            (
+                "outer_bound_on_union_with_persons",
+                "select count() from (select timestamp from events union all select created_at as timestamp from persons) "
+                f"where timestamp > {RECENT}",
+                False,
+            ),
+            (
+                "inner_bound_with_outer_window_column_filter",
+                "select * from (select event, row_number() over (partition by distinct_id order by timestamp desc) as rn "
+                f"from events where timestamp > {RECENT}) where rn = 1",
+                False,
+            ),
+            (
+                "cte_referenced_twice_bounded_inside",
+                f"with e as (select event from events where timestamp > {RECENT}) "
+                "select count() from e join e as b on e.event = b.event",
+                False,
+            ),
             ("persons_only", "select count() from persons", False),
             (
                 "cte_named_events_over_persons",
@@ -89,6 +131,41 @@ class TestReadsEventsWithoutLowerBound(BaseTest):
                 True,
             ),
             ("hour_of_day", "select count() from events where toHour(timestamp) >= 9", True),
+            ("age_from_date_difference", "select count() from events where today() - toDate(timestamp) > 30", True),
+            ("age_from_minus_call", "select count() from events where minus(today(), toDate(timestamp)) > 30", True),
+            ("modulo_of_date", "select count() from events where toDate(timestamp) % 7 >= 1", True),
+            ("array_access_column", "select count() from events where splitByChar('/', event)[1] = 'a'", True),
+            ("array_access_value", "select count() from events where event = splitByChar('/', distinct_id)[1]", True),
+            ("tuple_access_column", "select count() from events where (event, 1).1 = 'a'", True),
+            (
+                "outer_filter_on_window_column",
+                "select * from (select event, row_number() over (partition by distinct_id order by timestamp desc) as rn "
+                "from events) where rn = 1",
+                True,
+            ),
+            (
+                "outer_bound_across_inner_window",
+                "select * from (select timestamp, row_number() over (partition by distinct_id order by timestamp) as rn "
+                f"from events) where timestamp > {RECENT}",
+                True,
+            ),
+            (
+                "outer_bound_across_inner_limit",
+                f"select count() from (select timestamp from events limit 1000) where timestamp > {RECENT}",
+                True,
+            ),
+            (
+                "cte_referenced_twice_one_union_branch_bounded",
+                f"with e as (select timestamp from events) select count() from e where timestamp > {RECENT} "
+                "union all select count() from e",
+                True,
+            ),
+            (
+                "cte_referenced_twice_one_join_side_bounded",
+                "with e as (select timestamp, event from events) select count() from e join e as b on e.event = b.event "
+                f"where e.timestamp > {RECENT}",
+                True,
+            ),
             ("unbounded_cte", "with e as (select event from events) select count() from e", True),
             (
                 "outer_filter_on_other_column",
