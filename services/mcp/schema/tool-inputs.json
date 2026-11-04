@@ -779,11 +779,15 @@
                                             },
                                             "additionalProperties": {}
                                         },
-                                        "url": {
-                                            "description": "A link to the source when it is not a query, for example a commit, a pull request or a deploy.",
+                                        "insightShortId": {
+                                            "description": "The `short_id` of a saved insight that shows this. The explanation links to it.",
                                             "type": "string",
-                                            "format": "uri",
-                                            "pattern": "^https:\\/\\/.*"
+                                            "pattern": "^[A-Za-z0-9]{8}$"
+                                        },
+                                        "url": {
+                                            "description": "A link to the GitHub pull request or commit behind this, when it is not a query or a saved insight. No other links are accepted.",
+                                            "type": "string",
+                                            "pattern": "^https:\\/\\/github\\.com\\/[A-Za-z0-9-]+\\/[A-Za-z0-9._-]+\\/(pull\\/\\d+|commit\\/[0-9a-fA-F]{7,40})\\/?$"
                                         }
                                     },
                                     "required": ["text"]

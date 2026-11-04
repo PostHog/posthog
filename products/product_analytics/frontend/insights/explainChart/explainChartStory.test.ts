@@ -72,7 +72,7 @@ describe('explainChartStory', () => {
         expect(shown.chapters.map((chapter) => chapter.range)).toEqual(expected)
     })
 
-    it('links saved evidence to its query, or else to its saved link', () => {
+    it('links saved evidence to its query, its insight or its GitHub change', () => {
         const story = {
             ...STORY,
             chapters: [
@@ -89,6 +89,7 @@ describe('explainChartStory', () => {
                             query: { kind: 'TrendsQuery', series: [] },
                             url: 'https://us.posthog.com/project/1/insights/new',
                         },
+                        { text: 'The signup funnel shows it.', insightShortId: 'xyz98765' },
                         { text: 'Shipped in a release.', url: 'https://github.com/example/app/pull/1' },
                         { text: 'Seen in the logs.' },
                     ],
@@ -96,10 +97,11 @@ describe('explainChartStory', () => {
             ],
         } as unknown as ExplainChartData
 
-        const [withQuery, withLink, withNothing] = withEvidenceLinks(story).chapters[0].evidence
+        const [withQuery, withInsight, withLink, withNothing] = withEvidenceLinks(story).chapters[0].evidence
 
         expect(withQuery.url).toMatch(/^\/insights\/new/)
         expect(decodeURIComponent(withQuery.url ?? '')).toContain('"kind":"InsightVizNode"')
+        expect(withInsight.url).toBe('/insights/xyz98765')
         expect(withLink.url).toBe('https://github.com/example/app/pull/1')
         expect(withNothing.url).toBeNull()
     })

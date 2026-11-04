@@ -4,6 +4,7 @@ import { urls } from 'scenes/urls'
 import type { AttachedContextItem } from '~/layout/ai/attachedContext'
 import { NodeKind } from '~/queries/schema/schema-general'
 import type { Node } from '~/queries/schema/schema-general'
+import type { InsightShortId } from '~/types'
 
 import type {
     ExplainChartData,
@@ -33,7 +34,11 @@ export function withEvidenceLinks(story: ExplainChartData): ExplainChartData {
             ...chapter,
             evidence: chapter.evidence.map((item) => ({
                 ...item,
-                url: item.query ? evidenceInsightUrl(item.query) : (item.url ?? null),
+                url: item.query
+                    ? evidenceInsightUrl(item.query)
+                    : item.insightShortId
+                      ? urls.insightView(item.insightShortId as InsightShortId)
+                      : (item.url ?? null),
             })),
         })),
     }

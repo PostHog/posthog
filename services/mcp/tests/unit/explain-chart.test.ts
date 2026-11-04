@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { ExplainChartInputSchema } from '@/schema/tool-inputs'
 import { explainChartHandler } from '@/tools/insights/explainChart'
 import { findStoryRange, lastBucketInProgress } from '@/tools/insights/storyRanges'
 import { type Context, POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY } from '@/tools/types'
@@ -128,6 +129,50 @@ describe('explain-chart', () => {
 
         expect(result._posthogUrl).toBe(`https://us.posthog.com/project/1/insights/abc12345?explanation=${id}`)
         expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toContain(`explanationId "${id}"`)
+    })
+
+    it('links evidence to its query, insight or GitHub change, and saves no PostHog links', async () => {
+        const context = createContext({ kind: 'InsightVizNode', source: { kind: 'TrendsQuery', series: [] } })
+        const github = 'https://github.com/example/app/pull/12'
+
+        const result = await explainChartHandler(context, {
+            insightId: 'abc12345',
+            series: 0,
+            headline: 'One day stands out.',
+            chapters: [
+                {
+                    title: 'A spike on October 2',
+                    start: '2026-10-02',
+                    evidence: [
+                        { text: 'From one referrer.', query: { kind: 'TrendsQuery', series: [] } },
+                        { text: 'The signup funnel shows it.', insightShortId: 'xyz98765' },
+                        { text: 'A release went out.', url: github },
+                    ],
+                },
+            ],
+        })
+
+        const shown = result.chapters[0]!.evidence.map((item) => item.url)
+        expect(shown[0]).toContain('/project/1/insights/new')
+        expect(shown.slice(1)).toEqual(['https://us.posthog.com/project/1/insights/xyz98765', github])
+        const { saveExplanation } = vi.mocked(context.api.insights).mock.results[0]!.value
+        const stored = saveExplanation.mock.calls[0][0].data.chapters[0].evidence.map(
+            (item: { url: string | null }) => item.url
+        )
+        expect(stored).toEqual([null, null, github])
+    })
+
+    it.each([
+        ['a site other than GitHub', 'https://hackmycomputer.example/pull/1'],
+        ['a GitHub file', 'https://github.com/example/app/raw/main/setup.exe'],
+    ])('refuses evidence that links to %s', (_, url) => {
+        const parsed = ExplainChartInputSchema.safeParse({
+            insightId: 'abc12345',
+            headline: 'One day stands out.',
+            chapters: [{ title: 'A spike', start: '2026-10-02', evidence: [{ text: 'A release.', url }] }],
+        })
+
+        expect(parsed.success).toBe(false)
     })
 
     it.each([['a funnel', { kind: 'FunnelsQuery', series: [] }, 'only explains trends charts']])(
