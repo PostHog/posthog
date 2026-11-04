@@ -28,6 +28,7 @@ from products.tasks.backend.facade import (
     contracts,
     warm as warm_facade,
 )
+from products.tasks.backend.facade.access import PostHogAIAccessDecision
 from products.tasks.backend.facade.profiles import (
     Repository,
     SourceKind,
@@ -36,12 +37,14 @@ from products.tasks.backend.facade.profiles import (
     TaskSource,
     get_task_profile,
 )
+from products.tasks.backend.logic.services.warm import ActiveSessionCaps, SandboxWarmer
 from products.tasks.backend.models import (
     TASK_OWNERSHIP_VERSION_STATE_KEY,
     Channel,
     ChannelMembership,
     SandboxCustomImage,
     SandboxEnvironment,
+    SandboxSession,
     Task,
     TaskRun,
     TaskWorkflowDispatch,
@@ -1154,7 +1157,11 @@ class TestFacadeReadsAndMappers(TestCase):
 
     @patch("products.tasks.backend.logic.services.warm.execute_task_processing_workflow")
     @patch("products.tasks.backend.logic.services.warm.is_team_limited", return_value=False)
-    def test_warm_task_run_returns_contract(self, _mock_quota, mock_workflow):
+    @patch(
+        "products.tasks.backend.logic.services.warm.get_posthog_ai_access_decision",
+        return_value=PostHogAIAccessDecision.GRANDFATHERED,
+    )
+    def test_warm_task_run_returns_contract(self, _mock_access, _mock_quota, mock_workflow):
         task = self._make_task(origin_product=Task.OriginProduct.POSTHOG_AI)
 
         with self.captureOnCommitCallbacks(execute=True):
@@ -1327,6 +1334,62 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertEqual(result.error.detail, "Not yet")
         trigger.assert_not_called()
         assert not task.runs.exists()
+
+    @parameterized.expand(
+        [
+            ("user_immediate", "user", False),
+            ("user_scheduled", "user", True),
+            ("org_immediate", "org", False),
+        ]
+    )
+    def test_run_task_at_the_active_session_cap(self, _name: str, scope: str, scheduled: bool) -> None:
+        caps = ActiveSessionCaps(per_user=2, per_org=3)
+        holder = self.user
+        if scope == "org":
+            holder = User.objects.create_and_join(self.organization, "busy@posthog.com", None)
+        busy_run = TaskRun.objects.create(
+            task=self._make_task(created_by=holder), team=self.team, status=TaskRun.Status.IN_PROGRESS
+        )
+        now = django_timezone.now()
+        for i in range(caps.per_user if scope == "user" else caps.per_org):
+            SandboxSession.objects.unscoped().create(
+                team=self.team,
+                task_run=busy_run,
+                sandbox_id=f"sb-busy-{i}",
+                cpu_cores=4.0,
+                memory_gb=16.0,
+                ttl_seconds=3600,
+                ttl_expires_at=now + timedelta(hours=1),
+                user_attributed_at=now,
+                origin_product=Task.OriginProduct.USER_CREATED,
+            )
+        task = self._make_task()
+        validated_data: dict[str, Any] = {"mode": "interactive"}
+        if scheduled:
+            validated_data["scheduled_at"] = now + timedelta(hours=2)
+
+        with (
+            patch.dict(SandboxWarmer.ORIGIN_ACTIVE_SESSION_CAPS, {Task.OriginProduct.USER_CREATED: caps}),
+            patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None) as trigger,
+        ):
+            result = facade.run_task(task.id, self.team.id, self.user.id, validated_data=validated_data)
+
+        assert result is not None
+        if scheduled:
+            assert result.error is None
+            assert task.runs.count() == 1
+        else:
+            assert result.error is not None
+            self.assertEqual(
+                result.error.detail,
+                "You already have 2 cloud sandboxes running. Wait for one to finish or stop one, then try again."
+                if scope == "user"
+                else "Your organization already has 3 cloud sandboxes running. "
+                "Wait for one to finish or stop one, then try again.",
+            )
+            assert result.error.code == "active_session_cap"
+            trigger.assert_not_called()
+            assert not task.runs.exists()
 
     def test_run_task_resumed_from_an_import_run_marks_the_new_run(self):
         task = self._make_task()

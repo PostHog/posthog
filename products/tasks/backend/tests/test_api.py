@@ -256,6 +256,14 @@ class BaseTaskAPITest(TestCase):
             ),
         )
         self.desktop_access_patcher.start()
+        self._posthog_ai_access = tasks_access.PostHogAIAccessDecision.GRANDFATHERED
+        for module in ("logic.services.code_usage_gate", "logic.services.warm", "facade.access"):
+            posthog_ai_access_patcher = patch(
+                f"products.tasks.backend.{module}.get_posthog_ai_access_decision",
+                side_effect=lambda *_args, **_kwargs: self._posthog_ai_access,
+            )
+            posthog_ai_access_patcher.start()
+            self.addCleanup(posthog_ai_access_patcher.stop)
         self.set_tasks_feature_flag(True)
 
     def tearDown(self):
@@ -499,9 +507,14 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
             scopes=scopes,
         )
 
-    def test_trial_can_append_own_log_without_general_task_write_access(self) -> None:
+    @parameterized.expand([("trial", "scout_experiment_internal:read"), ("assessment", "internal_run:write")])
+    def test_trial_can_append_own_log_without_general_task_write_access(self, _name: str, runtime_scope: str) -> None:
         task, run = self.trial_tasks[0], self.trial_runs[0]
-        client = self._trial_log_client()
+        if runtime_scope == "internal_run:write":
+            task.origin_product = Task.OriginProduct.SIGNAL_REPORT
+            task.origin_key = "monitoring-assessment:synthetic"
+            task.save(update_fields=["origin_product", "origin_key"])
+        client = self._trial_log_client(scopes=f"task:read internal_run:read {runtime_scope}")
         base = f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/"
         entry = {"type": "info", "message": "Synthetic scout inspected recent activity"}
         log_objects: dict[str, str] = {}
@@ -609,6 +622,19 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
         assert run.state == original_state
         assert run.status == original_status
 
+        runtime_client = self._trial_log_client(
+            client_id=ARRAY_APP_CLIENT_ID_US, scopes="task:read internal_run:read internal_run:write"
+        )
+        run.refresh_from_db()
+        original_state = run.state
+        response = runtime_client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/", payload, format="json"
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        run.refresh_from_db()
+        assert run.state == original_state
+        assert run.status == original_status
+
     @parameterized.expand(
         [
             ("unbound",),
@@ -617,17 +643,28 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
             ("unregistered_token",),
             ("foreign_client",),
             ("gateway_only",),
+            ("runtime_unbound",),
+            ("runtime_sibling_task",),
+            ("runtime_other_run",),
+            ("runtime_unregistered_token",),
+            ("runtime_foreign_client",),
+            ("runtime_gateway_only",),
+            ("runtime_mcp_read_only",),
         ]
     )
     def test_trial_log_append_requires_exact_trusted_run(self, case: str) -> None:
+        runtime_scope = "internal_run:write" if case.startswith("runtime_") else "scout_experiment_internal:read"
+        case = case.removeprefix("runtime_")
         task, run = self.trial_tasks[0], self.trial_runs[0]
         client = self._trial_log_client(
             bound=case != "unbound",
             client_id="synthetic-foreign-client" if case == "foreign_client" else ARRAY_APP_CLIENT_ID_DEV,
             scopes=(
-                "llm_gateway:read internal_run:read scout_experiment_internal:read"
+                "task:read internal_run:read signal_scout_internal:read"
+                if case == "mcp_read_only"
+                else f"llm_gateway:read internal_run:read {runtime_scope}"
                 if case == "gateway_only"
-                else "task:read internal_run:read scout_experiment_internal:read"
+                else f"task:read internal_run:read {runtime_scope}"
             ),
         )
         if case == "sibling_task":
@@ -650,6 +687,12 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
         response = client.patch(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
             {"status": "failed", "error_message": "Synthetic failure", "state": {"agent_version": "test-agent"}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        response = client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_output/",
+            {"output": {"resolved": True, "reasoning": "Untrusted result", "evidence_refs": []}},
             format="json",
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
@@ -8752,6 +8795,26 @@ class TestTaskRunAPI(BaseTaskAPITest):
         run.refresh_from_db()
         self.assertEqual(run.output, {"summary": "Final result"})
 
+        runtime_client = self._sandbox_oauth_client(task.id, scopes="task:read internal_run:read internal_run:write")
+        mock_signal_workflow_completion.reset_mock()
+        response = runtime_client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_output/",
+            {"output": {"summary": "Assessed result"}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert mock_signal_workflow_completion.call_count == expected_signals
+        run.refresh_from_db()
+        assert run.output == {"summary": "Assessed result"}
+        response = runtime_client.patch(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/set_output/",
+            {"output": {"unvalidated": True}},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        run.refresh_from_db()
+        assert run.output == {"summary": "Assessed result"}
+
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
     def test_set_output_publishes_stream_state_event(self, mock_publish_stream_state_event):
         task = self.create_task()
@@ -14570,13 +14633,23 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
                 Task.Runtime.ACP,
                 "permission_response",
                 {"requestId": "perm-1", "optionId": "allow"},
+                False,
                 status.HTTP_200_OK,
+            ),
+            (
+                "permission_response_posthog_ai_denied",
+                Task.Runtime.ACP,
+                "permission_response",
+                {"requestId": "perm-1", "optionId": "allow"},
+                True,
+                status.HTTP_403_FORBIDDEN,
             ),
             (
                 "pi_permission_response",
                 Task.Runtime.PI,
                 "pi/rpc",
                 {"command": {"id": "req-1", "type": "permission_response", "optionId": "allow"}},
+                False,
                 status.HTTP_200_OK,
             ),
             (
@@ -14588,6 +14661,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
                     "server": "playwright",
                     "payload": {"jsonrpc": "2.0", "id": 1, "result": {"content": []}},
                 },
+                False,
                 status.HTTP_503_SERVICE_UNAVAILABLE,
             ),
             (
@@ -14595,6 +14669,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
                 Task.Runtime.PI,
                 "pi/rpc",
                 {"command": {"id": "req-1", "type": "prompt", "message": "continue"}},
+                False,
                 status.HTTP_503_SERVICE_UNAVAILABLE,
             ),
         ]
@@ -14610,6 +14685,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         runtime: Task.Runtime,
         method: str,
         params: dict[str, Any],
+        posthog_ai_denied: bool,
         expected_status: int,
         mock_post: MagicMock,
         _mock_access: MagicMock,
@@ -14617,6 +14693,9 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         reset_sandbox_jwt_key_cache()
         self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "id": "req-1", "result": {"accepted": True}})
         task = self.create_task(runtime=runtime)
+        if posthog_ai_denied:
+            self._posthog_ai_access = tasks_access.PostHogAIAccessDecision.BETA_OFF
+            Task.objects.filter(id=task.id).update(origin_product=Task.OriginProduct.POSTHOG_AI)
         run = self._create_run_with_sandbox(task)
 
         response = self.client.post(
@@ -14629,7 +14708,8 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         if expected_status == status.HTTP_200_OK:
             mock_post.assert_called_once()
         else:
-            self.assertEqual(response.json()["code"], "desktop_access_unavailable")
+            expected_code = "task_unavailable" if posthog_ai_denied else "desktop_access_unavailable"
+            self.assertEqual(response.json()["code"], expected_code)
             mock_post.assert_not_called()
 
     @parameterized.expand(
@@ -14948,10 +15028,20 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(forwarded["method"], "side_question")
         self.assertEqual(forwarded["params"]["question"], "what does it do?")
 
+    @parameterized.expand(
+        [
+            ("desktop_denied", False, Task.OriginProduct.USER_CREATED, "code_access_required"),
+            ("posthog_ai_denied", True, Task.OriginProduct.POSTHOG_AI, "task_unavailable"),
+        ]
+    )
     @patch("products.tasks.backend.presentation.views.api.http_requests.post")
-    def test_command_side_question_requires_code_access(self, mock_post):
-        self.set_tasks_feature_flag(False)
+    def test_command_side_question_requires_access(
+        self, _name: str, desktop_access: bool, origin_product: str, expected_code: str, mock_post
+    ):
+        self.set_tasks_feature_flag(desktop_access)
+        self._posthog_ai_access = tasks_access.PostHogAIAccessDecision.BETA_OFF
         task = self.create_task()
+        Task.objects.filter(id=task.id).update(origin_product=origin_product)
         run = self._create_run_with_sandbox(task)
 
         response = self.client.post(
@@ -14961,7 +15051,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json()["code"], "code_access_required")
+        self.assertEqual(response.json()["code"], expected_code)
         mock_post.assert_not_called()
 
     @patch("products.tasks.backend.presentation.views.api.http_requests.post")

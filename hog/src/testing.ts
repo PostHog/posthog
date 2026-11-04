@@ -3,7 +3,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs'
 import type { ApiToolLibrary } from '@posthog/mcp/src/cli/library-types'
 
 import type { Prompts } from '@/core/prompts'
-import type { Env, Runtime } from '@/core/runtime'
+import type { Env, Runtime, Secrets } from '@/core/runtime'
 
 import { run } from './cli'
 
@@ -20,10 +20,14 @@ export interface FakeRuntimeOptions {
     answers?: string[]
     // Answers every API request. Without it, requests fail with HTTP 500. A string body is sent
     // as is, for JSON that JSON.stringify can't produce.
-    respond?: (url: string, body: unknown) => { status: number; body: unknown }
+    respond?: (url: string, body: unknown, authorization: string | null) => { status: number; body: unknown }
     telemetryToken?: string
     // The MCP tool catalog `hog api` loads. Without it, loading the catalog fails the test.
     apiTools?: ApiToolLibrary
+    // Items already in the keychain, by name.
+    keychain?: Record<string, string>
+    // Replaces the keychain, to fake one that is slow, unavailable or denied.
+    secrets?: (runtime: FakeRuntime) => Secrets
 }
 
 export interface FakeRuntime extends Runtime {
@@ -33,6 +37,7 @@ export interface FakeRuntime extends Runtime {
     files: Record<string, string>
     opened: string[]
     tls: { verify: boolean }
+    keychain: Record<string, string>
 }
 
 function fakePrompts(answers: string[]): Prompts {
@@ -53,6 +58,80 @@ function fakePrompts(answers: string[]): Prompts {
     }
 }
 
+// Requests carry JSON, except OAuth requests, which are form encoded.
+function parseBody(body: string): unknown {
+    try {
+        return JSON.parse(body)
+    } catch {
+        return Object.fromEntries(new URLSearchParams(body))
+    }
+}
+
+function memorySecrets(items: Record<string, string>): Secrets {
+    return {
+        get: async (name) => items[name] ?? null,
+        set: async (name, value) => {
+            items[name] = value
+        },
+        delete: async (name) => {
+            const existed = name in items
+            delete items[name]
+            return existed
+        },
+    }
+}
+
+// A clock that only moves when hog sleeps, so polling runs instantly. Timers fire in the order they
+// are due, and only once no other work is left, so a race between a timeout and a slow call ends as
+// it would in real time.
+function fakeClock(start: number): { now: () => number; sleep: Runtime['sleep'] } {
+    let clock = start
+    let sequence = 0
+    let scheduled = false
+    const timers: { at: number; sequence: number; fire: () => void }[] = []
+    const fireNext = (): void => {
+        scheduled = false
+        timers.sort((a, b) => a.at - b.at || a.sequence - b.sequence)
+        const next = timers.shift()
+        if (next) {
+            clock = Math.max(clock, next.at)
+            next.fire()
+            schedule()
+        }
+    }
+    const schedule = (): void => {
+        if (!scheduled && timers.length > 0) {
+            scheduled = true
+            setImmediate(fireNext)
+        }
+    }
+    return {
+        now: () => clock,
+        sleep: (ms, signal) =>
+            new Promise((resolve) => {
+                if (signal?.aborted) {
+                    resolve()
+                    return
+                }
+                const timer = { at: clock + ms, sequence: sequence++, fire: resolve }
+                timers.push(timer)
+                signal?.addEventListener(
+                    'abort',
+                    () => {
+                        // A timer that already fired is gone, and splice(-1) would drop another one.
+                        const index = timers.indexOf(timer)
+                        if (index >= 0) {
+                            timers.splice(index, 1)
+                        }
+                        resolve()
+                    },
+                    { once: true }
+                )
+                schedule()
+            }),
+    }
+}
+
 export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
     let stdout = ''
     let stderr = ''
@@ -60,10 +139,12 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
     const files = { ...options.files }
     const opened: string[] = []
     const tls = { verify: true }
-    // A clock that only moves when hog sleeps, so polling runs instantly.
-    let clock = Date.UTC(2026, 0, 1)
-    return {
+    const keychain = { ...options.keychain }
+    const clock = fakeClock(Date.UTC(2026, 0, 1))
+    const runtime: FakeRuntime = {
         env: options.env ?? {},
+        platform: 'linux',
+        isDevelopment: false,
         stdinIsTTY: options.stdoutIsTTY ?? false,
         stdoutIsTTY: options.stdoutIsTTY ?? false,
         stdoutHasColors: options.stdoutIsTTY ?? false,
@@ -76,16 +157,18 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
         },
         fetch: (async (input: string | URL | Request, init?: RequestInit) => {
             const url = String(input)
-            const body = init?.body === undefined ? undefined : JSON.parse(String(init.body))
+            const body = init?.body === undefined ? undefined : parseBody(String(init.body))
             requests.push({ method: init?.method ?? 'GET', url, body })
-            const reply = options.respond?.(url, body) ?? { status: 500, body: { detail: 'no fake response' } }
+            const authorization = new Headers(init?.headers).get('authorization')
+            const reply = options.respond?.(url, body, authorization) ?? {
+                status: 500,
+                body: { detail: 'no fake response' },
+            }
             const text = typeof reply.body === 'string' ? reply.body : JSON.stringify(reply.body)
             return new Response(text, { status: reply.status })
         }) as typeof fetch,
-        now: () => clock,
-        sleep: async (ms) => {
-            clock += ms
-        },
+        now: clock.now,
+        sleep: clock.sleep,
         homeDir: () => '/home/test',
         cwd: () => options.cwd ?? '/work',
         // A path exists when it is a file, or a folder some file sits under.
@@ -128,6 +211,13 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
         writePrivateFile: async (path, contents) => {
             files[path] = contents
         },
+        createFile: async (path, contents) => {
+            if (path in files) {
+                return false
+            }
+            files[path] = contents
+            return true
+        },
         removeFile: async (path) => {
             delete files[path]
         },
@@ -137,6 +227,7 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
             return true
         },
         prompts: fakePrompts([...(options.answers ?? [])]),
+        secrets: memorySecrets(keychain),
         telemetryToken: options.telemetryToken,
         skipTlsVerification: () => {
             tls.verify = false
@@ -153,12 +244,17 @@ export function fakeRuntime(options: FakeRuntimeOptions = {}): FakeRuntime {
         files,
         opened,
         tls,
+        keychain,
     }
+    if (options.secrets) {
+        runtime.secrets = options.secrets(runtime)
+    }
+    return runtime
 }
 
 // Credentials that pass validation, plus NO_COLOR so text output has no escape codes.
 export const TEST_CREDENTIALS = {
-    HOG_API_KEY: 'phx_test',
+    HOG_PERSONAL_API_KEY: 'phx_test',
     HOG_PROJECT_ID: '7',
     HOG_HOST: 'https://ph.example.com',
     NO_COLOR: '1',
@@ -173,6 +269,7 @@ export interface HogRun {
     opened: string[]
     elapsedMs: number
     tls: { verify: boolean }
+    keychain: Record<string, string>
     json: () => any
     error: () => any
 }
@@ -190,6 +287,7 @@ export async function runHog(argv: string[], options: FakeRuntimeOptions = {}): 
         opened: runtime.opened,
         elapsedMs: runtime.now() - start,
         tls: runtime.tls,
+        keychain: runtime.keychain,
         json: () => JSON.parse(runtime.stdout()),
         error: () => JSON.parse(runtime.stderr()).error,
     }

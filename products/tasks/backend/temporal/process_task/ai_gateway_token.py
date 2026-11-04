@@ -98,6 +98,7 @@ MINTABLE_PRODUCTS = frozenset(
         "posthog_ai",
         "account_audit",
         "onboarding",
+        "conversations",
         "background_agents",
         "posthog_code",
         "review_hog",
@@ -261,6 +262,8 @@ def mint_refusal(
     """Why a routed run must not mint."""
     if ai_product == "account_audit" and (origin_product != "account_audit" or not internal):
         return "no_account_audit_provenance"
+    if ai_product == "conversations" and (origin_product != "support_reply" or not internal):
+        return "no_conversations_provenance"
     if ai_product == "background_agents" and (origin_product not in BACKGROUND_AGENTS_ORIGINS or not internal):
         return "no_background_agents_provenance"
     if ai_product == "slack_app" and not has_slack_provenance(
@@ -383,6 +386,7 @@ def mint_scoped_token(
     expires_in_seconds: int | None = None,
     gateway_config: "AIGatewayConfig | None" = None,
     raise_on_failure: bool = False,
+    run_id: str | None = None,
 ) -> str | None:
     """Mint a `phe_` scoped token pinned to (ai_product, obo=team_id), or None on failure.
 
@@ -410,6 +414,8 @@ def mint_scoped_token(
     }
     if user:
         body["user"] = user
+    if run_id:
+        body["run"] = run_id
     pin = allowed_models if allowed_models is not None else _PRODUCT_ALLOWED_MODELS.get(ai_product)
     if pin:
         body["allowed_models"] = gateway_pin(pin)

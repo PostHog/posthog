@@ -142,6 +142,21 @@ CREATE TABLE posthog.email_status_data (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.email_status_data', '{replica}-{shard}', version) ORDER BY (team_id, message_id) PARTITION BY toYYYYMMDD(created_at) TTL toDate(created_at) + toIntervalDay(31) SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1;
+CREATE TABLE posthog.email_status_events_data (
+  team_id Int64,
+  message_id UUID,
+  status LowCardinality(String),
+  version UInt64,
+  created_at DateTime64(6, 'UTC'),
+  status_at DateTime64(6, 'UTC'),
+  reason String,
+  recipient String,
+  function_id String,
+  sending_domain LowCardinality(String),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.email_status_events_data', '{replica}-{shard}') ORDER BY (team_id, created_at, message_id, status_at) PARTITION BY toYYYYMMDD(created_at) TTL toDate(created_at) + toIntervalDay(31) SETTINGS index_granularity = 1024, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.error_tracking_issue_fingerprint_overrides (
   team_id Int64,
   fingerprint String,
@@ -369,6 +384,18 @@ CREATE TABLE posthog.kafka_email_status (
   status_at DateTime64(6, 'UTC'),
   reason String
 ) ENGINE = Kafka(warpstream_cyclotron) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_email_status', kafka_max_block_size = 100000, kafka_num_consumers = 1, kafka_poll_timeout_ms = 10000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_email_status';
+CREATE TABLE posthog.kafka_email_status_events (
+  team_id Int64,
+  message_id UUID,
+  status LowCardinality(String),
+  version UInt64,
+  created_at DateTime64(6, 'UTC'),
+  status_at DateTime64(6, 'UTC'),
+  reason String,
+  recipient String,
+  function_id String,
+  sending_domain LowCardinality(String)
+) ENGINE = Kafka(warpstream_cyclotron) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_email_status_events', kafka_max_block_size = 100000, kafka_num_consumers = 1, kafka_poll_timeout_ms = 10000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_email_status';
 CREATE TABLE posthog.kafka_error_tracking_fingerprint_issue_state (
   team_id Int64,
   fingerprint String,
@@ -1547,7 +1574,9 @@ CREATE TABLE posthog.metrics4_input (
   attributes Map(LowCardinality(String), String),
   _partition UInt32,
   _topic String,
-  _offset UInt64
+  _offset UInt64,
+  _source_topic String,
+  _source_partition UInt32
 ) ENGINE = Null();
 CREATE TABLE posthog.metrics4_names (
   team_id Int32,
@@ -2134,6 +2163,8 @@ CREATE TABLE posthog.sharded_experiment_exposures_preaggregated (
   team_id Int64,
   job_id UUID,
   entity_id String,
+  distinct_id String,
+  person_id UUID DEFAULT toUUIDOrZero(entity_id),
   variant String,
   first_exposure_time DateTime64(6, 'UTC'),
   last_exposure_time DateTime64(6, 'UTC'),
@@ -2147,6 +2178,8 @@ CREATE TABLE posthog.sharded_experiment_metric_events_preaggregated (
   team_id Int64,
   job_id UUID,
   entity_id String,
+  distinct_id String,
+  person_id UUID DEFAULT toUUIDOrZero(entity_id),
   timestamp DateTime64(6, 'UTC'),
   event_uuid UUID,
   session_id String,
@@ -4562,6 +4595,21 @@ CREATE MATERIALIZED VIEW posthog.duplicate_events_mv TO posthog.writable_duplica
   _offset,
   _partition
 FROM posthog.kafka_duplicate_events;
+CREATE MATERIALIZED VIEW posthog.email_status_events_mv TO posthog.email_status_events_data (team_id Int64, message_id UUID, status LowCardinality(String), version UInt64, created_at DateTime64(6, 'UTC'), status_at DateTime64(6, 'UTC'), reason String, recipient String, function_id String, sending_domain LowCardinality(String), _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
+  team_id,
+  message_id,
+  status,
+  version,
+  created_at,
+  status_at,
+  reason,
+  recipient,
+  function_id,
+  sending_domain,
+  _timestamp,
+  _offset,
+  _partition
+FROM posthog.kafka_email_status_events;
 CREATE MATERIALIZED VIEW posthog.email_status_mv TO posthog.email_status_data (team_id Int64, message_id UUID, status LowCardinality(String), version UInt64, created_at DateTime64(6, 'UTC'), status_at DateTime64(6, 'UTC'), reason String, _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
   team_id,
   message_id,
@@ -4573,7 +4621,8 @@ CREATE MATERIALIZED VIEW posthog.email_status_mv TO posthog.email_status_data (t
   _timestamp,
   _offset,
   _partition
-FROM posthog.kafka_email_status;
+FROM posthog.kafka_email_status
+WHERE status NOT IN ('opened', 'clicked');
 CREATE MATERIALIZED VIEW posthog.error_tracking_fingerprint_issue_state_mv TO posthog.writable_error_tracking_fingerprint_issue_state (team_id Int64, fingerprint String, issue_id UUID, issue_name Nullable(String), issue_description Nullable(String), issue_status String, issue_severity Nullable(String), assigned_user_id Nullable(Int64), assigned_role_id Nullable(UUID), first_seen DateTime64(3, 'UTC'), is_deleted Int8, version Int64, _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
   team_id,
   fingerprint,
@@ -4920,7 +4969,7 @@ CREATE MATERIALIZED VIEW posthog.kafka_logs_avro_kafka_metrics_mv TO posthog.log
 FROM posthog.logs34
 GROUP BY
   _partition, _topic;
-CREATE MATERIALIZED VIEW posthog.kafka_metrics_avro4_mv TO posthog.metrics4_input (uuid String, team_id Int32, metric_name String, series_fingerprint UInt64, resource_fingerprint UInt64, timestamp DateTime64(6), observed_timestamp DateTime64(6), original_expiry_timestamp DateTime64(6), service_name String, metric_type String, value Float64, count UInt64, histogram_bounds Array(Float64), histogram_counts Array(UInt64), trace_id String, span_id String, trace_flags Int32, has_labels Bool, unit String, aggregation_temporality String, is_monotonic UInt8, instrumentation_scope String, resource_attributes Map(String, String), attributes Map(String, String), _partition UInt64, _topic LowCardinality(String), _offset UInt64) AS SELECT
+CREATE MATERIALIZED VIEW posthog.kafka_metrics_avro4_mv TO posthog.metrics4_input (uuid String, team_id Int32, metric_name String, series_fingerprint UInt64, resource_fingerprint UInt64, timestamp DateTime64(6), observed_timestamp DateTime64(6), original_expiry_timestamp DateTime64(6), service_name String, metric_type String, value Float64, count UInt64, histogram_bounds Array(Float64), histogram_counts Array(UInt64), trace_id String, span_id String, trace_flags Int32, has_labels Bool, unit String, aggregation_temporality String, is_monotonic UInt8, instrumentation_scope String, resource_attributes Map(String, String), attributes Map(String, String), _partition UInt64, _topic LowCardinality(String), _offset UInt64, _source_topic String, _source_partition UInt32) AS SELECT
   uuid,
   toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
   ifNull(metric_name, '') AS metric_name,
@@ -4964,7 +5013,9 @@ CREATE MATERIALIZED VIEW posthog.kafka_metrics_avro4_mv TO posthog.metrics4_inpu
   ) AS attributes,
   _partition,
   _topic,
-  _offset
+  _offset,
+  _headers.value[indexOf(_headers.name, 'source_topic')] AS _source_topic,
+  toUInt32OrZero(_headers.value[indexOf(_headers.name, 'source_partition')]) AS _source_partition
 FROM posthog.kafka_metrics_avro4
 WHERE kafka_metrics_avro4.series_fingerprint IS NOT NULL
 SETTINGS
@@ -5346,7 +5397,7 @@ FROM
     GROUP BY
       team_id, metric_name, time_bucket, original_expiry_time_bucket, service_name, filtered_attributes
   );
-CREATE MATERIALIZED VIEW posthog.metrics4_input_to_metrics4_samples TO posthog.writable_metrics4_samples (team_id Int32, metric_name LowCardinality(String), time_bucket DateTime, series_fingerprint UInt64, original_expiry_date Date32, resource_fingerprint UInt64, service_name String, metric_type String, unit String, aggregation_temporality String, is_monotonic UInt8, has_labels UInt8, instrumentation_scope String, histogram_bounds Array(Float64), _topic String, timestamp_arr Array(DateTime64(6)), observed_timestamp_arr Array(DateTime64(6)), value_arr Array(Float64), count_arr Array(UInt64), histogram_counts_arr Array(Array(UInt64)), trace_id_arr Array(String), span_id_arr Array(String), trace_flags_arr Array(Int32)) AS SELECT
+CREATE MATERIALIZED VIEW posthog.metrics4_input_to_metrics4_samples TO posthog.writable_metrics4_samples (team_id Int32, metric_name LowCardinality(String), time_bucket DateTime, series_fingerprint UInt64, original_expiry_date Date32, resource_fingerprint UInt64, service_name String, metric_type String, unit String, aggregation_temporality String, is_monotonic UInt8, has_labels UInt8, instrumentation_scope String, histogram_bounds Array(Float64), _topic String, timestamp_arr Array(DateTime64(6)), value_arr Array(Float64), count_arr Array(UInt64), histogram_counts_arr Array(Array(UInt64)), trace_id_arr Array(String), span_id_arr Array(String), trace_flags_arr Array(Int32)) AS SELECT
   team_id,
   metric_name,
   toDateTime(toStartOfHour(timestamp)) AS time_bucket,
@@ -5363,7 +5414,6 @@ CREATE MATERIALIZED VIEW posthog.metrics4_input_to_metrics4_samples TO posthog.w
   anyLast(histogram_bounds) AS histogram_bounds,
   any(_topic) AS _topic,
   groupArray(10000)(timestamp) AS timestamp_arr,
-  groupArray(10000)(observed_timestamp) AS observed_timestamp_arr,
   groupArray(10000)(value) AS value_arr,
   groupArray(10000)(count) AS count_arr,
   groupArray(10000)(histogram_counts) AS histogram_counts_arr,
@@ -5390,14 +5440,24 @@ CREATE MATERIALIZED VIEW posthog.metrics4_input_to_metrics4_series TO posthog.wr
 FROM posthog.metrics4_input
 WHERE has_labels;
 CREATE MATERIALIZED VIEW posthog.metrics4_input_to_metrics_kafka_metrics TO posthog.writable_metrics_kafka_metrics (_partition UInt32, _topic String, max_offset SimpleAggregateFunction(max, UInt64), max_observed_timestamp SimpleAggregateFunction(max, DateTime64(6)), max_created_at SimpleAggregateFunction(max, DateTime)) AS SELECT
-  _partition,
-  _topic,
-  maxSimpleState(_offset) AS max_offset,
+  kafka_partition AS _partition,
+  kafka_topic AS _topic,
+  maxSimpleState(kafka_offset) AS max_offset,
   maxSimpleState(observed_timestamp) AS max_observed_timestamp,
   maxSimpleState(now()) AS max_created_at
-FROM posthog.metrics4_input
+FROM
+  (
+    SELECT
+      kafka_source.1 AS kafka_topic,
+      kafka_source.2 AS kafka_partition,
+      kafka_source.3 AS kafka_offset,
+      observed_timestamp
+    FROM
+      posthog.metrics4_input ARRAY JOIN [(_topic, _partition, _offset), (_source_topic, _source_partition, 0)] AS kafka_source
+    WHERE kafka_topic != ''
+  )
 GROUP BY
-  _partition, _topic;
+  kafka_partition, kafka_topic;
 CREATE MATERIALIZED VIEW posthog.performance_events_mv TO posthog.writeable_performance_events (uuid UUID, session_id String, window_id String, pageview_id String, distinct_id String, timestamp DateTime64(3), time_origin DateTime64(3, 'UTC'), entry_type LowCardinality(String), name String, team_id Int64, current_url String, start_time Float64, duration Float64, redirect_start Float64, redirect_end Float64, worker_start Float64, fetch_start Float64, domain_lookup_start Float64, domain_lookup_end Float64, connect_start Float64, secure_connection_start Float64, connect_end Float64, request_start Float64, response_start Float64, response_end Float64, decoded_body_size Int64, encoded_body_size Int64, initiator_type LowCardinality(String), next_hop_protocol LowCardinality(String), render_blocking_status LowCardinality(String), response_status Int64, transfer_size Int64, largest_contentful_paint_element String, largest_contentful_paint_render_time Float64, largest_contentful_paint_load_time Float64, largest_contentful_paint_size Float64, largest_contentful_paint_id String, largest_contentful_paint_url String, dom_complete Float64, dom_content_loaded_event Float64, dom_interactive Float64, load_event_end Float64, load_event_start Float64, redirect_count Int64, navigation_type LowCardinality(String), unload_event_end Float64, unload_event_start Float64, _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
   uuid,
   session_id,
@@ -6323,41 +6383,7 @@ CREATE VIEW posthog.metrics4_view AS SELECT
   time_bucket,
   series_fingerprint,
   resource_fingerprint,
-  timestamp,
-  observed_timestamp,
-  original_expiry_timestamp,
-  service_name,
-  metric_type,
-  value,
-  count,
-  histogram_bounds,
-  histogram_counts,
-  trace_id,
-  span_id,
-  trace_flags,
-  has_labels,
-  unit,
-  aggregation_temporality,
-  is_monotonic,
-  instrumentation_scope
-FROM posthog.metrics2
-WHERE
-  (time_bucket > toDateTime('2026-08-25 00:00:00'))
-AND
-  (time_bucket < toDateTime('2026-09-14 00:00:00'))
-AND
-  (timestamp > toDateTime('2026-08-25 00:00:00'))
-AND
-  (timestamp < toDateTime('2026-09-14 00:00:00'))
-UNION ALL
-SELECT
-  team_id,
-  metric_name,
-  time_bucket,
-  series_fingerprint,
-  resource_fingerprint,
   point_timestamp AS timestamp,
-  point_observed_timestamp AS observed_timestamp,
   toDateTime64(original_expiry_date, 6) AS original_expiry_timestamp,
   service_name,
   metric_type,
@@ -6374,7 +6400,7 @@ SELECT
   toBool(is_monotonic) AS is_monotonic,
   instrumentation_scope
 FROM
-  posthog.metrics4_samples ARRAY JOIN timestamp_arr AS point_timestamp, observed_timestamp_arr AS point_observed_timestamp, value_arr AS point_value, count_arr AS point_count, histogram_counts_arr AS point_histogram_counts, trace_id_arr AS point_trace_id, span_id_arr AS point_span_id, trace_flags_arr AS point_trace_flags
+  posthog.metrics4_samples ARRAY JOIN timestamp_arr AS point_timestamp, value_arr AS point_value, count_arr AS point_count, histogram_counts_arr AS point_histogram_counts, trace_id_arr AS point_trace_id, span_id_arr AS point_span_id, trace_flags_arr AS point_trace_flags
 WHERE time_bucket >= toDateTime('2026-09-14 00:00:00');
 CREATE VIEW posthog.persons_batch_export AS WITH
   new_persons AS (SELECT id, max(version) AS version, argMax(_timestamp, person.version) AS _timestamp2 FROM posthog.person WHERE (team_id = {team_id: Int64}) AND (id IN (SELECT id FROM posthog.person WHERE (team_id = {team_id: Int64}) AND (_timestamp >= {interval_start: DateTime64}) AND (_timestamp < {interval_end: DateTime64}))) GROUP BY id HAVING (_timestamp2 >= {interval_start: DateTime64}) AND (_timestamp2 < {interval_end: DateTime64})),
@@ -6660,6 +6686,21 @@ CREATE TABLE posthog.email_status (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('aux', 'posthog', 'email_status_data');
+CREATE TABLE posthog.email_status_events (
+  team_id Int64,
+  message_id UUID,
+  status LowCardinality(String),
+  version UInt64,
+  created_at DateTime64(6, 'UTC'),
+  status_at DateTime64(6, 'UTC'),
+  reason String,
+  recipient String,
+  function_id String,
+  sending_domain LowCardinality(String),
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = Distributed('aux', 'posthog', 'email_status_events_data');
 CREATE TABLE posthog.error_tracking_fingerprint_issue_state (
   team_id Int64,
   fingerprint String,
@@ -6810,6 +6851,8 @@ CREATE TABLE posthog.experiment_exposures_preaggregated (
   team_id Int64,
   job_id UUID,
   entity_id String,
+  distinct_id String,
+  person_id UUID DEFAULT toUUIDOrZero(entity_id),
   variant String,
   first_exposure_time DateTime64(6, 'UTC'),
   last_exposure_time DateTime64(6, 'UTC'),
@@ -6823,6 +6866,8 @@ CREATE TABLE posthog.experiment_metric_events_preaggregated (
   team_id Int64,
   job_id UUID,
   entity_id String,
+  distinct_id String,
+  person_id UUID DEFAULT toUUIDOrZero(entity_id),
   timestamp DateTime64(6, 'UTC'),
   event_uuid UUID,
   session_id String,

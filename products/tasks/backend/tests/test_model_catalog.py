@@ -3,6 +3,7 @@ from typing import Any
 import pytest
 from unittest.mock import patch
 
+from parameterized import parameterized
 from syrupy.extensions.json import JSONSnapshotExtension
 
 from products.tasks.backend import model_catalog
@@ -244,3 +245,18 @@ def test_every_model_resolves_to_its_catalog_flag() -> None:
     for model in model_catalog.MODELS:
         assert get_required_model_flag(model.id) == model.access_flag
         assert get_required_model_flag(f"anthropic/{model.id}") == model.access_flag
+
+
+@parameterized.expand(
+    [
+        ("claude-sonnet-5", True),
+        ("anthropic/claude-opus-5", True),
+        ("my-opus-alias", False),
+        ("deepseek-ai/deepseek-v4-flash-0731", False),
+        ("@cf/zai-org/glm-5.2", False),
+        ("moonshotai/kimi-k3", False),
+        (None, False),
+    ]
+)
+def test_is_anthropic_served_model(model_id: str | None, expected: bool) -> None:
+    assert model_catalog.is_anthropic_served_model(model_id) is expected

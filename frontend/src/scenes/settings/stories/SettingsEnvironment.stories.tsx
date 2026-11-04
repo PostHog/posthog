@@ -199,7 +199,6 @@ export const SettingsEnvironmentErrorTracking: Story = {
                     per_issue_rate_limit_value: null,
                     per_issue_rate_limit_bucket_size_minutes: null,
                     ingestion_enabled: true,
-                    linear_status_sync_enabled: false,
                 },
             },
         }),
@@ -292,6 +291,35 @@ export const SettingsEnvironmentBusinessKnowledgeLearningOnSupportOff: Story = {
                 '/api/projects/:id/business_knowledge/settings/': {
                     learn_from_support_enabled: true,
                     support_enabled: false,
+                },
+                '/api/projects/:id/business_knowledge/repositories/status/': {
+                    connected: false,
+                    integration_id: null,
+                    integration_name: '',
+                    repos: [],
+                },
+            },
+        }),
+    ],
+}
+
+export const SettingsEnvironmentBusinessKnowledgeLearningFromPastTickets: Story = {
+    args: { sectionId: 'environment-business-knowledge' },
+    parameters: { testOptions: { snapshotBrowsers: [] } },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:id/business_knowledge/settings/': {
+                    learn_from_support_enabled: true,
+                    support_enabled: true,
+                    learning_backfill: {
+                        status: 'running',
+                        started_at: '2023-05-24T22:00:00Z',
+                        finished_at: null,
+                        tickets_read: 42,
+                        tickets_in_progress: 3,
+                        knowledge_created: 7,
+                    },
                 },
                 '/api/projects/:id/business_knowledge/repositories/status/': {
                     connected: false,

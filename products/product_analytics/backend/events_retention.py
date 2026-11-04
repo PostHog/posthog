@@ -1,6 +1,9 @@
+from functools import partial
+
 from django.core.exceptions import ValidationError
 from django.db import transaction
 
+from posthog.event_usage import EventSource, report_user_action, sanitize_header_value
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.events_retention_config import (
     OrganizationEventsRetentionConfig,
@@ -14,6 +17,61 @@ from posthog.models.team.event_retention import organization_events_retention_mo
 from posthog.models.user import User
 
 from products.product_analytics.backend.facade.contracts import OrganizationEventsRetention
+
+
+def _report_retention_set(
+    organization: Organization,
+    team: Team | None,
+    user: User,
+    before: int | None,
+    months: int | None,
+    analytics_properties: dict[str, object] | None,
+    was_impersonated: bool,
+) -> None:
+    properties: dict[str, object] = {"source": "unknown"}
+    for key in (
+        "source",
+        "$current_url",
+        "$host",
+        "$pathname",
+        "$session_id",
+        "access_method",
+        "user_agent",
+        "mcp_user_agent",
+        "mcp_client_name",
+        "mcp_client_version",
+        "mcp_protocol_version",
+        "mcp_oauth_client_name",
+        "$mcp_session_id",
+        "$mcp_conversation_id",
+        "$ai_trace_id",
+    ):
+        value = (analytics_properties or {}).get(key)
+        if isinstance(value, str) and (sanitized := sanitize_header_value(value)):
+            properties[key] = sanitized
+    if properties["source"] not in {source.value for source in EventSource}:
+        properties["source"] = "unknown"
+    properties.update(
+        {
+            "scope": "project" if team else "organization",
+            "organization_id": str(organization.id),
+            "retention_months": months,
+            "previous_retention_months": before,
+            "was_impersonated": was_impersonated,
+        }
+    )
+    if team:
+        properties["project_id"] = team.id
+    transaction.on_commit(
+        partial(
+            report_user_action,
+            user,
+            "events retention set",
+            properties,
+            organization=organization,
+            team=team,
+        )
+    )
 
 
 def organization_events_retention(organization: Organization) -> OrganizationEventsRetention:
@@ -44,7 +102,12 @@ def _check_allowed(retention: OrganizationEventsRetention, months: int | None) -
 
 
 def set_organization_events_retention(
-    organization: Organization, months: int | None, *, user: User, was_impersonated: bool
+    organization: Organization,
+    months: int | None,
+    *,
+    user: User,
+    was_impersonated: bool,
+    analytics_properties: dict[str, object] | None = None,
 ) -> None:
     with transaction.atomic():
         # Lock before reading, because save() writes the staff range too and must not write back a stale one.
@@ -61,6 +124,7 @@ def set_organization_events_retention(
             config.delete()
         else:
             config.save()
+        _report_retention_set(organization, None, user, before, months, analytics_properties, was_impersonated)
 
     log_activity(
         organization_id=organization.id,
@@ -79,7 +143,14 @@ def set_organization_events_retention(
     )
 
 
-def set_project_events_retention(team: Team, months: int | None, *, user: User, was_impersonated: bool) -> None:
+def set_project_events_retention(
+    team: Team,
+    months: int | None,
+    *,
+    user: User,
+    was_impersonated: bool,
+    analytics_properties: dict[str, object] | None = None,
+) -> None:
     with transaction.atomic():
         config = TeamEventsRetentionConfig.objects.filter(team_id=team.id).first()
         before = config.events_retention_months if config else None
@@ -93,6 +164,7 @@ def set_project_events_retention(team: Team, months: int | None, *, user: User, 
             config.events_retention_months = months
             config.full_clean()
             config.save()
+        _report_retention_set(team.organization, team, user, before, months, analytics_properties, was_impersonated)
 
     log_activity(
         organization_id=team.organization_id,

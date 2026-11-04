@@ -9,6 +9,7 @@ import { OverlayHost } from '@/ui/OverlayPortal'
 
 import { AssigneeSheet } from './AssigneeSheet'
 
+jest.mock('react-native-keyboard-controller', () => jest.requireActual('react-native-keyboard-controller/jest'))
 jest.mock('react-native-worklets', () => jest.requireActual('react-native-worklets/src/mock'))
 jest.mock('react-native-reanimated', () => ({
     ...jest.requireActual('react-native-reanimated/mock'),

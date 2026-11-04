@@ -665,7 +665,7 @@ class CommentPagination(StableCursorPagination):
         if self.is_first_page and len(data) < self.page_size:
             count = len(data)
         else:
-            count = self.counted_rows.count()
+            count = self.count_rows()
         return Response(
             {
                 "count": count,

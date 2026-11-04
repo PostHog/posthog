@@ -11,7 +11,7 @@ import { useRef, useState } from 'react'
 
 import { IconEye, IconImage, IconPencil } from '@posthog/icons'
 
-import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
+import { TextContent } from 'lib/components/Cards/TextCard/TextContent'
 import { EmojiPickerPopover } from 'lib/components/EmojiPicker/EmojiPickerPopover'
 import { useRichContentEditor } from 'lib/components/RichContentEditor'
 import { CommandEnterExtension } from 'lib/components/RichContentEditor/CommandEnterExtension'
