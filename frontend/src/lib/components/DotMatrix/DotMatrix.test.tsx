@@ -12,6 +12,37 @@ describe('DotMatrix', () => {
     beforeEach(() => initKeaTests())
     afterEach(cleanup)
 
+    it('highlights a hovered legend product without changing the selection or removing glyph slots', () => {
+        const selected = jest.fn()
+        const { container } = render(
+            <DotMatrix
+                data={[...data, { location: 'North', period: 'Morning', check: 'Quality', total: 5 }]}
+                fields={fields}
+                selectedSeries={['Safety']}
+                onSelectedSeriesChange={selected}
+            />
+        )
+        const safety = screen.getByRole('button', { name: 'Safety' })
+        const glyph = container.querySelector('.DotGlyph')!
+        fireEvent.mouseEnter(safety)
+        expect(glyph.querySelector('[data-series="Quality"]')?.getAttribute('opacity')).toBe('0.25')
+        expect(glyph.querySelector('[data-series="Safety"]')?.getAttribute('opacity')).toBe('1')
+        expect(glyph.querySelectorAll('circle')).toHaveLength(5)
+        fireEvent.mouseLeave(safety)
+        expect(glyph.querySelector('[data-series="Quality"]')?.getAttribute('opacity')).toBe('1')
+        expect(selected).not.toHaveBeenCalled()
+    })
+
+    it('scales use-case glyphs to a 13px pitch while retaining all rings', () => {
+        const { container } = render(
+            <DotGlyph series={[{ key: 'a' }]} values={{ a: 10 }} label="Example" columnsPerGroup={5} cellPitch={13} />
+        )
+        const glyph = container.querySelector('svg')!
+        expect(glyph.getAttribute('width')).toBe('65')
+        expect(glyph.getAttribute('height')).toBe('13')
+        expect(glyph.querySelectorAll('circle')).toHaveLength(3)
+    })
+
     it('exposes passive custom cell details on focus and dismisses them with Escape', async () => {
         const { container } = render(
             <DotMatrix

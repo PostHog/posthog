@@ -56,7 +56,7 @@ describe('AccountProductUsage history', () => {
             })
         )
         render(<AccountProductUsage {...props} />)
-        expect(await screen.findByText('Alice')).toBeTruthy()
+        expect(await screen.findByText('Alice +4')).toBeTruthy()
         expect(screen.queryByRole('img', { name: 'First use ever' })).toBeNull()
     })
     it('keeps names and counts while loading firsts, then hides marks immediately when switched off', async () => {
@@ -69,9 +69,9 @@ describe('AccountProductUsage history', () => {
                   })
         )
         const { rerender } = render(<AccountProductUsage {...props} includeFirstUse={false} />)
-        expect(await screen.findByText('Alice')).toBeTruthy()
+        expect(await screen.findByText('Alice +4')).toBeTruthy()
         rerender(<AccountProductUsage {...props} />)
-        expect(screen.getByText('Alice')).toBeTruthy()
+        expect(screen.getByText('Alice +4')).toBeTruthy()
         await waitFor(() =>
             expect(
                 query.mock.calls.filter(([request]) => request.kind === NodeKind.BookActivityFirstsQuery)
@@ -91,6 +91,6 @@ describe('AccountProductUsage history', () => {
         expect(await screen.findByRole('img', { name: 'First use ever' })).toBeTruthy()
         rerender(<AccountProductUsage {...props} includeFirstUse={false} />)
         expect(screen.queryByRole('img', { name: 'First use ever' })).toBeNull()
-        expect(screen.getByText('Alice')).toBeTruthy()
+        expect(screen.getByText('Alice +4')).toBeTruthy()
     })
 })

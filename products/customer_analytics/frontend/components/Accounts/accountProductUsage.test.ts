@@ -19,8 +19,9 @@ describe('accountProductUsage', () => {
         expect(matrix.getCell('summary', '2026-11-02').values).toEqual({ summary: 2 })
         const replay = props.rows.find((row) => row.productKey === 'replay')!
         expect(matrix.getCell(replay.key, '2026-11-02').values).toEqual({ replay: 7 })
-        expect(props.rows.filter(({ kind }) => kind === 'product')).toHaveLength(21)
-        expect(props.rows.find(({ label }) => label === 'Additional products')).toBeTruthy()
+        expect(props.rows.filter(({ kind }) => kind === 'product')).toHaveLength(2)
+        expect(props.rows.filter(({ kind }) => kind === 'group')).toHaveLength(1)
+        expect(props.rows.find(({ productKey }) => productKey === 'web')).toBeUndefined()
     })
 
     it('repeats a product in each use case with the same weekly count', () => {

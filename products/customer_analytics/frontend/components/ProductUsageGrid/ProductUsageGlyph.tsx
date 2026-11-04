@@ -16,6 +16,7 @@ export function ProductUsageGlyph({
     firstUse = [],
     interval = 'week',
     values: suppliedValues,
+    hoveredSeries,
 }: {
     result: BookActivityMatrixResult
     rowKey: string
@@ -24,6 +25,7 @@ export function ProductUsageGlyph({
     firstUse?: BookActivityMatrixFirstUse[]
     interval?: BookActivityInterval
     values?: Record<string, number>
+    hoveredSeries?: string | null
 }): JSX.Element {
     const presentation = getProductUsageGrouping(result.series, result.groupings, grouping)
     const values =
@@ -37,6 +39,8 @@ export function ProductUsageGlyph({
         <DotGlyph
             {...presentation}
             values={values}
+            cellPitch={grouping === 'usecase' ? 13 : 17}
+            hoveredSeries={hoveredSeries}
             firstUseSeries={getProductUsageFirstSeries(firstUse, rowKey, columnKey, interval)}
             sizeThresholds={[1, 5, 10]}
             label={`${result.rows.find(({ key }) => key === rowKey)?.label ?? rowKey}, ${columnKey}`}

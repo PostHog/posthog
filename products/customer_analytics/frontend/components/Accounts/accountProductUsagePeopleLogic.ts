@@ -136,7 +136,7 @@ export const accountProductUsagePeopleLogic: LogicWrapper<accountProductUsagePeo
                                                             .format('YYYY-MM-DD'),
                                               },
                                               interval: 'week',
-                                              peopleLimit: 3,
+                                              peopleLimit: 5,
                                               tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
                                           },
                                           { signal: controller.signal },

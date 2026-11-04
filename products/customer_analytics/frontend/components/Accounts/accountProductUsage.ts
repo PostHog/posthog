@@ -35,9 +35,16 @@ export function getAccountProductUsageProps(
         series: 'summary',
         value: [...(cells.get(key)?.values() ?? [])].filter((value) => value > 0).length,
     }))
+    const active = new Set(
+        result.data.filter((cell) => cell.row === accountId && cell.users > 0).map((cell) => cell.series)
+    )
     for (const group of presentation.groups) {
+        const items = (group.items ?? []).filter((key) => active.has(key))
+        if (!items.length) {
+            continue
+        }
         rows.push({ key: `group:${group.key}`, label: group.label, kind: 'group', color: group.color })
-        for (const productKey of group.items ?? []) {
+        for (const productKey of items) {
             const product = products.get(productKey)!
             const rowKey = JSON.stringify([group.key, productKey])
             rows.push({ key: rowKey, label: product.label, kind: 'product', productKey, color: product.color })

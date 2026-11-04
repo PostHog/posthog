@@ -1,7 +1,7 @@
 import './DotMatrix.scss'
 
 import clsx from 'clsx'
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 
 import { normalizeDotMatrixCountScale, normalizeDotMatrixData, normalizeDotMatrixSizeThresholds } from './dotMatrixData'
 import { DotMatrixLegend } from './DotMatrixLegend'
@@ -29,6 +29,7 @@ export function DotMatrix<D extends Record<string, unknown>>({
     trailingColumns,
     renderCell,
     renderTooltip,
+    tooltipInteractive,
     onCellClick,
     cellWidth = mode === 'dots' ? 110 : 64,
     rowClassName,
@@ -38,6 +39,7 @@ export function DotMatrix<D extends Record<string, unknown>>({
     emptyState = 'No data to display. Add data to see the matrix.',
     pageSize,
 }: DotMatrixProps<D>): JSX.Element {
+    const [hoveredSeries, setHoveredSeries] = useState<string | null>(null)
     const matrix = useMemo(
         () => normalizeDotMatrixData({ data, fields, rows, columns, series }),
         [data, fields, rows, columns, series]
@@ -49,6 +51,7 @@ export function DotMatrix<D extends Record<string, unknown>>({
         mode,
         series: coloredSeries,
         groups,
+        hoveredSeries,
         columnsPerGroup,
         firstUseSeries,
         sizeThresholds: resolvedSizeThresholds,
@@ -58,6 +61,7 @@ export function DotMatrix<D extends Record<string, unknown>>({
         aggregateSelection,
         renderCell,
         renderTooltip,
+        tooltipInteractive,
         onCellClick,
     }
 
@@ -73,6 +77,8 @@ export function DotMatrix<D extends Record<string, unknown>>({
                     selectedSeries={selectedSeries}
                     onSelectedSeriesChange={onSelectedSeriesChange}
                     labels={legend}
+                    hoveredSeries={hoveredSeries}
+                    onHoveredSeriesChange={setHoveredSeries}
                 />
             )}
             <DotMatrixTable

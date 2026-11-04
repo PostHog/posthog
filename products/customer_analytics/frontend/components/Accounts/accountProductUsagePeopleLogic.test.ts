@@ -38,7 +38,7 @@ describe('accountProductUsagePeopleLogic', () => {
             kind: NodeKind.BookActivityPeopleQuery,
             accountIds: ['account'],
             interval: 'week',
-            peopleLimit: 3,
+            peopleLimit: 5,
             dateRange: { date_from: '2026-10-26', date_to: null },
         })
         expect(logic.values.details?.firsts).toBeNull()

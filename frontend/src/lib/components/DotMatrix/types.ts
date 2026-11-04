@@ -81,6 +81,7 @@ export interface DotMatrixProps<D extends Record<string, unknown>>
     // onCellClick wraps the cell in a button, so custom content must be noninteractive in that case.
     renderCell?: (cell: DotMatrixCell<D>) => ReactNode
     renderTooltip?: (cell: DotMatrixCell<D>) => ReactNode
+    tooltipInteractive?: boolean
     onCellClick?: (cell: DotMatrixCell<D>) => void
     cellWidth?: number
     rowClassName?: (row: DotMatrixAxisItem) => string | null

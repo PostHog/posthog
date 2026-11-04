@@ -25,6 +25,7 @@ export interface DotMatrixCellProps<D extends Record<string, unknown>> extends P
     | 'aggregateSelection'
     | 'renderCell'
     | 'renderTooltip'
+    | 'tooltipInteractive'
     | 'onCellClick'
 > {
     cell: Cell<D>
@@ -32,6 +33,7 @@ export interface DotMatrixCellProps<D extends Record<string, unknown>> extends P
     column: DotMatrixColumn
     mode: 'dots' | 'count'
     series: DotMatrixSeries[]
+    hoveredSeries?: string | null
 }
 
 export function DotMatrixCell<D extends Record<string, unknown>>({
@@ -50,6 +52,8 @@ export function DotMatrixCell<D extends Record<string, unknown>>({
     aggregateSelection,
     renderCell,
     renderTooltip,
+    tooltipInteractive,
+    hoveredSeries,
     onCellClick,
 }: DotMatrixCellProps<D>): JSX.Element {
     const label = `${row.label ?? row.key}, ${column.label ?? column.key}`
@@ -71,6 +75,7 @@ export function DotMatrixCell<D extends Record<string, unknown>>({
             columnsPerGroup={columnsPerGroup}
             firstUseSeries={firstUseSeries?.(cell)}
             values={cell.values}
+            hoveredSeries={hoveredSeries}
             sizeThresholds={sizeThresholds}
             label={label}
         />
@@ -103,7 +108,13 @@ export function DotMatrixCell<D extends Record<string, unknown>>({
         </div>
     )
     return (
-        <Tooltip title={tooltipContent} delayMs={100} placement="bottom" className="DotMatrix__tooltip">
+        <Tooltip
+            interactive={tooltipInteractive}
+            title={tooltipContent}
+            delayMs={100}
+            placement="bottom"
+            className="DotMatrix__tooltip"
+        >
             {cellContent}
         </Tooltip>
     )

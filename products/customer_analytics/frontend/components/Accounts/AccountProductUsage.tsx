@@ -44,7 +44,9 @@ export function AccountProductUsage({
         )
         return (
             <AccountProductUsagePeople
-                people={people}
+                people={showDetails ? people : people.slice(0, 3)}
+                productLabel={result.series.find((product) => product.key === productKey)?.label ?? productKey}
+                partial={result.columns.find((column) => column.key === columnKey)?.partial}
                 firsts={includeFirstUse ? (details.firsts?.people ?? []) : []}
                 total={total}
                 columnKey={columnKey}

@@ -16,6 +16,8 @@ interface DotMatrixLegendProps {
     selectedSeries: string[]
     onSelectedSeriesChange?: (keys: string[]) => void
     labels?: DotMatrixLegendLabels
+    hoveredSeries?: string | null
+    onHoveredSeriesChange?: (key: string | null) => void
 }
 
 export function DotMatrixLegend({
@@ -27,6 +29,8 @@ export function DotMatrixLegend({
     selectedSeries,
     onSelectedSeriesChange,
     labels,
+    hoveredSeries,
+    onHoveredSeriesChange,
 }: DotMatrixLegendProps): JSX.Element {
     const itemLabel = labels?.itemLabel ?? 'series'
     const legendGroups = getDotMatrixGroups(series, groups)
@@ -41,7 +45,9 @@ export function DotMatrixLegend({
                         {group.series.map((item) => {
                             const itemClassName = clsx(
                                 'DotMatrix__legend-item',
-                                filtering && !selectedSeries.includes(item.key) && 'DotMatrix__legend-item--muted',
+                                ((hoveredSeries && hoveredSeries !== item.key) ||
+                                    (!hoveredSeries && filtering && !selectedSeries.includes(item.key))) &&
+                                    'DotMatrix__legend-item--muted',
                                 selectedSeries.includes(item.key) && 'DotMatrix__legend-item--selected'
                             )
                             const icon = (
@@ -57,6 +63,10 @@ export function DotMatrixLegend({
                                     type="tertiary"
                                     aria-pressed={selectedSeries.includes(item.key)}
                                     data-attr="dot-matrix-series"
+                                    onMouseEnter={() => onHoveredSeriesChange?.(item.key)}
+                                    onMouseLeave={() => onHoveredSeriesChange?.(null)}
+                                    onFocus={() => onHoveredSeriesChange?.(item.key)}
+                                    onBlur={() => onHoveredSeriesChange?.(null)}
                                     onClick={(event) =>
                                         onSelectedSeriesChange(
                                             toggleDotMatrixSeries(selectedSeries, item.key, event.shiftKey)
