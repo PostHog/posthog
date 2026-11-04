@@ -121,7 +121,6 @@ describe('InstructionsFormatter prompt snapshots', () => {
         )
     })
 
-    // Claude Code and Codex with the skills flag on, which is the rollout every cli client has.
     it('matches the exec command reference for cli clients with learn', async () => {
         const state = {
             ...claudeChatState({ [MCP_EXEC_SKILLS_FEATURE_FLAG]: true }),

@@ -337,11 +337,6 @@ export class InstructionsFormatter {
             .join('\n\n')
     }
 
-    /**
-     * Build the guidance catalog served by `exec learn <topic...>`. The existing
-     * prompt sections remain the source of truth; only their delivery moves from
-     * the advertised schema to `learn`.
-     */
     buildExecLearnGuides(ctx: InstructionsContext): ExecLearnGuide[] {
         const entries: ExecLearnGuide[] = [
             {

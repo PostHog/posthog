@@ -86,9 +86,6 @@ function advertisedCommands(text: string): string[] {
     return namedCatalogTools(text)
 }
 
-/** Both surfaces an agent reads before its first call, in each reference variant:
- *  the compact one for clients with `learn`, Claude web/desktop's, and the full one
- *  for the plugin consumer. */
 function execGuidance(toolNames: string[]): string {
     const builder = new InstructionsBuilder('some guidelines')
     const state = (vendorClient?: string, renderUiEnabled = false, mcpConsumer?: string): ResolvedState =>
