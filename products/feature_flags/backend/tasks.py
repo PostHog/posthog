@@ -20,7 +20,6 @@ from posthog.storage.hypercache_manager import (
     HYPERCACHE_SIGNAL_UPDATE_COUNTER,
     get_cache_stats as get_cache_stats_generic,
 )
-from posthog.storage.team_metadata_cache import team_metadata_hypercache
 from posthog.tasks.utils import CeleryQueue, PushGatewayTask
 
 from products.feature_flags.backend.canary import run_local_eval_canary
@@ -244,18 +243,10 @@ def clear_team_evaluation_cache(team_id: int) -> None:
     max_retries=5,
 )
 @skip_team_scope_audit
-def clear_team_definitions_cache(team_id: int, api_token: str | None = None) -> None:
-    """Clear the /flags/definitions local-eval cache for a team, on team deletion or from staff tooling.
-
-    With `api_token`, also clear the team metadata cache, which the flags service reads to resolve the token.
-    """
-    try:
-        # strict_mirror raises on a failed delete of the shared Redis copy too, so the task retries it.
-        flag_definitions_hypercache.delete_cache_entry(team_id, strict_mirror=True)
-    finally:
-        # The entry is keyed by token, and a deleted team's token can no longer be looked up from its id.
-        if api_token:
-            team_metadata_hypercache.delete_cache_entry(api_token, strict_mirror=True)
+def clear_team_definitions_cache(team_id: int) -> None:
+    """Clear the /flags/definitions local-eval cache for a team, on team deletion or from staff tooling."""
+    # strict_mirror raises on a failed delete of the shared Redis copy too, so the task retries it.
+    flag_definitions_hypercache.delete_cache_entry(team_id, strict_mirror=True)
 
 
 @shared_task(bind=True, base=PushGatewayTask, ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS_LONG_RUNNING.value)

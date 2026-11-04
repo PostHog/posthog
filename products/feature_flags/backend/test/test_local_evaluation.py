@@ -17,7 +17,6 @@ from posthog.models.tag import Tag
 from posthog.models.team.team import Team
 from posthog.personhog_client.fake_client import get_active_fake
 from posthog.storage import object_storage
-from posthog.storage.team_metadata_cache import team_metadata_hypercache, update_team_metadata_cache
 from posthog.test.persons import _seed_group_type_mapping_into_fake, create_group_type_mapping
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 from posthog.utils import safe_cache_delete
@@ -430,18 +429,6 @@ class TestLocalEvaluationSignals(BaseTest):
             self.team.delete()
 
         assert flag_definitions_hypercache.cache_client.get(cache_key) is None
-        assert object_storage.read(cache_key, missing_ok=True) is None
-
-    def test_team_delete_clears_team_metadata_cache_in_redis_and_s3(self):
-        update_team_metadata_cache(self.team)
-        cache_key = team_metadata_hypercache.get_cache_key(self.team)
-        assert team_metadata_hypercache.cache_client.get(cache_key) is not None
-        assert object_storage.read(cache_key, missing_ok=True) is not None
-
-        with self.captureOnCommitCallbacks(execute=True):
-            self.team.delete()
-
-        assert team_metadata_hypercache.cache_client.get(cache_key) is None
         assert object_storage.read(cache_key, missing_ok=True) is None
 
     @parameterized.expand(["create", "soft_delete", "delete"])
