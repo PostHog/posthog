@@ -15,6 +15,13 @@ def _attachment(**fields: Any) -> dict[str, str]:
     return {"filename": "invoice.pdf", "content": "JVBERi0xLjQ=", **fields}
 
 
+def _refusal(fields: dict[str, Any]) -> CodeSendFieldRefused:
+    body = {"to": "user@example.com", "template_key": "welcome", "subject": "Hi", "text": "Hi", **fields}
+    with pytest.raises(CodeSendFieldRefused) as refused:
+        SendEmailSerializer(data=body).is_valid(raise_exception=True)
+    return refused.value
+
+
 class TestCodeSendFieldRefusals(SimpleTestCase):
     @parameterized.expand(
         [
@@ -23,7 +30,6 @@ class TestCodeSendFieldRefusals(SimpleTestCase):
             ("cc_with_two_addresses_in_one", {"cc": "jane@example.com, joe@example.com"}, "cc__0"),
             ("cc_with_an_ip_literal_domain", {"cc": ["jane@[192.0.2.1]"]}, "cc__0"),
             ("bcc_with_a_non_ascii_domain", {"bcc": ["jane@bücher.example"]}, "bcc__0"),
-            ("too_many_bcc", {"bcc": [f"user{i}@example.com" for i in range(11)]}, "bcc"),
             (
                 "content_that_is_not_base64",
                 {"attachments": [_attachment(content="not base64!")]},
@@ -67,7 +73,6 @@ class TestCodeSendFieldRefusals(SimpleTestCase):
                 {"attachments": [_attachment(**{"": "", "contentId": "logo"})]},
                 "attachments__0__",
             ),
-            ("too_many_attachments", {"attachments": [_attachment()] * 11}, "attachments"),
             (
                 "attachments_too_large",
                 {"attachments": [_attachment(content=base64.b64encode(b"x" * 300_000).decode())] * 2},
@@ -76,13 +81,30 @@ class TestCodeSendFieldRefusals(SimpleTestCase):
         ]
     )
     def test_refuses_an_extra_field_it_cannot_send(self, _name: str, fields: dict[str, Any], attr: str) -> None:
-        body = {"to": "user@example.com", "template_key": "welcome", "subject": "Hi", "text": "Hi", **fields}
+        refused = _refusal(fields)
 
-        with pytest.raises(CodeSendFieldRefused) as refused:
-            SendEmailSerializer(data=body).is_valid(raise_exception=True)
+        assert refused.get_codes() == {attr: "invalid_request"}
+        assert refused.why and refused.fix
 
-        assert refused.value.get_codes() == {attr: "invalid_request"}
-        assert refused.value.why and refused.value.fix
+    @parameterized.expand(
+        [
+            ("too_many_bcc", {"bcc": [f"user{i}@example.com" for i in range(11)]}, "bcc", "at most 10 addresses"),
+            ("too_many_attachments", {"attachments": [_attachment()] * 11}, "attachments", "at most 10 files"),
+            (
+                "filename_too_long",
+                {"attachments": [_attachment(filename="a" * 252 + ".pdf")]},
+                "attachments__0__filename",
+                "255 characters",
+            ),
+        ]
+    )
+    def test_explains_the_limit_a_refused_field_passed(
+        self, _name: str, fields: dict[str, Any], attr: str, fix: str
+    ) -> None:
+        refused = _refusal(fields)
+
+        assert refused.get_codes() == {attr: "invalid_request"}
+        assert fix in refused.fix
 
     @parameterized.expand(
         [

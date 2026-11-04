@@ -169,6 +169,17 @@ _ATTACHMENT_REASON = _Reason(
     why="PostHog attaches each file as it is sent, so each one needs a file name and base64 content.",
     fix="Send each attachment as `{filename, content}`, with `content` in base64.",
 )
+_ATTACHMENT_LIMIT_REASON = _Reason(
+    why="A transactional email has to arrive fast, and large attachments slow its delivery.",
+    fix=f"Send at most {MAX_ATTACHMENTS} files and {MAX_ATTACHMENTS_BYTES // 1024} KB in total, or link to "
+    "larger files from the email body.",
+)
+_COPY_LIMIT_REASON = _Reason(
+    why="A transactional email goes to one recipient, with copies for a few others.",
+    fix=f"Send at most {MAX_ADDRESSES_PER_FIELD} addresses in each of `cc` and `bcc`. To reach more people, send "
+    "each one their own email.",
+)
+_LIST_LIMIT_REASONS = {"cc": _COPY_LIMIT_REASON, "bcc": _COPY_LIMIT_REASON, "attachments": _ATTACHMENT_LIMIT_REASON}
 _REASONS_BY_CODE = {
     "not_base64": _Reason(
         why="Attachment content travels as base64 text inside the JSON body.",
@@ -181,10 +192,11 @@ _REASONS_BY_CODE = {
         why="Mailbox providers refuse emails that carry files that can run code, so the email would bounce.",
         fix="Send a different file type, or link to the file from the email body.",
     ),
-    "attachments_too_large": _Reason(
-        why="A transactional email has to arrive fast, and large attachments slow its delivery.",
-        fix=f"Send at most {MAX_ATTACHMENTS} files and {MAX_ATTACHMENTS_BYTES // 1024} KB in total, or link to "
-        "larger files from the email body.",
+    "attachments_too_large": _ATTACHMENT_LIMIT_REASON,
+    "max_length": _Reason(
+        why="PostHog puts the file name, MIME type and content ID into the email's headers, and takes at most 255 "
+        "characters for each.",
+        fix="Shorten the value to 255 characters or fewer.",
     ),
     "unsafe_filename": _Reason(
         why="The file name goes into the email's headers, where a path or a line break could change the email.",
@@ -244,8 +256,12 @@ def code_send_refusal(errors: Any) -> CodeSendFieldRefused | None:
     path, detail = _first_error(errors)
     if not path or path[0] not in CODE_SEND_EXTRA_FIELDS:
         return None
-    fallback = _ADDRESS_REASON if path[0] in ADDRESS_FIELDS else _ATTACHMENT_REASON
-    reason = _REASONS_BY_CODE.get(getattr(detail, "code", ""), fallback)
+    code = getattr(detail, "code", "")
+    if code == "max_length" and len(path) == 1:
+        reason = _LIST_LIMIT_REASONS[path[0]]
+    else:
+        fallback = _ADDRESS_REASON if path[0] in ADDRESS_FIELDS else _ATTACHMENT_REASON
+        reason = _REASONS_BY_CODE.get(code, fallback)
     return CodeSendFieldRefused(attr="__".join(path), detail=str(detail), reason=reason)
 
 
