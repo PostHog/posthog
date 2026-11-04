@@ -12,7 +12,7 @@ const CodeEditor = lazy(async () => ({ default: (await import('lib/monaco/CodeEd
 
 export function DotMatrixQueryEditor({ logic }: { logic: ReturnType<typeof accountDotMatrixTileLogic> }): JSX.Element {
     const { queryDraft, mappingDraft, matrixResult, matrixResultLoading, querySaveError } = useValues(logic)
-    const { setQueryDraft, setMappingDraft, runQuery, saveQuery } = useActions(logic)
+    const { setQueryDraft, setMappingDraft, runQuery, saveQuery, cancelQuery } = useActions(logic)
     const columns = matrixResult?.kind === 'hogql' ? (matrixResult.result.columns ?? []) : []
     const names = [...new Set(columns.filter((column): column is string => typeof column === 'string'))]
     return (
@@ -56,6 +56,9 @@ export function DotMatrixQueryEditor({ logic }: { logic: ReturnType<typeof accou
                     data-attr="dot-matrix-save-query"
                 >
                     Save source
+                </LemonButton>
+                <LemonButton type="tertiary" onClick={cancelQuery} data-attr="dot-matrix-cancel-query">
+                    Cancel
                 </LemonButton>
             </div>
             {matrixResult?.kind === 'hogql' && (

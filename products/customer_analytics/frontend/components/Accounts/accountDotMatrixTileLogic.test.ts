@@ -1,5 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
+
 import { cancelQueryOnServer } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { performQuery } from '~/queries/query'
 import { NodeKind } from '~/queries/schema/schema-general'
@@ -216,5 +218,242 @@ describe('accountDotMatrixTileLogic', () => {
         expect(superseded.signal?.aborted).toBe(true)
         expect(cancelQueryOnServer).toHaveBeenCalledTimes(1)
         logic.unmount()
+    })
+
+    describe('keeping the saved source until save', () => {
+        const SAVED_SQL = {
+            kind: 'hogql',
+            query: 'SELECT event AS r, 1 AS c',
+            mapping: { row: 'r', column: 'c' },
+        } as const
+        const SQL_RESPONSE = { columns: ['r', 'c'], results: [['saved', 1]] }
+        const DRAFT_RESPONSE = { columns: ['r', 'c'], results: [['draft', 1]] }
+        const dialog = jest.spyOn(LemonDialog, 'open')
+
+        beforeEach(() => {
+            dialog.mockReset()
+        })
+
+        it.each([
+            ['product usage', { source: { kind: 'product_usage' } }, BOOK_ACTIVITY_MATRIX_MOCK],
+            ['account activity', { source: { kind: 'usage_metrics' } }, EMPTY_ACCOUNT_ACTIVITY_MATRIX],
+            ['a legacy tile', { selectedSeries: [] }, EMPTY_ACCOUNT_ACTIVITY_MATRIX],
+        ])('picking Custom HogQL on %s saves nothing, and Cancel keeps its results', async (_, config, results) => {
+            mockPerformQuery.mockResolvedValue({ results })
+            const save = jest.fn()
+            const logic = accountDotMatrixTileLogic({
+                instanceId: 'pick-sql',
+                accountId: 'account-1',
+                initialConfig: config,
+                onConfigChange: save,
+            })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadMatrixSuccess']).toFinishAllListeners()
+            const savedConfig = logic.values.config
+            const savedResult = logic.values.matrixResult
+            expect(savedResult).not.toBeNull()
+
+            await expectLogic(logic, () => logic.actions.chooseSource('hogql')).toFinishAllListeners()
+
+            expect(save).not.toHaveBeenCalled()
+            expect(logic.values.config).toEqual(savedConfig)
+            expect(logic.values.queryEditorOpen).toBe(true)
+            expect(logic.values.sourceKind).toBe('hogql')
+
+            await expectLogic(logic, () => logic.actions.cancelQuery()).toFinishAllListeners()
+
+            expect(save).not.toHaveBeenCalled()
+            expect(logic.values.queryEditorOpen).toBe(false)
+            expect(logic.values.config).toEqual(savedConfig)
+            expect(logic.values.matrixResult).toEqual(savedResult)
+            expect(mockPerformQuery).toHaveBeenCalledTimes(1)
+            logic.unmount()
+        })
+
+        it('returns a new tile to the source picker on Cancel', async () => {
+            const save = jest.fn()
+            const logic = accountDotMatrixTileLogic({
+                instanceId: 'new-cancel',
+                accountId: 'account-1',
+                initialConfig: { source: null },
+                onConfigChange: save,
+            })
+            logic.mount()
+            await expectLogic(logic, () => logic.actions.chooseSource('hogql')).toFinishAllListeners()
+            mockPerformQuery.mockResolvedValue(DRAFT_RESPONSE)
+            logic.actions.setMappingDraft({ row: 'r', column: 'c' })
+            await expectLogic(logic, () => logic.actions.runQuery()).toDispatchActions(['loadMatrixSuccess'])
+
+            await expectLogic(logic, () => logic.actions.cancelQuery()).toFinishAllListeners()
+
+            expect(save).not.toHaveBeenCalled()
+            expect(logic.values.sourceKind).toBeNull()
+            expect(logic.values.matrixResult).toBeNull()
+            logic.unmount()
+        })
+
+        it('asks before a preset replaces saved SQL, and leaves it alone until confirmed', async () => {
+            mockPerformQuery.mockResolvedValue(SQL_RESPONSE)
+            const save = jest.fn()
+            const logic = accountDotMatrixTileLogic({
+                instanceId: 'replace-sql',
+                accountId: 'account-1',
+                initialConfig: { source: SAVED_SQL },
+                onConfigChange: save,
+            })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadMatrixSuccess']).toFinishAllListeners()
+            const queries = mockPerformQuery.mock.calls.length
+
+            await expectLogic(logic, () => logic.actions.chooseSource('product_usage')).toFinishAllListeners()
+
+            expect(dialog).toHaveBeenCalledTimes(1)
+            expect(save).not.toHaveBeenCalled()
+            expect(logic.values.config.source).toEqual(SAVED_SQL)
+            expect(mockPerformQuery).toHaveBeenCalledTimes(queries)
+
+            mockPerformQuery.mockResolvedValue({ results: BOOK_ACTIVITY_MATRIX_MOCK })
+            const primary = dialog.mock.calls[0][0].primaryButton
+            await expectLogic(logic, () => primary?.onClick?.({} as any)).toDispatchActions(['loadMatrixSuccess'])
+
+            expect(logic.values.config.source).toEqual({ kind: 'product_usage' })
+            expect(save).toHaveBeenLastCalledWith(expect.objectContaining({ source: { kind: 'product_usage' } }))
+            expect(logic.values.matrixResult?.kind).toBe('product_usage')
+            logic.unmount()
+        })
+
+        it('switches between presets without asking, since no SQL is lost', async () => {
+            const save = jest.fn()
+            const logic = accountDotMatrixTileLogic({
+                instanceId: 'preset-switch',
+                accountId: 'account-1',
+                initialConfig: { source: { kind: 'usage_metrics' } },
+                onConfigChange: save,
+            })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadMatrixSuccess']).toFinishAllListeners()
+            mockPerformQuery.mockResolvedValue({ results: BOOK_ACTIVITY_MATRIX_MOCK })
+
+            await expectLogic(logic, () => logic.actions.chooseSource('product_usage')).toDispatchActions([
+                'loadMatrixSuccess',
+            ])
+
+            expect(dialog).not.toHaveBeenCalled()
+            expect(logic.values.config.source).toEqual({ kind: 'product_usage' })
+            logic.unmount()
+        })
+
+        it('opens saved SQL when Custom HogQL is picked again, without resetting it', async () => {
+            mockPerformQuery.mockResolvedValue(SQL_RESPONSE)
+            const save = jest.fn()
+            const logic = accountDotMatrixTileLogic({
+                instanceId: 'repick-sql',
+                accountId: 'account-1',
+                initialConfig: { source: SAVED_SQL },
+                onConfigChange: save,
+            })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadMatrixSuccess']).toFinishAllListeners()
+
+            await expectLogic(logic, () => logic.actions.chooseSource('hogql')).toFinishAllListeners()
+
+            expect(save).not.toHaveBeenCalled()
+            expect(logic.values.queryDraft).toBe(SAVED_SQL.query)
+            expect(logic.values.mappingDraft).toEqual(SAVED_SQL.mapping)
+            expect(logic.values.matrixResult).toMatchObject({ kind: 'hogql', query: SAVED_SQL.query })
+            logic.unmount()
+        })
+
+        it('restores the saved query and its results when Cancel follows a draft run', async () => {
+            mockPerformQuery.mockResolvedValue(SQL_RESPONSE)
+            const save = jest.fn()
+            const logic = accountDotMatrixTileLogic({
+                instanceId: 'cancel-draft',
+                accountId: 'account-1',
+                initialConfig: { source: SAVED_SQL },
+                onConfigChange: save,
+            })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadMatrixSuccess']).toFinishAllListeners()
+
+            logic.actions.editQuery()
+            logic.actions.setQueryDraft('SELECT event AS r, 2 AS c')
+            mockPerformQuery.mockResolvedValue(DRAFT_RESPONSE)
+            await expectLogic(logic, () => logic.actions.runQuery()).toDispatchActions(['loadMatrixSuccess'])
+            expect(logic.values.matrixResult).toMatchObject({ query: 'SELECT event AS r, 2 AS c' })
+
+            mockPerformQuery.mockResolvedValue(SQL_RESPONSE)
+            await expectLogic(logic, () => logic.actions.cancelQuery()).toDispatchActions(['loadMatrixSuccess'])
+
+            expect(save).not.toHaveBeenCalled()
+            expect(logic.values.config.source).toEqual(SAVED_SQL)
+            expect(logic.values.queryEditorOpen).toBe(false)
+            expect(logic.values.matrixResult).toMatchObject({ kind: 'hogql', query: SAVED_SQL.query })
+
+            logic.actions.editQuery()
+            expect(logic.values.queryDraft).toBe(SAVED_SQL.query)
+            logic.unmount()
+        })
+
+        it('asks before picking a preset discards an edited draft on a preset tile', async () => {
+            const save = jest.fn()
+            const logic = accountDotMatrixTileLogic({
+                instanceId: 'discard-draft',
+                accountId: 'account-1',
+                initialConfig: { source: { kind: 'usage_metrics' } },
+                onConfigChange: save,
+            })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadMatrixSuccess']).toFinishAllListeners()
+            logic.actions.chooseSource('hogql')
+            logic.actions.setQueryDraft('SELECT 1')
+
+            await expectLogic(logic, () => logic.actions.chooseSource('usage_metrics')).toFinishAllListeners()
+
+            expect(dialog).toHaveBeenCalledTimes(1)
+            expect(logic.values.queryEditorOpen).toBe(true)
+            expect(logic.values.queryDraft).toBe('SELECT 1')
+            logic.unmount()
+        })
+
+        it('hides saved preset results while a new query is being written', async () => {
+            mockPerformQuery.mockResolvedValue({ results: BOOK_ACTIVITY_MATRIX_MOCK })
+            const logic = accountDotMatrixTileLogic({
+                instanceId: 'preset-hidden',
+                accountId: 'account-1',
+                initialConfig: { source: { kind: 'product_usage' } },
+            })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadMatrixSuccess']).toFinishAllListeners()
+            expect(logic.values.displayResult?.kind).toBe('product_usage')
+
+            logic.actions.chooseSource('hogql')
+            expect(logic.values.displayResult).toBeNull()
+
+            logic.actions.cancelQuery()
+            expect(logic.values.displayResult?.kind).toBe('product_usage')
+            logic.unmount()
+        })
+
+        it('keeps legend clicks on a draft out of the saved view', async () => {
+            mockPerformQuery.mockResolvedValue(SQL_RESPONSE)
+            const save = jest.fn()
+            const logic = accountDotMatrixTileLogic({
+                instanceId: 'draft-selection',
+                accountId: 'account-1',
+                initialConfig: { source: SAVED_SQL, selectedSeries: ['kept'] },
+                onConfigChange: save,
+            })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadMatrixSuccess']).toFinishAllListeners()
+            logic.actions.editQuery()
+
+            logic.actions.setSelectedSeries(['draft-only'])
+            expect(save).not.toHaveBeenCalled()
+
+            await expectLogic(logic, () => logic.actions.cancelQuery()).toFinishAllListeners()
+            expect(logic.values.config.selectedSeries).toEqual(['kept'])
+            logic.unmount()
+        })
     })
 })

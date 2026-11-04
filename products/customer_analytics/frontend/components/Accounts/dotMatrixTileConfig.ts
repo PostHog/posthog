@@ -11,9 +11,10 @@ export interface DotMatrixSourceMapping {
     value?: string
 }
 
+export type DotMatrixPresetSourceKind = 'usage_metrics' | 'product_usage'
+
 export type DotMatrixTileSource =
-    | { kind: 'usage_metrics' }
-    | { kind: 'product_usage' }
+    | { kind: DotMatrixPresetSourceKind }
     | { kind: 'hogql'; query: string; mapping: DotMatrixSourceMapping }
 
 export interface DotMatrixTileConfig {

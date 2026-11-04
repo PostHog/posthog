@@ -24,6 +24,8 @@ jest.mock('lib/components/DotMatrix/DotMatrix', () => ({
     ),
 }))
 
+jest.mock('lib/monaco/CodeEditor', () => ({ CodeEditor: () => <div data-attr="matrix-code-editor" /> }))
+
 const WITH_SERIES: AccountActivityMatrixResult = {
     ...EMPTY_ACCOUNT_ACTIVITY_MATRIX,
     series: [
@@ -131,5 +133,26 @@ describe('AccountDotMatrixTile', () => {
         mockPerformQuery.mockImplementation(response)
         render(<AccountDotMatrixTile accountId="account-1" instanceId="state-tile" />)
         expect(await screen.findByText(text)).toBeTruthy()
+    })
+
+    it('shows Cancel, not Edit query, while editing and returns to saved results on Cancel', async () => {
+        mockPerformQuery.mockResolvedValue({ columns: ['r', 'c'], results: [['saved', 1]] })
+        const onConfigChange = jest.fn()
+        render(
+            <AccountDotMatrixTile
+                accountId="account-1"
+                instanceId="edit-tile"
+                initialConfig={{ source: { kind: 'hogql', query: 'SELECT 1', mapping: { row: 'r', column: 'c' } } }}
+                onConfigChange={onConfigChange}
+            />
+        )
+        fireEvent.click(await screen.findByRole('button', { name: 'Edit query' }))
+        expect(screen.queryByRole('button', { name: 'Edit query' })).toBeNull()
+        expect(await screen.findByTestId('matrix-code-editor')).toBeTruthy()
+
+        fireEvent.click(screen.getByTestId('dot-matrix-cancel-query'))
+        expect(screen.queryByTestId('account-dot-matrix-query-editor')).toBeNull()
+        expect(screen.getByRole('button', { name: 'Edit query' })).toBeTruthy()
+        expect(onConfigChange).not.toHaveBeenCalled()
     })
 })

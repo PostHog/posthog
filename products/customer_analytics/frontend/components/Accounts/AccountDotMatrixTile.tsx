@@ -34,7 +34,7 @@ export function AccountDotMatrixTile({
         onConfigChange,
     })
     const {
-        matrixResult,
+        displayResult,
         matrixResultLoading,
         config,
         loadError,
@@ -65,16 +65,16 @@ export function AccountDotMatrixTile({
                         </LemonBanner>
                     ) : (
                         <>
-                            {matrixResult?.kind === 'product_usage' && !matrixResultLoading && (
+                            {displayResult?.kind === 'product_usage' && !matrixResultLoading && (
                                 <DotMatrixProductGroups
-                                    groupings={matrixResult.result.groupings}
+                                    groupings={displayResult.result.groupings}
                                     onSelect={setSelectedSeries}
                                 />
                             )}
                             {presentation.error && !queryEditorOpen && !matrixResultLoading ? (
                                 <LemonBanner type="warning">{presentation.error}</LemonBanner>
                             ) : (
-                                (matrixResultLoading || (matrixResult && !presentation.error)) && (
+                                (matrixResultLoading || (displayResult && !presentation.error)) && (
                                     <DotMatrix<AccountActivityMatrixDatum>
                                         {...presentation.matrix}
                                         mode={config.mode}

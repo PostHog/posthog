@@ -16,6 +16,7 @@ import {
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { uuid } from 'lib/utils/dom'
 import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
@@ -28,6 +29,7 @@ import type { AccountViewTileLogicProps } from './accountViewTileConfig'
 import { AccountsEvents } from './constants'
 import {
     getDotMatrixTileConfig,
+    type DotMatrixPresetSourceKind,
     type DotMatrixTileConfig,
     type DotMatrixTileSource,
     type DotMatrixSourceMapping,
@@ -49,6 +51,7 @@ export interface accountDotMatrixTileLogicValues {
     customerAnalyticsConfig: CustomerAnalyticsConfig // teamLogic
     activeMapping: DotMatrixSourceMapping
     config: DotMatrixTileConfig
+    displayResult: DotMatrixTileResult | null
     loadError: string | null
     mappingDraft: DotMatrixSourceMapping
     matrixResult: DotMatrixTileResult | null
@@ -60,8 +63,10 @@ export interface accountDotMatrixTileLogicValues {
         truncated: boolean
     }
     queryDraft: string
+    queryDraftDirty: boolean
     queryEditorOpen: boolean
     querySaveError: string | null
+    savedResultStale: boolean
     selectedSeries: string[]
     sourceKind: DotMatrixTileSource['kind'] | null
 }
@@ -71,8 +76,14 @@ export interface accountDotMatrixTileLogicActions {
     applyQuery: (source: DotMatrixTileSource) => {
         source: DotMatrixTileSource
     }
+    applySource: (kind: DotMatrixPresetSourceKind) => {
+        kind: DotMatrixPresetSourceKind
+    }
+    cancelQuery: () => {
+        value: true
+    }
     chooseSource: (kind: DotMatrixTileSource['kind'] | null) => {
-        kind: 'hogql' | 'product_usage' | 'usage_metrics' | null
+        kind: DotMatrixPresetSourceKind | 'hogql' | null
     }
     editQuery: () => {
         value: true
@@ -131,8 +142,17 @@ export interface accountDotMatrixTileLogicMeta {
             queryEditorOpen: boolean,
             mappingDraft: DotMatrixSourceMapping
         ) => DotMatrixSourceMapping
-        presentation: (
+        displayResult: (
             matrixResult: DotMatrixTileResult | null,
+            queryEditorOpen: boolean
+        ) => DotMatrixTileResult | null
+        queryDraftDirty: (
+            config: DotMatrixTileConfig,
+            queryDraft: string,
+            mappingDraft: DotMatrixSourceMapping
+        ) => boolean
+        presentation: (
+            displayResult: DotMatrixTileResult | null,
             config: DotMatrixTileConfig,
             activeMapping: DotMatrixSourceMapping
         ) => {
@@ -167,6 +187,19 @@ export type accountDotMatrixTileLogicType = MakeLogicType<
     accountDotMatrixTileLogicMeta
 >
 
+function confirmDiscard(dirty: boolean, discard: () => void): void {
+    if (!dirty) {
+        discard()
+        return
+    }
+    LemonDialog.open({
+        title: 'Discard your query changes?',
+        description: 'Your edits to this query have not been saved.',
+        primaryButton: { children: 'Discard changes', status: 'danger', onClick: () => discard() },
+        secondaryButton: { children: 'Keep editing' },
+    })
+}
+
 export const accountDotMatrixTileLogic: LogicWrapper<accountDotMatrixTileLogicType> =
     kea<accountDotMatrixTileLogicType>([
         props({} as AccountDotMatrixTileLogicProps),
@@ -176,6 +209,8 @@ export const accountDotMatrixTileLogic: LogicWrapper<accountDotMatrixTileLogicTy
         actions({
             restoreConfig: (config: DotMatrixTileConfig) => ({ config }),
             chooseSource: (kind: DotMatrixTileSource['kind'] | null) => ({ kind }),
+            applySource: (kind: DotMatrixPresetSourceKind) => ({ kind }),
+            cancelQuery: true,
             setMode: (mode: 'dots' | 'count') => ({ mode }),
             setWeeks: (weeks: DotMatrixWeeks) => ({ weeks }),
             setSelectedSeries: (selectedSeries: string[]) => ({ selectedSeries }),
@@ -244,11 +279,7 @@ export const accountDotMatrixTileLogic: LogicWrapper<accountDotMatrixTileLogicTy
                 getDotMatrixTileConfig(props.initialConfig),
                 {
                     restoreConfig: (_, { config }) => config,
-                    chooseSource: (config, { kind }) => ({
-                        ...config,
-                        selectedSeries: [],
-                        source: kind && kind !== 'hogql' ? { kind } : null,
-                    }),
+                    applySource: (config, { kind }) => ({ ...config, selectedSeries: [], source: { kind } }),
                     applyQuery: (config, { source }) => ({ ...config, selectedSeries: [], source }),
                     setMode: (config, { mode }) => ({ ...config, mode }),
                     setWeeks: (config, { weeks }) => ({ ...config, weeks }),
@@ -258,9 +289,10 @@ export const accountDotMatrixTileLogic: LogicWrapper<accountDotMatrixTileLogicTy
             queryEditorOpen: [
                 false,
                 {
-                    chooseSource: (_, { kind }) => kind === 'hogql',
                     editQuery: () => true,
+                    cancelQuery: () => false,
                     applyQuery: () => false,
+                    applySource: () => false,
                     restoreConfig: () => false,
                 },
             ],
@@ -274,6 +306,14 @@ export const accountDotMatrixTileLogic: LogicWrapper<accountDotMatrixTileLogicTy
                 DEFAULT_MATRIX_MAPPING as DotMatrixSourceMapping,
                 {
                     setMappingDraft: (_, { mapping }) => mapping,
+                },
+            ],
+            // Cancel only needs to reload when a draft or a discarded load replaced the saved source's result.
+            savedResultStale: [
+                false,
+                {
+                    editQuery: () => false,
+                    loadMatrix: (_, source) => source !== undefined,
                 },
             ],
             loadError: [
@@ -300,8 +340,24 @@ export const accountDotMatrixTileLogic: LogicWrapper<accountDotMatrixTileLogicTy
                 ): DotMatrixSourceMapping =>
                     editing ? draft : config.source?.kind === 'hogql' ? config.source.mapping : DEFAULT_MATRIX_MAPPING,
             ],
+            // A saved preset's result stays loaded for Cancel, but it isn't a preview of the SQL being written.
+            displayResult: [
+                (s) => [s.matrixResult, s.queryEditorOpen],
+                (result: DotMatrixTileResult | null, editing: boolean): DotMatrixTileResult | null =>
+                    editing && result?.kind !== 'hogql' ? null : result,
+            ],
+            queryDraftDirty: [
+                (s) => [s.config, s.queryDraft, s.mappingDraft],
+                (config: DotMatrixTileConfig, query: string, mapping: DotMatrixSourceMapping): boolean => {
+                    const saved = config.source?.kind === 'hogql' ? config.source : null
+                    return (
+                        query !== (saved?.query ?? DEFAULT_MATRIX_QUERY) ||
+                        !objectsEqual(mapping, saved?.mapping ?? DEFAULT_MATRIX_MAPPING)
+                    )
+                },
+            ],
             presentation: [
-                (s) => [s.matrixResult, s.config, s.activeMapping],
+                (s) => [s.displayResult, s.config, s.activeMapping],
                 (result: DotMatrixTileResult | null, config: DotMatrixTileConfig, mapping: DotMatrixSourceMapping) =>
                     getDotMatrixTilePresentation(result, config.selectedSeries, mapping, config.weeks),
             ],
@@ -339,18 +395,58 @@ export const accountDotMatrixTileLogic: LogicWrapper<accountDotMatrixTileLogicTy
         }),
         listeners(({ actions, props, values }) => ({
             chooseSource: ({ kind }) => {
-                props.onConfigChange?.({ ...values.config })
                 posthog.capture(AccountsEvents.DotMatrixSourceSelected, { source_kind: kind })
                 if (kind === 'hogql') {
-                    actions.setQueryDraft(DEFAULT_MATRIX_QUERY)
-                    actions.setMappingDraft(DEFAULT_MATRIX_MAPPING)
+                    if (!values.queryEditorOpen) {
+                        actions.editQuery()
+                    }
+                    return
                 }
+                if (!kind) {
+                    return
+                }
+                const saved = values.config.source === undefined ? { kind: 'usage_metrics' } : values.config.source
+                const editing = values.queryEditorOpen
+                if (kind === saved?.kind) {
+                    if (editing) {
+                        confirmDiscard(values.queryDraftDirty, () => actions.cancelQuery())
+                    }
+                    return
+                }
+                if (saved?.kind === 'hogql') {
+                    LemonDialog.open({
+                        title: 'Replace the saved query?',
+                        description: 'This tile will stop using its saved SQL, and the SQL will be removed.',
+                        primaryButton: {
+                            children: 'Replace query',
+                            status: 'danger',
+                            onClick: () => actions.applySource(kind),
+                        },
+                        secondaryButton: { children: 'Keep query' },
+                    })
+                    return
+                }
+                confirmDiscard(editing && values.queryDraftDirty, () => actions.applySource(kind))
+            },
+            applySource: () => {
+                props.onConfigChange?.({ ...values.config })
                 actions.loadMatrix()
             },
             editQuery: () => {
-                if (values.config.source?.kind === 'hogql') {
-                    actions.setQueryDraft(values.config.source.query)
-                    actions.setMappingDraft(values.config.source.mapping)
+                const saved = values.config.source
+                actions.setQueryDraft(saved?.kind === 'hogql' ? saved.query : DEFAULT_MATRIX_QUERY)
+                actions.setMappingDraft(saved?.kind === 'hogql' ? saved.mapping : DEFAULT_MATRIX_MAPPING)
+                if (saved?.kind !== 'hogql' && values.matrixResultLoading) {
+                    actions.loadMatrix(null)
+                }
+            },
+            cancelQuery: () => {
+                actions.restoreConfig({
+                    ...values.config,
+                    selectedSeries: getDotMatrixTileConfig(props.initialConfig).selectedSeries,
+                })
+                if (values.savedResultStale) {
+                    actions.loadMatrix()
                 }
             },
             runQuery: () => {
@@ -379,7 +475,9 @@ export const accountDotMatrixTileLogic: LogicWrapper<accountDotMatrixTileLogicTy
                 actions.loadMatrix(values.queryEditorOpen ? null : undefined)
             },
             setSelectedSeries: ({ selectedSeries }) => {
-                props.onConfigChange?.({ ...values.config })
+                if (!values.queryEditorOpen) {
+                    props.onConfigChange?.({ ...values.config })
+                }
                 posthog.capture(AccountsEvents.DotMatrixSeriesSelected, { selected_count: selectedSeries.length })
             },
             retry: () => {

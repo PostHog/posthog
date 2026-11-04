@@ -13,11 +13,11 @@ import { DOT_MATRIX_WEEK_OPTIONS, type DotMatrixWeeks } from './dotMatrixTileCon
 export function DotMatrixTileSettings({ logic }: { logic: ReturnType<typeof accountDotMatrixTileLogic> }): JSX.Element {
     const id = useId()
     const [open, setOpen] = useState(false)
-    const { config, sourceKind } = useValues(logic)
+    const { config, sourceKind, queryEditorOpen } = useValues(logic)
     const { chooseSource, setMode, setWeeks, editQuery } = useActions(logic)
     return (
         <div className="flex flex-wrap items-center justify-end gap-2">
-            {sourceKind === 'hogql' && (
+            {sourceKind === 'hogql' && !queryEditorOpen && (
                 <LemonButton size="small" onClick={editQuery}>
                     Edit query
                 </LemonButton>
