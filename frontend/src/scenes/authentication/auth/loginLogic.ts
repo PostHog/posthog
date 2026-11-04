@@ -70,6 +70,13 @@ export interface PrecheckResponseType {
 
 // Precheck result to fall back to when the request fails (e.g. rate limited). Without this the form
 // would stay stuck at `status: 'pending'`, which keeps the password field hidden and swallows submits.
+function resendFailureMessage(code: string | undefined, detail: string | undefined): string {
+    if (detail) {
+        return detail
+    }
+    return code === 'too_soon' ? 'Please wait before requesting another email' : 'Failed to resend email'
+}
+
 function precheckFallback(email: string): PrecheckResponseType {
     return {
         status: 'completed',
@@ -458,10 +465,8 @@ export const loginLogic = kea<loginLogicType>([
                         const { code, detail } = e as Record<string, any>
                         if (code === 'login_code_email_undeliverable') {
                             actions.setGeneralError(code, detail)
-                        } else if (code === 'too_soon') {
-                            lemonToast.error(detail || 'Please wait before requesting another email')
                         } else {
-                            lemonToast.error(detail || 'Failed to resend email')
+                            lemonToast.error(resendFailureMessage(code, detail))
                         }
                         return null
                     }
