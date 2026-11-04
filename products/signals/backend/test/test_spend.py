@@ -265,11 +265,21 @@ class TestSignalSpend(BaseTest):
             None if finalized else driver
         )
 
-    @parameterized.expand([("priced", 12_345), ("free", 0), ("cancelled", None), ("missing_id", None)])
+    @parameterized.expand(
+        [("priced", 12_345), ("cutover", 12_345), ("free", 0), ("cancelled", None), ("missing_id", None)]
+    )
     async def test_generation_waits_for_spend_without_regenerating(self, outcome: str, cost: int | None) -> None:
         driver = str(uuid4())
         response = Mock(_request_id=None if outcome == "missing_id" else "generation-1")
-        generate = AsyncMock(return_value=response)
+
+        async def generate_response():
+            if outcome == "cutover":
+                await Organization.objects.filter(id=self.organization.id).aupdate(
+                    usage={"signals_spend_credits": {"billing_start_date": timezone.now().date().isoformat()}}
+                )
+            return response
+
+        generate = AsyncMock(side_effect=generate_response)
         with (
             patch(
                 "products.signals.backend.llm_spend.fetch_gateway_cost",
@@ -310,6 +320,8 @@ class TestSignalSpend(BaseTest):
         assert spend.spend == cost_to_spend(cost or 0)
         assert spend.accounting_failed is (cost is None)
         assert spend.llm_failed_stages == (["summarization"] if cost is None else [])
+        if outcome == "cutover":
+            assert not spend.usage_billing
 
     @parameterized.expand([("unavailable",), ("hung",), ("activity_deadline",)])
     async def test_usage_timeout_preserves_completed_generation(self, outcome: str) -> None:
@@ -879,6 +891,8 @@ class TestSignalSpend(BaseTest):
                 original_table = cursor.fetchone()[0]
             with connection.schema_editor() as editor:
                 state = migration.Migration("0208_reset_signal_spend", "signals").apply(state, editor)
+                meter_migration = import_module("products.signals.backend.migrations.0233_signalspend_usage_billing")
+                state = meter_migration.Migration("0233_signalspend_usage_billing", "signals").apply(state, editor)
             spend = state.apps.get_model("signals", "SignalSpend")
             assert not spend.objects.exists()
             row = spend.objects.create(
@@ -890,6 +904,7 @@ class TestSignalSpend(BaseTest):
                 finalized_at=timezone.now(),
             )
             assert spend.objects.get(id=row.id).spend == Decimal("4.0123")
+            assert not spend.objects.get(id=row.id).usage_billing
             legacy_signal = old_spend.objects.create(
                 team_id=self.team.id,
                 signal_id=row.signal_id,
@@ -1076,7 +1091,7 @@ class TestSignalSpend(BaseTest):
             owner = SignalSpend.objects.for_team(self.team.id).get(
                 **({"scout_run_id": scout.id} if scout else {"signal_id": driver})
             )
-            assert owner.accounting_failed
+            assert not owner.accounting_failed
             assert owner.finalized_at is None
             self.temporal.start_workflow.assert_not_called()
             fetch.reset_mock()
@@ -1131,7 +1146,7 @@ class TestSignalSpend(BaseTest):
         scout.refresh_from_db()
         assert scout.total_spend == (Decimal("16.3456") if settled_before_owner else Decimal("4"))
         assert scout.metadata is not None
-        assert scout.metadata["spend_accounting_failed_stages"] == (["scout"] if settled_before_owner else [])
+        assert scout.metadata["spend_accounting_failed_stages"] == []
         task_run.status = TaskRun.Status.FAILED
         task_run.save(update_fields=["status"])
         self._set_task_cost(task_run, 123_456)
@@ -1141,12 +1156,36 @@ class TestSignalSpend(BaseTest):
         scout.refresh_from_db()
         assert scout.total_spend == Decimal("16.3456")
         assert scout.metadata is not None
-        assert scout.metadata["spend_accounting_failed_stages"] == ["scout"]
+        assert scout.metadata["spend_accounting_failed_stages"] == []
         self._set_task_cost(task_run, 123_457)
         scout.refresh_from_db()
         assert scout.total_spend == Decimal("16.3457")
         assert scout.metadata is not None
         assert scout.metadata["spend_accounting_failed_stages"] == []
+
+    @parameterized.expand([("subscription",), ("missing_cost",), ("gateway_error",)])
+    def test_unrecoverable_task_cost_does_not_remain_pending(self, failure: str) -> None:
+        driver = str(uuid4())
+        report = SignalReport.objects.create(team=self.team, triggering_signal_id=driver)
+        run = self._run(report=report)
+        self._set_task_cost(run, 100_000)
+        run.refresh_from_db()
+        run.status = TaskRun.Status.COMPLETED
+        run.state["unprocessed_request_ids"] = ["missing-request"]
+        if failure == "subscription":
+            run.state["token_cost_incomplete"] = True
+        run.save(update_fields=["state", "status"])
+        with patch(
+            "products.tasks.backend.logic.services.gateway_usage._fetch_gateway_cost",
+            new=AsyncMock(side_effect=RuntimeError("gateway unavailable"))
+            if failure == "gateway_error"
+            else AsyncMock(return_value=None),
+        ):
+            complete_task_spend(team_id=self.team.id, run_id=str(run.id), final_attempt=failure != "subscription")
+        spend = SignalSpend.objects.for_team(self.team.id).get(task_run_id=run.id)
+        assert spend.accounting_failed
+        assert spend.finalized_at is None
+        assert spend.spend == Decimal("14")
 
     @parameterized.expand([(TaskRun.Status.IN_PROGRESS,), (TaskRun.Status.COMPLETED,)])
     def test_reaped_scout_retries_accounting_until_gateway_cost_settles(self, status: str) -> None:

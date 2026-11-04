@@ -36,7 +36,12 @@ from products.signals.backend.models import (
     SignalSpend,
 )
 from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, _compute_row_hash
-from products.signals.backend.spend import complete_signal_pipeline, finish_report_spend, record_llm_spend
+from products.signals.backend.spend import (
+    complete_signal_pipeline,
+    finish_report_spend,
+    record_llm_spend,
+    record_task_spend,
+)
 from products.signals.backend.spend_billing import (
     get_signals_spend_billing_credits_by_team,
     get_signals_spend_quota_credits_by_team,
@@ -118,7 +123,10 @@ def _make_pr_run(
     )
     SignalReportTask.objects.create(team=team, report=report, task=task, relationship=relationship)
     run_output = output if output is not _UNSET else ({"pr_url": pr_url} if pr_url is not None else {})
-    return TaskRun.objects.create(team=team, task=task, output=run_output, created_at=created_at)
+    run = TaskRun.objects.create(team=team, task=task, output=run_output, created_at=created_at)
+    if relationship == TASK_RUN_TYPE_IMPLEMENTATION:
+        record_task_spend(team_id=team.id, run_id=str(run.id), report_id=str(report.id), stage="implementation")
+    return run
 
 
 def _make_refund(report: SignalReport, *, billing_path: str, pr_run_created_at: datetime | None = None) -> None:
@@ -169,6 +177,7 @@ class TestSignalsBilling(BaseTest):
                     kind=SignalSpend.Kind.AD_HOC,
                     signal_id=uuid4(),
                     spend=20,
+                    usage_billing=usage_billing,
                     finalized_at=_at(10),
                 )
         org_filter = (
@@ -571,6 +580,7 @@ class TestSpendBasedBilling(BaseTest):
     @cutoff.setter
     def cutoff(self, value: str | None) -> None:
         self.organization.usage = {"signals_spend_credits": {"billing_start_date": value}} if value else {}
+        self.organization.usage["period"] = [PERIOD_START.isoformat(), PERIOD_END.isoformat()]
         self.organization.save(update_fields=["usage"])
 
     def _generation(
@@ -648,6 +658,7 @@ class TestSpendBasedBilling(BaseTest):
                 report=None if signal_owned or scout else report,
                 task_run_id=(scout.task_run_id if scout else uuid4()) if kind != SignalSpend.Kind.AD_HOC else None,
                 spend=20,
+                usage_billing=True,
             )
             assert self._day(10) == {}
         with time_machine.travel(_at(10) + timedelta(minutes=10), tick=False):
@@ -671,20 +682,48 @@ class TestSpendBasedBilling(BaseTest):
                 self.team.id: 20
             }
 
-    def test_cutoff_uses_work_creation_and_is_evaluated_when_reporting(self) -> None:
+    def test_plan_changes_only_change_the_meter_for_new_work(self) -> None:
         legacy, usage = str(uuid4()), str(uuid4())
-        self.cutoff = None
-        with time_machine.travel(_at(10, 0) - timedelta(microseconds=1), tick=False):
+        self.cutoff = "2026-06-20"
+        with time_machine.travel(_at(10), tick=False):
+            legacy_report = _make_report(self.team)
+            _make_pr_run(self.team, legacy_report, created_at=_at(10))
             self._generation(legacy, 100_000, request_id="legacy")
-        with time_machine.travel(_at(10, 0), tick=False):
-            self._generation(usage, 200_000, request_id="usage")
+        assert dict(get_signals_billing_credits_by_team(PERIOD_START, PERIOD_END)) == {self.team.id: 1500}
+        self.cutoff = "2026-06-01"
         with time_machine.travel(_at(11), tick=False):
+            usage_report = _make_report(self.team)
+            _make_pr_run(self.team, usage_report, created_at=_at(11))
+            self._generation(usage, 200_000, request_id="usage")
             complete_signal_pipeline(team_id=self.team.id, signal_id=legacy)
             complete_signal_pipeline(team_id=self.team.id, signal_id=usage)
-        assert self._day(11) == {}
-        self.cutoff = "2026-06-10"
+        assert dict(get_signals_billing_credits_by_team(PERIOD_START, PERIOD_END)) == {self.team.id: 1500}
+        assert first_billable_pr_run(legacy_report.id, team_id=self.team.id) is not None
+        assert first_billable_pr_run(usage_report.id, team_id=self.team.id) is None
         assert self._day(10) == {}
         assert self._day(11, organization_id=str(self.organization.id)) == {self.team.id: 20}
+        self.cutoff = "2026-06-30"
+        assert dict(get_signals_billing_credits_by_team(PERIOD_START, PERIOD_END)) == {self.team.id: 1500}
+        assert self._day(11) == {self.team.id: 20}
+
+    @parameterized.expand([("settling", False, 20), ("failed", True, 0)])
+    def test_only_settling_spend_in_current_billing_period_counts_towards_quota(
+        self, _name: str, failed: bool, expected_credits: int
+    ) -> None:
+        with time_machine.travel(_at(10), tick=False):
+            self._generation(str(uuid4()), 200_000)
+            if failed:
+                SignalSpend.objects.for_team(self.team.id).update(accounting_failed=True)
+        with time_machine.travel(_at(11), tick=False):
+            assert dict(get_signals_spend_quota_credits_by_team(_at(11, 0), _at(12, 0))) == (
+                {self.team.id: expected_credits} if expected_credits else {}
+            )
+        assert self.organization.usage is not None
+        self.organization.usage["period"] = ["2026-07-01T00:00:00Z", "2026-08-01T00:00:00Z"]
+        self.organization.save(update_fields=["usage"])
+        with time_machine.travel("2026-07-02T12:00:00Z", tick=False):
+            assert dict(get_signals_spend_quota_credits_by_team(PERIOD_END, datetime(2026, 8, 1, tzinfo=UTC))) == {}
+        assert self._day(10) == {}
 
     @parameterized.expand([("report",), ("signal",)])
     def test_legacy_report_charge_and_new_signal_spend_are_independent(self, existing_work: str) -> None:
@@ -720,7 +759,7 @@ class TestSpendBasedBilling(BaseTest):
             == expected_refundable
         )
         with self.assertNumQueries(1):
-            annotated = annotate_first_billable_pr_run_at(reports, organization_id=self.organization.id)
+            annotated = list(annotate_first_billable_pr_run_at(reports))
         assert {
             str(row.id) for row in annotated if row.__dict__["first_billable_pr_run_at"] is not None
         } == expected_refundable
@@ -760,8 +799,8 @@ class TestSpendBasedBilling(BaseTest):
             }
         other_org.usage = {"signals_spend_credits": {"billing_start_date": "2026-06-11"}}
         other_org.save(update_fields=["usage"])
-        assert self._day(10) == {self.team.id: 2}
-        assert self._day(10, organization_id=str(other_org.id)) == {}
+        assert self._day(10) == {self.team.id: 2, other_team.id: 1}
+        assert self._day(10, organization_id=str(other_org.id)) == {other_team.id: 1}
 
     @parameterized.expand([("source",), ("report",)])
     def test_system_funded_work_keeps_spend_but_does_not_bill(self, exemption: str) -> None:
@@ -818,6 +857,7 @@ class TestSpendBasedBilling(BaseTest):
             scout_run=scout,
             task_run_id=run.id,
             kind=SignalSpend.Kind.SCOUT_RUN,
+            usage_billing=True,
             finalized_at=_at(10),
             spend=4,
         )
@@ -889,6 +929,7 @@ class TestSpendBasedBilling(BaseTest):
                 signal_id=uuid4(),
                 kind=SignalSpend.Kind.AD_HOC,
                 spend=25,
+                usage_billing=True,
                 finalized_at=_at(10),
             )
         with patch("posthoganalytics.get_feature_flag", side_effect=RuntimeError("unavailable")):

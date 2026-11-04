@@ -51,6 +51,7 @@ from products.signals.backend.models import (
     SignalUserAutonomyConfig,
 )
 from products.signals.backend.pipeline_identity import AI_STAGE_IMPLEMENTATION
+from products.signals.backend.quota import capture_signal_report_quota_paused, self_driving_quota_gate
 from products.signals.backend.report_assignments import release_claim
 from products.signals.backend.report_claims import get_active_claim
 from products.signals.backend.report_generation.research import (
@@ -1732,6 +1733,7 @@ async def maybe_autostart_from_report_artefacts(
     *,
     team_id: int,
     report_id: str,
+    triggering_user_id: int | None = None,
     implementation_spend_kind: str = "reviewer_triggered_implementation",
     remaining_retries: int = 2,
     dispatch: ImplementationDispatch | None = None,
@@ -1756,6 +1758,17 @@ async def maybe_autostart_from_report_artefacts(
     `inbox:write`, while every other write that automatic start reads needs `task:write`. A person
     who wants a run presses Implement, which carries its own authorization.
     """
+    # A fresh user edit admits new work. Persisted reviewer attribution is only the execution
+    # identity: reusing it as this gate would also block an already-admitted pipeline.
+    if triggering_user_id is not None:
+        team = await Team.objects.select_related("organization").aget(id=team_id)
+        gate = await database_sync_to_async(self_driving_quota_gate)(team)
+        if gate.limited:
+            await database_sync_to_async(capture_signal_report_quota_paused)(
+                team, report_id=report_id, stage="reviewer_edit", enforced=gate.enforced
+            )
+        if gate.enforced:
+            return AutostartOutcome(status="blocked", reason="Self-driving spending limit reached")
     if await SignalReport.objects.filter(id=report_id, team_id=team_id, user_authored=True).aexists():
         logger.info(
             "signals auto-start re-eval skipped",

@@ -1838,7 +1838,9 @@ class SignalReportArtefact(UUIDModel):
                     claim_id=claim_id,
                 )
                 if reevaluate_autostart and (not update.protected or rules.effects_enabled):
-                    cls._schedule_autostart_reevaluation(team_id=team_id, report_id=str(report_id))
+                    cls._schedule_autostart_reevaluation(
+                        team_id=team_id, report_id=str(report_id), triggering_user_id=attribution.user_id
+                    )
                 return artefact
         return cls._create(
             team_id=team_id, report_id=report_id, content=content, attribution=attribution, claim_id=claim_id
@@ -1953,7 +1955,9 @@ class SignalReportArtefact(UUIDModel):
         )
 
     @staticmethod
-    def _schedule_autostart_reevaluation(*, team_id: int, report_id: str) -> None:
+    def _schedule_autostart_reevaluation(
+        *, team_id: int, report_id: str, triggering_user_id: int | None = None
+    ) -> None:
         """After the current transaction commits, re-evaluate auto-start for the report.
 
         Changing a report's suggested reviewers can newly satisfy auto-start (e.g. adding a
@@ -1967,7 +1971,9 @@ class SignalReportArtefact(UUIDModel):
             from products.signals.backend import auto_start
 
             try:
-                async_to_sync(auto_start.maybe_autostart_from_report_artefacts)(team_id=team_id, report_id=report_id)
+                async_to_sync(auto_start.maybe_autostart_from_report_artefacts)(
+                    team_id=team_id, report_id=report_id, triggering_user_id=triggering_user_id
+                )
             except Exception:
                 logger.exception(
                     "signals reviewer-change auto-start re-evaluation failed", extra={"report_id": report_id}
@@ -4126,6 +4132,9 @@ class SignalSpend(TeamScopedRootMixin, UUIDModel):
     accounting_failed = models.BooleanField(default=False)
     finalized_at = models.DateTimeField(null=True, blank=True, db_index=True)
     billing_exempt = models.BooleanField(default=False, db_default=False)
+    # Freeze the meter at admission: a later plan change must not bill the same work twice.
+    # Existing receipts and old workers retain the legacy PR meter.
+    usage_billing = models.BooleanField(default=False, db_default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

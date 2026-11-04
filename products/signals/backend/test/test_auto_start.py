@@ -33,6 +33,7 @@ from products.signals.backend.artefact_schemas import (
 )
 from products.signals.backend.auto_start import (
     NO_SUPERSEDE,
+    AutostartOutcome,
     ImplementationReportContent,
     ReportChangedDuringAutostart,
     ReportSteering,
@@ -1604,8 +1605,11 @@ async def test_free_trial_gate_blocks_autostart(
 
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
-@pytest.mark.parametrize("autostart_eligible", [True, False])
-async def test_repo_selection_eligibility_reaches_autostart(autostart_eligible):
+@pytest.mark.parametrize(
+    ("autostart_eligible", "user_edit", "enforced"),
+    [(True, False, True), (False, False, True), (True, True, True), (True, True, False)],
+)
+async def test_reviewer_reevaluation_checks_quota_only_for_a_fresh_user_edit(autostart_eligible, user_edit, enforced):
     # The re-eval reads the flag off the persisted artefact and hands it to autostart rather than
     # deciding for itself, so a reviewer edit arriving later still gets the whole gate applied.
     def _setup() -> tuple[Team, SignalReport]:
@@ -1643,9 +1647,25 @@ async def test_repo_selection_eligibility_reaches_autostart(autostart_eligible):
 
     team, report = await sync_to_async(_setup)()
 
-    with patch("products.signals.backend.auto_start.maybe_autostart_implementation_task") as mock_autostart:
-        await maybe_autostart_from_report_artefacts(team_id=team.id, report_id=str(report.id))
+    with (
+        patch(
+            "products.signals.backend.auto_start.maybe_autostart_implementation_task",
+            return_value=AutostartOutcome(status="started"),
+        ) as mock_autostart,
+        patch(
+            "products.signals.backend.auto_start.self_driving_quota_gate",
+            return_value=SelfDrivingQuotaGate(limited=True, enforced=enforced),
+        ),
+        patch("products.signals.backend.auto_start._latest_reviewers_content", return_value=([], 123)),
+    ):
+        outcome = await maybe_autostart_from_report_artefacts(
+            team_id=team.id, report_id=str(report.id), triggering_user_id=123 if user_edit else None
+        )
 
+    assert outcome.status == ("blocked" if user_edit and enforced else "started")
+    if user_edit and enforced:
+        mock_autostart.assert_not_called()
+        return
     assert mock_autostart.call_args.kwargs["repository_autostart_eligible"] is autostart_eligible
 
 

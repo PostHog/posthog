@@ -8,19 +8,23 @@ from collections.abc import Collection, Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING, NamedTuple
 
-from django.db.models import F, Min, OuterRef, Q, QuerySet, Subquery, Sum
+from django.db.models import Exists, F, Min, OuterRef, Q, QuerySet, Subquery, Sum
 from django.utils import timezone
 
 from dateutil.relativedelta import relativedelta
 
-from posthog.models import Team
 from posthog.models.organization import BillingPeriod
 
 from products.signals.backend.artefact_schemas import TASK_RUN_TYPE_IMPLEMENTATION
 from products.signals.backend.enums import SignalSourceProduct
-from products.signals.backend.models import SignalReport, SignalReportRefund, SignalReportTask, SignalScoutRun
+from products.signals.backend.models import (
+    SignalReport,
+    SignalReportRefund,
+    SignalReportTask,
+    SignalScoutRun,
+    SignalSpend,
+)
 from products.signals.backend.scout_harness.lazy_seed import scout_skill_row_is_proven_canonical
-from products.signals.backend.spend_billing import group_usage_billing_cutoffs, usage_billing_cutoffs
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade.api import GITHUB_PR_URL_PREFIX
 
@@ -35,9 +39,7 @@ SIGNALS_CREDITS_PER_DOLLAR = 100  # 1 credit = $0.01, matching ai_credits
 SIGNALS_CREDITS_PER_REPORT_WITH_PR = 15 * SIGNALS_CREDITS_PER_DOLLAR  # 1500
 
 
-def _bridges_with_pr_run(
-    *, include_manual: bool = False, cutoffs: dict[uuid.UUID, datetime] | None = None, **run_created_at: datetime
-) -> QuerySet[SignalReportTask]:
+def _bridges_with_pr_run(*, include_manual: bool = False, **run_created_at: datetime) -> QuerySet[SignalReportTask]:
     """Implementation bridges whose task shipped a billable PR run matching `run_created_at`.
 
     Rooted on the signals-owned `SignalReportTask` bridge and traversing to runs via the
@@ -56,11 +58,9 @@ def _bridges_with_pr_run(
     happened to be on it. The run-level conditions sit in one `filter()` so they all resolve
     against the same `TaskRun` row.
     """
-    eligible = Q()
-    for cutoff, organization_ids in group_usage_billing_cutoffs(cutoffs or {}).items():
-        eligible &= ~Q(team__organization_id__in=organization_ids) | Q(task__runs__created_at__lt=cutoff)
+    usage_billed = SignalSpend.objects.unscoped().filter(task_run_id=OuterRef("task__runs__id"), usage_billing=True)
     return SignalReportTask.objects.filter(
-        eligible,
+        Q() if include_manual else ~Exists(usage_billed),
         **({} if include_manual else {"task__runs__state__billing_product__isnull": True}),
         relationship=_IMPLEMENTATION,
         task__runs__output__pr_url__startswith=GITHUB_PR_URL_PREFIX,
@@ -157,13 +157,6 @@ def report_has_implementation_pr(report_id: str | uuid.UUID, *, team_id: int) ->
     return _bridges_with_pr_run(include_manual=True).filter(report_id=report_id, team_id=team_id).exists()
 
 
-def _legacy_pr_bridges(
-    reports: QuerySet[SignalReport], *, organization_id: uuid.UUID | None
-) -> QuerySet[SignalReportTask]:
-    cutoffs = usage_billing_cutoffs(organization_id) if organization_id is not None else {}
-    return _bridges_with_pr_run(cutoffs=cutoffs).filter(report_id__in=reports.values("id"))
-
-
 class FirstBillablePrRun(NamedTuple):
     created_at: datetime
     pr_url: str
@@ -179,10 +172,8 @@ def first_billable_pr_run(report_id: str | uuid.UUID, *, team_id: int) -> FirstB
     query, so the two can never disagree about whether a billable run exists.
     """
     row = (
-        _legacy_pr_bridges(
-            SignalReport.objects.filter(id=report_id, team_id=team_id),
-            organization_id=Team.objects.filter(id=team_id).values_list("organization_id", flat=True).first(),
-        )
+        _bridges_with_pr_run()
+        .filter(report_id=report_id, team_id=team_id)
         # Both columns resolve against the TaskRun join the filter established, so the earliest
         # billable run's timestamp and URL come from the same row.
         .order_by("task__runs__created_at")
@@ -218,15 +209,13 @@ def report_pr_is_merged(report_id: str | uuid.UUID, pr_url: str, *, team_id: int
     ).exists()
 
 
-def annotate_first_billable_pr_run_at(
-    queryset: QuerySet[SignalReport], *, organization_id: uuid.UUID
-) -> QuerySet[SignalReport]:
+def annotate_first_billable_pr_run_at(queryset: QuerySet[SignalReport]) -> QuerySet[SignalReport]:
     """Annotate each report with `first_billable_pr_run_at` (its billable moment, batched form of
     `first_billable_pr_run`), NULL when it never shipped a billable PR run. Applies the same
     fail-closed filters as the usage query, so list-rendered refund eligibility can never
     disagree with what the refund action would accept."""
     earliest = (
-        _legacy_pr_bridges(queryset, organization_id=organization_id)
+        _bridges_with_pr_run()
         .filter(report_id=OuterRef("id"))
         .order_by("task__runs__created_at")
         .values("task__runs__created_at")[:1]
@@ -242,10 +231,8 @@ def first_billable_pr_run_at_by_report(report_ids: Sequence[str | uuid.UUID], *,
     Reports with no billable PR run are absent from the map, matching the annotation's NULL.
     """
     rows = (
-        _legacy_pr_bridges(
-            SignalReport.objects.filter(id__in=report_ids, team_id=team_id),
-            organization_id=Team.objects.filter(id=team_id).values_list("organization_id", flat=True).first(),
-        )
+        _bridges_with_pr_run()
+        .filter(report_id__in=report_ids, team_id=team_id)
         .values("report_id")
         .annotate(first_run_at=Min("task__runs__created_at"))
     )
@@ -320,13 +307,11 @@ def current_billing_period_bounds(organization: "Organization") -> BillingPeriod
     return BillingPeriod(start=start, end=start + relativedelta(months=1))
 
 
-def _report_billing_credits_by_team(
+def get_signals_billing_credits_by_team(
     begin: datetime,
     end: datetime,
     organization_id: str | uuid.UUID | None = None,
     organization_ids: Collection[str | uuid.UUID] | None = None,
-    *,
-    cutoffs: dict[uuid.UUID, datetime],
 ) -> list[tuple[int, int]]:
     """Signals credits used per team in `[begin, end)`.
 
@@ -345,7 +330,6 @@ def _report_billing_credits_by_team(
     # that owns the report. The teams are guaranteed equal by `_bridges_with_pr_run()`, so the
     # bridge's team_id is the report's team.
     bridges = _bridges_with_pr_run(
-        cutoffs=cutoffs,
         task__runs__created_at__gte=begin,
         task__runs__created_at__lt=end,
     )
@@ -397,23 +381,6 @@ def _report_billing_credits_by_team(
         totals[team_id] += SIGNALS_CREDITS_PER_REPORT_WITH_PR
 
     return list(totals.items())
-
-
-def get_signals_billing_credits_by_team(
-    begin: datetime,
-    end: datetime,
-    organization_id: str | uuid.UUID | None = None,
-    organization_ids: Collection[str | uuid.UUID] | None = None,
-) -> list[tuple[int, int]]:  # nosemgrep: tuple-return-prefer-dataclass — preserves the existing usage-counter contract
-    if end <= begin:
-        return []
-    return _report_billing_credits_by_team(
-        begin,
-        end,
-        organization_id,
-        organization_ids,
-        cutoffs=usage_billing_cutoffs(organization_id, organization_ids),
-    )
 
 
 def period_billable_credits_for_org(organization_id: str | uuid.UUID, *, period: BillingPeriod) -> int:

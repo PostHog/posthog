@@ -149,6 +149,7 @@ def launch_inbox_onboarding_job(self: Task, team_id: int, job: str) -> None:
 
 
 @shared_task(
+    bind=True,
     ignore_result=True,
     queue=CeleryQueue.LONG_RUNNING.value,
     autoretry_for=(Exception,),
@@ -158,12 +159,12 @@ def launch_inbox_onboarding_job(self: Task, team_id: int, job: str) -> None:
     reject_on_worker_lost=True,
 )
 @with_team_scope(canonical=True)
-def settle_scout_spend(team_id: int, run_id: str) -> None:
+def settle_scout_spend(self: Task, team_id: int, run_id: str) -> None:
     from products.signals.backend.spend import (
         complete_task_spend,  # noqa: PLC0415 - keeps spend accounting off the task registration import path
     )
 
-    complete_task_spend(team_id=team_id, run_id=run_id)
+    complete_task_spend(team_id=team_id, run_id=run_id, final_attempt=self.request.retries >= self.max_retries)
 
 
 @shared_task(

@@ -246,6 +246,8 @@ def _run_spend(run: TaskRun) -> TaskRunSpend:
         complete=usage.complete,
         is_terminal=run.is_terminal,
         stage=(run.state or {}).get("ai_stage") or "task",
+        accounting_failed=bool((run.state or {}).get("token_cost_incomplete"))
+        or (run.is_terminal and not gateway_usage_enabled(run)),
     )
 
 
