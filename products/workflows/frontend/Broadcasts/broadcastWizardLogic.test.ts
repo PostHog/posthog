@@ -946,6 +946,21 @@ describe('broadcastWizardLogic', () => {
         expect(logic.values.stepValidationErrors.review).toEqual(expected)
     })
 
+    it('clears the sandbox sender error once an own sender is picked from the emptied picker', async () => {
+        integrationsLogic.mount()
+        await expectLogic(integrationsLogic, () => {
+            integrationsLogic.actions.loadIntegrations()
+        }).toDispatchActions(['loadIntegrationsSuccess'])
+        const email = { ...DEFAULT_BROADCAST_EMAIL, subject: 'Spring sale', html: '<p>Hi</p>' }
+
+        logic.actions.setEmail({ ...email, from: { ...email.from, integrationId: 1, integrationIds: [1, 3] } })
+        expect(logic.values.stepValidationErrors.content).toEqual([SANDBOX_SENDER_BROADCAST_ERROR])
+
+        logic.actions.setEmail({ ...email, from: { ...email.from, integrationId: 1, integrationIds: undefined } })
+        expect(logic.values.stepValidationErrors.content).toEqual([])
+        expect(logic.values.stepValidationErrors.review).toEqual([])
+    })
+
     it.each([
         { field: 'link in the body', email: { html: '<a href="https://example.com/?n={{%20person.name%20}">Hi</a>' } },
         { field: 'subject', email: { subject: 'Hi {{ person.name }' } },
