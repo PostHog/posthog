@@ -238,6 +238,7 @@ export const FEATURE_FLAGS = {
     SIGNALS_REPORT_CHECKS_REPLACE: 'signals-report-checks-replace', // owner: #team-self-driving
     SIGNALS_REPORT_METRICS: 'signals-report-metrics', // owner: #team-self-driving, gates the live impact metrics on inbox report rows and the report detail, and the snapshot refresh calls they make
     SIGNALS_REPORT_MONITORING: 'signals-report-monitoring', // owner: #team-self-driving
+    SIGNALS_REPORT_NOTES: 'signals-report-notes', // owner: #team-self-driving, gates the notes list and composer at the end of an inbox report, and the quoted notes in its activity
     STARTUP_PROGRAM_INTENT: 'startup-program-intent', // owner: @pawel-cebula #team-billing
     SURVEYS_ACTIONS: 'surveys-actions', // owner: #team-surveys
     SURVEYS_ADAPTIVE_LIMITS: 'surveys-adaptive-limits', // owner: #team-surveys

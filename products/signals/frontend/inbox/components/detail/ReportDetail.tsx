@@ -356,6 +356,7 @@ export function InboxDetailFrame({
     // The key observation leads the evidence rail; the supporting tiles belong to the body's Impact section.
     const metricsEnabled = useFeatureFlag('SIGNALS_REPORT_METRICS')
     const expectedImpactEnabled = useFeatureFlag('SIGNALS_EXPECTED_IMPACT_DISPLAY')
+    const notesEnabled = useFeatureFlag('SIGNALS_REPORT_NOTES')
     const primaryMetric = metricsEnabled ? report.metrics?.find((metric) => metric.role === 'primary') : undefined
     const supportingMetrics = metricsEnabled
         ? (report.metrics?.filter((metric) => metric.role !== 'primary') ?? [])
@@ -420,7 +421,7 @@ export function InboxDetailFrame({
             </ReportChartsContext.Provider>
             {/* The notes and the rating close out the report body, pinned to the bottom of the column. */}
             <div className="mt-auto">
-                <ReportNotesSection report={report} />
+                {notesEnabled && <ReportNotesSection report={report} />}
                 <ReportFeedbackFooter report={report} align="end" />
             </div>
         </div>

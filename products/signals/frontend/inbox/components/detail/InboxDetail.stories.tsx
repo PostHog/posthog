@@ -422,6 +422,9 @@ export const ReportNotes: Story = {
 // The activity log alone at rail width: in the full detail it sits collapsed below the snapshot's fold.
 export const ActivityNotes: Story = {
     decorators: [reportNotesMocks],
+    parameters: {
+        featureFlags: { ...meta.parameters?.featureFlags, [FEATURE_FLAGS.SIGNALS_REPORT_NOTES]: true },
+    },
     render: () => (
         <Frame>
             <div className="w-[26rem] border border-primary bg-surface-primary p-5">

@@ -42,6 +42,7 @@ import { INBOX_RANKING_SCORES, PRIORITY_TAG_TYPE, rankingScoreForHead } from '..
 import { SignalCard } from '../../SignalCard'
 import { EnrichedReviewer, SignalReportActionability, SignalReportPriority, SignalReportArtefact } from '../../types'
 import { dismissalReasonLabel } from '../../utils/dismissalReasons'
+import { prettifyScoutSkillName } from '../../utils/scoutRunsWindow'
 import { SignalReportActionabilityBadge } from '../badges/SignalReportActionabilityBadge'
 import { formatRankingLift, formatRankingProbability } from '../cards/rankingFormat'
 import { RankingLiftBar } from '../cards/RankingLiftBar'
@@ -719,6 +720,7 @@ function renderArtefactSummary(artefact: SignalReportArtefact, monitoringEnabled
 
 function renderArtefactBody({
     monitoringEnabled,
+    notesEnabled,
     reportId,
     artefact,
     knownTasks,
@@ -729,6 +731,7 @@ function renderArtefactBody({
     knownTasks?: Map<string, Task>
     knownPullRequests: Map<string, SignalReportPullRequestApi>
     monitoringEnabled: boolean
+    notesEnabled: boolean
 }): JSX.Element | null {
     const content = artefact.content
     const renderPullRequest = (url: string, outcome?: 'closed' | 'already_closed' | 'skipped'): JSX.Element => {
@@ -774,14 +777,25 @@ function renderArtefactBody({
         }
         case 'note': {
             const c = content as NoteContent
-            if (artefact.actor_kind === 'user') {
+            if (notesEnabled && artefact.actor_kind === 'user') {
                 return <ActivityNoteQuote reportId={reportId} text={c.note} />
             }
             return <NoteBody note={c.note} author={c.author} />
         }
         case 'scout_note_left': {
             const c = content as ScoutNoteLeftContent
-            return <ActivityNoteQuote reportId={reportId} text={c.note} scoutSkillName={c.skill_name} />
+            if (notesEnabled) {
+                return <ActivityNoteQuote reportId={reportId} text={c.note} scoutSkillName={c.skill_name} />
+            }
+            // Without the Notes list, the entry is the only place the note shows, so it reads as a note.
+            return (
+                <div className="w-full">
+                    <NoteBody note={c.note} />
+                    <span className="mt-1 block text-xs text-tertiary">
+                        {c.skill_name?.trim() ? `For ${prettifyScoutSkillName(c.skill_name)}` : 'For every scout'}
+                    </span>
+                </div>
+            )
         }
         case 'priority_judgment': {
             const c = content as { explanation?: string }
@@ -913,6 +927,7 @@ function ArtefactRow({
     knownPullRequests: Map<string, SignalReportPullRequestApi>
 }): JSX.Element {
     const monitoringEnabled = useFeatureFlag('SIGNALS_REPORT_MONITORING')
+    const notesEnabled = useFeatureFlag('SIGNALS_REPORT_NOTES')
     const signalId = artefact.type === 'signal_finding' ? (artefact.content as SignalFindingContent).signal_id : null
     const signal = signalId ? knownSignals?.get(signalId) : undefined
     const location = artefactLocationLabel(artefact)
@@ -921,7 +936,7 @@ function ArtefactRow({
     const body = signal ? (
         <SignalFindingBody signal={signal} />
     ) : (
-        renderArtefactBody({ reportId, artefact, knownTasks, knownPullRequests, monitoringEnabled })
+        renderArtefactBody({ reportId, artefact, knownTasks, knownPullRequests, monitoringEnabled, notesEnabled })
     )
     const bodyHasOwnCard = artefact.type === 'signal_finding' || artefact.type === 'commit'
     const MarkerIcon =
