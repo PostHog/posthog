@@ -112,6 +112,8 @@ DEPS_EXPLICIT_PATHS = (
     ".venv",
     "venv",
     ".flox/cache/venv",
+    ".flox/cache/go",
+    ".flox/cache/go-build",
     "frontend/dist",
     "frontend/.cache",
     "frontend/tmp",
@@ -253,7 +255,7 @@ class WorktreeBox:
 @click.option(
     "--unattended",
     is_flag=True,
-    help="For a scheduler: implies --yes and runs at most once per mode every 24 hours.",
+    help="For a scheduler: implies --yes and --keep-boxes, and runs at most once per mode every 24 hours.",
 )
 def worktrees_clean(
     before: str | None,
@@ -290,6 +292,9 @@ def worktrees_clean(
             click.echo(f"Skipped: an unattended --mode {mode} run is in progress or happened in the last 24 hours.")
             return
         yes = True
+        # A saved `--on-clean delete` default must not delete devboxes from a
+        # background run that nobody watches.
+        keep_boxes = True
     box_action = _resolve_box_action(stop_boxes, delete_boxes, keep_boxes, mode)
     orphan_policy = _resolve_orphan_policy(orphans, mode)
     repo_root = _resolve_repo(repo)
@@ -654,19 +659,20 @@ def _resolve_orphan_policy(explicit: str | None, mode: str) -> str:
 _UNATTENDED_INTERVAL_S = 24 * 60 * 60
 
 
-_unattended_locks: dict[str, IO[str]] = {}
+_unattended_lock: IO[str] | None = None
 
 
 def _unattended_run_due(mode: str, dry_run: bool) -> bool:
-    """Allow one --unattended run per mode per day. Flox activation calls this on
-    every shell, so the stamp is what keeps it from rescanning worktrees each time.
+    """One --unattended run per mode per day.
 
-    Two shells can activate in the same second, before either has written the
-    stamp. The lock is held for the rest of the process so the second one sees
-    the run in progress and backs off instead of deleting the same paths."""
+    The lock covers both modes and stays held until the process exits, so a
+    second shell that activates in the same second backs off instead of removing
+    the same paths. Its mtime is the stamp .flox/env/on-activate.sh checks before
+    it spawns hogli, so the file name is shared with that script."""
 
-    if mode not in _unattended_locks:
-        lock_path = hints._get_state_path().with_name(f"worktrees-clean-{mode}.lock")
+    global _unattended_lock
+    if _unattended_lock is None:
+        lock_path = hints._get_state_path().with_name("worktrees-clean.lock")
         lock_path.parent.mkdir(parents=True, exist_ok=True)
         lock = lock_path.open("a")
         try:
@@ -674,7 +680,7 @@ def _unattended_run_due(mode: str, dry_run: bool) -> bool:
         except OSError:
             lock.close()
             return False
-        _unattended_locks[mode] = lock
+        _unattended_lock = lock
 
     stamp = f"worktrees:clean:{mode}"
     last = hints.last_check_run(stamp)
@@ -682,6 +688,7 @@ def _unattended_run_due(mode: str, dry_run: bool) -> bool:
         return False
     if not dry_run:
         hints.record_check_run(stamp)
+        os.utime(_unattended_lock.fileno())
     return True
 
 
@@ -1292,9 +1299,8 @@ def _reclaimed_bytes(before: dict[int, int], after: dict[int, int]) -> float:
 def _rmtree(path: Path) -> None:
     """Remove a directory tree, including entries inside read-only directories.
 
-    Go creates its module cache without write permission, and every worktree has
-    one in `.flox/cache/go`. `shutil.rmtree` alone cannot delete entries from a
-    directory that is not writable.
+    Go creates its module cache without write permission. `shutil.rmtree` alone
+    cannot delete entries from a directory that is not writable.
 
     Removal continues past an entry that cannot be deleted, so one stuck entry
     does not keep the rest of the tree on disk. The first such error is raised

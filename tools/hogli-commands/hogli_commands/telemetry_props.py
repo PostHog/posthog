@@ -501,7 +501,10 @@ def _worktree_count() -> int | None:
             common = Path(pointer).parent.parent
         else:
             common = git
-        return sum(1 for entry in (common / "worktrees").iterdir() if entry.is_dir())
+        worktrees = common / "worktrees"
+        if not worktrees.is_dir():
+            return 0
+        return sum(1 for entry in worktrees.iterdir() if entry.is_dir())
     except OSError:
         return None
 

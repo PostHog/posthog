@@ -370,15 +370,21 @@ if [[ -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
 fi
 
 # ── Stale worktree cleanup ──────────────────────────────────────────
-# Agent tools create worktrees far faster than anyone removes them, and each
-# checkout is about 1 GB of real disk before its caches. Reap idle ones in the
-# background. --unattended limits this to one run per mode per day and skips
-# worktrees with unsaved or unpushed work. POSTHOG_WORKTREES_AUTOCLEAN=0 opts out.
-if [[ "${POSTHOG_WORKTREES_AUTOCLEAN:-1}" != "0" ]] && [[ -z "${CI:-}" ]] && [[ -x "$UV_PROJECT_ENVIRONMENT/bin/hogli" ]]; then
+# Agent tools create worktrees faster than anyone removes them, and each one is a
+# full copy of the tracked tree. Reap idle ones in the background once a day.
+# hogli skips registered worktrees with unsaved or unpushed work. It does remove
+# orphans, which git no longer tracks. POSTHOG_WORKTREES_AUTOCLEAN=0 opts out.
+# hogli touches the lock file on each real run, so its mtime gates the spawn.
+WORKTREES_CLEAN_LOCK="$HOME/.config/posthog/worktrees-clean.lock"
+if [[ "${POSTHOG_WORKTREES_AUTOCLEAN:-1}" != "0" ]] && [[ -z "${CI:-}" ]] && [[ -x "$UV_PROJECT_ENVIRONMENT/bin/hogli" ]] \
+  && [[ -z "$(find "$WORKTREES_CLEAN_LOCK" -mmin -1440 2>/dev/null)" ]]; then
   (
+    echo "--- $(date '+%Y-%m-%d %H:%M:%S')"
     "$UV_PROJECT_ENVIRONMENT/bin/hogli" worktrees:clean --before 14d --mode full --unattended
     "$UV_PROJECT_ENVIRONMENT/bin/hogli" worktrees:clean --before 7d --mode deps --unattended
-  ) >"$FLOX_ENV_CACHE/worktrees-clean.log" 2>&1 &
+    # GOPATH and GOCACHE live in ~/.cache/posthog, so a copy here is unused.
+    rm -rf "$FLOX_ENV_CACHE/go" "$FLOX_ENV_CACHE/go-build"
+  ) >>"$FLOX_ENV_CACHE/worktrees-clean.log" 2>&1 &
   disown
 fi
 
