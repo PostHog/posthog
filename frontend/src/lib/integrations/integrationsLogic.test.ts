@@ -7,11 +7,19 @@ import { expectLogic } from 'kea-test-utils'
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import apiReal, { ApiError } from 'lib/api'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { IntegrationKind, IntegrationType, SLACK_INTEGRATION_SCOPES } from '~/types'
+import {
+    IntegrationKind,
+    IntegrationType,
+    PreflightStatus,
+    Region,
+    SLACK_INTEGRATION_SCOPES,
+    SLACK_INTEGRATION_SCOPES_IN_REVIEW,
+} from '~/types'
 
 import * as integrationsApi from 'products/integrations/frontend/generated/api'
 import type {
@@ -338,6 +346,18 @@ describe('integrationsLogic', () => {
         })
     })
 
+    describe('warehouse source credentials rows', () => {
+        it('keeps them in the full list but out of the lists that pick a connection by kind', async () => {
+            const sourceRow = githubIntegration({ id: 43, config: { warehouse_source_type: 'Github' } })
+            integrationsPayload = [githubIntegration(), sourceRow]
+            await expectLogic(logic, () => logic.actions.loadIntegrations()).toFinishAllListeners()
+
+            expect(logic.values.integrations?.map((integration) => integration.id)).toEqual([42, 43])
+            expect(logic.values.githubIntegrations.map((integration) => integration.id)).toEqual([42])
+            expect(logic.values.getIntegrationsByKind(['github']).map((integration) => integration.id)).toEqual([42])
+        })
+    })
+
     describe('polling', () => {
         it('polls integrations only while at least one surface is subscribed', async () => {
             jest.useFakeTimers()
@@ -568,31 +588,45 @@ describe('integrationsLogic', () => {
                 expect(requestedTeamIds).toEqual([String(MOCK_TEAM_ID)])
             })
 
+            const approvedScopes = SLACK_INTEGRATION_SCOPES.join(',')
+            const allScopes = [...SLACK_INTEGRATION_SCOPES, ...SLACK_INTEGRATION_SCOPES_IN_REVIEW].join(',')
             it.each([
-                ['every requested scope', SLACK_INTEGRATION_SCOPES.join(','), null],
+                ['US', 'every requested scope', approvedScopes, null],
                 [
+                    'US',
                     'fewer scopes than requested',
                     SLACK_INTEGRATION_SCOPES.filter((scope) => scope !== 'users:read' && scope !== 'files:write').join(
                         ','
                     ),
                     ['files:write', 'users:read'],
                 ],
-                ['no recorded scopes', undefined, null],
-            ])('reports a Slack install that granted %s', async (_name, grantedScope, expectedMissing) => {
-                createdConfig = grantedScope === undefined ? {} : { scope: grantedScope }
-                const successSpy = jest.spyOn(lemonToast, 'success').mockImplementation(() => 'toast')
-                const warningSpy = jest.spyOn(lemonToast, 'warning').mockImplementation(() => 'toast')
-                const state = 'next=%2Fproject%2F228502%2Fsettings%2Fproject-integrations&token=csrf-tok'
+                ['US', 'no recorded scopes', undefined, null],
+                ['DEV', 'every requested scope', allScopes, null],
+                ['DEV', 'only the approved scopes', approvedScopes, [...SLACK_INTEGRATION_SCOPES_IN_REVIEW]],
+            ])(
+                'reports a Slack install on %s that granted %s',
+                async (region, _name, grantedScope, expectedMissing) => {
+                    preflightLogic.mount()
+                    preflightLogic.actions.loadPreflightSuccess({
+                        ...preflightLogic.values.preflight,
+                        is_debug: false,
+                        region: region as Region,
+                    } as PreflightStatus)
+                    createdConfig = grantedScope === undefined ? {} : { scope: grantedScope }
+                    const successSpy = jest.spyOn(lemonToast, 'success').mockImplementation(() => 'toast')
+                    const warningSpy = jest.spyOn(lemonToast, 'warning').mockImplementation(() => 'toast')
+                    const state = 'next=%2Fproject%2F228502%2Fsettings%2Fproject-integrations&token=csrf-tok'
 
-                await expectLogic(logic, () => {
-                    logic.actions.handleOauthCallback('slack' as IntegrationKind, { state, code: 'oauth-code' })
-                }).toFinishAllListeners()
+                    await expectLogic(logic, () => {
+                        logic.actions.handleOauthCallback('slack' as IntegrationKind, { state, code: 'oauth-code' })
+                    }).toFinishAllListeners()
 
-                expect(warningSpy.mock.calls.map(([message]) => message)).toEqual(
-                    expectedMissing ? [expect.stringContaining(`: ${expectedMissing.join(', ')}.`)] : []
-                )
-                expect(successSpy).toHaveBeenCalledTimes(expectedMissing ? 0 : 1)
-            })
+                    expect(warningSpy.mock.calls.map(([message]) => message)).toEqual(
+                        expectedMissing ? [expect.stringContaining(`: ${expectedMissing.join(', ')}.`)] : []
+                    )
+                    expect(successSpy).toHaveBeenCalledTimes(expectedMissing ? 0 : 1)
+                }
+            )
         })
     })
 })

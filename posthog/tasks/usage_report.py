@@ -65,6 +65,8 @@ from posthog.utils import DayRange, get_helm_info_env, get_instance_realm, get_i
 
 from products.ai_observability.backend.offline_evaluation_billing import get_offline_evaluation_usage
 from products.batch_exports.backend.facade import api as batch_exports_api
+from products.business_knowledge.backend.facade import api as business_knowledge_api
+from products.business_knowledge.backend.facade.contracts import KnowledgeUsageByTeam
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from products.cdp.backend.models.plugin import PluginConfig
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -77,7 +79,7 @@ from products.replay_vision.backend.billing import (
 )
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.quota import unreported_spend_by_org
-from products.signals.backend.billing import credited_refund_credits_for_org, get_signals_billing_credits_by_team
+from products.signals.backend.facade.billing import credited_refund_credits_for_org, signals_billing_credits_by_team
 from products.surveys.backend.models import Survey
 from products.surveys.backend.util import (
     SurveyEventProperties,
@@ -317,6 +319,10 @@ class UsageReportCounters:
     # MCP analytics
     mcp_event_count_in_period: int
 
+    # Business knowledge
+    business_knowledge_chunks_in_period: int
+    business_knowledge_queries_in_period: int
+
     # AI Billing Credits (PostHog AI feature usage)
     ai_credits_used_in_period: int
 
@@ -380,6 +386,7 @@ class UsageReportCounters:
     ruby_events_count_in_period: int
     python_events_count_in_period: int
     php_events_count_in_period: int
+    laravel_events_count_in_period: int
     dotnet_events_count_in_period: int
     elixir_events_count_in_period: int
     unity_events_count_in_period: int
@@ -1089,6 +1096,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
         ("posthog-python", "posthog-ai", "posthog_python_ai_events"),
         ("posthog-python", None, "python_events"),
         ("posthog-php", None, "php_events"),
+        ("posthog-laravel", None, "laravel_events"),
         ("posthog-dotnet", "posthog-ai", "posthog_dotnet_ai_events"),
         ("posthog-aspnetcore", "posthog-ai", "posthog_dotnet_ai_events"),
         ("posthog-dotnet", None, "dotnet_events"),
@@ -1167,6 +1175,7 @@ def get_all_event_metrics_in_period(begin: datetime, end: datetime) -> dict[str,
             "ruby_events": {},
             "python_events": {},
             "php_events": {},
+            "laravel_events": {},
             "dotnet_events": {},
             "elixir_events": {},
             "unity_events": {},
@@ -1350,6 +1359,21 @@ def _replay_vision_spend_projection_rows(begin: datetime, end: datetime) -> dict
     return {
         "teams_with_replay_vision_scanner_projected_credits": projection.scanner_credits,
         "teams_with_replay_vision_backfill_committed_credits": projection.backfill_credits,
+    }
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_business_knowledge_usage_in_period(begin: datetime, end: datetime) -> KnowledgeUsageByTeam:
+    # Read from the Business Knowledge usage ledger in Postgres, keyed by the canonical team.
+    return business_knowledge_api.get_usage_by_team(begin, end)
+
+
+def _business_knowledge_usage_rows(begin: datetime, end: datetime) -> dict[str, TeamUsageRows]:
+    usage = get_teams_with_business_knowledge_usage_in_period(begin, end)
+    return {
+        "teams_with_business_knowledge_chunks_in_period": usage.chunks,
+        "teams_with_business_knowledge_queries_in_period": usage.queries,
     }
 
 
@@ -2152,7 +2176,7 @@ def get_teams_with_signals_credits_used_in_period(
 
     Outcome-based, not LLM spend: see `products/signals/backend/billing.py`.
     """
-    return get_signals_billing_credits_by_team(begin, end)
+    return [(row.team_id, row.credits) for row in signals_billing_credits_by_team(begin, end)]
 
 
 def get_signals_credited_refund_credits_for_org(
@@ -2173,14 +2197,14 @@ def get_self_driving_credits_used_in_period_for_orgs(
     """Live self-driving credits used in `[begin, end)` for each org, from one read. Orgs with no usage are absent."""
     if not organization_ids:
         return {}
-    rows = get_signals_billing_credits_by_team(begin, end, organization_ids=list(organization_ids))
+    rows = signals_billing_credits_by_team(begin, end, organization_ids=list(organization_ids))
     if not rows:
         return {}
-    team_orgs = dict(Team.objects.filter(id__in=[team_id for team_id, _ in rows]).values_list("id", "organization_id"))
+    team_orgs = dict(Team.objects.filter(id__in=[row.team_id for row in rows]).values_list("id", "organization_id"))
     totals: dict[str, int] = defaultdict(int)
-    for team_id, credits in rows:
-        if (organization_id := team_orgs.get(team_id)) is not None:
-            totals[str(organization_id)] += credits
+    for row in rows:
+        if (organization_id := team_orgs.get(row.team_id)) is not None:
+            totals[str(organization_id)] += row.credits
     return dict(totals)
 
 
@@ -2193,9 +2217,7 @@ def get_self_driving_credits_used_in_period_for_org(
     fresher number than the cron-patched `todays_usage`. Re-exported from this posthog-layer
     module for the same boundary reason as the helper above.
     """
-    return sum(
-        credits for _, credits in get_signals_billing_credits_by_team(begin, end, organization_id=organization_id)
-    )
+    return sum(row.credits for row in signals_billing_credits_by_team(begin, end, organization_id=organization_id))
 
 
 @timed_log()
@@ -3072,6 +3094,8 @@ def has_non_zero_usage(report: UsageReportCounters) -> bool:
         or report.exceptions_captured_in_period > 0
         or report.ai_event_count_in_period > 0
         or report.mcp_event_count_in_period > 0
+        or report.business_knowledge_chunks_in_period > 0
+        or report.business_knowledge_queries_in_period > 0
         or report.ai_credits_used_in_period > 0
         or report.signals_credits_used_in_period > 0
         or report.posthog_code_credits_used_in_period > 0
@@ -3220,6 +3244,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_ruby_events_count_in_period": all_metrics["ruby_events"],
         "teams_with_python_events_count_in_period": all_metrics["python_events"],
         "teams_with_php_events_count_in_period": all_metrics["php_events"],
+        "teams_with_laravel_events_count_in_period": all_metrics["laravel_events"],
         "teams_with_dotnet_events_count_in_period": all_metrics["dotnet_events"],
         "teams_with_elixir_events_count_in_period": all_metrics["elixir_events"],
         "teams_with_unity_events_count_in_period": all_metrics["unity_events"],
@@ -3403,6 +3428,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_metrics_bytes_in_period": metrics_usage["bytes"],
         "teams_with_metrics_records_in_period": metrics_usage["records"],
         "teams_with_mcp_event_count_in_period": get_teams_with_mcp_event_count_in_period(period_start, period_end),
+        **_business_knowledge_usage_rows(period_start, period_end),
     }
 
 
@@ -3635,6 +3661,7 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         ruby_events_count_in_period=all_data["teams_with_ruby_events_count_in_period"].get(team.id, 0),
         python_events_count_in_period=all_data["teams_with_python_events_count_in_period"].get(team.id, 0),
         php_events_count_in_period=all_data["teams_with_php_events_count_in_period"].get(team.id, 0),
+        laravel_events_count_in_period=all_data["teams_with_laravel_events_count_in_period"].get(team.id, 0),
         dotnet_events_count_in_period=all_data["teams_with_dotnet_events_count_in_period"].get(team.id, 0),
         elixir_events_count_in_period=all_data["teams_with_elixir_events_count_in_period"].get(team.id, 0),
         unity_events_count_in_period=all_data["teams_with_unity_events_count_in_period"].get(team.id, 0),
@@ -3645,6 +3672,10 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         ai_event_count_in_period=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
         ai_ingested_event_count_in_period=all_data["teams_with_ai_event_count_in_period"].get(team.id, 0),
         mcp_event_count_in_period=all_data["teams_with_mcp_event_count_in_period"].get(team.id, 0),
+        business_knowledge_chunks_in_period=all_data["teams_with_business_knowledge_chunks_in_period"].get(team.id, 0),
+        business_knowledge_queries_in_period=all_data["teams_with_business_knowledge_queries_in_period"].get(
+            team.id, 0
+        ),
         ai_credits_used_in_period=all_data["teams_with_ai_credits_used_in_period"].get(team.id, 0),
         signals_credits_used_in_period=all_data["teams_with_signals_credits_used_in_period"].get(team.id, 0),
         posthog_code_credits_used_in_period=combine_posthog_code_credits(

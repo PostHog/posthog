@@ -1,7 +1,7 @@
 """Grant, revoke and list team access to the realtime cohort pipeline, meant for a toolbox pod.
 
-Only Django reads these rows, as a union with its `REALTIME_COHORT_TEAM_ALLOWLIST`. The shuffler,
-processor and seeder read their own env lists, so every grant or revoke needs the same change there.
+Django and the shufflers read these rows, each as a union with its own `REALTIME_COHORT_TEAM_ALLOWLIST`.
+The processor and seeder read only their env lists, so every grant or revoke needs the same change there.
 
 A grant at `processing` gives the team Django's side of the pipeline while its users see none of it,
 which is what a load test needs. `serving` also shows them realtime cohort state. `revoke --purpose

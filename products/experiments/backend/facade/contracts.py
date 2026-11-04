@@ -9,7 +9,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from posthog.dataclasses import frozen
 from posthog.enums import LabeledStrEnum
@@ -160,6 +160,41 @@ class ExperimentPromptContext:
 
 
 @frozen
+class ExperimentFlagVariantSplit:
+    """One variant of the experiment's flag and its share of the rollout, as the flag stores them."""
+
+    # None when the stored variant has no key.
+    key: str | None
+    # As stored, so a whole number stays an int and a prompt prints `50%`, not `50.0%`. 0 when the variant has none.
+    rollout_percentage: float
+
+
+@frozen
+class ExperimentAssistantContext:
+    """What PostHog AI reads to describe an experiment and its results."""
+
+    id: int
+    # With `id`, the fields that an object access check reads.
+    team_id: int
+    created_by_id: int | None
+    name: str
+    description: str | None
+    type: str | None
+    start_date: datetime | None
+    end_date: datetime | None
+    created_at: datetime
+    conclusion: str | None
+    conclusion_comment: str | None
+    stats_method: Literal["bayesian", "frequentist"]
+    # Variant names by key from the experiment's own variants field, which web experiments write. A variant without a
+    # name maps to its key.
+    variant_names: Mapping[str, str]
+    feature_flag_key: str
+    # Every variant of the flag, in the flag's order. Excluded variants are not removed.
+    feature_flag_variants: tuple[ExperimentFlagVariantSplit, ...]
+
+
+@frozen
 class SessionAttribution:
     """One person's attribution in an experiment's exposed population, as the analysis buckets it."""
 
@@ -216,6 +251,7 @@ class ExperimentHealthFindingCode(LabeledStrEnum):
     NEW_FLAG_NO_TRAFFIC = "new_flag_no_traffic"
     EARLY_SIGNIFICANCE = "early_significance"
     METRICS_NOT_MATURED = "metrics_not_matured"
+    FLAG_SHARED = "flag_shared"
 
 
 class ExperimentHealthMetricCompileErrorKind(LabeledStrEnum):
@@ -301,6 +337,7 @@ class ExperimentHealthCheckKey(LabeledStrEnum):
     # names the check, not a problem: `flag_state` reports four finding codes, and `flag_history` reports its finding
     # under `split_changed_mid_run`.
     FLAG_STATE = "flag_state"
+    FLAG_SHARED = "flag_shared"
     FLAG_HISTORY = "flag_history"
     SPLIT_CHANGED_MID_RUN = "split_changed_mid_run"
     BUCKETING_CHANGED_MID_RUN = "bucketing_changed_mid_run"

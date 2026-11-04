@@ -1147,6 +1147,7 @@ class TestMaxChatAnthropicAIGateway(BaseTest):
             AI_GATEWAY_TIMEOUT.pool,
         ]
         self.assertNotIn(None, phases)
+        assert model.max_retries is not None
         stalled_gateway_seconds = sum(phase or 0.0 for phase in phases) * (model.max_retries + 1)
         self.assertGreaterEqual(CHAT_AGENT_ACTIVITY_HEARTBEAT_TIMEOUT - stalled_gateway_seconds, 120)
 
