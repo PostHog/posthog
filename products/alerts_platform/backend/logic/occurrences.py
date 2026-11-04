@@ -164,8 +164,11 @@ def _record(source: SourceKind, team_id: int, seen: Sequence[SeenIdentity]) -> N
         else:
             continue
         row.resolved_at = None
+        # What came back may differ from what was first seen, and filters and messages read the latest.
+        row.labels = _storable(earliest[row.identity_key].labels)
+        row.detail = _storable(earliest[row.identity_key].detail)
         back.append(row)
-    rows.bulk_update(back, ["resolved_at", "reappeared_at"], batch_size=500)
+    rows.bulk_update(back, ["resolved_at", "reappeared_at", "labels", "detail"], batch_size=500)
     # A conflict is an identity the registry already knows, which is not new.
     PlatformOccurrence.objects.for_team(team_id).bulk_create(
         [
