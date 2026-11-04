@@ -383,6 +383,7 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
         except IntegrationError as error:
             raise ValidationError({"integration": str(error)})
         if isinstance(redshift, RedshiftIntegration):
+            self._require_complete_password_connection(integration)
             return
 
         config = config or {}
@@ -403,6 +404,29 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
         port = config.get("port")
         if port is not None and (isinstance(port, bool) or not isinstance(port, int) or not 0 < port <= 65535):
             raise ValidationError({"config": "Port must be a number from 1 to 65535."})
+
+    # A connection with no AWS identity signs in with a password, and the writer reads all of these
+    # fields on the first sync. Without this, a broken connection saves and only fails then.
+    REDSHIFT_PASSWORD_FIELDS: tuple[tuple[str, str, bool], ...] = (
+        ("host", "host", False),
+        ("port", "port", False),
+        ("user", "username", False),
+        ("password", "password", True),
+    )
+
+    def _require_complete_password_connection(self, integration: IntegrationRecord) -> None:
+        config = integration.config or {}
+        sensitive_config = integration.sensitive_config or {}
+        missing = [
+            label
+            for key, label, sensitive in self.REDSHIFT_PASSWORD_FIELDS
+            if not str((sensitive_config if sensitive else config).get(key) or "").strip()
+        ]
+        if missing:
+            listed = missing[0] if len(missing) == 1 else f"{', '.join(missing[:-1])} or {missing[-1]}"
+            raise ValidationError(
+                {"integration": f"This Redshift connection has no {listed}. Reconnect Redshift, then try again."}
+            )
 
     def _run_connection_test(self, destination_type: str, integration: IntegrationRecord, config: Any) -> None:
         run = run_connection_test(destination_type, integration, config)
