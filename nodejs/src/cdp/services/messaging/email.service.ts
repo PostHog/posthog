@@ -945,16 +945,10 @@ export class EmailService {
         const isTransactional = invocation.hogFunction?.metadata?.message_category_type === 'transactional'
 
         if (mode === 'enforce' && !isTransactional) {
-            // All or nothing, so a denial consumes nothing and a rescheduled multi-recipient send
-            // cannot burn the partial refill on every retry and starve the team's other emails
-            // while never sending itself.
             const claim = await this.teamEmailRateLimiter.claimAllOrNothing({ ...bucket, requested }, CAP_RETRY_MAX_MS)
             if (claim.granted) {
                 return null
             }
-            // A null `retryAfterMs` means the limiter itself failed rather than the bucket coming
-            // up short. The send still waits, because we must not send what we cannot account for,
-            // but no cap was reached, so a null label tells the caller it has no cap to name.
             const capReached = claim.retryAfterMs !== null
             teamEmailCapDelayedTotal.inc({
                 tier: String(tier),
