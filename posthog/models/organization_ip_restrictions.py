@@ -42,7 +42,7 @@ def _invalidate_organization_ip_restrictions_cache(sender, instance: Organizatio
 
     organization_id = instance.organization_id
 
-    # Keep the old cache generation until the new rules are visible to other requests.
+    # Invalidate again after commit so concurrent readers cannot retain pre-commit policies.
     invalidate_ip_restrictions_for_organization(organization_id)
     transaction.on_commit(lambda: invalidate_ip_restrictions_for_organization(organization_id))
 

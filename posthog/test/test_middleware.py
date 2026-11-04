@@ -275,7 +275,7 @@ class TestIPRestrictionsMiddleware(APIBaseTest):
         OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
         request = RequestFactory().get("/", REMOTE_ADDR="198.51.100.7")
         if verified_ip:
-            request.verified_mcp_client_ip = verified_ip
+            setattr(request, "verified_mcp_client_ip", verified_ip)  # noqa: B010 -- middleware adds this attribute dynamically
         authenticator = SimpleNamespace(activity_credential_type="personal_api_key", is_user_delegated=True)
         if allowed:
             enforce_ip_restrictions(request, self.user, authenticator)
