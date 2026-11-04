@@ -171,7 +171,7 @@ describe('Flag evaluations shadow-routing E2E', () => {
         }
     )
 
-    // Some lanes run without the fork. The incident runbook also turns the fork off first.
+    // Some lanes run without the fork. An operator can also turn the fork off on any lane.
     // Only the fork step removes a call from events, so a lane without it must still store the call there.
     testWithTeamIngester(
         'FLAG_EVALUATIONS_ONLY team on a lane without the fork: the call lands in events',
