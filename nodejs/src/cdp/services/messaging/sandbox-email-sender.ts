@@ -1,4 +1,4 @@
-import { createHash } from 'crypto'
+import { createHash, randomUUID } from 'crypto'
 import {
     type DefaultTreeAdapterMap,
     defaultTreeAdapter,
@@ -253,6 +253,39 @@ function leavesOutlookConditionalOpen(roots: DefaultTreeAdapterMap['childNode'][
     return depth > 0
 }
 
+function outlookView(html: string): DefaultTreeAdapterMap['document'] {
+    const document = parse(html, { scriptingEnabled: false })
+    const marker = `outlook-conditional-${randomUUID()}-`
+    const contents: string[] = []
+    const parents: DefaultTreeAdapterMap['parentNode'][] = [document]
+    while (parents.length) {
+        const parent = parents.pop()!
+        const children =
+            defaultTreeAdapter.isElementNode(parent) &&
+            parent.tagName === 'template' &&
+            parent.namespaceURI === htmlSpec.NS.HTML
+                ? defaultTreeAdapter.getTemplateContent(parent as DefaultTreeAdapterMap['template'])
+                : parent
+        for (const node of [...children.childNodes]) {
+            if (defaultTreeAdapter.isCommentNode(node)) {
+                const hidden = /^\[if\b[^\]]*\]>([\s\S]*)<!\[endif\]$/i.exec(node.data)
+                if (hidden) {
+                    defaultTreeAdapter.insertTextBefore(children, `${marker}${contents.length}-end`, node)
+                    defaultTreeAdapter.detachNode(node)
+                    contents.push(hidden[1])
+                }
+            } else if (defaultTreeAdapter.isElementNode(node)) {
+                parents.push(node)
+            }
+        }
+    }
+    let unwrapped = serialize(document, { scriptingEnabled: false })
+    contents.forEach((content, index) => {
+        unwrapped = unwrapped.replace(`${marker}${index}-end`, () => content)
+    })
+    return parse(unwrapped, { scriptingEnabled: false })
+}
+
 function appendHtmlFooter(html: string, footer: string, preheader?: string): string {
     const preheaderText = parseFragment(preheader ?? '', { scriptingEnabled: false })
     neutralizeRawTextElements(preheaderText.childNodes)
@@ -279,8 +312,13 @@ function appendHtmlFooter(html: string, footer: string, preheader?: string): str
             'The sandbox email template could not retain its identification footer. Update the template and try again.'
         )
     }
-    for (const scriptingEnabled of [false, true]) {
-        const deliveredFooter = htmlBody(parse(serialized, { scriptingEnabled }))?.childNodes.at(-1)
+    const renderings = [
+        parse(serialized, { scriptingEnabled: false }),
+        parse(serialized, { scriptingEnabled: true }),
+        outlookView(serialized),
+    ]
+    for (const rendering of renderings) {
+        const deliveredFooter = htmlBody(rendering)?.childNodes.at(-1)
         if (
             !deliveredFooter ||
             !defaultTreeAdapter.isElementNode(deliveredFooter) ||
