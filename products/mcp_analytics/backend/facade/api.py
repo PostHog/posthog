@@ -384,3 +384,33 @@ def measured_query_placeholders(date_from: datetime) -> dict[str, ast.Expr]:
 def measured_source() -> str:
     """The source marker new-SDK $mcp_tool_call events carry."""
     return NEW_SDK_SOURCE
+
+
+# Intent topics pipeline runs for the Temporal activities. The pipeline is imported inside each function:
+# it loads NumPy and the clustering libraries, which the web process must not pay for at startup.
+
+
+def sync_intent_topic_embeddings(team: Team, *, now: datetime) -> contracts.IntentTopicsRunOutcome:
+    from products.mcp_analytics.backend.intent_topics import (
+        pipeline,  # noqa: PLC0415 — keeps the heavy dep off the import path
+    )
+
+    return pipeline.run_sync(team, window_start=pipeline.sync_window_start(team, now=now), window_end=now)
+
+
+def assign_intent_topics(
+    team: Team, *, window_start: datetime, window_end: datetime
+) -> contracts.IntentTopicsRunOutcome:
+    from products.mcp_analytics.backend.intent_topics import (
+        pipeline,  # noqa: PLC0415 — keeps the heavy dep off the import path
+    )
+
+    return pipeline.run_assign(team, window_start=window_start, window_end=window_end)
+
+
+def refit_intent_topics(team: Team, *, now: datetime) -> contracts.IntentTopicsRunOutcome:
+    from products.mcp_analytics.backend.intent_topics import (
+        pipeline,  # noqa: PLC0415 — keeps the heavy dep off the import path
+    )
+
+    return pipeline.run_refit(team, now=now)
