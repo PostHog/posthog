@@ -216,13 +216,17 @@ export class Telemetry {
         } catch {
             return undefined
         }
-        const cacheKey = createHash('sha256').update(`${key.host}\n${key.projectId}\n${key.token}`).digest('hex')
+        const cacheKey = createHash('sha256').update(`${key.host}\n${key.projectId}\n${key.loginKey}`).digest('hex')
         let cache: Record<string, CachedIdentity> = {}
         try {
             const parsed: unknown = JSON.parse(await this.runtime.readFile(path))
             // A cache that isn't an object is broken, so hog starts a new one instead of failing the command.
             if (typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)) {
-                cache = parsed as Record<string, CachedIdentity>
+                cache = Object.fromEntries(
+                    Object.entries(parsed).filter(
+                        ([, entry]) => typeof (entry as Partial<CachedIdentity> | null)?.checkedAt === 'number'
+                    )
+                ) as Record<string, CachedIdentity>
             }
         } catch {
             // No cache yet.
@@ -233,6 +237,8 @@ export class Telemetry {
             return cached
         }
         const identity = await this.lookup(key)
+        // Entries old enough to be looked up again anyway are dropped, so logins that ended don't pile up.
+        cache = Object.fromEntries(Object.entries(cache).filter(([, entry]) => now - entry.checkedAt < 30 * DAY_MS))
         cache[cacheKey] = { ...identity, checkedAt: now }
         try {
             await this.runtime.writePrivateFile(path, JSON.stringify(cache))
