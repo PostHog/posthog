@@ -4942,15 +4942,26 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
         self.schema.refresh_from_db()
         assert INCREMENTAL_HISTORY_KEY not in self.schema.sync_type_config
 
-    @parameterized.expand([("both",), ("cdc_only",)])
-    def test_masking_a_column_of_a_table_that_keeps_incremental_history_is_refused(self, mode: str):
+    @parameterized.expand(
+        [
+            ("keeps_history", "both", True),
+            ("history_only", "cdc_only", True),
+            # The history table stays registered after the schema stops writing it.
+            ("history_turned_off", "consolidated", False),
+        ]
+    )
+    def test_masking_a_column_of_a_table_with_a_history_table_is_refused(
+        self, _name: str, mode: str, chose_history: bool
+    ):
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import build_table_name
+
         self.schema.sync_type = ExternalDataSchema.SyncType.INCREMENTAL
         self.schema.sync_type_config = {
             "incremental_field": "updated_at",
             "incremental_field_type": "datetime",
             "primary_key_columns": ["id"],
             "cdc_table_mode": mode,
-            INCREMENTAL_HISTORY_KEY: True,
+            INCREMENTAL_HISTORY_KEY: chose_history,
             "schema_metadata": {
                 "columns": [
                     {"name": name, "data_type": "text", "is_nullable": True} for name in ("id", "email", "updated_at")
@@ -4958,6 +4969,13 @@ class TestSerializerLostUpdateProtection(APIBaseTest):
             },
         }
         self.schema.save()
+        DataWarehouseTable.objects.create(
+            team=self.team,
+            name=build_table_name(self.source, f"{self.schema.name}_history"),
+            format="DeltaS3Wrapper",
+            external_data_source=self.source,
+            options={"history_table": True, "history_naming": "ph_validity"},
+        )
 
         with pytest.raises(ValidationError, match="history table"):
             self._save_through_serializer(self.schema, {"masked_columns": ["email"]})

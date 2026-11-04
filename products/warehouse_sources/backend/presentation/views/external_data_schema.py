@@ -108,6 +108,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     pinned_history_naming,
     purge_buffer_prefix,
     registered_history_columns,
+    registered_history_naming,
     repair_is_running,
     reserved_column_collisions,
     reserved_column_names,
@@ -1539,12 +1540,17 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                     )
 
         masked_columns_changed = _validate_masked_columns(instance, validated_data, data)
-        # A reset keeps an incremental history table, the only copy of past versions, so the rebuild a mask
-        # change starts would leave the earlier values readable there.
-        if masked_columns_changed and instance.is_incremental and history_mode_before is not None:
+        # The rebuild a mask change starts leaves a registered history table as it is, also after the schema
+        # stopped writing it, so the earlier values would stay readable there. Only a CDC table that keeps
+        # history reseeds that table from its new snapshot.
+        if (
+            masked_columns_changed
+            and not (instance.is_cdc and history_mode_before is not None)
+            and registered_history_naming(instance) is not None
+        ):
             raise ValidationError(
-                "This table keeps a history table, and masking can't change the values it already holds. "
-                "To mask a column, choose the consolidated table only first."
+                "This table has a history table that keeps the past values of its columns, and masking "
+                "can't change them, so its columns can't be masked."
             )
 
         # Validate against the schema's columns; raw filters are persisted as-is and re-coerced at sync time.
