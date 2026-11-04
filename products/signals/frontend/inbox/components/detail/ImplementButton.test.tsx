@@ -80,7 +80,11 @@ describe('ImplementButton', () => {
         expect(createPrFromReport).not.toHaveBeenCalled()
         await user.click(screen.getByTestId('inbox-report-create-pr-submit'))
 
-        expect(createPrFromReport).toHaveBeenCalledWith(expect.objectContaining({ id: 'report-1' }), undefined, undefined)
+        expect(createPrFromReport).toHaveBeenCalledWith(
+            expect.objectContaining({ id: 'report-1' }),
+            undefined,
+            undefined
+        )
         expect(jest.mocked(captureInboxReportAction).mock.calls[0][0].extra).toEqual({ has_feedback: false })
     })
 
