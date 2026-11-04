@@ -47,6 +47,10 @@ const MAX_DESCRIBE_SKILLS = 20
 const MAX_BATCH_READS = 10
 // Above this total, the zero-hit recovery links to `learn skills` instead of inlining every name.
 const ZERO_HIT_INLINE_LIMIT = 25
+// Skill descriptions fill most of a search reply, so the compact reply shows fewer skills and
+// relies on `learn -d` and a full read for the rest.
+const COMPACT_SEARCH_SKILLS = 5
+const COMPACT_SEARCH_SNIPPETS_PER_SKILL = 1
 export const QUALIFIED_IDENTIFIER = /^(posthog|project):/
 // A path that itself starts with `posthog:`/`project:` parses as a multi-skill read, not a file read.
 const SKILL_READ_USAGE =
@@ -58,6 +62,10 @@ interface QualifiedSkill {
     source: SkillSource
     name: string
     identifier: string
+}
+
+export interface ExecLearnOptions {
+    compactSearch?: boolean
 }
 
 interface ExecLearnSkillSources {
@@ -81,7 +89,8 @@ export class ExecLearnCatalog {
     constructor(
         guides: readonly ExecLearnGuide[],
         private readonly skillSources?: ExecLearnSkillSources,
-        private readonly onSkillInvoked?: (invocation: SkillInvocation) => void
+        private readonly onSkillInvoked?: (invocation: SkillInvocation) => void,
+        private readonly options: ExecLearnOptions = {}
     ) {
         this.guidesById = new Map()
         for (const guide of guides) {
@@ -322,8 +331,13 @@ export class ExecLearnCatalog {
                 (left, right) =>
                     (right.score ?? 0) - (left.score ?? 0) || left.identifier.localeCompare(right.identifier)
             )
-            .slice(0, MAX_GLOBAL_SKILLS)
-        const sections = merged.length > 0 ? formatLearnSearchResults(merged) : await this.zeroHitRecovery(query)
+            .slice(0, this.options.compactSearch ? COMPACT_SEARCH_SKILLS : MAX_GLOBAL_SKILLS)
+        const sections =
+            merged.length > 0
+                ? formatLearnSearchResults(merged, {
+                      snippetsPerSkill: this.options.compactSearch ? COMPACT_SEARCH_SNIPPETS_PER_SKILL : undefined,
+                  })
+                : await this.zeroHitRecovery(query)
         return fitLearnOutput(
             warnings.length > 0 ? `${sections}\n\n${warnings.map((warning) => `[${warning}]`).join('\n')}` : sections
         )

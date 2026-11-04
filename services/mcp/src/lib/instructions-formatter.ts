@@ -18,6 +18,7 @@ import CATALOG_TRUST_DISCOVERY from '@/templates/sections/catalog-trust-discover
 import CLI_DATA_DISCOVERY from '@/templates/sections/cli-data-discovery.md'
 import CLI_ERROR_HANDLING from '@/templates/sections/cli-error-handling.md'
 import CLI_EXAMPLES_CLAUDE from '@/templates/sections/cli-examples-claude.md'
+import CLI_EXAMPLES_COMPACT from '@/templates/sections/cli-examples-compact.md'
 import CLI_EXAMPLES from '@/templates/sections/cli-examples.md'
 import CLI_LEARN_COMPACT from '@/templates/sections/cli-learn-compact.md'
 import CLI_LEARN from '@/templates/sections/cli-learn.md'
@@ -307,8 +308,8 @@ export class InstructionsFormatter {
     }
 
     /**
-     * Build the optional guidance catalog used by Claude web/desktop. The
-     * existing prompt sections remain the source of truth; only their delivery
+     * Build the optional guidance catalog used with the compact command reference.
+     * The existing prompt sections remain the source of truth; only their delivery
      * moves from the advertised schema to `exec learn`.
      */
     buildClaudeExecLearnGuides(ctx: InstructionsContext): ExecLearnGuide[] {
@@ -367,19 +368,25 @@ export class InstructionsFormatter {
      * `inputSchema.properties.command.description`, so keep routine tool-use
      * guidance inline and move only task-specific sections behind `learn <topic...>`.
      * Enforced by the budget test in `instructions-formatter-snapshot.test.ts`.
+     *
+     * Other clients get this reference too when `mcp-exec-compact-context` is on,
+     * because every character of the schema is context the model reads on each request.
+     * A client that shows `instructions` already has the domain index there, so it
+     * passes `inlineToolDomains: false`.
      */
     buildClaudeExecCommandReference(
         ctx: InstructionsContext,
-        opts: { learnEnabled?: boolean; skillsEnabled?: boolean } = {}
+        opts: { learnEnabled?: boolean; skillsEnabled?: boolean; inlineToolDomains?: boolean } = {}
     ): string {
         const learnEnabled = opts.learnEnabled ?? true
         const skillsEnabled = opts.skillsEnabled ?? false
+        const inlineToolDomains = opts.inlineToolDomains ?? true
         const learnGuides = this.buildClaudeExecLearnGuides(ctx)
         const learnGuideList = learnGuides.map((entry) => `- ${entry.id}: ${entry.description}`).join('\n')
         const learnSection = learnEnabled ? formatPrompt(EXEC_LEARN, { help_topics: learnGuideList }) : undefined
         const renderCtx: InstructionsContext = {
             guidelines: ctx.guidelines,
-            tools: ctx.tools,
+            tools: inlineToolDomains ? ctx.tools : undefined,
         }
 
         return this.compose(
@@ -393,7 +400,9 @@ export class InstructionsFormatter {
                 METRIC_DISCOVERY_COMPACT,
                 CLI_SCHEMA_DRILLDOWN,
                 CLI_DATA_DISCOVERY,
-                CLI_EXAMPLES_CLAUDE,
+                // The Claude examples load `learn visualizations` and call `render-ui`, which a
+                // client without MCP Apps support does not have.
+                ctx.renderUiEnabled === false ? CLI_EXAMPLES_COMPACT : CLI_EXAMPLES_CLAUDE,
                 CLI_ERROR_HANDLING,
                 BASIC_FUNCTIONALITY,
                 TOOL_SEARCH,

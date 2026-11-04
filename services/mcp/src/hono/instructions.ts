@@ -27,7 +27,7 @@ import {
 import { getToolDefinition } from '@/tools/toolDefinitions'
 
 import { trackSkillInvoked } from './analytics'
-import { MCP_EXEC_SKILLS_FEATURE_FLAG } from './constants'
+import { MCP_EXEC_COMPACT_CONTEXT_FEATURE_FLAG, MCP_EXEC_SKILLS_FEATURE_FLAG } from './constants'
 import { getEffectiveMCPClientContext } from './mcp-context'
 import type { ResolvedState } from './request-state-resolver'
 import { toMcpInputSchema } from './tool-catalog'
@@ -145,13 +145,15 @@ export class InstructionsBuilder {
     }
 
     buildExecCommandReference(state: ExecToolState): string {
-        // Claude web/desktop never show `instructions` to the model, so their reference carries the domain index.
         const { guidesEnabled, skillsEnabled } = this.getExecLearnCapabilities(state)
         const ctx = this.buildContext(state)
-        if (state.clientProfile.isClaudeChatHost()) {
+        const { clientProfile } = state
+        if (clientProfile.isClaudeChatHost() || this.compactContextEnabled(state)) {
             return this.formatter.buildClaudeExecCommandReference(ctx, {
                 learnEnabled: guidesEnabled || skillsEnabled,
                 skillsEnabled,
+                // Claude web/desktop never show `instructions` to the model, so their reference carries the domain index.
+                inlineToolDomains: clientProfile.isClaudeChatHost() || !clientProfile.capabilities.supportsInstructions,
             })
         }
         return this.formatter.buildExecCommandReference(ctx, { learnEnabled: skillsEnabled })
@@ -186,7 +188,8 @@ export class InstructionsBuilder {
                 }
                 invokedIdentifiers.add(identifier)
                 void trackSkillInvoked(state, invocation)
-            }
+            },
+            { compactSearch: this.compactContextEnabled(state) }
         )
     }
 
@@ -227,17 +230,33 @@ export class InstructionsBuilder {
     }
 
     private getExecLearnCapabilities(state: ExecToolState): { guidesEnabled: boolean; skillsEnabled: boolean } {
-        const clientContext = getEffectiveMCPClientContext(state.requestContext, state.sessionContext)
         // The plugin and PostHog Code sandboxes bundle their own skill context, so
         // learn stays off for them regardless of the feature flag.
-        if (clientContext.mcpConsumer === 'plugin' || isPostHogCodeConsumer(clientContext.mcpConsumer)) {
+        if (this.bundlesOwnSkillContext(state)) {
             return { guidesEnabled: false, skillsEnabled: false }
         }
         // The connector's header-less `tools/list` advertises guides to every surface, so the call serves them too.
         const { clientProfile } = state
         return {
-            guidesEnabled: clientProfile.isClaudeChatHost() || clientProfile.isAnthropicConnector(),
+            guidesEnabled:
+                clientProfile.isClaudeChatHost() ||
+                clientProfile.isAnthropicConnector() ||
+                this.compactContextEnabled(state),
             skillsEnabled: state.toolFeatureFlags?.[MCP_EXEC_SKILLS_FEATURE_FLAG] === true,
         }
+    }
+
+    // The compact reference moves guidance behind `learn`, which these sandboxes do not get,
+    // so they keep the full reference.
+    private compactContextEnabled(state: ExecToolState): boolean {
+        return (
+            state.toolFeatureFlags?.[MCP_EXEC_COMPACT_CONTEXT_FEATURE_FLAG] === true &&
+            !this.bundlesOwnSkillContext(state)
+        )
+    }
+
+    private bundlesOwnSkillContext(state: ExecToolState): boolean {
+        const { mcpConsumer } = getEffectiveMCPClientContext(state.requestContext, state.sessionContext)
+        return mcpConsumer === 'plugin' || isPostHogCodeConsumer(mcpConsumer)
     }
 }

@@ -303,7 +303,13 @@ Optional, task-specific guidance is served through the same tool:
 - `learn <source>:<skill> <path> -s "<up to 8 keywords>"` searches within one Markdown file.
 - `learn <source>:<skill> <path> --lines <start>:<end>` reads an inclusive line range.
 
-Built-in guides are specific to Claude web and desktop. Skill discovery is independently available to every cli-mode client when the `mcp-exec-skills` feature flag is enabled. Other clients, including Claude Code, receive only the skill commands and do not receive Claude's built-in guides. If the flag is missing, disabled, or cannot be evaluated, skill commands are omitted from the schema and rejected at runtime.
+Built-in guides are specific to Claude web and desktop, unless the `mcp-exec-compact-context` feature flag is enabled. Skill discovery is independently available to every cli-mode client when the `mcp-exec-skills` feature flag is enabled. Without the `mcp-exec-compact-context` flag, other clients, including Claude Code, receive only the skill commands and do not receive Claude's built-in guides. If the flag is missing, disabled, or cannot be evaluated, skill commands are omitted from the schema and rejected at runtime.
+
+The `mcp-exec-compact-context` feature flag gives every other cli-mode client the same short `command` reference and built-in guides as Claude web and desktop, because the full reference adds about 30,000 characters to every request.
+A client that shows MCP `instructions` gets the tool-domain index there, so its reference leaves the index out. A client without `instructions` support, such as Codex, keeps the index inline.
+With the flag on, `learn -s` also returns the top 5 skills with one snippet each, instead of 10 skills with two snippets each.
+The plugin and PostHog Code consumers keep the full reference, because they do not get `learn`.
+If the flag is missing, disabled, or cannot be evaluated, clients keep the full reference.
 When skill discovery is enabled, the inline prompt tells every non-plugin cli client, including Claude web and desktop, to search with `learn -s "<task keywords>"` before non-trivial PostHog work, load matches by exact qualified name, and follow the loaded `SKILL.md` before choosing tools. Trivial lookups and unrelated conversation skip this workflow.
 Skill use is advisory: a product `call` is never rejected for skipping `learn`, so every client behaves the same whether or not it holds an MCP session id.
 

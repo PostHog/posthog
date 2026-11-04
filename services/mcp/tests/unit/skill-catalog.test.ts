@@ -173,6 +173,36 @@ describe('SkillCatalog and exec learn', () => {
         expect(catalog.searchResults('support')[0]?.identifier).toBe('support')
     })
 
+    it.each([
+        { compactSearch: false, expectedSkills: 7, expectedSnippetsPerSkill: 2 },
+        { compactSearch: true, expectedSkills: 5, expectedSnippetsPerSkill: 1 },
+    ])(
+        'shows $expectedSkills skills with $expectedSnippetsPerSkill snippets each when compactSearch is $compactSearch',
+        async ({ compactSearch, expectedSkills, expectedSnippetsPerSkill }) => {
+            const names = ['support', ...Array.from({ length: 6 }, (_, index) => `support-${index}`)]
+            const catalog = SkillCatalog.fromZip(
+                makeArchive(
+                    Object.fromEntries(
+                        names.flatMap((name) => [
+                            [`${name}/SKILL.md`, makeSkill(name, 'Internal workflow.', '# Guide\n\nSupport queue.')],
+                            [`${name}/references/queue.md`, '# Queue\n\nSupport queue triage.'],
+                        ])
+                    )
+                )
+            )
+            const learn = new ExecLearnCatalog([], { posthog: catalog }, undefined, { compactSearch })
+
+            const result = await learn.execute('-s support queue')
+            const sections = result.split('\n\n## ')
+
+            expect(result.startsWith('## posthog:support\n')).toBe(true)
+            expect(sections).toHaveLength(expectedSkills)
+            for (const section of sections) {
+                expect(section.match(/^\S+\.md:\d+: /gm)).toHaveLength(expectedSnippetsPerSkill)
+            }
+        }
+    )
+
     it('bounds token expansion while preserving informative matches', () => {
         const catalog = SkillCatalog.fromZip(
             makeArchive({

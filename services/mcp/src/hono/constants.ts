@@ -2,6 +2,7 @@ import { parseSigningKeys } from '@/lib/client-ip-signature'
 import type { Env } from '@/tools/types'
 
 export const MCP_EXEC_SKILLS_FEATURE_FLAG = 'mcp-exec-skills'
+export const MCP_EXEC_COMPACT_CONTEXT_FEATURE_FLAG = 'mcp-exec-compact-context'
 
 export {
     USER_AGENT,

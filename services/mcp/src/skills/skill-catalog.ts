@@ -367,11 +367,15 @@ export function readLearnLines(identifier: string, file: SkillFile, start: numbe
     return result
 }
 
-export function formatLearnSearchResults(results: readonly LearnSearchResult[]): string {
+export function formatLearnSearchResults(
+    results: readonly LearnSearchResult[],
+    opts: { snippetsPerSkill?: number } = {}
+): string {
     const sections = results.map(({ identifier, description, snippets }) => {
         const lines = [`## ${identifier}`, '', description]
-        if (snippets.length > 0) {
-            lines.push('', ...snippets.map((snippet) => `${snippet.path}:${snippet.line}: ${snippet.text}`))
+        const shown = snippets.slice(0, opts.snippetsPerSkill ?? snippets.length)
+        if (shown.length > 0) {
+            lines.push('', ...shown.map((snippet) => `${snippet.path}:${snippet.line}: ${snippet.text}`))
         }
         return lines.join('\n')
     })

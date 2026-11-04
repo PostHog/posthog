@@ -11,7 +11,7 @@ vi.mock('@/resources', () => ({
     getPromptsFromManifest: vi.fn().mockResolvedValue([]),
 }))
 
-import { MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
+import { MCP_EXEC_COMPACT_CONTEXT_FEATURE_FLAG, MCP_EXEC_SKILLS_FEATURE_FLAG } from '@/hono/constants'
 import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
@@ -321,9 +321,34 @@ describe('ToolExecutor', () => {
                 expectGuides: false,
                 expectSkills: false,
             },
+            {
+                label: 'directly connected Claude Code with compact context on',
+                isClaudeChatHost: false,
+                skillsEnabled: false,
+                compactContext: true,
+                consumer: undefined,
+                expectGuides: true,
+                expectSkills: false,
+            },
+            {
+                label: 'plugin consumer with compact context on',
+                isClaudeChatHost: false,
+                skillsEnabled: false,
+                compactContext: true,
+                consumer: 'plugin',
+                expectGuides: false,
+                expectSkills: false,
+            },
         ])(
             'advertises and serves the expected learn capabilities for $label',
-            async ({ isClaudeChatHost, skillsEnabled, consumer, expectGuides, expectSkills }) => {
+            async ({
+                isClaudeChatHost,
+                skillsEnabled,
+                compactContext = false,
+                consumer,
+                expectGuides,
+                expectSkills,
+            }) => {
                 const skills = new SkillCatalog([
                     {
                         name: 'sample-skill',
@@ -336,7 +361,10 @@ describe('ToolExecutor', () => {
                 } as any)
                 const state = makeToolExecutorState([], {
                     useSingleExec: true,
-                    toolFeatureFlags: { [MCP_EXEC_SKILLS_FEATURE_FLAG]: skillsEnabled },
+                    toolFeatureFlags: {
+                        [MCP_EXEC_SKILLS_FEATURE_FLAG]: skillsEnabled,
+                        [MCP_EXEC_COMPACT_CONTEXT_FEATURE_FLAG]: compactContext,
+                    },
                     clientProfile: {
                         capabilities: { supportsInstructions: true },
                         isCliModeEnabled: vi.fn(() => true),
@@ -561,27 +589,56 @@ describe('ToolExecutor', () => {
 
         // Hosts cache one tool roster and serve it to other accounts, so nothing
         // account-specific may reach the advertised exec entry. The domain index stays
-        // out of the command description except for Claude web/desktop, which ignores
-        // `instructions` and has nowhere else to receive it.
+        // out of the command description except where the client has nowhere else to
+        // receive it: Claude web/desktop ignores `instructions`, and with compact context
+        // on, a client without `instructions` support gets it inline too.
         it.each([
             {
                 label: 'Claude web/desktop (ignores instructions)',
                 supportsInstructions: true,
                 isClaudeChatHost: true,
+                expectCompact: true,
+                expectInlineDomains: true,
             },
             {
                 label: 'Codex (supportsInstructions: false)',
                 supportsInstructions: false,
                 isClaudeChatHost: false,
+                expectCompact: false,
+                expectInlineDomains: false,
             },
             {
                 label: 'Claude Code / Cowork (consume instructions)',
                 supportsInstructions: true,
                 isClaudeChatHost: false,
+                expectCompact: false,
+                expectInlineDomains: false,
+            },
+            {
+                label: 'Codex with compact context on',
+                supportsInstructions: false,
+                isClaudeChatHost: false,
+                compactContext: true,
+                expectCompact: true,
+                expectInlineDomains: true,
+            },
+            {
+                label: 'Claude Code with compact context on',
+                supportsInstructions: true,
+                isClaudeChatHost: false,
+                compactContext: true,
+                expectCompact: true,
+                expectInlineDomains: false,
             },
         ])(
             'advertises the same exec entry to every account for $label',
-            async ({ supportsInstructions, isClaudeChatHost }) => {
+            async ({
+                supportsInstructions,
+                isClaudeChatHost,
+                compactContext = false,
+                expectCompact,
+                expectInlineDomains,
+            }) => {
                 const tools = [
                     ...catalog
                         .getPreBuiltEntries()
@@ -593,6 +650,7 @@ describe('ToolExecutor', () => {
                     makeToolExecutorState(tools, {
                         useSingleExec: true,
                         distinctId,
+                        toolFeatureFlags: { [MCP_EXEC_COMPACT_CONTEXT_FEATURE_FLAG]: compactContext },
                         clientProfile: {
                             capabilities: { supportsInstructions },
                             isCliModeEnabled: vi.fn(() => true),
@@ -611,10 +669,12 @@ describe('ToolExecutor', () => {
 
                 expect(JSON.stringify(other.tools)).toBe(JSON.stringify(result.tools))
                 expect(commandDesc).toContain('PostHog tools have lowercase kebab-case naming')
-                expect(commandDesc.includes('**LEARN FIRST: HARD REQUIREMENT**')).toBe(isClaudeChatHost)
-                expect(commandDesc.includes('- analytics:')).toBe(isClaudeChatHost)
-                expect(commandDesc.includes('### Retrieving data')).toBe(!isClaudeChatHost)
-                expect(commandDesc.includes(compactDomains)).toBe(isClaudeChatHost)
+                expect(commandDesc.includes('**LEARN FIRST: HARD REQUIREMENT**')).toBe(expectCompact)
+                expect(commandDesc.includes('- analytics:')).toBe(expectCompact)
+                expect(commandDesc.includes('### Retrieving data')).toBe(!expectCompact)
+                expect(commandDesc.includes(compactDomains)).toBe(expectInlineDomains)
+                // These clients have no `render-ui`, so no example may send the agent to it.
+                expect(commandDesc).not.toContain('learn analytics visualizations')
                 expect(commandDesc).toContain('Call `project-get` without an ID to read the active project')
             }
         )

@@ -27,7 +27,7 @@ import type { BusinessKnowledgeContent, Context, Env, PinnedActiveContext, Tool,
 
 import { McpSessionRedisStore } from './cache/McpSessionRedisStore'
 import type { RedisLike } from './cache/RedisCache'
-import { MCP_EXEC_SKILLS_FEATURE_FLAG } from './constants'
+import { MCP_EXEC_COMPACT_CONTEXT_FEATURE_FLAG, MCP_EXEC_SKILLS_FEATURE_FLAG } from './constants'
 import { GUIDANCE_RULE_FLAGS } from './guidance/rules'
 import { MCP_INTENT_PROMPT_FLAG, resolveIntentPrompt } from './intent-prompt'
 import {
@@ -203,12 +203,14 @@ export class RequestStateResolver {
 
         // MCP_GATEWAY_FLAG gates no tool of its own — it gates the third-party tools `exec`
         // resolves — so the tool-definition scan can't discover it; join it in explicitly.
-        // MCP_EXEC_SKILLS_FEATURE_FLAG gates the `learn` skill commands the same way.
+        // MCP_EXEC_SKILLS_FEATURE_FLAG gates the `learn` skill commands the same way, and
+        // MCP_EXEC_COMPACT_CONTEXT_FEATURE_FLAG gates the size of the exec prompt.
         const allFlagKeys = [
             ...new Set([
                 ...getRequiredFeatureFlags(),
                 MCP_GATEWAY_FLAG,
                 MCP_EXEC_SKILLS_FEATURE_FLAG,
+                MCP_EXEC_COMPACT_CONTEXT_FEATURE_FLAG,
                 MCP_INTERVIEW_RECRUITMENT_FLAG,
                 MCP_INTENT_PROMPT_FLAG,
                 ...GUIDANCE_RULE_FLAGS,
