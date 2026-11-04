@@ -2983,6 +2983,20 @@ class TestSavedQueryRun(APIBaseTest):
             ("running_run_5_minutes_ago", [(DataModelingJob.Status.RUNNING, 5)], None, 429),
             ("completed_run_20_minutes_ago", [(DataModelingJob.Status.COMPLETED, 20)], None, 200),
             ("failed_run_5_minutes_ago", [(DataModelingJob.Status.FAILED, 5)], None, 200),
+            ("cancelled_run_5_minutes_ago", [(DataModelingJob.Status.CANCELLED, 5)], None, 200),
+            ("skipped_run_5_minutes_ago", [(DataModelingJob.Status.SKIPPED, 5)], None, 200),
+            (
+                "skipped_run_after_a_completed_run",
+                [(DataModelingJob.Status.SKIPPED, 5), (DataModelingJob.Status.COMPLETED, 10)],
+                None,
+                429,
+            ),
+            (
+                "managed_warehouse_run_5_minutes_ago",
+                [(DataModelingJob.Status.COMPLETED, 5, DataModelingJobEngine.MANAGED_WAREHOUSE)],
+                None,
+                200,
+            ),
             (
                 "failed_run_after_a_completed_run",
                 [(DataModelingJob.Status.COMPLETED, 10), (DataModelingJob.Status.FAILED, 5)],
@@ -3004,12 +3018,12 @@ class TestSavedQueryRun(APIBaseTest):
         if query_edited_minutes_ago is not None:
             saved_query.query_updated_at = now - timedelta(minutes=query_edited_minutes_ago)
             saved_query.save(update_fields=["query_updated_at"])
-        for job_status, started_minutes_ago in runs:
+        for job_status, started_minutes_ago, *engine in runs:
             job = DataModelingJob.objects.create(
                 team=self.team,
                 saved_query=saved_query,
                 status=job_status,
-                engine=DataModelingJobEngine.CLICKHOUSE,
+                engine=engine[0] if engine else DataModelingJobEngine.CLICKHOUSE,
                 last_run_at=now,
             )
             DataModelingJob.objects.filter(id=job.id).update(created_at=now - timedelta(minutes=started_minutes_ago))
@@ -3073,6 +3087,12 @@ class TestSavedQueryRun(APIBaseTest):
         Edge.objects.create(team=self.team, dag=dag, source=related_node, target=node)
         mark_node_suspended(node, engine=DataModelingJobEngine.MANAGED_WAREHOUSE, reason="boom", job_id="job-1")
         node.save()
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=saved_query,
+            status=DataModelingJob.Status.COMPLETED,
+            engine=DataModelingJobEngine.CLICKHOUSE,
+        )
         mock_eligible.return_value = True
         mock_client = self._trino_client()
         mock_sync_connect.return_value = mock_client
