@@ -50,13 +50,17 @@ from products.signals.backend.personal_ranking.config import (
     read_config,
 )
 from products.signals.backend.personal_ranking.logic import (
+    CHANGED_NO_PREVIOUS,
+    CHANGED_UNKNOWN,
+    INPUT_PARTS,
     PIPELINE_DISTINCT_ID,
     RETRYABLE_FALLBACK_REASONS,
     build_personal_ranking,
     input_hash,
+    latest_row,
     may_call_model,
 )
-from products.signals.backend.personal_ranking.serve import latest_row, ready_summary_version
+from products.signals.backend.personal_ranking.serve import ready_summary_version
 from products.signals.backend.personal_ranking_tasks import BUILD_LOCK_TTL_SECONDS, build_lock_key
 
 logger = structlog.get_logger(__name__)
@@ -160,6 +164,8 @@ class PersonalRankingTickPlan:
 class PersonalRankingPairResult:
     status: PairStatus
     model_called: bool = False
+    # The `changed_parts` of the build. Empty when the pair did not build.
+    changed_parts: list[str] = dataclasses.field(default_factory=list)
 
 
 @frozen
@@ -169,6 +175,8 @@ class PersonalRankingTickResult:
     due_without_list: int = 0
     picked: int = 0
     statuses: dict[str, int] = dataclasses.field(default_factory=dict)
+    # Built pairs by changed input part. A pair with two changed parts counts in both.
+    changed_parts: dict[str, int] = dataclasses.field(default_factory=dict)
     errored: int = 0
     stop_reason: str | None = None
     oldest_due_hours: float | None = None
@@ -373,7 +381,11 @@ def _check_and_build(team: Team, user: User, config: PersonalRankingConfig) -> P
     if build.status == "disabled":
         return PersonalRankingPairResult(status="disabled")
     failed = build.model_called and build.status == "fallback"
-    return PersonalRankingPairResult(status="failed" if failed else "built", model_called=build.model_called)
+    return PersonalRankingPairResult(
+        status="failed" if failed else "built",
+        model_called=build.model_called,
+        changed_parts=list(build.input_changes.changed_parts) if build.input_changes is not None else [],
+    )
 
 
 def run_pair(pair: TickPair) -> PersonalRankingPairResult:
@@ -399,6 +411,10 @@ def capture_tick(result: PersonalRankingTickResult) -> None:
         "due_without_list": result.due_without_list,
         "picked": result.picked,
         **{status: result.statuses.get(status, 0) for status in PAIR_STATUSES},
+        **{
+            f"changed_{part}": result.changed_parts.get(part, 0)
+            for part in (*INPUT_PARTS, CHANGED_NO_PREVIOUS, CHANGED_UNKNOWN)
+        },
         "errored": result.errored,
         "stop_reason": result.stop_reason,
         "oldest_due_hours": result.oldest_due_hours,
@@ -450,6 +466,7 @@ class PersonalRankingTickWorkflow:
 
         deadline = started + datetime.timedelta(seconds=plan.time_budget_seconds)
         statuses: dict[str, int] = {}
+        changed_parts: dict[str, int] = {}
         errored = 0
         # Model calls of this tick and the calls among them that failed or raised, for the circuit breaker.
         calls = 0
@@ -491,6 +508,8 @@ class PersonalRankingTickWorkflow:
                     failures += 1
                     continue
                 statuses[outcome.status] = statuses.get(outcome.status, 0) + 1
+                for part in outcome.changed_parts:
+                    changed_parts[part] = changed_parts.get(part, 0) + 1
                 calls += outcome.model_called
                 failures += outcome.status == "failed"
                 limit_stop = limit_stop or _LIMIT_STOPS.get(outcome.status)
@@ -504,6 +523,7 @@ class PersonalRankingTickWorkflow:
             due_without_list=plan.due_without_list,
             picked=picked,
             statuses=statuses,
+            changed_parts=changed_parts,
             errored=errored,
             stop_reason=stop_reason,
             oldest_due_hours=plan.oldest_due_hours,
