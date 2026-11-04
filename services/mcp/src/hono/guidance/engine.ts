@@ -21,7 +21,6 @@ export interface GuidanceCall {
     execVerb?: string | undefined
     args: Record<string, unknown> | undefined
     isError: boolean
-    /** The tool returned zero rows. Unset on a failed call. */
     resultEmpty?: boolean | undefined
 }
 
@@ -105,6 +104,12 @@ function ruleApplies(rule: GuidanceRule, state: ResolvedState, preset: string): 
 // rule stays pending and is reported on the next matching call instead of being dropped.
 const RULE_STATE_SCRIPT = `
 local ttl = tonumber(ARGV[1])
+if ARGV[4] == 'touch' then
+    redis.call('EXPIRE', KEYS[1], ttl)
+    redis.call('EXPIRE', KEYS[2], ttl)
+    redis.call('EXPIRE', KEYS[3], ttl)
+    return tonumber(redis.call('GET', KEYS[3]) or 0)
+end
 if ARGV[4] == 'suppress' then
     redis.call('SET', KEYS[2], '1', 'EX', ttl)
     redis.call('EXPIRE', KEYS[1], ttl)
@@ -214,29 +219,32 @@ export class GuidanceEngine {
             return RuleResult.None
         }
         const key = (suffix: string): string => `${scope}:${rule.id}:${suffix}`
-        // The condition runs before the script, so a call it rejects does not spend `maxPerSession`.
-        // The cap check comes first, so a rule that used up its notices does no product-state read.
-        if (!suppressing && rule.condition) {
-            if (!canFire || Number((await this.redis.get(key('shown'))) ?? 0) >= rule.maxPerSession) {
-                return RuleResult.None
-            }
-            if (!(await rule.condition({ call, productState }))) {
+        const runScript = (mode: 'touch' | 'suppress' | 'match'): Promise<unknown> =>
+            this.redis.eval(
+                RULE_STATE_SCRIPT,
+                3,
+                key('matched'),
+                key('suppressed'),
+                key('shown'),
+                ttl,
+                rule.threshold,
+                rule.maxPerSession,
+                mode,
+                canFire ? '1' : '0'
+            )
+        // `touch` keeps a capped rule's counters alive without the `match` count, so a rejected call
+        // spends no `maxPerSession`. The budget covers it because the tool result waits for this gate.
+        const { condition } = rule
+        if (!suppressing && condition) {
+            const admitted = await productState.withinBudget('rule_gate', async () => {
+                const shown = Number(await runScript('touch'))
+                return canFire && shown < rule.maxPerSession && (await condition({ call, productState }))
+            })
+            if (admitted !== true) {
                 return RuleResult.None
             }
         }
-        const fired = await this.redis.eval(
-            RULE_STATE_SCRIPT,
-            3,
-            key('matched'),
-            key('suppressed'),
-            key('shown'),
-            ttl,
-            rule.threshold,
-            rule.maxPerSession,
-            suppressing ? 'suppress' : 'match',
-            canFire ? '1' : '0'
-        )
-        return Number(fired) as RuleResult
+        return Number(await runScript(suppressing ? 'suppress' : 'match')) as RuleResult
     }
 }
 

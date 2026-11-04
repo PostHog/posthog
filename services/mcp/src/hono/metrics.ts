@@ -232,7 +232,7 @@ export const guidanceEvaluationErrorsTotal = new Counter({
 
 export const guidanceProductStateLookupsTotal = new Counter({
     name: 'mcp_guidance_product_state_lookups_total',
-    help: 'Product-state reads for guidance conditions, by check and result (answered, timeout, error).',
+    help: 'Budgeted reads for guidance conditions, by check and result (answered, timeout, error).',
     labelNames: ['check', 'result'] as const,
 })
 

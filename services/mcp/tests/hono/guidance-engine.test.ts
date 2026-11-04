@@ -250,11 +250,28 @@ describe('GuidanceEngine', () => {
             ])
         })
 
-        it('skips the condition once the rule reaches its cap', async () => {
+        it('skips the condition once the rule reaches its cap and keeps its counters alive', async () => {
             const condition = vi.fn().mockResolvedValue(true)
-            const engine = new GuidanceEngine(makeGuidanceRedis(), [conditionalRule(condition)])
+            const redis = makeGuidanceRedis()
+            const engine = new GuidanceEngine(redis, [conditionalRule(condition)])
             await run(engine, makeState(), [replayQuery, replayQuery])
             expect(condition).toHaveBeenCalledTimes(1)
+            expect(redis.evalCalls.at(-1)?.[6]).toBe('touch')
+        })
+
+        it('holds the tool result no longer than the budget when Redis stalls', async () => {
+            vi.useFakeTimers()
+            try {
+                const redis = makeGuidanceRedis()
+                vi.spyOn(redis, 'eval').mockImplementation(() => new Promise(() => {}))
+                const stalled = (id: string): GuidanceRule => ({ ...conditionalRule(vi.fn()), id })
+                const engine = new GuidanceEngine(redis, [stalled('a'), stalled('b'), stalled('c')])
+                const pending = engine.evaluate(makeState(), replayQuery)
+                await vi.advanceTimersByTimeAsync(310)
+                await expect(pending).resolves.toBeUndefined()
+            } finally {
+                vi.useRealTimers()
+            }
         })
 
         it('applies the condition to a caller with the flag off', async () => {

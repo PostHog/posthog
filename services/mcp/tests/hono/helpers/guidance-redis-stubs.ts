@@ -36,6 +36,9 @@ export function makeGuidanceRedis(failing = false): GuidanceRedisStub {
             evalCalls.push(args)
             const [matchedKey, suppressedKey, shownKey, _ttl, threshold, maxPerSession, mode, canFire] =
                 args.map(String)
+            if (mode === 'touch') {
+                return guard(Number(store.get(shownKey!) ?? 0))
+            }
             if (mode === 'suppress') {
                 store.set(suppressedKey!, '1')
                 return guard(0)

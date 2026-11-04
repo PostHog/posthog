@@ -14,11 +14,7 @@ const NO_ISSUES_TTL_SECONDS = 10 * 60
 
 const issuesExistSchema = z.object({ exists: z.boolean() })
 
-/**
- * Lazy, per-evaluation reads of project state for guidance conditions. Every read returns
- * `undefined` when the answer is unknown, so a slow or failing lookup yields no notice and
- * never fails the tool call. Failures are not cached, so they cannot pass as a real answer.
- */
+// Every read returns `undefined` when the answer is unknown, so a failure never fails the tool call.
 export class GuidanceProductState {
     private deadlineAt: number | undefined
     private ingestedData: Promise<boolean | undefined> | undefined
@@ -34,6 +30,7 @@ export class GuidanceProductState {
         return this.ingestedData
     }
 
+    // The cached answer is per project, so a rule must trigger only on a tool that needs `error_tracking:read`.
     hasErrorTrackingIssues(): Promise<boolean | undefined> {
         this.errorTrackingIssues ??= this.withinBudget('error_tracking_issues', () => this.readErrorTrackingIssues())
         return this.errorTrackingIssues
@@ -64,7 +61,7 @@ export class GuidanceProductState {
         return exists
     }
 
-    private async withinBudget<T>(check: string, read: () => Promise<T>): Promise<T | undefined> {
+    async withinBudget<T>(check: string, read: () => Promise<T>): Promise<T | undefined> {
         this.deadlineAt ??= Date.now() + LOOKUP_BUDGET_MS
         const work = read()
         // After a timeout nothing awaits this promise, so its rejection needs its own handler.
