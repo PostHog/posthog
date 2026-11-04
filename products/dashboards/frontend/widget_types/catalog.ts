@@ -375,6 +375,7 @@ export const DASHBOARD_WIDGET_CATALOG = {
     },
     canvas_app: {
         groupId: 'canvas',
+        featureFlag: FEATURE_FLAGS.SMALL_SOFTWARE_APPS,
         label: 'Canvas app',
         description: "A published canvas app, rendered with each viewer's own permissions.",
         headerTitle: 'Canvas app',

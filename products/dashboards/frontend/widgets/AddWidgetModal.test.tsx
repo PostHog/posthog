@@ -117,6 +117,19 @@ describe('AddWidgetModal', () => {
         expect(sectionHeadings()).toHaveLength(8)
     })
 
+    it('hides the canvas app widget unless its creation flag is on', () => {
+        renderAddWidgetModal()
+        expect(screen.queryByText('Canvas app')).not.toBeInTheDocument()
+        cleanup()
+
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SMALL_SOFTWARE_APPS], {
+            [FEATURE_FLAGS.SMALL_SOFTWARE_APPS]: true,
+        })
+        renderAddWidgetModal()
+        expect(screen.getByText('Canvas', { selector: 'h5' })).toBeInTheDocument()
+        expect(screen.getByLabelText('Canvas app')).toBeInTheDocument()
+    })
+
     it('allows multi-select checkbox behavior within grouped layout', async () => {
         renderAddWidgetModal()
 
