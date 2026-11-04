@@ -147,6 +147,7 @@ depends_on = [
     "products.experiments",
     "products.feature_flags",
     "products.growth",
+    "products.knowledge_writer",
     "products.legal_documents",
     "products.links",
     "products.ai_observability",
@@ -1926,6 +1927,7 @@ path = "products.commands"
 depends_on = [
     "posthog",
     "products.error_tracking",
+    "products.knowledge_writer",
     "products.review_hog",
     "products.security",
     "products.stamphog",
@@ -2003,7 +2005,7 @@ from = [
 
 [[modules]]
 path = "products.knowledge_writer"
-depends_on = ["posthog", "products.tasks"]
+depends_on = ["posthog", "products.business_knowledge", "products.tasks"]
 layer = "modules"
 
 [[interfaces]]
