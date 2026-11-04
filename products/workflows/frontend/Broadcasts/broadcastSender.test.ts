@@ -6,7 +6,6 @@ import {
     SANDBOX_SENDER_BROADCAST_ERROR,
     SENDERS_LOAD_FAILED_ERROR,
     getPickerSenderIds,
-    getSenderIds,
     getSenderLaunchError,
     keepSandboxSenderOnEdit,
 } from './broadcastWizardLogic'
@@ -62,15 +61,21 @@ describe('broadcast senders', () => {
     })
 
     it.each([
-        ['a subject edit keeps the sandbox rotation', [1, 3], {}, [1, 3]],
-        ['a sender pick replaces the sandbox rotation', [1, 3], { integrationId: 1 }, [1]],
-        ['a subject edit with own senders keeps the edit', [1, 2], {}, []],
-    ])('%s', (_, storedIds, editedFrom, expected) => {
+        ['a subject edit keeps the sandbox rotation', [1, 3], {}, { integrationId: 1, integrationIds: [1, 3] }],
+        [
+            'a sender name edit keeps the sandbox rotation and the name',
+            [1, 3],
+            { name: 'Sales' },
+            { name: 'Sales', integrationId: 1, integrationIds: [1, 3] },
+        ],
+        ['a sender pick replaces the sandbox rotation', [1, 3], { integrationId: 1 }, { integrationId: 1 }],
+        ['a subject edit with own senders keeps the edit', [1, 2], {}, {}],
+    ])('%s', (_, storedIds, editedFrom, expectedFrom) => {
         const integrations = [sender(1, true), sender(2, true), sender(3, true, 'sandbox')]
         const stored = { ...DEFAULT_BROADCAST_EMAIL, from: { integrationId: storedIds[0], integrationIds: storedIds } }
         const edited = { ...DEFAULT_BROADCAST_EMAIL, subject: 'Spring sale', from: editedFrom }
         const result = keepSandboxSenderOnEdit(stored, edited, integrations)
         expect(result.subject).toBe('Spring sale')
-        expect(getSenderIds(result.from)).toEqual(expected)
+        expect(result.from).toEqual(expectedFrom)
     })
 })
