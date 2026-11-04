@@ -31,7 +31,8 @@ PAGINATOR: JSONResponseCursorPaginatorConfig = {
 
 @frozen
 class ScalrResumeConfig:
-    next_page: str
+    next_page: str | None = None
+    fan_out: dict[str, Any] | None = None
 
 
 def base_url(config: ScalrSourceConfig, team_id: int, api_version: str) -> str:
@@ -185,20 +186,34 @@ def scalr_source(
             "allowed_hosts": [],
             "allow_redirects": False,
             "request_timeout": 30,
+            # A sampled response would keep the state file that flatten_state_version removes.
+            "capture": not endpoint.per_workspace,
             "paginator": PAGINATOR,
         },
         "resources": resources,
     }
 
+    resume = manager.load_state() if manager.can_resume() else None
+
     if endpoint.per_workspace:
-        # A page number only has meaning inside one workspace, so the fan-out does not resume.
+
+        def save_fan_out(state: dict[str, Any] | None) -> None:
+            if state:
+                manager.save_state(ScalrResumeConfig(fan_out=state))
+
         resource = next(
             item
-            for item in rest_api_resources(rest_config, inputs.team_id, inputs.job_id, None)
+            for item in rest_api_resources(
+                rest_config,
+                inputs.team_id,
+                inputs.job_id,
+                None,
+                resume_hook=save_fan_out,
+                initial_paginator_state=resume.fan_out if resume else None,
+            )
             if item.name == inputs.schema_name
         )
     else:
-        resume = manager.load_state() if manager.can_resume() else None
 
         def save_checkpoint(state: dict[str, Any] | None) -> None:
             if state and state.get("cursor") is not None:
@@ -210,7 +225,7 @@ def scalr_source(
             inputs.job_id,
             None,
             resume_hook=save_checkpoint,
-            initial_paginator_state={"cursor": resume.next_page} if resume else None,
+            initial_paginator_state={"cursor": resume.next_page} if resume and resume.next_page else None,
         )
     return SourceResponse(
         name=inputs.schema_name,

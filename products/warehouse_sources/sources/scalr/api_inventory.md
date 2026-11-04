@@ -5,14 +5,14 @@ All requests use a customer token with Bearer authentication and an account ID f
 Connections use HTTPS. The host check rejects internal addresses under the shared cloud policy.
 The source rejects redirects and reads page numbers from `meta.pagination.next-page`.
 
-| Table        | GET path        | Required access                  | Key  | Sync                        | Partition    |
-| ------------ | --------------- | -------------------------------- | ---- | --------------------------- | ------------ |
-| environments | `/environments` | Read environments in the account | `id` | Full refresh                | `created_at` |
-| workspaces   | `/workspaces`   | Read workspaces in the account   | `id` | Incremental on `updated_at` | `created_at` |
-| runs         | `/runs`         | Read runs in the account         | `id` | Full refresh                | `created_at` |
-| users        | `/users`        | Read users in the account        | `id` | Full refresh                | `created_at` |
-| plans        | `/runs?include=plan` | Read runs in the account    | `id` | Full refresh                | None         |
-| state_versions | `/state-versions?filter[workspace]=<id>` | Read state versions of each workspace | `id` | Full refresh | `created_at` |
+| Table          | GET path                                 | Required access                       | Key  | Sync                        | Partition    |
+| -------------- | ---------------------------------------- | ------------------------------------- | ---- | --------------------------- | ------------ |
+| environments   | `/environments`                          | Read environments in the account      | `id` | Full refresh                | `created_at` |
+| workspaces     | `/workspaces`                            | Read workspaces in the account        | `id` | Incremental on `updated_at` | `created_at` |
+| runs           | `/runs`                                  | Read runs in the account              | `id` | Full refresh                | `created_at` |
+| users          | `/users`                                 | Read users in the account             | `id` | Full refresh                | `created_at` |
+| plans          | `/runs?include=plan`                     | Read runs in the account              | `id` | Full refresh                | None         |
+| state_versions | `/state-versions?filter[workspace]=<id>` | Read state versions of each workspace | `id` | Full refresh                | `created_at` |
 
 Workspace requests use `sort=updated-at` and `filter[updated-at]=gte:<timestamp>` after the first sync.
 Full refresh omits the time filter. Environment requests use `sort=created-at`.
@@ -21,7 +21,8 @@ Runs use full refresh because a creation watermark would miss later status chang
 Users and state versions use `sort=created-at`. Neither route documents an account filter, so their requests send none.
 Plans have only a by-ID route (`/plans/{plan}`), so the source reads them from the `included` part of the run list.
 State versions require a workspace filter, so the source lists the workspaces and then reads each one.
-A workspace that returns 404 during this fan-out is skipped. The fan-out does not resume from a page.
+A workspace that returns 404 during this fan-out is skipped. A resumed fan-out skips the workspaces it finished.
+State version requests are left out of HTTP sample capture, because the response holds the state file.
 The source removes the base64 `state` attribute and the values of sensitive outputs, because they can hold secrets.
 
 The billing usage report (`/reports/billing`) is not a table.

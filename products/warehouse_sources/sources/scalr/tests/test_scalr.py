@@ -281,3 +281,45 @@ def test_state_versions_fan_out_over_workspaces_without_state_secrets(config: Sc
         ("/api/iacp/v3/state-versions", "ws-2"),
     ]
     assert result.requests[2].param("page[number]") == "2"
+    assert all(options.get("capture") is False for options in result.session_options)
+
+
+def test_state_versions_resume_skips_finished_workspaces(config: ScalrSourceConfig) -> None:
+    def respond_with(state_versions: dict[str, list[ScriptedResponse]]) -> Any:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            if request.path.endswith("/workspaces"):
+                return response(
+                    {
+                        "data": [{"id": ws, "type": "workspaces", "attributes": {}} for ws in ("ws-1", "ws-2")],
+                        "meta": {"pagination": {"next-page": None}},
+                    }
+                )
+            workspace = request.param("filter[workspace]")
+            assert workspace is not None
+            return state_versions[workspace].pop(0)
+
+        return respond
+
+    driver = SourceDriver(ScalrSource(), config)
+    first = driver.run(
+        "state_versions",
+        respond_with(
+            {
+                "ws-1": [page("state-versions", "sv-1", None)],
+                "ws-2": [response({"errors": [{"status": "401"}]}, 401)],
+            }
+        ),
+    )
+
+    assert isinstance(first.raised, HTTPError)
+    assert first.final_state is not None
+
+    resumed = driver.run(
+        "state_versions",
+        respond_with({"ws-2": [page("state-versions", "sv-2", None)]}),
+        resume_state=first.final_state,
+    )
+
+    assert resumed.raised is None
+    assert [row["id"] for row in resumed.rows] == ["sv-2"]
+    assert [request.param("filter[workspace]") for request in resumed.requests] == [None, "ws-2"]
