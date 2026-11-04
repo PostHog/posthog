@@ -12,6 +12,7 @@ from products.error_tracking.backend.presentation.views import (
     ErrorTrackingQueryViewSet,
     ErrorTrackingRecommendationViewSet,
     ErrorTrackingReleaseViewSet,
+    ErrorTrackingSentryMigrationViewSet,
     ErrorTrackingSettingsViewSet,
     ErrorTrackingSeverityRuleViewSet,
     ErrorTrackingSpikeDetectionConfigViewSet,
@@ -107,6 +108,12 @@ def register_routes(routers: RouterRegistry) -> None:
     )
     routers.projects.register(
         r"error_tracking/settings", ErrorTrackingSettingsViewSet, "project_error_tracking_settings", ["team_id"]
+    )
+    routers.projects.register(
+        r"error_tracking/sentry_migration",
+        ErrorTrackingSentryMigrationViewSet,
+        "project_error_tracking_sentry_migration",
+        ["team_id"],
     )
     routers.projects.register(
         r"error_tracking/spike_events",
