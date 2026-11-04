@@ -174,10 +174,25 @@ ERROR_MESSAGES = {
 
 
 # The IAM actions this source calls. A role session can use only these.
+# ListResourcesForWebACL also needs each resource type's own permission.
 AWS_SESSION_ACTIONS = (
+    "apprunner:ListAssociatedServicesForWebAcl",
+    "appsync:ListResourcesForWebACL",
     "cloudwatch:GetMetricData",
     "cloudwatch:ListMetrics",
-    "wafv2:Describe*",
-    "wafv2:Get*",
-    "wafv2:List*",
+    "cognito-idp:ListResourcesForWebACL",
+    "ec2:DescribeVerifiedAccessInstanceWebAclAssociations",
+    "elasticloadbalancing:DescribeWebACLAssociation",
+    "wafv2:DescribeManagedRuleGroup",
+    "wafv2:GetIPSet",
+    "wafv2:GetRegexPatternSet",
+    "wafv2:GetRuleGroup",
+    "wafv2:GetSampledRequests",
+    "wafv2:GetWebACL",
+    "wafv2:ListAvailableManagedRuleGroups",
+    "wafv2:ListIPSets",
+    "wafv2:ListRegexPatternSets",
+    "wafv2:ListResourcesForWebACL",
+    "wafv2:ListRuleGroups",
+    "wafv2:ListWebACLs",
 )

@@ -112,12 +112,22 @@ ERROR_MESSAGES = {
 
 
 # The IAM actions this source calls. A role session can use only these.
+# Compute Optimizer also checks that the caller can read each resource behind a recommendation.
 AWS_SESSION_ACTIONS = (
-    "compute-optimizer:Describe*",
-    "compute-optimizer:Get*",
     "autoscaling:DescribeAutoScalingGroups",
     "autoscaling:DescribeAutoScalingInstances",
     "cloudwatch:GetMetricData",
+    "compute-optimizer:GetAutoScalingGroupRecommendations",
+    "compute-optimizer:GetEBSVolumeRecommendations",
+    "compute-optimizer:GetEC2InstanceRecommendations",
+    "compute-optimizer:GetEC2RecommendationProjectedMetrics",
+    "compute-optimizer:GetECSServiceRecommendationProjectedMetrics",
+    "compute-optimizer:GetECSServiceRecommendations",
+    "compute-optimizer:GetEnrollmentStatus",
+    "compute-optimizer:GetIdleRecommendations",
+    "compute-optimizer:GetLambdaFunctionRecommendations",
+    "compute-optimizer:GetRDSDatabaseRecommendations",
+    "compute-optimizer:GetRecommendationSummaries",
     "ec2:DescribeInstances",
     "ec2:DescribeVolumes",
     "ecs:ListClusters",

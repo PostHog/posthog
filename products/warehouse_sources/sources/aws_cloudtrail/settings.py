@@ -151,8 +151,11 @@ CREDENTIAL_ERRORS = {
 
 # The IAM actions this source calls. A role session can use only these.
 AWS_SESSION_ACTIONS = (
-    "cloudtrail:Describe*",
-    "cloudtrail:Get*",
-    "cloudtrail:List*",
+    "cloudtrail:DescribeQuery",
+    "cloudtrail:DescribeTrails",
+    "cloudtrail:ListEventDataStores",
+    "cloudtrail:ListInsightsData",
+    "cloudtrail:ListInsightsMetricData",
+    "cloudtrail:ListQueries",
     "cloudtrail:LookupEvents",
 )

@@ -106,7 +106,12 @@ ERROR_MESSAGES = {
 
 # The IAM actions this source calls. A role session can use only these.
 AWS_SESSION_ACTIONS = (
-    "guardduty:Describe*",
-    "guardduty:Get*",
-    "guardduty:List*",
+    "guardduty:DescribeMalwareScans",
+    "guardduty:GetDetector",
+    "guardduty:GetFindings",
+    "guardduty:GetUsageStatistics",
+    "guardduty:ListCoverage",
+    "guardduty:ListDetectors",
+    "guardduty:ListFindings",
+    "guardduty:ListMembers",
 )

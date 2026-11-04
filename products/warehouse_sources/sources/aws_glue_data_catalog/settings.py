@@ -174,7 +174,20 @@ BODY_RETRY_CODES = frozenset(
 
 # The IAM actions this source calls. A role session can use only these.
 AWS_SESSION_ACTIONS = (
-    "glue:BatchGet*",
-    "glue:Get*",
-    "glue:List*",
+    "glue:GetColumnStatisticsForTable",
+    "glue:GetCrawlers",
+    "glue:GetDatabases",
+    "glue:GetJobRuns",
+    "glue:GetJobs",
+    "glue:GetPartitions",
+    "glue:GetTable",
+    "glue:GetTableVersions",
+    "glue:GetTables",
+    "glue:GetWorkflowRuns",
+    "glue:ListCrawls",
+    "glue:ListDataQualityResults",
+    "glue:ListDataQualityResultsV2",
+    "glue:ListSessions",
+    "glue:ListTableOptimizerRuns",
+    "glue:ListWorkflows",
 )

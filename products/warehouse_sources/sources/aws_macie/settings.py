@@ -107,7 +107,13 @@ ERROR_MESSAGES = {
 
 # The IAM actions this source calls. A role session can use only these.
 AWS_SESSION_ACTIONS = (
-    "macie2:Describe*",
-    "macie2:Get*",
-    "macie2:List*",
+    "macie2:DescribeBuckets",
+    "macie2:GetFindings",
+    "macie2:GetResourceProfile",
+    "macie2:GetUsageStatistics",
+    "macie2:ListClassificationJobs",
+    "macie2:ListFindings",
+    "macie2:ListMembers",
+    "macie2:ListResourceProfileArtifacts",
+    "macie2:ListResourceProfileDetections",
 )

@@ -131,10 +131,9 @@ ENDPOINT_DESCRIPTIONS: dict[str, str] = {
 
 # The IAM actions this source calls. A role session can use only these.
 AWS_SESSION_ACTIONS = (
-    "cloudwatch:Describe*",
-    "cloudwatch:Get*",
-    "cloudwatch:List*",
-    "logs:Describe*",
+    "cloudwatch:DescribeAlarmHistory",
+    "cloudwatch:DescribeAlarms",
+    "cloudwatch:GetMetricData",
+    "logs:DescribeLogGroups",
     "logs:FilterLogEvents",
-    "logs:Get*",
 )

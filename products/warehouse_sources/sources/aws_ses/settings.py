@@ -177,6 +177,20 @@ ENDPOINT_DESCRIPTIONS: dict[str, str] = {
 
 # The IAM actions this source calls. A role session can use only these.
 AWS_SESSION_ACTIONS = (
-    "ses:Get*",
-    "ses:List*",
+    "ses:GetAccount",
+    "ses:GetConfigurationSet",
+    "ses:GetContactList",
+    "ses:GetCustomVerificationEmailTemplate",
+    "ses:GetDedicatedIpPool",
+    "ses:GetDedicatedIps",
+    "ses:GetEmailIdentity",
+    "ses:GetEmailTemplate",
+    "ses:ListConfigurationSets",
+    "ses:ListContactLists",
+    "ses:ListCustomVerificationEmailTemplates",
+    "ses:ListDedicatedIpPools",
+    "ses:ListEmailIdentities",
+    "ses:ListEmailTemplates",
+    "ses:ListMultiRegionEndpoints",
+    "ses:ListSuppressedDestinations",
 )

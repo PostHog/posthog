@@ -110,6 +110,10 @@ ERROR_MESSAGES = {
 
 # The IAM actions this source calls. A role session can use only these.
 AWS_SESSION_ACTIONS = (
-    "access-analyzer:Get*",
-    "access-analyzer:List*",
+    "access-analyzer:GetFinding",
+    "access-analyzer:GetFindingRecommendation",
+    "access-analyzer:ListAnalyzedResources",
+    "access-analyzer:ListAnalyzers",
+    "access-analyzer:ListArchiveRules",
+    "access-analyzer:ListFindings",
 )
