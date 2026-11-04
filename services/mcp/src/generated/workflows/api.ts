@@ -29,7 +29,7 @@ export const HogFlowsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            'Comma-separated broadcast statuses as the broadcasts UI shows them: draft, scheduled, sending, sent, failed, archived. Scheduled, sending, sent and failed come from the latest run and whether a schedule still has sends to come.'
+            'Comma-separated broadcast statuses as the broadcasts UI shows them: draft, scheduled, sending, sent, partially_sent, failed, archived. Scheduled, sending, sent, partially_sent and failed come from the latest run and whether a schedule still has sends to come. A latest run that is completed reads as sent, partially_failed as partially_sent, and failed or cancelled as failed. With a schedule still to come, a completed or partially_failed latest run reads as scheduled.'
         ),
     created_at: zod.iso.datetime({ offset: true }).optional(),
     created_by: zod.string().optional().describe('Filter to workflows created by the user with this uuid.'),
@@ -38,7 +38,7 @@ export const HogFlowsListQueryParams = () => zod.object({
         .boolean()
         .optional()
         .describe(
-            "Pass `true` to order by when each workflow's newest completed run finished, newest first. Workflows that never finished a run come last."
+            "Pass `true` to order by when each workflow's newest completed or partially_failed run finished, newest first. Workflows that never finished such a run come last."
         ),
     limit: zod.number().max(hogFlowsListQueryLimitMax).optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
