@@ -377,7 +377,7 @@ describe('hogFunctionConfigurationLogic', () => {
                 { ...NOTHING_KEPT, headers: { 'x-literal': '********' } },
                 false,
             ],
-        ])('%s', async (_name, sourceInputs, editedSecretHeaders, expectedKept, toastsAboutSecrets) => {
+        ])('%s', async (_name, sourceInputs, editedSecretHeaders, expectedKept, dropsSecrets) => {
             mockApi.get.mockResolvedValue({
                 ...HOG_FUNCTION,
                 inputs_schema: TEMPLATE_WITH_SECRETS.inputs_schema,
@@ -393,7 +393,7 @@ describe('hogFunctionConfigurationLogic', () => {
             }
             const toast = jest.spyOn(lemonToast, 'info')
             logic.actions.duplicate()
-            expect(toast).toHaveBeenCalledTimes(toastsAboutSecrets ? 1 : 0)
+            expect(toast).toHaveBeenCalledTimes(dropsSecrets ? 1 : 0)
 
             const copyLogic = hogFunctionConfigurationLogic({ templateId: TEMPLATE_WITH_SECRETS.id })
             copyLogic.mount()
@@ -402,7 +402,9 @@ describe('hogFunctionConfigurationLogic', () => {
                 copyLogic.actions.submitConfiguration()
             }).toDispatchActions(['submitConfigurationSuccess'])
 
-            const sentInputs = mockApi.create.mock.calls[0][0].inputs ?? {}
+            const sent = mockApi.create.mock.calls[0][0]
+            expect(sent.enabled).toEqual(!dropsSecrets)
+            const sentInputs = sent.inputs ?? {}
             expect(Object.entries(sentInputs).filter(([, input]) => input?.secret)).toEqual([])
             expect({
                 api_key: sentInputs.api_key?.value,

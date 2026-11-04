@@ -2141,10 +2141,12 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             if (values.hogFunction) {
                 const copied = withoutStoredSecrets(values.configuration)
                 const copiedMappings = values.configuration.mappings?.map(withoutStoredSecrets)
+                const droppedSecrets = copied.dropped || !!copiedMappings?.some((mapping) => mapping.dropped)
                 const newConfig = {
                     ...copied.config,
                     mappings: copiedMappings?.map((mapping) => mapping.config) ?? copied.config.mappings,
                     name: `${values.configuration.name} (copy)`,
+                    enabled: droppedSecrets ? false : copied.config.enabled,
                 }
                 // TODO: What to do if no template?
                 const originalTemplate = values.hogFunction.template!
@@ -2153,8 +2155,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     configuration: newConfig,
                 })
                 const openedCopy = router.values.location.pathname !== pathname
-                if (openedCopy && (copied.dropped || copiedMappings?.some((mapping) => mapping.dropped))) {
-                    lemonToast.info('Secret values are not copied. Enter them again before you save.')
+                if (openedCopy && droppedSecrets) {
+                    lemonToast.info(
+                        'Secret values are not copied, so the copy starts disabled. Enter them again, then enable it.'
+                    )
                 }
             }
         },
