@@ -453,7 +453,6 @@ def test_partition_ddl_gives_up_on_a_held_lock_and_resets_lock_timeout() -> None
     ):
         try:
             conn.execute(f"CREATE TABLE {table} (id int, created_at timestamptz) PARTITION BY RANGE (created_at)")
-            # Fails the test instead of hanging it when the DDL waits without a lock timeout.
             conn.execute("SET statement_timeout = '10s'")
             reader.execute(f"SELECT * FROM {table}")
 

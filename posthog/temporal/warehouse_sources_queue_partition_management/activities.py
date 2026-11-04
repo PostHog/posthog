@@ -227,7 +227,6 @@ def _execute_partition_ddl(conn: psycopg.Connection, statement: str) -> None:
                     raise
                 time.sleep(PARTITION_DDL_RETRY_DELAY_SECONDS * attempt)
     finally:
-        # The same connection later runs retention DELETEs, which must keep the default lock behavior.
         conn.execute("RESET lock_timeout")
 
 
