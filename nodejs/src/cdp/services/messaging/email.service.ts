@@ -31,8 +31,8 @@ import { EmailSkipReason, EmailStatusService, isTransactionalEmailSend } from '.
 import { EmailSuppressionService, SuppressionCheckOptions } from './email-suppression.service'
 import {
     addTrackingToEmail,
-    resolveEmailEngagementDistinctId,
     resolveEmailSendingVersion,
+    resolveEmailTrackingDistinctId,
 } from './email-tracking.service'
 import { mailDevTransport, mailDevWebUrl } from './helpers/maildev'
 import { maybeAddPreheaderToEmail } from './helpers/preheader'
@@ -266,7 +266,7 @@ function pickReservedRetryDelayMs(retryAfterMs: number | null, refillPerSecond: 
 
 const teamEmailCapDelayedTotal = new Counter({
     name: 'cdp_team_email_cap_delayed_total',
-    help: 'Workflow email sends delayed by the team trust-tier sending cap (or that would have been, in shadow mode).',
+    help: 'Workflow email sends delayed by the team trust-tier sending cap, or that would have been. `mode=shadow` and `mode=transactional` both mean the send went out anyway.',
     labelNames: ['tier', 'bucket', 'mode'],
 })
 
@@ -863,6 +863,7 @@ export class EmailService {
 
             // Project-wide pacing from the team's trust tier. Sits next to the per-workflow limit
             // above and behaves the same way: it delays, never drops, and test sends bypass it.
+            // Transactional sends bypass the delay too, and are counted instead.
             // Charged per recipient, not per send: SES counts every to/cc/bcc address against its
             // own quota, so a send with many copies must spend that many tokens.
             const capRecipients =
@@ -1075,7 +1076,7 @@ export class EmailService {
             }
         }
 
-        const distinctId = resolveEmailEngagementDistinctId(invocation)
+        const distinctId = resolveEmailTrackingDistinctId(invocation)
         if (
             distinctId &&
             !isTest &&
@@ -1118,6 +1119,13 @@ export class EmailService {
      * the limiter, which delays the send, because we must not send when we cannot account for it.
      * That second case returns a null `label`: the send waits, but no cap was reached, so the
      * caller must not tell the customer it hit one.
+     *
+     * Transactional sends are charged but never delayed, because a password reset that arrives
+     * two hours late has already failed the person waiting on it. The charge does not bound the
+     * exemption: claimUpTo records no debt, so once a bucket empties further transactional sends
+     * cost nothing. No other control bounds that volume per team either. The SES limiter paces
+     * the whole account, so what is left is suspension and the daily tier job, which demotes a
+     * team on its complaint and bounce rates after the fact.
      */
     private async claimTeamSendingBudget(
         invocation: CyclotronJobInvocationHogFunction,
@@ -1152,7 +1160,9 @@ export class EmailService {
         // it still waits for full capacity and pays everything there is.
         const requested = Math.min(Math.max(1, recipients), buckets[0].capacity, buckets[1].capacity)
 
-        if (mode === 'enforce') {
+        const isTransactional = invocation.hogFunction?.metadata?.message_category_type === 'transactional'
+
+        if (mode === 'enforce' && !isTransactional) {
             // Both buckets in one atomic claim, granted whole or not at all. A denial consumes
             // nothing, so a rescheduled multi-recipient send cannot burn the partial refill on
             // every retry and starve the team's other emails while never sending itself.
@@ -1184,8 +1194,9 @@ export class EmailService {
             }
         }
 
-        // Shadow mode: the send goes out regardless, so drain each bucket by what the send costs
-        // and log the first cap that would have delayed it, measuring both against real traffic.
+        // Shadow mode, and transactional sends in any mode: the send goes out regardless, so
+        // drain each bucket and log the cap. Separate labels keep shadow a forecast of enforce.
+        const observedMode = isTransactional ? 'transactional' : mode
         let firstDenial: TeamEmailCapBucket | null = null
         for (const bucket of buckets) {
             const granted = await this.teamEmailRateLimiter.claimUpTo({
@@ -1198,17 +1209,23 @@ export class EmailService {
             if (granted >= requested) {
                 continue
             }
-            teamEmailCapDelayedTotal.inc({ tier: String(tier), bucket: bucket.name, mode })
+            teamEmailCapDelayedTotal.inc({ tier: String(tier), bucket: bucket.name, mode: observedMode })
             firstDenial = firstDenial ?? bucket
         }
 
         if (firstDenial) {
-            logger.info('📧', 'Team email sending cap would have delayed this send', {
-                teamId: invocation.teamId,
-                tier,
-                bucket: firstDenial.name,
-                cap: firstDenial.label,
-            })
+            logger.info(
+                '📧',
+                isTransactional
+                    ? 'Transactional email sent past the team sending cap'
+                    : 'Team email sending cap would have delayed this send',
+                {
+                    teamId: invocation.teamId,
+                    tier,
+                    bucket: firstDenial.name,
+                    cap: firstDenial.label,
+                }
+            )
         }
         return null
     }
@@ -1584,7 +1601,7 @@ export class EmailService {
         if (!this.sesV2Client) {
             throw new Error('SES is not configured - set SES_REGION and AWS credentials')
         }
-        const distinctId = resolveEmailEngagementDistinctId(result.invocation)
+        const distinctId = resolveEmailTrackingDistinctId(result.invocation)
         // Full signed code (with distinct_id + isTest) rides in the header; the short unsigned
         // carrier (no distinct_id/isTest) goes in the SES EmailTag, guaranteed under the 256-char
         // tag-value limit. The webhook reads the header first and only falls back to the tag.
