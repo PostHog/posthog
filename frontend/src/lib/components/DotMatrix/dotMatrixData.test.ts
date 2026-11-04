@@ -216,3 +216,11 @@ describe('dotMatrixData', () => {
         expect(getDotMatrixCountBin(value as number, scale)?.color).toBe(expected)
     })
 })
+
+describe('getDotMatrixCellCount with a custom count', () => {
+    it('lets the caller count a cell when no series is selected', () => {
+        const cell = { rowKey: 'r', columnKey: 'c', values: { a: 2, b: 1 }, data: [] }
+        expect(getDotMatrixCellCount(cell, { countOf: () => 2 })).toBe(2)
+        expect(getDotMatrixCellCount(cell, { countOf: () => Infinity })).toBeNull()
+    })
+})

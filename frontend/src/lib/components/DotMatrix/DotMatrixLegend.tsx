@@ -82,7 +82,7 @@ export function DotMatrixLegend({
                 {filtering ? (
                     <div className="DotMatrix__selection">
                         <span className="DotMatrix__selection-label">
-                            {labels?.selectionLabel?.(selectedSeries.length) ??
+                            {labels?.selectionLabel?.(selectedSeries.length, mode) ??
                                 `Showing ${selectedSeries.length} ${itemLabel}`}
                         </span>
                         {onSelectedSeriesChange && (

@@ -287,4 +287,76 @@ describe('HogQL activity matrix', () => {
             ])
         })
     })
+
+    describe('counting people across series', () => {
+        const RESULTS = [
+            ['all', 'w1', 'a', 'p1'],
+            ['all', 'w1', 'a', 'p1'],
+            ['all', 'w1', 'a', 'p2'],
+            ['all', 'w1', 'b', 'p1'],
+            ['all', 'w1', 'c', 'p3'],
+        ]
+        const USER_MAPPING = { row: 'r', column: 'c', series: 's', user: 'u' }
+
+        it('counts each person once across selected series when a user column is mapped', () => {
+            const { props } = getHogQLActivityMatrix({ columns: ['r', 'c', 's', 'u'], results: RESULTS }, USER_MAPPING)
+            const cell = normalizeDotMatrixData(props!).getCell('all', 'w1')
+
+            expect(cell.values).toEqual({ a: 2, b: 1, c: 1 })
+            expect(getDotMatrixCellCount(cell, { ...props, selectedSeries: ['a', 'b'] })).toBe(2)
+            expect(getDotMatrixCellCount(cell, { ...props, selectedSeries: ['a', 'b', 'c'] })).toBe(3)
+            expect(getDotMatrixCellCount(cell, { ...props, selectedSeries: ['b'] })).toBe(1)
+            expect(getDotMatrixCellCount(cell, { ...props })).toBe(3)
+            expect(props!.legend).toMatchObject({ valueLabel: 'People', countLabel: 'People' })
+            expect((props!.legend as any).selectionLabel(2, 'count')).toBe('People in 2 selected series')
+            expect((props!.legend as any).selectionLabel(2, 'dots')).toBe('Showing 2 series')
+        })
+
+        it('keeps the value column for dots, but only counts people with a positive value', () => {
+            const { props } = getHogQLActivityMatrix(
+                {
+                    columns: ['r', 'c', 's', 'u', 'v'],
+                    results: [
+                        ['all', 'w1', 'a', 'p1', 5],
+                        ['all', 'w1', 'b', 'p1', 7],
+                        ['all', 'w1', 'b', 'p2', 0],
+                    ],
+                },
+                { ...USER_MAPPING, value: 'v' }
+            )
+            const cell = normalizeDotMatrixData(props!).getCell('all', 'w1')
+
+            expect(cell.values).toEqual({ a: 5, b: 7 })
+            expect(getDotMatrixCellCount(cell, { ...props, selectedSeries: ['a', 'b'] })).toBe(1)
+            expect(props!.legend).toMatchObject({ valueLabel: 'v' })
+        })
+
+        it('sums a generic value and never calls the result people without a user column', () => {
+            const { props } = getHogQLActivityMatrix(
+                {
+                    columns: ['r', 'c', 's', 'v'],
+                    results: [
+                        ['all', 'w1', 'a', 2],
+                        ['all', 'w1', 'b', 1],
+                    ],
+                },
+                { row: 'r', column: 'c', series: 's', value: 'v' }
+            )
+            const cell = normalizeDotMatrixData(props!).getCell('all', 'w1')
+            const label = (props!.legend as any).selectionLabel(2, 'count')
+
+            expect(getDotMatrixCellCount(cell, { ...props, selectedSeries: ['a', 'b'] })).toBe(3)
+            expect(label).toBe('Sum of v across 2 series. Map a user column to count each person once.')
+            expect(`${label} ${(props!.legend as any).countLabel}`).not.toMatch(/\b(people|users?) (in|selected)/i)
+            expect(props!.legend).toMatchObject({ countLabel: 'Sum of v' })
+            expect((props!.legend as any).selectionLabel(2, 'dots')).toBe('Showing 2 series')
+        })
+
+        it('reports a mapped user column missing from the result', () => {
+            expect(
+                getHogQLActivityMatrix({ columns: ['r', 'c'], results: [] }, { row: 'r', column: 'c', user: 'gone' })
+                    .error
+            ).toBe('A mapped column is missing from the result. Update the mapping.')
+        })
+    })
 })

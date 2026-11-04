@@ -120,6 +120,10 @@ export function getDotMatrixCellCount<D>(
         const value = aggregateSelection(cell, selectedSeries)
         return Number.isFinite(value) ? value : null
     }
+    if (typeof countOf === 'function') {
+        const value = countOf(cell)
+        return Number.isFinite(value) ? value : null
+    }
     const values = Object.values(cell.values)
     const value =
         countOf === 'value' ? values.reduce((sum, value) => sum + value, 0) : values.filter((value) => value > 0).length

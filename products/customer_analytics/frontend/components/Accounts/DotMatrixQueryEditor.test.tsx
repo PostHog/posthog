@@ -3,6 +3,7 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { initKeaTests } from '~/test/init'
 
 import { accountDotMatrixTileLogic } from './accountDotMatrixTileLogic'
+import { DotMatrixColumnMapping } from './DotMatrixColumnMapping'
 import { DotMatrixQueryEditor } from './DotMatrixQueryEditor'
 
 jest.mock('~/queries/query', () => ({ performQuery: jest.fn() }))
@@ -34,5 +35,16 @@ describe('DotMatrixQueryEditor', () => {
         expect(await screen.findByTestId('matrix-code-editor', {}, { timeout: 3000 })).toBeTruthy()
         expect(mockEditorImports).toBe(2)
         logic.unmount()
+    })
+
+    it('offers an optional user column in the mapping', () => {
+        render(
+            <DotMatrixColumnMapping
+                columns={['r', 'c', 'who']}
+                mapping={{ row: 'r', column: 'c' }}
+                onChange={jest.fn()}
+            />
+        )
+        expect(screen.getByTestId('dot-matrix-mapping-user').textContent).toContain('No user column')
     })
 })

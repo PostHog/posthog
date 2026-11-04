@@ -60,7 +60,7 @@ export interface DotMatrixData<D> {
 }
 
 export interface DotMatrixCountOptions<D> {
-    countOf?: 'activeSeries' | 'value'
+    countOf?: 'activeSeries' | 'value' | ((cell: DotMatrixCell<D>) => number)
     selectedSeries?: string[]
     aggregateSelection?: (cell: DotMatrixCell<D>, selected: string[]) => number
 }
@@ -92,7 +92,7 @@ export interface DotMatrixLegendLabels {
     itemLabel?: string
     valueLabel?: string
     countLabel?: string
-    selectionLabel?: (count: number) => string
+    selectionLabel?: (count: number, mode: 'dots' | 'count') => string
     hint?: string
     footer?: ReactNode
 }

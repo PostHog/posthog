@@ -12,7 +12,16 @@ export interface AccountActivityMatrixDatum extends Record<string, unknown> {
 
 export type AccountActivityMatrixProps = Pick<
     DotMatrixProps<AccountActivityMatrixDatum>,
-    'data' | 'fields' | 'rows' | 'columns' | 'series' | 'aggregateSelection' | 'rowHeader' | 'legend' | 'sizeThresholds'
+    | 'data'
+    | 'fields'
+    | 'rows'
+    | 'columns'
+    | 'series'
+    | 'aggregateSelection'
+    | 'countOf'
+    | 'rowHeader'
+    | 'legend'
+    | 'sizeThresholds'
 >
 
 const SERIES_COLOR_COUNT = 15

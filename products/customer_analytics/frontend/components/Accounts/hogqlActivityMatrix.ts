@@ -1,3 +1,4 @@
+import type { DotMatrixCell } from 'lib/components/DotMatrix/types'
 import { hashCodeForString } from 'lib/utils/strings'
 
 import type { HogQLQueryResponse } from '~/queries/schema/schema-general'
@@ -120,6 +121,45 @@ function getBoundNotice(axes: { noun: string; shown: number; total: number }[]):
     return `Showing ${list}. Narrow the query to see the rest.`
 }
 
+type PeopleByCell = Map<string, Map<string, Set<string>>>
+
+function countPeople(
+    people: PeopleByCell,
+    cell: DotMatrixCell<AccountActivityMatrixDatum>,
+    selected?: string[]
+): number {
+    const seen = new Set<string>()
+    for (const [series, users] of people.get(JSON.stringify([cell.rowKey, cell.columnKey])) ?? []) {
+        if (!selected || selected.includes(series)) {
+            users.forEach((user) => seen.add(user))
+        }
+    }
+    return seen.size
+}
+
+function getLegend(mapping: DotMatrixSourceMapping): AccountActivityMatrixProps['legend'] {
+    const showing = (count: number): string => `Showing ${count} series`
+    if (mapping.user) {
+        return {
+            itemLabel: 'series',
+            valueLabel: mapping.value ?? 'People',
+            countLabel: 'People',
+            selectionLabel: (count, mode) => (mode === 'count' ? `People in ${count} selected series` : showing(count)),
+        }
+    }
+    // A generic value can't be deduplicated, so the label says what the number is: a sum.
+    const name = mapping.value ?? 'rows'
+    return {
+        itemLabel: 'series',
+        valueLabel: mapping.value ?? 'Rows',
+        countLabel: `Sum of ${name}`,
+        selectionLabel: (count, mode) =>
+            mode === 'count'
+                ? `Sum of ${name} across ${count} series. Map a user column to count each person once.`
+                : showing(count),
+    }
+}
+
 function axisKey(value: unknown): string | null {
     return (typeof value === 'string' && value.length > 0) || (typeof value === 'number' && Number.isFinite(value))
         ? String(value)
@@ -136,6 +176,7 @@ export function getHogQLActivityMatrix(
     }
     const index = (name: string): number => response.columns!.indexOf(name)
     const cells = new Map<string, AccountActivityMatrixDatum>()
+    const people: PeopleByCell = new Map()
     const rowKeys = new Set<string>()
     const columnKeys = new Set<string>()
     const seriesItems = new Map<string, { key: string; label?: string }>()
@@ -144,10 +185,12 @@ export function getHogQLActivityMatrix(
         const column = axisKey(record[index(mapping.column)])
         const seriesValue = mapping.series ? axisKey(record[index(mapping.series)]) : 'value'
         const value = mapping.value ? record[index(mapping.value)] : 1
+        const user = mapping.user ? axisKey(record[index(mapping.user)]) : null
         if (
             row === null ||
             column === null ||
             seriesValue === null ||
+            (mapping.user && user === null) ||
             typeof value !== 'number' ||
             !Number.isFinite(value) ||
             value < 0
@@ -165,7 +208,19 @@ export function getHogQLActivityMatrix(
         seriesItems.set(series, seriesItem)
         const key = JSON.stringify([row, column, series])
         const previous = cells.get(key)
-        cells.set(key, { row, column, series, value: (previous?.value ?? 0) + value })
+        let users: Set<string> | undefined
+        if (user !== null) {
+            const cellKey = JSON.stringify([row, column])
+            const cellPeople = people.get(cellKey) ?? new Map<string, Set<string>>()
+            people.set(cellKey, cellPeople)
+            users = cellPeople.get(series) ?? new Set<string>()
+            cellPeople.set(series, users)
+            if (value > 0) {
+                users.add(user)
+            }
+        }
+        const total = users && !mapping.value ? users.size : (previous?.value ?? 0) + value
+        cells.set(key, { row, column, series, value: total })
     }
     const rows = [...rowKeys].slice(0, DOT_MATRIX_MAX_ROWS)
     const sortedColumns = getSortedColumns([...columnKeys])
@@ -195,8 +250,11 @@ export function getHogQLActivityMatrix(
             fields: { row: 'row', column: 'column', series: 'series', value: 'value' },
             rowHeader: { title: mapping.row },
             sizeThresholds: [data.reduce((min, { value }) => (value > 0 ? Math.min(min, value) : min), 1), 5, 10],
-            aggregateSelection: (cell, selected) => selected.reduce((sum, key) => sum + (cell.values[key] ?? 0), 0),
-            legend: { itemLabel: 'series', valueLabel: mapping.value ?? 'Rows', countLabel: 'Total value' },
+            aggregateSelection: mapping.user
+                ? (cell, selected) => countPeople(people, cell, selected)
+                : (cell, selected) => selected.reduce((sum, key) => sum + (cell.values[key] ?? 0), 0),
+            ...(mapping.user ? { countOf: (cell) => countPeople(people, cell) } : {}),
+            legend: getLegend(mapping),
         },
     }
 }

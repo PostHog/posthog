@@ -78,4 +78,13 @@ describe('dot matrix tile config', () => {
         expect(getDotMatrixConfigBytes({ a: 'é', b: '😀', c: '\x7f', d: '"\n' })).toBe(57)
         expect(DOT_MATRIX_CONFIG_MAX_BYTES).toBe(16_384)
     })
+
+    it('keeps an optional user column in the saved mapping', () => {
+        const source = {
+            kind: 'hogql',
+            query: 'SELECT 1',
+            mapping: { row: 'r', column: 'c', series: 's', user: 'who' },
+        }
+        expect(getDotMatrixTileConfig({ source }).source).toEqual(source)
+    })
 })

@@ -22,6 +22,8 @@ export interface DotMatrixSourceMapping {
     column: string
     series?: string
     value?: string
+    // Identifies a person, so people in several series are counted once.
+    user?: string
 }
 
 export type DotMatrixPresetSourceKind = 'usage_metrics' | 'product_usage'
@@ -37,7 +39,7 @@ export interface DotMatrixTileConfig {
     source?: DotMatrixTileSource | null
 }
 
-const MAPPING_KEYS = new Set(['row', 'column', 'series', 'value'])
+const MAPPING_KEYS = new Set(['row', 'column', 'series', 'value', 'user'])
 
 function isColumnName(value: unknown): value is string {
     return typeof value === 'string' && value.length > 0 && value.length <= 128
@@ -47,17 +49,18 @@ function getDotMatrixSourceMapping(mapping: unknown): DotMatrixSourceMapping | n
     if (!mapping || typeof mapping !== 'object' || Array.isArray(mapping)) {
         return null
     }
-    const { row, column, series, value } = mapping as Record<string, unknown>
+    const { row, column, series, value, user } = mapping as Record<string, unknown>
     if (
         Object.keys(mapping).some((key) => !MAPPING_KEYS.has(key)) ||
         !isColumnName(row) ||
         !isColumnName(column) ||
         (series !== undefined && !isColumnName(series)) ||
-        (value !== undefined && !isColumnName(value))
+        (value !== undefined && !isColumnName(value)) ||
+        (user !== undefined && !isColumnName(user))
     ) {
         return null
     }
-    return { row, column, ...(series ? { series } : {}), ...(value ? { value } : {}) }
+    return { row, column, ...(series ? { series } : {}), ...(value ? { value } : {}), ...(user ? { user } : {}) }
 }
 
 export function getDotMatrixTileSource(source: unknown): DotMatrixTileSource | null {

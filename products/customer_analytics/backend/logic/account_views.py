@@ -32,7 +32,7 @@ ACCOUNT_VIEW_COMPONENT_TITLE_MAX_LENGTH = 400
 ACCOUNT_VIEW_CONFIG_MAX_BYTES = 16_384
 DOT_MATRIX_PRESET_SOURCES = ("usage_metrics", "product_usage")
 DOT_MATRIX_REQUIRED_MAPPING = frozenset({"row", "column"})
-DOT_MATRIX_MAPPING_KEYS = frozenset({"row", "column", "series", "value"})
+DOT_MATRIX_MAPPING_KEYS = frozenset({"row", "column", "series", "value", "user"})
 ACCOUNT_VIEW_IDENTITY_PROPS = {
     "accountId",
     "account_id",
@@ -168,7 +168,7 @@ def _dot_matrix_source_errors(source: object) -> list[str]:
         or not DOT_MATRIX_MAPPING_KEYS.issuperset(mapping)
         or any(not isinstance(column, str) or not 1 <= len(column) <= 128 for column in mapping.values())
     ):
-        return ["A HogQL source mapping needs row and column names and may add series and value names."]
+        return ["A HogQL source mapping needs row and column names and may add series, value and user names."]
     return []
 
 

@@ -78,7 +78,10 @@ export function AccountDotMatrixTile({
                                     <DotMatrix<AccountActivityMatrixDatum>
                                         {...presentation.matrix}
                                         mode={config.mode}
-                                        countOf={sourceKind === 'hogql' ? 'value' : 'activeSeries'}
+                                        countOf={
+                                            presentation.matrix.countOf ??
+                                            (sourceKind === 'hogql' ? 'value' : 'activeSeries')
+                                        }
                                         selectedSeries={selectedSeries}
                                         onSelectedSeriesChange={setSelectedSeries}
                                         loading={matrixResultLoading}
