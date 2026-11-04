@@ -209,7 +209,7 @@ function SuggestionsSkeleton(): JSX.Element {
 }
 
 function SuggestWithAiLink(): JSX.Element {
-    const { aiConsentDisabledReason, runningChatType } = useValues(scoutSuggestionsLogic)
+    const { aiConsentDisabledReason, scoutChatDisabledReason, runningChatType } = useValues(scoutSuggestionsLogic)
     const { startScoutChatTask } = useActions(scoutSuggestionsLogic)
     // The chat ends in a skill write, so it carries the same editor gate as the other authoring paths.
     const creationDisabledReason = useScoutCreateDisabledReason()
@@ -223,7 +223,7 @@ function SuggestWithAiLink(): JSX.Element {
         <Link
             // The request only shows on screen once it navigates, so without this a second click
             // lands in the gap and mints a second cloud task.
-            disabledReason={runningChatType !== null ? 'Starting a task…' : undefined}
+            disabledReason={runningChatType !== null ? 'Starting a task…' : (scoutChatDisabledReason ?? undefined)}
             onClick={() => startScoutChatTask('author_scout', 'scout authoring task')}
         >
             suggest a scout with AI

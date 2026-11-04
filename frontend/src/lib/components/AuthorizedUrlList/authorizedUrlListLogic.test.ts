@@ -15,12 +15,12 @@ import {
     SuggestedDomain,
     appEditorUrl,
     authorizedUrlListLogic,
-    checkUrlIsAuthorized,
     checkUrlIsSafeToFrame,
     directToolbarUrl,
     filterNotAuthorizedUrls,
     validateProposedUrl,
 } from './authorizedUrlListLogic'
+import { checkUrlIsAuthorized } from './authorizedUrlMatching'
 
 describe('the authorized urls list logic', () => {
     let logic: ReturnType<typeof authorizedUrlListLogic.build>

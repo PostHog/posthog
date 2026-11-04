@@ -9,6 +9,7 @@ from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models, transaction
+from django.db.models.fields.json import KeyTransform
 from django.db.models.functions import Now
 from django.utils import timezone
 
@@ -235,6 +236,15 @@ class ErrorTrackingExternalReference(UUIDTModel):
 
     class Meta:
         db_table = "posthog_errortrackingexternalreference"
+        indexes = [
+            # The Linear status sync looks up a workspace's references by ticket identifier on every
+            # state change in that workspace, also for tickets that no reference links.
+            models.Index(
+                models.F("integration_id"),
+                KeyTransform("id", "external_context"),
+                name="et_extref_integration_ctx_id",
+            ),
+        ]
 
 
 class ErrorTrackingIssueCohort(UUIDTModel):
@@ -602,10 +612,22 @@ class ErrorTrackingSuppressionRule(UUIDTModel):
     order_key = models.IntegerField(null=False, blank=False)
     # Fraction of matching events to suppress (1.0 = all, 0.5 = half, etc.)
     sampling_rate = models.FloatField(null=False, default=1.0)
+    # Set only on rows that a built-in filter switch manages. Users cannot edit these rows directly.
+    built_in_key = models.CharField(max_length=64, null=True, blank=True)
+    # Hash of the definition filters behind this row, so the refresh workflow finds rows whose definition changed.
+    built_in_hash = models.CharField(max_length=64, null=True, blank=True)
 
     class Meta:
         indexes = [
             models.Index(fields=["team_id"]),
+        ]
+        constraints = [
+            # built_in_key leads so the cross-team refresh of stale rows can use this index too.
+            models.UniqueConstraint(
+                fields=["built_in_key", "team"],
+                condition=models.Q(built_in_key__isnull=False),
+                name="et_supp_rule_built_in_key_uniq",
+            ),
         ]
         db_table = "posthog_errortrackingsuppressionrule"
 

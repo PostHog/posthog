@@ -72,6 +72,7 @@ def record_human_outcome(*, team_id: int, ticket_id: str, draft_message_id: str,
         latest_ai_draft_id = (
             _ticket_comments(team_id=team_id, ticket_id=ticket_id)
             .filter(item_context__author_type="AI", item_context__is_private=True, deleted=False)
+            .filter(item_context__automated_update_key__isnull=True)
             .order_by("-created_at", "-id")
             .values_list("id", flat=True)
             .first()
@@ -114,6 +115,7 @@ def maybe_record_human_outcome(*, team_id: int, ticket_id: str, comment_id: str,
         # to the customer, so a later human reply is a follow-up, not adoption of a draft.
         ai_note = (
             comments.filter(item_context__author_type="AI", item_context__is_private=True, deleted=False)
+            .filter(item_context__automated_update_key__isnull=True)
             .filter(before_this)
             .order_by("-created_at", "-id")
             .first()

@@ -3,11 +3,12 @@ import { useMemo, useState } from 'react'
 
 import { LemonButton, Link } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { integrationAuthorizeUrl, integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
+import type { IntegrationConnectSurface } from 'lib/integrations/utils'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -49,9 +50,14 @@ const getSlackAppManifest = (botScopes: string[]): any => ({
     },
 })
 
-export function SlackIntegration({ next, centered }: { next?: string; centered?: boolean } = {}): JSX.Element {
+export function SlackIntegration({
+    next,
+    centered,
+    connectSurface,
+}: { next?: string; centered?: boolean; connectSurface?: IntegrationConnectSurface } = {}): JSX.Element {
     const { slackIntegrations, slackAvailable } = useValues(integrationsLogic)
     const { startPolling, stopPolling } = useActions(integrationsLogic)
+    const { reportIntegrationConnectClicked } = useActions(eventUsageLogic)
     const [showSlackInstructions, setShowSlackInstructions] = useState(false)
 
     useOnMountEffect(() => {
@@ -73,7 +79,16 @@ export function SlackIntegration({ next, centered }: { next?: string; centered?:
                 <div>
                     {slackAvailable ? (
                         <div className={centered ? 'flex flex-col items-center gap-2 text-center' : undefined}>
-                            <Link to={api.integrations.authorizeUrl({ kind: 'slack', next })} disableClientSideRouting>
+                            <Link
+                                to={integrationAuthorizeUrl({ kind: 'slack', next })}
+                                disableClientSideRouting
+                                // Silent without `connectSurface`, because the OAuth landing page reports its own clicks.
+                                onClick={
+                                    connectSurface
+                                        ? () => reportIntegrationConnectClicked('slack', 'slack', connectSurface)
+                                        : undefined
+                                }
+                            >
                                 <img
                                     alt="Connect to Slack workspace"
                                     height="40"

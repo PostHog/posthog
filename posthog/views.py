@@ -16,7 +16,14 @@ from django.contrib.auth.decorators import login_required as base_login_required
 from django.db import DEFAULT_DB_ALIAS, connections
 from django.db.migrations.executor import MigrationExecutor
 from django.db.models import Q
-from django.http import HttpRequest, HttpResponse, HttpResponseNotAllowed, HttpResponseServerError, JsonResponse
+from django.http import (
+    HttpRequest,
+    HttpResponse,
+    HttpResponseNotAllowed,
+    HttpResponseNotFound,
+    HttpResponseServerError,
+    JsonResponse,
+)
 from django.shortcuts import redirect, render
 from django.template import loader
 from django.views.decorators.cache import never_cache
@@ -30,7 +37,7 @@ from prometheus_client import REGISTRY, CollectorRegistry, generate_latest, mult
 from posthog.api.secret_revocation import NON_PERSONAL_SECRET_PREFIXES
 from posthog.auth import AUTH_BRAND_COOKIE, apply_auth_brand_cookie, normalize_auth_brand
 from posthog.cache_utils import cache_for
-from posthog.cloud_utils import is_cloud
+from posthog.cloud_utils import is_cloud, is_hobby
 from posthog.credentials_service.callers import CredentialsCaller
 from posthog.credentials_service.errors import CredentialsServiceFailure
 from posthog.credentials_service.settings_fallback import get_many_or_settings
@@ -41,7 +48,8 @@ from posthog.helpers.dev_login import is_dev_login_allowed
 from posthog.models import Organization, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.instance_setting import get_instance_settings
-from posthog.models.integration import POSTHOG_SLACK_SCOPE, SlackIntegration
+from posthog.models.integration import SlackIntegration
+from posthog.models.integration.oauth import posthog_slack_scope
 from posthog.models.oauth import find_oauth_access_token, find_oauth_refresh_token
 from posthog.models.personal_api_key import find_personal_api_key
 from posthog.models.project_secret_api_key import find_project_secret_api_key
@@ -168,6 +176,17 @@ Disallow: /flags/
     return HttpResponse(ROBOTS_TXT_CONTENT, content_type="text/plain")
 
 
+def llms_txt(request: HttpRequest) -> HttpResponse:
+    if is_hobby():
+        return HttpResponseNotFound()
+
+    return render(request, "llms_txt.md", {"site_url": settings.SITE_URL}, content_type="text/markdown; charset=utf-8")
+
+
+def not_found(request: HttpRequest) -> HttpResponse:
+    return HttpResponseNotFound()
+
+
 def security_txt(request):
     SECURITY_TXT_CONTENT = """
         Contact: mailto:engineering@posthog.com
@@ -253,7 +272,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         "slack_service": {
             "available": bool(slack_client_id),
             "client_id": slack_client_id or None,
-            "scopes": POSTHOG_SLACK_SCOPE.split(","),
+            "scopes": posthog_slack_scope().split(","),
         },
         "data_warehouse_integrations": {
             "hubspot": {"client_id": hubspot_client_id},
@@ -298,6 +317,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
             "site_url": settings.SITE_URL,
             "instance_preferences": settings.INSTANCE_PREFERENCES,
             "buffer_conversion_seconds": settings.BUFFER_CONVERSION_SECONDS,
+            "cohort_csv_upload_max_bytes": settings.COHORT_CSV_UPLOAD_MAX_BYTES,
             "webmcp_available": webmcp_api.is_available(),
         }
 

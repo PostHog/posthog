@@ -10,6 +10,11 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
+from posthog.models import Team, User
+
+from products.access_control.backend.models.access_control import AccessControl
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.warehouse_suggestions.backend.facade.contracts import (
     CertifyPayload,
     DeprecatePayload,
@@ -24,6 +29,7 @@ from products.warehouse_suggestions.backend.facade.enums import (
     WarehouseSuggestionKind,
     WarehouseSuggestionStatus,
 )
+from products.warehouse_suggestions.backend.logic.access import can_take
 from products.warehouse_suggestions.backend.logic.candidates.base import CandidateContext
 from products.warehouse_suggestions.backend.logic.candidates.registry import CANDIDATES
 from products.warehouse_suggestions.backend.logic.lifecycle import _pick_in_turns, apply_run
@@ -34,6 +40,8 @@ from products.warehouse_suggestions.backend.tests.factories import busy_reads, c
 
 from .test_accept import REPORT
 
+NOTIFY = "products.warehouse_suggestions.backend.logic.assignment.create_notification"
+CAN_TAKE = "products.warehouse_suggestions.backend.logic.assignment.can_take"
 NOW = datetime(2026, 10, 7, 9, tzinfo=UTC)
 READ_COST_BEFORE = {"read_seconds_per_month": 5000.0, "read_bytes_per_month": 5e12, "human_reads_per_month": 200.0}
 REFRESH_COST_BEFORE = {"refresh_seconds_per_month": 5000.0, "refresh_bytes_per_month": 5e12}
@@ -253,6 +261,130 @@ class TestApplyRun(BaseTest):
 
         revived = WarehouseSuggestion.objects.for_team(self.team.pk).get()
         assert (revived.status, revived.surfaced_at) == (WarehouseSuggestionStatus.PROPOSED, None)
+
+    @parameterized.expand(
+        [
+            ("creator_who_can_edit", "member", WarehouseSuggestionKind.MATERIALIZE, True),
+            ("creator_who_left_the_organization", "left", WarehouseSuggestionKind.MATERIALIZE, False),
+            ("creator_who_cannot_edit_the_catalog", "catalog_viewer", WarehouseSuggestionKind.CERTIFY, False),
+            ("no_creator", "none", WarehouseSuggestionKind.MATERIALIZE, False),
+        ]
+    )
+    def test_assigns_surfaced_view_suggestions_to_a_creator_who_can_accept_them(
+        self, _name: str, creator_state: str, kind: WarehouseSuggestionKind, expect_assigned: bool
+    ) -> None:
+        creator = self._creator(creator_state)
+        views = [
+            DataWarehouseSavedQuery.objects.create(
+                team=self.team, name=name, query={"kind": "HogQLQuery", "query": "SELECT 1"}, created_by=creator
+            )
+            for name in ("orders", "refunds")
+        ]
+        if creator_state == "catalog_viewer":
+            self._restrict_catalog_to_viewer()
+        ctx = context(
+            team_reads({}),
+            views=[view(saved_query.id, created_by_id=creator.pk if creator else None) for saved_query in views],
+            team_id=self.team.pk,
+        )
+        drafts = [self._draft(ctx, kind, saved_query.id, 1) for saved_query in views]
+
+        with patch(NOTIFY) as notify, self.captureOnCommitCallbacks(execute=True):
+            apply_run(ctx, self.team, drafts, NOW, surface=True)
+
+        assignee_ids = set(WarehouseSuggestion.objects.for_team(self.team.pk).values_list("assignee_id", flat=True))
+        notified = [call.args[0].target_id for call in notify.call_args_list]
+        expected_assignee = creator.pk if expect_assigned and creator else None
+        assert (assignee_ids, notified) == (
+            {expected_assignee},
+            [str(expected_assignee)] if expect_assigned else [],
+        )
+
+    @parameterized.expand([("kept_access_to_the_view", False), ("lost_access_to_the_view", True)])
+    def test_a_resurfaced_suggestion_keeps_its_assignee_only_while_they_can_accept_it(
+        self, _name: str, access_revoked: bool
+    ) -> None:
+        teammate = User.objects.create_and_join(self.organization, "teammate@example.com", None)
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="orders", query={"kind": "HogQLQuery", "query": "SELECT 1"}
+        )
+        ctx = context(team_reads({}), views=[view(saved_query.id)], team_id=self.team.pk)
+        draft = self._draft(ctx, WarehouseSuggestionKind.MATERIALIZE, saved_query.id, 1)
+        apply_run(ctx, self.team, [draft], NOW, surface=False)
+        WarehouseSuggestion.objects.for_team(self.team.pk).update(assignee=teammate)
+        if access_revoked:
+            self._enable_access_control()
+            AccessControl.objects.create(
+                team=self.team,
+                resource="warehouse_view",
+                resource_id=str(saved_query.id),
+                organization_member=teammate.organization_memberships.get(),
+                access_level="none",
+            )
+
+        with patch(NOTIFY) as notify, self.captureOnCommitCallbacks(execute=True):
+            apply_run(ctx, self.team, [draft], NOW, surface=True)
+
+        row = WarehouseSuggestion.objects.for_team(self.team.pk).get()
+        notified = [call.args[0].target_id for call in notify.call_args_list]
+        assert (row.surfaced_at is not None, row.assignee_id, notified) == (
+            True,
+            None if access_revoked else teammate.pk,
+            [] if access_revoked else [str(teammate.pk)],
+        )
+
+    @parameterized.expand(
+        [
+            ("accepted_during_the_run", {"status": WarehouseSuggestionStatus.ACCEPTED}, None),
+            ("reassigned_during_the_run", {"assignee_id": "teammate"}, "teammate"),
+        ]
+    )
+    def test_the_job_leaves_a_suggestion_someone_changed_while_it_was_assigning(
+        self, _name: str, change: dict[str, object], expected_assignee: str | None
+    ) -> None:
+        teammate = User.objects.create_and_join(self.organization, "teammate@example.com", None)
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            team=self.team, name="orders", query={"kind": "HogQLQuery", "query": "SELECT 1"}, created_by=self.user
+        )
+        ctx = context(team_reads({}), views=[view(saved_query.id, created_by_id=self.user.pk)], team_id=self.team.pk)
+        draft = self._draft(ctx, WarehouseSuggestionKind.MATERIALIZE, saved_query.id, 1)
+        concurrent_change = {key: teammate.pk if value == "teammate" else value for key, value in change.items()}
+
+        def checked_while_someone_changes_it(team: Team, user: User, suggestion: WarehouseSuggestion) -> bool:
+            WarehouseSuggestion.objects.for_team(self.team.pk).update(**concurrent_change)
+            return can_take(team, user, suggestion)
+
+        with (
+            patch(CAN_TAKE, side_effect=checked_while_someone_changes_it),
+            patch(NOTIFY) as notify,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            apply_run(ctx, self.team, [draft], NOW, surface=True)
+
+        row = WarehouseSuggestion.objects.for_team(self.team.pk).get()
+        assert (row.assignee_id, notify.call_count) == (teammate.pk if expected_assignee else None, 0)
+
+    def _enable_access_control(self) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+
+    def _creator(self, creator_state: str) -> User | None:
+        if creator_state == "none":
+            return None
+        if creator_state == "left":
+            return User.objects.create(email="left@example.com", first_name="Left")
+        return self.user
+
+    def _restrict_catalog_to_viewer(self) -> None:
+        self._enable_access_control()
+        AccessControl.objects.create(
+            team=self.team,
+            resource="data_catalog",
+            organization_member=self.organization_membership,
+            access_level="viewer",
+        )
 
     def test_auto_resolves_when_the_view_is_gone_or_already_handled(self) -> None:
         deleted_id, materialized_id = uuid4(), uuid4()

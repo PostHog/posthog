@@ -1,5 +1,5 @@
 import { NodeKind } from '~/queries/schema/schema-general'
-import { CompareLabelType, EntityTypes } from '~/types'
+import { CompareLabelType } from '~/types'
 
 import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
@@ -10,7 +10,6 @@ function makeTrendResult(overrides: Partial<IndexedTrendResult> = {}): IndexedTr
         id: 0,
         seriesIndex: 0,
         colorIndex: 0,
-        action: { id: '$pageview', type: EntityTypes.EVENTS, order: 0, name: '$pageview' },
         order: 0,
         label: '$pageview',
         count: 10,
@@ -103,14 +102,13 @@ describe('handleTrendsChartClick', () => {
         }
     )
 
-    it('forwards a formula-series click (action: null) to context.onDataPointClick instead of the modal', () => {
-        // Formula results carry no `action`, so the generic drill-down can't attribute them to a series
-        // (it silently falls back to series 0). Products embedding formula charts rely on their
-        // onDataPointClick handler winning here, with the day read from the top-level `days`.
+    it('forwards a formula-series click to context.onDataPointClick instead of the modal', () => {
+        // The generic drill-down can't attribute a formula row to one series (it silently falls back
+        // to series 0). Products embedding formula charts rely on their onDataPointClick handler
+        // winning here, with the day read from the top-level `days`.
         const openPersonsModal = jest.fn()
         const onDataPointClick = jest.fn()
         const trendResult = makeTrendResult({
-            action: null,
             label: 'Yes rate',
             days: ['2024-06-10', '2024-06-11', '2024-06-12'],
         })

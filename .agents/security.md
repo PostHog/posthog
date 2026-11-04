@@ -200,6 +200,20 @@ mitigated. A code path that bypasses the proxy, and a self-hosted deployment, do
 control. A request that probes or trusts an attacker-controlled server is always in scope. The
 SSRF rule in `.agents/skills/security-audit/SKILL.md` says which control is load-bearing.
 
+## Deployment config
+
+PostHog/charts holds the deployment config for PostHog Cloud. A review of PostHog/posthog-private
+gets a read-only copy of it at `$CONTEXT_DIR/related/PostHog/charts`; a review of this public
+repository does not. When the copy is there, start with these paths:
+
+- `argocd/posthog-django/` and `apps/posthog-*-django/`: the Django web, worker, query and report
+  deployments.
+- `shared/posthog-django/`: values that every Django deployment shares.
+- `shared/cdp/`, `shared/ingestion/` and `argocd/ingestion/`: the Node CDP and ingestion services.
+- `argocd/contour-ingress/values/`: public routing.
+- `shared/smokescreen/`, `apps/smokescreen/` and `shared/infrastructure/`: the egress proxy and its
+  URL.
+
 ## Out-of-band interaction domains
 
 `posthog/security/crosslang/oob_domains.json` lists the services that capture out-of-band

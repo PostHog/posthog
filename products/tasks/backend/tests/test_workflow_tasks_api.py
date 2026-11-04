@@ -31,11 +31,14 @@ from products.tasks.backend.logic.services.workflow_tasks import (
     WORKFLOW_TASK_RATE_CAP_PER_DAY,
     WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY,
 )
-from products.tasks.backend.models import Channel, Task, TaskRun
+from products.tasks.backend.models import Channel, Task, TaskRun, TeamTasksConfig
 from products.tasks.backend.visibility import task_control_q, task_visibility_q
 from products.workflows.backend.facade.team_extension import TeamWorkflowsConfig
 from products.workflows.backend.facade.testing import create_workflow_for_test
-from products.workflows.backend.presentation.views.workflow_tasks import WorkflowTasksJWTAuthentication
+from products.workflows.backend.presentation.views.workflow_tasks import (
+    WorkflowTaskCreateSerializer,
+    WorkflowTasksJWTAuthentication,
+)
 
 SECRET = "test-tasks-create-jwt"
 
@@ -172,6 +175,34 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert run.state["provider"] == expected_provider
         assert run.state["model"] == model
         assert run.state["reasoning_effort"] == "high"
+
+    @parameterized.expand([("zai-org/glm-5.3-flash",), ("deepseek-ai/deepseek-v4-flash-0731",)])
+    def test_drops_a_model_outside_the_workflows_gateway_pin(self, model: str) -> None:
+        response = self._post({"model": model})
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+        assert run.state.get("model") is None
+        assert run.state.get("runtime_adapter") is None
+
+    @parameterized.expand([("dropped_model", {"model": "zai-org/glm-5.3-flash"}), ("no_model", {})])
+    def test_skips_a_project_default_model_outside_the_workflows_gateway_pin(self, _name: str, body: dict) -> None:
+        TeamTasksConfig.objects.update_or_create(
+            team=self.team,
+            defaults={
+                "ai_run_preferences": {
+                    "runtime_adapter": "claude",
+                    "model": "zai-org/glm-5.3-flash",
+                    "reasoning_effort": None,
+                }
+            },
+        )
+
+        response = self._post(body)
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        run = TaskRun.objects.get(id=response.json()["run_id"])
+        assert run.state.get("model") is None
 
     def test_dispatches_the_agent_run_after_the_task_commits(self) -> None:
         with (
@@ -595,18 +626,24 @@ class TestWorkflowTasksAPI(APIBaseTest):
 
         assert later_run.state["config_snapshot"]["connectors"]["mcp_gateway_server_ids"] == ["server-1"]
 
-    @parameterized.expand([("with_repository", True), ("without_repository", False)])
-    def test_pr_creation_follows_the_repository(self, _name: str, with_repository: bool) -> None:
-        body: dict = {}
-        if with_repository:
-            Integration.objects.create(team=self.team, kind="github", config={}, sensitive_config={})
-            body["repository"] = "posthog/posthog"
+    @parameterized.expand(
+        [
+            ("repositories", {"repositories": ["posthog/posthog", "posthog/posthog.com"]}),
+            ("legacy_repository", {"repository": "posthog/posthog"}),
+            ("no_repository", {}),
+        ]
+    )
+    def test_the_task_works_in_the_requested_repositories(self, _name: str, body: dict) -> None:
+        Integration.objects.create(team=self.team, kind="github", config={}, sensitive_config={})
+        expected = body.get("repositories") or ([body["repository"]] if "repository" in body else [])
 
         response = self._post(body)
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
+        task = Task.objects.get(id=response.json()["id"])
+        assert task.repositories == expected
         run = TaskRun.objects.get(id=response.json()["run_id"])
-        assert run.state["pending_dispatch"]["create_pr"] is with_repository
+        assert run.state["pending_dispatch"]["create_pr"] is bool(expected)
 
     def test_teammates_can_see_and_drive_workflow_tasks(self) -> None:
         teammate = self._create_user("teammate@posthog.com")
@@ -944,6 +981,28 @@ class TestWorkflowTasksAPI(APIBaseTest):
         mapping = SlackThreadTaskMapping.objects.get()
         assert str(mapping.task_run_id) == response.json()["run_id"]
         assert mapping.mentioning_slack_user_id == "U123"
+
+
+class TestWorkflowTaskCreateRepositories(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("no_slash", {"repositories": ["just-a-name"]}, "repositories"),
+            ("too_many_slashes", {"repositories": ["org/repo/extra"]}, "repositories"),
+            ("duplicate_in_another_case", {"repositories": ["org/repo", "ORG/Repo"]}, "repositories"),
+            ("legacy_no_slash", {"repository": "just-a-name"}, "repository"),
+        ]
+    )
+    def test_rejects_repositories_the_sandbox_cannot_clone(self, _name, body, field):
+        serializer = WorkflowTaskCreateSerializer(data={"prompt": "Do the thing", **body})
+
+        assert not serializer.is_valid()
+        assert field in serializer.errors
+
+    def test_lowercases_repositories(self):
+        serializer = WorkflowTaskCreateSerializer(data={"prompt": "Do the thing", "repositories": ["Org/Repo"]})
+
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["repositories"] == ["org/repo"]
 
 
 class TestWorkflowOriginIsReserved(SimpleTestCase):

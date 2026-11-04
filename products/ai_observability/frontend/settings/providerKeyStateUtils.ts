@@ -1,4 +1,10 @@
-import { LLMProvider, LLMProviderKey, LLMProviderKeyState, LLM_PROVIDER_LABELS } from './llmProviderKeysLogic'
+import {
+    KeyValidationResult,
+    LLMProvider,
+    LLMProviderKey,
+    LLMProviderKeyState,
+    LLM_PROVIDER_LABELS,
+} from './llmProviderKeysLogic'
 
 const UNHEALTHY_PROVIDER_KEY_STATES = new Set<LLMProviderKeyState>(['unknown', 'invalid', 'error'])
 
@@ -63,4 +69,16 @@ export function providerKeyStateSuffix(state: LLMProviderKeyState): string {
 
 export function providerLabel(provider: LLMProvider): string {
     return LLM_PROVIDER_LABELS[provider]
+}
+
+// Azure and OpenAI-compatible validation errors can originate from either the endpoint or the
+// API key. The backend tells us which via `error_field`; map it to which input this component
+// highlights.
+export function endpointErrorFieldFromResult(
+    result: KeyValidationResult | null | undefined
+): 'endpoint' | 'key' | null {
+    if (!result || result.state === 'ok') {
+        return null
+    }
+    return result.error_field === 'azure_endpoint' || result.error_field === 'base_url' ? 'endpoint' : 'key'
 }

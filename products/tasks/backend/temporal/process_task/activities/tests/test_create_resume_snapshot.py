@@ -4,7 +4,7 @@ import pytest
 
 from asgiref.sync import async_to_sync
 
-from products.tasks.backend.constants import DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH, SNAPSHOT_KIND_DIRECTORY
+from products.tasks.backend.constants import DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH, RESUME_SNAPSHOT_KIND
 from products.tasks.backend.exceptions import SnapshotFileLimitExceededError, SnapshotTimeoutError
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.process_task.activities.create_resume_snapshot import (
@@ -40,7 +40,7 @@ def test_create_directory_resume_snapshot_preserves_pending_delivery(activity_en
     )
     output = activity_environment.run(
         unwrap(create_resume_snapshot),
-        CreateResumeSnapshotInput(sandbox_id="sandbox-1", run_id=str(run.id), use_directory_snapshot=True),
+        CreateResumeSnapshotInput(sandbox_id="sandbox-1", run_id=str(run.id)),
     )
 
     sandbox.create_directory_snapshot.assert_called_once_with(DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH)
@@ -49,11 +49,10 @@ def test_create_directory_resume_snapshot_preserves_pending_delivery(activity_en
     assert run.state == {
         **pending_state,
         "snapshot_external_id": "im-dir",
-        "snapshot_kind": SNAPSHOT_KIND_DIRECTORY,
+        "snapshot_kind": RESUME_SNAPSHOT_KIND,
         "snapshot_mount_path": DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH,
     }
     assert output.external_id == "im-dir"
-    assert output.snapshot_kind == SNAPSHOT_KIND_DIRECTORY
     assert output.snapshot_mount_path == DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH
 
 
@@ -79,7 +78,7 @@ def test_transient_snapshot_error_propagates_so_temporal_retries(activity_enviro
     with pytest.raises(SnapshotTimeoutError):
         async_to_sync(activity_environment.run)(
             create_resume_snapshot,
-            CreateResumeSnapshotInput(sandbox_id="sandbox-1", run_id="run-1", use_directory_snapshot=True),
+            CreateResumeSnapshotInput(sandbox_id="sandbox-1", run_id="run-1"),
         )
 
     update_state.assert_not_called()
@@ -114,9 +113,7 @@ def test_directory_file_limit_preserves_state(activity_environment, mocker, tmp_
 
     output = async_to_sync(activity_environment.run)(
         create_resume_snapshot,
-        CreateResumeSnapshotInput(
-            sandbox_id="sandbox-1", run_id="run-1", use_directory_snapshot=True, allow_pruning=allow_pruning
-        ),
+        CreateResumeSnapshotInput(sandbox_id="sandbox-1", run_id="run-1", allow_pruning=allow_pruning),
     )
 
     assert output.external_id is None

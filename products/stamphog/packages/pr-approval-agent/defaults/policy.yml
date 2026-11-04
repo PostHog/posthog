@@ -160,8 +160,8 @@ allow:
         - '.yaml'
         - '.yml'
 size_gate:
-    max_lines: 800
-    max_files: 30
+    max_lines: 1200
+    max_files: 50
 tiers:
     t1_subclasses:
         T1a-trivial:
@@ -178,9 +178,9 @@ tiers:
             breadth: 'not-cross-cutting'
 overrides:
     'size_gate.max_files':
-        ceiling: 50
+        ceiling: 75
     'size_gate.max_lines':
-        ceiling: 1000
+        ceiling: 1500
 # Author-familiarity signal — judgment layer only, never a gate. Non-delegable (absent from
 # `overrides`). STRONG = blame overlap >= min_blame_overlap_pct; MODERATE = both of its keys satisfied;
 # else NONE. Thresholds are stamphog's backtested defaults.

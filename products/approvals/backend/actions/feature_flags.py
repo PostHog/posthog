@@ -13,11 +13,11 @@ from posthog.exceptions import Conflict
 
 from products.approvals.backend.actions.base import BaseAction
 from products.approvals.backend.exceptions import ApplyFailed, PreconditionFailed
-from products.approvals.backend.ownership import OWNER_KIND_UNOWNED, owner_kind_changed
+from products.approvals.backend.ownership import OWNER_KIND_UNOWNED, owner_in_scope, owner_kind_changed
 from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer, flag_version_conflict_message
 from products.feature_flags.backend.api.filters_schema import FEATURE_FLAG_OPERATOR_ALIASES
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.feature_flags.backend.ownership import flag_owner_kind
+from products.feature_flags.backend.ownership import MINTED_OWNER_CONTEXT_KEY, flag_owner_kind
 
 # The property filter keys that flag evaluation reads. The API adds display keys such as
 # `cohort_name` on read, and the flag editor sends them back on every save, so any other key is not
@@ -245,6 +245,27 @@ def _cached_owner_kind(flag: FeatureFlag) -> Optional[str]:
     return getattr(flag, _OWNER_KIND_ATTR)
 
 
+def _minted_owner_kind(view) -> Optional[str]:
+    context = getattr(view, "context", None)
+    return context.get(MINTED_OWNER_CONTEXT_KEY) if isinstance(context, dict) else None
+
+
+def _in_family_scope(
+    flag: Optional[FeatureFlag], owner_scope: Optional[str], team, minted_owner: Optional[str] = None
+) -> bool:
+    """Whether this action's family governs this flag, given which product owns it.
+
+    A create has no flag yet. The row that will own the flag does not exist yet either, so the
+    owner of a create is the product that declared it mints the flag, see
+    `MINTED_OWNER_CONTEXT_KEY`. A create that declares no owner stays with the unowned family.
+    """
+    return owner_in_scope(
+        owner_scope,
+        team.organization if team is not None else None,
+        lambda: _cached_owner_kind(flag) if flag is not None else minted_owner,
+    )
+
+
 def _comparable(value: Any) -> str:
     """Encode a release condition value so that values flag evaluation tells apart compare unequal.
 
@@ -376,6 +397,14 @@ class FeatureFlagActionBase(BaseAction):
     endpoint_serializer_class = FeatureFlagSerializer
     intent_fields = ["active"]
 
+    # Which product's flags this family governs, or None for the flags no product owns.
+    # `owner_in_scope` reads it; an owner-scoped subclass sets it.
+    owner_scope: Optional[str] = None
+
+    # The write this action gates, named so the same write can be recognised across families.
+    # Two families name one operation with two keys, and only the operation makes them comparable.
+    gated_operation: str
+
     # Subclasses define the target state
     target_active_state: bool
 
@@ -465,7 +494,7 @@ class FeatureFlagActionBase(BaseAction):
         if not team:
             return False
 
-        return True
+        return _in_family_scope(flag, cls.owner_scope, team, _minted_owner_kind(view))
 
     @classmethod
     def extract_intent(cls, request, view, *args, **kwargs) -> dict[str, Any]:
@@ -570,6 +599,7 @@ class EnableFeatureFlagAction(FeatureFlagActionBase):
     key = "feature_flag.enable"
     version = 1
     description = "Enable a feature flag"
+    gated_operation = "enable"
     target_active_state = True
     gate_on_create = True
 
@@ -591,6 +621,7 @@ class DisableFeatureFlagAction(FeatureFlagActionBase):
     key = "feature_flag.disable"
     version = 1
     description = "Disable a feature flag"
+    gated_operation = "disable"
     target_active_state = False
 
     @classmethod
@@ -618,6 +649,12 @@ class UpdateFeatureFlagAction(BaseAction):
     description = "Change feature flag release conditions or rollout"
     resource_type = "feature_flag"
     endpoint_serializer_class = FeatureFlagSerializer
+
+    # Which product's flags this family governs, or None for the flags no product owns.
+    owner_scope: Optional[str] = None
+
+    # The write this action gates. See `FeatureFlagActionBase.gated_operation`.
+    gated_operation = "update"
 
     GATEABLE_FIELDS: dict[str, dict[str, str]] = {
         "rollout_percentage": {
@@ -773,7 +810,7 @@ class UpdateFeatureFlagAction(BaseAction):
         if not team:
             return False
 
-        return True
+        return _in_family_scope(flag, cls.owner_scope, team, _minted_owner_kind(view))
 
     @classmethod
     def extract_intent(cls, request, view, *args, **kwargs) -> dict[str, Any]:
@@ -907,6 +944,11 @@ class UpdateFeatureFlagAction(BaseAction):
         return label
 
     @classmethod
+    def _display_subject(cls, flag_key: str, changed_fields: list[str]) -> str:
+        """The opening of the request description, which the list of changes follows."""
+        return f"Update {' and '.join(changed_fields)} for feature flag '{flag_key}'"
+
+    @classmethod
     def get_display_data(cls, intent_data: dict[str, Any]) -> dict[str, Any]:
         """Generate human-readable diff showing before/after for gated fields."""
         flag_key = intent_data.get("flag_key", "unknown")
@@ -935,7 +977,7 @@ class UpdateFeatureFlagAction(BaseAction):
             for name, changes in (("release conditions", release_changes), (rollout_display_name, rollout_changes))
             if changes
         ] or [rollout_display_name]
-        description = f"Update {' and '.join(changed_fields)} for feature flag '{flag_key}'"
+        description = cls._display_subject(flag_key, changed_fields)
         changes_description = [*release_changes, *rollout_changes]
         if changes_description:
             description = f"{description}: {'; '.join(changes_description)}"

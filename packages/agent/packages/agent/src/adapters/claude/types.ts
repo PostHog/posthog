@@ -58,6 +58,7 @@ export type Turn = {
   /** Result withheld while a steer has yet to reach the model. */
   deferredResult?: PromptResponse;
   steerTimer?: ReturnType<typeof setTimeout>;
+  waitingForSubagents?: boolean;
   isLocalOnlyCommand: boolean;
   commandName?: string;
   /** Invoked once at activation, matching the pre-consumer broadcast timing. */
@@ -124,6 +125,8 @@ export type Session = BaseSession & {
   configOptions: SessionConfigOption[];
   accumulatedUsage: AccumulatedUsage;
   budgetGuard?: RunBudgetGuard;
+  /** Unattended callers need the parent reply after its sub-agents finish. */
+  waitForSubagents?: boolean;
   backgroundTurnActive?: boolean;
   backgroundSteers?: Map<string, PendingSteer>;
   backgroundSteerTimer?: ReturnType<typeof setTimeout>;
@@ -267,6 +270,9 @@ export type NewSessionMeta = {
   taskOriginProduct?: string;
   /** Workflow-action opt-in: exposes the `finish` tool to a workflow-origin run. */
   endRunWhenDone?: boolean;
+  callerEndsRun?: boolean;
+  /** Keeps hooks from the repo's `.claude/settings*.json` from running. */
+  disableRepoHooks?: boolean;
   /**
    * The user's spoken-narration setting at session start. Gates the speak
    * tool and its prompt instructions. Unset falls back by environment: cloud

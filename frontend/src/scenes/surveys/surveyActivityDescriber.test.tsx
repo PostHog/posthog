@@ -1,6 +1,10 @@
 import { render } from '@testing-library/react'
 
+import { ActivityChange, ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
+
 import {
+    ActivityScope,
+    BasicSurveyQuestion,
     LinkSurveyQuestion,
     MultipleSurveyQuestion,
     RatingSurveyQuestion,
@@ -17,6 +21,7 @@ import {
     describeMultipleChoiceChanges,
     describeQuestionChanges,
     describeRatingChanges,
+    surveyActivityDescriber,
 } from './surveyActivityDescriber'
 
 const getTextContent = (jsxElement: JSX.Element): string => {
@@ -260,5 +265,34 @@ describe('describeQuestionChanges', () => {
         )
         expect(getTextContent(changes[4])).toBe('added choices: Maybe')
         expect(getTextContent(changes[5])).toBe('updated branching logic')
+    })
+})
+
+describe('surveyActivityDescriber', () => {
+    const question: BasicSurveyQuestion = {
+        question: 'What do you think?',
+        type: SurveyQuestionType.Open,
+    }
+
+    const questionsChange = (before: ActivityChange['before'], after: ActivityChange['after']): ActivityLogItem => ({
+        activity: 'updated',
+        created_at: '2026-01-01T00:00:00Z',
+        scope: ActivityScope.SURVEY,
+        item_id: '1',
+        user: { first_name: 'Alice', last_name: 'Adams', email: 'alice@example.com' },
+        detail: {
+            name: 'Example survey',
+            changes: [{ type: ActivityScope.SURVEY, action: 'changed', field: 'questions', before, after }],
+            merge: null,
+            trigger: null,
+        },
+    })
+
+    test.each([
+        ['the questions list was empty before', null, [question], 'from 0 to 1'],
+        ['the questions list is empty after', [question], null, 'from 1 to 0'],
+    ])('describes the question count when %s', (_, before, after, expected) => {
+        const { description } = surveyActivityDescriber(questionsChange(before, after))
+        expect(getTextContent(<>{description}</>)).toContain(expected)
     })
 })

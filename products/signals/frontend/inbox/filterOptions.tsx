@@ -12,6 +12,7 @@ import {
     IconGithub,
     IconGraph,
     IconList,
+    IconPerson,
     IconReceipt,
     IconRefresh,
     IconStack,
@@ -107,6 +108,8 @@ export interface InboxRankingScore {
     /** The short word the card tag uses after a probability with no lift ("12% fix"). Staff only. */
     tagLabel: string
     description: string
+    /** Replaces `description` in the score hover card only. The sort menu and the artefact log keep `description`. */
+    hoverCardDescription?: string
 }
 
 export const INBOX_RANKING_SCORES: InboxRankingScore[] = [
@@ -136,6 +139,7 @@ export const INBOX_RANKING_SCORES: InboxRankingScore[] = [
         sortLabel: 'Most likely to be fixed',
         tagLabel: 'fix',
         description: 'Someone fixes the problem within 30 days.',
+        hoverCardDescription: 'Someone fixes the problem within 30 days (as best we can tell).',
     },
 ]
 
@@ -194,6 +198,7 @@ export const INBOX_SOURCE_OPTIONS: { value: string; label: string; icon: JSX.Ele
         icon: <IconGear />,
     },
     { value: 'signals_scout', label: 'Scout', icon: <IconCompass /> },
+    { value: 'user_authored', label: 'Team member', icon: <IconPerson /> },
 ]
 
 /** Priority codes in rank order (P0 highest → P4 lowest), driving the Priority filter popover. */

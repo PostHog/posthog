@@ -8,6 +8,8 @@ from products.workflows.backend.facade.contracts import TeamUtmDefaults
 from products.workflows.backend.services.email_utm_defaults import (
     UTM_FROM_DEFAULT_KEY,
     UTM_KEYS,
+    apply_defaults_to_email_config,
+    plan_flow_update,
     release_edited_keys,
     seed_new_email_actions,
 )
@@ -22,6 +24,75 @@ def _email(action_id: str, **config: Any) -> dict[str, Any]:
 
 
 class TestEmailUtmDefaults(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "a step from before team defaults follows every default",
+                {"utm_tags_enabled": True, "utm_params": {"utm_source": "old"}},
+                False,
+                {"utm_source": "newsletter", "utm_campaign": "{{ person.properties.plan }}"},
+                True,
+            ),
+            (
+                "a value typed into the email survives",
+                {
+                    "utm_tags_enabled": True,
+                    "utm_params": {"utm_source": "partner"},
+                    UTM_FROM_DEFAULT_KEY: ["utm_medium", "utm_campaign", "utm_content"],
+                },
+                False,
+                {"utm_source": "partner", "utm_campaign": "{{ person.properties.plan }}"},
+                True,
+            ),
+            (
+                "tags turn on when asked",
+                {},
+                True,
+                {"utm_source": "newsletter", "utm_campaign": "{{ person.properties.plan }}"},
+                True,
+            ),
+        ]
+    )
+    def test_apply_defaults_to_email_config(
+        self, _name: str, config: dict[str, Any], enable_where_off: bool, expected_params: dict, expected_on: bool
+    ) -> None:
+        updated = apply_defaults_to_email_config(config, DEFAULTS, enable_where_off)
+
+        assert updated is not None
+        assert updated["utm_params"] == expected_params
+        assert (updated.get("utm_tags_enabled") is True) == expected_on
+
+    @parameterized.expand(
+        [
+            (
+                "params already match the defaults",
+                {
+                    "utm_tags_enabled": True,
+                    "utm_params": {"utm_source": "newsletter", "utm_campaign": "{{ person.properties.plan }}"},
+                    UTM_FROM_DEFAULT_KEY: list(UTM_KEYS),
+                },
+                True,
+            ),
+            ("tags are off and not being turned on", {"utm_tags_enabled": False}, False),
+        ]
+    )
+    def test_apply_defaults_to_email_config_returns_none_when_nothing_changes(
+        self, _name: str, config: dict[str, Any], enable_where_off: bool
+    ) -> None:
+        assert apply_defaults_to_email_config(config, DEFAULTS, enable_where_off) is None
+
+    def test_plan_flow_update_counts_each_email_once_across_live_and_staged(self) -> None:
+        custom = {"utm_tags_enabled": True, "utm_params": {"utm_source": "partner"}, UTM_FROM_DEFAULT_KEY: []}
+        follows = {"utm_tags_enabled": False, UTM_FROM_DEFAULT_KEY: list(UTM_KEYS)}
+        live = [_email("a", **follows), _email("b", **custom)]
+        staged = [_email("a", **custom), _email("b", **follows)]
+
+        plan = plan_flow_update(live, {"actions": staged}, DEFAULTS, enable_where_off=True)
+
+        assert plan is not None
+        assert plan.emails_updated == 2
+        assert plan.emails_turned_on == 2
+
     def test_seed_new_email_actions_only_fills_new_steps_without_a_choice(self) -> None:
         actions = [
             _email("existing"),

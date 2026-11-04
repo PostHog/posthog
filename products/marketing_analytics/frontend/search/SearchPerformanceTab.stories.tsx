@@ -187,6 +187,81 @@ const ROWS: MarketingAnalyticsSearchRow[] = [
     },
 ]
 
+const SEARCH_TERM_ROWS: MarketingAnalyticsSearchRow[] = [
+    ['product analytics', 610, 9800, 915, 31],
+    ['open source product analytics', 240, 2100, 312, 14],
+    ['session replay tool', 185, 3900, 370, 6],
+    ['feature flags pricing', 92, 1400, 138, 4.5],
+].map(([keyword, clicks, impressions, cost, conversions]) => ({
+    keyword: keyword as string,
+    platform: 'GoogleAds',
+    matchType: null,
+    currency: 'USD',
+    clicks: clicks as number,
+    impressions: impressions as number,
+    cost: cost as number,
+    conversions: conversions as number,
+    ctr: (clicks as number) / (impressions as number),
+    cpc: (cost as number) / (clicks as number),
+    cpa: (cost as number) / (conversions as number),
+}))
+
+type SearchTermTableStory = 'ready' | 'disabled' | 'syncing' | 'missing'
+
+function searchTermSources(
+    tables: Record<'search_term_stats' | 'performance_max_search_term_stats', SearchTermTableStory>
+): typeof SOURCES {
+    return SOURCES.map((source) =>
+        source.source_type === 'GoogleAds'
+            ? {
+                  ...source,
+                  schemas: [
+                      ...source.schemas,
+                      ...(Object.entries(tables)
+                          .filter(([, state]) => state !== 'missing')
+                          .map(([name, state]) => ({
+                              id: `example-${name}`,
+                              name,
+                              should_sync: state !== 'disabled',
+                              sync_frequency: '24hour',
+                              last_synced_at: state === 'ready' ? '2025-02-14T12:00:00Z' : null,
+                              status: state === 'syncing' ? 'Running' : 'Completed',
+                              table:
+                                  state === 'ready' ? { name: `example_${name}`, hogql_name: `example.${name}` } : null,
+                          })) as typeof source.schemas),
+                  ],
+              }
+            : source
+    )
+}
+
+function searchTermMocks(
+    tables: Record<'search_term_stats' | 'performance_max_search_term_stats', SearchTermTableStory>,
+    channelTypes: string[]
+): Mocks {
+    const sources = searchTermSources(tables)
+    return {
+        get: {
+            '/api/environments/:team_id/external_data_sources/': {
+                results: sources,
+                count: sources.length,
+                next: null,
+                previous: null,
+            },
+        },
+        post: {
+            '/api/environments/:team_id/query/HogQLQuery/': { results: [[channelTypes]] },
+        },
+        patch: {
+            '/api/projects/:team_id/external_data_sources/:id/bulk_update_schemas/': [200, []],
+        },
+    }
+}
+
+const openSearchTerms = async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
+    await userEvent.click(await within(canvasElement).findByText('Search terms', { exact: true }))
+}
+
 const MOCKS: Mocks = {
     delete: { '/api/projects/:team_id/query/:query_id/': [204] },
     get: {
@@ -227,7 +302,9 @@ const MOCKS: Mocks = {
                               keyword: null,
                               matchType: null,
                           }))
-                        : ROWS
+                        : query.breakdown === 'search_term'
+                          ? [...SEARCH_TERM_ROWS, ...ROWS.filter((row) => row.platform === 'GoogleSearchConsole')]
+                          : ROWS
                     )
                         .filter(
                             (row) =>
@@ -411,21 +488,23 @@ export const MixedWithPosition: Story = {
         await expect(canvas.queryByRole('checkbox', { name: 'Show position' })).not.toBeInTheDocument()
     },
 }
+const ORGANIC_TRAFFIC_MOCKS = {
+    get: {
+        '/api/environments/:team_id/external_data_sources/': {
+            results: SOURCES.filter((source) => source.source_type === 'GoogleSearchConsole'),
+            count: 1,
+            next: null,
+            previous: null,
+        },
+    },
+} satisfies Mocks
+
 export const OrganicTraffic: Story = {
     ...Comparison,
     parameters: {
         ...Comparison.parameters,
         msw: {
-            mocks: {
-                get: {
-                    '/api/environments/:team_id/external_data_sources/': {
-                        results: SOURCES.filter((source) => source.source_type === 'GoogleSearchConsole'),
-                        count: 1,
-                        next: null,
-                        previous: null,
-                    },
-                },
-            },
+            mocks: ORGANIC_TRAFFIC_MOCKS,
         },
     },
 }
@@ -445,6 +524,76 @@ export const LandingPages: Story = {
     play: async ({ canvasElement }) => {
         await userEvent.click(await within(canvasElement).findByText('Landing pages', { exact: true }))
     },
+}
+export const SearchTerms: Story = {
+    parameters: {
+        msw: {
+            mocks: searchTermMocks({ search_term_stats: 'ready', performance_max_search_term_stats: 'ready' }, [
+                'SEARCH',
+                'PERFORMANCE_MAX',
+            ]),
+        },
+    },
+    play: async (context) => {
+        await openSearchTerms(context)
+        const canvas = within(context.canvasElement)
+        await expect(await canvas.findByText('open source product analytics')).toBeVisible()
+        expect(canvas.queryByText(/Enable/)).toBeNull()
+    },
+}
+export const SearchTermsEnablePerformanceMax: Story = {
+    parameters: {
+        msw: {
+            mocks: searchTermMocks({ search_term_stats: 'ready', performance_max_search_term_stats: 'disabled' }, [
+                'SEARCH',
+                'PERFORMANCE_MAX',
+            ]),
+        },
+    },
+    play: async (context) => {
+        await openSearchTerms(context)
+        const canvas = within(context.canvasElement)
+        await expect(await canvas.findByText(/Enable the Performance Max search terms table/)).toBeVisible()
+        await expect(
+            await canvas.findByRole('button', { name: 'Enable Performance Max search terms table' })
+        ).toBeVisible()
+        await expect(await canvas.findByText('open source product analytics')).toBeVisible()
+    },
+}
+export const SearchTermsSyncing: Story = {
+    parameters: {
+        msw: {
+            mocks: searchTermMocks({ search_term_stats: 'missing', performance_max_search_term_stats: 'syncing' }, [
+                'PERFORMANCE_MAX',
+            ]),
+        },
+    },
+    play: async (context) => {
+        await openSearchTerms(context)
+        await expect(
+            await within(context.canvasElement).findByText(/The Performance Max search terms table is syncing/)
+        ).toBeVisible()
+    },
+}
+export const SearchTermsMissingTable: Story = {
+    parameters: {
+        msw: {
+            mocks: searchTermMocks({ search_term_stats: 'disabled', performance_max_search_term_stats: 'missing' }, [
+                'SEARCH',
+                'PERFORMANCE_MAX',
+            ]),
+        },
+    },
+    play: async (context) => {
+        await openSearchTerms(context)
+        const canvas = within(context.canvasElement)
+        await expect(await canvas.findByText(/Pull new schemas/)).toBeVisible()
+        await expect(await canvas.findByRole('button', { name: 'Enable search terms table' })).toBeVisible()
+    },
+}
+export const SearchTermsNarrow: Story = {
+    ...SearchTermsEnablePerformanceMax,
+    decorators: Narrow.decorators,
 }
 export const OrganicDetail: Story = {
     ...Comparison,
@@ -516,8 +665,9 @@ export const StaleAggregate: Story = {
     },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
-        await expect(await canvas.findByText(/Showing query-and-page data instead/)).toBeVisible()
-        await expect(await canvas.findByText('1,240')).toBeVisible()
+        await expect(await canvas.findByText(/search_analytics_by_query is out of date/)).toBeVisible()
+        await expect(await canvas.findByText('840')).toBeVisible()
+        await expect(canvas.queryByText('1,240')).toBeNull()
     },
 }
 export const UnavailableSources: Story = {
@@ -545,7 +695,13 @@ export const UnavailableSources: Story = {
     },
     play: async ({ canvasElement }) => {
         const canvas = within(canvasElement)
+        await expect(await canvas.findByText("Some search tables aren't ready")).toBeVisible()
         await expect(await canvas.findByText(/Enable keyword and keyword_stats/)).toBeVisible()
+        for (const header of canvas.getAllByRole('button', { name: /1 connection/ })) {
+            if (header.getAttribute('aria-expanded') === 'false') {
+                await userEvent.click(header)
+            }
+        }
         await expect(await canvas.findByText(/Waiting for the first sync/)).toBeVisible()
         await expect(await canvas.findByText(/out of date/)).toBeVisible()
         expect(canvas.queryByRole('table')).toBeNull()
@@ -555,19 +711,21 @@ export const UnavailableSourcesNarrow: Story = {
     ...UnavailableSources,
     decorators: Narrow.decorators,
 }
+const ONLY_GOOGLE_ADS_MOCKS = {
+    get: {
+        '/api/environments/:team_id/external_data_sources/': {
+            results: SOURCES.filter((source) => source.source_type === 'GoogleAds'),
+            count: 1,
+            next: null,
+            previous: null,
+        },
+    },
+} satisfies Mocks
+
 export const OnlyGoogleAds: Story = {
     parameters: {
         msw: {
-            mocks: {
-                get: {
-                    '/api/environments/:team_id/external_data_sources/': {
-                        results: SOURCES.filter((source) => source.source_type === 'GoogleAds'),
-                        count: 1,
-                        next: null,
-                        previous: null,
-                    },
-                },
-            },
+            mocks: ONLY_GOOGLE_ADS_MOCKS,
         },
     },
 }
@@ -594,10 +752,14 @@ export const PlacementUnavailable: Story = {
         expect((await canvas.findAllByRole('button', { name: 'product analytics' })).length).toBeGreaterThan(0)
     },
 }
+const EMPTY_MOCKS = {
+    post: { '/api/environments/:team_id/query/MarketingAnalyticsSearchQuery/': { results: [] } },
+} satisfies Mocks
+
 export const Empty: Story = {
     parameters: {
         msw: {
-            mocks: { post: { '/api/environments/:team_id/query/MarketingAnalyticsSearchQuery/': { results: [] } } },
+            mocks: EMPTY_MOCKS,
         },
     },
 }
@@ -613,8 +775,8 @@ export const EmptyGoogleAds: Story = {
     parameters: {
         msw: {
             mocks: {
-                get: OnlyGoogleAds.parameters!.msw.mocks.get,
-                post: Empty.parameters!.msw.mocks.post,
+                get: ONLY_GOOGLE_ADS_MOCKS.get,
+                post: EMPTY_MOCKS.post,
             },
         },
     },
@@ -623,8 +785,8 @@ export const EmptyOrganic: Story = {
     parameters: {
         msw: {
             mocks: {
-                get: OrganicTraffic.parameters!.msw.mocks.get,
-                post: Empty.parameters!.msw.mocks.post,
+                get: ORGANIC_TRAFFIC_MOCKS.get,
+                post: EMPTY_MOCKS.post,
             },
         },
     },
@@ -694,27 +856,9 @@ export const LegacyScene: Story = {
         featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_MARKETING, FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS],
     },
 }
-export const NewDashboardScene: Story = {
-    ...LegacyScene,
-    parameters: {
-        ...LegacyScene.parameters,
-        featureFlags: [
-            FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
-            FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD,
-            FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS,
-        ],
-    },
-}
 export const FlagOff: Story = {
     ...LegacyScene,
     parameters: { ...LegacyScene.parameters, featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_MARKETING] },
-}
-export const NewDashboardFlagOff: Story = {
-    ...LegacyScene,
-    parameters: {
-        ...LegacyScene.parameters,
-        featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_MARKETING, FEATURE_FLAGS.MARKETING_ANALYTICS_NEW_DASHBOARD],
-    },
 }
 
 export const PositionMetrics: Story = {

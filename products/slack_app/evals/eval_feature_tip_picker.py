@@ -15,7 +15,7 @@ import asyncio
 from products.posthog_ai.eval_harness.config import BaseEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
-from products.posthog_ai.eval_harness.one_shot import OneShotPublicEval
+from products.posthog_ai.eval_harness.one_shot import OneShotEval
 from products.slack_app.backend.logic.feature_tips import picker
 from products.slack_app.backend.logic.feature_tips.catalog import CATALOG
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
@@ -154,7 +154,7 @@ async def eval_feature_tip_picker(ctx: EvalContext) -> None:
             "last_message": f"{model}: feature={picked}",
         }
 
-    await OneShotPublicEval(
+    await OneShotEval(
         experiment_name="slack-app-feature-tip-picker",
         offline_suite=offline_suite(
             "slack_app/eval_feature_tip_picker::eval_feature_tip_picker",

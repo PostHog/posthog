@@ -223,6 +223,24 @@ describe('ReportCard', () => {
         expect(logic.values.selectedReportIds).toEqual([])
     })
 
+    it.each([
+        ['a report without a pull request', null],
+        ['a pull request', 'https://github.com/example/repo/pull/123'],
+    ])('shows a plain title without a conventional commit tag for %s', (_name, implementationPrUrl) => {
+        cleanup()
+        render(
+            <ReportCard
+                report={makeReport('r-2', {
+                    title: 'note(example): Example report title',
+                    implementation_pr_url: implementationPrUrl,
+                })}
+            />
+        )
+
+        expect(screen.getByText('Example report title')).toBeInTheDocument()
+        expect(screen.queryByText('note(example)')).not.toBeInTheDocument()
+    })
+
     test.each([
         [
             "a person's reason",
@@ -264,6 +282,11 @@ describe('ReportCard', () => {
             action: 'unassign',
             hold: () => jest.spyOn(api, 'delete').mockReturnValue(new Promise<never>(() => {})),
             start: () => logic.actions.bulkUnassignMe(['r-1']),
+        },
+        {
+            action: 'claim',
+            hold: () => jest.spyOn(api, 'create').mockReturnValue(new Promise<never>(() => {})),
+            start: () => logic.actions.bulkClaim(['r-1']),
         },
     ])('locks the selection while a bulk $action is running', ({ hold, start }) => {
         const pending = hold()
@@ -474,6 +497,42 @@ describe('ReportCard', () => {
 
         rerender(<ReportCard report={makeReport('r-2')} />)
         expect(screen.queryByText('Not scored yet')).not.toBeInTheDocument()
+    })
+
+    it('shows the three-score pill only when the Recommended list asks for it, and keeps the tags elsewhere', () => {
+        // The harness renders a card for every test; these assert against their own.
+        cleanup()
+        enableImpactColumn()
+        const scored = makeReport('r-2', {
+            ranking: {
+                status: 'scored',
+                model: 'report_embeddings@2026-09-30',
+                scored_at: '2026-09-30T12:00:00Z',
+                predictions: [
+                    { outcome: 'open', probability: 0.8, lift: 2.9, readable: true },
+                    { outcome: 'action', probability: 0.3, lift: 0.04, readable: true },
+                    { outcome: 'fix', probability: 0.41, lift: 2.7, readable: true },
+                ],
+            },
+        })
+        const { container, rerender } = render(<ReportCard report={scored} rankingPill />)
+        const pill = container.querySelector('[data-attr="inbox-ranking-pill"]')
+        expect(pill?.textContent).toBe('Open2.9xAction<0.1xFix2.7x')
+        // The card is a link, so a click that reaches it would open the report.
+        expect(fireEvent.click(pill as Element)).toBe(false)
+        ;(pill as HTMLElement).focus()
+        expect(document.activeElement).toBe(pill)
+
+        rerender(<ReportCard report={scored} rankingPill rankingSortField="ranking_fix" />)
+        expect(container.querySelector('[data-attr="inbox-ranking-pill"]')).toBeNull()
+        expect(screen.getByText('2.7x more likely')).toBeInTheDocument()
+
+        rerender(<ReportCard report={{ ...scored, ranking: { ...scored.ranking!, status: 'stale' } }} rankingPill />)
+        expect(screen.getByText('Score out of date')).toBeInTheDocument()
+
+        rerender(<ReportCard report={scored} />)
+        expect(container.querySelector('[data-attr="inbox-ranking-pill"]')).toBeNull()
+        expect(container.querySelector('[data-attr="inbox-ranking-tag"]')).toBeNull()
     })
 
     it('does not show a list metric without a stored snapshot or with the metrics flag off', () => {

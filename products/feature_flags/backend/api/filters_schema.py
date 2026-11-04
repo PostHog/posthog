@@ -21,7 +21,7 @@ from typing import Any, ClassVar, Protocol, cast
 import structlog
 from rest_framework import serializers
 
-from posthog.models.property.property import STRING_PREFIX_SUFFIX_OPERATORS
+from posthog.models.property.property import SEMVER_OPERATORS, STRING_PREFIX_SUFFIX_OPERATORS
 
 logger = structlog.get_logger(__name__)
 
@@ -42,15 +42,6 @@ FEATURE_FLAG_SUPPORTED_OPERATORS: frozenset[str | None] = frozenset(
         "gte",
         "lt",
         "lte",
-        "semver_gt",
-        "semver_gte",
-        "semver_lt",
-        "semver_lte",
-        "semver_eq",
-        "semver_neq",
-        "semver_tilde",
-        "semver_caret",
-        "semver_wildcard",
         "is_set",
         "is_not_set",
         "is_date_exact",
@@ -61,6 +52,7 @@ FEATURE_FLAG_SUPPORTED_OPERATORS: frozenset[str | None] = frozenset(
         "flag_evaluates_to",
     }
     | set(STRING_PREFIX_SUFFIX_OPERATORS)
+    | set(SEMVER_OPERATORS)
 )
 
 FEATURE_FLAG_OPERATOR_ALIASES: dict[str, str] = {

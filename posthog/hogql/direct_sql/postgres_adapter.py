@@ -160,7 +160,7 @@ class PostgresAdapter:
         return postgres_source, config
 
     def prepare_raw_sql(self, sql: str) -> str:
-        return ensure_single_direct_statement(sql)
+        return ensure_single_direct_statement(sql, dialect="postgres")
 
     def execute(self, request: DirectQueryRequest) -> DirectQueryResult:
         source = request.source
@@ -171,8 +171,10 @@ class PostgresAdapter:
                     HostNotAllowedError,
                     TemporaryHostResolutionError,
                     _get_sslmode,
+                    libpq_tls_kwargs,
                     pinned_host_kwargs,
                     source_requires_ssl,
+                    tls_options,
                 )
 
             postgres_source, source_config = self.validate_source_config(source, request.team, request.timings)
@@ -239,6 +241,9 @@ class PostgresAdapter:
 
                     with request.timings.measure("postgres_connect", emit_span=True):
                         try:
+                            # The files must outlast the connect, because a cancel request reads them again.
+                            tls_kwargs = tunnel_stack.enter_context(libpq_tls_kwargs(tls_options(source_config)))
+                            connection_kwargs.update(cast(PostgresConnectionKwargs, tls_kwargs))
                             connection_context = psycopg.connect(**connection_kwargs)
                         except (psycopg.Error, RuntimeError, ValueError) as error:
                             if source.is_managed_warehouse_ready:

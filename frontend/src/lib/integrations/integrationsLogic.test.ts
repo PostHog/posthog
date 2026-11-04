@@ -12,7 +12,13 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { IntegrationKind, IntegrationType, Region, SLACK_INTEGRATION_SCOPES } from '~/types'
+import {
+    IntegrationKind,
+    IntegrationType,
+    Region,
+    SLACK_INTEGRATION_SCOPES,
+    SLACK_INTEGRATION_SCOPES_IN_REVIEW,
+} from '~/types'
 
 import * as integrationsApi from 'products/integrations/frontend/generated/api'
 import type {
@@ -339,6 +345,18 @@ describe('integrationsLogic', () => {
         })
     })
 
+    describe('warehouse source credentials rows', () => {
+        it('keeps them in the full list but out of the lists that pick a connection by kind', async () => {
+            const sourceRow = githubIntegration({ id: 43, config: { warehouse_source_type: 'Github' } })
+            integrationsPayload = [githubIntegration(), sourceRow]
+            await expectLogic(logic, () => logic.actions.loadIntegrations()).toFinishAllListeners()
+
+            expect(logic.values.integrations?.map((integration) => integration.id)).toEqual([42, 43])
+            expect(logic.values.githubIntegrations.map((integration) => integration.id)).toEqual([42])
+            expect(logic.values.getIntegrationsByKind(['github']).map((integration) => integration.id)).toEqual([42])
+        })
+    })
+
     describe('polling', () => {
         it('polls integrations only while at least one surface is subscribed', async () => {
             jest.useFakeTimers()
@@ -569,44 +587,56 @@ describe('integrationsLogic', () => {
                 expect(requestedTeamIds).toEqual([String(MOCK_TEAM_ID)])
             })
 
+            const approvedScopes = SLACK_INTEGRATION_SCOPES.join(',')
+            const allRequestedScopes = [...SLACK_INTEGRATION_SCOPES, ...SLACK_INTEGRATION_SCOPES_IN_REVIEW]
+            const allScopes = allRequestedScopes.join(',')
             it.each([
-                ['every requested scope', SLACK_INTEGRATION_SCOPES.join(','), null, Region.US],
+                [Region.US, 'every requested scope', approvedScopes, null, SLACK_INTEGRATION_SCOPES],
                 [
+                    Region.US,
                     'fewer scopes than requested',
                     SLACK_INTEGRATION_SCOPES.filter((scope) => scope !== 'users:read' && scope !== 'files:write').join(
                         ','
                     ),
                     ['files:write', 'users:read'],
-                    Region.US,
+                    SLACK_INTEGRATION_SCOPES,
                 ],
-                ['no recorded scopes', undefined, null, Region.US],
+                [Region.US, 'no recorded scopes', undefined, null, SLACK_INTEGRATION_SCOPES],
                 [
-                    'every requested scope with the debug flag',
-                    SLACK_INTEGRATION_SCOPES.join(','),
-                    null,
                     Region.US,
+                    'every requested scope with the debug flag',
+                    approvedScopes,
+                    null,
+                    SLACK_INTEGRATION_SCOPES,
                     true,
                 ],
-                ['no pending scope on DEV', SLACK_INTEGRATION_SCOPES.join(','), ['channels:join'], Region.DEV],
+                [Region.DEV, 'every requested scope', allScopes, null, allRequestedScopes],
                 [
-                    'the pending scope on DEV',
-                    [...SLACK_INTEGRATION_SCOPES, 'channels:join'].join(','),
-                    null,
                     Region.DEV,
+                    'only the approved scopes',
+                    approvedScopes,
+                    [...SLACK_INTEGRATION_SCOPES_IN_REVIEW],
+                    allRequestedScopes,
+                ],
+                [
+                    Region.DEV,
+                    'the approved scopes without backend scope metadata',
+                    approvedScopes,
+                    null,
+                    undefined,
+                    true,
                 ],
             ])(
-                'reports a Slack install that granted %s',
-                async (_name, grantedScope, expectedMissing, region, is_debug = false) => {
+                'reports a Slack install on %s that granted %s',
+                async (region, _name, grantedScope, expectedMissing, requestedScopes, is_debug = false) => {
+                    preflightLogic.mount()
                     preflightLogic.actions.loadPreflightSuccess({
                         ...preflightLogic.values.preflight!,
                         region,
                         is_debug,
                         slack_service: {
                             available: true,
-                            scopes:
-                                region === Region.DEV
-                                    ? [...SLACK_INTEGRATION_SCOPES, 'channels:join']
-                                    : SLACK_INTEGRATION_SCOPES,
+                            scopes: requestedScopes,
                         },
                     })
                     createdConfig = grantedScope === undefined ? {} : { scope: grantedScope }

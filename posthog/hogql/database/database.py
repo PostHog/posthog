@@ -176,6 +176,7 @@ from posthog.schema_enums import (
     DatabaseSerializedFieldType,
     DataWarehouseSavedQueryOrigin,
     PersonsOnEventsMode,
+    SessionsV2JoinMode,
     SessionTableVersion,
 )
 from posthog.scopes import APIScopeObject
@@ -251,6 +252,9 @@ class HogQLDatabaseSources:
     is_billing_usage_records_enabled: bool
     # Not the flag's value: a direct-connection catalog excludes the table whatever the org has.
     include_flag_evaluations_table: bool
+    read_flag_calls_from_flag_evaluations: bool
+    # The organization reads flag calls only from posthog.flag_evaluations, and ingestion no longer writes them to events.
+    flag_calls_only_in_flag_evaluations: bool
     # Userless internal contexts that must resolve every warehouse table/view; skips access control
     bypass_warehouse_access_control: bool
     direct_connection_metadata: dict[str, Any] | None
@@ -829,6 +833,8 @@ class Database(BaseModel):
     # because a warehouse table merged into the root first can hold the bare stored name.
     _models_alias_nodes: dict[str, TableNode] = {}
     _connection_id: str | None = None
+    _read_flag_calls_from_flag_evaluations: bool = False
+    _flag_calls_only_in_flag_evaluations: bool = False
     _direct_connection_metadata: dict[str, Any] | None = None
     _direct_access_warehouse_table_names: set[str] = set()
     # Warnings about data warehouse tables (failed/paused/billing-limited/stale syncs),
@@ -864,6 +870,11 @@ class Database(BaseModel):
     # lets a foreign key replace only these (see _ensure_foreign_keys_built), never the id/timestamp
     # mappings event modifiers write, which the eager path preserved.
     _deferred_overridable_expression_field_ids: set[int] = set()
+    # Team whose not-yet-synced warehouse tables explain an unknown table name. Set only at the end of
+    # the build, so build-time lookups never query Postgres. The names load on the first unknown table.
+    _first_sync_lookup_team_id: int | None = None
+    # Name -> whether the first sync failed. None until loaded.
+    _tables_awaiting_first_sync: dict[str, bool] | None = None
 
     _timezone: str | None
     _week_start_day: WeekStartDay | None
@@ -880,7 +891,8 @@ class Database(BaseModel):
         except ZoneInfoNotFoundError:
             raise ValueError(f"Unknown timezone: '{str(timezone)}'")
 
-        self._week_start_day = week_start_day
+        # The team model stores a plain integer, and printers read the enum's members.
+        self._week_start_day = WeekStartDay(week_start_day) if week_start_day is not None else None
         self._warehouse_table_names = []
         self._warehouse_self_managed_table_names = []
         self._view_table_names = []
@@ -889,6 +901,8 @@ class Database(BaseModel):
         self._models_aliases = {}
         self._models_alias_nodes = {}
         self._connection_id = None
+        self._read_flag_calls_from_flag_evaluations = False
+        self._flag_calls_only_in_flag_evaluations = False
         self._direct_connection_metadata = None
         self._direct_access_warehouse_table_names = set()
         self._data_warehouse_sync_warnings = {}
@@ -903,6 +917,8 @@ class Database(BaseModel):
         self._revenue_views_build_lock = threading.Lock()
         self._revenue_view_trigger_names = None
         self._deferred_overridable_expression_field_ids = set()
+        self._first_sync_lookup_team_id = None
+        self._tables_awaiting_first_sync = None
         self._serialization_errors: dict[str, str] = {}  # table_key -> error_message
         self.user_access_control: Optional[UserAccessControl] = None
 
@@ -982,6 +998,9 @@ class Database(BaseModel):
                 table_name = ".".join(table_name)
             if self.is_table_access_denied(table_name):
                 raise TableAccessDeniedError(table_name) from e
+            first_sync_failed = self._first_sync_status(table_name)
+            if first_sync_failed is not None:
+                raise QueryError(_awaiting_first_sync_message(table_name, failed=first_sync_failed)) from e
             suggestions = self._suggest_table_names(table_name)
             suffix = f" Did you mean: {', '.join(suggestions)}?" if suggestions else ""
             raise QueryError(f"Unknown table `{table_name}`.{suffix}") from e
@@ -1088,6 +1107,27 @@ class Database(BaseModel):
                 self._foreign_keys_building_thread = None
             self._foreign_keys_built = True
             self._deferred_foreign_key_tables = []
+
+    def _first_sync_status(self, name: str) -> bool | None:
+        """Whether the first sync of the table under this name failed, or None if no sync will create it.
+
+        Loads the team's not-yet-synced names once per database, so lookups that fail in a loop cost
+        one Postgres query at most. A load failure leaves the plain unknown-table error in place.
+        """
+        if self._first_sync_lookup_team_id is None:
+            return None
+        if self._tables_awaiting_first_sync is None:
+            from products.warehouse_sources.backend.facade.api import tables_awaiting_first_sync  # noqa: PLC0415
+
+            awaiting: dict[str, bool] = {}
+            try:
+                for table in tables_awaiting_first_sync(self._first_sync_lookup_team_id):
+                    for key in (table.names.row_name, table.names.queryable_key):
+                        awaiting[key] = awaiting.get(key, False) or table.first_sync_failed
+            except Exception as e:
+                capture_exception(e)
+            self._tables_awaiting_first_sync = awaiting
+        return self._tables_awaiting_first_sync.get(name)
 
     def _suggest_table_names(self, name: str, *, limit: int = 3) -> list[str]:
         """Return up to `limit` close matches for a mistyped table name.
@@ -1257,6 +1297,15 @@ class Database(BaseModel):
 
     def _is_direct_query(self) -> bool:
         return self._connection_id is not None
+
+    @property
+    def read_flag_calls_from_flag_evaluations(self) -> bool:
+        # create_for(include_flag_evaluations_table=False) removes the table after _fetch_sources chose to read from it.
+        return self._read_flag_calls_from_flag_evaluations and self.has_table(["posthog", "flag_evaluations"])
+
+    @property
+    def flag_calls_only_in_flag_evaluations(self) -> bool:
+        return self._flag_calls_only_in_flag_evaluations and self.read_flag_calls_from_flag_evaluations
 
     @staticmethod
     def _is_helper_function_table(table: object) -> bool:
@@ -1936,6 +1985,8 @@ class Database(BaseModel):
             # Resolving the org gate needs a Postgres read. This path exists to avoid that I/O,
             # so it prunes the table as it prunes the other gated tables.
             include_flag_evaluations_table=False,
+            read_flag_calls_from_flag_evaluations=False,
+            flag_calls_only_in_flag_evaluations=False,
             group_types=[],
             saved_queries=[],
             endpoint_saved_queries=[],
@@ -1981,6 +2032,9 @@ class Database(BaseModel):
         from products.warehouse_sources.backend.facade.models import (  # noqa: PLC0415
             DataWarehouseTable,
             ExternalDataSource,
+        )
+        from products.warehouse_sources.backend.facade.source_inputs import (  # noqa: PLC0415 - avoids the model import cycle
+            SourceInputsStore,
         )
         from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLMode  # noqa: PLC0415
 
@@ -2028,10 +2082,21 @@ class Database(BaseModel):
             )
 
             # Function-local + facade-only: keeps the products off the django.setup() path.
-            from products.feature_flags.backend.facade.flags import is_flag_evaluations_table_enabled  # noqa: PLC0415
+            from products.feature_flags.backend.facade.enums import FlagEvaluationsMode  # noqa: PLC0415
+            from products.feature_flags.backend.facade.flags import (  # noqa: PLC0415
+                get_flag_evaluations_read_mode,
+                is_flag_evaluations_table_enabled,
+            )
 
             # A direct-connection catalog has no "posthog" node to hold the table.
             include_flag_evaluations_table = not is_direct_query and is_flag_evaluations_table_enabled(team)
+            # This checks the read mode, not is_flag_evaluations_table_enabled. That one is true under DEBUG for an
+            # organization still on EVENTS.
+            read_mode: int = FlagEvaluationsMode.EVENTS
+            if include_flag_evaluations_table:
+                read_mode = get_flag_evaluations_read_mode(team.organization_id)
+            read_flag_calls_from_flag_evaluations = read_mode != FlagEvaluationsMode.EVENTS
+            flag_calls_only_in_flag_evaluations = read_mode == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
 
         with timings.measure("database", emit_span=True):
             # Function-local: keeps the direct-SQL driver imports off the django.setup() path.
@@ -2118,11 +2183,12 @@ class Database(BaseModel):
                         .select_related("table", "managed_viewset")
                     )
                     all_saved_queries = list(queryset)
-                    saved_queries = (
-                        all_saved_queries
-                        if is_managed_viewset_enabled
-                        else [sq for sq in all_saved_queries if sq.managed_viewset_id is None]
-                    )
+                    # Raw Trino views hold Trino SQL, which HogQL cannot expand.
+                    saved_queries = [
+                        sq
+                        for sq in all_saved_queries
+                        if (is_managed_viewset_enabled or sq.managed_viewset_id is None) and not sq.is_raw_managed_trino
+                    ]
 
         with timings.measure("endpoint_saved_query", emit_span=True):
             # Endpoint-origin rows are a subset of the non-deleted saved queries fetched above,
@@ -2189,7 +2255,8 @@ class Database(BaseModel):
                 warehouse_tables: list[DataWarehouseTable] = []
                 # The virtual builder reads job_inputs (deferred above); hydrate it here so the
                 # build phase stays query-free.
-                _ = virtual_source.job_inputs
+                SourceInputsStore.preload([virtual_source])
+                SourceInputsStore.load(virtual_source)
                 with timings.measure("select_virtual_schemas", emit_span=True):
                     # Function-local: keeps the direct-SQL driver imports off the django.setup() path.
                     from products.data_warehouse.backend.facade.direct_query import (  # noqa: PLC0415
@@ -2296,6 +2363,8 @@ class Database(BaseModel):
             is_billing_usage_records_enabled="*" in settings.BILLING_USAGE_RECORDS_HOGQL_ORGANIZATION_IDS
             or team.organization_id in settings.BILLING_USAGE_RECORDS_HOGQL_ORGANIZATION_IDS,
             include_flag_evaluations_table=include_flag_evaluations_table,
+            read_flag_calls_from_flag_evaluations=read_flag_calls_from_flag_evaluations,
+            flag_calls_only_in_flag_evaluations=flag_calls_only_in_flag_evaluations,
             # Managed warehouse is a built-in project datastore and has no warehouse-object ACL surface.
             # Principals that skip warehouse access control by design:
             # - synthetic users (project-wide service tokens, bypass object-level RBAC)
@@ -2349,6 +2418,8 @@ class Database(BaseModel):
                 week_start_day=team.week_start_day,
                 include_posthog_tables=sources.connection_id is None,
             )
+            database._read_flag_calls_from_flag_evaluations = sources.read_flag_calls_from_flag_evaluations
+            database._flag_calls_only_in_flag_evaluations = sources.flag_calls_only_in_flag_evaluations
             if sources.connection_id is not None:
                 database._connection_id = sources.connection_id
                 if sources.direct_connection_metadata is not None:
@@ -2414,6 +2485,9 @@ class Database(BaseModel):
                 events_table = database.get_table("events")
                 events_table.fields["session"] = LazyJoin(
                     from_field=["$session_id"],
+                    extra_from_fields=[["$session_id_uuid"]]
+                    if modifiers.sessionsV2JoinMode == SessionsV2JoinMode.UUID
+                    else [],
                     join_table=sessions,
                     resolver=EVENTS_TO_SESSIONS_V2,
                 )
@@ -2440,6 +2514,7 @@ class Database(BaseModel):
                 events_table = database.get_table("events")
                 events_table.fields["session"] = LazyJoin(
                     from_field=["$session_id"],
+                    extra_from_fields=[["$session_id_uuid"]],
                     join_table=sessions,
                     resolver=EVENTS_TO_SESSIONS_V3,
                 )
@@ -3041,7 +3116,24 @@ class Database(BaseModel):
             database._foreign_key_trigger_names = {name.lower() for name in trigger_names}
             database._foreign_keys_built = False
 
+        # Direct connections query the source itself, so no sync creates their tables.
+        if not database._is_direct_query():
+            database._first_sync_lookup_team_id = team_id
+
         return database
+
+
+def _awaiting_first_sync_message(table_name: str, *, failed: bool) -> str:
+    # Keeps the "Unknown table `x`" prefix, because callers match on it to classify the error.
+    if failed:
+        return (
+            f"Unknown table `{table_name}`: its first sync failed, so the table does not exist yet. "
+            "Open the source page to see why."
+        )
+    return (
+        f"Unknown table `{table_name}`: its first sync has not finished, so the table does not exist yet. "
+        "Check the sync status on the source page."
+    )
 
 
 def get_data_warehouse_table_name(source: ExternalDataSource | None, table_name: str):
@@ -3147,7 +3239,10 @@ def _setup_group_key_fields(database: Database, group_types: list[dict[str, Any]
     - if(timestamp < mapping.created_at, '', $group_N) if GroupTypeMapping exists
     """
     group_mappings = {mapping["group_type_index"]: mapping for mapping in group_types}
-    table = database.get_table("events")
+    tables = [database.get_table("events")]
+    # A flag call query on events can read flag_evaluations instead, so its group keys take the same cutoff.
+    if database.has_table(["posthog", "flag_evaluations"]):
+        tables.append(database.get_table(["posthog", "flag_evaluations"]))
 
     for group_index in range(5):
         field_name = f"$group_{group_index}"
@@ -3155,11 +3250,6 @@ def _setup_group_key_fields(database: Database, group_types: list[dict[str, Any]
         group_mapping = group_mappings.get(group_index, None)
         # If no mapping exists or the mapping predated this feature, leave the original field unchanged
         if group_mapping and group_mapping["created_at"]:
-            # Store the original field as a "raw" version before replacing
-            original_field = table.fields[field_name]
-            raw_field_name = f"_{field_name}_raw"
-            table.fields[raw_field_name] = original_field.model_copy(update={"hidden": True})
-
             # Must stay a datetime constant: a naive string literal would be parsed by ClickHouse in the
             # project's timezone (the comparison is against toTimeZone(timestamp, <project tz>)), shifting
             # the cutoff by the project's UTC offset.
@@ -3167,22 +3257,29 @@ def _setup_group_key_fields(database: Database, group_types: list[dict[str, Any]
             if created_at.tzinfo is None:
                 created_at = created_at.replace(tzinfo=UTC)
 
-            table.fields[field_name] = ExpressionField(
-                name=field_name,
-                expr=ast.Call(
-                    name="if",
-                    args=[
-                        ast.CompareOperation(
-                            left=ast.Field(chain=["timestamp"]),
-                            op=ast.CompareOperationOp.Lt,
-                            right=ast.Constant(value=created_at),
-                        ),
-                        ast.Constant(value=""),
-                        ast.Field(chain=[raw_field_name]),
-                    ],
-                ),
-                isolate_scope=True,
-            )
+            for table in tables:
+                # Store the original field as a "raw" version before replacing
+                original_field = table.fields[field_name]
+                raw_field_name = f"_{field_name}_raw"
+                table.fields[raw_field_name] = original_field.model_copy(update={"hidden": True})
+
+                table.fields[field_name] = ExpressionField(
+                    name=field_name,
+                    expr=ast.Call(
+                        name="if",
+                        args=[
+                            ast.CompareOperation(
+                                left=ast.Field(chain=["timestamp"]),
+                                op=ast.CompareOperationOp.Lt,
+                                right=ast.Constant(value=created_at),
+                            ),
+                            ast.Constant(value=""),
+                            ast.Field(chain=[raw_field_name]),
+                        ],
+                    ),
+                    isolate_scope=True,
+                    description=original_field.description,
+                )
 
 
 def _use_virtual_fields(database: Database, modifiers: HogQLQueryModifiers, timings: HogQLTimings) -> None:
@@ -3322,6 +3419,13 @@ def _attach_external_data_sources(
         if defer_job_inputs:
             query = query.defer("job_inputs")
         sources_by_id = {source.pk: source for source in query}
+        if not defer_job_inputs:
+            from products.warehouse_sources.backend.facade.source_inputs import (  # noqa: PLC0415 - avoids the model import cycle
+                SourceInputsStore,
+            )
+
+            # Direct tables call `load` once per table; fetch the credentials rows of all sources up front.
+            SourceInputsStore.preload(sources_by_id.values())
     for table in warehouse_tables:
         if table.external_data_source_id is None:
             continue

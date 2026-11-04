@@ -1,7 +1,7 @@
 from collections.abc import Collection
 from datetime import datetime
 
-from django.db.models import Count, Max, QuerySet
+from django.db.models import Count, Max, Q, QuerySet
 
 from products.subscriptions.backend.facade.contracts import FailedDeliveryCount
 from products.subscriptions.backend.models.subscription import Subscription, SubscriptionDelivery
@@ -73,6 +73,31 @@ def insight_has_active_subscription(insight_id: int) -> bool:
         .exclude(dashboard_export_insights__deleted=False)
         .exists()
     )
+
+
+def insight_ids_with_active_subscriptions(*, team_ids: Collection[int]) -> set[int]:
+    """The insights that an enabled subscription of these teams delivers today.
+
+    The three cases of `insight_has_active_subscription` apply, but only live tiles of a live dashboard
+    count, because a hidden tile is not delivered.
+    """
+    if not team_ids:
+        return set()
+    active = Subscription.objects.filter(team_id__in=team_ids, deleted=False, enabled=True)
+    insight_ids = set(active.filter(insight_id__isnull=False).values_list("insight_id", flat=True))
+    insight_ids.update(
+        active.filter(dashboard_export_insights__deleted=False).values_list("dashboard_export_insights", flat=True)
+    )
+    insight_ids.update(
+        active.exclude(dashboard_export_insights__deleted=False)
+        .filter(
+            Q(dashboard__tiles__deleted=False) | Q(dashboard__tiles__deleted__isnull=True),
+            dashboard__deleted=False,
+            dashboard__tiles__insight_id__isnull=False,
+        )
+        .values_list("dashboard__tiles__insight_id", flat=True)
+    )
+    return insight_ids
 
 
 def dashboard_has_active_full_subscription(dashboard_id: int) -> bool:

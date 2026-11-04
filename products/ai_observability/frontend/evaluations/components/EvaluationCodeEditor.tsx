@@ -1,13 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { Fragment } from 'react'
 
-import { IconCheck, IconExternal, IconMinus, IconSparkles, IconWarning, IconX } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { IconCheck, IconExternal, IconMinus, IconWarning, IconX } from '@posthog/icons'
+import { LemonButton, LemonCollapse, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
 
-import { todayShellLogic } from '~/layout/today/todayShellLogic'
-import { useOpenAi } from '~/scenes/max/useOpenAi'
 import { urls } from '~/scenes/urls'
 
 import { EvaluationResultTag } from '../../components/EvaluationResultTag'
@@ -196,6 +194,17 @@ const HOG_EVAL_GLOBALS_BY_TARGET = {
     session: HOG_EVAL_COMMON_GLOBALS_BY_TARGET.session,
 }
 
+/** One line of a sample's text, with the full text on hover. */
+function SamplePreview({ text }: { text: string }): JSX.Element {
+    return text ? (
+        <Tooltip title={<span className="whitespace-pre-wrap">{text}</span>}>
+            <div className="truncate text-sm max-w-80">{text}</div>
+        </Tooltip>
+    ) : (
+        <span className="text-sm text-muted">Empty</span>
+    )
+}
+
 export function HogTestResultsPanel(): JSX.Element | null {
     const { hogTestResults, hogTestResultsLoading, hogTestMessage, evaluation } = useValues(llmEvaluationLogic)
     const { clearHogTestResults } = useActions(llmEvaluationLogic)
@@ -319,14 +328,27 @@ export function HogTestResultsPanel(): JSX.Element | null {
                         },
                     },
                     {
-                        title: 'Reasoning',
-                        key: 'reasoning',
-                        render: (_, row) => (
-                            <div className="truncate text-sm">
-                                {row.reasoning || row.error || <span className="text-muted italic">none</span>}
-                            </div>
-                        ),
+                        title: 'Input',
+                        key: 'input',
+                        render: (_, row) => <SamplePreview text={row.input_preview} />,
                     },
+                    {
+                        title: 'Output',
+                        key: 'output',
+                        render: (_, row) => <SamplePreview text={row.output_preview} />,
+                    },
+                    // Most code returns no reasoning, so the column shows only when a row has something in it.
+                    ...(hogTestResults?.some((row) => row.reasoning || row.error)
+                        ? [
+                              {
+                                  title: 'Reasoning',
+                                  key: 'reasoning',
+                                  render: (_: unknown, row: TestHogResultItemApi) => (
+                                      <SamplePreview text={row.reasoning || row.error || ''} />
+                                  ),
+                              },
+                          ]
+                        : []),
                     {
                         title: '',
                         key: 'link',
@@ -372,8 +394,6 @@ export function HogTestResultsPanel(): JSX.Element | null {
 export function EvaluationCodeEditor(): JSX.Element {
     const { evaluation, hogTestResultsLoading } = useValues(llmEvaluationLogic)
     const { setHogSource, setAllowsNA, testHogOnSample } = useActions(llmEvaluationLogic)
-    const { openAi } = useOpenAi()
-    const { todayRailEnabled } = useValues(todayShellLogic)
 
     if (!evaluation || evaluation.evaluation_type !== 'hog') {
         return <div>Loading...</div>
@@ -432,27 +452,6 @@ export function EvaluationCodeEditor(): JSX.Element {
                                 Test on sample
                             </LemonButton>
                         </Tooltip>
-                        {!todayRailEnabled && (
-                            <LemonButton
-                                type="secondary"
-                                size="xsmall"
-                                icon={<IconSparkles />}
-                                onClick={() =>
-                                    openAi('Help me write Hog evaluation code for this evaluation', {
-                                        evaluation: {
-                                            id: evaluation.id,
-                                            name: evaluation.name,
-                                            description: evaluation.description,
-                                            evaluation_type: evaluation.evaluation_type,
-                                            hog_source: evaluation.evaluation_config.source,
-                                        },
-                                    })
-                                }
-                                data-attr="llma-evaluation-generate-with-ai"
-                            >
-                                Generate with AI
-                            </LemonButton>
-                        )}
                     </div>
                     <div className="flex items-center gap-2">
                         <span>Expected output:</span>
@@ -475,108 +474,129 @@ export function EvaluationCodeEditor(): JSX.Element {
 
             <HogTestResultsPanel />
 
-            <div className="bg-bg-light border rounded p-3">
-                <div className="flex items-center justify-between mb-2">
-                    <div>
-                        <h4 className="text-sm font-semibold m-0">Examples</h4>
-                        <p className="text-xs text-muted m-0">Starter examples to play with</p>
-                    </div>
-                    <Link to="https://posthog.com/docs/hog" target="_blank" className="text-sm">
-                        Hog language reference <IconExternal className="inline text-xs" />
-                    </Link>
-                </div>
-                <div className="flex flex-wrap gap-1.5 mb-3">
-                    {(evaluation.output_type === 'categorical'
-                        ? (evaluation.output_config.options ?? [])
-                              .slice(0, 2)
-                              .map(({ key, label }) => ({ label, source: `return ['${key}'];` }))
-                        : evaluation.output_type === 'numeric'
-                          ? [
-                                { label: 'Latency', source: 'return target.total_latency_seconds;' },
-                                { label: 'Cost', source: 'return target.total_cost_usd;' },
-                            ]
-                          : HOG_EVAL_EXAMPLES
-                    ).map((example) => (
-                        <LemonButton
-                            key={example.label}
-                            type="secondary"
-                            size="xsmall"
-                            onClick={() => {
-                                if (evaluation.output_type === 'numeric') {
-                                    setAllowsNA(true)
-                                }
-                                setHogSource(example.source)
-                            }}
-                        >
-                            {example.label}
-                        </LemonButton>
-                    ))}
-                </div>
-                {evaluation.output_type === 'numeric' && (
-                    <p className="text-xs text-muted mb-3">
-                        These examples enable N/A for missing cost or latency measurements.
-                    </p>
-                )}
-                <h4 className="text-sm font-semibold mb-2">Available globals</h4>
-                <dl className="grid grid-cols-[max-content_minmax(0,1fr)] items-start gap-x-3 gap-y-2 text-sm text-muted">
-                    {HOG_EVAL_COMMON_GLOBAL_DEFINITIONS.map((globalDefinition) => (
-                        <Fragment key={globalDefinition.name}>
-                            <dt>
-                                <code className={GLOBAL_NAME_CODE_CLASS}>{globalDefinition.name}</code>
-                            </dt>
-                            <dd className="m-0">
-                                <p className="m-0">
-                                    {resolveHogGlobalDescription(globalDefinition.description, evaluation.target)}
-                                </p>
-                                <dl className="grid grid-cols-[max-content_minmax(0,1fr)] items-baseline gap-x-2 gap-y-1 mt-1.5">
-                                    {globalDefinition.fields.map((field) => (
-                                        <Fragment key={field.name}>
+            {/* Folded by default, so the editor and its test action stay close to the rest of the form. */}
+            <LemonCollapse
+                size="small"
+                panels={[
+                    {
+                        key: 'reference',
+                        header: 'Examples and reference',
+                        dataAttr: 'llma-evaluation-hog-reference',
+                        content: (
+                            <div>
+                                <div className="flex items-center justify-between mb-2">
+                                    <div>
+                                        <h4 className="text-sm font-semibold m-0">Examples</h4>
+                                        <p className="text-xs text-muted m-0">Starter examples to play with</p>
+                                    </div>
+                                    <Link to="https://posthog.com/docs/hog" target="_blank" className="text-sm">
+                                        Hog language reference <IconExternal className="inline text-xs" />
+                                    </Link>
+                                </div>
+                                <div className="flex flex-wrap gap-1.5 mb-3">
+                                    {(evaluation.output_type === 'categorical'
+                                        ? (evaluation.output_config.options ?? [])
+                                              .slice(0, 2)
+                                              .map(({ key, label }) => ({ label, source: `return ['${key}'];` }))
+                                        : evaluation.output_type === 'numeric'
+                                          ? [
+                                                { label: 'Latency', source: 'return target.total_latency_seconds;' },
+                                                { label: 'Cost', source: 'return target.total_cost_usd;' },
+                                            ]
+                                          : HOG_EVAL_EXAMPLES
+                                    ).map((example) => (
+                                        <LemonButton
+                                            key={example.label}
+                                            type="secondary"
+                                            size="xsmall"
+                                            onClick={() => {
+                                                if (evaluation.output_type === 'numeric') {
+                                                    setAllowsNA(true)
+                                                }
+                                                setHogSource(example.source)
+                                            }}
+                                        >
+                                            {example.label}
+                                        </LemonButton>
+                                    ))}
+                                </div>
+                                {evaluation.output_type === 'numeric' && (
+                                    <p className="text-xs text-muted mb-3">
+                                        These examples enable N/A for missing cost or latency measurements.
+                                    </p>
+                                )}
+                                <h4 className="text-sm font-semibold mb-2">Available globals</h4>
+                                <dl className="grid grid-cols-[max-content_minmax(0,1fr)] items-start gap-x-3 gap-y-2 text-sm text-muted">
+                                    {HOG_EVAL_COMMON_GLOBAL_DEFINITIONS.map((globalDefinition) => (
+                                        <Fragment key={globalDefinition.name}>
                                             <dt>
-                                                <code className={PROPERTY_NAME_CODE_CLASS}>{field.name}</code>
+                                                <code className={GLOBAL_NAME_CODE_CLASS}>{globalDefinition.name}</code>
                                             </dt>
                                             <dd className="m-0">
-                                                {resolveHogGlobalDescription(field.description, evaluation.target)}
+                                                <p className="m-0">
+                                                    {resolveHogGlobalDescription(
+                                                        globalDefinition.description,
+                                                        evaluation.target
+                                                    )}
+                                                </p>
+                                                <dl className="grid grid-cols-[max-content_minmax(0,1fr)] items-baseline gap-x-2 gap-y-1 mt-1.5">
+                                                    {globalDefinition.fields.map((field) => (
+                                                        <Fragment key={field.name}>
+                                                            <dt>
+                                                                <code className={PROPERTY_NAME_CODE_CLASS}>
+                                                                    {field.name}
+                                                                </code>
+                                                            </dt>
+                                                            <dd className="m-0">
+                                                                {resolveHogGlobalDescription(
+                                                                    field.description,
+                                                                    evaluation.target
+                                                                )}
+                                                            </dd>
+                                                        </Fragment>
+                                                    ))}
+                                                </dl>
                                             </dd>
                                         </Fragment>
                                     ))}
                                 </dl>
-                            </dd>
-                        </Fragment>
-                    ))}
-                </dl>
-                <h4 className="text-sm font-semibold mt-3 mb-2">Tips</h4>
-                <ul className="text-sm text-muted space-y-1 list-disc list-inside">
-                    <li>
-                        {evaluation.output_type === 'categorical' ? (
-                            <span>
-                                Return configured category keys in a list. An empty list is valid for multiple
-                                selection; null means N/A when allowed.
-                            </span>
-                        ) : evaluation.output_type === 'numeric' ? (
-                            <span>Return a number within the configured bounds.</span>
-                        ) : (
-                            <>
-                                Return <code>true</code> ({trueIsFailure ? 'fail' : 'pass'}) or <code>false</code> (
-                                {trueIsFailure ? 'pass' : 'fail'})
-                                {evaluation.output_config.allows_na ? (
-                                    <>
-                                        {' '}
-                                        or <code>null</code> (N/A)
-                                    </>
-                                ) : null}
-                            </>
-                        )}
-                    </li>
-                    {evaluation.output_config.allows_na && (
-                        <li>
-                            Return <code>null</code> when the evaluation criteria doesn't apply
-                        </li>
-                    )}
-                    <li>
-                        Use <code>print()</code> to add reasoning (visible in evaluation runs)
-                    </li>
-                </ul>
-            </div>
+                                <h4 className="text-sm font-semibold mt-3 mb-2">Tips</h4>
+                                <ul className="text-sm text-muted space-y-1 list-disc list-inside">
+                                    <li>
+                                        {evaluation.output_type === 'categorical' ? (
+                                            <span>
+                                                Return configured category keys in a list. An empty list is valid for
+                                                multiple selection; null means N/A when allowed.
+                                            </span>
+                                        ) : evaluation.output_type === 'numeric' ? (
+                                            <span>Return a number within the configured bounds.</span>
+                                        ) : (
+                                            <>
+                                                Return <code>true</code> ({trueIsFailure ? 'fail' : 'pass'}) or{' '}
+                                                <code>false</code> ({trueIsFailure ? 'pass' : 'fail'})
+                                                {evaluation.output_config.allows_na ? (
+                                                    <>
+                                                        {' '}
+                                                        or <code>null</code> (N/A)
+                                                    </>
+                                                ) : null}
+                                            </>
+                                        )}
+                                    </li>
+                                    {evaluation.output_config.allows_na && (
+                                        <li>
+                                            Return <code>null</code> when the evaluation criteria doesn't apply
+                                        </li>
+                                    )}
+                                    <li>
+                                        Use <code>print()</code> to add reasoning (visible in evaluation runs)
+                                    </li>
+                                </ul>
+                            </div>
+                        ),
+                    },
+                ]}
+            />
         </div>
     )
 }

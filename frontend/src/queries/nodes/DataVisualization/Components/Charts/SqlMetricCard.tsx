@@ -2,6 +2,7 @@ import clsx from 'clsx'
 
 import { MetricCard } from '@posthog/quill-charts'
 
+import { makeChartErrorHandler } from 'lib/charts/chartErrorHandler'
 import { useChartTheme } from 'lib/charts/hooks'
 import {
     METRIC_DEFAULT_DECREASE_COLOR,
@@ -13,8 +14,6 @@ import { hexToRGBA } from 'lib/utils/colors'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
 
 import { MetricChartSettings } from '~/queries/schema/schema-general'
-
-import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
 import { AxisSeries } from '../../dataVisualizationLogic'
 import { formatSqlSeriesValue } from './sqlLineGraphAdapter'

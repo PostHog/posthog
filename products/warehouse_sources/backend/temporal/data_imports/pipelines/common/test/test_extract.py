@@ -75,6 +75,9 @@ class TestShouldCheckShutdown:
             ("ascending_incremental", True, "asc", False, False, True, 2, 20, True),
             ("unordered_incremental", True, None, False, False, True, 2, 20, True),
             ("descending_incremental", True, "desc", False, False, True, 2, 20, False),
+            # The shutdown grace does not count toward the age.
+            ("young_at_signal_after_grace", False, "asc", True, False, True, 1, 10, True, 60.0),
+            ("old_at_signal_after_grace", False, "asc", True, False, True, 1, 12, False, 60.0),
         ]
     )
     def test_should_check_shutdown(
@@ -88,6 +91,7 @@ class TestShouldCheckShutdown:
         attempt: int,
         age_minutes: int,
         expected: bool,
+        shutdown_grace_seconds: float = 0.0,
     ) -> None:
         schema = MagicMock(should_use_incremental_field=is_incremental)
         resource = MagicMock(sort_mode=sort_mode)
@@ -97,7 +101,12 @@ class TestShouldCheckShutdown:
             patch(f"{_EXTRACT_MODULE}.activity.in_activity", return_value=in_activity),
             patch(f"{_EXTRACT_MODULE}.activity.info", return_value=info) as activity_info,
         ):
-            assert should_check_shutdown(schema, resource, reset_pipeline, source_is_resumable) is expected
+            assert (
+                should_check_shutdown(
+                    schema, resource, reset_pipeline, source_is_resumable, shutdown_grace_seconds=shutdown_grace_seconds
+                )
+                is expected
+            )
 
         if not in_activity:
             activity_info.assert_not_called()
@@ -279,9 +288,9 @@ class TestTrimSourceJobInputs:
     @pytest.mark.asyncio
     async def test_non_dict_job_inputs_is_a_noop(self, _name: str, job_inputs) -> None:
         source = MagicMock(job_inputs=job_inputs, save=MagicMock())
-        with patch(f"{_EXTRACT_MODULE}.database_sync_to_async_pool") as pool:
+        with patch(f"{_EXTRACT_MODULE}.SourceInputsStore.asave", new_callable=AsyncMock) as asave:
             await trim_source_job_inputs(source)
-        pool.assert_not_called()
+        asave.assert_not_awaited()
 
     @parameterized.expand(
         [
@@ -304,11 +313,9 @@ class TestTrimSourceJobInputs:
     @pytest.mark.asyncio
     async def test_json_string_job_inputs_is_decoded_and_saved(self, _name: str, job_inputs, expected) -> None:
         source = MagicMock(job_inputs=job_inputs, save=MagicMock())
-        saved = AsyncMock()
-        with patch(f"{_EXTRACT_MODULE}.database_sync_to_async_pool", return_value=saved):
+        with patch(f"{_EXTRACT_MODULE}.SourceInputsStore.asave", new_callable=AsyncMock) as asave:
             await trim_source_job_inputs(source)
-        assert source.job_inputs == expected
-        saved.assert_awaited_once()
+        asave.assert_awaited_once_with(source, expected)
 
     @parameterized.expand(
         [
@@ -323,28 +330,25 @@ class TestTrimSourceJobInputs:
     @pytest.mark.asyncio
     async def test_unreadable_string_job_inputs_fails_non_retryably(self, _name: str, job_inputs) -> None:
         source = MagicMock(job_inputs=job_inputs, save=MagicMock())
-        with patch(f"{_EXTRACT_MODULE}.database_sync_to_async_pool") as pool:
+        with patch(f"{_EXTRACT_MODULE}.SourceInputsStore.asave", new_callable=AsyncMock) as asave:
             with pytest.raises(NonRetryableException) as caught:
                 await trim_source_job_inputs(source)
-        pool.assert_not_called()
+        asave.assert_not_awaited()
         assert str(caught.value.cause) == UNREADABLE_JOB_INPUTS_MESSAGE
 
     @pytest.mark.asyncio
     async def test_dict_job_inputs_is_trimmed_and_saved(self) -> None:
         source = MagicMock(job_inputs={"host": " example.com ", "port": "5432"}, save=MagicMock())
-        saved = AsyncMock()
-        with patch(f"{_EXTRACT_MODULE}.database_sync_to_async_pool", return_value=saved):
+        with patch(f"{_EXTRACT_MODULE}.SourceInputsStore.asave", new_callable=AsyncMock) as asave:
             await trim_source_job_inputs(source)
-        assert source.job_inputs["host"] == "example.com"
-        assert source.job_inputs["port"] == "5432"
-        saved.assert_awaited_once()
+        asave.assert_awaited_once_with(source, {"host": "example.com", "port": "5432"})
 
     @pytest.mark.asyncio
     async def test_dict_job_inputs_without_padding_does_not_save(self) -> None:
         source = MagicMock(job_inputs={"host": "example.com"}, save=MagicMock())
-        with patch(f"{_EXTRACT_MODULE}.database_sync_to_async_pool") as pool:
+        with patch(f"{_EXTRACT_MODULE}.SourceInputsStore.asave", new_callable=AsyncMock) as asave:
             await trim_source_job_inputs(source)
-        pool.assert_not_called()
+        asave.assert_not_awaited()
 
 
 class TestReportHeartbeatTimeoutRecording(BaseTest):

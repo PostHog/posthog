@@ -24,7 +24,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, QueryRunner, get_query_runner
 from posthog.types import InsightActorsQueryNode
 
-from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
+from products.experiments.backend.facade.queries import ExperimentQueryRunner
 from products.product_analytics.backend.facade.queries import (
     FunnelsQueryRunner,
     LifecycleQueryRunner,

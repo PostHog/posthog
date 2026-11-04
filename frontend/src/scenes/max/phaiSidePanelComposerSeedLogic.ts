@@ -1,11 +1,10 @@
 import { MakeLogicType, afterMount, connect, kea, key, listeners, path, props } from 'kea'
 
+import { REPORT_AI_PANEL, SCOUT_AI_PANEL } from '~/layout/ai/aiPanelIds'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
 import { ComposerSeed, composerSeedLogic } from 'products/posthog_ai/frontend/api/logics'
-import { REPORT_AI_PANEL } from 'products/signals/frontend/inbox/inboxTaskKickoffLogic'
-import { SCOUT_AI_PANEL } from 'products/signals/frontend/inbox/logics/scoutAiLogic'
 
 import { maxGlobalLogic } from './maxGlobalLogic'
 import { parseCommandString } from './maxLogic'

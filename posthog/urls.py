@@ -30,10 +30,10 @@ from posthog.api.oauth.toolbar_views import authorize_and_redirect
 from posthog.api.scim import views as scim_views
 from posthog.api.sdk_health import sdk_health
 from posthog.api.two_factor_qrcode import CacheAwareQRGeneratorView
-from posthog.api.web_experiment import web_experiments
 from posthog.ee_urls import ee_urlpatterns
-from posthog.frontend_views import home, home_with_region_redirect
+from posthog.frontend_views import app_context, home, home_with_region_redirect
 from posthog.ingress.github.provider import build_github_provider
+from posthog.ingress.linear.provider import build_linear_provider
 from posthog.ingress.views import build_webhook_view
 from posthog.oauth2_urls import urlpatterns as oauth2_urls
 from posthog.product_urls import ProductRootRoutes
@@ -49,6 +49,7 @@ from products.customer_analytics.backend.presentation.views.internal import (
     InternalAccountView as CustomerAnalyticsInternalAccountView,
 )
 from products.early_access_features.backend.api import early_access_features
+from products.experiments.backend.routes import web_experiments
 from products.messaging.backend.presentation.views.customerio_webhook import CustomerIOWebhookView
 from products.messaging.backend.presentation.views.recipient_preferences import preferences_page, update_preferences
 from products.notebooks.backend.facade.sql_v2 import (
@@ -58,8 +59,10 @@ from products.notebooks.backend.facade.sql_v2 import (
 )
 from products.product_tours.backend.api import product_tours
 from products.security.backend.presentation.hub_api import urlpatterns as security_hub_urlpatterns
-from products.signals.backend import views as signals_views
-from products.signals.backend.views import SignalUserAutonomyConfigView as signals_user_autonomy_view
+from products.signals.backend.facade.urls import (
+    internal_urlpatterns as signals_internal_urlpatterns,
+    user_urlpatterns as signals_user_urlpatterns,
+)
 from products.slack_app.backend.api import (
     posthog_code_event_handler,
     posthog_code_interactivity_handler,
@@ -82,8 +85,10 @@ from .utils import opt_slash_path
 from .views import (
     handler500 as handler500,
     health,
+    llms_txt,
     login_required,
     metrics_view,
+    not_found,
     preflight_check,
     render_query,
     replay_player_frame,
@@ -135,6 +140,7 @@ urlpatterns = [
     opt_slash_path("_health", health),
     opt_slash_path("_stats", stats),
     opt_slash_path("_preflight", preflight_check),
+    opt_slash_path(r"(?:project/\d+/)?_app_context", app_context),
     # ee
     *ee_urlpatterns,
     path("scim/v2/<str:scim_slug>/Users", csrf_exempt(scim_views.SCIMUsersView.as_view()), name="scim_users"),
@@ -164,11 +170,7 @@ urlpatterns = [
     path("api/unsubscribe", unsubscribe.unsubscribe),
     path("api/alerts/github", github.SecretAlert.as_view()),
     opt_slash_path("api/revoke_leaked_key", leaked_key.PublicLeakedKeyReport.as_view()),
-    path(
-        "api/users/<str:user_id>/signal_autonomy/",
-        signals_user_autonomy_view.as_view(),
-        name="user_signal_autonomy",
-    ),
+    *signals_user_urlpatterns,
     path("api/projects/<int:team_id>/messaging/customerio/webhook/", csrf_exempt(CustomerIOWebhookView.as_view())),
     path("api/sdk_health/", sdk_health),
     # Conversations serves its widget and channel API from backend/api/, which its routes module
@@ -272,10 +274,7 @@ urlpatterns = [
         "api/projects/<str:team_id>/internal/hog_flows/batch_jobs/<str:batch_job_id>/status",
         csrf_exempt(hog_flow.InternalHogFlowViewSet.as_view({"put": "internal_update_batch_job_status"})),
     ),
-    path(
-        "api/projects/<str:team_id>/internal/signals/emit",
-        csrf_exempt(signals_views.InternalSignalViewSet.as_view({"post": "emit"})),
-    ),
+    *signals_internal_urlpatterns,
     # Ticket route for the CDP worker's workflow actions (auth: scoped service JWT)
     path(
         "api/projects/<str:team_id>/internal/conversations/tickets/<uuid:ticket_id>",
@@ -330,6 +329,10 @@ urlpatterns = [
     # NOTE: When adding paths here that should be public make sure to update ALWAYS_ALLOWED_ENDPOINTS in middleware.py
     opt_slash_path("report", report.get_csp_event),  # CSP violation reports
     opt_slash_path("robots.txt", robots_txt),
+    opt_slash_path("llms.txt", llms_txt),
+    # Without these, the catch-all route answers with the app's HTML page, which agents read as a broken catalog
+    opt_slash_path("ai-catalog.json", not_found),
+    opt_slash_path(".well-known/ai-catalog.json", not_found),
     opt_slash_path(".well-known/security.txt", security_txt),
     opt_slash_path(".well-known/http-message-signatures-directory", http_message_signatures_directory),
     # auth
@@ -358,6 +361,8 @@ urlpatterns = [
     # It stays in core because the App is shared: no single product owns its registration.
     opt_slash_path("webhooks/github/pr", github_app_webhook),
     opt_slash_path("webhooks/github", github_app_webhook),
+    # Linear App webhook. It stays in core for the same reason: the Linear integration is shared.
+    opt_slash_path("webhooks/linear", build_webhook_view(build_linear_provider("posthog"))),
     # Message preferences
     path("messaging-preferences/<str:token>/", preferences_page, name="message_preferences"),
     opt_slash_path("messaging-preferences/update", update_preferences, name="message_preferences_update"),

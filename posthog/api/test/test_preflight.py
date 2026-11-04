@@ -25,9 +25,11 @@ from posthog.credentials_service.instance_settings import get_many_or_instance_s
 from posthog.credentials_service.settings_fallback import get_many_or_settings
 from posthog.helpers.dev_login import is_dev_login_allowed
 from posthog.models.instance_setting import set_instance_setting
-from posthog.models.integration import POSTHOG_SLACK_SCOPE, SlackIntegration
+from posthog.models.integration import SlackIntegration
+from posthog.models.integration.oauth import posthog_slack_scope
 from posthog.models.organization import Organization
 from posthog.models.organization_invite import OrganizationInvite
+from posthog.schema_enums import SlackIntegrationScope, SlackIntegrationScopeInReview
 from posthog.views import _preflight_oauth_client_id
 
 
@@ -111,7 +113,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             },
             "can_create_org": False,
             "email_service_available": False,
-            "slack_service": {"available": False, "client_id": None, "scopes": POSTHOG_SLACK_SCOPE.split(",")},
+            "slack_service": {"available": False, "client_id": None, "scopes": posthog_slack_scope().split(",")},
             "object_storage": False,
             "public_egress_ip_addresses": [],
             "wizard_cloud_run_available": False,
@@ -129,6 +131,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
             "instance_preferences": {"debug_queries": True, "disable_paid_fs": False},
             "object_storage": False,
             "buffer_conversion_seconds": 60,
+            "cohort_csv_upload_max_bytes": 20 * 1024 * 1024,
             # we calculate this here because otherwise it is non-deterministic when running locally
             # it can be overridden in tests by passing in options
             "openai_available": bool(os.environ.get("OPENAI_API_KEY")),
@@ -168,13 +171,20 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
                 assert response == self.preflight_authenticated_dict()
                 assert {"Europe/Moscow": 3, "UTC": 0}.items() <= available_timezones.items()
 
-    @override_settings(DEBUG=False, E2E_TESTING=True, CLOUD_DEPLOYMENT="E2E")
-    def test_preflight_reports_slack_oauth_scopes_when_e2e_sets_is_debug(self) -> None:
-        response = self.client.get("/_preflight/")
+    @parameterized.expand([(False, True, "E2E", False), (False, False, "DEV", True), (True, False, None, True)])
+    def test_preflight_reports_slack_oauth_scopes(
+        self, debug: bool, e2e: bool, region: str | None, includes_pending: bool
+    ) -> None:
+        with override_settings(DEBUG=debug, E2E_TESTING=e2e, CLOUD_DEPLOYMENT=region):
+            response = self.client.get("/_preflight/")
 
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["is_debug"] is True
-        assert response.json()["slack_service"]["scopes"] == POSTHOG_SLACK_SCOPE.split(",")
+            assert response.status_code == status.HTTP_200_OK
+            assert response.json().get("is_debug", False) is (debug or e2e)
+            scopes = response.json()["slack_service"]["scopes"]
+            assert scopes == posthog_slack_scope().split(",")
+            approved = {scope.value for scope in SlackIntegrationScope}
+            pending = {scope.value for scope in SlackIntegrationScopeInReview}
+            assert set(scopes) == approved | (pending if includes_pending else set())
 
     @patch("posthog.storage.object_storage._client")
     def test_preflight_request_with_object_storage_available(self, patched_s3_client):
@@ -225,7 +235,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
                         "slack_service": {
                             "available": True,
                             "client_id": "slack-client-id",
-                            "scopes": POSTHOG_SLACK_SCOPE.split(","),
+                            "scopes": posthog_slack_scope().split(","),
                         },
                         "can_create_org": True,
                         "cloud": True,
@@ -270,7 +280,7 @@ class TestPreflight(APIBaseTest, QueryMatchingTest):
     def test_cloud_preflight_limited_db_queries(self):
         with self.is_cloud(True):
             # :IMPORTANT: This code is hit _every_ web request on cloud so avoid ever increasing db load.
-            with self.assertNumQueries(5):  # session, user, team, organization and slack instance setting.
+            with self.assertNumQueries(4):  # session, user with organization, team and slack instance setting.
                 response = self.client.get("/_preflight/")
                 assert response.status_code == status.HTTP_200_OK
 

@@ -267,6 +267,16 @@ class TestReconstructFlagAtVersion(BaseTest):
         result = reconstruct_flag_at_version(flag, target_version=1, team_id=self.team.id)
         assert result["filters"] == expected
 
+    def test_reconstruct_leaves_config_version_2_filters_unchanged(self):
+        v2_filters = {"version": 2, "return_type": "boolean", "default_value": False, "rules": []}
+        current_filters = {**v2_filters, "default_value": True}
+
+        flag = self._create_flag(filters=current_filters, version=1)
+        self._simulate_update(flag, {"filters": (v2_filters, current_filters)})
+
+        result = reconstruct_flag_at_version(flag, target_version=1, team_id=self.team.id)
+        assert result["filters"] == v2_filters
+
     def test_reconstruct_field_cleared_to_none(self):
         flag = self._create_flag(ensure_experience_continuity=True, version=1)
         self._simulate_update(flag, {"ensure_experience_continuity": (True, None)})
@@ -456,6 +466,111 @@ class TestTimestampBasedReconstruction(TestReconstructFlagAtVersion):
         current_timestamp = flag.created_at + timedelta(hours=1)
         version = find_version_at_timestamp(flag, current_timestamp, self.team.id)
         assert version is None
+
+    def test_find_version_at_timestamp_deleted_flag_with_later_versioned_edit(self):
+        """A versioned edit logged after the deletion must not mask it: the flag
+        was still deleted at that time, so the version lookup returns None."""
+        flag = self._create_flag(name="V1", version=1)
+
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team.id,
+            user=self.user,
+            was_impersonated=False,
+            item_id=flag.id,
+            scope="FeatureFlag",
+            activity="deleted",
+            detail=Detail(
+                changes=[Change(type="FeatureFlag", action="changed", field="version", before=1, after=2)],
+                name=flag.key,
+            ),
+        )
+        # A write to the deleted flag's row that logs a versioned "updated" entry.
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team.id,
+            user=self.user,
+            was_impersonated=False,
+            item_id=flag.id,
+            scope="FeatureFlag",
+            activity="updated",
+            detail=Detail(
+                changes=[Change(type="FeatureFlag", action="changed", field="version", before=2, after=3)],
+                name=flag.key,
+            ),
+        )
+
+        version = find_version_at_timestamp(flag, flag.created_at + timedelta(hours=1), self.team.id)
+        assert version is None
+
+    def test_find_version_at_timestamp_legacy_deletion_logged_as_updated(self):
+        """Before #41043 (2025-11-19), a soft delete through PATCH was logged
+        as activity="updated" with a `deleted` False-to-True change. Those
+        entries still decide existence: a timestamp after one must return None,
+        or the endpoint's forced deleted=False revives the flag."""
+        flag = self._create_flag(name="V1", version=1)
+
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team.id,
+            user=self.user,
+            was_impersonated=False,
+            item_id=flag.id,
+            scope="FeatureFlag",
+            activity="updated",
+            detail=Detail(
+                changes=[
+                    Change(type="FeatureFlag", action="changed", field="deleted", before=False, after=True),
+                    Change(type="FeatureFlag", action="changed", field="version", before=1, after=2),
+                ],
+                name=flag.key,
+            ),
+        )
+
+        version = find_version_at_timestamp(flag, flag.created_at + timedelta(hours=1), self.team.id)
+        assert version is None
+
+    def test_find_version_at_timestamp_legacy_restore_logged_as_updated(self):
+        """The legacy counterpart of a restore: an activity="updated" entry
+        with a `deleted` True-to-False change confirms the flag was alive, so
+        an older legacy deletion must not hide the version."""
+        flag = self._create_flag(name="V1", version=1)
+
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team.id,
+            user=self.user,
+            was_impersonated=False,
+            item_id=flag.id,
+            scope="FeatureFlag",
+            activity="updated",
+            detail=Detail(
+                changes=[
+                    Change(type="FeatureFlag", action="changed", field="deleted", before=False, after=True),
+                    Change(type="FeatureFlag", action="changed", field="version", before=1, after=2),
+                ],
+                name=flag.key,
+            ),
+        )
+        log_activity(
+            organization_id=self.organization.id,
+            team_id=self.team.id,
+            user=self.user,
+            was_impersonated=False,
+            item_id=flag.id,
+            scope="FeatureFlag",
+            activity="updated",
+            detail=Detail(
+                changes=[
+                    Change(type="FeatureFlag", action="changed", field="deleted", before=True, after=False),
+                    Change(type="FeatureFlag", action="changed", field="version", before=2, after=3),
+                ],
+                name=flag.key,
+            ),
+        )
+
+        version = find_version_at_timestamp(flag, flag.created_at + timedelta(hours=1), self.team.id)
+        assert version == 3
 
     def test_find_version_at_timestamp_soft_deleted_then_restored(self):
         """Test that restored flags return proper version information."""

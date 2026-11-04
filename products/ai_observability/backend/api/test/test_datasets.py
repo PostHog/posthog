@@ -3,7 +3,7 @@ from datetime import timedelta
 from functools import partial
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import DEFAULT, AsyncMock, MagicMock, patch
+from unittest.mock import ANY, DEFAULT, AsyncMock, MagicMock, Mock, patch
 
 from django.core.cache import cache
 from django.db import IntegrityError, connection, transaction
@@ -68,8 +68,10 @@ class TestDatasetsApi(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_dataset_lifecycle_and_name_uniqueness(self) -> None:
-        dataset = self._create_dataset()
+    @patch("products.ai_observability.backend.api.datasets.report_user_action")
+    def test_dataset_lifecycle_and_name_uniqueness(self, report_action: Mock) -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            dataset = self._create_dataset()
 
         duplicate_response = self.client.post(
             self.datasets_url,
@@ -79,8 +81,11 @@ class TestDatasetsApi(APIBaseTest):
         self.assertEqual(duplicate_response.status_code, status.HTTP_409_CONFLICT)
         self.assertEqual(duplicate_response.data["code"], "dataset_name_conflict")
 
-        archive_response = self.client.post(f"{self.datasets_url}{dataset['id']}/archive/")
+        with self.captureOnCommitCallbacks(execute=True):
+            archive_response = self.client.post(f"{self.datasets_url}{dataset['id']}/archive/")
+            archive_retry = self.client.post(f"{self.datasets_url}{dataset['id']}/archive/")
         self.assertEqual(archive_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(archive_retry.status_code, status.HTTP_200_OK)
         self.assertTrue(archive_response.data["archived"])
 
         active_list_response = self.client.get(self.datasets_url)
@@ -101,9 +106,93 @@ class TestDatasetsApi(APIBaseTest):
         self.assertEqual(blocked_item_response.status_code, status.HTTP_409_CONFLICT)
         self.assertEqual(blocked_item_response.data["code"], "dataset_archived")
 
-        restore_response = self.client.post(f"{self.datasets_url}{dataset['id']}/restore/")
+        with self.captureOnCommitCallbacks(execute=True):
+            restore_response = self.client.post(f"{self.datasets_url}{dataset['id']}/restore/")
+            restore_retry = self.client.post(f"{self.datasets_url}{dataset['id']}/restore/")
         self.assertEqual(restore_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(restore_retry.status_code, status.HTTP_200_OK)
         self.assertFalse(restore_response.data["archived"])
+        self.assertEqual(
+            [call.args[1] for call in report_action.call_args_list],
+            ["llma dataset created", "llma dataset archived", "llma dataset restored"],
+        )
+        report_action.assert_called_with(
+            self.user,
+            "llma dataset restored",
+            {"dataset_id": dataset["id"], "has_description": True, "has_metadata": True},
+            team=self.team,
+            request=ANY,
+        )
+
+    @parameterized.expand(
+        [
+            ("name", {"name": "Updated name"}, ["name"]),
+            (
+                "metadata",
+                {"description": "Updated description", "metadata": {"reviewed": True}},
+                ["description", "metadata"],
+            ),
+            ("tags", {"tags": ["evaluation"]}, ["tags"]),
+        ]
+    )
+    @patch("products.ai_observability.backend.api.datasets.report_user_action")
+    def test_dataset_update_reports_only_committed_changes(
+        self, _name: str, payload: dict[str, object], changed_fields: list[str], report_action: Mock
+    ) -> None:
+        dataset = self._create_dataset()
+        url = f"{self.datasets_url}{dataset['id']}/"
+        with self.captureOnCommitCallbacks(execute=True):
+            with self.assertRaises(RuntimeError), transaction.atomic():
+                response = self.client.patch(url, payload, format="json")
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                raise RuntimeError("Roll back the mutation")
+        report_action.assert_not_called()
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(url, payload, format="json")
+            unchanged = self.client.patch(url, payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(unchanged.status_code, status.HTTP_200_OK)
+        report_action.assert_called_once_with(
+            self.user,
+            "llma dataset updated",
+            {
+                "dataset_id": dataset["id"],
+                "has_description": True,
+                "has_metadata": True,
+                "changed_fields": changed_fields,
+            },
+            team=self.team,
+            request=ANY,
+        )
+
+    @parameterized.expand([("malformed_referer",), ("capture_failure",)])
+    @patch("posthog.event_usage.posthoganalytics.capture")
+    def test_analytics_failure_does_not_interrupt_mutations(self, failure: str, capture: Mock) -> None:
+        if failure == "malformed_referer":
+            self.client.credentials(HTTP_REFERER="http://[invalid")
+        else:
+            capture.side_effect = RuntimeError("Analytics unavailable")
+
+        with self.assertLogs("django.test", level="ERROR"), self.captureOnCommitCallbacks(execute=True):
+            dataset = self._create_dataset()
+            item = self._create_item(dataset["id"])
+            updated = self.client.patch(
+                f"{self.items_url}{item['id']}/",
+                {"base_version": 1, "input": "Updated input"},
+                format="json",
+            )
+            self.assertEqual(updated.status_code, status.HTTP_200_OK)
+            self.assertEqual(updated.data["version"], 2)
+
+        with self.assertLogs("django.test", level="ERROR"), self.captureOnCommitCallbacks(execute=True):
+            next_update = self.client.patch(
+                f"{self.items_url}{item['id']}/",
+                {"base_version": 2, "input": "Next input"},
+                format="json",
+            )
+            self.assertEqual(next_update.status_code, status.HTTP_200_OK)
+            self.assertEqual(next_update.data["version"], 3)
 
     def test_dataset_list_filters_by_comma_separated_ids(self) -> None:
         first_dataset = self._create_dataset("First dataset")
@@ -142,7 +231,8 @@ class TestDatasetsApi(APIBaseTest):
 
         self.assertEqual(item["input"], input_value)
 
-    def test_item_create_handles_existing_client_item_id(self) -> None:
+    @patch("products.ai_observability.backend.api.datasets.report_user_action")
+    def test_item_create_handles_existing_client_item_id(self, report_action: Mock) -> None:
         dataset = self._create_dataset()
         payload = {
             "dataset": dataset["id"],
@@ -154,13 +244,29 @@ class TestDatasetsApi(APIBaseTest):
             "source_timestamp": "2026-07-30T12:00:00Z",
         }
 
-        first_response = self.client.post(self.items_url, payload, format="json")
-        retry_response = self.client.post(self.items_url, payload, format="json")
+        with self.captureOnCommitCallbacks(execute=True):
+            first_response = self.client.post(self.items_url, payload, format="json")
+            retry_response = self.client.post(self.items_url, payload, format="json")
 
         self.assertEqual(first_response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(retry_response.status_code, status.HTTP_200_OK)
         self.assertEqual(retry_response.data["id"], first_response.data["id"])
         self.assertEqual(retry_response.data["client_item_id"], payload["client_item_id"])
+        report_action.assert_called_once_with(
+            self.user,
+            "llma dataset item created",
+            {
+                "dataset_item_id": first_response.data["id"],
+                "dataset_id": dataset["id"],
+                "version": 1,
+                "dataset_revision": 1,
+                "has_expected_output": False,
+                "has_source_output": True,
+                "has_provenance": True,
+            },
+            team=self.team,
+            request=ANY,
+        )
         self.assertEqual(
             DatasetRevision.objects.for_team(self.team.id).filter(dataset_id=dataset["id"]).count(),
             1,
@@ -261,53 +367,75 @@ class TestDatasetsApi(APIBaseTest):
         )
         self.assertEqual(immutable_source_response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_stale_update_does_not_create_a_revision(self) -> None:
+    @patch("products.ai_observability.backend.api.datasets.report_user_action")
+    def test_stale_update_does_not_create_a_revision(self, report_action: Mock) -> None:
         dataset = self._create_dataset()
         item = self._create_item(dataset["id"])
 
-        first_update = self.client.patch(
-            f"{self.items_url}{item['id']}/",
-            {"base_version": 1, "input": "new"},
-            format="json",
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            first_update = self.client.patch(
+                f"{self.items_url}{item['id']}/",
+                {"base_version": 1, "input": "new"},
+                format="json",
+            )
         self.assertEqual(first_update.status_code, status.HTTP_200_OK)
 
-        stale_update = self.client.patch(
-            f"{self.items_url}{item['id']}/",
-            {"base_version": 1, "input": "stale"},
-            format="json",
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            stale_update = self.client.patch(
+                f"{self.items_url}{item['id']}/",
+                {"base_version": 1, "input": "stale"},
+                format="json",
+            )
         self.assertEqual(stale_update.status_code, status.HTTP_409_CONFLICT)
         self.assertEqual(stale_update.data["code"], "stale_version")
         self.assertEqual(stale_update.data["current_version"], 2)
+        report_action.assert_called_once_with(
+            self.user,
+            "llma dataset item updated",
+            {
+                "dataset_item_id": item["id"],
+                "dataset_id": dataset["id"],
+                "version": 2,
+                "dataset_revision": 2,
+                "has_expected_output": True,
+                "has_source_output": False,
+                "has_provenance": False,
+            },
+            team=self.team,
+            request=ANY,
+        )
         self.assertEqual(
             DatasetRevision.objects.for_team(self.team.id).filter(dataset_id=dataset["id"]).count(),
             2,
         )
 
-    def test_unchanged_update_does_not_create_a_revision(self) -> None:
+    @patch("products.ai_observability.backend.api.datasets.report_user_action")
+    def test_unchanged_update_does_not_create_a_revision(self, report_action: Mock) -> None:
         dataset = self._create_dataset()
         item = self._create_item(dataset["id"])
 
-        response = self.client.patch(
-            f"{self.items_url}{item['id']}/",
-            {
-                "base_version": 1,
-                "input": item["input"],
-                "expected_output": item["expected_output"],
-                "metadata": item["metadata"],
-            },
-            format="json",
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self.client.patch(
+                f"{self.items_url}{item['id']}/",
+                {
+                    "base_version": 1,
+                    "input": item["input"],
+                    "expected_output": item["expected_output"],
+                    "metadata": item["metadata"],
+                },
+                format="json",
+            )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.data["version"], 1)
+        report_action.assert_not_called()
         self.assertEqual(
             DatasetRevision.objects.for_team(self.team.id).filter(dataset_id=dataset["id"]).count(),
             1,
         )
 
-    def test_archive_and_restore_create_versions_with_explicit_transitions(self) -> None:
+    @patch("products.ai_observability.backend.api.datasets.report_user_action")
+    def test_archive_and_restore_create_versions_with_explicit_transitions(self, report_action: Mock) -> None:
         dataset = self._create_dataset()
         item = self._create_item(dataset["id"], input="original")
         update_response = self.client.patch(
@@ -317,11 +445,12 @@ class TestDatasetsApi(APIBaseTest):
         )
         self.assertEqual(update_response.status_code, status.HTTP_200_OK)
 
-        archive_response = self.client.post(
-            f"{self.items_url}{item['id']}/archive/",
-            {"base_version": 2},
-            format="json",
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            archive_response = self.client.post(
+                f"{self.items_url}{item['id']}/archive/",
+                {"base_version": 2},
+                format="json",
+            )
         self.assertEqual(archive_response.status_code, status.HTTP_200_OK)
         self.assertTrue(archive_response.data["archived"])
         self.assertEqual(archive_response.data["version"], 3)
@@ -334,31 +463,54 @@ class TestDatasetsApi(APIBaseTest):
         self.assertEqual(active_list.data["results"], [])
         self.assertEqual([result["id"] for result in archived_list.data["results"]], [item["id"]])
 
-        duplicate_archive = self.client.post(
-            f"{self.items_url}{item['id']}/archive/",
-            {"base_version": 3},
-            format="json",
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            duplicate_archive = self.client.post(
+                f"{self.items_url}{item['id']}/archive/",
+                {"base_version": 3},
+                format="json",
+            )
         self.assertEqual(duplicate_archive.status_code, status.HTTP_409_CONFLICT)
         self.assertEqual(duplicate_archive.data["code"], "dataset_item_archived")
 
-        restore_response = self.client.post(
-            f"{self.items_url}{item['id']}/restore/",
-            {"base_version": 3, "source_version": 1},
-            format="json",
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            restore_response = self.client.post(
+                f"{self.items_url}{item['id']}/restore/",
+                {"base_version": 3, "source_version": 1},
+                format="json",
+            )
         self.assertEqual(restore_response.status_code, status.HTTP_200_OK)
         self.assertFalse(restore_response.data["archived"])
         self.assertEqual(restore_response.data["input"], "original")
         self.assertEqual(restore_response.data["version"], 4)
 
-        duplicate_restore = self.client.post(
-            f"{self.items_url}{item['id']}/restore/",
-            {"base_version": 4},
-            format="json",
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            duplicate_restore = self.client.post(
+                f"{self.items_url}{item['id']}/restore/",
+                {"base_version": 4},
+                format="json",
+            )
         self.assertEqual(duplicate_restore.status_code, status.HTTP_409_CONFLICT)
         self.assertEqual(duplicate_restore.data["code"], "dataset_item_active")
+        self.assertEqual(
+            [call.args[1] for call in report_action.call_args_list],
+            ["llma dataset item archived", "llma dataset item restored"],
+        )
+        report_action.assert_called_with(
+            self.user,
+            "llma dataset item restored",
+            {
+                "dataset_item_id": item["id"],
+                "dataset_id": dataset["id"],
+                "version": 4,
+                "dataset_revision": 4,
+                "has_expected_output": True,
+                "has_source_output": False,
+                "has_provenance": False,
+                "source_version": 1,
+            },
+            team=self.team,
+            request=ANY,
+        )
 
     def test_revision_list_reconstructs_exact_snapshots(self) -> None:
         dataset = self._create_dataset()
@@ -1013,15 +1165,19 @@ class TestDatasetsApi(APIBaseTest):
         self.assertEqual(len(response.data["results"]), 2)
 
     @patch("products.exports.backend.facade.api.async_connect", new_callable=AsyncMock)
-    def test_dataset_export_pins_revision_and_scopes_status_and_content(self, async_connect: AsyncMock) -> None:
+    @patch("products.ai_observability.backend.api.datasets.report_user_action")
+    def test_dataset_export_pins_revision_and_scopes_status_and_content(
+        self, report_action: Mock, async_connect: AsyncMock
+    ) -> None:
         dataset = self._create_dataset()
         first_item = self._create_item(dataset["id"], input={"question": "First"})
 
-        create_response = self.client.post(
-            f"{self.datasets_url}{dataset['id']}/exports/",
-            {},
-            format="json",
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            create_response = self.client.post(
+                f"{self.datasets_url}{dataset['id']}/exports/",
+                {},
+                format="json",
+            )
 
         self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(create_response.data["status"], "pending")
@@ -1043,7 +1199,10 @@ class TestDatasetsApi(APIBaseTest):
         mismatched_parent_response = self.client.get(f"{self.datasets_url}{other_dataset['id']}/exports/{export_id}/")
         self.assertEqual(mismatched_parent_response.status_code, status.HTTP_404_NOT_FOUND)
 
-        pending_content_response = self.client.get(f"{self.datasets_url}{dataset['id']}/exports/{export_id}/content/")
+        with self.captureOnCommitCallbacks(execute=True):
+            pending_content_response = self.client.get(
+                f"{self.datasets_url}{dataset['id']}/exports/{export_id}/content/"
+            )
         self.assertEqual(pending_content_response.status_code, status.HTTP_409_CONFLICT)
 
         asset = ExportedAsset.objects.get(id=export_id)
@@ -1051,11 +1210,29 @@ class TestDatasetsApi(APIBaseTest):
         self.assertEqual(asset.export_context["kind"], DATASET_EXPORT_KIND)
         asset.content = b'{"input":{"question":"First"}}\n'
         asset.save(update_fields=["content"])
-        content_response = self.client.get(f"{self.datasets_url}{dataset['id']}/exports/{export_id}/content/")
+        with self.captureOnCommitCallbacks(execute=True):
+            content_response = self.client.get(f"{self.datasets_url}{dataset['id']}/exports/{export_id}/content/")
 
         self.assertEqual(content_response.status_code, status.HTTP_200_OK)
         self.assertEqual(content_response.content, asset.content)
         self.assertIn("attachment", content_response["Content-Disposition"])
+        self.assertEqual(
+            [call.args[1] for call in report_action.call_args_list],
+            ["llma dataset export requested", "llma dataset export downloaded"],
+        )
+        report_action.assert_called_with(
+            self.user,
+            "llma dataset export downloaded",
+            {
+                "dataset_id": dataset["id"],
+                "has_description": True,
+                "has_metadata": True,
+                "export_id": export_id,
+                "dataset_revision": 1,
+            },
+            team=self.team,
+            request=ANY,
+        )
 
     @patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)
     @patch("products.ai_observability.backend.api.datasets.DatasetExportRateThrottle.rate", new="1/day")

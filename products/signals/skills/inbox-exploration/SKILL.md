@@ -7,7 +7,7 @@ description: >
   ID or title, wants to act on / fix / implement a report (turn it into a PR), wants to resolve,
   dismiss, or snooze a report, or wants to see which signal sources are configured. Covers listing, filtering,
   drilling into, and acting on reports, plus pointers to the deeper `signals` skill when raw signals
-  or semantic search are needed.
+  or semantic search are needed. For a personal, ranked top N of reports, use `prioritizing-my-inbox`.
 ---
 
 # Exploring the Inbox
@@ -38,6 +38,10 @@ the user's actual question.
 - "Get this merged" / "run the suggested prompt on this report" — see
   _Workflow: run an action on a report_
 
+When the user wants a personal shortlist ("let's look at my inbox", "my top 10 inbox reports"), use the
+**`prioritizing-my-inbox`** skill. It ranks reports by the user's activity summary, the ranking model, and
+what waits on them.
+
 For deeper investigation, hand off to other skills and tools:
 
 - **`signals` skill** — query `document_embeddings` via HogQL for raw signal text, semantic
@@ -63,6 +67,7 @@ _underlying detail_ — pair them when the user wants to dig in.
 | `inbox-reports-list`                  | Paginated list of reports with filters (status, search, etc.)                                                 |
 | `inbox-reports-retrieve`              | Full detail for a single report                                                                               |
 | `inbox-reports-claim`                 | Claim or release a report, and optionally attach its implementation PR                                        |
+| `inbox-reports-create`                | File a finding of your own as a report. It never starts an implementation run on its own                      |
 | `inbox-report-artefacts-list`         | A report's full work log — `signal_finding` evidence, status judgments, commits, task runs, notes (read-only) |
 | `inbox-report-artefacts-retrieve`     | Full detail for a single artefact (read-only)                                                                 |
 | `inbox-reports-set-state`             | Resolve (`resolved`), dismiss (`suppressed`), or snooze (`potential`) a single report                         |
@@ -79,7 +84,8 @@ The `inbox-reports-*-list` / `-retrieve`, `inbox-report-artefacts-list` / `-retr
 `inbox-source-configs-*-list` / `-retrieve` tools are read-only. The exposed writes are `inbox-reports-set-state` (resolve / dismiss / snooze a single report),
 `inbox-reports-bulk-set-state` (the same transition for 1–100 reports in one call),
 `inbox-reports-claim` (claim / release / attach a PR), see
-_Workflow: resolve, dismiss, or snooze a report_ — `inbox-report-actions-run` (start an agent run
+_Workflow: resolve, dismiss, or snooze a report_ — `inbox-reports-create` (file a report), see
+_Workflow: file a report_ — `inbox-report-actions-run` (start an agent run
 from a report action), see _Workflow: run an action on a report_ — and `inbox-source-configs-partial-update`, which flips a
 source's `enabled` flag on or off (e.g. `{enabled: false}` to stop a source feeding the inbox);
 `-create` / `-update` exist too for standing a source up or replacing it wholesale. Pausing
@@ -442,8 +448,10 @@ Manual resolve is for fixes a PR merge will never cover — a skill-body change,
 
 A report can offer actions that start an agent run, the same ones the inbox shows as buttons:
 **Get it merged** (`get_it_merged`) fixes CI on the report's open, approved pull request and merges
-it, and each **suggested prompt** (`suggested_prompt`) sends one prompt the report suggests. Use
-these instead of `tasks-create-and-run`: a run started here is linked to the report, so it shows in
+it, **Make it green** (`make_it_green`) fixes failing CI on its open pull request without merging,
+and each **suggested prompt** (`suggested_prompt`) sends one prompt the report suggests. **Ask**
+(`ask`) sends your own `message`, like Ask AI in the inbox. Use these instead of
+`tasks-create-and-run`: a run started here is linked to the report, so it shows in
 the report's runs, counts toward the report's task limit, and gets the report's code access rules.
 The two tools are rolling out behind a flag, so they can be missing from your tool list. If they
 are, send the person to the report's `_posthogUrl` to press the button.
@@ -470,7 +478,23 @@ posthog:inbox-report-actions-run
 { "report_id": "<report_uuid>", "action": "suggested_prompt", "suggested_prompt_index": 0 }
 ```
 
-Pass `suggested_prompt_index` only for `suggested_prompt`, with the value from the list. A `201`
+Pass `suggested_prompt_index` only for `suggested_prompt`, with the value from the list.
+
+To ask about the report or request work the listed actions do not cover, use `ask` with a
+`message`. `ask` is not in the list. The run answers a question, and carries out requested work
+only while the report still has work to do and no pull request:
+
+```json
+posthog:inbox-report-actions-run
+{ "report_id": "<report_uuid>", "action": "ask", "message": "Which customers hit this error?" }
+```
+
+`get_it_merged` and `make_it_green` also take an optional `message`. It replaces the action's
+fixed request and keeps its instructions and gates. Pass it only when you know something the report
+does not, such as "#123 lands first, so rebase onto it after it merges" or "the migration check
+also fails on the base branch, so leave it".
+
+A `201`
 returns `task_id`, `run_id`, and `task_url`. Each successful call creates a new task, so do not
 retry it. If `run_error` is set, the task exists but its run did not start: report the error and do
 not start a second one.
@@ -496,6 +520,22 @@ Every refusal carries a `code`. Do not retry any of them unchanged.
 | 429    | `throttled`, `usage_limit_exceeded` | A per-user or organization usage limit fired. Wait until it clears.                             |
 | 402    | `self_driving_free_trial`           | The organization is on a Self-driving free trial, which cannot open pull requests.              |
 | 404    | none                                | The report has no suggested prompt at that index. List the actions again and use a fresh index. |
+
+## Workflow: file a report
+
+Use `inbox-reports-create` when the user wants a finding of their own, often from their own
+agent, to land in the inbox. The tool is behind a rollout flag, so it is not always present.
+
+1. Search first. Call `inbox-reports-list` with `search` for the topic. If a report already covers
+   it, tell the user and work on that report instead of filing a near-duplicate.
+2. Send `title`, `summary`, at least one `evidence` entry, `actionability`, and
+   `actionability_explanation`. Add `suggested_reviewers` to route it to the people who should read it.
+3. Read the result. `report_status` is `ready`, `pending_input`, or `suppressed`. A suppressed report
+   carries `safety_explanation`. A resend returns the first report with `idempotent_replay` true.
+
+A filed report never starts an implementation run or opens a pull request on its own, even after a
+later edit. To start one, use _Workflow: run an action on a report_. Each person can file 20
+reports per project per day. A 429 says when the limit resets.
 
 ## Workflow: resolve, dismiss, or snooze a report
 
@@ -681,6 +721,12 @@ the user before flipping a source, since enabling one drives signal processing a
 inbox-source-configs-partial-update
 { "id": "<source_config_uuid>", "enabled": false }
 ```
+
+To edit individual source settings, send only the top-level keys to change in `config_set` and keys to delete in `config_remove`.
+These edits preserve unrelated settings even when another editor saves at the same time.
+For guidance, set `config_set.steering` and include `default_not_actionable` in `config_remove`.
+Use `config_set.linear_team_ids` for Linear team selection.
+Reserve `config` for an intentional whole-object replacement; do not combine it with key edits.
 
 ## Tips
 

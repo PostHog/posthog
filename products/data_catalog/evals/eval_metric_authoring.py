@@ -18,7 +18,7 @@ from __future__ import annotations
 from products.data_catalog.evals.constants import METRIC_CREATE_TOOL
 from products.data_catalog.evals.offline_config import offline_suite
 from products.data_catalog.evals.scorers import MetricDescriptionConcise, MetricDescriptionQuality
-from products.posthog_ai.eval_harness.base import SandboxedPublicEval
+from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import RequiredToolCall
@@ -53,7 +53,7 @@ async def eval_metric_authoring(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPublicEval(
+    await SandboxedEval(
         experiment_name="sandboxed-metric-authoring-cli",
         offline_suite=offline_suite(
             "data_catalog/eval_metric_authoring::eval_metric_authoring",

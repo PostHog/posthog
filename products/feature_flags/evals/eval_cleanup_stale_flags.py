@@ -47,7 +47,7 @@ pull request that adds the first fixture case registers it.
 
 Most scorers are deterministic; the three wording cases use one LLM judge each
 (``FinalMessageJudge``), which costs a model call per case but is what the "does the
-message avoid X" question needs. ``SandboxedPrivateEval`` runs without a Braintrust
+message avoid X" question needs. ``SandboxedEval`` runs without a Braintrust
 key.
 
 **Claude runtime only.** The edit-direction scorer matches Claude's named file tools,
@@ -83,13 +83,11 @@ from products.feature_flags.evals.seeders import (
     seed_stale_full_rollout_flag,
     seed_stale_partial_rollout_flag,
 )
-from products.posthog_ai.eval_harness.base import SandboxedPrivateEval
+from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import NoToolCall
 from products.posthog_ai.evals.retrieval.scorers import SkillTriggered
-
-NO_SEND_LOGS = True
 
 SKILL_NAME = "cleaning-up-stale-feature-flags"
 TRIGGER_SCORER_NAME = "cleanup_skill_triggered"
@@ -228,8 +226,7 @@ async def eval_cleanup_stale_flags(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPrivateEval(
-        no_send_logs=NO_SEND_LOGS,
+    await SandboxedEval(
         experiment_name="sandboxed-feature-flags-cleanup-stale-cli",
         offline_suite=offline_suite(
             "feature_flags/eval_cleanup_stale_flags::eval_cleanup_stale_flags",

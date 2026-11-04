@@ -9,9 +9,9 @@ import { EncryptedFields } from '../utils/encryption-utils'
 import { HogConfigurationError, isHogVMErrorKind, withBytecodeContract } from '../utils/hog-error-classification'
 import { execHog } from '../utils/hog-exec'
 import { LiquidRenderBudget, LiquidRenderer } from '../utils/liquid'
-import { getDevicePushSubscriptionToken } from '../utils/push-subscription-utils'
+import { NATIVE_PUSH_TEMPLATE_ID, getDevicePushSubscriptionToken } from '../utils/push-subscription-utils'
 import { IntegrationManagerService } from './managers/integration-manager.service'
-import { RecipientTokensService } from './messaging/recipient-tokens.service'
+import { PreferencesTokenSource, RecipientTokensService } from './messaging/recipient-tokens.service'
 
 export const EXTEND_OBJECT_KEY = '$$_extend_object'
 
@@ -47,7 +47,8 @@ export class HogInputsService {
     public async buildInputs(
         hogFunction: HogFunctionType,
         globals: HogFunctionInvocationGlobals,
-        additionalInputs?: Record<string, any>
+        additionalInputs?: Record<string, any>,
+        preferencesTokenSource?: PreferencesTokenSource
     ): Promise<Record<string, any>> {
         // TODO: Load the values from the integrationManager
         const newGlobals: HogFunctionInvocationGlobalsWithInputs = {
@@ -87,9 +88,12 @@ export class HogInputsService {
                     const { design: _design, ...rest } = value
                     value = rest
                 }
+                // A device shows push text literally, so an HTML entity would reach the person as written.
                 const plainTextKeys = EMAIL_INPUT_TYPES.includes(schemaTypes[key])
                     ? new Set(EMAIL_PLAIN_TEXT_FIELDS.map((field) => `${key}.${field}`))
-                    : undefined
+                    : hogFunction.template_id === NATIVE_PUSH_TEMPLATE_ID
+                      ? new Set([key])
+                      : undefined
                 return formatLiquidInput(value, newGlobals, key, liquidBudget, plainTextKeys)
             }
             if (templating === 'hog' && input?.bytecode) {
@@ -114,14 +118,15 @@ export class HogInputsService {
             // If we have an email value then we template it out to get the email address
             const emailValue = await _formatInput(emailInput, emailInputSchema.key)
             if (emailValue?.to?.email) {
-                newGlobals.unsubscribe_url = this.recipientTokensService.generatePreferencesUrl({
-                    team_id: hogFunction.team_id,
-                    identifier: emailValue.to.email,
-                })
-                newGlobals.unsubscribe_url_one_click = this.recipientTokensService.generateOneClickUnsubscribeUrl({
-                    team_id: hogFunction.team_id,
-                    identifier: emailValue.to.email,
-                })
+                const recipient = { team_id: hogFunction.team_id, identifier: emailValue.to.email }
+                newGlobals.unsubscribe_url = this.recipientTokensService.generatePreferencesUrl(
+                    recipient,
+                    preferencesTokenSource
+                )
+                newGlobals.unsubscribe_url_one_click = this.recipientTokensService.generateOneClickUnsubscribeUrl(
+                    recipient,
+                    preferencesTokenSource
+                )
             }
         }
 
@@ -152,11 +157,12 @@ export class HogInputsService {
     public async buildInputsWithGlobals(
         hogFunction: HogFunctionType,
         globals: HogFunctionInvocationGlobals,
-        additionalInputs?: Record<string, any>
+        additionalInputs?: Record<string, any>,
+        preferencesTokenSource?: PreferencesTokenSource
     ): Promise<HogFunctionInvocationGlobalsWithInputs> {
         return {
             ...globals,
-            inputs: await this.buildInputs(hogFunction, globals, additionalInputs),
+            inputs: await this.buildInputs(hogFunction, globals, additionalInputs, preferencesTokenSource),
         }
     }
 
@@ -264,15 +270,18 @@ export class HogInputsService {
             if (integration.kind === 'posthog') {
                 return null
             }
+            if (isWarehouseSourceIntegration(integration)) {
+                return null
+            }
             return {
                 $integration_id: integration.id,
                 ...integration.config,
                 ...integration.sensitive_config,
-                ...(integration.sensitive_config.access_token || integration.config.access_token
+                ...(integration.sensitive_config.access_token || integration.config?.access_token
                     ? {
                           access_token: this.accessTokenPlaceholder(integration.id),
                           access_token_raw:
-                              integration.sensitive_config.access_token ?? integration.config.access_token,
+                              integration.sensitive_config.access_token ?? integration.config?.access_token,
                       }
                     : {}),
             }
@@ -286,10 +295,26 @@ export class HogInputsService {
                     `The integration for input '${key}' no longer exists. It may have been deleted. Select a connected integration for this input.`
                 )
             }
+            if (isUsed && isWarehouseSourceIntegration(integrations[id])) {
+                throw new HogConfigurationError(warehouseIntegrationMessage(key))
+            }
             returnInputs[key] = { value: resolveIntegration(id) }
         })
 
         Object.entries(multiInputsToLoad).forEach(([key, ids]) => {
+            const usedValue = options?.throwIfMissingIn?.[key]?.value
+            const usedIds = Array.isArray(usedValue) ? usedValue : []
+            // Only classify this team's rows, so another team's IDs can't be probed through the error.
+            if (
+                ids.some(
+                    (id) =>
+                        usedIds.includes(id) &&
+                        integrations[id]?.team_id === hogFunction.team_id &&
+                        isWarehouseSourceIntegration(integrations[id])
+                )
+            ) {
+                throw new HogConfigurationError(warehouseIntegrationMessage(key))
+            }
             returnInputs[key] = { value: ids.map(resolveIntegration).filter((v) => v !== null) }
         })
 
@@ -301,6 +326,22 @@ export class HogInputsService {
         return returnInputs
     }
 }
+
+// A row with the `warehouse_source_type` key holds data warehouse source credentials. They are never Hog function
+// inputs. This matches the Python check: the key blocks with any value, and a config that is not an object blocks too.
+const isWarehouseSourceIntegration = (integration: { config?: unknown } | null | undefined): boolean => {
+    const config = integration?.config
+    if (config === null || config === undefined) {
+        return false
+    }
+    if (typeof config !== 'object' || Array.isArray(config)) {
+        return true
+    }
+    return 'warehouse_source_type' in config
+}
+
+const warehouseIntegrationMessage = (key: string): string =>
+    `The integration for input '${key}' can't be used as a function input. Select a different integration for this input.`
 
 export const formatHogInput = async (
     bytecode: any,
@@ -380,6 +421,19 @@ const liquidErrorKind = (error: unknown): HogVMErrorKind => {
     return 'contract'
 }
 
+// A key is plain text when it or any object it sits in is listed, such as `data.url` under `data`.
+const isPlainTextKey = (key: string | undefined, plainTextKeys: ReadonlySet<string> | undefined): boolean => {
+    let current = key
+    while (current && plainTextKeys) {
+        if (plainTextKeys.has(current)) {
+            return true
+        }
+        const dot = current.lastIndexOf('.')
+        current = dot === -1 ? undefined : current.slice(0, dot)
+    }
+    return false
+}
+
 export const formatLiquidInput = (
     value: unknown,
     globals: HogFunctionInvocationGlobalsWithInputs,
@@ -394,7 +448,7 @@ export const formatLiquidInput = (
     if (typeof value === 'string') {
         try {
             return LiquidRenderer.renderWithHogFunctionGlobals(value, globals, budget, {
-                escapeHtml: !(key && plainTextKeys?.has(key)),
+                escapeHtml: !isPlainTextKey(key, plainTextKeys),
             })
         } catch (error) {
             // The renderer's message names the template line the owner has to fix, so it stays as is.

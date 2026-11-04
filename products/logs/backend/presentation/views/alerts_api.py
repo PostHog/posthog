@@ -22,7 +22,6 @@ from rest_framework.response import Response
 from posthog.schema import LogsAlertFilters
 
 from posthog.api.fields import RepeatedOrCommaSeparatedListField
-from posthog.api.pagination import stable_queryset_ordering
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.dataclasses import frozen
@@ -32,6 +31,8 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.user import User
+from posthog.permissions import posthog_feature_flag_enabled
+from posthog.queryset_paging import stable_queryset_ordering
 from posthog.utils import relative_date_parse
 
 from products.alerts.backend.facade.destinations import (
@@ -58,6 +59,7 @@ from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationValidationError,
     DestinationType,
     Grouping,
+    GroupingMode,
     InvalidPlatformAlertEdit,
     PagerDutyRegion,
     PagerDutySeverity,
@@ -130,6 +132,8 @@ DEFAULT_CHECK_INTERVAL_MINUTES = 5
 _SENTINEL: Final = object()
 _NOT_ANNOTATED: Final = object()
 _SINGLE_INSTANCE: Final = Grouping()
+LOGS_ALERTS_GROUPING_FLAG: Final = "logs-alerts-grouping"
+GROUPING_NOT_ENABLED: Final = "Grouping isn't available for this project yet. Set the mode to single to save the alert."
 
 
 def _any_field_changed(instance: LogsAlertConfiguration, validated_data: dict, fields: set[str]) -> bool:
@@ -779,7 +783,25 @@ class LogsAlertConfigurationSerializer(serializers.ModelSerializer):
             except ValueError as e:
                 raise ValidationError({"schedule_restriction": str(e)}) from e
 
+        grouping: Grouping | None = attrs.get("grouping")
+        if grouping is not None and grouping.mode != GroupingMode.SINGLE and not self._may_group(grouping):
+            raise ValidationError({"grouping": GROUPING_NOT_ENABLED})
+
         return attrs
+
+    def _may_group(self, grouping: Grouping) -> bool:
+        team = self.context["get_team"]()
+        if posthog_feature_flag_enabled(
+            LOGS_ALERTS_GROUPING_FLAG,
+            str(cast(User, self.context["request"].user).distinct_id),
+            organization_id=team.organization_id,
+            team_id=team.id,
+        ):
+            return True
+        # An alert that already groups keeps its keys with the flag off, so it can still change its
+        # group limit or be ungrouped.
+        runtime = _platform_runtime_of([self.instance]).get(self.instance.id) if self.instance else None
+        return runtime is not None and runtime.grouping.splits_like(grouping)
 
     def update(self, instance: LogsAlertConfiguration, validated_data: dict) -> LogsAlertConfiguration:
         if "name" in validated_data and not validated_data.get("name", "").strip():

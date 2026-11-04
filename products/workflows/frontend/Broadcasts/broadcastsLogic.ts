@@ -35,7 +35,22 @@ import {
     restoreBroadcast,
 } from './broadcastLifecycle'
 
-export type BroadcastStatus = 'draft' | 'scheduled' | 'sending' | 'sent' | 'failed' | 'archived' | 'unknown'
+export type BroadcastStatus =
+    | 'draft'
+    | 'scheduled'
+    | 'sending'
+    | 'sent'
+    | 'partially_failed'
+    | 'failed'
+    | 'archived'
+    | 'unknown'
+
+export type BroadcastRunStatus = Exclude<BroadcastStatus, 'draft' | 'scheduled' | 'archived' | 'unknown'> | 'cancelled'
+
+export interface BroadcastSendCounts {
+    sent: number
+    notSent: number
+}
 
 export interface BroadcastRowDetails {
     latestBatchJob: HogFlowBatchJobApi | null
@@ -57,6 +72,7 @@ const BROADCASTS_STATUS_FILTERS: BroadcastsStatusFilter[] = [
     'scheduled',
     'sending',
     'sent',
+    'partially_failed',
     'failed',
     'archived',
 ]
@@ -89,29 +105,43 @@ export function isBroadcastShaped(actions: FlowStep[] | null | undefined): boole
 
 type FlowEdge = { from?: string; to?: string }
 
+export type BroadcastChannel = 'email' | 'push'
+
+export const BROADCAST_MESSAGE_ACTION_TYPES: Record<BroadcastChannel, string> = {
+    email: 'function_email',
+    push: 'function_push',
+}
+
+const MESSAGE_TYPES = Object.values(BROADCAST_MESSAGE_ACTION_TYPES)
+
+/** The channel a broadcast sends on, read from its one message step. */
+export function getBroadcastChannel(actions: FlowStep[] | null | undefined): BroadcastChannel {
+    return (actions ?? []).some((step) => step.type === BROADCAST_MESSAGE_ACTION_TYPES.push) ? 'push' : 'email'
+}
+
 /**
  * Whether the broadcast wizard can edit a broadcast-shaped workflow without misdescribing it. The
- * wizard only models a person audience along trigger, email, exit. Its Content step edits the email's
- * "To" like any other field, so a custom recipient is fine;
- * anything else opens as the read-only summary instead.
+ * wizard only models a person audience along trigger, message, exit, where the message is one email
+ * or one push step. Its Content step edits the email's "To" like any other field, so a custom
+ * recipient is fine; anything else opens as the read-only summary instead.
  */
 export function canEditInWizard(actions: FlowStep[] | null | undefined, edges: FlowEdge[] | null | undefined): boolean {
     const steps = actions ?? []
-    const [trigger, email, exit] = ['trigger', 'function_email', 'exit'].map((type) =>
-        steps.filter((step) => step.type === type)
-    )
+    const trigger = steps.filter((step) => step.type === 'trigger')
+    const message = steps.filter((step) => MESSAGE_TYPES.includes(step.type ?? ''))
+    const exit = steps.filter((step) => step.type === 'exit')
     // One of each and nothing else, so the steps the wizard edits are the only ones there are.
-    if (steps.length !== 3 || trigger.length !== 1 || email.length !== 1 || exit.length !== 1) {
+    if (steps.length !== 3 || trigger.length !== 1 || message.length !== 1 || exit.length !== 1) {
         return false
     }
-    // Exactly trigger -> email -> exit: any other edge is a path the wizard cannot show, such as one
-    // that skips the email.
+    // Exactly trigger -> message -> exit: any other edge is a path the wizard cannot show, such as one
+    // that skips the message.
     const paths = new Set((edges ?? []).map((edge) => `${edge.from}->${edge.to}`))
     return (
         trigger[0].config?.filters?.audience_type !== 'accounts' &&
         paths.size === 2 &&
-        paths.has(`${trigger[0].id}->${email[0].id}`) &&
-        paths.has(`${email[0].id}->${exit[0].id}`)
+        paths.has(`${trigger[0].id}->${message[0].id}`) &&
+        paths.has(`${message[0].id}->${exit[0].id}`)
     )
 }
 
@@ -143,6 +173,43 @@ export function canMoveToDraft(
     )
 }
 
+const RUN_STATUS: Record<string, BroadcastRunStatus> = {
+    waiting: 'sending',
+    queued: 'sending',
+    active: 'sending',
+    completed: 'sent',
+    partially_failed: 'partially_failed',
+    failed: 'failed',
+    cancelled: 'cancelled',
+}
+
+/** Unknown run statuses read as failed, so a new terminal status never reads as a send still going. */
+export function getRunStatus(jobStatus: string | null | undefined): BroadcastRunStatus {
+    return RUN_STATUS[jobStatus ?? 'waiting'] ?? 'failed'
+}
+
+/** Null until the run's totals load. Push counts notifications, so `sent` is only compared with zero. */
+export function getSendCounts(
+    totals: Record<string, number> | null | undefined,
+    channel: BroadcastChannel = 'email'
+): BroadcastSendCounts | null {
+    if (!totals) {
+        return null
+    }
+    return {
+        sent: totals[channel === 'push' ? 'push_sent' : 'email_sent'] ?? 0,
+        notSent: totals.failed ?? 0,
+    }
+}
+
+/** The server names a broadcast whose latest run partly failed `partially_sent`. */
+function toServerStatusFilter(status: BroadcastsStatusFilter): string | undefined {
+    if (status === 'all') {
+        return undefined
+    }
+    return status === 'partially_failed' ? 'partially_sent' : status
+}
+
 export function getBroadcastStatus(
     broadcast: { status?: string | null; origin_product?: string | null },
     details: BroadcastRowDetails | undefined
@@ -158,15 +225,16 @@ export function getBroadcastStatus(
     }
     const latestJob = details.latestBatchJob
     if (latestJob) {
-        if (['waiting', 'queued', 'active'].includes(latestJob.status ?? '')) {
-            return 'sending'
+        const runStatus = getRunStatus(latestJob.status)
+        if (runStatus === 'sending') {
+            return runStatus
         }
-        if (latestJob.status === 'completed') {
+        if (runStatus === 'sent' || runStatus === 'partially_failed') {
             // A recurring broadcast between runs has more to send. A failed run still reads as failed.
             if (details.hasPendingSchedule === undefined) {
                 return 'unknown'
             }
-            return details.hasPendingSchedule ? 'scheduled' : 'sent'
+            return details.hasPendingSchedule ? 'scheduled' : runStatus
         }
         // Without this a failed or cancelled run falls through to the no-run fallback below, which
         // tells the sender another send is still pending when nothing is coming.
@@ -183,7 +251,7 @@ export function getBroadcastStatus(
 
 // A batch send's email metrics are recorded against the batch job, not the flow, so the row counts
 // come from the latest run rather than the flow-scoped totals endpoint.
-async function loadRunMetricTotals(job: HogFlowBatchJobApi, timezone: string): Promise<Record<string, number>> {
+export async function loadRunMetricTotals(job: HogFlowBatchJobApi, timezone: string): Promise<Record<string, number>> {
     const created = dayjs(job.created_at)
     const response = await loadAppMetricsTotals(
         {
@@ -245,6 +313,9 @@ export interface broadcastsLogicActions {
     }
     deleteBroadcast: (broadcast: ManagedBroadcast) => {
         broadcast: ManagedBroadcast
+    }
+    fillMissingFilters: () => {
+        value: true
     }
     loadBroadcasts: () => {
         value: true
@@ -319,6 +390,7 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
         loadBroadcasts: true,
         setFilters: (filters: Partial<BroadcastsFilters>) => ({ filters }),
         setFiltersFromUrl: (filters: BroadcastsFilters) => ({ filters }),
+        fillMissingFilters: true,
         setRowDetails: (id: string, details: BroadcastRowDetails) => ({ id, details }),
         clearRowDetails: (id: string) => ({ id }),
         setLoadedFilters: (filters: BroadcastsFilters) => ({ filters }),
@@ -342,7 +414,7 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
                         // Only broadcasts. A workflow shaped like one stays under workflows until someone moves it.
                         type: 'broadcast',
                         search: values.filters.search || undefined,
-                        broadcast_status: values.filters.status !== 'all' ? values.filters.status : undefined,
+                        broadcast_status: toServerStatusFilter(values.filters.status),
                         created_by: values.filters.createdBy || undefined,
                         tags: values.filters.tags.length ? JSON.stringify(values.filters.tags) : undefined,
                         limit: BROADCASTS_PAGE_SIZE,
@@ -438,9 +510,14 @@ export const broadcastsLogic = kea<broadcastsLogicType>([
                 // Any change other than the page itself starts the list over from the first page.
                 setFilters: (state, { filters }) => ({ ...state, page: 1, ...filters }),
                 setFiltersFromUrl: (_, { filters }) => filters,
+                fillMissingFilters: (state) => ({ ...DEFAULT_FILTERS, ...state }),
             },
         ],
     })),
+    // Filters saved before a field existed come back without it. This runs before urlToAction reads them.
+    afterMount(({ actions }) => {
+        actions.fillMissingFilters()
+    }),
     selectors({
         filtersPending: [
             (s) => [s.filters, s.loadedFilters],

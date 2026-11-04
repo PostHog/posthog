@@ -1,3 +1,4 @@
+from copy import deepcopy
 from io import StringIO
 
 import time_machine
@@ -16,6 +17,7 @@ from parameterized import parameterized
 from posthog.errors import InternalCHQueryError
 from posthog.event_usage import EventSource
 from posthog.exceptions import ClickHouseQueryTimeOut
+from posthog.models import PropertyDefinition
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
@@ -23,6 +25,8 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal
 
+from products.access_control.backend.facade.contracts import PropertyAccessLevel
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.messaging.backend.facade.testing import create_message_template_for_test
 from products.workflows.backend.facade.contracts import DataSuggestionsResult
@@ -36,6 +40,7 @@ from products.workflows.backend.services.data_suggestions.planner import (
     PlannedBranch,
     PlannedStep,
     PlannedWorkflow,
+    StepsContext,
     WorkflowIdea,
 )
 from products.workflows.backend.services.data_suggestions.service import (
@@ -44,16 +49,19 @@ from products.workflows.backend.services.data_suggestions.service import (
     _build_key,
     _build_lock_key,
     _cache_key,
+    _event_build_lock_key,
     _generation_lock_key,
     _to_cache,
     build_caller,
     run_data_suggestions,
+    run_event_workflows,
     start_build,
 )
 from products.workflows.backend.services.data_suggestions.stages import StageClassificationFailed
 from products.workflows.backend.services.data_suggestions.team_context import (
     email_sender,
     has_verified_email_sender,
+    person_properties,
     saved_workflow_actions,
 )
 from products.workflows.backend.services.email_sending_controls import ensure_workflows_config
@@ -63,6 +71,7 @@ from products.workflows.backend.tests.api.test_hog_flow_action_email import _ema
 SERVICE = "products.workflows.backend.services.data_suggestions.service"
 EVENT_VOLUME = "products.workflows.backend.services.data_suggestions.event_volume"
 VIEW = "products.workflows.backend.presentation.views.workflow_data_suggestions"
+FLAG = f"{VIEW}.posthoganalytics.feature_enabled"
 
 
 def _idea(trigger_event: str) -> WorkflowIdea:
@@ -91,10 +100,31 @@ def _step(step_id: str, step_type: str, **overrides: object) -> PlannedStep:
         "email_subject": None,
         "email_heading": None,
         "email_paragraphs": None,
+        "push_title": None,
+        "push_body": None,
         "slack_message": None,
     }
     values.update(overrides)
     return PlannedStep(**values)
+
+
+def _push_function_template() -> dict:
+    template = deepcopy(webhook_template)
+    template["id"] = "template-native-push"
+    template["name"] = "Push notification"
+    template["inputs_schema"] = [
+        {"key": "distinctId", "type": "string", "label": "Distinct ID", "required": True},
+        {
+            "key": "channels",
+            "type": "integration_multi",
+            "integration": "firebase,apns",
+            "label": "Push channels",
+            "required": True,
+        },
+        {"key": "title", "type": "string", "label": "Notification title", "required": True},
+        {"key": "body", "type": "string", "label": "Notification body", "required": False, "templating": "liquid"},
+    ]
+    return template
 
 
 def _email_step(step_id: str, subject: str, **overrides: object) -> PlannedStep:
@@ -268,6 +298,24 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
 
         assert set(names) <= set(weekly_counts(self.team))
 
+    def test_person_properties_with_an_access_rule_are_not_offered(self) -> None:
+        for name in ("plan", "tier"):
+            PropertyDefinition.objects.create(
+                team=self.team, name=name, property_type="String", type=PropertyDefinition.Type.PERSON
+            )
+        _create_event(
+            team=self.team, event="signed_up", distinct_id="person-1", person_properties={"plan": "pro", "tier": "gold"}
+        )
+        flush_persons_and_events()
+        PropertyAccessControl.objects.create(
+            team=self.team,
+            property_definition=PropertyDefinition.objects.get(team=self.team, name="tier"),
+            organization_member=self.organization_membership,
+            access_level=PropertyAccessLevel.NONE.value,
+        )
+
+        assert person_properties(self.team) == {"plan": ("pro",)}
+
     @patch(f"{SERVICE}.suggest_ideas")
     def test_a_queued_retry_reads_building_not_the_old_failure(self, suggest_ideas: MagicMock) -> None:
         suggest_ideas.return_value = [_idea("trial_started")]
@@ -437,7 +485,15 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
                 _step(
                     "check",
                     "conditional_branch",
-                    branches=[PlannedBranch(label="Is on a paid plan", percentage=None, next=None)],
+                    branches=[
+                        PlannedBranch(
+                            label="Is on a paid plan",
+                            percentage=None,
+                            next=None,
+                            person_property=None,
+                            property_value=None,
+                        )
+                    ],
                     next="nudge",
                 ),
                 _email_step("nudge", "Ready to upgrade?"),
@@ -472,6 +528,139 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
         assert create.status_code == 201, create.json()
         assert create.json()["trigger"]["filters"]["events"][0]["id"] == "trial_started"
 
+    @parameterized.expand(
+        [
+            ("approved", True, True, 200),
+            ("not_approved", False, True, 403),
+            ("flag_off", True, False, 403),
+        ]
+    )
+    @patch(FLAG)
+    @patch(f"{SERVICE}.plan_steps")
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_build_for_events_saves_one_draft_per_picked_event(
+        self,
+        _name: str,
+        approved: bool,
+        flag_enabled: bool,
+        status: int,
+        suggest_ideas: MagicMock,
+        plan_steps: MagicMock,
+        flag: MagicMock,
+    ) -> None:
+        flag.return_value = flag_enabled
+        self.organization.is_ai_data_processing_approved = approved
+        self.organization.save()
+        suggest_ideas.return_value = [
+            _idea("signed_up"),
+            _idea("query executed"),
+            _idea("signed_up"),
+            _idea("trial_started"),
+        ]
+
+        def plan(*, context: StepsContext, **_: object) -> PlannedWorkflow:
+            # The later event fails, and the draft already saved for the first one must still be returned.
+            if context.idea.trigger_event == "trial_started":
+                raise RuntimeError("planner timed out")
+            return PlannedWorkflow(first_step="welcome", steps=[_email_step("welcome", "Welcome")])
+
+        plan_steps.side_effect = plan
+        url = f"/api/projects/{self.team.id}/workflow_data_suggestions/build_for_events/"
+
+        responses = [self.client.post(url, {"events": ["signed_up", "trial_started"]}, format="json") for _ in range(2)]
+
+        assert [response.status_code for response in responses] == [status, status]
+        if status == 403:
+            assert plan_steps.call_count == 0
+            assert not HogFlow.objects.filter(team_id=self.team.id).exists()
+            return
+        assert responses[0].json() == responses[1].json()
+        assert plan_steps.call_count == 2
+        assert suggest_ideas.call_args.kwargs["context"].picked_events
+        assert all(call.kwargs["context"].picked_events for call in plan_steps.call_args_list)
+        workflow_ids = responses[0].json()["workflow_ids"]
+        assert responses[0].json()["status"] == "ready"
+        drafts = HogFlow.objects.filter(team_id=self.team.id, id__in=workflow_ids)
+        assert [(draft.status, draft.trigger["filters"]["events"][0]["id"]) for draft in drafts] == [
+            ("draft", "signed_up")
+        ]
+
+    @patch(f"{SERVICE}.plan_steps")
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_a_batch_that_lost_its_lock_makes_no_model_calls(
+        self, suggest_ideas: MagicMock, plan_steps: MagicMock
+    ) -> None:
+        events = ("signed_up",)
+        cache.set(_event_build_lock_key(self.team.id, self.user.id, events), "newer-run", 60)
+        save_draft = MagicMock()
+
+        run_event_workflows(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            events=events,
+            lock_token="older-run",
+            validate_draft=lambda team, workflow: validated_draft(team, workflow, EventSource.WEB),
+            save_draft=save_draft,
+        )
+
+        assert (suggest_ideas.call_count, plan_steps.call_count, save_draft.call_count) == (0, 0, 0)
+        assert cache.get(_event_build_lock_key(self.team.id, self.user.id, events)) == "newer-run"
+
+    @parameterized.expand(
+        [
+            ("web app", "web", False, False),
+            ("mobile app without a push provider", "posthog-ios", False, True),
+            ("mobile app with a push provider", "posthog-android", True, True),
+        ]
+    )
+    @patch(f"{SERVICE}.plan_steps")
+    @patch(f"{SERVICE}.suggest_ideas")
+    def test_a_mobile_first_project_gets_push_drafts_the_create_endpoint_accepts(
+        self,
+        _name: str,
+        lib: str,
+        has_provider: bool,
+        mobile_first: bool,
+        suggest_ideas: MagicMock,
+        plan_steps: MagicMock,
+    ) -> None:
+        sync_template_to_db(_push_function_template())
+        for index in range(4):
+            _create_event(team=self.team, event="app opened", distinct_id=f"person-{index}", properties={"$lib": lib})
+        flush_persons_and_events()
+        provider = Integration.objects.create(team=self.team, kind="firebase", config={}) if has_provider else None
+        suggest_ideas.return_value = [_idea("trial_started")]
+        plan_steps.return_value = PlannedWorkflow(
+            first_step="notify",
+            steps=[_step("notify", "push", push_title="Your trial started", push_body="See what is included.")],
+        )
+        suggestion_id = self._list()["suggestions"][0]["id"]
+
+        idea_context = suggest_ideas.call_args.kwargs["context"]
+        assert (idea_context.mobile_first, "push" in idea_context.channels) == (mobile_first, mobile_first)
+        build = self.client.post(
+            f"/api/projects/{self.team.id}/workflow_data_suggestions/build/",
+            {"suggestion_id": suggestion_id},
+            format="json",
+        ).json()
+
+        if not mobile_first:
+            assert build["status"] == "failed"
+            return
+        assert plan_steps.call_args.kwargs["context"].mobile_first is True
+        push = build["workflow"]["actions"][1]
+        assert push["config"]["inputs"]["channels"]["value"] == ([provider.id] if provider else [])
+        missing = [item["field"] for item in build["missing_inputs"]]
+        assert ("Push channels" in missing) is (provider is None)
+        create = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows", {**build["workflow"], "status": "draft"}, format="json"
+        )
+        assert create.status_code == 201, create.json()
+        enable = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{create.json()['id']}", {"status": "active"}, format="json"
+        )
+        assert enable.status_code == (200 if provider else 400), enable.json()
+
     def test_a_built_branch_has_unset_conditions_shaped_like_an_editor_branch(self) -> None:
         built = build_workflow(
             _idea("trial_started"),
@@ -481,7 +670,15 @@ class TestWorkflowDataSuggestions(ClickhouseTestMixin, APIBaseTest):
                     _step(
                         "check",
                         "conditional_branch",
-                        branches=[PlannedBranch(label="Is on a paid plan", percentage=None, next=None)],
+                        branches=[
+                            PlannedBranch(
+                                label="Is on a paid plan",
+                                percentage=None,
+                                next=None,
+                                person_property=None,
+                                property_value=None,
+                            )
+                        ],
                     )
                 ],
             ),

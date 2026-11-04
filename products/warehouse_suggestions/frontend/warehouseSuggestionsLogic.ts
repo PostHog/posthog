@@ -18,6 +18,7 @@ import posthog from 'posthog-js'
 import { ApiConfig } from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { isNotNil } from 'lib/utils/guards'
 import { EMPTY_INCREMENTAL_DRAFT, IncrementalConfigDraft } from 'scenes/data-warehouse/editor/IncrementalConfigFields'
 
 import { DataModelingSyncInterval } from '~/types'
@@ -30,6 +31,7 @@ import type { IncrementalEligibilityApi } from 'products/data_warehouse/frontend
 
 import {
     warehouseSuggestionsAcceptCreate,
+    warehouseSuggestionsAssignCreate,
     warehouseSuggestionsDismissCreate,
     warehouseSuggestionsList,
     warehouseSuggestionsResumeCreate,
@@ -46,16 +48,21 @@ import type { WarehouseSuggestionDismissalReasonEnumApi } from './generated/api.
 import { INTERVAL_SECONDS, intervalForSeconds } from './refreshIntervals'
 import { subjectUrl } from './subjectUrl'
 import {
-    MonthlySaving,
+    MAIN_SAVING_KINDS,
     SavingsSummary,
     isMaterializePayload,
+    mainSaving,
     monthlySaving,
     notNowCondition,
-    savesTime,
+    savingSplit,
 } from './suggestionCopy'
 
 export type StripState = 'loading' | 'error' | 'hidden' | 'warming_up' | 'not_eligible' | 'active' | 'all_done'
 export type SuggestionSurface = 'models' | 'catalog'
+export interface SuggestionGroup {
+    kind: string
+    suggestions: WarehouseSuggestionApi[]
+}
 
 export interface WarehouseSuggestionsLogicProps {
     surface: SuggestionSurface
@@ -81,10 +88,14 @@ const ACCEPTED_MESSAGES: Record<string, (suggestion: WarehouseSuggestionApi) => 
     unmaterialize: ({ payload }) =>
         `Stopped materializing ${payload.subject_name}. Each read now computes it from its query.`,
     certify: ({ payload }) => `Certified ${payload.subject_name}.`,
-    deprecate: ({ payload, created_asset }) =>
-        created_asset?.stopped_materialization === true
+    deprecate: ({ payload, created_asset }) => {
+        if (created_asset?.saved_query_id) {
+            return `Deleted ${payload.subject_name}.`
+        }
+        return created_asset?.stopped_materialization === true
             ? `Marked ${payload.subject_name} as deprecated and stopped its refreshes.`
-            : `Marked ${payload.subject_name} as deprecated.`,
+            : `Marked ${payload.subject_name} as deprecated.`
+    },
 }
 const ACCEPT_OPTION_FIELDS = new Set([
     'refresh_interval_seconds',
@@ -100,18 +111,30 @@ function dismissedMessage(reason: DismissWarehouseSuggestionApi['reason'], kind:
     return reason === 'not_now' ? `Dismissed. ${notNowCondition(kind)}` : NOT_SUGGESTED_AGAIN
 }
 
+function assignedMessage({ assignee }: WarehouseSuggestionApi): string {
+    return assignee ? `Assigned to ${assignee.first_name || assignee.email}.` : 'Unassigned.'
+}
+
 function suggestionWorth(suggestion: WarehouseSuggestionApi): [number, number] {
-    const saving = monthlySaving(suggestion.payload)
-    if (!saving) {
+    const main = mainSaving(suggestion.payload)
+    if (!main) {
         return [KIND_ORDER[suggestion.kind] ?? 0, 0]
     }
-    return savesTime(saving) ? [0, -saving.seconds] : [1, -saving.bytes]
+    return [MAIN_SAVING_KINDS.indexOf(main.kind), -main.amount]
 }
 
 function compareSuggestions(a: WarehouseSuggestionApi, b: WarehouseSuggestionApi): number {
     const [groupA, valueA] = suggestionWorth(a)
     const [groupB, valueB] = suggestionWorth(b)
     return groupA - groupB || valueA - valueB
+}
+
+function groupedByKind(suggestions: WarehouseSuggestionApi[]): SuggestionGroup[] {
+    const kindsByBestSuggestion = [...new Set(suggestions.map((suggestion) => suggestion.kind))]
+    return kindsByBestSuggestion.map((kind) => ({
+        kind,
+        suggestions: suggestions.filter((suggestion) => suggestion.kind === kind),
+    }))
 }
 
 function proposedRefreshDraft(payload: WarehouseSuggestionMaterializePayloadApi): IncrementalConfigDraft {
@@ -151,6 +174,19 @@ function changedRefreshOptions(
     return options
 }
 
+function deprecateOptions(
+    suggestion: WarehouseSuggestionApi,
+    { deleteView, keepMaterialized }: { deleteView: boolean; keepMaterialized: boolean }
+): AcceptWarehouseSuggestionApi | undefined {
+    if (suggestion.kind !== 'deprecate') {
+        return undefined
+    }
+    if (deleteView) {
+        return { delete_view: true }
+    }
+    return keepMaterialized ? { keep_materialized: true } : undefined
+}
+
 async function fetchIncrementalCheck(viewId: string): Promise<IncrementalEligibilityApi | null> {
     try {
         const view = await warehouseSavedQueriesRetrieve(projectId(), viewId)
@@ -177,6 +213,7 @@ export interface warehouseSuggestionsLogicValues {
     acceptConfirmSuggestion: WarehouseSuggestionApi | null
     acceptConfirmSuggestionId: string | null
     actionsInFlight: Record<string, boolean>
+    deleteView: boolean
     featureForbidden: boolean
     hiddenSuggestionIds: string[]
     incrementalCheck: IncrementalEligibilityApi | null
@@ -197,6 +234,7 @@ export interface warehouseSuggestionsLogicValues {
     status: WarehouseSuggestionStatusApi | null
     statusLoading: boolean
     stripState: StripState
+    suggestionGroups: SuggestionGroup[]
     suggestions: WarehouseSuggestionApi[] | null
     suggestionsLoading: boolean
     surfaceSuggestions: WarehouseSuggestionApi[]
@@ -212,6 +250,13 @@ export interface warehouseSuggestionsLogicActions {
         options: AcceptWarehouseSuggestionApi | undefined
     }
     acceptSuggestionFailed: (id: string) => {
+        id: string
+    }
+    assignSuggestion: (
+        id: string,
+        assigneeId: number | null
+    ) => {
+        assigneeId: number | null
         id: string
     }
     closeAcceptConfirm: () => {
@@ -329,6 +374,9 @@ export interface warehouseSuggestionsLogicActions {
         id: string
         inFlight: boolean
     }
+    setDeleteView: (deleteView: boolean) => {
+        deleteView: boolean
+    }
     setKeepMaterialized: (keepMaterialized: boolean) => {
         keepMaterialized: boolean
     }
@@ -347,6 +395,9 @@ export interface warehouseSuggestionsLogicActions {
     suggestionResumed: (suggestion: WarehouseSuggestionApi) => {
         suggestion: WarehouseSuggestionApi
     }
+    suggestionUpdated: (suggestion: WarehouseSuggestionApi) => {
+        suggestion: WarehouseSuggestionApi
+    }
     undoDismiss: (id: string) => {
         id: string
     }
@@ -361,6 +412,7 @@ export interface warehouseSuggestionsLogicMeta {
             hiddenSuggestionIds: string[],
             surface: SuggestionSurface
         ) => WarehouseSuggestionApi[]
+        suggestionGroups: (listedSuggestions: WarehouseSuggestionApi[]) => SuggestionGroup[]
         surfaceSuggestions: (
             listedSuggestions: WarehouseSuggestionApi[],
             leavingSuggestionIds: string[]
@@ -422,6 +474,8 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
             restoreSuggestion: (id: string) => ({ id }),
             undoDismiss: (id: string) => ({ id }),
             suggestionResumed: (suggestion: WarehouseSuggestionApi) => ({ suggestion }),
+            assignSuggestion: (id: string, assigneeId: number | null) => ({ id, assigneeId }),
+            suggestionUpdated: (suggestion: WarehouseSuggestionApi) => ({ suggestion }),
             openReview: true,
             closeReview: true,
             openMaterializeModal: (id: string) => ({ id }),
@@ -430,6 +484,7 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
             closeAcceptConfirm: true,
             confirmAccept: true,
             acceptSuggestionFailed: (id: string) => ({ id }),
+            setDeleteView: (deleteView: boolean) => ({ deleteView }),
             setKeepMaterialized: (keepMaterialized: boolean) => ({ keepMaterialized }),
             setMaterializeError: (error: string | null) => ({ error }),
             setMaterializeInterval: (interval: DataModelingSyncInterval | null) => ({ interval }),
@@ -468,6 +523,8 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                     ...(state ?? []).filter((existing) => existing.id !== suggestion.id),
                     suggestion,
                 ],
+                suggestionUpdated: (state: WarehouseSuggestionApi[] | null, { suggestion }) =>
+                    (state ?? []).map((existing) => (existing.id === suggestion.id ? suggestion : existing)),
             },
             actionsInFlight: [
                 {} as Record<string, boolean>,
@@ -522,6 +579,14 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                     closeAcceptConfirm: () => false,
                 },
             ],
+            deleteView: [
+                false,
+                {
+                    setDeleteView: (_, { deleteView }) => deleteView,
+                    openAcceptConfirm: () => false,
+                    closeAcceptConfirm: () => false,
+                },
+            ],
             materializeInterval: [
                 null as DataModelingSyncInterval | null,
                 {
@@ -570,15 +635,21 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                     suggestions: WarehouseSuggestionApi[] | null,
                     hiddenIds: string[],
                     surface: SuggestionSurface
-                ): WarehouseSuggestionApi[] =>
-                    (suggestions ?? [])
+                ): WarehouseSuggestionApi[] => {
+                    const byWorth = (suggestions ?? [])
                         .filter(
                             (suggestion) =>
                                 suggestion.surfaced_at !== null &&
                                 !hiddenIds.includes(suggestion.id) &&
                                 SURFACE_KINDS[surface].includes(suggestion.kind)
                         )
-                        .sort(compareSuggestions),
+                        .sort(compareSuggestions)
+                    return groupedByKind(byWorth).flatMap((group) => group.suggestions)
+                },
+            ],
+            suggestionGroups: [
+                (s) => [s.listedSuggestions],
+                (listed: WarehouseSuggestionApi[]): SuggestionGroup[] => groupedByKind(listed),
             ],
             surfaceSuggestions: [
                 (s) => [s.listedSuggestions, s.leavingSuggestionIds],
@@ -588,15 +659,24 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
             savingsSummary: [
                 (s) => [s.surfaceSuggestions],
                 (open: WarehouseSuggestionApi[]): SavingsSummary => {
-                    const savings = open
-                        .map(({ payload }) => monthlySaving(payload))
-                        .filter((saving): saving is MonthlySaving => saving !== null)
+                    const savings = open.flatMap(({ payload }) => {
+                        const saving = monthlySaving(payload)
+                        return saving ? [{ saving, split: savingSplit(payload) }] : []
+                    })
+                    const splits = savings.map((entry) => entry.split).filter(isNotNil)
                     return {
                         views: savings.length,
                         saving: {
-                            seconds: sum(savings.map((saving) => saving.seconds)),
-                            bytes: sum(savings.map((saving) => saving.bytes)),
+                            seconds: sum(savings.map((entry) => entry.saving.seconds)),
+                            bytes: sum(savings.map((entry) => entry.saving.bytes)),
                         },
+                        split:
+                            splits.length === savings.length
+                                ? {
+                                      waiting: sum(splits.map((split) => split.waiting)),
+                                      background: sum(splits.map((split) => split.background)),
+                                  }
+                                : null,
                     }
                 },
             ],
@@ -735,8 +815,7 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                     if (!suggestion) {
                         return
                     }
-                    const keepMaterialized = suggestion.kind === 'deprecate' && values.keepMaterialized
-                    actions.acceptSuggestion(suggestion.id, keepMaterialized ? { keep_materialized: true } : undefined)
+                    actions.acceptSuggestion(suggestion.id, deprecateOptions(suggestion, values))
                 },
                 openReview: () => {
                     posthog.capture('warehouse suggestion review opened', {
@@ -847,6 +926,28 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                     } catch (error) {
                         actions.restoreSuggestion(id)
                         reportFailure(error, 'Could not dismiss the suggestion.')
+                        if (isStale(error)) {
+                            actions.loadSuggestions()
+                        }
+                    } finally {
+                        actions.setActionInFlight(id, false)
+                    }
+                },
+                assignSuggestion: async ({ id, assigneeId }) => {
+                    if (values.actionsInFlight[id]) {
+                        return
+                    }
+                    actions.setActionInFlight(id, true)
+                    try {
+                        const updated = await warehouseSuggestionsAssignCreate(projectId(), id, {
+                            assignee_id: assigneeId,
+                        })
+                        actions.suggestionUpdated(updated)
+                        lemonToast.success(assignedMessage(updated), {
+                            toastId: `warehouse-suggestion-assigned-${id}`,
+                        })
+                    } catch (error) {
+                        reportFailure(error, 'Could not assign the suggestion.')
                         if (isStale(error)) {
                             actions.loadSuggestions()
                         }

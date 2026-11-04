@@ -18,10 +18,11 @@ import type {
     LineageResponseApi,
     ModelUsageApi,
     NodeApi,
+    NodeFrequencyBoundsApi,
     NodeResumeApi,
     NodeRunApi,
     NodeRunResponseApi,
-    PaginatedEdgeListApi,
+    PaginatedEdgeSummaryListApi,
     PaginatedNodeListApi,
     PatchedEdgeApi,
     PatchedNodeApi,
@@ -64,8 +65,8 @@ export const dataModelingEdgesList = async (
     projectId: string,
     params?: DataModelingEdgesListParams,
     options?: RequestInit
-): Promise<PaginatedEdgeListApi> => {
-    return apiMutator<PaginatedEdgeListApi>(getDataModelingEdgesListUrl(projectId, params), {
+): Promise<PaginatedEdgeSummaryListApi> => {
+    return apiMutator<PaginatedEdgeSummaryListApi>(getDataModelingEdgesListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -236,6 +237,24 @@ export const dataModelingNodesDestroy = async (projectId: string, id: string, op
     return apiMutator<void>(getDataModelingNodesDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getDataModelingNodesFrequencyBoundsRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/data_modeling_nodes/${id}/frequency_bounds/`
+}
+
+/**
+ * The cadences this view could refresh at, and what pinning it to each one would delay downstream.
+ */
+export const dataModelingNodesFrequencyBoundsRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<NodeFrequencyBoundsApi> => {
+    return apiMutator<NodeFrequencyBoundsApi>(getDataModelingNodesFrequencyBoundsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

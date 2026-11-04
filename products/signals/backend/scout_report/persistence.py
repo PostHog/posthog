@@ -65,7 +65,8 @@ from products.signals.backend.artefact_schemas import (
     TaskRunArtefact,
     TitleChange,
 )
-from products.signals.backend.enums import ReportLinkWritePath
+from products.signals.backend.constants import FIRST_REPORT_SCOUT, first_report_idempotency_key
+from products.signals.backend.enums import ReportLinkWritePath, SignalSourceProduct
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
     MAX_SCOUT_REPORT_NOTES,
@@ -189,6 +190,7 @@ def create_scout_report(
     emit_signals: bool = True,
     run: SignalScoutRun | None = None,
     idempotency_key: str | None = None,
+    created_by_id: int | None = None,
 ) -> PersistedScoutReport:
     """Author a `SignalReport` directly plus its backing signal rows, in one report-owning transaction.
 
@@ -197,6 +199,10 @@ def create_scout_report(
     block commits — never inside it — so a rolled-back report never leaves orphan signals pointing at
     a `report_id` that doesn't exist. This function owns its transaction boundary; do not wrap it in an
     outer atomic block (that would defer the commit and the emits past your control).
+
+    `created_by_id` marks a report a project member filed by hand. The row is stored `user_authored`,
+    which keeps automatic start off for the report's whole life, and its backing signals carry the
+    `user_authored` source product so the inbox does not label it as a scout's.
 
     `status` is the status the report is born at. It defaults to READY (the custom-agent precedent);
     the safety/actionability judge (`judge.py`) is what chooses READY vs SUPPRESSED vs PENDING_INPUT
@@ -253,6 +259,8 @@ def create_scout_report(
     # `_assert_team_owns_run`; this guards a future direct caller that bypasses it (mirrors `emit`).
     if run is not None and run.team_id != team_id:
         raise RuntimeError(f"create_scout_report: team {team_id} does not own run {run.id} (team {run.team_id})")
+    if run is not None and run.skill_name == FIRST_REPORT_SCOUT:
+        idempotency_key = first_report_idempotency_key(team_id)
 
     document_ids = [s.document_id or str(uuid.uuid4()) for s in signals]
     total_weight = sum(s.weight for s in signals)
@@ -268,6 +276,8 @@ def create_scout_report(
                 title=title,
                 summary=summary,
                 scout_idempotency_key=idempotency_key,
+                user_authored=created_by_id is not None,
+                created_by_id=created_by_id,
                 triggering_signal_id=document_ids[0],
                 signal_count=len(signals),
                 total_weight=total_weight,
@@ -289,7 +299,7 @@ def create_scout_report(
             SignalReportArtefact.append(
                 team_id=team_id,
                 report_id=report_id,
-                content=scout_report_provenance(run),
+                content=user_report_provenance() if created_by_id is not None else scout_report_provenance(run),
                 attribution=attribution,
                 reevaluate_autostart=False,
             )
@@ -392,9 +402,15 @@ def create_scout_report(
         # on the evidence card + header, matching the emit_signal path. `run` is the single place the
         # skill_name is available (bound signals otherwise ship empty extra, see `_build_signals`).
         skill_name = run.skill_name if run is not None else None
+        source_product = SignalSourceProduct.USER_AUTHORED.value if created_by_id is not None else SOURCE_PRODUCT
         for signal, document_id in zip(signals, document_ids):
             _emit_bound_signal(
-                team_id=team_id, report_id=report_id, signal=signal, document_id=document_id, skill_name=skill_name
+                team_id=team_id,
+                report_id=report_id,
+                signal=signal,
+                document_id=document_id,
+                skill_name=skill_name,
+                source_product=source_product,
             )
 
     logger.info(
@@ -1314,7 +1330,9 @@ def set_scout_report_repository(
         # The whole selection is compared rather than the repository alone: a selection inferred from
         # the report's own text names the same repository with `autostart_eligible=False`, and a scout
         # naming it is the decision that lifts it, so that correction must still land.
-        if persisted_repo_selection(report_id) == selection:
+        previous = persisted_repo_selection(report_id)
+        selection.research_context = previous.research_context if previous is not None else None
+        if previous == selection:
             logger.info(
                 "signals_scout.edit_report: repository unchanged",
                 extra={"team_id": team_id, "report_id": report_id, "repository": repository},
@@ -1429,6 +1447,7 @@ def set_scout_report_inferred_repository(
     with transaction.atomic():
         if not SignalReport.objects.select_for_update().filter(team_id=team_id, id=report_id).exists():
             raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
+        previous = persisted_repo_selection(report_id)
         SignalReportArtefact.append_status(
             team_id=team_id,
             report_id=report_id,
@@ -1436,6 +1455,7 @@ def set_scout_report_inferred_repository(
                 repository=repository,
                 reason=INFERRED_REPOSITORY_REASON,
                 autostart_eligible=False,
+                research_context=previous.research_context if previous is not None else None,
             ),
             attribution=attribution,
             reevaluate_autostart=False,
@@ -1485,6 +1505,7 @@ def _emit_bound_signal(
     signal: ScoutReportSignal,
     document_id: str,
     skill_name: str | None = None,
+    source_product: str = SOURCE_PRODUCT,
 ) -> None:
     """Write one backing signal row to `document_embeddings`, mirroring `assign_and_emit_signal_activity`
     minus the matcher. `report_id` in metadata is what binds it to the report on the read side.
@@ -1492,7 +1513,13 @@ def _emit_bound_signal(
     `skill_name`, when set, is merged into the signal's `extra` so the read side knows which scout
     authored the finding (the inbox renders it as "Scout · <name>")."""
     extra = {**signal.extra, "skill_name": skill_name} if skill_name else signal.extra
-    metadata = _signal_metadata(report_id=report_id, source_id=signal.source_id, weight=signal.weight, extra=extra)
+    metadata = _signal_metadata(
+        report_id=report_id,
+        source_id=signal.source_id,
+        weight=signal.weight,
+        extra=extra,
+        source_product=source_product,
+    )
     emit_embedding_request(
         content=signal.description,
         team_id=team_id,
@@ -1506,12 +1533,14 @@ def _emit_bound_signal(
     )
 
 
-def _signal_metadata(*, report_id: str, source_id: str, weight: float, extra: dict | None) -> dict:
+def _signal_metadata(
+    *, report_id: str, source_id: str, weight: float, extra: dict | None, source_product: str = SOURCE_PRODUCT
+) -> dict:
     """The `metadata` JSON for a backing signal row. Keys match the grouping pipeline's so the same
     `JSONExtractString(metadata, ...)` read queries resolve a scout-authored signal identically.
     `match_metadata` is intentionally omitted — these rows never went through the matcher."""
     return {
-        "source_product": SOURCE_PRODUCT,
+        "source_product": source_product,
         "source_type": SOURCE_TYPE,
         "source_id": source_id,
         "weight": weight,
@@ -1623,6 +1652,10 @@ def scout_report_provenance(run: SignalScoutRun | None) -> NoteArtefact:
         ),
         author=run.skill_name if run else "signals_scout",
     )
+
+
+def user_report_provenance() -> NoteArtefact:
+    return NoteArtefact(note="Filed directly by a project member through the report API.", author="user")
 
 
 def validate_scout_report(title: str, summary: str, signals: Sequence[ScoutReportSignal]) -> None:
