@@ -21,7 +21,15 @@ const counterEmailStatusWriteFailed = new Counter({
     labelNames: ['status'],
 })
 
-export type EmailStatus = 'scheduled' | 'queued' | 'failed' | 'sent' | 'delivered' | 'bounced' | 'complained'
+export type EmailStatus =
+    | 'scheduled'
+    | 'queued'
+    | 'canceled'
+    | 'failed'
+    | 'sent'
+    | 'delivered'
+    | 'bounced'
+    | 'complained'
 
 export type EmailStatusReason =
     // A bounce type, in the words the `$bounce_type` event property uses.
@@ -60,6 +68,8 @@ const STATUS_RANK: Record<EmailStatus, bigint> = {
     // Shares the rank of `queued`, so a reschedule's later row replaces the earlier one.
     scheduled: 0n,
     queued: 0n,
+    // Canceled before a worker claimed the send, so no later status follows it.
+    canceled: 1n,
     failed: 2n,
     sent: 3n,
     delivered: 5n,

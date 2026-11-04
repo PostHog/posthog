@@ -6,8 +6,12 @@ import { UUIDT } from '~/common/utils/utils'
 import { Team } from '~/types'
 
 import { HogFlow } from '../../schema/hogflow'
-import { HogFunctionInvocationGlobals } from '../../types'
+import { CyclotronJobInvocation, CyclotronJobInvocationHogFlow, HogFunctionInvocationGlobals } from '../../types'
 import { convertToHogFunctionFilterGlobal } from '../../utils/hog-function-filtering'
+import { createInvocationResult } from '../../utils/invocation-utils'
+import type { CyclotronV2JobProducer } from '../cyclotron-v2'
+import { v2JobToInvocation } from '../cyclotron-v2/job-codec'
+import type { InvocationResultsService } from '../invocation-results.service'
 import { JobQueue } from '../job-queue/job-queue.interface'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { EMAIL_QUEUE_PRIORITY, EmailQueuePriorityClass, cdpEmailQueuedTotal } from '../messaging/email-priority'
@@ -30,6 +34,8 @@ const SCHEDULED_AT_FINGERPRINT_MARKER = 'scheduled_at'
 // Counted from the message's creation, so a later reschedule cannot extend it.
 const MAX_SCHEDULE_AHEAD_MS = 30 * 24 * 60 * 60 * 1000
 const PRIORITY_CLASS: EmailQueuePriorityClass = 'fast'
+// The job id column is a uuid, so any other id can name no job.
+const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 // A request without `scheduled_at` keeps the fingerprint that older versions store, so their keys still match.
 const transactionalEmailFingerprint = (
@@ -52,6 +58,16 @@ const warnTelemetryFlushFailed = (error: unknown, invocationId: string): void =>
         error: error instanceof Error ? error.message : String(error),
         invocation_id: invocationId,
     })
+}
+
+const writeStatus = (
+    emailStatus: EmailStatusService,
+    teamId: number,
+    messageId: string,
+    status: 'queued' | 'scheduled' | 'canceled'
+): void => {
+    emailStatus.queue({ teamId, messageId, status })
+    void emailStatus.flush().catch((error) => warnTelemetryFlushFailed(error, messageId))
 }
 
 export type TransactionalSendsDeps = {
@@ -95,7 +111,7 @@ export class TransactionalSends {
                 case 'replayed': {
                     const scheduledAt = reservation.scheduledAt ?? null
                     if (scheduledAt) {
-                        this.writeStatus(team.id, reservation.invocationId, 'scheduled')
+                        writeStatus(this.deps.emailStatus, team.id, reservation.invocationId, 'scheduled')
                     }
                     return { outcome: 'replayed', invocationId: reservation.invocationId, scheduledAt }
                 }
@@ -153,17 +169,12 @@ export class TransactionalSends {
             )
         }
         stages.start('metrics_flush')
-        this.writeStatus(team.id, invocation.id, scheduledAt ? 'scheduled' : 'queued')
+        writeStatus(this.deps.emailStatus, team.id, invocation.id, scheduledAt ? 'scheduled' : 'queued')
         // Best-effort rows, so the answer waits for the hand-off to Kafka (flushed on shutdown) but not the acks.
         const { produced } = await this.deps.invocationResultsRows.handOffQueuedRows()
         void produced.catch((error) => warnTelemetryFlushFailed(error, invocation.id))
 
         return { outcome: 'queued', invocationId: invocation.id, scheduledAt: scheduledAt?.toISOString() ?? null }
-    }
-
-    private writeStatus(teamId: number, messageId: string, status: 'queued' | 'scheduled'): void {
-        this.deps.emailStatus.queue({ teamId, messageId, status })
-        void this.deps.emailStatus.flush().catch((error) => warnTelemetryFlushFailed(error, messageId))
     }
 
     private buildInvocation(team: Team, hogFlow: HogFlow, request: TransactionalEmailRequest) {
@@ -233,5 +244,89 @@ export class TransactionalSends {
             return 'recipient_unreachable'
         }
         return null
+    }
+}
+
+export type ScheduledTransactionalSendsDeps = {
+    jobs: Pick<CyclotronV2JobProducer, 'cancelUnclaimed' | 'rescheduleUnclaimed'>
+    invocationResults: Pick<InvocationResultsService, 'monitoringService' | 'invocationResultsRowsService'>
+    emailStatus: EmailStatusService
+}
+
+export type ScheduledSendCancelResult = { outcome: 'canceled' } | { outcome: 'claimed' | 'not_found' }
+
+export type ScheduledSendRescheduleResult =
+    | { outcome: 'rescheduled'; scheduledAt: string }
+    | { outcome: 'invalid_scheduled_at' | 'canceled' | 'claimed' | 'not_found' }
+
+export class ScheduledTransactionalSends {
+    constructor(private readonly deps: ScheduledTransactionalSendsDeps) {}
+
+    async cancel(teamId: number, messageId: string): Promise<ScheduledSendCancelResult> {
+        if (!UUID_SHAPE.test(messageId)) {
+            return { outcome: 'not_found' }
+        }
+        const result = await this.deps.jobs.cancelUnclaimed(teamId, messageId)
+        switch (result.outcome) {
+            case 'canceled':
+                await this.recordCanceledRun(v2JobToInvocation(result.job))
+                return { outcome: 'canceled' }
+            case 'already_canceled':
+                return { outcome: 'canceled' }
+            default:
+                return { outcome: result.outcome }
+        }
+    }
+
+    async reschedule(teamId: number, messageId: string, requestedAt: Date): Promise<ScheduledSendRescheduleResult> {
+        if (!UUID_SHAPE.test(messageId)) {
+            return { outcome: 'not_found' }
+        }
+        const now = new Date()
+        // A time that has passed sends now, even past the bound, as the send route does.
+        if (requestedAt > now && requestedAt.getTime() > uuidtCreatedAt(messageId).getTime() + MAX_SCHEDULE_AHEAD_MS) {
+            return { outcome: 'invalid_scheduled_at' }
+        }
+        const scheduledAt = requestedAt > now ? requestedAt : now
+        const result = await this.deps.jobs.rescheduleUnclaimed(teamId, messageId, scheduledAt, {
+            scheduledAt: scheduledAt.toISOString(),
+        })
+        if (result.outcome !== 'rescheduled') {
+            return { outcome: result.outcome }
+        }
+        writeStatus(this.deps.emailStatus, teamId, messageId, 'scheduled')
+        return { outcome: 'rescheduled', scheduledAt: scheduledAt.toISOString() }
+    }
+
+    // No worker ever sees a job canceled before its claim, so this writes what the worker writes for a canceled run.
+    private async recordCanceledRun(job: CyclotronJobInvocation): Promise<void> {
+        const { monitoringService, invocationResultsRowsService } = this.deps.invocationResults
+        // `hogFlow` keys the lifecycle row as `hog_flow`, so it replaces the run's `running` row.
+        const invocation = { ...job, hogFlow: { id: job.functionId } as HogFlow }
+        const result = createInvocationResult(invocation, {}, { finished: true })
+        result.canceled = true
+        result.logs.push({ level: 'info', timestamp: DateTime.now(), message: 'Run canceled before it was sent' })
+        result.metrics.push({
+            team_id: job.teamId,
+            app_source_id: job.parentRunId ?? job.functionId,
+            metric_kind: 'other',
+            metric_name: 'canceled',
+            count: 1,
+        })
+        if ((job.state as CyclotronJobInvocationHogFlow['state'] | null)?.triggerMetricPending) {
+            result.metrics.push({
+                team_id: job.teamId,
+                app_source_id: job.functionId,
+                metric_kind: 'other',
+                metric_name: 'triggered',
+                count: 1,
+            })
+        }
+        monitoringService.queueInvocationResults([result])
+        invocationResultsRowsService.queueInvocationResults([result])
+        writeStatus(this.deps.emailStatus, job.teamId, job.id, 'canceled')
+        void monitoringService.flush().catch((error) => warnTelemetryFlushFailed(error, job.id))
+        const { produced } = await invocationResultsRowsService.handOffQueuedRows()
+        void produced.catch((error) => warnTelemetryFlushFailed(error, job.id))
     }
 }
