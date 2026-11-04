@@ -68,6 +68,8 @@ Pick by intent, not appearance. Each cluster below lists the discriminating ques
 
 For a custom menu-like list inside a Popover (when DropdownMenu's open/close semantics don't fit), use `Item variant="menuItem"` with `ItemMenuItem`/`ItemCheckbox`/`ItemRadio` — don't restyle Buttons into menu rows. Inside quill, a primitive that renders a Button as a list row passes `size="row"` rather than pinning width, weight and text size per caller. `MenuLabel` is the shared section-label primitive the menu families render internally (DropdownMenuLabel, ComboboxLabel); it's exported for these custom menu-like lists.
 
+Every menu-like list marks its active row the same way: the row that keyboard input or a filter would act on (`data-highlighted`) gets a ring, and a row under the pointer gets the plain hover fill. Don't override this per component.
+
 ### Disclosure
 
 **One section or a coordinated set? Hiding content or switching between views?**
