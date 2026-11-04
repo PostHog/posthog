@@ -24747,6 +24747,252 @@ export namespace Schemas {
     }
 
     /**
+     * * `time_series` - Time series
+     */
+    export type ChartExplanationShapeEnum = typeof ChartExplanationShapeEnum[keyof typeof ChartExplanationShapeEnum];
+
+
+    export const ChartExplanationShapeEnum = {
+      TimeSeries: 'time_series',
+    } as const;
+
+    export interface StorySeriesResult {
+      /**
+         * The series name.
+         * @maxLength 400
+         */
+      label?: string;
+      /**
+         * One value per point. Saved for the followed series only.
+         * @maxItems 5000
+         */
+      data?: number[];
+      /**
+         * The date of each point, in the query's timezone. Saved for the followed series only.
+         * @maxItems 5000
+         */
+      days?: string[];
+    }
+
+    /**
+     * * `high` - High confidence
+     * * `medium` - Medium confidence
+     * * `low` - Low confidence
+     */
+    export type StoryConfidenceEnum = typeof StoryConfidenceEnum[keyof typeof StoryConfidenceEnum];
+
+
+    export const StoryConfidenceEnum = {
+      High: 'high',
+      Medium: 'medium',
+      Low: 'low',
+    } as const;
+
+    /**
+     * * `query-trends` - Trends
+     * * `query-funnel` - Funnel
+     * * `query-retention` - Retention
+     * * `query-stickiness` - Stickiness
+     * * `query-paths` - Paths
+     * * `query-lifecycle` - Lifecycle
+     */
+    export type StoryEvidenceQueryToolEnum = typeof StoryEvidenceQueryToolEnum[keyof typeof StoryEvidenceQueryToolEnum];
+
+
+    export const StoryEvidenceQueryToolEnum = {
+      QueryTrends: 'query-trends',
+      QueryFunnel: 'query-funnel',
+      QueryRetention: 'query-retention',
+      QueryStickiness: 'query-stickiness',
+      QueryPaths: 'query-paths',
+      QueryLifecycle: 'query-lifecycle',
+    } as const;
+
+    /**
+     * * `line` - Line
+     * * `bar` - Bar
+     */
+    export type StoryEvidenceChartTypeEnum = typeof StoryEvidenceChartTypeEnum[keyof typeof StoryEvidenceChartTypeEnum];
+
+
+    export const StoryEvidenceChartTypeEnum = {
+      Line: 'line',
+      Bar: 'bar',
+    } as const;
+
+    export interface StoryEvidenceSeries {
+      /** The breakdown value or column this line draws. */
+      name: string;
+      /**
+         * One value per label. Null where the breakdown value has no row for that point.
+         * @maxItems 5000
+         */
+      values: (number | null)[];
+    }
+
+    export interface StoryEvidenceChart {
+      /** How the evidence chart draws its series.
+       *
+       * * `line` - Line
+       * * `bar` - Bar */
+      type: StoryEvidenceChartTypeEnum;
+      /**
+         * The x-axis points.
+         * @maxItems 5000
+         */
+      labels: string[];
+      /**
+         * The axis label of each point, which leaves out a date that repeats.
+         * @maxItems 5000
+         */
+      ticks?: string[];
+      /** The lines or bars to draw. */
+      series: StoryEvidenceSeries[];
+      /**
+         * The y-axis label, if any.
+         * @nullable
+         */
+      yAxisLabel: string | null;
+    }
+
+    /**
+     * The query that shows the fact. The page links to it.
+     * @nullable
+     */
+    export type StoryEvidenceQuery = { [key: string]: unknown } | null;
+
+    export interface StoryEvidence {
+      /**
+         * One fact that supports the chapter, in one sentence.
+         * @maxLength 400
+         */
+      text: string;
+      /**
+         * The query that shows the fact. The page links to it.
+         * @nullable
+         */
+      query?: StoryEvidenceQuery;
+      /** The MCP query tool that can redraw `query`. The page redraws the query only when this is set.
+       *
+       * * `query-trends` - Trends
+       * * `query-funnel` - Funnel
+       * * `query-retention` - Retention
+       * * `query-stickiness` - Stickiness
+       * * `query-paths` - Paths
+       * * `query-lifecycle` - Lifecycle */
+      queryTool?: StoryEvidenceQueryToolEnum | null;
+      /** The fact drawn as a chart, from its SQL. */
+      chart?: StoryEvidenceChart | null;
+    }
+
+    export interface StoryChapter {
+      /**
+         * The moment on the chart this chapter explains.
+         * @maxLength 80
+         */
+      title: string;
+      /**
+         * Inclusive indexes into the series' points. Null when the chapter's dates match no point.
+         * @minItems 2
+         * @maxItems 2
+         * @nullable
+         * @items.minimum 0
+         */
+      range: number[] | null;
+      /**
+         * What happened in this moment.
+         * @maxLength 400
+         * @nullable
+         */
+      summary: string | null;
+      /**
+         * The likely cause of this moment.
+         * @maxLength 600
+         * @nullable
+         */
+      cause: string | null;
+      /** How sure the investigation is of the cause.
+       *
+       * * `high` - High confidence
+       * * `medium` - Medium confidence
+       * * `low` - Low confidence */
+      confidence: StoryConfidenceEnum | null;
+      /**
+         * Why the confidence is what it is.
+         * @maxLength 200
+         * @nullable
+         */
+      confidenceReason: string | null;
+      /** The facts behind the cause. */
+      evidence: StoryEvidence[];
+    }
+
+    /**
+     * The insight query the explanation follows.
+     */
+    export type ExplainChartDataQuery = { [key: string]: unknown };
+
+    export interface ExplainChartData {
+      /** What the explanation walks through, whichever insight drew the chart. A funnel over time is a time series too.
+       *
+       * * `time_series` - Time series */
+      shape?: ChartExplanationShapeEnum;
+      /** The insight query the explanation follows. */
+      query: ExplainChartDataQuery;
+      /** Every series on the chart when it was explained. */
+      results: StorySeriesResult[];
+      /**
+         * The index in `results` the explanation follows.
+         * @minimum 0
+         */
+      seriesIndex: number;
+      /**
+         * The insight's name.
+         * @maxLength 400
+         * @nullable
+         */
+      insightName: string | null;
+      /** Whether the last point's period had not ended yet. */
+      lastPointInProgress: boolean;
+      /**
+         * One sentence a person could read in place of the whole explanation.
+         * @maxLength 300
+         */
+      headline: string;
+      /** The moments that stand out, in reading order. */
+      chapters: StoryChapter[];
+      /**
+         * Warnings the chart's query came back with.
+         * @maxItems 20
+         */
+      warnings?: unknown[];
+    }
+
+    export interface ChartExplanationAuthor {
+      /** The user's id. */
+      id: number;
+      /** The user's first name. */
+      first_name: string;
+      /** The user's last name. */
+      last_name: string;
+      /** The user's email address. */
+      email: string;
+    }
+
+    export interface ChartExplanation {
+      /** The chart explanation, as the insight page shows it. */
+      data: ExplainChartData;
+      /** Who saved the explanation, directly or through an agent. */
+      created_by: ChartExplanationAuthor | null;
+      /** The explanation's id, which its link carries. */
+      id: string;
+      /** The insight the explanation belongs to. */
+      insight_id: number;
+      /** When the explanation was first saved. */
+      created_at: string;
+    }
+
+    /**
      * * `author_scout` - author_scout
      * * `fleet_overview` - fleet_overview
      * * `recent_signals` - recent_signals
@@ -58154,6 +58400,11 @@ export namespace Schemas {
        * * `quick` - Read within a small budget, so the checks can run on every load
        * * `full` - Read with the same limits as the insight's own query */
       depth?: InsightDataChecksDepthEnum;
+    }
+
+    export interface InsightExplanationCreate {
+      /** The chart explanation, as the insight page shows it. */
+      data: ExplainChartData;
     }
 
     /**

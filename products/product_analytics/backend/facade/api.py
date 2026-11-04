@@ -24,6 +24,8 @@ from posthog.models import Team, User
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.product_analytics.backend import logic
 from products.product_analytics.backend.facade.contracts import (
+    ChartExplanation,
+    ChartExplanationAuthor,
     InsightDashboardContext,
     InsightSeries,
     InsightVariableDefinition,
@@ -32,6 +34,7 @@ from products.product_analytics.backend.facade.contracts import (
     ViewableInsight,
 )
 from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.models.insight_explanation import InsightExplanation
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 if TYPE_CHECKING:
@@ -84,6 +87,47 @@ def create_insight_variable(
         team_id=team_id, name=name, type=type, code_name=code_name, default_value=default_value, is_multi=is_multi
     )
     return _to_variable_definition(variable)
+
+
+def _to_chart_explanation(explanation: InsightExplanation) -> ChartExplanation:
+    author = explanation.created_by
+    return ChartExplanation(
+        id=explanation.id,
+        insight_id=explanation.insight_id,
+        data=explanation.data,
+        created_by=ChartExplanationAuthor(
+            id=author.id, first_name=author.first_name, last_name=author.last_name, email=author.email
+        )
+        if author is not None
+        else None,
+        created_at=explanation.created_at,
+    )
+
+
+def create_insight_explanation(
+    *, team_id: int, insight_id: int, user_id: int, data: dict[str, Any]
+) -> ChartExplanation:
+    """Save a new chart explanation of the insight. Pass the insight's own team."""
+    return _to_chart_explanation(
+        logic.create_insight_explanation(team_id=team_id, insight_id=insight_id, user_id=user_id, data=data)
+    )
+
+
+def update_insight_explanation(
+    *, team_id: int, insight_id: int, explanation_id: UUID, user_id: int, data: dict[str, Any]
+) -> ChartExplanation | None:
+    """Replace the data of an explanation this person saved of this insight, so its link shows the fix.
+    None when they saved no explanation with this id."""
+    explanation = logic.update_insight_explanation(
+        team_id=team_id, insight_id=insight_id, explanation_id=explanation_id, user_id=user_id, data=data
+    )
+    return _to_chart_explanation(explanation) if explanation is not None else None
+
+
+def get_insight_explanation(*, team_id: int, insight_id: int, explanation_id: UUID) -> ChartExplanation | None:
+    """The saved chart explanation with this id, only when it belongs to this insight."""
+    explanation = logic.insight_explanation(team_id=team_id, insight_id=insight_id, explanation_id=explanation_id)
+    return _to_chart_explanation(explanation) if explanation is not None else None
 
 
 def lock_insight_for_evaluation(*, team_id: int, insight_id: int) -> bool:

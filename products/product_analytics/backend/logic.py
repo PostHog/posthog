@@ -10,6 +10,7 @@ from django.utils.timezone import now
 
 from products.product_analytics.backend.facade.contracts import InsightVariableDefinition, SavedTrendsInsight
 from products.product_analytics.backend.models.insight import Insight, InsightViewed
+from products.product_analytics.backend.models.insight_explanation import InsightExplanation
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 if TYPE_CHECKING:
@@ -263,3 +264,36 @@ def get_or_create_saved_insight(
         insight.deleted = False
         insight.save(update_fields=["deleted"])
     return insight.id, created
+
+
+def create_insight_explanation(
+    *, team_id: int, insight_id: int, user_id: int, data: dict[str, Any]
+) -> InsightExplanation:
+    return InsightExplanation.objects.for_team(team_id).create(
+        team_id=team_id, insight_id=insight_id, created_by_id=user_id, data=data
+    )
+
+
+def update_insight_explanation(
+    *, team_id: int, insight_id: int, explanation_id: UUID, user_id: int, data: dict[str, Any]
+) -> InsightExplanation | None:
+    explanation = (
+        InsightExplanation.objects.for_team(team_id)
+        .select_related("created_by")
+        .filter(insight_id=insight_id, id=explanation_id, created_by_id=user_id)
+        .first()
+    )
+    if explanation is None:
+        return None
+    explanation.data = data
+    explanation.save(update_fields=["data"])
+    return explanation
+
+
+def insight_explanation(*, team_id: int, insight_id: int, explanation_id: UUID) -> InsightExplanation | None:
+    return (
+        InsightExplanation.objects.for_team(team_id)
+        .select_related("created_by")
+        .filter(insight_id=insight_id, id=explanation_id)
+        .first()
+    )
