@@ -77,7 +77,7 @@ function MissingLineage({ metric, onRetry }: { metric: DataCatalogMetricApi; onR
                 <EmptyTitle>No lineage for this metric yet</EmptyTitle>
                 <EmptyDescription>
                     {tableNames.length > 0
-                        ? 'Its definition reads the tables below. The lineage graph shows them once they are linked to this metric.'
+                        ? 'Running this metric reads the tables below, after any views in its query are expanded. Lineage shows up here once the metric is linked to what it reads.'
                         : "We couldn't trace which tables this metric reads. Check that its query runs, then check again."}
                 </EmptyDescription>
             </EmptyHeader>

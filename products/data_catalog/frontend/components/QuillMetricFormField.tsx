@@ -5,30 +5,30 @@ import { Field, FieldDescription, FieldError, FieldLabel, Text, cn } from '@post
 
 import type { NewMetricFormValues } from '../dataCatalogNewMetricSceneLogic'
 
-export interface QuillMetricFormFieldControl {
+export interface QuillMetricFormFieldControl<K extends keyof NewMetricFormValues> {
     id: string
-    value: any
-    onChange: (value: any) => void
+    value: NewMetricFormValues[K]
+    onChange: (value: NewMetricFormValues[K]) => void
     invalid: boolean
 }
 
-export interface QuillMetricFormFieldProps {
-    name: keyof NewMetricFormValues
+export interface QuillMetricFormFieldProps<K extends keyof NewMetricFormValues> {
+    name: K
     label?: string
     optional?: boolean
     description?: ReactNode
     className?: string
-    children: (control: QuillMetricFormFieldControl) => ReactElement
+    children: (control: QuillMetricFormFieldControl<K>) => ReactElement
 }
 
-export function QuillMetricFormField({
+export function QuillMetricFormField<K extends keyof NewMetricFormValues>({
     name,
     label,
     optional,
     description,
     className,
     children,
-}: QuillMetricFormFieldProps): JSX.Element {
+}: QuillMetricFormFieldProps<K>): JSX.Element {
     return (
         <KeaField name={name} noStyle>
             {({ id, value, onChange, error }) => (
@@ -43,7 +43,7 @@ export function QuillMetricFormField({
                             )}
                         </FieldLabel>
                     )}
-                    {children({ id, value, onChange, invalid: !!error })}
+                    {children({ id, value: value as NewMetricFormValues[K], onChange, invalid: !!error })}
                     {description && <FieldDescription>{description}</FieldDescription>}
                     {error && <FieldError>{error}</FieldError>}
                 </Field>

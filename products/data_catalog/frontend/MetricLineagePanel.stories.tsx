@@ -143,9 +143,14 @@ export const QuillNoDefinition: Story = {
     render: () => quillAtWidths({ ...BASE, metric: MARKDOWN_METRIC, lineage: null }),
 }
 
+const VIEW_BACKED_METRIC = metric({
+    definition: { kind: 'HogQLQuery', query: 'select count() from active_accounts_view' },
+    referenced_table_names: ['events', 'accounts'],
+})
+
 export const QuillMissingLineage: Story = {
     parameters: QUILL_PARAMETERS,
-    render: () => quillAtWidths({ ...BASE, lineage: null, lineageProblem: 'missing' }),
+    render: () => quillAtWidths({ ...BASE, metric: VIEW_BACKED_METRIC, lineage: null, lineageProblem: 'missing' }),
 }
 
 export const QuillLoadFailed: Story = {

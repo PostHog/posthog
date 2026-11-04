@@ -17,8 +17,8 @@ import { QuillMetricFormField } from './components/QuillMetricFormField'
 import { QuillMetricNameField } from './components/QuillMetricNameField'
 import { QuillNewMetricInsightDefinition } from './components/QuillNewMetricInsightDefinition'
 import { QuillNewMetricSqlDefinition } from './components/QuillNewMetricSqlDefinition'
-import { dataCatalogNewMetricSceneLogic, MetricDefinitionType } from './dataCatalogNewMetricSceneLogic'
-import { DEFINITION_TYPE_HINTS, DEFINITION_TYPE_OPTIONS } from './newMetricDefinitionTypes'
+import { dataCatalogNewMetricSceneLogic } from './dataCatalogNewMetricSceneLogic'
+import { DEFINITION_TYPE_HINTS, DEFINITION_TYPE_OPTIONS, isMetricDefinitionType } from './newMetricDefinitionTypes'
 
 export function QuillDataCatalogNewMetricScene(): JSX.Element {
     const { metricForm, metricFormValidationErrors, showMetricFormErrors, saving, sqlNameTaken } =
@@ -85,7 +85,7 @@ export function QuillDataCatalogNewMetricScene(): JSX.Element {
                                     aria-label="How it's calculated"
                                     value={[value]}
                                     onValueChange={(next: string[]) =>
-                                        next[0] && onChange(next[0] as MetricDefinitionType)
+                                        isMetricDefinitionType(next[0]) && onChange(next[0])
                                     }
                                 >
                                     {DEFINITION_TYPE_OPTIONS.map((option) => (

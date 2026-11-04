@@ -43,6 +43,7 @@ export interface MetricSceneActionHandlers {
 export interface MetricSceneActionsInput {
     metric: DataCatalogMetricApi
     mutating: boolean
+    running: boolean
     biModeEnabled: boolean
     isMaxAvailable: boolean
     handlers: MetricSceneActionHandlers
@@ -52,11 +53,13 @@ export const DRIFT_APPROVE_DISABLED = 'This metric has drifted from its source i
 export const MAX_UNAVAILABLE_REASON = 'PostHog AI is not available on this instance'
 export const NO_RUNNABLE_DEFINITION_REASON = 'This metric has no runnable definition yet'
 export const WORKING_REASON = 'Working'
+export const RUNNING_REASON = 'The metric is running'
 export const RUN_ACTION_KEY = 'run'
 
 export function buildMetricSceneActions({
     metric,
     mutating,
+    running,
     biModeEnabled,
     isMaxAvailable,
     handlers,
@@ -129,7 +132,11 @@ export function buildMetricSceneActions({
                   label: 'Run metric',
                   icon: <IconPlay />,
                   onClick: handlers.run,
-                  disabledReason: metric.definition_kind ? undefined : NO_RUNNABLE_DEFINITION_REASON,
+                  disabledReason: !metric.definition_kind
+                      ? NO_RUNNABLE_DEFINITION_REASON
+                      : running
+                        ? RUNNING_REASON
+                        : undefined,
               },
         {
             key: 'rename',

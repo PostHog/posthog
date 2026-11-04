@@ -5,7 +5,7 @@ import { Button, Field, FieldDescription, FieldError, FieldLabel, Input, Text } 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
-import { sqlNameFromDisplayName } from '../common'
+import { sqlNameAfterDisplayNameChange, sqlNameFromDisplayName } from '../common'
 import type { MetricNameFieldProps } from './MetricNameField'
 
 export function QuillMetricNameField({
@@ -26,10 +26,9 @@ export function QuillMetricNameField({
     const sqlNameDiffers = !!automaticSqlName && sqlName !== automaticSqlName
 
     const changeDisplayName = (nextDisplayName: string): void => {
-        const followsDisplayName = sqlName === automaticSqlName
         onChange({
             display_name: nextDisplayName,
-            name: followsDisplayName ? sqlNameFromDisplayName(nextDisplayName) : sqlName,
+            name: sqlNameAfterDisplayNameChange(displayName, sqlName, nextDisplayName),
         })
     }
 

@@ -310,7 +310,7 @@ export interface dataCatalogMetricSceneLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         mountedTabs: (activeTab: MetricSceneTab, visitedTabs: MetricSceneTab[]) => MetricSceneTab[]
         supportsMetricChecks: (metric: DataCatalogMetricApi | null) => boolean
-        breadcrumbs: (metric: DataCatalogMetricApi | null, arg: string, featureFlags: FeatureFlagsSet) => Breadcrumb[]
+        breadcrumbs: (metric: DataCatalogMetricApi | null, arg: any, featureFlags: FeatureFlagsSet) => Breadcrumb[]
     }
 }
 

@@ -28,7 +28,8 @@ const PREVIEW_PAGE_SIZE = 5
 function PreviewTable({ columns, rows }: { columns: string[]; rows: unknown[][] }): JSX.Element {
     const [page, setPage] = useState(1)
     const pageCount = Math.ceil(rows.length / PREVIEW_PAGE_SIZE)
-    const pageRows = rows.slice((page - 1) * PREVIEW_PAGE_SIZE, page * PREVIEW_PAGE_SIZE)
+    const currentPage = Math.min(page, Math.max(pageCount, 1))
+    const pageRows = rows.slice((currentPage - 1) * PREVIEW_PAGE_SIZE, currentPage * PREVIEW_PAGE_SIZE)
 
     return (
         <div className="flex flex-col gap-2 rounded-md border border-border">
@@ -56,7 +57,7 @@ function PreviewTable({ columns, rows }: { columns: string[]; rows: unknown[][] 
             </div>
             {pageCount > 1 && (
                 <CatalogTablesPagination
-                    currentPage={page}
+                    currentPage={currentPage}
                     pageCount={pageCount}
                     pageSize={PREVIEW_PAGE_SIZE}
                     total={rows.length}

@@ -17,6 +17,12 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
+import {
+    SceneMenuBar,
+    SceneMenuBarItem,
+    SceneMenuBarMenu,
+    SceneMenuBarSeparator,
+} from '~/layout/scenes/components/SceneMenuBar'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ScenePanel, ScenePanelActionsSection, ScenePanelInfoSection } from '~/layout/scenes/SceneLayout'
 import { useSceneAgentPanel } from '~/scenes/max/useSceneAgentPanel'
@@ -27,7 +33,6 @@ import { catalogRestructureEnabled } from 'products/data_modeling/frontend/catal
 import { humanizeDefinitionKind, METRIC_DESCRIPTION_MAX_LENGTH, validateMetricName } from './common'
 import { MetricDefinition } from './components/MetricDefinition'
 import { MetricOwnerSelect } from './components/MetricOwnerSelect'
-import { MetricSceneMenuBar } from './components/MetricSceneMenuBar'
 import { buildDataCatalogMetricAgentContext, DATA_CATALOG_METRIC_AGENT_HEADLINES } from './dataCatalogAgentContext'
 import {
     dataCatalogMetricSceneLogic,
@@ -99,6 +104,7 @@ function LemonDataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProps)
         runMetricWithAI,
     } = useActions(dataCatalogMetricSceneLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
     const { isMaxAvailable } = useValues(maxGlobalLogic)
 
     if (metricLoading && !metric) {
@@ -179,6 +185,7 @@ function LemonDataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProps)
     const actions = buildMetricSceneActions({
         metric,
         mutating,
+        running: runResultLoading,
         biModeEnabled: !!featureFlags[FEATURE_FLAGS.SQL_EDITOR_BI_MODE],
         isMaxAvailable,
         handlers: {
@@ -197,7 +204,35 @@ function LemonDataCatalogMetricScene({ name }: DataCatalogMetricSceneLogicProps)
     return (
         <BindLogic logic={dataCatalogMetricSceneLogic} props={{ name }}>
             <SceneContent>
-                <MetricSceneMenuBar actions={actions} />
+                {sceneMenuBarEnabled && (
+                    <SceneMenuBar>
+                        <SceneMenuBarMenu label="Metric" dataAttr="data-catalog-metric-menubar">
+                            {nonDestructive.map((action) => (
+                                <SceneMenuBarItem
+                                    key={action.key}
+                                    onClick={action.onClick}
+                                    disabled={!!action.disabledReason}
+                                    data-attr={`data-catalog-metric-menubar-${action.key}`}
+                                >
+                                    {action.icon}
+                                    {action.label}
+                                </SceneMenuBarItem>
+                            ))}
+                            <SceneMenuBarSeparator />
+                            {destructive.map((action) => (
+                                <SceneMenuBarItem
+                                    key={action.key}
+                                    variant="destructive"
+                                    onClick={action.onClick}
+                                    data-attr={`data-catalog-metric-menubar-${action.key}`}
+                                >
+                                    {action.icon}
+                                    {action.label}
+                                </SceneMenuBarItem>
+                            ))}
+                        </SceneMenuBarMenu>
+                    </SceneMenuBar>
+                )}
 
                 <SceneTitleSection
                     name={metric.display_name || metric.name}

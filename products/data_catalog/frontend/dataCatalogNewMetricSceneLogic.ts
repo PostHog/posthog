@@ -288,6 +288,8 @@ export type dataCatalogNewMetricSceneLogicType = MakeLogicType<
     dataCatalogNewMetricSceneLogicMeta
 >
 
+const QUILL_FIELD_ERROR_SELECTOR = '[data-slot="field"][data-invalid]'
+
 export const dataCatalogNewMetricSceneLogic = kea<dataCatalogNewMetricSceneLogicType>([
     path(['products', 'data_catalog', 'frontend', 'dataCatalogNewMetricSceneLogic']),
     connect(() => ({
@@ -466,7 +468,7 @@ export const dataCatalogNewMetricSceneLogic = kea<dataCatalogNewMetricSceneLogic
             actions.submitMetricForm()
         },
         submitMetricFormFailure: () => {
-            scrollToFormError()
+            scrollToFormError({ extraErrorSelectors: [QUILL_FIELD_ERROR_SELECTOR] })
         },
         setInsightSearch: () => {
             actions.loadSavedInsights(undefined)

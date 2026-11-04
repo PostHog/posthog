@@ -11,3 +11,7 @@ export const DEFINITION_TYPE_HINTS: Record<MetricDefinitionType, string> = {
     insight: 'Use a saved insight. The metric copies its query.',
     markdown: 'Write the steps in words, for metrics that are not one query. Agents follow them.',
 }
+
+export function isMetricDefinitionType(value: string): value is MetricDefinitionType {
+    return DEFINITION_TYPE_OPTIONS.some((option) => option.value === value)
+}

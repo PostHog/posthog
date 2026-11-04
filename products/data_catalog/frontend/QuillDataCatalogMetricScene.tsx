@@ -93,6 +93,7 @@ export function QuillDataCatalogMetricScene({ name }: DataCatalogMetricSceneLogi
     const actions = buildMetricSceneActions({
         metric,
         mutating,
+        running: runResultLoading,
         biModeEnabled: !!featureFlags[FEATURE_FLAGS.SQL_EDITOR_BI_MODE],
         isMaxAvailable,
         handlers: {
