@@ -20,6 +20,18 @@ jest.mock('react-native-reanimated/mock', () => ({
 jest.mock('@react-native-async-storage/async-storage', () =>
     require('@react-native-async-storage/async-storage/jest/async-storage-mock')
 )
+jest.mock('@/features/status/usePostHogStatus', () => ({
+    usePostHogStatus: () => ({
+        pageUrl: 'https://www.posthogstatus.com/eu',
+        summary: 'Elevated latency',
+        indicatorColor: 'yellow',
+        aiIncident: {
+            status: 'monitoring',
+            title: 'Elevated latency',
+            url: 'https://www.posthogstatus.com/incidents/example',
+        },
+    }),
+}))
 jest.mock('@/auth/useProjectScope', () => ({ useProjectScope: () => null }))
 
 function InboxStub(): ReactElement {
@@ -105,6 +117,23 @@ describe('TabsLayout', () => {
         act(() => Dimensions.set({ window: ORIGINAL_WINDOW }))
         setAnalyticsClient(null)
         setFeatureFlags({})
+    })
+
+    test('exposes the regional status update from the main menu', () => {
+        renderRouter(
+            {
+                '(tabs)/_layout': TabsLayout,
+                '(tabs)/inbox': InboxStub,
+                '(tabs)/chats': ChatsStub,
+                '(tabs)/views': ViewsStub,
+                ...LIST_TABS,
+            },
+            { initialUrl: '/inbox' }
+        )
+        const more = screen.getByTestId('tabs-more')
+        expect(more.props.accessibilityValue.text).toContain('Elevated latency')
+        fireEvent.press(more)
+        expect(screen.getByLabelText('PostHog status: Elevated latency')).toBeTruthy()
     })
 
     test.each(['inbox', 'chats', 'views'] as const)(
