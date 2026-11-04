@@ -115,6 +115,7 @@ class TestOrgProjectDeleteCascadesToTeamClear(BaseTest):
         with self.captureOnCommitCallbacks(execute=True):
             api_token = self.team.api_token
             self.team.delete()
+            # This write stands in for a refresh that runs after the pre_delete clear and before the commit.
             team_metadata_hypercache.set_cache_value(api_token, {"api_token": api_token})
 
         assert team_metadata_hypercache.cache_client.get(cache_key) is None
