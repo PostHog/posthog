@@ -28,6 +28,14 @@ export const personalAPIKeyActivityDescriber: Describer = (logItem: ActivityLogI
         return logItem.detail.name || 'Unknown key'
     }
 
+    // A row that an admin of another organization wrote carries no user, so name where the actor
+    // came from instead of the generic "A user".
+    const actor = logItem.detail.context?.acted_by_user_outside_organization ? (
+        <>A user outside your organization</>
+    ) : (
+        <ActivityLogUserName logItem={logItem} />
+    )
+
     if (logItem.activity === 'created') {
         return {
             summary: activityLogSummary(
@@ -35,12 +43,14 @@ export const personalAPIKeyActivityDescriber: Describer = (logItem: ActivityLogI
                 'Created the personal API key',
                 <>
                     {getKeyTitle()} · {getScopeDescription()}
-                </>
+                </>,
+                undefined,
+                actor
             ),
             description: (
                 <>
-                    <ActivityLogUserName logItem={logItem} /> created personal API key <strong>{getKeyTitle()}</strong>{' '}
-                    for <strong>{getScopeDescription()}</strong>
+                    {actor} created personal API key <strong>{getKeyTitle()}</strong> for{' '}
+                    <strong>{getScopeDescription()}</strong>
                 </>
             ),
         }
@@ -53,12 +63,14 @@ export const personalAPIKeyActivityDescriber: Describer = (logItem: ActivityLogI
                 'Revoked the personal API key',
                 <>
                     {getKeyTitle()} · {getScopeDescription()}
-                </>
+                </>,
+                undefined,
+                actor
             ),
             description: (
                 <>
-                    <ActivityLogUserName logItem={logItem} /> revoked access for personal API key{' '}
-                    <strong>{getKeyTitle()}</strong> to <strong>{getScopeDescription()}</strong>
+                    {actor} revoked access for personal API key <strong>{getKeyTitle()}</strong> to{' '}
+                    <strong>{getScopeDescription()}</strong>
                 </>
             ),
         }
@@ -74,12 +86,14 @@ export const personalAPIKeyActivityDescriber: Describer = (logItem: ActivityLogI
                     'Rolled the personal API key',
                     <>
                         {getKeyTitle()} · {getScopeDescription()}
-                    </>
+                    </>,
+                    undefined,
+                    actor
                 ),
                 description: (
                     <>
-                        <ActivityLogUserName logItem={logItem} /> rolled personal API key{' '}
-                        <strong>{getKeyTitle()}</strong> for <strong>{getScopeDescription()}</strong>
+                        {actor} rolled personal API key <strong>{getKeyTitle()}</strong> for{' '}
+                        <strong>{getScopeDescription()}</strong>
                     </>
                 ),
             }
@@ -91,12 +105,14 @@ export const personalAPIKeyActivityDescriber: Describer = (logItem: ActivityLogI
                 'Updated the personal API key',
                 <>
                     {getKeyTitle()} · {getScopeDescription()}
-                </>
+                </>,
+                undefined,
+                actor
             ),
             description: (
                 <>
-                    <ActivityLogUserName logItem={logItem} /> updated personal API key <strong>{getKeyTitle()}</strong>{' '}
-                    for <strong>{getScopeDescription()}</strong>
+                    {actor} updated personal API key <strong>{getKeyTitle()}</strong> for{' '}
+                    <strong>{getScopeDescription()}</strong>
                 </>
             ),
         }
@@ -109,12 +125,14 @@ export const personalAPIKeyActivityDescriber: Describer = (logItem: ActivityLogI
                 'Deleted the personal API key',
                 <>
                     {getKeyTitle()} · {getScopeDescription()}
-                </>
+                </>,
+                undefined,
+                actor
             ),
             description: (
                 <>
-                    <ActivityLogUserName logItem={logItem} /> deleted personal API key <strong>{getKeyTitle()}</strong>{' '}
-                    for access to <strong>{getScopeDescription()}</strong>
+                    {actor} deleted personal API key <strong>{getKeyTitle()}</strong> for access to{' '}
+                    <strong>{getScopeDescription()}</strong>
                 </>
             ),
         }

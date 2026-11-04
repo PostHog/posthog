@@ -1,9 +1,24 @@
+import json
+from contextlib import AbstractContextManager, nullcontext
+from uuid import uuid4
+
+from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.activity_logging.personal_api_key_utils import calculate_scope_change_logs
-from posthog.models.organization import Organization
+from posthog.models.activity_logging.model_activity import ActingUserContext
+from posthog.models.activity_logging.personal_api_key_utils import (
+    OrganizationAdminKeyActionContext,
+    calculate_scope_change_logs,
+)
+from posthog.models.activity_logging.utils import ActivityCredential, activity_storage
+from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
+from posthog.models.user import User
+from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
 from posthog.test.activity_log_utils import ActivityLogTestHelper
 
 
@@ -657,3 +672,107 @@ class TestPersonalAPIKeyScopeChanges(ActivityLogTestHelper):
 
             # Should have no logs - team access to the only team = org access
             self._assert_logs_count(logs, expected_created=0, expected_revoked=0)
+
+
+class TestPersonalAPIKeyOrganizationAdminActionLogging(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.acting_org = Organization.objects.create(name="Acting Admin Org")
+        self.other_org = Organization.objects.create(name="Other Member Org")
+        self.owner = User.objects.create_and_join(self.acting_org, "key-owner@example.com", None)
+        self.owner.join(organization=self.other_org)
+        self.admin = User.objects.create_and_join(
+            self.acting_org, "acting-admin@example.org", None, level=OrganizationMembership.Level.ADMIN
+        )
+
+    def _create_key(self, scoped_organizations: list[Organization]) -> PersonalAPIKey:
+        value = generate_random_token_personal()
+        return PersonalAPIKey.objects.create(
+            user=self.owner,
+            label="Shared key",
+            secure_value=hash_key_value(value),
+            mask_value=mask_key_value(value),
+            scoped_organizations=[str(organization.id) for organization in scoped_organizations],
+        )
+
+    def _roll_as_admin(self, key: PersonalAPIKey, *, in_admin_action_context: bool = True) -> None:
+        value = generate_random_token_personal()
+        key.secure_value = hash_key_value(value)
+        key.mask_value = mask_key_value(value)
+        admin_action_context: AbstractContextManager[object] = (
+            OrganizationAdminKeyActionContext(str(self.acting_org.id)) if in_admin_action_context else nullcontext()
+        )
+        with ActingUserContext(self.admin), admin_action_context:
+            key.save()
+
+    def _updated_rows(self, key: PersonalAPIKey) -> list[ActivityLog]:
+        return list(ActivityLog.objects.filter(scope="PersonalAPIKey", item_id=str(key.id), activity="updated"))
+
+    @parameterized.expand([("direct_session", False), ("impersonated_session", True)])
+    def test_admin_action_row_outside_acting_org_hides_actor(self, _name: str, was_impersonated: bool) -> None:
+        staff_id = User.objects.create_user(email="support-staff@example.net", password=None, first_name="Staff").id
+        key = self._create_key([self.acting_org, self.other_org])
+        activity_storage.mark_request_scoped()
+        activity_storage.set_was_impersonated(was_impersonated)
+        activity_storage.set_client("posthog-js")
+        activity_storage.set_ip_address("203.0.113.7")
+        activity_storage.set_credential(
+            ActivityCredential(
+                type="session", id=str(uuid4()), impersonated_by_id=staff_id if was_impersonated else None
+            )
+        )
+        activity_storage.set_agent_intent(f"Roll the keys for {self.acting_org.name}")
+        try:
+            self._roll_as_admin(key)
+        finally:
+            activity_storage.clear_all()
+
+        rows = {row.organization_id: row for row in self._updated_rows(key)}
+        assert set(rows) == {self.acting_org.id, self.other_org.id}
+
+        acting_row = rows[self.acting_org.id]
+        assert acting_row.detail is not None
+        assert (acting_row.user, acting_row.was_impersonated, acting_row.ip_address, acting_row.credential_type) == (
+            self.admin,
+            was_impersonated,
+            "203.0.113.7",
+            "session",
+        )
+        assert acting_row.detail["context"]["acted_by_user_outside_organization"] is False
+
+        other_row = rows[self.other_org.id]
+        assert other_row.detail is not None
+        assert (
+            other_row.user,
+            other_row.is_system,
+            other_row.was_impersonated,
+            other_row.client,
+            other_row.ip_address,
+            other_row.credential_type,
+            other_row.credential_id,
+            other_row.impersonated_by_id,
+        ) == (None, False, False, None, None, None, None, None)
+        assert other_row.detail["context"]["acted_by_user_outside_organization"] is True
+        serialized_detail = json.dumps(other_row.detail)
+        assert self.admin.email not in serialized_detail
+        assert self.acting_org.name not in serialized_detail
+
+    def test_admin_action_skips_orgs_owner_left(self) -> None:
+        left_org = Organization.objects.create(name="Left Member Org")
+        self.owner.join(organization=left_org)
+        key = self._create_key([self.acting_org, left_org])
+        self.owner.leave(organization=left_org)
+
+        self._roll_as_admin(key)
+
+        assert [row.organization_id for row in self._updated_rows(key)] == [self.acting_org.id]
+
+    def test_without_context_rows_keep_request_user(self) -> None:
+        key = self._create_key([self.acting_org, self.other_org])
+
+        self._roll_as_admin(key, in_admin_action_context=False)
+
+        assert {(row.organization_id, row.user) for row in self._updated_rows(key)} == {
+            (self.acting_org.id, self.admin),
+            (self.other_org.id, self.admin),
+        }
