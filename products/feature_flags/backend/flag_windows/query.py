@@ -239,10 +239,14 @@ def _in_condition(
             in_condition[ConditionMatch.PROPERTIES] = ast.Or(
                 exprs=[_matches_condition(team, condition, end) for condition in edit.conditions]
             )
-    except (ValidationError, AssertionError):
-        # The edit gets no counts by properties, so that the query still counts the other edits of the team.
+    except (ValidationError, AssertionError) as error:
+        # The edit gets no counts by properties, so that the query still counts the other edits of the team. The
+        # message can quote a filter value, such as an email pattern, so only its type goes to the logs.
         logger.warning(
-            "flag_window_condition_without_expression", team_id=team.pk, flag_key=edit.flag_key, exc_info=True
+            "flag_window_condition_without_expression",
+            team_id=team.pk,
+            flag_key=edit.flag_key,
+            error_type=type(error).__name__,
         )
     return in_condition
 
@@ -605,6 +609,7 @@ def counts_by_bucket(
     except InternalCHQueryError as error:
         if error.code not in PROPERTY_VALUE_ERROR_CODES:
             raise
-        # ClickHouse doesn't say which filter it rejected, so every edit loses its counts by properties.
-        logger.warning("flag_window_properties_rejected", team_id=team.pk, code=error.code, exc_info=True)
+        # ClickHouse doesn't say which filter it rejected, so every edit loses its counts by properties. Its message
+        # quotes the value it couldn't parse, so only the code goes to the logs.
+        logger.warning("flag_window_properties_rejected", team_id=team.pk, code=error.code)
         return query.run(with_properties=False)
