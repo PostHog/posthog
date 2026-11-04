@@ -65,6 +65,28 @@ describe('sandbox setup in the channel catalog', () => {
         expect(screen.queryByText('Could not set up your sandbox sender.')).not.toBeInTheDocument()
     })
 
+    it('drops a failed setup once the sandbox flag turns off', async () => {
+        useMocks({
+            get: { '/api/projects/:team_id/integrations/': () => [200, { results: [] }] },
+            post: {
+                '/api/projects/:team_id/integrations/email_sandbox_sender/': () => [
+                    500,
+                    { detail: 'Could not set up your sandbox sender.' },
+                ],
+            },
+        })
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER], {
+            [FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER]: true,
+        })
+        logic = channelCatalogLogic()
+        logic.mount()
+        await waitFor(() => expect(logic.values.sandboxSetupError).toBe('Could not set up your sandbox sender.'))
+
+        featureFlagLogic.actions.setFeatureFlags([], {})
+
+        expect(logic.values.sandboxSetupError).toBeNull()
+    })
+
     it('keeps a channel load failure separate from sandbox setup and reloads on retry', async () => {
         let loadStatus = 500
         const sandbox = { id: 9, kind: 'email', config: { provider: 'sandbox', verified: true } }
