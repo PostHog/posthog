@@ -16,6 +16,7 @@ import { router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { buildUserScopedPersistenceConfig } from 'lib/logic/persistence'
+import { isUUIDLike } from 'lib/utils/guards'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -80,14 +81,14 @@ export interface ServerSearchResult {
 export type ServerSearchStatus = 'off' | 'pending' | 'done' | 'failed'
 
 const EMPTY_VALUE: FacetSearchValue = { filters: [], text: '' }
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-const LEGACY_PARAMS = ['status', 'type', 'trigger_type', 'created_by', 'tags', 'search', 'page'] as const
-const LEGACY_VALUES: Record<string, (value: string) => boolean> = {
-    status: (value) => value in STATUS_LABELS,
-    kind: (value) => value in TYPE_LABELS,
-    trigger: (value) => value in TRIGGER_LABELS,
-    createdBy: (value) => UUID_PATTERN.test(value),
-}
+/** The flag-off list's single-value params, and the facet each one becomes. */
+const LEGACY_FACET_PARAMS: { param: string; facet: string; isValid: (value: string) => boolean }[] = [
+    { param: 'status', facet: 'status', isValid: (value) => value in STATUS_LABELS },
+    { param: 'type', facet: 'kind', isValid: (value) => value in TYPE_LABELS },
+    { param: 'trigger_type', facet: 'trigger', isValid: (value) => value in TRIGGER_LABELS },
+    { param: 'created_by', facet: 'createdBy', isValid: isUUIDLike },
+]
+const LEGACY_PARAMS = [...LEGACY_FACET_PARAMS.map(({ param }) => param), 'tags', 'search', 'page']
 
 // Parsing only needs facet keys and aliases, which don't depend on the loaded rows.
 const QUERY_FACETS = buildWorkflowListFacets([])
@@ -165,16 +166,10 @@ function withFacetParams(searchParams: Record<string, unknown>, value: FacetSear
 /** Reads the filter params the flag-off list writes, so bookmarked links keep working. */
 function legacyParamsToValue(searchParams: Record<string, unknown>): FacetSearchValue {
     const filters: FacetFilter[] = []
-    const pairs: [string, string][] = [
-        ['status', 'status'],
-        ['type', 'kind'],
-        ['trigger_type', 'trigger'],
-        ['created_by', 'createdBy'],
-    ]
-    for (const [param, facet] of pairs) {
+    for (const { param, facet, isValid } of LEGACY_FACET_PARAMS) {
         const raw = searchParams[param]
         const value = raw === undefined || raw === null ? '' : String(raw)
-        if (value && LEGACY_VALUES[facet](value)) {
+        if (value && isValid(value)) {
             filters.push({ facet, value, negated: false })
         }
     }

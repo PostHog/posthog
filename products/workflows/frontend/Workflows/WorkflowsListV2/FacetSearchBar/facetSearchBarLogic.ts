@@ -32,21 +32,27 @@ export interface FacetSearchBarLogicProps {
 }
 /* oxlint-enable @typescript-eslint/no-explicit-any */
 
-type FacetSuggestionKind = 'facet' | 'value' | 'search' | 'none'
-
-export interface FacetSuggestion {
+interface SuggestionRow {
     id: string
-    kind: FacetSuggestionKind
     label: string
     detail?: string
     count?: number
-    /** `facet` rows: the input after picking the facet. */
-    nextInput?: string
-    /** `value` rows: the pill to add. */
-    filter?: FacetFilter
-    /** `value` rows: the text typed before the value, kept as the search text. */
-    rest?: string
 }
+
+export type FacetSuggestion =
+    | (SuggestionRow & {
+          kind: 'facet'
+          /** The input after picking the facet. */
+          nextInput: string
+      })
+    | (SuggestionRow & {
+          kind: 'value'
+          /** The pill to add. */
+          filter: FacetFilter
+          /** The text typed before the value, kept as the search text. */
+          rest: string
+      })
+    | (SuggestionRow & { kind: 'search' | 'none' })
 
 export interface FacetDraft {
     facetKey: string
@@ -241,13 +247,15 @@ function buildSuggestions(
     if (!token) {
         return facets
             .filter((facet) => facet.showOnFocus)
-            .map((facet) => ({
-                id: `facet-${facet.key}`,
-                kind: 'facet',
-                label: `${facet.key}:`,
-                detail: facet.description,
-                nextInput: `${input}${facet.key}:`,
-            }))
+            .map(
+                (facet): FacetSuggestion => ({
+                    id: `facet-${facet.key}`,
+                    kind: 'facet',
+                    label: `${facet.key}:`,
+                    detail: facet.description,
+                    nextInput: `${input}${facet.key}:`,
+                })
+            )
     }
 
     const negated = token.startsWith('-')
@@ -555,10 +563,10 @@ export const facetSearchBarLogic = kea<facetSearchBarLogicType>([
             actions.setHighlightedIndex(Math.max(0, Math.min(values.highlightedIndex + delta, last)))
         },
         applySuggestion: ({ suggestion }) => {
-            if (suggestion.kind === 'facet' && suggestion.nextInput !== undefined) {
+            if (suggestion.kind === 'facet') {
                 actions.setInput(suggestion.nextInput)
-            } else if (suggestion.kind === 'value' && suggestion.filter) {
-                const rest = (suggestion.rest ?? '').trimEnd()
+            } else if (suggestion.kind === 'value') {
+                const rest = suggestion.rest.trimEnd()
                 props.onChange({ filters: [...props.value.filters, suggestion.filter], text: rest.trim() })
                 reportFilterChange(props.id, 'added', suggestion.filter, 'suggestion')
                 actions.syncInput(rest ? `${rest} ` : '')
