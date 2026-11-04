@@ -25,7 +25,7 @@ from django.db import (
 from django.db.models import QuerySet
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.middleware.csrf import CsrfViewMiddleware
-from django.shortcuts import redirect
+from django.shortcuts import redirect, render
 from django.urls import Resolver404, resolve
 from django.utils.cache import add_never_cache_headers
 from django.utils.deprecation import MiddlewareMixin
@@ -1719,6 +1719,19 @@ class IPRestrictionsMiddleware(MiddlewareMixin):
         try:
             enforce_ip_restrictions(request, getattr(request, "user", None))
         except PermissionDenied as error:
+            if (
+                request.method in ("GET", "HEAD")
+                and not request.path_info.startswith("/api/")
+                and "text/html" in request.headers.get("Accept", "")
+            ):
+                response = render(
+                    request,
+                    "ip_restricted.html",
+                    {"detail": str(error.detail), "retry_url": request.get_full_path()},
+                    status=403,
+                )
+                add_never_cache_headers(response)
+                return response
             return JsonResponse(
                 {
                     "type": "authentication_error",

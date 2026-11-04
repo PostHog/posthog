@@ -69,3 +69,13 @@ export function isIpAllowed(ip: string, restrictions: string[]): boolean {
         })
     )
 }
+
+export function getIPRestrictionsError(entries: string[]): string | null {
+    if (entries.length > 100) {
+        return 'You can add at most 100 IP addresses or CIDR blocks.'
+    }
+    if (entries.some((entry) => !isValidIpOrCidr(entry))) {
+        return 'Enter a valid IP address or CIDR block, such as 203.0.113.4 or 10.0.0.0/8.'
+    }
+    return null
+}

@@ -40,22 +40,27 @@ describe('OrganizationIPRestrictions', () => {
         const logic = organizationLogic()
         render(<OrganizationIPRestrictions />)
         await expectLogic(billingLogic).toFinishAllListeners()
-        const input = await screen.findByPlaceholderText('203.0.113.4 or 10.0.0.0/8')
+        const input = await screen.findByLabelText('Allowed IP addresses and CIDR blocks')
         await waitFor(() => expect(input).not.toBeDisabled())
-        await userEvent.type(input, '198.51.100.7')
-        expect(input).toHaveValue('198.51.100.7')
-        await expectLogic(logic, () => userEvent.click(screen.getByText('Add'))).toDispatchActions([
+        await userEvent.type(input, '198.51.100.7{enter}')
+        expect(screen.getByText('198.51.100.7')).toBeInTheDocument()
+        await expectLogic(logic, () => userEvent.click(screen.getByText('Save'))).toDispatchActions([
             'updateOrganization',
         ])
 
         expect(screen.getByText('203.0.113.4')).toBeInTheDocument()
-        expect(screen.queryByText('198.51.100.7')).not.toBeInTheDocument()
-        expect(screen.getByText('Add').closest('button')).toHaveAttribute('aria-disabled', 'true')
+        expect(screen.getByText('198.51.100.7')).toBeInTheDocument()
+        expect(logic.values.currentOrganization?.ip_restrictions).toEqual(organization.ip_restrictions)
+        expect(input).toBeDisabled()
+        expect(screen.getByText('Save').closest('button')).toHaveAttribute('aria-disabled', 'true')
 
         await expectLogic(logic, rejectSave).toDispatchActions(['updateOrganizationFailure'])
-        await waitFor(() => expect(screen.getByText('Add').closest('button')).toHaveAttribute('aria-disabled', 'false'))
+        await waitFor(() =>
+            expect(screen.getByText('Save').closest('button')).toHaveAttribute('aria-disabled', 'false')
+        )
         expect(screen.getByText('203.0.113.4')).toBeInTheDocument()
-        expect(screen.queryByText('198.51.100.7')).not.toBeInTheDocument()
+        expect(screen.getByText('198.51.100.7')).toBeInTheDocument()
+        expect(logic.values.currentOrganization?.ip_restrictions).toEqual(organization.ip_restrictions)
     })
 
     it('edits a saved list while keeping enforcement disabled', async () => {
@@ -66,11 +71,11 @@ describe('OrganizationIPRestrictions', () => {
         render(<OrganizationIPRestrictions />)
         act(() => logic.actions.loadCurrentOrganizationSuccess(disabled))
         await expectLogic(billingLogic).toFinishAllListeners()
-        const input = await screen.findByPlaceholderText('203.0.113.4 or 10.0.0.0/8')
+        const input = await screen.findByLabelText('Allowed IP addresses and CIDR blocks')
         await waitFor(() => expect(input).not.toBeDisabled())
         expect(screen.getByLabelText('Enable IP restrictions')).not.toBeChecked()
-        await userEvent.type(input, '198.51.100.7')
-        await expectLogic(logic, () => userEvent.click(screen.getByText('Add'))).toDispatchActions([
+        await userEvent.type(input, '198.51.100.7{enter}')
+        await expectLogic(logic, () => userEvent.click(screen.getByText('Save'))).toDispatchActions([
             logic.actionCreators.updateOrganization({
                 ip_restrictions: updated.ip_restrictions,
                 ip_restrictions_enabled: false,
@@ -88,17 +93,34 @@ describe('OrganizationIPRestrictions', () => {
         expect(screen.getByText('Test').closest('button')).toHaveAttribute('aria-disabled', 'true')
     })
 
-    it.each(['127.1', '192.168.001.001'])('retains invalid IPv4 input %s instead of saving it', async (ip) => {
+    it.each(['127.1', '192.168.001.001'])('keeps invalid IPv4 draft %s editable without saving it', async (ip) => {
         render(<OrganizationIPRestrictions />)
         await expectLogic(billingLogic).toFinishAllListeners()
-        const input = await screen.findByPlaceholderText('203.0.113.4 or 10.0.0.0/8')
+        const input = await screen.findByLabelText('Allowed IP addresses and CIDR blocks')
         await waitFor(() => expect(input).not.toBeDisabled())
-        await userEvent.type(input, ip)
-        await userEvent.click(screen.getByText('Add'))
-        expect(input).toHaveValue(ip)
+        await userEvent.type(input, `${ip}{enter}`)
+        expect(screen.getByText(ip)).toBeInTheDocument()
+        expect(screen.getByText('Save').closest('button')).toHaveAttribute('aria-disabled', 'true')
         expect(
             screen.getByText('Enter a valid IP address or CIDR block, such as 203.0.113.4 or 10.0.0.0/8.')
         ).toBeInTheDocument()
+    })
+
+    it('prevents enabling without entitlement when billing has no feature metadata', async () => {
+        const disabled = { ...organization, ip_restrictions_enabled: false, available_product_features: [] }
+        userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, organization: disabled })
+        render(<OrganizationIPRestrictions />)
+        const logic = organizationLogic()
+        act(() => logic.actions.loadCurrentOrganizationSuccess(disabled))
+        await expectLogic(billingLogic).toFinishAllListeners()
+        const toggle = await screen.findByLabelText('Enable IP restrictions')
+        const update = jest.spyOn(logic.actions, 'updateOrganization')
+
+        expect(toggle).toBeDisabled()
+        await userEvent.click(toggle)
+        expect(update).not.toHaveBeenCalled()
+        expect(toggle).not.toBeChecked()
+        update.mockRestore()
     })
 
     it('allows disabling existing restrictions after entitlement loss', async () => {
