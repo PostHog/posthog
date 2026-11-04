@@ -20,7 +20,9 @@ consumers:
         group_id: 'livestream-dev-notifications'
 mmdb:
     path: 'mmdb.db'
+trusted_proxies: []
 jwt:
+    authorization_signing_keys: []
     secret: '<randomly generated secret key>'
     # Previous secrets still accepted for verification during key rotation
     secret_fallbacks:

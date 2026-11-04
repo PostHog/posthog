@@ -15,6 +15,7 @@ from __future__ import annotations
 from django.utils import timezone
 
 from rest_framework.authentication import BaseAuthentication
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 
 from posthog.auth import account_refused
@@ -86,7 +87,10 @@ class StripeBearerAuthentication(ActivityCredentialMixin, BaseAuthentication):
             raise SpecError("forbidden", ACCOUNT_BLOCKED_MESSAGE, status=403)
 
         self.access_token = access_token
-        enforce_ip_restrictions(request, user, self)
+        try:
+            enforce_ip_restrictions(request, user, self)
+        except PermissionDenied as error:
+            raise SpecError("forbidden", str(error.detail), status=403) from error
 
         self.record_activity_actor(
             user, str(access_token.application_id), impersonated_by_id=access_token.impersonated_by_id

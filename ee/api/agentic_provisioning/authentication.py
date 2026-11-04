@@ -7,7 +7,7 @@ from django.utils import timezone
 
 import structlog
 from rest_framework.authentication import BaseAuthentication
-from rest_framework.exceptions import AuthenticationFailed
+from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
 from rest_framework.request import Request
 
 from posthog.api.oauth.cimd import enqueue_cimd_refresh_if_stale
@@ -292,7 +292,10 @@ class ProvisioningBearerAuthentication(ActivityCredentialMixin, BaseAuthenticati
             raise ProvisioningError(SECURITY_REFUSAL_CODE, ACCOUNT_BLOCKED_DETAIL, status=403)
 
         self.access_token = access_token
-        enforce_ip_restrictions(request, user, self)
+        try:
+            enforce_ip_restrictions(request, user, self)
+        except PermissionDenied as error:
+            raise ProvisioningError("forbidden", str(error.detail), status=403) from error
 
         self.record_activity_actor(
             user, str(access_token.application_id), impersonated_by_id=access_token.impersonated_by_id

@@ -2,13 +2,18 @@ package auth
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/netip"
 	"strings"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/labstack/echo/v4"
 	"github.com/spf13/viper"
 )
@@ -126,6 +131,13 @@ func CheckAccess(ctx context.Context, viewerRequest *http.Request) (*PropertyRes
 	// Django answers 204 to a client that does not ask for JSON, so an older service keeps working.
 	request.Header.Set("Accept", "application/json")
 	request.Header.Set("X-PostHog-Livestream-IP-Policy", "1")
+	serviceToken, err := mintPolicyAccessToken(viewerRequest.Header)
+	if err != nil {
+		return nil, echo.NewHTTPError(http.StatusServiceUnavailable, "live stream authorization unavailable")
+	}
+	if serviceToken != "" {
+		request.Header.Set("X-PostHog-Livestream-Service-Token", serviceToken)
+	}
 	response, err := authorizationClient.Do(request)
 	if err != nil {
 		return nil, echo.NewHTTPError(http.StatusServiceUnavailable, "live stream authorization unavailable")
@@ -167,13 +179,61 @@ func CheckAccess(ctx context.Context, viewerRequest *http.Request) (*PropertyRes
 	}
 }
 
-var viewerIPExtractor = echo.ExtractIPFromXFFHeader()
+func settingValues(name string) []string {
+	var values []string
+	for _, entry := range viper.GetStringSlice(name) {
+		for _, value := range strings.Split(entry, ",") {
+			if value = strings.TrimSpace(value); value != "" {
+				values = append(values, value)
+			}
+		}
+	}
+	return values
+}
+
+func mintPolicyAccessToken(header http.Header) (string, error) {
+	keys := settingValues("jwt.authorization_signing_keys")
+	if len(keys) == 0 {
+		return "", nil
+	}
+	claims, err := ParseAuthClaims(header)
+	if err != nil {
+		return "", err
+	}
+	viewerHash := sha256.Sum256([]byte(header.Get("Authorization")))
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
+		"aud":                 "posthog:livestream:authorization",
+		"exp":                 time.Now().Add(time.Minute).Unix(),
+		"team_id":             claims.TeamID,
+		"operation":           "read_ip_policy",
+		"viewer_token_sha256": hex.EncodeToString(viewerHash[:]),
+	})
+	return token.SignedString([]byte(keys[0]))
+}
+
+func viewerIPExtractor() (echo.IPExtractor, error) {
+	options := []echo.TrustOption{
+		echo.TrustPrivateNet(false), echo.TrustLoopback(false), echo.TrustLinkLocal(false),
+	}
+	for _, cidr := range settingValues("trusted_proxies") {
+		_, network, err := net.ParseCIDR(cidr)
+		if err != nil {
+			return nil, fmt.Errorf("invalid trusted proxy CIDR: %w", err)
+		}
+		options = append(options, echo.TrustIPRange(network))
+	}
+	return echo.ExtractIPFromXFFHeader(options...), nil
+}
 
 func enforceIPRestrictions(request *http.Request, policies [][]string) error {
 	if len(policies) == 0 {
 		return nil
 	}
-	viewerIP, err := netip.ParseAddr(viewerIPExtractor(request))
+	extractor, err := viewerIPExtractor()
+	if err != nil {
+		return echo.NewHTTPError(http.StatusServiceUnavailable, "live stream authorization unavailable")
+	}
+	viewerIP, err := netip.ParseAddr(extractor(request))
 	if err != nil {
 		return echo.NewHTTPError(http.StatusUnauthorized, "live stream access denied")
 	}

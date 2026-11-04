@@ -47,6 +47,8 @@ MANAGED_PROXY_SIGNING_KEYS: list[str] = get_list(os.getenv("MANAGED_PROXY_SIGNIN
 # Keys the MCP server signs the end user IP with (ActivityLoggingMiddleware). Empty means never trusted.
 MCP_CLIENT_IP_SIGNING_KEYS: list[str] = get_list(os.getenv("MCP_CLIENT_IP_SIGNING_KEYS", ""))
 
+LIVESTREAM_AUTHORIZATION_SIGNING_KEYS: list[str] = get_list(os.getenv("LIVESTREAM_AUTHORIZATION_SIGNING_KEYS", ""))
+
 
 if IS_BEHIND_PROXY:
     USE_X_FORWARDED_HOST = True

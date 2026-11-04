@@ -2,11 +2,13 @@ import json
 
 import pytest
 from posthog.test.base import APIBaseTest, BaseTest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from parameterized import parameterized
 
 from posthog.schema import HogQLQueryResponse
+
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 
 from products.streamlit_apps.backend.logic.bridge import execute_bridge_query
 from products.streamlit_apps.backend.tests.test_presentation import _StreamlitAppsFlagMixin
@@ -82,6 +84,29 @@ class TestStreamlitBridgeView(_StreamlitAppsFlagMixin, APIBaseTest):
         )
         assert response.status_code == expected_status
         assert expected_error in response.json()["error"]
+
+    @parameterized.expand([("203.0.113.7", 200), ("198.51.100.7", 403)])
+    @patch("products.streamlit_apps.backend.presentation.bridge_views.execute_bridge_query")
+    def test_bridge_enforces_organization_ip_policy(self, ip: str, expected_status: int, mock_execute: Mock) -> None:
+        token = self._streamlit_token()
+        self.client.logout()
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+        mock_execute.return_value = {"results": [[1]]}
+
+        response = self.client.post(
+            self._url(),
+            {"query": "SELECT 1"},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+            REMOTE_ADDR=ip,
+        )
+
+        assert response.status_code == expected_status, response.content
+        if expected_status == 200:
+            mock_execute.assert_called_once()
+        else:
+            mock_execute.assert_not_called()
+            assert "IP address" in response.json()["error"]
 
     def test_garbage_token_rejected(self):
         response = self.client.post(

@@ -23,6 +23,7 @@ class PosthogJwtAudience(Enum):
     DELEGATED_USER = "posthog:delegated_user"
     EXPORT_RENDERER = "posthog:export_renderer"
     LIVESTREAM = "posthog:livestream"
+    LIVESTREAM_AUTHORIZATION = "posthog:livestream:authorization"
     SHARING_PASSWORD_PROTECTED = "posthog:sharing_password_protected"
     RECORDING_API = "posthog:recording_api"
     REPLAY_PROXY = "posthog:replay_proxy"

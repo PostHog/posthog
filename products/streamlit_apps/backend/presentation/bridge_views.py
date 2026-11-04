@@ -7,11 +7,14 @@ from typing import TYPE_CHECKING
 
 from django.utils import timezone
 
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from posthog.auth import OAuthAccessTokenAuthentication
+from posthog.ip_restrictions import enforce_ip_restrictions
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.rate_limit import PersonalApiKeyRateThrottle
@@ -64,7 +67,7 @@ class StreamlitBridgeIPThrottle(PersonalApiKeyRateThrottle):
         return self.cache_format % {"scope": self.scope, "ident": self.get_ident(request)}
 
 
-def _authenticate_bearer(auth_header: str) -> tuple[int | None, User | None, str | None]:
+def _authenticate_bearer(auth_header: str, request: Request) -> tuple[int | None, User | None, str | None]:
     """Validate a bridge bearer token; returns (team_id, minting_user, error).
 
     Kept as an in-view helper rather than a DRF BaseAuthentication class on purpose:
@@ -109,6 +112,9 @@ def _authenticate_bearer(auth_header: str) -> tuple[int | None, User | None, str
     if not OrganizationMembership.objects.filter(user=user, organization_id=team.organization_id).exists():
         return None, None, "Token user is not a member of the team's organization."
 
+    authenticator = OAuthAccessTokenAuthentication()
+    authenticator.access_token = access_token
+    enforce_ip_restrictions(request, user, authenticator)
     return team_id, user, None
 
 
@@ -131,7 +137,10 @@ class StreamlitBridgeView(APIView):
         if not auth_header.startswith("Bearer "):
             return Response({"error": "Missing or invalid Authorization header."}, status=401)
 
-        team_id, token_user, error = _authenticate_bearer(auth_header)
+        try:
+            team_id, token_user, error = _authenticate_bearer(auth_header, request)
+        except PermissionDenied as denial:
+            return Response({"error": str(denial.detail)}, status=403)
         if team_id is None:
             return Response({"error": error}, status=401)
 

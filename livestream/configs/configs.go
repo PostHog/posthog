@@ -3,6 +3,7 @@ package configs
 import (
 	"errors"
 	"log"
+	"net"
 	"strings"
 
 	"github.com/spf13/viper"
@@ -13,8 +14,9 @@ type MMDBConfig struct {
 }
 
 type JWTConfig struct {
-	Secret           string
-	AuthorizationURL string `mapstructure:"authorization_url"`
+	AuthorizationSigningKeys []string `mapstructure:"authorization_signing_keys"`
+	Secret                   string
+	AuthorizationURL         string `mapstructure:"authorization_url"`
 	// Previous secrets still accepted for verification (never used for signing),
 	// so tokens signed before a key rotation keep working until they expire.
 	SecretFallbacks []string `mapstructure:"secret_fallbacks"`
@@ -64,7 +66,8 @@ type ConsumersConfig struct {
 }
 
 type Config struct {
-	Debug            bool `mapstructure:"debug"`
+	TrustedProxies   []string `mapstructure:"trusted_proxies"`
+	Debug            bool     `mapstructure:"debug"`
 	MMDB             MMDBConfig
 	Consumers        ConsumersConfig `mapstructure:"consumers"`
 	Parallelism      int             `mapstructure:"parallelism"`
@@ -97,6 +100,8 @@ func InitConfigs(filename, configPath string) {
 	viper.SetEnvKeyReplacer(replacer)
 
 	// Core settings
+	_ = viper.BindEnv("trusted_proxies")
+	_ = viper.BindEnv("jwt.authorization_signing_keys")
 	_ = viper.BindEnv("debug")              // LIVESTREAM_DEBUG
 	_ = viper.BindEnv("parallelism")        // LIVESTREAM_PARALLELISM
 	_ = viper.BindEnv("cors_allow_origins") // LIVESTREAM_CORS_ALLOW_ORIGINS
@@ -160,6 +165,12 @@ func LoadConfig() (*Config, error) {
 
 	if err := viper.Unmarshal(&config); err != nil {
 		return nil, err
+	}
+
+	for _, cidr := range config.TrustedProxies {
+		if _, _, err := net.ParseCIDR(strings.TrimSpace(cidr)); err != nil {
+			return nil, errors.New("trusted_proxies must contain valid proxy CIDRs")
+		}
 	}
 
 	// Set default values

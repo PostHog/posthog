@@ -335,6 +335,10 @@ class TestProvisioningAuthentication(ProvisioningTestBase):
         response = self._post_with_bearer("/api/agentic/provisioning/resources", {}, token=token, REMOTE_ADDR=ip)
 
         assert response.status_code == expected_status, response.content
+        if expected_status == 403:
+            assert response.json()["status"] == "error"
+            assert response.json()["error"]["code"] == "forbidden"
+            assert "IP address" in response.json()["error"]["message"]
 
     def test_deactivated_user_bearer_token_rejected(self):
         token = self._get_bearer_token()

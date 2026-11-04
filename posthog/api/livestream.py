@@ -1,3 +1,5 @@
+import hashlib
+from ipaddress import ip_network
 from typing import cast
 from uuid import UUID
 
@@ -20,6 +22,7 @@ from posthog.models import OrganizationMembership, PropertyDefinition, Team, Use
 from posthog.models.activity_logging.utils import ActivityCredentialMixin
 from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.permissions import ActiveOrganizationPermission, VerifiedDomainEnforcementPermission
+from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.property_access_control import (
@@ -28,6 +31,9 @@ from products.access_control.backend.property_access_control import (
 
 # Mirrors AnyGroupType in the livestream service.
 ANY_GROUP_TYPE = "*"
+LIVESTREAM_POLICY_ACCESS = ScopedServiceJwtPurpose(
+    audience=PosthogJwtAudience.LIVESTREAM_AUTHORIZATION, settings_name="LIVESTREAM_AUTHORIZATION_SIGNING_KEYS"
+)
 
 
 class LivestreamAuthentication(ActivityCredentialMixin, BaseAuthentication):
@@ -96,15 +102,37 @@ class LivestreamAuthorizationView(APIView):
     authentication_classes = [LivestreamAuthentication]
     permission_classes = [IsAuthenticated, LivestreamOrganizationPermission, LivestreamVerifiedDomainPermission]
 
+    @staticmethod
+    def _verify_policy_access(request: Request, team_id: int) -> None:
+        token = request.headers.get("X-PostHog-Livestream-Service-Token", "")
+        try:
+            claims = LIVESTREAM_POLICY_ACCESS.verify(token)
+            viewer_hash = hashlib.sha256(request.headers.get("Authorization", "").encode()).hexdigest()
+            if (
+                type(claims.get("exp")) is not int
+                or type(claims.get("team_id")) is not int
+                or claims["team_id"] != team_id
+                or claims.get("operation") != "read_ip_policy"
+                or claims.get("viewer_token_sha256") != viewer_hash
+            ):
+                raise ValueError("Invalid policy access scope")
+        except (jwt.PyJWTError, RuntimeError, ValueError) as error:
+            raise PermissionDenied("Live stream policy access requires streaming service authentication.") from error
+
     def get(self, request: Request) -> Response:
         user = cast(User, request.user)
         team = cast(Team, request.auth)
         level = UserPermissions(user).team(team).effective_membership_level
         if level is None or level < OrganizationMembership.Level.MEMBER:
             raise PermissionDenied("Live stream access is no longer available.")
-        ip_restrictions = [rules for _, rules in get_ip_restrictions_for_principal(user)]
+        ip_restrictions = [
+            [str(ip_network(rule, strict=False)) for rule in rules]
+            for _, rules in get_ip_restrictions_for_principal(user)
+        ]
         if ip_restrictions and request.headers.get("X-PostHog-Livestream-IP-Policy") != "1":
             raise PermissionDenied("The streaming service must support organization IP restrictions.")
+        if ip_restrictions:
+            self._verify_policy_access(request, team.id)
         if "application/json" not in request.headers.get("Accept", ""):
             # A livestream service that predates the restriction payload treats anything but 204 as an outage.
             return Response(status=204, headers={"Cache-Control": "no-store"})

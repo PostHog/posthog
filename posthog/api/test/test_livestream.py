@@ -1,3 +1,4 @@
+import hashlib
 from datetime import timedelta
 
 from posthog.test.base import APIBaseTest
@@ -5,6 +6,7 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
+import jwt
 from parameterized import parameterized
 
 from posthog.api.livestream import LivestreamAuthentication
@@ -33,31 +35,72 @@ class TestLivestreamAuthorization(APIBaseTest):
             audience,
         )
 
-    @parameterized.expand([("1", 200), ("", 403)])
-    def test_returns_current_ip_policies_only_to_capable_streaming_clients(
-        self, capability: str, expected_status: int
+    @parameterized.expand(
+        [
+            ("valid", "1", 200),
+            ("old_key", "1", 200),
+            ("missing", "1", 403),
+            ("wrong_team", "1", 403),
+            ("wrong_operation", "1", 403),
+            ("wrong_viewer", "1", 403),
+            ("wrong_key", "1", 403),
+            ("expired", "1", 403),
+            ("missing_expiry", "1", 403),
+            ("unconfigured", "1", 403),
+            ("valid", "", 403),
+        ]
+    )
+    def test_returns_current_normalized_ip_policies_only_to_authenticated_streaming_clients(
+        self, proof: str, capability: str, expected_status: int
     ) -> None:
         self.client.logout()
         token = self._token()
         policy = OrganizationIPRestrictions.objects.create(
-            organization=self.organization, ip_restrictions=["203.0.113.0/24"]
+            organization=self.organization,
+            ip_restrictions=["203.0.113.7/255.255.255.0", "2001:db8::7"],
         )
         headers = {
             "Authorization": f"Bearer {token}",
             "Accept": "application/json",
             "X-PostHog-Livestream-IP-Policy": capability,
         }
+        claims = {
+            "team_id": self.team.id + 1 if proof == "wrong_team" else self.team.id,
+            "operation": "other_operation" if proof == "wrong_operation" else "read_ip_policy",
+            "viewer_token_sha256": hashlib.sha256(
+                ("different-viewer" if proof == "wrong_viewer" else headers["Authorization"]).encode()
+            ).hexdigest(),
+        }
+        primary_key = "test-livestream-service-primary-key-32-bytes"
+        old_key = "test-livestream-service-previous-key-32-bytes"
+        key = old_key if proof == "old_key" else primary_key
+        if proof == "wrong_key":
+            key = "untrusted-livestream-service-key-32-bytes"
+        if proof == "missing_expiry":
+            headers["X-PostHog-Livestream-Service-Token"] = jwt.encode(
+                {**claims, "aud": PosthogJwtAudience.LIVESTREAM_AUTHORIZATION.value}, key, algorithm="HS256"
+            )
+        elif proof != "missing":
+            headers["X-PostHog-Livestream-Service-Token"] = encode_jwt(
+                claims,
+                timedelta(minutes=-1 if proof == "expired" else 1),
+                PosthogJwtAudience.LIVESTREAM_AUTHORIZATION,
+                signing_key=key,
+            )
 
-        response = self.client.get("/api/livestream/authorize/", headers=headers)
+        with self.settings(
+            LIVESTREAM_AUTHORIZATION_SIGNING_KEYS=[] if proof == "unconfigured" else [primary_key, old_key]
+        ):
+            response = self.client.get("/api/livestream/authorize/", headers=headers)
 
-        assert response.status_code == expected_status, response.content
-        if expected_status == 200:
-            assert response.json()["ip_restrictions"] == [["203.0.113.0/24"]]
-            policy.ip_restrictions = ["198.51.100.0/24"]
-            policy.save()
-            updated = self.client.get("/api/livestream/authorize/", headers=headers)
-            assert updated.status_code == 200
-            assert updated.json()["ip_restrictions"] == [["198.51.100.0/24"]]
+            assert response.status_code == expected_status, response.content
+            if expected_status == 200:
+                assert response.json()["ip_restrictions"] == [["203.0.113.0/24", "2001:db8::7/128"]]
+                policy.ip_restrictions = ["198.51.100.0/24"]
+                policy.save()
+                updated = self.client.get("/api/livestream/authorize/", headers=headers)
+                assert updated.status_code == 200
+                assert updated.json()["ip_restrictions"] == [["198.51.100.0/24"]]
 
     @parameterized.expand(
         [

@@ -193,6 +193,10 @@ Precedence (highest wins): `shell env > .env.local > .env.development > .env.ser
 
 Outside tests, `DEBUG=1` defaults `TRUSTED_PROXIES` to `127.0.0.1,::1` so the backend can extract client IPs forwarded by the local Docker proxy on macOS. An explicit `TRUSTED_PROXIES` value overrides this default. Production has no default trusted proxies.
 
+Livestream has a separate `LIVESTREAM_TRUSTED_PROXIES` setting containing comma-separated proxy CIDRs. It trusts no proxies by default, including private, loopback, and link-local peers. List only the actual reverse proxy addresses, not networks containing ordinary clients.
+
+Streaming for IP-restricted organizations also requires matching dedicated signing keys in Django's `LIVESTREAM_AUTHORIZATION_SIGNING_KEYS` and livestream's `LIVESTREAM_JWT_AUTHORIZATION_SIGNING_KEYS`. Both accept comma-separated keys, newest first. Use independently generated keys per environment; neither setting falls back to another secret. Configure both services before testing restricted streams. The service signs short-lived policy requests bound to the viewer token and team; a viewer token alone cannot read allowlists.
+
 To run AI features locally, you'll need API keys for OpenAI, Anthropic, and others. PostHog employees can pull them from 1Password without ever pasting raw values:
 
 ```bash
