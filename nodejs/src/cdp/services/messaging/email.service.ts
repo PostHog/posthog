@@ -20,7 +20,11 @@ import { logger } from '~/common/utils/logger'
 
 import { TRANSACTIONAL_EMAIL_EVENT } from '../hogflows/hogflow-sensitivity'
 import { IntegrationManagerService } from '../managers/integration-manager.service'
-import { OrganizationMembersService, RecipientCheck, StoredAddressByRecipient } from '../managers/organization-members.service'
+import {
+    OrganizationMembersService,
+    RecipientCheck,
+    StoredAddressByRecipient,
+} from '../managers/organization-members.service'
 import { RecipientManagerRecipient, RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { WorkflowsActivationReporter } from '../monitoring/workflows-activation-reporter'
