@@ -8,6 +8,7 @@ from products.warehouse_sources.sources.aws_cloudtrail.aws_cloudtrail import (
 )
 from products.warehouse_sources.sources.aws_cloudtrail.settings import (
     ACCESS_DENIED_CODES,
+    AWS_SESSION_ACTIONS,
     CLOUDTRAIL_API_VERSION,
     CREDENTIAL_ERRORS,
     ENDPOINT_DESCRIPTIONS,
@@ -62,6 +63,7 @@ class AwsCloudTrailSource(ResumableSource[AwsCloudTrailSourceConfig, AwsCloudTra
     api_docs_url = "https://docs.aws.amazon.com/awscloudtrail/latest/APIReference/Welcome.html"
 
     flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    aws_session_actions = AWS_SESSION_ACTIONS
     credential_kind = "aws-cloud-trail"
 
     @property
@@ -105,7 +107,7 @@ class AwsCloudTrailSource(ResumableSource[AwsCloudTrailSourceConfig, AwsCloudTra
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
-            credentials = resolve_aws_credentials(config.aws_auth, team_id)
+            credentials = resolve_aws_credentials(config.aws_auth, team_id, AWS_SESSION_ACTIONS)
         except AwsAuthError as error:
             return False, str(error)
         return validate_credentials(
@@ -125,7 +127,7 @@ class AwsCloudTrailSource(ResumableSource[AwsCloudTrailSourceConfig, AwsCloudTra
         inputs: SourceInputs,
     ) -> SourceResponse:
         return aws_cloudtrail_source(
-            credentials=resolve_aws_credentials(config.aws_auth, inputs.team_id),
+            credentials=resolve_aws_credentials(config.aws_auth, inputs.team_id, AWS_SESSION_ACTIONS),
             region=config.region,
             api_version=self.resolve_api_version(inputs.api_version),
             endpoint_name=inputs.schema_name,

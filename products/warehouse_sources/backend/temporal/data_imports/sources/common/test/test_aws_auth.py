@@ -39,7 +39,16 @@ OUR_ROLE_ARN = "arn:aws:iam::000000000000:role/posthog-external-warehouse-source
 SESSION_ACTIONS = ("config:Describe*", "config:Get*")
 # A source calls only these verbs, apart from the actions listed per source in NON_READ_ACTIONS.
 READ_VERBS = ("BatchGet", "Describe", "Filter", "Get", "List", "Lookup", "Scan", "Select", "View")
-NON_READ_ACTIONS: dict[ExternalDataSourceType, set[str]] = {}
+NON_READ_ACTIONS: dict[ExternalDataSourceType, set[str]] = {
+    # Athena runs the query as the caller and writes its results to the workgroup's S3 location.
+    ExternalDataSourceType.AWSATHENA: {
+        "athena:StartQueryExecution",
+        "athena:StopQueryExecution",
+        "kms:GenerateDataKey",
+        "s3:AbortMultipartUpload",
+        "s3:PutObject",
+    },
+}
 
 
 @dataclass(frozen=True)

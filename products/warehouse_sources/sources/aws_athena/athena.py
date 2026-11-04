@@ -31,6 +31,7 @@ from tenacity import (
 from products.warehouse_sources.sources.aws_athena._config import AwsAthenaSourceConfig
 from products.warehouse_sources.sources.aws_athena.settings import (
     ATHENA_SERVICE,
+    AWS_SESSION_ACTIONS,
     DATA_CATALOG,
     DEFAULT_WORKGROUP,
     GLUE_PAGE_SIZE,
@@ -512,7 +513,7 @@ class AthenaImplementation(SQLSourceImplementation[AwsAthenaSourceConfig, Athena
         # The team is still needed: an IAM role connection belongs to it.
         if team_id is None:
             raise ValueError("Athena needs the source's team to resolve its AWS credentials")
-        client = make_client(config, resolve_aws_credentials(config.aws_auth, team_id))
+        client = make_client(config, resolve_aws_credentials(config.aws_auth, team_id, AWS_SESSION_ACTIONS))
         try:
             yield client
         finally:
@@ -548,7 +549,7 @@ class AthenaImplementation(SQLSourceImplementation[AwsAthenaSourceConfig, Athena
             output_location=(config.output_location or "").strip() or None,
         )
 
-        client = make_client(config, resolve_aws_credentials(config.aws_auth, inputs.team_id))
+        client = make_client(config, resolve_aws_credentials(config.aws_auth, inputs.team_id, AWS_SESSION_ACTIONS))
         full_table = get_glue_table(client, database, table_name)
         primary_keys = resolve_merge_keys(inputs.primary_keys, None, [column.name for column in full_table.columns])
 

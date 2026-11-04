@@ -173,3 +173,10 @@ ENDPOINT_DESCRIPTIONS: dict[str, str] = {
     "multi_region_endpoints": "Multi-region endpoints (global endpoints), with their status and the AWS Regions they route sending to.",
     "suppressed_destinations": "Email addresses on the account-level suppression list, with the reason and time they were added.",
 }
+
+
+# The IAM actions this source calls. A role session can use only these.
+AWS_SESSION_ACTIONS = (
+    "ses:Get*",
+    "ses:List*",
+)

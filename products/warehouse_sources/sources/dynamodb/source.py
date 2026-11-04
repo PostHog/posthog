@@ -9,6 +9,7 @@ from products.warehouse_sources.sources.dynamodb.dynamodb import (
     validate_credentials as validate_dynamodb_credentials,
 )
 from products.warehouse_sources.sources.dynamodb.settings import (
+    AWS_SESSION_ACTIONS,
     DYNAMODB_API_VERSION,
     NON_RETRYABLE_ERROR_MESSAGES,
     RETRYABLE_ERROR_CODES,
@@ -57,6 +58,7 @@ class DynamoDBSource(ResumableSource[DynamoDBSourceConfig, DynamoDBResumeConfig]
     api_docs_url = "https://docs.aws.amazon.com/amazondynamodb/latest/APIReference/Welcome.html"
 
     flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    aws_session_actions = AWS_SESSION_ACTIONS
     credential_kind = "dynamodb"
 
     @property
@@ -105,7 +107,7 @@ Create an IAM role or user whose policy allows `dynamodb:ListTables`, `dynamodb:
 
     def _client(self, config: DynamoDBSourceConfig, team_id: int, api_version: str | None = None) -> DynamoDBClient:
         return DynamoDBClient(
-            credentials=resolve_aws_credentials(config.aws_auth, team_id),
+            credentials=resolve_aws_credentials(config.aws_auth, team_id, AWS_SESSION_ACTIONS),
             region=config.aws_region,
             api_version=self.resolve_api_version(api_version),
         )
@@ -129,7 +131,7 @@ Create an IAM role or user whose policy allows `dynamodb:ListTables`, `dynamodb:
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         try:
-            credentials = resolve_aws_credentials(config.aws_auth, team_id)
+            credentials = resolve_aws_credentials(config.aws_auth, team_id, AWS_SESSION_ACTIONS)
         except AwsAuthError as error:
             return False, str(error)
         return validate_dynamodb_credentials(
@@ -148,7 +150,7 @@ Create an IAM role or user whose policy allows `dynamodb:ListTables`, `dynamodb:
         inputs: SourceInputs,
     ) -> SourceResponse:
         return dynamodb_source(
-            credentials=resolve_aws_credentials(config.aws_auth, inputs.team_id),
+            credentials=resolve_aws_credentials(config.aws_auth, inputs.team_id, AWS_SESSION_ACTIONS),
             region=config.aws_region,
             table_name=inputs.schema_name,
             logger=inputs.logger,

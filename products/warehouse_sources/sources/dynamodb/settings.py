@@ -55,3 +55,12 @@ NON_RETRYABLE_ERROR_MESSAGES: dict[str, str | None] = {
     "IncompleteSignature": "AWS could not verify the request signature. Check your access key ID and secret access key, then reconnect.",
     "MissingAuthenticationToken": _INVALID_KEY_MESSAGE,
 }
+
+
+# The IAM actions this source calls. A role session can use only these.
+AWS_SESSION_ACTIONS = (
+    "dynamodb:Describe*",
+    "dynamodb:List*",
+    "dynamodb:Scan",
+    "kms:Decrypt",
+)
