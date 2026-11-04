@@ -160,7 +160,11 @@ from products.access_control.backend.presentation.access_control import UserAcce
 from products.slack_app.backend.services.slack_auth import SLACK_AUTH_FAILURE_CODES
 from products.tasks.backend.facade.api import get_in_progress_runs_for_github_integration
 from products.tasks.backend.facade.contracts import InProgressGithubRunsDTO
-from products.workflows.backend.facade.api import lookup_existing_email_tools
+from products.workflows.backend.facade.api import (
+    SandboxSenderUnavailable,
+    ensure_sandbox_email_sender,
+    lookup_existing_email_tools,
+)
 from products.workflows.backend.facade.contracts import EmailProviderUnavailableError
 from products.workflows.backend.facade.enums import EmailDomainSetupMethod
 
@@ -1656,6 +1660,7 @@ class IntegrationViewSet(
         "github_link_existing",
         "github_oauth_authorize",
         "email_verify",
+        "email_sandbox_sender",
         # Side-effecting POST (emails admins) — a read-only token must not be able to trigger it.
         "request_access",
         "push_tokens",
@@ -1704,7 +1709,13 @@ class IntegrationViewSet(
         ]
         # Adding an integration only requires project membership. Every edit and removal uses the
         # viewset permission class, including the creator exception for Google account removal.
-        if self.action in ("create", "github_link_existing", "github_oauth_authorize", "request_access"):
+        if self.action in (
+            "create",
+            "github_link_existing",
+            "github_oauth_authorize",
+            "request_access",
+            "email_sandbox_sender",
+        ):
             return base_permissions
         if self.action == "refresh_github_repos":
             return [*base_permissions, TeamMemberLightManagementPermission()]
@@ -2880,6 +2891,23 @@ class IntegrationViewSet(
                 {"imported": result.imported, "failed_distinct_ids": result.failed_distinct_ids}
             ).data
         )
+
+    @extend_schema(
+        request=None,
+        responses={200: IntegrationSerializer, 404: OpenApiResponse(description="No sandbox sender for this project.")},
+    )
+    @action(methods=["POST"], detail=False, url_path="email_sandbox_sender")
+    def email_sandbox_sender(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        try:
+            sandbox_sender = ensure_sandbox_email_sender(self.team_id)
+        except SandboxSenderUnavailable:
+            raise NotFound("The sandbox sender is not available for this project.")
+        if sandbox_sender.created:
+            report_user_action(
+                cast(User, request.user), "workflows sandbox sender provisioned", team=self.team, request=request
+            )
+        integration = self.get_queryset().get(id=sandbox_sender.integration_id)
+        return Response(IntegrationSerializer(integration, context=self.get_serializer_context()).data)
 
     @extend_schema(
         request=None,

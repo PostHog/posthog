@@ -284,6 +284,16 @@ class EmailSendingTierLimits:
 
 
 @frozen
+class SandboxEmailSender:
+    integration_id: int
+    created: bool
+
+
+class SandboxSenderUnavailable(Exception):
+    pass
+
+
+@frozen
 class TierDecision:
     team_id: int
     previous_tier: int
