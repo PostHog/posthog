@@ -455,8 +455,6 @@ frontend/src/queries/nodes/WebVitals/WebVitals.tsx -> frontend/src/scenes/web-an
 frontend/src/queries/nodes/WebVitals/WebVitalsContent.tsx -> frontend/src/scenes/web-analytics/webAnalyticsLogic.tsx
 frontend/src/queries/nodes/WebVitals/WebVitalsPathBreakdown.tsx -> frontend/src/scenes/web-analytics/webAnalyticsLogic.tsx
 frontend/src/queries/query.ts -> frontend/src/exporter/exporterViewLogic.ts
-frontend/src/scenes/AuthenticatedShell.tsx -> frontend/src/scenes/onboarding/shared/wizard-sync/WizardHandoffDialog.tsx
-frontend/src/scenes/AuthenticatedShell.tsx -> frontend/src/scenes/onboarding/shared/wizard-sync/WizardSyncDebugPanel.tsx
 frontend/src/scenes/AuthenticatedShell.tsx -> products/webmcp/frontend/logics/webmcpLogic.ts
 frontend/src/scenes/appScenes.ts -> frontend/src/scenes/project-homepage/importProjectHomepage.ts
 frontend/src/scenes/bootApp.ts -> frontend/src/scenes/notebooks/AddToNotebook/registerNotebookLinkDrag.ts
