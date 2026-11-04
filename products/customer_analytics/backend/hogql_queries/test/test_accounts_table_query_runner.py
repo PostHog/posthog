@@ -68,6 +68,7 @@ from products.customer_analytics.backend.models import (
     CustomPropertyValue,
     DisplayType,
 )
+from products.customer_analytics.backend.models.custom_property_value import SORT_VALUE_STR_PREFIX_LENGTH
 from products.customer_analytics.backend.test.factories import create_account, create_custom_property_definition
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 
@@ -1278,6 +1279,15 @@ class TestAccountsTableQueryRunner(BaseTest):
         CustomPropertyValue.objects.unscoped().create(
             team=self.team, account=beta, definition=custom_property_definition, value_num=50, is_deleted=True
         )
+        long_text_definition = create_custom_property_definition(team_id=self.team.id, name="Notes")
+        shared_prefix = "x" * SORT_VALUE_STR_PREFIX_LENGTH
+        lower_id_account, higher_id_account = sorted([alpha, beta], key=lambda account: account.id)
+        CustomPropertyValue.objects.unscoped().create(
+            team=self.team, account=lower_id_account, definition=long_text_definition, value_str=f"{shared_prefix}b"
+        )
+        CustomPropertyValue.objects.unscoped().create(
+            team=self.team, account=higher_id_account, definition=long_text_definition, value_str=f"{shared_prefix}a"
+        )
 
         paginated = self._run(
             AccountsTableQuery(
@@ -1308,6 +1318,10 @@ class TestAccountsTableQueryRunner(BaseTest):
             (
                 AccountsTableCustomPropertyColumn(definitionId=str(custom_property_definition.id)),
                 ["Beta", "Alpha", "Gamma"],
+            ),
+            (
+                AccountsTableCustomPropertyColumn(definitionId=str(long_text_definition.id)),
+                [higher_id_account.name, lower_id_account.name, "Gamma"],
             ),
         ]
         for column, expected_names in sort_cases:

@@ -3526,11 +3526,12 @@ def _list_accounts_sorted_by_custom_property(
             Left(sort_value, SORT_VALUE_STR_PREFIX_LENGTH) if value_field == "value_str" else sort_value
         ),
     )
+    sort_keys = [F("_account_table_sort"), *([sort_value] if value_field == "value_str" else [])]
     if sort.direction == contracts.AccountTableSortDirection.ASCENDING:
-        with_value = with_value.order_by(F("_account_table_sort").asc(), "id")
+        with_value = with_value.order_by(*(key.asc() for key in sort_keys), "id")
     else:
-        with_value = with_value.order_by(F("_account_table_sort").desc(), "-id")
-    accounts = list(with_value[offset : offset + limit])
+        with_value = with_value.order_by(*(key.desc() for key in sort_keys), "-id")
+    accounts: list[Account] = list(with_value[offset : offset + limit])
     if len(accounts) == limit:
         return accounts
 
