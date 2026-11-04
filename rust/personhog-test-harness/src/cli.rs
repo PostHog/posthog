@@ -210,7 +210,7 @@ pub struct GateArgs {
     #[arg(long, default_value = "personhog_person_tmp")]
     pub pg_target_table: String,
 
-    #[arg(long, default_value = "localhost:9092")]
+    #[arg(long, default_value = "127.0.0.1:9092")]
     pub kafka_hosts: String,
 
     #[arg(long, default_value = "http://localhost:2379")]
@@ -502,7 +502,7 @@ pub struct StackArgs {
     #[arg(long, default_value = "personhog_person_tmp")]
     pub pg_target_table: String,
 
-    #[arg(long, default_value = "localhost:9092")]
+    #[arg(long, default_value = "127.0.0.1:9092")]
     pub kafka_hosts: String,
 
     #[arg(long, default_value = "http://localhost:2379")]
