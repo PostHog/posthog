@@ -194,6 +194,9 @@ Bars use `hitArea: 'band'`.
 
 ## MetricCard
 
+Deprecated: use `Metric` from `@posthog/quill-components/metric` (`@posthog/quill/metric` from npm).
+`MetricCard` stays only so apps that pin an older version can upgrade without a break.
+
 A left-aligned tile: headline number, change pill, sparkline.
 
 - `title={null}` drops the title row. The header band collapses when there is no title and no change pill, and the subtitle row is omitted when there is no subtitle and no `labels`, so a value-only card renders just the number.
@@ -206,6 +209,5 @@ A left-aligned tile: headline number, change pill, sparkline.
 - `changeTooltip` shows a styled hover tooltip on the change pill, using the host's tooltip surface tokens with chart-surface fallbacks.
 - `change.value` is a percent, so `8` reads as +8%. Its sign sets the pill's direction, and `goodDirection` decides whether that direction is good. `change.label` replaces the formatted text, for example `+1.1 pts` for a change in percentage points.
 
-The composable form is `Metric` in `@posthog/quill-components` (it needs `Card` and `Badge` from primitives, which charts cannot depend on).
+`Metric` lives in `@posthog/quill-components` because it needs `Card` and `Badge` from primitives, which charts cannot depend on.
 It is built on `Sparkline` plus the headless helpers this package exports: `resolveDelta` and `computeFallbackChangePercent` (delta math), `useAnimatedNumber` (count-up headline), `useHoverIntent` (hover dwell), and the `MetricChange` and `ResolvedDelta` types.
-Reach for `Metric` for a custom layout; use `MetricCard` for the default self-contained tile.

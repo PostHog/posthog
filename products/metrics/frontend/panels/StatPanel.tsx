@@ -1,6 +1,14 @@
 import { useValues } from 'kea'
 
-import { MetricCard } from '@posthog/quill-charts'
+import {
+    Metric,
+    MetricDelta,
+    MetricHeader,
+    MetricSparkline,
+    MetricSubtitle,
+    MetricTitle,
+    MetricValue,
+} from '@posthog/quill-components/metric'
 
 import { useChartTheme } from 'lib/charts/hooks'
 import { getColorVar } from 'lib/colors'
@@ -43,13 +51,13 @@ export function StatPanel({ series, display, fallbackName }: MetricsPanelProps):
             row.metricName ||
             fallbackName
         const color = getColorVar(thresholdColor(value, display.thresholds, FALLBACK_COLOR))
+        const headlineColor = value !== null && display.thresholds?.length ? color : undefined
         const data = row.series.points.map((p) => p.value ?? 0)
         // The headline shows the hovered sparkline point, so it shares one scale with every point.
         const formatValue = metricValuesFormatter(row.series.unit ?? undefined, [...data, value ?? 0])
         return (
-            <MetricCard
+            <Metric
                 key={index}
-                title={single ? null : name}
                 value={value ?? undefined}
                 data={data}
                 labels={row.series.points.map((p) => p.time)}
@@ -60,13 +68,21 @@ export function StatPanel({ series, display, fallbackName }: MetricsPanelProps):
                 theme={theme}
                 color={color}
                 formatValue={formatValue}
-                headlineClassName="whitespace-nowrap text-2xl @min-[13rem]:text-3xl @min-[16rem]:text-4xl"
-                changeInline
                 sparklineFill={single}
                 sparklineHeight={GROUPED_SPARKLINE_HEIGHT}
-                sparklineClassName="mt-2"
-                className={cn('@container min-w-0', single && 'h-full')}
-            />
+                className="@container w-full min-w-0 px-0"
+            >
+                {!single && <MetricTitle>{name}</MetricTitle>}
+                <MetricHeader className={cn('flex-wrap items-center', !single && 'mt-2')}>
+                    <MetricValue
+                        className="text-2xl @min-[13rem]:text-3xl @min-[16rem]:text-4xl"
+                        style={{ color: headlineColor }}
+                    />
+                    <MetricDelta />
+                </MetricHeader>
+                <MetricSubtitle className="mt-1" />
+                <MetricSparkline className="mt-2" />
+            </Metric>
         )
     })
 

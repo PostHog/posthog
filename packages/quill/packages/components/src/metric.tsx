@@ -50,6 +50,7 @@ interface MetricContextValue {
         dashedFromIndex?: number
         setHoverIndex: (index: number) => void
         tooltip?: (ctx: TooltipContext) => React.ReactNode
+        onError?: (error: Error, info: React.ErrorInfo) => void
     } | null
 }
 
@@ -163,10 +164,9 @@ export type MetricProps = MetricBaseProps &
  * ```
  */
 export function Metric(props: MetricProps): React.ReactElement | null {
-    const { onError, ...rest } = props
     return (
-        <ChartErrorBoundary onError={onError}>
-            <MetricInner {...rest} />
+        <ChartErrorBoundary onError={props.onError}>
+            <MetricInner {...props} />
         </ChartErrorBoundary>
     )
 }
@@ -199,8 +199,9 @@ function MetricInner({
     hoverIntentMs = 60,
     className,
     dataAttr,
+    onError,
     children,
-}: Omit<MetricBaseProps, 'onError'> & {
+}: MetricBaseProps & {
     data?: number[]
     series?: Series[]
 }): React.ReactElement | null {
@@ -276,6 +277,7 @@ function MetricInner({
                       dashedFromIndex: sparklineDashedFromIndex,
                       setHoverIndex,
                       tooltip: sparklineTooltip,
+                      onError,
                   }
                 : null,
         }
@@ -307,6 +309,7 @@ function MetricInner({
         sparklineFillOpacity,
         sparklineDashedFromIndex,
         sparklineTooltip,
+        onError,
     ])
 
     if (ctx == null) {
@@ -446,6 +449,7 @@ export function MetricSparkline({
             tooltip={sparkline.tooltip}
             className={cn('relative top-[6px]', pinBottom, className)}
             dataAttr="metric-sparkline"
+            onError={sparkline.onError}
         />
     )
 }

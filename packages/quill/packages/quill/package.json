@@ -25,6 +25,12 @@
             "require": "./dist/index.cjs",
             "default": "./dist/index.js"
         },
+        "./metric": {
+            "types": "./dist/metric.d.ts",
+            "import": "./dist/metric.js",
+            "require": "./dist/metric.cjs",
+            "default": "./dist/metric.js"
+        },
         "./tailwind.css": "./dist/tailwind.css",
         "./base.css": "./dist/base.css",
         "./primitives.css": "./dist/primitives.css",
@@ -53,6 +59,7 @@
     "devDependencies": {
         "@base-ui/react": "catalog:",
         "@posthog/quill-blocks": "workspace:*",
+        "@posthog/quill-charts": "workspace:*",
         "@posthog/quill-components": "workspace:*",
         "@posthog/quill-primitives": "workspace:*",
         "@posthog/quill-tokens": "workspace:*",
@@ -63,9 +70,15 @@
     },
     "peerDependencies": {
         "@base-ui/react": "^1.4.0",
+        "@posthog/quill-charts": "workspace:^",
         "react": "^18.3.1 || ^19.0.0",
         "react-dom": "^18.3.1 || ^19.0.0",
         "tailwindcss": "^4.0.0"
+    },
+    "peerDependenciesMeta": {
+        "@posthog/quill-charts": {
+            "optional": true
+        }
     },
     "engines": {
         "node": ">=20"

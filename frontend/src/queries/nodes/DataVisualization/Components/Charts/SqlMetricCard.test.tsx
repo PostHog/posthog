@@ -53,7 +53,7 @@ describe('SqlMetricCard', () => {
 
         await waitFor(() => expect(screen.getByText('$1,500')).toBeInTheDocument())
         expect(screen.getByText('Jan 3, 2026')).toBeInTheDocument()
-        expect(container.querySelector('[data-attr="metric-card-sparkline"]')).toBeInTheDocument()
+        expect(container.querySelector('[data-attr="metric-sparkline"]')).toBeInTheDocument()
 
         hoverAtIndex(getChart(container).element, 1, 3)
         await waitFor(() => expect(screen.getByText('Jan 2, 2026')).toBeInTheDocument())

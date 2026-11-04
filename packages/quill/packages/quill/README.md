@@ -13,6 +13,19 @@ pnpm add @posthog/quill
 Peer deps (already declared on this package, your package manager will
 pull them in): `react`, `react-dom`, `tailwindcss@^4`.
 
+### Metric tile
+
+`Metric` is a separate entry, because it needs `@posthog/quill-charts` (and d3).
+Install the charts package too, then import from the subpath:
+
+```sh
+pnpm add @posthog/quill-charts
+```
+
+```tsx
+import { Metric, MetricValue, MetricSparkline } from '@posthog/quill/metric'
+```
+
 ## Required CSS imports
 
 Quill ships **four** CSS entry points. They all need to be imported in
