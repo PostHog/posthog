@@ -16,7 +16,7 @@ import {
     resolveProjectTreeDrop,
     calculateMovePath,
 } from '~/layout/panel-layout/ProjectTree/utils'
-import type { FileSystemEntry } from '~/queries/schema/schema-general'
+import type { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 
 import { createFacetMatcher, type FacetDefinition, type MatchesText } from './FacetSearchBar/facetQuery'
 import type { FacetSearchValue } from './FacetSearchBar/facetQuery'
@@ -64,6 +64,7 @@ export interface workflowFoldersLogicValues {
     folderJumpSearch: string
     folderMatchesText: MatchesText<WorkflowFolderFileRow>
     folderPaths: string[]
+    folderTreeEntries: (FileSystemEntry | FileSystemImport)[]
     folderRows: WorkflowListRow[]
     folderSearchItems: WorkflowFolderFileRow[]
     folderTemplates: FileSystemEntry[]
@@ -191,6 +192,10 @@ export interface workflowFoldersLogicMeta {
             hasActiveQuery: boolean
         ) => number
         folderPaths: (savedItems: FileSystemEntry[], rows: WorkflowListRow[]) => string[]
+        folderTreeEntries: (
+            folderPaths: string[],
+            savedItems: FileSystemEntry[]
+        ) => (FileSystemEntry | FileSystemImport)[]
         matchingRows: (
             rows: WorkflowListRow[],
             value: FacetSearchValue,
@@ -507,6 +512,15 @@ export const workflowFoldersLogic = kea<workflowFoldersLogicType>([
             (s) => [s.savedItems, s.rows],
             (items: FileSystemEntry[], rows: WorkflowListRow[]): string[] =>
                 relevantFolderPaths(items, rows.length > 0),
+        ],
+        folderTreeEntries: [
+            (s) => [s.folderPaths, s.savedItems],
+            (folderPaths: string[], items: FileSystemEntry[]): (FileSystemEntry | FileSystemImport)[] => {
+                const folderByPath = new Map(
+                    items.filter((entry) => entry.type === 'folder').map((entry) => [entry.path, entry])
+                )
+                return folderPaths.map((path) => folderByPath.get(path) ?? { path, type: 'folder' })
+            },
         ],
         matchingRows: [
             (s) => [s.rows, s.value, s.facets, s.matchesText],

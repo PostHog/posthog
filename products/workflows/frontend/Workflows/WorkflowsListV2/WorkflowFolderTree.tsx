@@ -4,7 +4,6 @@ import { IconFolder } from '@posthog/icons'
 
 import { LemonTree, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 
-import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { convertFileSystemEntryToTreeDataItem } from '~/layout/panel-layout/ProjectTree/utils'
 
 import { WORKFLOW_FILES_DRAG_SCOPE } from './workflowFolderDragScopes'
@@ -12,15 +11,18 @@ import { workflowFoldersLogic } from './workflowFoldersLogic'
 import { WorkflowNewFolderButton } from './WorkflowNewFolderButton'
 
 export function WorkflowFolderTree(): JSX.Element {
-    const { folderPaths, folderCounts, browserReady, browserReadyLoading, currentFolder, expandedFolders } =
-        useValues(workflowFoldersLogic)
+    const {
+        folderPaths,
+        folderTreeEntries,
+        folderCounts,
+        browserReady,
+        browserReadyLoading,
+        currentFolder,
+        expandedFolders,
+    } = useValues(workflowFoldersLogic)
     const { openFolder, selectTreeFolder, setExpandedFolders } = useActions(workflowFoldersLogic)
-    const { savedItems } = useValues(projectTreeDataLogic)
-    const folders = folderPaths.map(
-        (path) => savedItems.find((entry) => entry.type === 'folder' && entry.path === path) ?? { path, type: 'folder' }
-    )
     const children = convertFileSystemEntryToTreeDataItem({
-        imports: folders,
+        imports: folderTreeEntries,
         folderStates: Object.fromEntries(folderPaths.map((path) => [path, 'loaded'])),
         checkedItems: {},
         users: {},
