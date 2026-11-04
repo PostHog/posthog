@@ -135,9 +135,12 @@ def build_planned_schemas(
     for source_schema in source_schemas:
         table_plan = plans.get(source_schema.name)
         if table_plan is None or source_schema.webhook_only:
-            payload.append({"name": source_schema.name, "should_sync": False})
+            off: dict[str, Any] = {"name": source_schema.name, "should_sync": False}
             if table_plan is not None:
                 webhook_only.append(source_schema.name)
+                # A registered webhook turns the table on later, at the planned time.
+                off = _with_time_of_day(off, proposal)
+            payload.append(off)
             continue
 
         column_names = [str(column[0]) for column in source_schema.columns or []]
