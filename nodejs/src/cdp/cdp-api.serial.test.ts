@@ -2313,31 +2313,45 @@ describe('CDP API', () => {
                     .set({ Authorization: `Bearer ${tokenFor(route, team.id, hogFlow.id)}` })
                     .send({ ...payload, idempotency_key: keyed.idempotency_key })
             const changedContent = { ...codeSend, content: { ...codeSend.content, subject: 'Your new code' } }
+            const otherSenderId = codeSend.from.integrationId + 3
+            const addresslessSend = { ...codeSend, from: { integrationId: codeSend.from.integrationId } }
 
             beforeEach(() => {
                 keyed = { ...body, idempotency_key: `key-${new UUIDT().toString()}` }
             })
 
             it.each([
-                ['a template send', 'transactional_email', body],
-                ['a code send', 'transactional_email/send', { ...body, send: codeSend }],
+                ['a template send', 'transactional_email', body, body],
+                ['a code send', 'transactional_email/send', { ...body, send: codeSend }, { ...body, send: codeSend }],
+                [
+                    'a code send after its named address resolved to another sender',
+                    'transactional_email/send',
+                    { ...body, send: codeSend },
+                    { ...body, send: { ...codeSend, from: { ...codeSend.from, integrationId: otherSenderId } } },
+                ],
+                [
+                    'a code send from a sender without an address',
+                    'transactional_email/send',
+                    { ...body, send: addresslessSend },
+                    { ...body, send: addresslessSend },
+                ],
             ] as const)(
                 'returns the first send for a retry of %s and queues nothing new',
-                async (_desc, route, payload) => {
-                    const first = await sendKeyedOn(route, payload)
-                    const retry = await sendKeyedOn(route, payload)
+                async (_desc, route, first, retry) => {
+                    const sent = await sendKeyedOn(route, first)
+                    const replayed = await sendKeyedOn(route, retry)
 
-                    expect(first.status).toEqual(202)
-                    expect(first.body).toMatchObject({ replayed: false })
-                    expect(retry.status).toEqual(202)
-                    expect(retry.body).toEqual({
+                    expect(sent.status).toEqual(202)
+                    expect(sent.body).toMatchObject({ replayed: false })
+                    expect(replayed.status).toEqual(202)
+                    expect(replayed.body).toEqual({
                         status: 'queued',
-                        invocation_id: first.body.invocation_id,
+                        invocation_id: sent.body.invocation_id,
                         replayed: true,
                     })
                     expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
                     expect(emailStatusRows()).toEqual([
-                        expect.objectContaining({ message_id: first.body.invocation_id, status: 'queued' }),
+                        expect.objectContaining({ message_id: sent.body.invocation_id, status: 'queued' }),
                     ])
                 }
             )
@@ -2357,6 +2371,22 @@ describe('CDP API', () => {
                     'the other route',
                     ['transactional_email', body],
                     ['transactional_email/send', { ...body, send: codeSend }],
+                ],
+                [
+                    'another named sender',
+                    ['transactional_email/send', { ...body, send: codeSend }],
+                    [
+                        'transactional_email/send',
+                        { ...body, send: { ...codeSend, from: { ...codeSend.from, email: 'alerts@example.com' } } },
+                    ],
+                ],
+                [
+                    'another sender without an address',
+                    ['transactional_email/send', { ...body, send: addresslessSend }],
+                    [
+                        'transactional_email/send',
+                        { ...body, send: { ...addresslessSend, from: { integrationId: otherSenderId } } },
+                    ],
                 ],
                 [
                     'a changed cc',

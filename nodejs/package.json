@@ -99,7 +99,7 @@
         "@posthog/replay-anonymizer": "workspace:*",
         "@posthog/replay-headless": "workspace:*",
         "@posthog/siphash": "1.1.1",
-        "@pyroscope/nodejs": "^0.4.8",
+        "@pyroscope/nodejs": "^0.5.0",
         "@segment/action-destinations": "3.387.0",
         "@smithy/node-http-handler": "4.4.9",
         "@temporalio/activity": "1.15.0",
@@ -144,13 +144,13 @@
         "prom-client": "^14.2.0",
         "puppeteer": "^24.3.0",
         "puppeteer-capture": "^1.43.0",
-        "re2": "^1.22.1",
+        "re2": "^1.26.1",
         "snappy": "^7.2.2",
         "structured-headers": "^2.0.3",
         "tail": "^2.2.6",
         "tldts": "^6.1.57",
         "typescript": "catalog:",
-        "uWebSockets.js": "https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/cfc9a40d8132a34881813cec3d5f8e3a185b3ce3",
+        "uWebSockets.js": "https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/e0f56ebb4b349017f006e14d1cd29052f2a7121d",
         "ultimate-express": "2.0.9",
         "undici": "^8.10.1",
         "undici-types": "7.3.0",
@@ -207,6 +207,6 @@
         "tsx": "^4.7.0"
     },
     "engines": {
-        "node": ">=24 <25"
+        "node": ">=26 <27"
     }
 }
