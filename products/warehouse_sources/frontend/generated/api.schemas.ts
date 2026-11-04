@@ -2449,6 +2449,15 @@ export interface WarehouseMigrationItemApi {
     error: string
 }
 
+export interface PaginatedWarehouseMigrationItemListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: WarehouseMigrationItemApi[]
+}
+
 export interface WarehouseMigrationSkipItemsApi {
     /**
      * Items to skip. Pass this or `keep_item_ids`, not both.
@@ -2691,6 +2700,19 @@ export type WarehouseColumnStatisticsListParams = {
 export type WarehouseMigrationsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type WarehouseMigrationsItemsListParams = {
+    /**
+     * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**

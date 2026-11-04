@@ -76914,6 +76914,83 @@ export namespace Schemas {
     }
 
     /**
+     * * `as_is` - Moves as is
+     * * `caveats` - Moves with caveats
+     * * `unsupported` - Not supported
+     */
+    export type WarehouseMigrationItemVerdictEnum = typeof WarehouseMigrationItemVerdictEnum[keyof typeof WarehouseMigrationItemVerdictEnum];
+
+
+    export const WarehouseMigrationItemVerdictEnum = {
+      AsIs: 'as_is',
+      Caveats: 'caveats',
+      Unsupported: 'unsupported',
+    } as const;
+
+    /**
+     * * `pending` - Pending
+     * * `applying` - Applying
+     * * `applied` - Applied
+     * * `skipped` - Skipped
+     * * `failed` - Failed
+     */
+    export type WarehouseMigrationItemStatusEnum = typeof WarehouseMigrationItemStatusEnum[keyof typeof WarehouseMigrationItemStatusEnum];
+
+
+    export const WarehouseMigrationItemStatusEnum = {
+      Pending: 'pending',
+      Applying: 'applying',
+      Applied: 'applied',
+      Skipped: 'skipped',
+      Failed: 'failed',
+    } as const;
+
+    export interface WarehouseMigrationItem {
+      /** Item ID. Pass it to the apply and skip actions. */
+      id: string;
+      /** The connection ID in the vendor account. */
+      vendor_connection_id: string;
+      /** The vendor's connector type, for example `postgres` or `hubspot`. */
+      vendor_service: string;
+      /** The connection name in the vendor account. */
+      name: string;
+      /** Whether the connection moves as it is, moves with caveats, or is not supported.
+       *
+       * * `as_is` - Moves as is
+       * * `caveats` - Moves with caveats
+       * * `unsupported` - Not supported */
+      verdict: WarehouseMigrationItemVerdictEnum;
+      /** Differences between Fivetran and PostHog for this connection. */
+      caveats: string[];
+      /** What PostHog creates for this connection. Null when the connection is not supported. */
+      proposal: ItemProposal | null;
+      /** `pending` until the source is created (`applied`) or the user skips it.
+       *
+       * * `pending` - Pending
+       * * `applying` - Applying
+       * * `applied` - Applied
+       * * `skipped` - Skipped
+       * * `failed` - Failed */
+      status: WarehouseMigrationItemStatusEnum;
+      /**
+         * The PostHog source created for this connection, if any.
+         * @nullable
+         */
+      external_data_source_id: string | null;
+      /** Why the last apply attempt failed, if it did. */
+      error: string;
+    }
+
+    export interface PaginatedWarehouseMigrationItemList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: WarehouseMigrationItem[];
+    }
+
+    /**
      * * `fivetran` - Fivetran
      */
     export type WarehouseMigrationProviderEnum = typeof WarehouseMigrationProviderEnum[keyof typeof WarehouseMigrationProviderEnum];
@@ -113070,74 +113147,6 @@ export namespace Schemas {
       api_secret: string;
     }
 
-    /**
-     * * `as_is` - Moves as is
-     * * `caveats` - Moves with caveats
-     * * `unsupported` - Not supported
-     */
-    export type WarehouseMigrationItemVerdictEnum = typeof WarehouseMigrationItemVerdictEnum[keyof typeof WarehouseMigrationItemVerdictEnum];
-
-
-    export const WarehouseMigrationItemVerdictEnum = {
-      AsIs: 'as_is',
-      Caveats: 'caveats',
-      Unsupported: 'unsupported',
-    } as const;
-
-    /**
-     * * `pending` - Pending
-     * * `applying` - Applying
-     * * `applied` - Applied
-     * * `skipped` - Skipped
-     * * `failed` - Failed
-     */
-    export type WarehouseMigrationItemStatusEnum = typeof WarehouseMigrationItemStatusEnum[keyof typeof WarehouseMigrationItemStatusEnum];
-
-
-    export const WarehouseMigrationItemStatusEnum = {
-      Pending: 'pending',
-      Applying: 'applying',
-      Applied: 'applied',
-      Skipped: 'skipped',
-      Failed: 'failed',
-    } as const;
-
-    export interface WarehouseMigrationItem {
-      /** Item ID. Pass it to the apply and skip actions. */
-      id: string;
-      /** The connection ID in the vendor account. */
-      vendor_connection_id: string;
-      /** The vendor's connector type, for example `postgres` or `hubspot`. */
-      vendor_service: string;
-      /** The connection name in the vendor account. */
-      name: string;
-      /** Whether the connection moves as it is, moves with caveats, or is not supported.
-       *
-       * * `as_is` - Moves as is
-       * * `caveats` - Moves with caveats
-       * * `unsupported` - Not supported */
-      verdict: WarehouseMigrationItemVerdictEnum;
-      /** Differences between Fivetran and PostHog for this connection. */
-      caveats: string[];
-      /** What PostHog creates for this connection. Null when the connection is not supported. */
-      proposal: ItemProposal | null;
-      /** `pending` until the source is created (`applied`) or the user skips it.
-       *
-       * * `pending` - Pending
-       * * `applying` - Applying
-       * * `applied` - Applied
-       * * `skipped` - Skipped
-       * * `failed` - Failed */
-      status: WarehouseMigrationItemStatusEnum;
-      /**
-         * The PostHog source created for this connection, if any.
-         * @nullable
-         */
-      external_data_source_id: string | null;
-      /** Why the last apply attempt failed, if it did. */
-      error: string;
-    }
-
     export interface WarehouseMigrationSkipItems {
       /**
          * Items to skip. Pass this or `keep_item_ids`, not both.
@@ -134308,6 +134317,19 @@ export namespace Schemas {
     export type WarehouseMigrationsListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type WarehouseMigrationsItemsListParams = {
+    /**
+     * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number;
     /**
