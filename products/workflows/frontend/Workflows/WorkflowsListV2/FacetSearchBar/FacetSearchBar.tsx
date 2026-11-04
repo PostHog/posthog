@@ -1,4 +1,3 @@
-import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
@@ -135,7 +134,7 @@ export function FacetSearchBar<TItem>({
                             onClick={() => applySuggestion(suggestion)}
                         >
                             <span className="flex items-center gap-2 w-full min-w-0">
-                                <span className={clsx('truncate', suggestion.kind === 'facet' && 'font-mono')}>
+                                <span className={suggestion.kind === 'facet' ? 'shrink-0 font-mono' : 'truncate'}>
                                     {suggestion.label}
                                 </span>
                                 {suggestion.detail && (
