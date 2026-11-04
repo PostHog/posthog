@@ -139,7 +139,8 @@ export const getAndroidSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                     </Markdown>
                     <CalloutBox type="fyi" title="Requirements">
                         <Markdown>
-                            Requires Android API 26 or higher. Jetpack Compose is only supported if `screenshot` is
+                            Requires Android API 26 or higher. SDK version 4.0 and later record Jetpack Compose screens
+                            as screenshots. Earlier versions only support Jetpack Compose if the `screenshot` option is
                             enabled.
                         </Markdown>
                     </CalloutBox>
