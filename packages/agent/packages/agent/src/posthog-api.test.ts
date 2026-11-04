@@ -192,7 +192,11 @@ describe("PostHogAPIClient", () => {
       label: "omits and reports a managed MCP server once retries run out",
       failures: 3,
       succeeds: false,
-      expected: { serverNames: [], policyCount: 0, failedServers: ["flaky"] },
+      expected: {
+        serverNames: [],
+        policyCount: 0,
+        failedServers: [{ name: "flaky", installationId: "installation-1" }],
+      },
     },
   ])("$label", async ({ failures, succeeds, expected }) => {
     vi.useFakeTimers();

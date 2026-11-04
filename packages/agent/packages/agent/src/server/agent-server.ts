@@ -679,6 +679,7 @@ export class AgentServer {
 
   private async loadMcpToolPolicies(
     servers: McpServerConnection[],
+    previous: Map<string, McpToolPolicy> = new Map(),
   ): Promise<Map<string, McpToolPolicy>> {
     const { policies, failedServers } =
       await this.posthogAPI.getMcpRuntimeConfiguration(
@@ -687,14 +688,23 @@ export class AgentServer {
       );
     if (failedServers.length > 0) {
       this.logger.warn("Failed to load MCP tool approval states", {
-        servers: failedServers,
+        servers: failedServers.map(({ name }) => name),
       });
     }
+    // A failed fetch keeps the installation's last loaded states, so a refresh
+    // blip does not drop its prompts. Matching by installation id lets a
+    // replaced connection with the same name still reset.
+    const failedInstallationIds = new Set(
+      failedServers.map(({ installationId }) => installationId),
+    );
+    const carriedPolicies = [...previous.values()].filter((policy) =>
+      failedInstallationIds.has(policy.installationId),
+    );
     // Two installations whose names sanitize alike are indistinguishable to the
     // SDK, so leave them ungated rather than approve the wrong one.
     const ambiguousKeys = new Set<string>();
     const policiesByKey = new Map<string, McpToolPolicy>();
-    for (const policy of policies) {
+    for (const policy of [...policies, ...carriedPolicies]) {
       const key = mcpToolKey({
         server: sanitizeMcpServerName(policy.serverName),
         tool: sanitizeMcpServerName(policy.toolName),
@@ -1966,6 +1976,7 @@ export class AgentServer {
             mcpToolApprovals: this.applyMcpToolPolicies(
               await this.loadMcpToolPolicies(
                 mcpServers as McpServerConnection[],
+                this.mcpToolPolicies,
               ),
             ),
           },
@@ -5935,17 +5946,7 @@ export class AgentServer {
     }
   }
 
-  /**
-   * Ask the user about a needs_approval MCP tool and, when they allow it,
-   * record the approval in PostHog first so the gateway proxy accepts the call.
-   * The proxy has no per-call approval, and clients hide "always" options by
-   * default, so the one allow option is a plain allow labeled as saving it.
-   * `persistsApproval` tells clients the answer outlives the run, and only an
-   * answer carrying `confirmPersistentApproval` saves it, since auto-responders
-   * (Slack broker, auto-approve modes, older clients) pick any allow option.
-   * The save uses the run's credentials, so only an answer from the user they
-   * belong to can make it.
-   */
+  /** Ask about a needs_approval MCP tool and save an allow to PostHog, only when the run's own user confirms it, so the proxy accepts the call. */
   private async relayMcpToolApproval(
     params: RequestPermissionRequest,
     policy: McpToolPolicy,
@@ -5957,6 +5958,8 @@ export class AgentServer {
           ...params.toolCall,
           _meta: { ...params.toolCall._meta, persistsApproval: true },
         },
+        // Clients hide "always" options by default, so the saving allow is
+        // the plain allow, relabeled.
         options: params.options.flatMap((option) => {
           if (option.kind === "allow_always") return [];
           if (option.kind === "allow_once") {

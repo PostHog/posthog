@@ -3321,13 +3321,34 @@ describe("AgentServer HTTP Mode", () => {
         outcome: { outcome: "cancelled" },
         saved: false,
       },
+      {
+        label: "the run's user can't be looked up",
+        optionId: "allow",
+        userId: RUN_USER_ID,
+        runUserId: null,
+        confirmed: true,
+        outcome: { outcome: "cancelled" },
+        saved: false,
+      },
     ])(
       "relays one labeled allow and handles when $label",
-      async ({ optionId, userId, confirmed, outcome, saved }) => {
+      async ({
+        optionId,
+        userId,
+        runUserId = RUN_USER_ID,
+        confirmed,
+        outcome,
+        saved,
+      }) => {
         const testServer = exposeCloudClient(createServer());
         const approveMcpTool = withNeedsApprovalTool(
           testServer as unknown as AgentServer,
         );
+        (
+          testServer as unknown as {
+            posthogAPI: { getUserId: () => Promise<number | null> };
+          }
+        ).posthogAPI.getUserId = async () => runUserId;
         const relaySpy = vi.spyOn(
           testServer as unknown as {
             awaitPermissionAnswer: (params: unknown) => Promise<unknown>;
@@ -3400,7 +3421,16 @@ describe("AgentServer HTTP Mode", () => {
         withNeedsApprovalTool(testServer as unknown as AgentServer);
         testServer.session = { hasDesktopConnected: connected };
         testServer.eventStreamSender = null;
-        const relaySpy = vi.spyOn(testServer, "relayPermissionToClient");
+        const relaySpy = vi
+          .spyOn(
+            testServer as unknown as {
+              awaitPermissionAnswer: (params: unknown) => Promise<unknown>;
+            },
+            "awaitPermissionAnswer",
+          )
+          .mockResolvedValue({
+            response: { outcome: { outcome: "selected", optionId: "allow" } },
+          });
 
         const { requestPermission } = testServer.createCloudClient({
           ...basePayload,
@@ -3727,6 +3757,7 @@ describe("AgentServer HTTP Mode", () => {
           clientConnection: { extMethod: ReturnType<typeof vi.fn> };
         } | null;
         mcpRelayServer: { mcpServers: unknown[] } | null;
+        mcpToolPolicies: Map<string, unknown>;
         posthogAPI: {
           getTaskRun: ReturnType<typeof vi.fn>;
           getMcpRuntimeConfiguration: ReturnType<typeof vi.fn>;
@@ -3890,22 +3921,51 @@ describe("AgentServer HTTP Mode", () => {
       testServer.session = null;
     });
 
-    it("reloads MCP tool approvals for the refreshed server list", async () => {
+    function metricsPolicy(installationId: string, approvalState: string) {
+      return {
+        serverName: "metrics",
+        toolName: "get_stats",
+        installationId,
+        approvalState,
+      };
+    }
+
+    it.each([
+      {
+        label: "reloads MCP tool approvals for the refreshed server list",
+        previous: [metricsPolicy("installation-1", "approved")],
+        policies: [metricsPolicy("installation-2", "needs_approval")],
+        failedServers: [],
+        expected: { mcp__metrics__get_stats: "needs_approval" },
+      },
+      {
+        label:
+          "keeps the loaded approvals of an installation whose fetch fails",
+        previous: [metricsPolicy("installation-1", "needs_approval")],
+        policies: [],
+        failedServers: [{ name: "metrics", installationId: "installation-1" }],
+        expected: { mcp__metrics__get_stats: "needs_approval" },
+      },
+      {
+        label:
+          "drops the approvals of a replaced installation whose fetch fails",
+        previous: [metricsPolicy("installation-1", "needs_approval")],
+        policies: [],
+        failedServers: [{ name: "metrics", installationId: "installation-2" }],
+        expected: {},
+      },
+    ])("$label", async ({ previous, policies, failedServers, expected }) => {
       const testServer = exposeRefresh(createServer());
       const extMethod = vi.fn(async () => ({ refreshed: true }));
       attachSession(testServer, extMethod);
       testServer.mcpRelayServer = null;
+      testServer.mcpToolPolicies = new Map(
+        previous.map((policy) => ["mcp__metrics__get_stats", policy]),
+      );
       testServer.posthogAPI.getMcpRuntimeConfiguration.mockResolvedValue({
         servers: [],
-        policies: [
-          {
-            serverName: "metrics",
-            toolName: "get_stats",
-            installationId: "installation-2",
-            approvalState: "needs_approval",
-          },
-        ],
-        failedServers: [],
+        policies,
+        failedServers,
       });
 
       await testServer.executeCommand("refresh_session", {
@@ -3917,9 +3977,7 @@ describe("AgentServer HTTP Mode", () => {
       const forwarded = (extMethod.mock.calls[0] as unknown[])[1] as {
         mcpToolApprovals: Record<string, string>;
       };
-      expect(forwarded.mcpToolApprovals).toEqual({
-        mcp__metrics__get_stats: "needs_approval",
-      });
+      expect(forwarded.mcpToolApprovals).toEqual(expected);
 
       testServer.session = null;
     });

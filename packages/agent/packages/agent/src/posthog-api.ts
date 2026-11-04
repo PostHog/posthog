@@ -184,47 +184,58 @@ export class PostHogAPIClient {
   ): Promise<{
     servers: McpServerConnection[];
     policies: McpToolPolicy[];
-    failedServers: string[];
+    failedServers: Array<{ name: string; installationId: string }>;
   }> {
     const resolved = await Promise.all(
-      servers.map(async (server) => {
-        const installationId = this.mcpInstallationId(server.url);
-        if (!installationId) {
-          return { server, policies: [] };
-        }
+      servers.map(
+        async (
+          server,
+        ): Promise<
+          | { server: McpServerConnection; policies: McpToolPolicy[] }
+          | { failed: { name: string; installationId: string } }
+        > => {
+          const installationId = this.mcpInstallationId(server.url);
+          if (!installationId) {
+            return { server, policies: [] };
+          }
 
-        try {
-          const response = await this.getMcpInstallationTools(
-            installationId,
-            signal,
-          );
-          const policies = (response.results ?? []).flatMap((tool) =>
-            tool.approval_state
-              ? [
-                  {
-                    serverName: server.name,
-                    toolName: tool.tool_name,
-                    installationId,
-                    approvalState: tool.approval_state,
-                    ...(tool.description
-                      ? { description: tool.description }
-                      : {}),
-                  } satisfies McpToolPolicy,
-                ]
-              : [],
-          );
-          return { server, policies };
-        } catch {
-          return null;
-        }
-      }),
+          try {
+            const response = await this.getMcpInstallationTools(
+              installationId,
+              signal,
+            );
+            const policies = (response.results ?? []).flatMap((tool) =>
+              tool.approval_state
+                ? [
+                    {
+                      serverName: server.name,
+                      toolName: tool.tool_name,
+                      installationId,
+                      approvalState: tool.approval_state,
+                      ...(tool.description
+                        ? { description: tool.description }
+                        : {}),
+                    } satisfies McpToolPolicy,
+                  ]
+                : [],
+            );
+            return { server, policies };
+          } catch {
+            return { failed: { name: server.name, installationId } };
+          }
+        },
+      ),
     );
 
     return {
-      servers: resolved.flatMap((entry) => (entry ? [entry.server] : [])),
-      policies: resolved.flatMap((entry) => entry?.policies ?? []),
-      failedServers: servers.flatMap((server, index) =>
-        resolved[index] ? [] : [server.name],
+      servers: resolved.flatMap((entry) =>
+        "server" in entry ? [entry.server] : [],
+      ),
+      policies: resolved.flatMap((entry) =>
+        "policies" in entry ? entry.policies : [],
+      ),
+      failedServers: resolved.flatMap((entry) =>
+        "failed" in entry ? [entry.failed] : [],
       ),
     };
   }
