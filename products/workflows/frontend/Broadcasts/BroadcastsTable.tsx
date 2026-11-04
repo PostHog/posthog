@@ -83,7 +83,8 @@ export function BroadcastsTable(): JSX.Element {
             title: 'Status',
             width: 0,
             render: (_, item) => {
-                return <BroadcastStatusTag status={getBroadcastStatus(item, rowDetailsById[item.id])} />
+                const details = rowDetailsById[item.id]
+                return <BroadcastStatusTag status={getBroadcastStatus(item, details)} />
             },
         },
         {
@@ -226,6 +227,7 @@ export function BroadcastsTable(): JSX.Element {
                             { label: 'Scheduled', value: 'scheduled' },
                             { label: 'Sending', value: 'sending' },
                             { label: 'Sent', value: 'sent' },
+                            { label: 'Partly failed', value: 'partially_failed' },
                             { label: 'Failed', value: 'failed' },
                             { label: 'Archived', value: 'archived' },
                         ]}

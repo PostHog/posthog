@@ -1,1 +1,1 @@
-0011_messagesuppression_hard_bounced_at
+0012_email_hard_bounce

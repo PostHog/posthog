@@ -30,7 +30,7 @@ export function ReportInbox({ selectedReportId, active }: { selectedReportId: st
     const now = useNow()
     const filters = useInboxFilters()
     const query = useInboxItems({ filters, refreshWhileVisible: active })
-    const prefetch = usePrefetchReports(active ? query.data : undefined)
+    const prefetch = usePrefetchReports(query.data, active)
     const setRead = useSetReportRead()
     const filterActions = inboxFilterActions(filters)
     const [filtersOpen, setFiltersOpen] = useState(false)

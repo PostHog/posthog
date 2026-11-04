@@ -1,14 +1,15 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native'
-import { FlatList } from 'react-native'
+import { getNetworkStateAsync, NetworkStateType } from 'expo-network'
+import { AppState, FlatList } from 'react-native'
 
 import { setAuthProvider } from '@/api/client'
+import { useConnectivity } from '@/lib/connectivity'
 import { inboxFromReports } from '@/model/adapters/inbox'
 import { reportFixture } from '@/model/adapters/testFixtures'
 import type { InboxItem } from '@/model/types'
 
 import { reportDetailQuery, reportSignalsQuery } from '../report/queries'
-import { INITIAL_PREFETCH_COUNT } from './prefetchPlan'
 import { ReportInbox } from './ReportInbox'
 
 jest.mock('react-native-worklets', () => jest.requireActual('react-native-worklets/src/mock'))
@@ -37,9 +38,7 @@ jest.mock('./InboxRowActions', () => ({ InboxRowActions: () => null }))
 
 const mockScope = { host: 'https://app.example.com', projectId: 2 }
 let mockDataMode: 'live' | 'demo' = 'live'
-const mockItems = inboxFromReports(
-    Array.from({ length: INITIAL_PREFETCH_COUNT + 5 }, (_, index) => reportFixture({ id: `report-${index}` }))
-)
+const mockItems = inboxFromReports(Array.from({ length: 20 }, (_, index) => reportFixture({ id: `report-${index}` })))
 
 function response(status: number, body: unknown): Response {
     return {
@@ -51,17 +50,22 @@ function response(status: number, body: unknown): Response {
 }
 
 describe('ReportInbox', () => {
+    const originalAppState = AppState.currentState
     beforeEach(() => {
+        AppState.currentState = 'active'
         mockDataMode = 'live'
+        useConnectivity.setState({ status: 'connected', type: NetworkStateType.WIFI })
+        jest.mocked(getNetworkStateAsync).mockResolvedValue({ type: NetworkStateType.WIFI, isConnected: true })
     })
 
     afterEach(() => {
+        AppState.currentState = originalAppState
         setAuthProvider(null)
         jest.restoreAllMocks()
         jest.useRealTimers()
     })
 
-    test('warms the report cache when scrolling past the initial prefetch window', async () => {
+    test('prefetches visible reports only while the inbox is active', async () => {
         setAuthProvider({
             getAuth: () => ({ ...mockScope, accessToken: 'token', session: 1 }),
             refreshAccessToken: async () => null,
@@ -98,12 +102,13 @@ describe('ReportInbox', () => {
             </QueryClientProvider>
         )
         await waitFor(() =>
-            expect(
-                client.getQueryData(reportDetailQuery(mockScope, `report-${INITIAL_PREFETCH_COUNT - 1}`).queryKey)
-            ).toBeDefined()
+            expect(client.getQueryData(reportDetailQuery(mockScope, 'report-0').queryKey)).toBeDefined()
+        )
+        await waitFor(() =>
+            expect(client.getQueryData(reportDetailQuery(mockScope, 'report-1').queryKey)).toBeDefined()
         )
 
-        const index = INITIAL_PREFETCH_COUNT + 4
+        const index = 15
         const item = mockItems[index]
         if (!item) {
             throw new Error('Missing visible report fixture')
