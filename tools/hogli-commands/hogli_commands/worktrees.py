@@ -280,7 +280,7 @@ def worktrees_clean(
     if unattended:
         if before is not None or mode is not None or include_dirty or stop_boxes or delete_boxes:
             raise click.UsageError(
-                "--unattended sets --before, --mode and --include-dirty itself and never touches devboxes."
+                "--unattended cannot be combined with --before, --mode, --include-dirty, --stop-boxes or --delete-boxes."
             )
         lock = _unattended_lock(dry_run)
         if lock is None:
