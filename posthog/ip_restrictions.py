@@ -8,6 +8,7 @@ from django.db import DEFAULT_DB_ALIAS
 from django.http import HttpRequest
 
 import structlog
+from celery import shared_task
 from loginas.utils import is_impersonated_session
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import BasePermission
@@ -218,6 +219,22 @@ def get_ip_restriction_denial(user: Any, ip: str | None) -> str | None:
     )
 
 
+@shared_task(autoretry_for=(Exception,), retry_backoff=True, max_retries=6, ignore_result=True)
+def retry_ip_restrictions_invalidation(cache_keys: list[str]) -> None:
+    cache.delete_many(cache_keys)
+
+
+def _invalidate_cache_keys(cache_keys: list[str]) -> None:
+    try:
+        cache.delete_many(cache_keys)
+    except Exception:
+        logger.warning("ip_restrictions_cache_invalidation_failed", exc_info=True)
+        try:
+            retry_ip_restrictions_invalidation.delay(cache_keys)
+        except Exception:
+            logger.warning("ip_restrictions_cache_invalidation_retry_failed", exc_info=True)
+
+
 def invalidate_ip_restrictions_for_organization(organization_id: Any) -> None:
     from posthog.models.organization import OrganizationMembership
     from posthog.models.team import Team
@@ -225,19 +242,21 @@ def invalidate_ip_restrictions_for_organization(organization_id: Any) -> None:
     cache_keys = [_internal_org_cache_key(organization_id)]
     cache_keys.extend(
         _user_cache_key(user_id)
-        for user_id in OrganizationMembership.objects.filter(organization_id=organization_id).values_list(
-            "user_id", flat=True
-        )
+        for user_id in OrganizationMembership.objects.using(DEFAULT_DB_ALIAS)
+        .filter(organization_id=organization_id)
+        .values_list("user_id", flat=True)
     )
     cache_keys.extend(
         _team_cache_key(team_id, str(organization_id))
-        for team_id in Team.objects.filter(organization_id=organization_id).values_list("id", flat=True)
+        for team_id in Team.objects.using(DEFAULT_DB_ALIAS)
+        .filter(organization_id=organization_id)
+        .values_list("id", flat=True)
     )
-    cache.delete_many(cache_keys)
+    _invalidate_cache_keys(cache_keys)
 
 
 def invalidate_ip_restrictions_for_user(user_id: int) -> None:
-    cache.delete(_user_cache_key(user_id))
+    _invalidate_cache_keys([_user_cache_key(user_id)])
 
 
 def get_restriction_client_ip(request: Any) -> str | None:

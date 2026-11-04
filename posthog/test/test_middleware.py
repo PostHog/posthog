@@ -7,12 +7,12 @@ from typing import Any, cast
 import pytest
 import time_machine
 from posthog.test.base import APIBaseTest, FuzzyInt, override_settings
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
-from django.db import connection
+from django.db import connection, transaction
 from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
 from django.test import (
     AsyncClient,
@@ -247,6 +247,24 @@ class TestIPRestrictionsMiddleware(APIBaseTest):
         response = self.client.get("/api/organizations/@current/", REMOTE_ADDR=ip)
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_cache_invalidation_failure_does_not_abort_commit_callbacks(self) -> None:
+        config = OrganizationIPRestrictions.objects.create(
+            organization=self.organization, ip_restrictions=["203.0.113.0/24"]
+        )
+        later_callback = Mock()
+        with (
+            patch("posthog.ip_restrictions.cache.delete_many", side_effect=RuntimeError("cache unavailable")),
+            patch("posthog.ip_restrictions.retry_ip_restrictions_invalidation.delay") as retry,
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                config.enabled = False
+                config.save()
+                transaction.on_commit(later_callback)
+        later_callback.assert_called_once()
+        self.assertTrue(retry.called)
+        config.refresh_from_db()
+        self.assertFalse(config.enabled)
 
     @parameterized.expand([(None, False), ("198.51.100.7", False), ("203.0.113.7", True)])
     def test_delegated_credentials_require_an_allowed_ip(self, verified_ip: str | None, allowed: bool) -> None:
@@ -2615,7 +2633,7 @@ class TestActivityLoggingMiddleware(APIBaseTest):
         assert self.captured["request_ip"] == MCP_POD_IP
         assert self.captured["leftover"] == []
         assert getattr(request, "verified_mcp_client_ip", None) == (
-            expected_ip if expected_outcome == "accepted" else None
+            expected_ip if expected_outcome == "valid" else None
         )
         expected_counts = dict(counts_before)
         if expected_outcome:

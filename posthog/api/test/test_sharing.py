@@ -31,6 +31,7 @@ from posthog.constants import AvailableFeature
 from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models import ActivityLog, OrganizationMembership, PropertyDefinition, Team
 from posthog.models.data_color_theme import DataColorTheme
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.share_password import SharePassword
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
@@ -246,6 +247,7 @@ class TestSharing(APIBaseTest):
         expected_access_method: DashboardAccessMethod,
         mock_record_access: Mock,
     ) -> None:
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
         config = SharingConfiguration.objects.create(team=self.team, dashboard=self.dashboard, enabled=True)
 
         response = self.client.get(path.format(token=config.access_token))

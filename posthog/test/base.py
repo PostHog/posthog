@@ -82,6 +82,7 @@ from posthog.cloud_utils import TEST_clear_instance_license_cache
 from posthog.helpers.two_factor_session import code_based_verification_token_generator
 from posthog.hogql_queries.ai.ai_table_resolver import AI_EVENT_NAMES as _AI_EVENT_TYPES
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
+from posthog.ip_restrictions import get_ip_restrictions_for_principal
 from posthog.models import Organization, Team, User
 from posthog.models.ai_events.sql import TRUNCATE_AI_EVENTS_TABLE_SQL
 from posthog.models.channel_type.sql import (
@@ -1090,8 +1091,6 @@ class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
 
         if self.CONFIG_AUTO_LOGIN and self.user:
             self.client.force_login(self.user)
-            from posthog.ip_restrictions import get_ip_restrictions_for_principal
-
             get_ip_restrictions_for_principal(self.user)
 
     def create_organization_with_features(self, features):

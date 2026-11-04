@@ -2980,13 +2980,20 @@ class TestOAuthAccessTokenAuthentication(APIBaseTest):
             scope="openid profile",
         )
 
-    def test_authenticate_checks_organization_ip_policy(self) -> None:
+    @parameterized.expand([(False,), (True,)])
+    def test_authenticate_checks_organization_ip_policy(self, impersonated: bool) -> None:
         OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+        if impersonated:
+            self.access_token.impersonated_by = self.user
+            self.access_token.save()
         request = Request(
             self.factory.get("/", HTTP_AUTHORIZATION=f"Bearer {self.access_token.token}", REMOTE_ADDR="198.51.100.7")
         )
-        with self.assertRaises(PermissionDenied):
-            OAuthAccessTokenAuthentication().authenticate(request)
+        if impersonated:
+            self.assertIsNotNone(OAuthAccessTokenAuthentication().authenticate(request))
+        else:
+            with self.assertRaises(PermissionDenied):
+                OAuthAccessTokenAuthentication().authenticate(request)
 
     @covers_authentication(OAuthAccessTokenAuthentication)
     def test_authenticate_with_valid_oauth_token(self):
