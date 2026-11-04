@@ -633,6 +633,16 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconTableChart,
         inMenu: false,
     },
+    [NodeKind.BookActivityPeopleQuery]: {
+        name: 'Book activity people',
+        icon: IconPerson,
+        inMenu: false,
+    },
+    [NodeKind.BookActivityFirstsQuery]: {
+        name: 'Book activity first use',
+        icon: IconPerson,
+        inMenu: false,
+    },
     [NodeKind.EndpointsUsageOverviewQuery]: {
         name: 'Endpoints usage overview',
         icon: IconPieChart,

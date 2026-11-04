@@ -204,6 +204,8 @@ export enum NodeKind {
     AccountUsersQuery = 'AccountUsersQuery',
     AccountActivityMatrixQuery = 'AccountActivityMatrixQuery',
     BookActivityMatrixQuery = 'BookActivityMatrixQuery',
+    BookActivityPeopleQuery = 'BookActivityPeopleQuery',
+    BookActivityFirstsQuery = 'BookActivityFirstsQuery',
 
     // Endpoints usage queries
     EndpointsUsageOverviewQuery = 'EndpointsUsageOverviewQuery',
@@ -301,6 +303,8 @@ export type AnyDataNode =
     | AccountsTableQuery
     | AccountActivityMatrixQuery
     | BookActivityMatrixQuery
+    | BookActivityPeopleQuery
+    | BookActivityFirstsQuery
     | EndpointsUsageOverviewQuery
     | EndpointsUsageTableQuery
     | EndpointsUsageTrendsQuery
@@ -437,6 +441,8 @@ export type QuerySchema =
     | AccountsTableQuery
     | AccountActivityMatrixQuery
     | BookActivityMatrixQuery
+    | BookActivityPeopleQuery
+    | BookActivityFirstsQuery
 
     // Endpoints usage
     | EndpointsUsageOverviewQuery
@@ -3605,6 +3611,113 @@ export interface BookActivityMatrixQuery extends DataNode<BookActivityMatrixQuer
     interval: BookActivityInterval
     includeFirstUse?: boolean
     rowLimit?: integer
+}
+
+export interface BookActivityPersonAction {
+    event: string
+    count: integer
+}
+
+export interface BookActivityPersonPath {
+    /** The page path without its `/project/<id>` prefix. */
+    path: string
+    seconds: integer
+}
+
+export interface BookActivityPerson {
+    /** Account ID, the same as `BookActivityMatrixRow.key`. */
+    row: string
+    /** Bucket start, the same as `AccountActivityMatrixColumn.key`. */
+    column: string
+    /** Product key, the same as `BookActivityMatrixProduct.key`. */
+    series: string
+    personId: string
+    /** The person's email, then their name, then "User" and the start of their person ID. */
+    label: string
+    /** 1 is the most active person in this cell, by engaged seconds plus action count. */
+    rank: integer
+    engagedSeconds: integer
+    actionCount: integer
+    /** Every action event that qualified this person, most frequent first. */
+    actions: BookActivityPersonAction[]
+    /** The top 5 pages by engaged time. */
+    topPaths: BookActivityPersonPath[]
+}
+
+export interface BookActivityPeopleResult {
+    rows: BookActivityMatrixRow[]
+    columns: AccountActivityMatrixColumn[]
+    /** Ordered by account, product, bucket and rank. */
+    people: BookActivityPerson[]
+    /** Accounts were dropped or the row cap was hit. A cell trimmed by `peopleLimit` doesn't count. */
+    truncated: boolean
+    emptyReason?: BookActivityMatrixEmptyReason
+}
+
+export interface BookActivityPeopleQueryResponse extends AnalyticsQueryResponseBase {
+    results: BookActivityPeopleResult
+}
+
+export type CachedBookActivityPeopleQueryResponse = CachedQueryResponse<BookActivityPeopleQueryResponse>
+
+export interface BookActivityPeopleQuery extends DataNode<BookActivityPeopleQueryResponse> {
+    kind: NodeKind.BookActivityPeopleQuery
+    relationshipDefinitionId?: string
+    accountIds?: string[]
+    userId?: integer
+    dateRange: DateRange
+    interval: BookActivityInterval
+    rowLimit?: integer
+    /** Limits the result to these product keys. Empty means every product. */
+    productKeys?: string[]
+    /**
+     * People per account, product and bucket. Defaults to 3.
+     * @asType integer
+     * @minimum 1
+     * @maximum 50
+     */
+    peopleLimit?: number
+    /** Returns everyone in each cell, ignoring `peopleLimit`. Needs exactly one account and one product. */
+    allPeople?: boolean
+}
+
+export interface BookActivityPersonFirstUse {
+    /** Account ID, the same as `BookActivityMatrixRow.key`. */
+    row: string
+    /** Product key, the same as `BookActivityMatrixProduct.key`. */
+    series: string
+    personId: string
+    /** The person's email, then their name, then "User" and the start of their person ID. */
+    label: string
+    /** The first day this person qualified for this product, in the team's timezone. */
+    date: string
+}
+
+export interface BookActivityFirstsResult {
+    rows: BookActivityMatrixRow[]
+    people: BookActivityPersonFirstUse[]
+    /** Each account's first day per product, the earliest of its people. Stays exact when `people` is cut. */
+    accounts: BookActivityMatrixFirstUse[]
+    /** Accounts or person rows were dropped by a limit. A missing person first-use date may be unknown. */
+    truncated: boolean
+    emptyReason?: BookActivityMatrixEmptyReason
+}
+
+export interface BookActivityFirstsQueryResponse extends AnalyticsQueryResponseBase {
+    results: BookActivityFirstsResult
+}
+
+export type CachedBookActivityFirstsQueryResponse = CachedQueryResponse<BookActivityFirstsQueryResponse>
+
+/** First use over all history. Scans history and is cached for 24 hours, so only request it when it's needed. */
+export interface BookActivityFirstsQuery extends DataNode<BookActivityFirstsQueryResponse> {
+    kind: NodeKind.BookActivityFirstsQuery
+    relationshipDefinitionId?: string
+    accountIds?: string[]
+    userId?: integer
+    rowLimit?: integer
+    /** Limits the result to these product keys. Empty means every product. */
+    productKeys?: string[]
 }
 
 export interface TimelineEntry {

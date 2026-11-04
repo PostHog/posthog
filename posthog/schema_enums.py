@@ -2532,6 +2532,8 @@ class NodeKind(StrEnum):
     ACCOUNT_USERS_QUERY = "AccountUsersQuery"
     ACCOUNT_ACTIVITY_MATRIX_QUERY = "AccountActivityMatrixQuery"
     BOOK_ACTIVITY_MATRIX_QUERY = "BookActivityMatrixQuery"
+    BOOK_ACTIVITY_PEOPLE_QUERY = "BookActivityPeopleQuery"
+    BOOK_ACTIVITY_FIRSTS_QUERY = "BookActivityFirstsQuery"
     ENDPOINTS_USAGE_OVERVIEW_QUERY = "EndpointsUsageOverviewQuery"
     ENDPOINTS_USAGE_TABLE_QUERY = "EndpointsUsageTableQuery"
     ENDPOINTS_USAGE_TRENDS_QUERY = "EndpointsUsageTrendsQuery"

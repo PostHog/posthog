@@ -69,3 +69,7 @@ DELIVERY_INTERRUPTED_ERROR = "interrupted before confirmation; the message may h
 ACCOUNT_USERS_QUERY_STATUS_LABEL_PREFIX = "customer-analytics-account-users:"
 ACCOUNT_ACTIVITY_MATRIX_QUERY_STATUS_LABEL_PREFIX = "customer-analytics-account-activity-matrix:"
 BOOK_ACTIVITY_MATRIX_QUERY_STATUS_LABEL_PREFIX = "customer-analytics-book-activity-matrix:"
+
+BOOK_ACTIVITY_PEOPLE_QUERY_STATUS_LABEL_PREFIX = "customer-analytics-book-activity-people:"
+
+BOOK_ACTIVITY_ACCOUNTS_QUERY_STATUS_LABEL_PREFIX = "customer-analytics-book-activity-accounts:"
