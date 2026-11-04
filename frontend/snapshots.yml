@@ -3192,10 +3192,6 @@ snapshots:
         hash: v1.k794b7964.725cd338f4c7922dc0defc35db0438ca80cd1fcec083b52cae4a3fce1be90235.fSfMnv_kEKzqwV0o4HdZA5W2pAUvXeiW-1fDQjjEu_w
     endpoints-usagetrendschart--breakdown--light:
         hash: v1.k794b7964.4228c687e6b56faa24efa3db4ae8f499425e921046827f4681e6faa0828dfc20.FlAB1YrJ_jruSoreHJi_H6J11-dCcOi-sFC0eQUMLVA
-    errortracking-adaptive-ingestion-setting--new-project--dark:
-        hash: v1.k794b7964.34342d5acd6f3f48a738c34ef5e2678682579b4b37698692d32776e4ee567e36.3YZmKu6JOxA5I67bIps3abp27Usy6Wm8kaC1giGK-o8
-    errortracking-adaptive-ingestion-setting--new-project--light:
-        hash: v1.k794b7964.da41caddc2c596936ddc1defc477431a9e1fef988e2686a12e1153a6e700f0eb.2tnbPlBNORRk9jFru6lwvl-EUfCiHUZy9ejoIeNKXpU
     errortracking-assigneedisplay--all-displays--dark:
         hash: v1.k794b7964.8b92c8df5d800eb86b421fff454f46834eac7d0224872a85816e3db621d3b341.BWhYbKwsYPTyu8Z7A3tKkBgmCq8en82xZrQkJO8MIQU
     errortracking-assigneedisplay--all-displays--light:
