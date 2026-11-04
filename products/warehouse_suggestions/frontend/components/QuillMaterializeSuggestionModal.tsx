@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useRef } from 'react'
 
 import {
     Button,
@@ -49,6 +50,7 @@ export function QuillMaterializeSuggestionModal(): JSX.Element | null {
     } = useValues(warehouseSuggestionsLogic)
     const { confirmMaterialize, closeMaterializeModal, setMaterializeInterval, setRefreshDraft } =
         useActions(warehouseSuggestionsLogic)
+    const popupRef = useRef<HTMLDivElement>(null)
     const payload = materializeModalSuggestion?.payload
 
     if (!materializeModalSuggestion || !payload || !isMaterializePayload(payload)) {
@@ -63,7 +65,13 @@ export function QuillMaterializeSuggestionModal(): JSX.Element | null {
 
     return (
         <Dialog open onOpenChange={(open: boolean) => !open && !inFlight && closeMaterializeModal()}>
-            <DialogContent size="wide" className="max-w-xl" showCloseButton={!inFlight}>
+            <DialogContent
+                ref={popupRef}
+                initialFocus={popupRef}
+                size="wide"
+                className="max-w-xl"
+                showCloseButton={!inFlight}
+            >
                 <DialogHeader>
                     <DialogTitle>{`Materialize ${payload.subject_name}`}</DialogTitle>
                     <DialogDescription>
