@@ -35,6 +35,7 @@ describe('workflowsListV2Logic', () => {
     let metricsResponse: () => Promise<[number, WorkflowStatsRowApi[] | { detail: string }]>
 
     beforeEach(() => {
+        localStorage.clear()
         workflowRequests = []
         searchSignals = []
         serverSearch = async () => []
@@ -168,8 +169,13 @@ describe('workflowsListV2Logic', () => {
         expect(shownIds(logic)).toEqual(ids)
     })
 
-    it('leaves a creator name that two people share unresolved', async () => {
-        const otherAda = { ...FIXTURE_USERS.ada, id: 3, uuid: '0190a1b2-0000-7000-8000-00000000a003' }
+    it('leaves a creator name that two people share unresolved, and tells them apart by email', async () => {
+        const otherAda = {
+            ...FIXTURE_USERS.ada,
+            id: 3,
+            uuid: '0190a1b2-0000-7000-8000-00000000a003',
+            email: 'ada.two@example.com',
+        }
         useMocks({
             get: {
                 '/api/projects/:team_id/hog_flows/summaries/': () => [
@@ -187,6 +193,27 @@ describe('workflowsListV2Logic', () => {
 
         await expectLogic(logic).toDispatchActions(['loadWorkflowsSuccess', 'loadMetricsSuccess'])
         expect(shownIds(logic)).toEqual([])
+        const createdBy = logic.values.facets.find((facet) => facet.key === 'createdBy')!
+        expect([FIXTURE_USERS.ada.uuid, otherAda.uuid].map((uuid) => createdBy.formatValue?.(uuid))).toEqual([
+            'Ada (ada@example.com)',
+            'Ada (ada.two@example.com)',
+        ])
+        expect(createdBy.resolveValue?.('ada.two@example.com')).toEqual(otherAda.uuid)
+    })
+
+    it('brings the filters back when the list opens again from a link without them', async () => {
+        router.actions.push(urls.workflows(), { q: 'status:active', text: 'welcome' })
+        logic = workflowsListV2Logic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowsSuccess'])
+        logic.unmount()
+
+        router.actions.push(urls.workflows())
+        logic = workflowsListV2Logic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowsSuccess'])
+        expect(router.values.searchParams).toEqual({ q: 'status:active', text: 'welcome' })
+        expect(shownIds(logic)).toEqual(['wf-welcome'])
     })
 
     it('stops at a next link that does not move forward and shows the load error', async () => {

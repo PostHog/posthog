@@ -15,6 +15,7 @@ import { router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { buildUserScopedPersistenceConfig } from 'lib/logic/persistence'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -453,9 +454,11 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
             },
         ],
     })),
-    reducers({
+    reducers(() => ({
         value: [
             EMPTY_VALUE,
+            // Opening a workflow or the templates tab unmounts the list, and the way back carries no filters.
+            buildUserScopedPersistenceConfig('workflows_list_v2_value__'),
             {
                 setValue: (_, { value }) => value,
                 clearFilters: () => EMPTY_VALUE,
@@ -514,7 +517,7 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
             patchWorkflow: (state, { id, patch }) => state && applyRowChange(state, { id, patch }),
             removeWorkflow: (state, { id }) => state && applyRowChange(state, { id, removed: true }),
         },
-    }),
+    })),
     selectors({
         hasHealthFilter: [
             (s) => [s.value],
@@ -745,9 +748,22 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
                 filters: parseFacetQuery(rawSearchParam('q'), QUERY_FACETS),
                 text: rawSearchParam('text'),
             }
-            // Old filter links are read once, when the list opens. Later URLs are the list's own.
+            // Old filter links and the kept filters are read once, when the list opens. Later URLs are the list's own.
             if (!cache.legacyChecked) {
                 cache.legacyChecked = true
+                const kept = values.value
+                if (
+                    !('q' in searchParams || 'text' in searchParams) &&
+                    !LEGACY_PARAMS.some((param) => param in searchParams) &&
+                    (kept.filters.length > 0 || kept.text)
+                ) {
+                    router.actions.replace(
+                        router.values.location.pathname,
+                        withFacetParams(searchParams, kept),
+                        hashParams
+                    )
+                    return
+                }
                 if (LEGACY_PARAMS.some((param) => param in searchParams)) {
                     const legacy = legacyParamsToValue(searchParams)
                     const next = { ...searchParams }

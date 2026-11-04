@@ -27,19 +27,24 @@ export function matchesWorkflowListText(row: WorkflowListRow, text: string): boo
 
 /** `rows` supplies the names shown for creator uuids. */
 export function buildWorkflowListFacets(rows: WorkflowListRow[]): FacetDefinition<WorkflowListRow>[] {
-    const creatorNames = new Map<string, string>()
+    const creators = new Map(
+        rows.flatMap(({ workflow }) => (workflow.created_by ? [[workflow.created_by.uuid, workflow.created_by]] : []))
+    )
     const creatorIds = new Map<string, string | null>()
-    for (const { workflow } of rows) {
-        if (workflow.created_by) {
-            const name = workflow.created_by.first_name || workflow.created_by.email
-            const key = name.toLowerCase()
-            const known = creatorIds.get(key)
-            creatorNames.set(workflow.created_by.uuid, name)
-            creatorIds.set(
-                key,
-                known === undefined || known === workflow.created_by.uuid ? workflow.created_by.uuid : null
-            )
-        }
+    const addCreatorKey = (key: string, uuid: string): void => {
+        const known = creatorIds.get(key.toLowerCase())
+        creatorIds.set(key.toLowerCase(), known === undefined || known === uuid ? uuid : null)
+    }
+    for (const [uuid, creator] of creators) {
+        addCreatorKey(creator.first_name || creator.email, uuid)
+        addCreatorKey(creator.email, uuid)
+    }
+    const creatorNames = new Map<string, string>()
+    for (const [uuid, creator] of creators) {
+        const name = creator.first_name || creator.email
+        const label = creatorIds.get(name.toLowerCase()) === null ? `${name} (${creator.email})` : name
+        creatorNames.set(uuid, label)
+        addCreatorKey(label, uuid)
     }
 
     return [
