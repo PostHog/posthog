@@ -107,8 +107,10 @@ class TrinoBackfillCatalog:
 
     @classmethod
     @contextlib.contextmanager
-    def connect(cls, organization_id: str) -> Iterator[TrinoBackfillCatalog]:
-        with connect_managed_warehouse_trino(organization_id, principal=BACKFILL_TRINO_PRINCIPAL) as connection:
+    def connect(cls, organization_id: str, *, canary: bool = False) -> Iterator[TrinoBackfillCatalog]:
+        with connect_managed_warehouse_trino(
+            organization_id, principal=BACKFILL_TRINO_PRINCIPAL, canary=canary
+        ) as connection:
             yield cls(connection)
 
     def _table(self, table: str) -> str:
