@@ -149,7 +149,7 @@ describe('sandbox email content', () => {
         for (const ancestor of [root, body]) {
             const value = ancestor.attrs.find((attribute) => attribute.name === 'style')!.value
             expect(value.startsWith(`${kept};display:block!important;`)).toBe(true)
-            expect(value.endsWith(';zoom:1!important')).toBe(true)
+            expect(value.endsWith(';zoom:1!important;mso-hide:none!important')).toBe(true)
             expect(value).not.toContain('/*')
         }
     })
@@ -167,6 +167,7 @@ describe('sandbox email content', () => {
             expect(value).toContain('height:auto!important')
             expect(value).toContain('margin:0!important')
             expect(value).toContain('mask:none!important')
+            expect(value).toContain('mso-hide:none!important')
         }
         expect(result.html).toContain('Visible message')
         expect(body.childNodes.at(-1)).toMatchObject({ childNodes: [{ nodeName: '#text', value: footer }] })
@@ -246,6 +247,7 @@ describe('sandbox email content', () => {
             '<!--[if !mso]><!-- --><p>Hello</p><!--<![endif]-->',
             null,
         ],
+        ['<body><style>div{mso-hide:all}</style><p>Hello</p></body>', '<p>Hello</p>', null],
         ['<body><p title="&lt;!--[if mso]&gt;">Hello</p></body>', '<p title="<!--[if mso]>">Hello</p>', null],
         [
             '<body><style>/* <![if !mso]> */ p {color:blue}</style><p>Hello</p></body>',
@@ -279,6 +281,7 @@ describe('sandbox email content', () => {
                 deliveredFooter.attrs.find((attribute) => attribute.name === 'style')?.value
             expect(footerStyle).toContain('position:relative!important;z-index:2147483647!important')
             expect(footerStyle).toContain('text-indent:0!important')
+            expect(footerStyle).toContain('mso-hide:none!important')
         }
         expect(result.preheader).toBeUndefined()
     })
@@ -304,6 +307,16 @@ describe('sandbox email content', () => {
         ['<body><!--[if !mso]><!--><p title="<![endif]">Hello</p>', null, null],
         ['<body><!--[if !mso]><!--><p>Hello</p><!-- <![endif] note -->', null, null],
         ['<body><p>Hello</p><template><!--[if !mso]><p>Example</p>', null, null],
+        [
+            '<body><!--[if mso]><div style="display:none"><![if !mso]></div><![endif]><![endif]--><p>Hello</p>',
+            null,
+            null,
+        ],
+        [
+            `<body><p>${'Hello '.repeat(12_500)}</p>`,
+            null,
+            'Sandbox emails can have at most 75 KB of HTML, so every inbox shows the identification footer. Shorten the template and try again.',
+        ],
         ['', '', 'The sandbox email template must include HTML or text content. Update the template and try again.'],
     ])('rejects content that cannot retain the footer: %s', async (html, text, error) => {
         await expect(
