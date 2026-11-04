@@ -118,6 +118,7 @@ The native build supports rotation; iOS builds use Xcode 27.1 for the full Duo d
 - Active division regions determine the inbox and report boundary, including a horizontal fold. Each pane must have enough
   reading space; a narrow window keeps one report instance. A flat display uses the normal width-based split.
   Measure regions above navigator transitions and translate them into the scene's safe content coordinates; a provider inside an animating screen can retain a translated fold frame.
+- Paired reports keep their heading in the detail pane, leaving the inbox heading clear.
 - Reports keep their contextual Chat action; their navigation bar does not add a second compose button.
   The report action bar stays in the page layout when the keyboard opens or the window rotates.
   With a navigation rail beside native side chrome, its bottom gutter is 16pt; phone layouts retain their bottom safe-area spacing.

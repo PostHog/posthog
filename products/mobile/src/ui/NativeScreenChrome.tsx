@@ -12,7 +12,7 @@ function toolbarItems(children: ReactNode): ReactNode[] {
     )
 }
 
-export function NativeScreenChrome({ onBack, title, nativeActions }: ScreenChromeProps): ReactElement {
+export function NativeScreenChrome({ onBack, title, nativeActions, hideNativeTitle }: ScreenChromeProps): ReactElement {
     const colors = useColors()
     const dismiss = useOverlayDismiss()
     return (
@@ -22,7 +22,7 @@ export function NativeScreenChrome({ onBack, title, nativeActions }: ScreenChrom
                     headerShown: true,
                     gestureEnabled: !dismiss,
                     headerTransparent: true,
-                    headerTitle: dismiss ? '' : (title?.text ?? ''),
+                    headerTitle: dismiss || hideNativeTitle ? '' : (title?.text ?? ''),
                     headerTintColor: colors.ink,
                     headerBackVisible: false,
                 }}

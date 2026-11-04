@@ -33,7 +33,7 @@ export function TopChrome({
     withPager = true,
 }: TopChromeProps): ReactElement {
     const router = useRouter()
-    const { contentWidth } = useAppLayout()
+    const { contentWidth, paired } = useAppLayout()
     const { height } = useWindowDimensions()
     const navigation = useMemo(
         () =>
@@ -62,6 +62,7 @@ export function TopChrome({
             onBack={onBack}
             backTestID="report-back"
             title={title}
+            hideNativeTitle={withPager && paired}
             nativeActions={
                 Platform.OS === 'ios' && withPager ? (
                     <>

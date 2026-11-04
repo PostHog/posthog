@@ -19,6 +19,7 @@ export interface ScreenChromeProps {
     title?: ScrollTitle
     right?: ReactNode
     nativeActions?: ReactNode
+    hideNativeTitle?: boolean
 }
 
 export function ScreenChrome(props: ScreenChromeProps): ReactElement {
