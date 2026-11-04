@@ -60,7 +60,7 @@ import { funnelDataLogic } from 'products/product_analytics/frontend/insights/fu
 import { insightDataLogic } from '../insightDataLogic'
 import { insightVizDataLogic } from '../insightVizDataLogic'
 import { InsightErrorLayout } from './InsightErrorLayout'
-import { SampleDataState, SampleDataVariant } from './SampleDataState'
+import { SampleDataState, SampleDataVariant, type SampleTableContent } from './SampleDataState'
 import { sampleDataStateLogic } from './sampleDataStateLogic'
 
 const HedgehogConstruction2 = pngHoggie(construction2Png)
@@ -78,6 +78,7 @@ export function InsightEmptyState({
     detail,
     icon: iconProp,
     sampleDataVariant,
+    sampleTable,
     insightProps,
 }: {
     heading?: string
@@ -89,6 +90,7 @@ export function InsightEmptyState({
      * `null` to opt this call site out entirely.
      */
     sampleDataVariant?: SampleDataVariant | null
+    sampleTable?: SampleTableContent
     insightProps?: Pick<InsightLogicProps, 'dashboardId' | 'dashboardItemId'>
 }): JSX.Element {
     const { shouldShowSampleData } = useValues(sampleDataStateLogic)
@@ -115,7 +117,7 @@ export function InsightEmptyState({
     })
 
     if (showingSampleData) {
-        return <SampleDataState variant={sampleDataVariant ?? 'line'} />
+        return <SampleDataState variant={sampleDataVariant ?? 'line'} table={sampleTable} />
     }
 
     heading = heading ?? 'There are no matching events for this query'

@@ -28,6 +28,7 @@ configureTestingLibrary({ asyncUtilTimeout: 15000 })
 const setupMsw = (): void => {
     // Make sure the msw worker is started
     worker.start({
+        serviceWorker: { url: '/storybookServiceWorker.js' },
         quiet: true,
         onUnhandledRequest(request, print) {
             // MSW warns on all unhandled requests, but we don't necessarily care
