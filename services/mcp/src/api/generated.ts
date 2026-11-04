@@ -33914,6 +33914,13 @@ export namespace Schemas {
       readonly tags: readonly string[];
       readonly archived: boolean;
       /**
+         * Earliest cleanup time if the dataset remains unused.
+         * @nullable
+         */
+      readonly expires_at: string | null;
+      /** Whether the dataset is within seven days of expiry. */
+      readonly expiring_soon: boolean;
+      /**
          * Latest dataset revision, or null before the first item is added.
          * @nullable
          */
@@ -33945,6 +33952,13 @@ export namespace Schemas {
       readonly created_by: UserBasic | null;
       /** Project that owns the revision. */
       readonly team_id: number;
+      /**
+         * Earliest expiry time of this dataset snapshot if unused.
+         * @nullable
+         */
+      readonly expires_at: string | null;
+      /** Whether this snapshot is within seven days of expiry. */
+      readonly expiring_soon: boolean;
     }
 
     export interface DayItem {
