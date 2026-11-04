@@ -48,7 +48,7 @@ from products.messaging.backend.facade.contracts import (
     TransactionalEmailError,
     TransactionalEmailPaused,
 )
-from products.messaging.backend.models import MessageCategory, MessageTemplate, TransactionalEmailKey
+from products.messaging.backend.models import FirstCodeSend, MessageCategory, MessageTemplate, TransactionalEmailKey
 from products.messaging.backend.models.message_category import MessageCategoryType
 from products.messaging.backend.services.html_text import text_from_html
 from products.workflows.backend.facade.api import WorkflowNotFound, get_workflow_summary
@@ -446,6 +446,18 @@ def _lock_team_keys(team_id: int) -> None:
         cursor.execute(
             "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"{TRANSACTIONAL_EMAIL_KEY_LOCK}:{team_id}"]
         )
+
+
+def report_first_code_send(team_id: int, capture: Callable[[], bool]) -> None:
+    _, claimed = FirstCodeSend.objects.for_team(team_id).get_or_create(defaults={"team_id": team_id})
+    if not claimed:
+        return
+    captured = False
+    try:
+        captured = capture()
+    finally:
+        if not captured:
+            FirstCodeSend.objects.for_team(team_id).delete()
 
 
 def require_code_email_access(

@@ -1,10 +1,14 @@
 import json
+from collections.abc import Callable
 from typing import Any, get_args
 from uuid import UUID, uuid4
 
 import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
+
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
 import requests
 from parameterized import parameterized
@@ -14,12 +18,15 @@ from rest_framework.test import APIClient
 from structlog.testing import capture_logs
 
 from posthog.constants import AvailableFeature
+from posthog.dataclasses import frozen
 from posthog.models import OrganizationMembership, ProjectSecretAPIKey, Team, User
 from posthog.models.integration import Integration
-from posthog.models.personal_api_key import hash_key_value
-from posthog.models.utils import generate_random_token_secret
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.utils import generate_random_token_personal, generate_random_token_secret
 
 from products.access_control.backend.facade.testing import create_access_control
+from products.messaging.backend.facade.transactional_email import report_first_code_send
+from products.messaging.backend.models.first_code_send import FirstCodeSend
 from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
@@ -49,6 +56,14 @@ ADDRESS_VERDICTS = [
     ("jane.@example.com", False),
     ("jane..doe@example.com", False),
 ]
+
+
+@frozen
+class CapturedFirstCodeSend:
+    distinct_id: str | None
+    properties: dict[str, Any]
+    organization_id: str
+    project: str
 
 
 def _stage_counts() -> dict[str, float]:
@@ -115,14 +130,21 @@ class TestTransactionalEmail(APIBaseTest):
             flat["distinct_id"] = body["identifiers"]["distinct_id"]
         return {**flat, "template_id": str(self.template.id)}
 
-    def _psak_client(self, scopes: list[str], team: Team | None = None) -> APIClient:
+    def _psak_client(
+        self,
+        scopes: list[str],
+        created_by: User | None = None,
+        label: str = "transactional email",
+        team: Team | None = None,
+    ) -> APIClient:
         raw_token = generate_random_token_secret()
         ProjectSecretAPIKey.objects.create(
             team=team or self.team,
-            label="transactional email",
+            label=label,
             secure_value=hash_key_value(raw_token),
             scopes=scopes,
             mask_value=f"{raw_token[:4]}...{raw_token[-4:]}",
+            created_by=created_by,
         )
         client = APIClient()
         client.credentials(HTTP_AUTHORIZATION=f"Bearer {raw_token}")
@@ -561,7 +583,7 @@ class TestTransactionalEmail(APIBaseTest):
         set_default_email_sender_if_unset(env.id, env_sender.id)
         clients = {
             self.team.id: self._psak_client(["hog_flow:write"]),
-            env.id: self._psak_client(["hog_flow:write"], env),
+            env.id: self._psak_client(["hog_flow:write"], team=env),
         }
 
         for team_id in (self.team.id, env.id, self.team.id, env.id):
@@ -1075,6 +1097,198 @@ class TestTransactionalEmail(APIBaseTest):
         after = MessageTemplate.objects.get(id=self.template.id)
         assert (after.message_category_id, after.content) == (None, before.content)
         assert self._workflow(self.hog_flow_id)["version"] == 1
+
+    def _sender_client(self, sender: str) -> APIClient:
+        if sender == "personal_api_key":
+            token = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="email", user=self.user, secure_value=hash_key_value(token), scopes=["transactional_email:write"]
+            )
+            client = APIClient()
+            client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+            return client
+        return self._psak_client(
+            ["transactional_email:write"], created_by=self.user if sender == "key_creator" else None
+        )
+
+    @staticmethod
+    def _first_code_sends(capture: MagicMock) -> list[CapturedFirstCodeSend]:
+        return [
+            CapturedFirstCodeSend(
+                distinct_id=call.kwargs["distinct_id"],
+                properties=call.kwargs["properties"],
+                organization_id=call.kwargs["groups"]["organization"],
+                project=call.kwargs["groups"]["project"],
+            )
+            for call in capture.call_args_list
+            if call.kwargs["event"] == "email first code send"
+        ]
+
+    @parameterized.expand([("the_project", False), ("an_environment", True)])
+    def test_the_first_code_send_of_a_project_is_reported_once_for_whoever_made_its_key_in(
+        self, mock_post, _flag, capture, _name, in_environment
+    ):
+        self._cdp_accepts(mock_post)
+        key_team = self.team
+        if in_environment:
+            key_team = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+            sender = Integration.objects.create(
+                team=key_team, kind="email", integration_id="hello@example.com", config={"verified": True}
+            )
+            set_default_email_sender_if_unset(key_team.id, sender.id)
+        psak = self._psak_client(["hog_flow:write"], created_by=self.user, team=key_team)
+        url = f"/api/projects/{key_team.id}/messaging/send/email/"
+
+        with self.captureOnCommitCallbacks(execute=True):
+            first = psak.post(url, self._code_send(), format="json")
+        with self.captureOnCommitCallbacks(execute=True):
+            second = psak.post(url, self._code_send(), format="json")
+
+        assert (first.status_code, second.status_code) == (status.HTTP_202_ACCEPTED, status.HTTP_202_ACCEPTED), (
+            first.json()
+        )
+        assert self._first_code_sends(capture) == [
+            CapturedFirstCodeSend(
+                distinct_id=self.user.distinct_id,
+                properties={"team_id": self.team.id, "addressed_by": "template_key"},
+                organization_id=str(self.organization.id),
+                project=str(self.team.uuid),
+            )
+        ]
+
+    def test_a_template_send_by_id_counts_as_the_first_code_send(self, mock_post, _flag, capture):
+        self._cdp_accepts(mock_post)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self._send(self._sender_client("key_creator"), "send_email", self.body)
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert [sent.properties["addressed_by"] for sent in self._first_code_sends(capture)] == ["template_id"]
+
+    @parameterized.expand(
+        [
+            (
+                "a_replay",
+                "key_creator",
+                MagicMock(status_code=202, json=lambda: {"invocation_id": "a", "replayed": True}),
+                True,
+                202,
+            ),
+            ("a_key_nobody_made", "key_without_creator", None, True, 202),
+            ("a_personal_api_key", "personal_api_key", None, True, 202),
+            ("a_send_the_pipeline_refuses", "key_creator", MagicMock(status_code=429), True, 503),
+            ("the_flag_off", "key_creator", None, False, 404),
+        ]
+    )
+    def test_reports_no_first_code_send_for(
+        self, mock_post, flag, capture, _name, sender, pipeline_answer, flag_on, expected_status
+    ):
+        self._cdp_accepts(mock_post)
+        if pipeline_answer is not None:
+            mock_post.return_value = pipeline_answer
+        flag.return_value = flag_on
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self._sender_client(sender).post(self.send_email_url, self._code_send(), format="json")
+
+        assert response.status_code == expected_status, response.json()
+        assert self._first_code_sends(capture) == []
+
+    @parameterized.expand(
+        [
+            ("raises", {"side_effect": RuntimeError("capture is down")}),
+            ("drops_the_event", {"return_value": None}),
+        ]
+    )
+    def test_a_first_code_send_that_fails_to_capture_leaves_it_to_a_later_send(
+        self, mock_post, _flag, capture, _name, failure
+    ):
+        self._cdp_accepts(mock_post)
+        psak = self._sender_client("key_creator")
+        capture.configure_mock(**failure)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            failed = psak.post(self.send_email_url, self._code_send(), format="json")
+        capture.reset_mock(side_effect=True, return_value=True)
+        with self.captureOnCommitCallbacks(execute=True):
+            later = psak.post(self.send_email_url, self._code_send(), format="json")
+
+        assert (failed.status_code, later.status_code) == (status.HTTP_202_ACCEPTED, status.HTTP_202_ACCEPTED)
+        assert [sent.properties["addressed_by"] for sent in self._first_code_sends(capture)] == ["template_key"]
+
+    @parameterized.expand(
+        [
+            ("the_template_route", "send", {EMAIL_FROM_CODE_FLAG, TRANSACTIONAL_EMAIL_API_FLAG}),
+            ("send_email_without_the_code_flag", "send_email", {TRANSACTIONAL_EMAIL_API_FLAG}),
+        ]
+    )
+    def test_a_template_send_by_id_reports_no_first_code_send_on(self, mock_post, flag, capture, _name, route, flags):
+        self._cdp_accepts(mock_post)
+        flag.side_effect = lambda name, *args, **kwargs: name in flags
+
+        with self.captureOnCommitCallbacks(execute=True):
+            response = self._send(self._sender_client("key_creator"), route, self.body)
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert self._first_code_sends(capture) == []
+        assert not FirstCodeSend.objects.for_team(self.team.id).exists()
+
+    def test_a_creator_deleted_before_the_callback_leaves_the_first_code_send_to_a_later_send(
+        self, mock_post, _flag, capture
+    ):
+        self._cdp_accepts(mock_post)
+        departed = User.objects.create_and_join(self.organization, "departed@example.com", None)
+        departed_psak = self._psak_client(["hog_flow:write"], created_by=departed, label="departed")
+
+        with self.captureOnCommitCallbacks(execute=False) as callbacks:
+            departed_psak.post(self.send_email_url, self._code_send(), format="json")
+        departed.delete()
+        for callback in callbacks:
+            callback()
+        with self.captureOnCommitCallbacks(execute=True):
+            self._sender_client("key_creator").post(self.send_email_url, self._code_send(), format="json")
+
+        assert self._first_code_sends(capture) == [
+            CapturedFirstCodeSend(
+                distinct_id=self.user.distinct_id,
+                properties={"team_id": self.team.id, "addressed_by": "template_key"},
+                organization_id=str(self.organization.id),
+                project=str(self.team.uuid),
+            )
+        ]
+
+    def test_a_later_code_send_makes_no_first_code_send_insert(self, mock_post, _flag, _capture):
+        self._cdp_accepts(mock_post)
+        psak = self._sender_client("key_creator")
+        with self.captureOnCommitCallbacks(execute=True):
+            psak.post(self.send_email_url, self._code_send(), format="json")
+
+        with CaptureQueriesContext(connection) as queries, self.captureOnCommitCallbacks(execute=True):
+            response = psak.post(self.send_email_url, self._code_send(), format="json")
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert [
+            query["sql"]
+            for query in queries.captured_queries
+            if 'INSERT INTO "messaging_firstcodesend"' in query["sql"]
+        ] == []
+
+    def test_reports_a_projects_first_code_send_once(self, _mock_post, _flag, _capture):
+        environment = Team.objects.create(organization=self.organization, parent_team=self.team, name="env")
+        other_team = Team.objects.create(organization=self.organization)
+        captured: list[int] = []
+
+        def capture_for(team_id: int) -> Callable[[], bool]:
+            def capture() -> bool:
+                captured.append(team_id)
+                return True
+
+            return capture
+
+        for team_id in (self.team.id, self.team.id, environment.id, other_team.id):
+            report_first_code_send(team_id, capture_for(team_id))
+
+        assert captured == [self.team.id, other_team.id]
 
 
 @pytest.mark.ee
