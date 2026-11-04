@@ -3312,6 +3312,12 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
     def get_actor_kind(self, obj: SignalReportArtefact) -> str:
         return obj.actor_kind or SignalActorKind.SYSTEM
 
+    def _report_is_user_authored(self, obj: SignalReportArtefact) -> bool:
+        user_authored = self.context.get("signals_report_user_authored")
+        if isinstance(user_authored, bool):
+            return user_authored
+        return SignalReport.objects.filter(id=obj.report_id, team_id=obj.team_id, user_authored=True).exists()
+
     def get_content(self, obj: SignalReportArtefact) -> dict | list:
         try:
             parsed = json.loads(obj.content)
@@ -3339,6 +3345,7 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
                 uuid_to_user=reviewer_uuid_map,
                 scout_display_names=scout_display_names,
                 manual_adders=trusted_manual_reviewer_adders(obj, parsed, self.context.get("signals_reviewer_history")),
+                user_authored=self._report_is_user_authored(obj),
             )
 
         if obj.type in {

@@ -33949,6 +33949,13 @@ export namespace Schemas {
       readonly tags: readonly string[];
       readonly archived: boolean;
       /**
+         * Earliest cleanup time if the dataset remains unused.
+         * @nullable
+         */
+      readonly expires_at: string | null;
+      /** Whether the dataset is within seven days of expiry. */
+      readonly expiring_soon: boolean;
+      /**
          * Latest dataset revision, or null before the first item is added.
          * @nullable
          */
@@ -33980,6 +33987,13 @@ export namespace Schemas {
       readonly created_by: UserBasic | null;
       /** Project that owns the revision. */
       readonly team_id: number;
+      /**
+         * Earliest expiry time of this dataset snapshot if unused.
+         * @nullable
+         */
+      readonly expires_at: string | null;
+      /** Whether this snapshot is within seven days of expiry. */
+      readonly expiring_soon: boolean;
     }
 
     export interface DayItem {
@@ -35021,6 +35035,8 @@ export namespace Schemas {
       user_code: string;
       /** The project the token is scoped to. */
       project_id: number;
+      /** The requested scopes the person kept. Leave it out to grant every requested scope. It must include every scope in `required_scopes`, and nothing outside the requested scopes. */
+      scopes?: string[];
     }
 
     /**
@@ -35074,6 +35090,8 @@ export namespace Schemas {
       is_verified: boolean;
       /** The scopes the token will carry if the person approves. */
       scopes: string[];
+      /** The requested scopes the person can't leave out: the client's required scopes and identity scopes such as `openid`. */
+      required_scopes: string[];
       /** The scopes the person already gave this client, per project. A step-up in a project asks for these plus new ones, and the page lists only the new ones. */
       granted_scopes: GrantedScopes[];
       /** When the code expires. */
@@ -47219,6 +47237,8 @@ export namespace Schemas {
        * * `missing_primary_key` - Missing primary key
        * * `duplicate_primary_key` - Duplicate primary key */
       readonly incremental_sync_blocked: IncrementalSyncBlockedReasonEnum | null;
+      /** Whether this table uses webhook sync, but its source has no enabled webhook. Such a table gets no webhook updates. Each sync polls the source API instead, which is slower and can read the whole table. Set up the webhook on the source, or change `sync_type`. */
+      readonly webhook_not_registered: boolean;
       /**
          * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
          * @nullable
@@ -47570,6 +47590,8 @@ export namespace Schemas {
          */
       readonly user_access_level: string | null;
       readonly supports_webhooks: boolean;
+      /** Whether at least one table of this source uses webhook sync, but the source has no enabled webhook. Those tables get no webhook updates. Each of their syncs polls the source API instead, which is slower and can read the whole table. Set up the webhook, or change the sync method of those tables. */
+      readonly webhook_not_registered: boolean;
       /** Whether this source supports per-column sync selection via `enabled_columns`. */
       readonly supports_column_selection: boolean;
       /**
@@ -81679,6 +81701,8 @@ export namespace Schemas {
        * * `missing_primary_key` - Missing primary key
        * * `duplicate_primary_key` - Duplicate primary key */
       readonly incremental_sync_blocked?: IncrementalSyncBlockedReasonEnum | null;
+      /** Whether this table uses webhook sync, but its source has no enabled webhook. Such a table gets no webhook updates. Each sync polls the source API instead, which is slower and can read the whole table. Set up the webhook on the source, or change `sync_type`. */
+      readonly webhook_not_registered?: boolean;
       /**
          * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
          * @nullable
@@ -81792,6 +81816,8 @@ export namespace Schemas {
          */
       readonly user_access_level?: string | null;
       readonly supports_webhooks?: boolean;
+      /** Whether at least one table of this source uses webhook sync, but the source has no enabled webhook. Those tables get no webhook updates. Each of their syncs polls the source API instead, which is slower and can read the whole table. Set up the webhook, or change the sync method of those tables. */
+      readonly webhook_not_registered?: boolean;
       /** Whether this source supports per-column sync selection via `enabled_columns`. */
       readonly supports_column_selection?: boolean;
       /**
@@ -84502,6 +84528,11 @@ export namespace Schemas {
     export interface PatchedProjectBackwardCompat {
       readonly id?: number;
       readonly organization?: string;
+      /**
+         * Whether the project's organization approved AI data processing. AI features need this approval.
+         * @nullable
+         */
+      readonly is_ai_data_processing_approved?: boolean | null;
       /**
          * Project name. Must be unique within the organization (case-insensitive). If omitted on creation, a unique default name is generated.
          * @minLength 1
@@ -90571,6 +90602,11 @@ export namespace Schemas {
     export interface ProjectBackwardCompat {
       readonly id: number;
       readonly organization: string;
+      /**
+         * Whether the project's organization approved AI data processing. AI features need this approval.
+         * @nullable
+         */
+      readonly is_ai_data_processing_approved: boolean | null;
       /**
          * Project name. Must be unique within the organization (case-insensitive). If omitted on creation, a unique default name is generated.
          * @minLength 1
@@ -102717,6 +102753,37 @@ export namespace Schemas {
       is_maintainer: boolean;
     }
 
+    export interface ScoutMemberActivityObject {
+      /** The object type in snake case, such as `dashboard` or `feature_flag`. */
+      type: string;
+      /** The latest name of the object. */
+      name: string;
+    }
+
+    /**
+     * What one member worked on recently, from their activity summary.
+     */
+    export interface ScoutMemberActivity {
+      /**
+         * One line about the member's recent work.
+         * @nullable
+         */
+      headline: string | null;
+      /** The labels of the main threads of the member's recent work. */
+      themes: string[];
+      /** Up to 5 objects the member created or changed, the most edited first. */
+      owned: ScoutMemberActivityObject[];
+      /** Up to 5 objects the member opened on several days, the most opened first. A member who only reads the work shows up here. A specific object here can support a reviewer pick when the pick's `reason` names it. */
+      watched: ScoutMemberActivityObject[];
+      /**
+         * When the summary was written.
+         * @nullable
+         */
+      generated_at: string | null;
+      /** True when the summary waits for a rebuild in a newer format. Give a stale summary less weight. */
+      stale: boolean;
+    }
+
     /**
      * One project member's routing identity, for picking a `suggested_reviewers` entry on a report.
      */
@@ -102736,6 +102803,8 @@ export namespace Schemas {
       github_login: string | null;
       /** The teams this member is on, from the project's synced team roster. Empty when no roster is synced, or when the member has no linked GitHub account, since the roster is keyed on that login. The roster is a periodic snapshot, so it can lag the live team. */
       teams: ScoutMemberTeam[];
+      /** What the member worked on recently. Use it as context to check against the report, not as proof: general activity is not evidence that the member owns the affected work. Filled only when the call passes `search` or `team` and returns at most 10 members. Null when the member has no ready summary, or when activity summaries are not available for this project. */
+      activity?: ScoutMemberActivity | null;
     }
 
     /**
@@ -127342,6 +127411,10 @@ export namespace Schemas {
      * @maximum 500
      */
     limit?: number;
+    /**
+     * Only workflows whose name contains this text, ignoring case. Unlike `search`, it never reads descriptions, tags or step content.
+     */
+    name?: string;
     /**
      * The initial index from which to return the results.
      */

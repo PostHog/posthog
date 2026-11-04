@@ -234,11 +234,13 @@ Models that invalidate the flags cache:
 - `FeatureFlagEvaluationTag` - Evaluation tags changed
 - `Tag` - Tag renamed
 
-Deleting a `Team` clears its local evaluation entry from Redis and S3 after the deletion commits.
-The rebuild task cannot run for a deleted team, and `/flags/definitions` falls back to the S3 copy, which has no TTL.
+Deleting a `Team` clears its local evaluation and team metadata entries from Redis and S3 after the deletion commits.
+The rebuild task cannot run for a deleted team, and the flags service falls back to the S3 copies, which have no TTL.
+A stale team metadata entry lets the flags service resolve the deleted team's token without a Postgres check.
 
 The staff cache tools `clear` action also accepts the ids of deleted teams.
-Use it to purge an orphaned entry for a team that no longer exists.
+Use it to purge an orphaned flags entry for a team that no longer exists.
+It does not clear team metadata entries, because it takes team ids and those entries are keyed by API token.
 
 ## Remote config caching
 
