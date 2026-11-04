@@ -89,6 +89,8 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { variableDataLogic } from '~/queries/nodes/DataVisualization/Components/Variables/variableDataLogic'
 import { Variable } from '~/queries/nodes/DataVisualization/types'
+import { filterVariablesReferencedInQuery } from '~/queries/nodes/InsightViz/queryUtils'
+import { DataVisualizationRenderer, InsightVizRenderer } from '~/queries/Query/queryNodeRenderers'
 import {
     BreakdownFilter,
     CompareFilter,
@@ -159,7 +161,6 @@ import { exceedsRetention } from 'products/product_analytics/frontend/insights/d
 import type { FeatureFlagsSet } from '../../lib/logic/featureFlagLogic'
 import type { Node } from '../../queries/schema/schema-general'
 import { getResponseBytes, sortDayJsDates } from '../insights/utils'
-import { filterVariablesReferencedInQuery } from '../insights/utils/queryUtils'
 import { teamLogic } from '../teamLogic'
 import {
     BreakdownColorConfig,
@@ -1190,6 +1191,13 @@ export interface dashboardLogicActions {
             tile: DashboardTile
         }
     }
+    renameTileGroup: (
+        groupKey: string,
+        title: string
+    ) => {
+        groupKey: string
+        title: string
+    }
     reportDashboardFilterChange: (
         changeType: DashboardFilterChangeType,
         properties: Record<string, boolean | number | string | null | undefined>
@@ -2030,6 +2038,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         selectTileGroupTab: (sectionKey: string) => ({ sectionKey }),
         refreshOpenTileGroupsWaiting: true,
         changeTileGroupDisplay: (groupDisplay: TileGroupDisplay) => ({ groupDisplay }),
+        renameTileGroup: (groupKey: string, title: string) => ({ groupKey, title }),
         refreshTileGroup: (groupKey: string) => ({ groupKey }),
         setWaitingTileRefresh: (waiting: WaitingTileRefresh) => ({ waiting }),
         clearWaitingTileRefresh: (tileIds: number[]) => ({ tileIds }),
@@ -4433,6 +4442,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
     })),
     events(({ actions, props, values, cache }) => ({
         afterMount: () => {
+            // Insight and SQL tiles render through these. Fetch them alongside the dashboard itself.
+            void InsightVizRenderer.preload()
+            void DataVisualizationRenderer.preload()
             // NOTE: initial dashboard load is done after variables are loaded in initialVariablesLoaded
             if (!Number.isFinite(props.id)) {
                 actions.dashboardNotFound()
@@ -5001,7 +5013,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                 other_dashboard_count: otherDashboardCount,
                             })
                             return deleteInsightWithUndo({
-                                object: { ...insight, dashboards: dashboardIds },
+                                object: insight,
+                                dashboardIds,
                                 endpoint: `projects/${values.currentTeamId}/insights`,
                                 callback: (undo) => {
                                     const updatedInsight = {
@@ -5679,6 +5692,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
         changeTileGroupDisplay: ({ groupDisplay }) => {
             actions.triggerDashboardUpdate({ group_display: groupDisplay })
+        },
+        renameTileGroup: ({ groupKey, title }) => {
+            // The API replaces every group on write, so send the others back unchanged.
+            const groups = values.dashboard?.customization?.groups ?? {}
+            actions.triggerDashboardUpdate({
+                groups: { ...groups, [groupKey]: { ...groups[groupKey], title: title.trim() } },
+            })
         },
         refreshTileGroup: async ({ groupKey }) => {
             const { waitingTileRefresh: waiting, refreshStatus, widgetRefreshStatus } = values

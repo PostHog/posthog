@@ -6,7 +6,6 @@ from collections.abc import Iterator
 from contextlib import AbstractContextManager, contextmanager
 from typing import TYPE_CHECKING, Any, cast
 
-import sqlparse
 import structlog
 from opentelemetry import trace
 from sqlparse import tokens as sqlparse_tokens
@@ -15,7 +14,7 @@ from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.direct_query_metrics import DIRECT_QUERY_ROW_CAP_EXCEEDED_TOTAL, observe_direct_query
 from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult, parse_direct_source_config
 from posthog.hogql.direct_sql.capability import is_direct_capable
-from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
+from posthog.hogql.direct_sql.raw_sql import parse_direct_statements
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.trino_parameters import convert_pyformat_placeholders
@@ -45,8 +44,7 @@ DIRECT_TRINO_TIMEOUT_ERROR = "Trino query timed out."
 
 
 def ensure_read_only_raw_trino_statement(sql: str) -> str:
-    sql = ensure_single_direct_statement(sql)
-    statements = [statement for statement in sqlparse.parse(sql) if str(statement).strip(" \t\r\n;")]
+    statements = parse_direct_statements(sql, dialect="trino")
     if len(statements) != 1 or statements[0].get_type() != "SELECT":
         raise ExposedHogQLError(RAW_TRINO_READ_ONLY_ERROR)
     for token in statements[0].flatten():

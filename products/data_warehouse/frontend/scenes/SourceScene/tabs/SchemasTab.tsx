@@ -52,6 +52,7 @@ import {
     SchemaEditorAction,
     SourceEditorAction,
 } from 'products/data_warehouse/frontend/shared/components/SourceEditorAction'
+import { confirmPendingSelfManagedSync } from 'products/data_warehouse/frontend/shared/confirmPendingSelfManagedSync'
 import { isFileUploadSource } from 'products/data_warehouse/frontend/shared/fileUploadSources'
 import { destinationLookupLogic } from 'products/data_warehouse/frontend/shared/logics/destinationLookupLogic'
 import { sourceManagementLogic } from 'products/data_warehouse/frontend/shared/logics/sourceManagementLogic'
@@ -66,7 +67,7 @@ import {
 import type { ExternalDataDestinationApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { DirectQuerySchemasTab } from './DirectQuerySchemasTab'
-import { replaceFileLogic, replaceFileTarget } from './replaceFileLogic'
+import { replaceFileDisabledReason, replaceFileLogic, replaceFileTarget } from './replaceFileLogic'
 import { ReplaceFileModal } from './ReplaceFileModal'
 import { BulkSyncMethod, bulkSyncMethodDisabledReason, sourceSettingsLogic } from './sourceSettingsLogic'
 
@@ -100,15 +101,6 @@ function fileUploadColumns(isFileUpload: boolean, columns: SchemaColumn[]): Sche
     return columns
         .filter((column) => !FILE_UPLOAD_HIDDEN_COLUMN_KEYS.includes(column.key ?? ''))
         .map((column) => (column.className === dimWhenNotSyncing ? { ...column, className: undefined } : column))
-}
-
-function replaceFileDisabledReason(schema: ExternalDataSourceSchema | undefined): string | undefined {
-    if (!schema) {
-        return 'This source has no table'
-    }
-    return schema.status === ExternalDataSchemaStatus.Running
-        ? 'An import is running. Replace the file once it finishes.'
-        : undefined
 }
 
 interface SchemaStatusDisplay {
@@ -246,7 +238,10 @@ function ManagedSchemasTab({ id }: { id: string }): JSX.Element {
             <div className="flex items-start justify-between gap-2 mb-2">
                 {isFileUpload ? (
                     <div className="text-secondary text-sm">
-                        This table comes from a file you uploaded. To update its data, replace the file.
+                        {source?.file_name
+                            ? `This table comes from the file ${source.file_name}. `
+                            : 'This table comes from a file you uploaded. '}
+                        To update its data, replace the file.
                     </div>
                 ) : (
                     <div className="flex flex-wrap items-center gap-3 min-w-0">
@@ -630,16 +625,41 @@ function ManagedSchemaTable({
                     key: 'sync_type',
                     className: dimWhenNotSyncing,
                     render: (_, schema) => {
-                        if (!schema.sync_type) {
-                            return <span className="text-muted">Not set up</span>
-                        }
                         const blockedReason = schema.incremental_sync_blocked
-                        if (!blockedReason) {
-                            return <LemonTag type="primary">{SyncTypeLabelMap[schema.sync_type]}</LemonTag>
+                        const syncMethod = schema.sync_type ? (
+                            <LemonTag type={blockedReason ? 'warning' : 'primary'}>
+                                {SyncTypeLabelMap[schema.sync_type]}
+                            </LemonTag>
+                        ) : (
+                            <span className="text-muted">Not set up</span>
+                        )
+                        // The schema scene hides the sync method section for a file upload, so no link here.
+                        if (isFileUpload) {
+                            return syncMethod
                         }
                         return (
-                            <Tooltip title={IncrementalSyncBlockedMessageMap[blockedReason]} interactive>
-                                <LemonTag type="warning">{SyncTypeLabelMap[schema.sync_type]}</LemonTag>
+                            <Tooltip
+                                title={
+                                    blockedReason
+                                        ? IncrementalSyncBlockedMessageMap[blockedReason]
+                                        : schema.sync_type
+                                          ? 'Change the sync method for this table'
+                                          : 'Set up the sync method for this table'
+                                }
+                                interactive={!!blockedReason}
+                            >
+                                <Link
+                                    to={urls.dataWarehouseSourceSchema(
+                                        prefixedSourceId,
+                                        schema.id,
+                                        'configuration',
+                                        'sync-method'
+                                    )}
+                                    subtle
+                                    data-attr="schemas-tab-sync-method"
+                                >
+                                    {syncMethod}
+                                </Link>
                             </Tooltip>
                         )
                     },
@@ -876,6 +896,17 @@ function SchemaBulkActions({
     const frequencyOptions = allowedSyncFrequencies()
 
     const onEnable = (): void => {
+        const pendingCount = selected.filter(
+            (schema) => !schema.should_sync && schema.pending_self_managed_table
+        ).length
+        if (pendingCount > 0) {
+            confirmPendingSelfManagedSync(pendingCount, enableWithDefaults, 'bulk')
+            return
+        }
+        enableWithDefaults()
+    }
+
+    const enableWithDefaults = (): void => {
         const needingDefaults = selected.filter((schema) => !schema.should_sync && !schema.sync_type)
         if (needingDefaults.length === 0) {
             run(() => bulkEnable(selected))

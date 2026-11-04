@@ -218,7 +218,7 @@ DIFF_CHECKS: list[DiffCheck] = [
         # changed-file subset both blames files outside the diff and misses reverse-dependency
         # breakage), and that costs minutes cold. Naming the command lets the agent judge.
         verify=None,
-        advice="a type error costs a full CI re-run — consider `uv run mypy --cache-fine-grained .` (what CI runs)",
+        advice="a type error costs a full CI re-run — consider `uv run mypy .` (what CI runs)",
     ),
     DiffCheck(
         key="django-template-format",
@@ -291,6 +291,39 @@ DIFF_CHECKS: list[DiffCheck] = [
         # branch just added, which is the one thing the check exists to stop.
         fix=["hogli", "lint:api-ratchet", "--prune-baseline", "--write-semgrep"],
         requires=("python-env",),
+    ),
+    DiffCheck(
+        key="frontend-layers",
+        label="new static import from a lower frontend layer into a higher one",
+        triggers=[
+            "frontend/src/*",
+            "frontend/@posthog/*",
+            "products/*/frontend/*",
+            "common/*",
+            "packages/*",
+            "frontend/bin/layers.mjs",
+            "frontend/bin/layer-baseline.txt",
+        ],
+        verify=["hogli", "lint:frontend-layers"],
+        # Prune, never update: --update-baseline would grandfather the upward import the
+        # branch just added, which is the one thing the check exists to stop.
+        fix=["hogli", "lint:frontend-layers", "--prune-baseline"],
+        requires=("node",),
+    ),
+    DiffCheck(
+        key="frontend-css-coupling",
+        label="new component that uses a stylesheet's class without importing the stylesheet",
+        triggers=[
+            "frontend/src/*",
+            "products/*/frontend/*",
+            "frontend/bin/cssCoupling.mjs",
+            "frontend/bin/css-coupling-baseline.txt",
+        ],
+        verify=["hogli", "lint:frontend-css-coupling"],
+        # Prune, never update: --update-baseline would grandfather the coupling the
+        # branch just added, which is the one thing the check exists to stop.
+        fix=["hogli", "lint:frontend-css-coupling", "--prune-baseline"],
+        requires=("node",),
     ),
     DiffCheck(
         key="workflow-lint",

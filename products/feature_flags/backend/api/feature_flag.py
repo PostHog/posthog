@@ -5,6 +5,7 @@ import copy
 import json
 import math
 import logging
+import builtins
 import functools
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from contextlib import nullcontext
@@ -4377,8 +4378,10 @@ class FeatureFlagViewSet(
             # never read the field.
             queryset = queryset.annotate(is_used_in_replay_settings_annotation=self._replay_gates.as_q())
 
+            # Soft-deleted flags can be restored, so the list returns them when asked for them, and only them.
+            show_deleted = str_to_bool(self.request.GET.get("deleted", False))
             queryset = (
-                queryset.filter(deleted=False)
+                queryset.filter(deleted=show_deleted)
                 .prefetch_related("analytics_dashboards")
                 .prefetch_related(
                     Prefetch(
@@ -4401,7 +4404,10 @@ class FeatureFlagViewSet(
                 Q(id__in=product_tour_internal_targeting_flags)
             )
 
-            queryset = exclude_archived_unless_requested(queryset, requested="archived" in self.request.GET)
+            # A flag that was archived before it was deleted still belongs in the deleted list.
+            queryset = exclude_archived_unless_requested(
+                queryset, requested="archived" in self.request.GET or show_deleted
+            )
 
             # add additional filters provided by the client
             queryset = self._filter_request(self.request, queryset)
@@ -4494,6 +4500,17 @@ class FeatureFlagViewSet(
                 required=False,
                 enum=["true", "false"],
                 description="Filter by archived state. When omitted, archived flags are excluded.",
+            ),
+            OpenApiParameter(
+                "deleted",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                enum=["true", "false"],
+                description=(
+                    "Pass `true` to list only soft-deleted flags, which can be restored, archived or not. "
+                    "When omitted, deleted flags are excluded."
+                ),
             ),
             OpenApiParameter(
                 "has_evaluation_contexts",
@@ -5190,6 +5207,21 @@ class FeatureFlagViewSet(
 
         return Response(response_data)
 
+    def _ids_user_can_edit(self, queryset: QuerySet[FeatureFlag]) -> builtins.list[int]:
+        """IDs of the flags in `queryset` that the user can edit, with the same check as the serializer's `get_can_edit`."""
+        from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
+
+        # The access check reads created_by_id, so a deferred column costs a query per flag
+        flags = list(queryset.only("id", "created_by_id"))
+        self.user_access_control.preload_object_access_controls(cast(list, flags))
+
+        editable_ids = []
+        for flag in flags:
+            user_access_level = self.user_access_control.get_user_access_level(flag)
+            if user_access_level and access_level_satisfied_for_resource("feature_flag", user_access_level, "editor"):
+                editable_ids.append(flag.id)
+        return editable_ids
+
     @action(methods=["GET"], detail=False, required_scopes=["feature_flag:read"])
     def matching_ids(self, request: request.Request, **kwargs):
         """
@@ -5197,8 +5229,6 @@ class FeatureFlagViewSet(
         Uses the same filtering logic as the list endpoint.
         Returns only IDs that the user has permission to edit.
         """
-        from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
-
         # Build queryset with same filtering as list endpoint
         queryset = self.queryset.filter(team__project_id=self.project_id, deleted=False)
 
@@ -5219,20 +5249,7 @@ class FeatureFlagViewSet(
         if not self.user_access_control:
             editable_ids = list(queryset.values_list("id", flat=True))
         else:
-            # Load only the id field to minimize data transfer
-            flags = list(queryset.only("id"))
-
-            # Preload access controls to avoid N+1 queries
-            self.user_access_control.preload_object_access_controls(cast(list, flags))
-
-            # Filter to only flags the user can edit (same logic as serializer's get_can_edit)
-            editable_ids = []
-            for flag in flags:
-                user_access_level = self.user_access_control.get_user_access_level(flag)
-                if user_access_level and access_level_satisfied_for_resource(
-                    "feature_flag", user_access_level, "editor"
-                ):
-                    editable_ids.append(flag.id)
+            editable_ids = self._ids_user_can_edit(queryset)
 
         return Response(
             {
@@ -5271,7 +5288,6 @@ class FeatureFlagViewSet(
         from posthog.models.activity_logging.activity_log import LogActivityEntry, bulk_log_activity
         from posthog.tasks.remote_config import update_team_remote_config
 
-        from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
         from products.feature_flags.backend.flags_cache import enqueue_evaluation_cache_invalidation
         from products.feature_flags.backend.tasks import update_team_flags_cache
 
@@ -5341,23 +5357,11 @@ class FeatureFlagViewSet(
 
         # Apply access control - filter to only editable flags
         if self.user_access_control:
-            # The access check reads created_by_id, so a deferred column costs a query per flag
-            flags_for_access_check = list(queryset.only("id", "created_by_id"))
-            self.user_access_control.preload_object_access_controls(cast(list, flags_for_access_check))
-
-            editable_ids = []
-            for flag in flags_for_access_check:
-                user_access_level = self.user_access_control.get_user_access_level(flag)
-                if user_access_level and access_level_satisfied_for_resource(
-                    "feature_flag", user_access_level, "editor"
-                ):
-                    editable_ids.append(flag.id)
-
             # Filter the existing queryset to only editable flags (preserves all exclusions)
-            queryset = queryset.filter(id__in=editable_ids)
+            queryset = queryset.filter(id__in=self._ids_user_can_edit(queryset))
 
         # Prefetch related data for validation (only for flags we'll actually process)
-        queryset = queryset.select_related("team").prefetch_related("features", "experiment_set")
+        queryset = queryset.prefetch_related("features", "experiment_set")
         flags_list = list(queryset)
 
         # Batch query for dependent flags
@@ -5466,7 +5470,7 @@ class FeatureFlagViewSet(
             # Prepare activity log entry
             activity_log_entries.append(
                 LogActivityEntry(
-                    organization_id=flag.team.organization_id,
+                    organization_id=self.team.organization_id,
                     team_id=flag.team_id,
                     user=current_user,
                     was_impersonated=was_impersonated,
@@ -5533,7 +5537,7 @@ class FeatureFlagViewSet(
                     update_flag(
                         flag,
                         {"deleted": True, "version": flag.version or 0},
-                        team=flag.team,
+                        team=self.team,
                         user=request.user,
                         request=FlagLifecycleWriteRequest(request),
                         serializer_context=self.get_serializer_context(),

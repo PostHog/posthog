@@ -23,6 +23,8 @@ import {
 
 import { PropertyOperator } from '~/types'
 
+import { CRITERIA_ACCEPTING_HIDDEN_EVENTS } from 'products/cohorts/frontend/criteria/flagCallCriterionProblem'
+
 // Building blocks of a row
 export const renderField: Record<FilterType, (props: CohortFieldProps) => JSX.Element> = {
     [FilterType.Behavioral]: function _renderField(p) {
@@ -74,6 +76,7 @@ export const renderField: Record<FilterType, (props: CohortFieldProps) => JSX.El
                 {...(p as CohortTaxonomicFieldProps)}
                 taxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
                 placeholder="Choose event or action"
+                includeHiddenEvents={CRITERIA_ACCEPTING_HIDDEN_EVENTS.includes(String(p.criteria.value))}
             />
         )
     },

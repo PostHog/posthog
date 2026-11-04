@@ -5,8 +5,9 @@ import { IconPlus, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSegmentedButton, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { PopoverReferenceContext } from 'lib/lemon-ui/Popover/Popover'
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
+
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 
 import type { ExperimentBasicApi } from 'products/experiments/frontend/generated/api.schemas'
 

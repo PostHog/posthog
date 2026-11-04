@@ -5,6 +5,7 @@ import base64
 import asyncio
 import hashlib
 from collections.abc import AsyncGenerator, Iterator
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, ClassVar, cast
@@ -56,13 +57,18 @@ from posthog.utils import absolute_uri
 from products.posthog_ai.backend.models.assistant import Conversation
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.tasks.backend.access import DesktopAccessResolutionError
-from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, DEV_STACK_PREVIEW_PORT
+from products.tasks.backend.constants import (
+    DEFAULT_SANDBOX_WORKING_DIR,
+    DEV_STACK_PREVIEW_PORT,
+    FINAL_MESSAGE_MAX_CHARS,
+)
 from products.tasks.backend.exceptions import SandboxNotFoundError
 from products.tasks.backend.facade import (
     access as tasks_access,
     api as tasks_facade,
     contracts as tasks_contracts,
 )
+from products.tasks.backend.facade.profiles import NetworkAccess, NetworkPolicy, TaskProfile, get_task_profile
 from products.tasks.backend.facade.repo_selection import RepoSelectionResult
 from products.tasks.backend.facade.run_config import TaskArtifactAdapter, TaskArtifactType
 from products.tasks.backend.logic.services.ai_run_defaults import update_team_ai_run_preferences
@@ -125,6 +131,8 @@ from products.tasks.backend.redis import get_tasks_cache, get_tasks_stream_redis
 from products.tasks.backend.temporal.process_task.utils import get_cached_github_user_token
 
 from ee.billing.quota_limiting import QuotaResource
+
+BUSINESS_KNOWLEDGE = get_task_profile("business_knowledge")
 
 # The catalog gates no model behind a rollout flag now, so the write paths that re-check
 # entitlement are exercised with a stand-in rather than with whichever model is mid-rollout.
@@ -248,6 +256,14 @@ class BaseTaskAPITest(TestCase):
             ),
         )
         self.desktop_access_patcher.start()
+        self._posthog_ai_access = tasks_access.PostHogAIAccessDecision.GRANDFATHERED
+        for module in ("logic.services.code_usage_gate", "logic.services.warm", "facade.access"):
+            posthog_ai_access_patcher = patch(
+                f"products.tasks.backend.{module}.get_posthog_ai_access_decision",
+                side_effect=lambda *_args, **_kwargs: self._posthog_ai_access,
+            )
+            posthog_ai_access_patcher.start()
+            self.addCleanup(posthog_ai_access_patcher.stop)
         self.set_tasks_feature_flag(True)
 
     def tearDown(self):
@@ -547,14 +563,22 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
         with patch.object(tasks_facade, "signal_workflow_completion") as signal_completion:
             response = client.patch(
                 base,
-                {"status": "failed", "error_message": "Synthetic failure", "state": {"agent_version": "test-agent"}},
+                {
+                    "status": "failed",
+                    "error_message": "Synthetic failure",
+                    "error_type": "agent_declined",
+                    "output": {"final_message": "Synthetic report"},
+                    "state": {"agent_version": "test-agent"},
+                },
                 format="json",
             )
         assert response.status_code == status.HTTP_200_OK, response.json()
-        signal_completion.assert_called_once_with(run.id, TaskRun.Status.FAILED, "Synthetic failure", None)
+        signal_completion.assert_called_once_with(run.id, TaskRun.Status.FAILED, "Synthetic failure", "agent_declined")
         run.refresh_from_db()
         assert run.status == TaskRun.Status.FAILED
         assert run.error_message == "Synthetic failure"
+        assert run.output is not None
+        assert run.output["final_message"] == "Synthetic report"
         assert run.completed_at is not None
         assert run.state is not None
         assert run.state["agent_version"] == "test-agent"
@@ -571,6 +595,13 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
             ("remove", {"state_remove_keys": ["model"]}),
             ("branch", {"branch": "other"}),
             ("output", {"output": {"url": "https://example.com"}}),
+            ("report_with_other_output", {"status": "completed", "output": {"final_message": "x", "url": "x"}}),
+            ("report_without_terminal_status", {"output": {"final_message": "x"}}),
+            (
+                "report_too_long",
+                {"status": "completed", "output": {"final_message": "x" * (FINAL_MESSAGE_MAX_CHARS + 1)}},
+            ),
+            ("error_type_without_failure", {"status": "completed", "error_type": "agent_declined"}),
             ("status_type", {"status": {"value": "failed"}}),
         ]
     )
@@ -2916,6 +2947,7 @@ class TestTaskAPI(BaseTaskAPITest):
             (Task.OriginProduct.SPACE_SETUP,),
             (Task.OriginProduct.BUSINESS_KNOWLEDGE,),
             (Task.OriginProduct.METRICS_IMPORT,),
+            (Task.OriginProduct.CONTEXT_LAYER,),
         ]
     )
     def test_create_task_rejects_server_created_origin(self, origin_product: Task.OriginProduct):
@@ -10927,6 +10959,68 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(static.json()["scripts_available"], scripts_available)
         self.assertEqual(scripted.status_code, status.HTTP_200_OK if scripts_available else status.HTTP_403_FORBIDDEN)
 
+    @parameterized.expand(
+        [
+            ("restricted_profile_without_environment", BUSINESS_KNOWLEDGE, None, False),
+            ("restricted_profile_on_an_open_internal_environment", BUSINESS_KNOWLEDGE, True, False),
+            ("restricted_profile_on_an_open_picked_environment", BUSINESS_KNOWLEDGE, False, True),
+            (
+                "open_profile_without_environment",
+                replace(
+                    BUSINESS_KNOWLEDGE, key="test.open_network", network=NetworkPolicy(levels=(NetworkAccess.FULL,))
+                ),
+                None,
+                True,
+            ),
+        ]
+    )
+    @override_settings(
+        CANVAS_ARTIFACT_ORIGIN="https://usercontent.example", ALLOWED_HOSTS=["testserver", "usercontent.example"]
+    )
+    @patch("posthog.storage.object_storage.write")
+    @patch("posthog.storage.object_storage.tag")
+    def test_html_artifact_scripts_follow_the_profile_network_of_a_profiled_run(
+        self, _name, profile: TaskProfile, internal_environment: bool | None, scripts_available: bool, *_mocks
+    ):
+        task = self.create_task()
+        task.profile = profile.key
+        task.save(update_fields=["profile"])
+        state: dict[str, Any] = {}
+        started_at = django_timezone.now()
+        if internal_environment is not None:
+            environment = SandboxEnvironment.objects.create(
+                team=self.team,
+                name="Writer env",
+                created_by=self.user,
+                network_access_level=SandboxEnvironment.NetworkAccessLevel.FULL,
+                internal=internal_environment,
+            )
+            state["sandbox_environment_id"] = str(environment.id)
+            started_at = environment.updated_at + timedelta(minutes=1)
+        run = TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS, state=state, created_at=started_at
+        )
+
+        with patch.dict("products.tasks.backend.facade.profiles._profiles", {profile.key: profile}):
+            uploaded = self._sandbox_oauth_client(task.id).post(
+                f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/",
+                {
+                    "artifacts": [
+                        {"name": "report.html", "type": "output", "source": "agent_output", "content": "<p>Report</p>"}
+                    ]
+                },
+                format="json",
+            )
+        self.assertEqual(uploaded.status_code, status.HTTP_200_OK)
+
+        preview = self.client.get(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/artifacts/"
+            f"{uploaded.json()['artifacts'][0]['id']}/preview/"
+        )
+
+        self.assertEqual(preview.status_code, status.HTTP_200_OK)
+        self.assertEqual(preview.json()["scripts_available"], scripts_available)
+
     @override_settings(
         CANVAS_ARTIFACT_ORIGIN="https://usercontent.example", ALLOWED_HOSTS=["testserver", "usercontent.example"]
     )
@@ -14484,13 +14578,23 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
                 Task.Runtime.ACP,
                 "permission_response",
                 {"requestId": "perm-1", "optionId": "allow"},
+                False,
                 status.HTTP_200_OK,
+            ),
+            (
+                "permission_response_posthog_ai_denied",
+                Task.Runtime.ACP,
+                "permission_response",
+                {"requestId": "perm-1", "optionId": "allow"},
+                True,
+                status.HTTP_403_FORBIDDEN,
             ),
             (
                 "pi_permission_response",
                 Task.Runtime.PI,
                 "pi/rpc",
                 {"command": {"id": "req-1", "type": "permission_response", "optionId": "allow"}},
+                False,
                 status.HTTP_200_OK,
             ),
             (
@@ -14502,6 +14606,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
                     "server": "playwright",
                     "payload": {"jsonrpc": "2.0", "id": 1, "result": {"content": []}},
                 },
+                False,
                 status.HTTP_503_SERVICE_UNAVAILABLE,
             ),
             (
@@ -14509,6 +14614,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
                 Task.Runtime.PI,
                 "pi/rpc",
                 {"command": {"id": "req-1", "type": "prompt", "message": "continue"}},
+                False,
                 status.HTTP_503_SERVICE_UNAVAILABLE,
             ),
         ]
@@ -14524,6 +14630,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         runtime: Task.Runtime,
         method: str,
         params: dict[str, Any],
+        posthog_ai_denied: bool,
         expected_status: int,
         mock_post: MagicMock,
         _mock_access: MagicMock,
@@ -14531,6 +14638,9 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         reset_sandbox_jwt_key_cache()
         self._mock_agent_response(mock_post, {"jsonrpc": "2.0", "id": "req-1", "result": {"accepted": True}})
         task = self.create_task(runtime=runtime)
+        if posthog_ai_denied:
+            self._posthog_ai_access = tasks_access.PostHogAIAccessDecision.BETA_OFF
+            Task.objects.filter(id=task.id).update(origin_product=Task.OriginProduct.POSTHOG_AI)
         run = self._create_run_with_sandbox(task)
 
         response = self.client.post(
@@ -14543,7 +14653,8 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         if expected_status == status.HTTP_200_OK:
             mock_post.assert_called_once()
         else:
-            self.assertEqual(response.json()["code"], "desktop_access_unavailable")
+            expected_code = "task_unavailable" if posthog_ai_denied else "desktop_access_unavailable"
+            self.assertEqual(response.json()["code"], expected_code)
             mock_post.assert_not_called()
 
     @parameterized.expand(
@@ -14862,10 +14973,20 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(forwarded["method"], "side_question")
         self.assertEqual(forwarded["params"]["question"], "what does it do?")
 
+    @parameterized.expand(
+        [
+            ("desktop_denied", False, Task.OriginProduct.USER_CREATED, "code_access_required"),
+            ("posthog_ai_denied", True, Task.OriginProduct.POSTHOG_AI, "task_unavailable"),
+        ]
+    )
     @patch("products.tasks.backend.presentation.views.api.http_requests.post")
-    def test_command_side_question_requires_code_access(self, mock_post):
-        self.set_tasks_feature_flag(False)
+    def test_command_side_question_requires_access(
+        self, _name: str, desktop_access: bool, origin_product: str, expected_code: str, mock_post
+    ):
+        self.set_tasks_feature_flag(desktop_access)
+        self._posthog_ai_access = tasks_access.PostHogAIAccessDecision.BETA_OFF
         task = self.create_task()
+        Task.objects.filter(id=task.id).update(origin_product=origin_product)
         run = self._create_run_with_sandbox(task)
 
         response = self.client.post(
@@ -14875,7 +14996,7 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(response.json()["code"], "code_access_required")
+        self.assertEqual(response.json()["code"], expected_code)
         mock_post.assert_not_called()
 
     @patch("products.tasks.backend.presentation.views.api.http_requests.post")

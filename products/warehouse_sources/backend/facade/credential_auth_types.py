@@ -1196,6 +1196,7 @@ CREDENTIAL_AUTH_TYPES: Mapping[str, str] = {
     "squarespace": "token",
     "stack-adapt": "credentials",
     "stack-overflow-for-teams": "credentials",
+    "stamped": "credentials",
     "starburst": "credentials",
     "statsig": "token",
     "statuscake": "token",
