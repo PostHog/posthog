@@ -4,8 +4,8 @@ Throwaway. This branch holds the design diagrams for one question and is never m
 how should email queue rows that will not send (paced by a per-workflow rate limit, held by the team cap, suppressed, skipped) stop spending SES tokens and email worker batch time?
 
 - `modules.html`: the module page. Open it and switch between Target, Target + what it removes, and Today. `modules-*.png` are the same views.
-- `recommended-path.mmd` / `.svg` / `.png`: the main write path of option B.
-- `pacing-contract.md`: a sketch of the seam option B adds. Not wired into anything.
+- `design.md`: the settled design: decisions, call paths, contracts, follow-ups and the ADR. Option B won.
+- `modules-round1.json`: the first round's page with the alternatives.
 
 ## Today
 

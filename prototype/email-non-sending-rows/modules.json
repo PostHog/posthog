@@ -11,9 +11,7 @@
                         "executeWithAsyncFunctions",
                         {
                             "name": "routeEmailToQueue",
-                            "change": "changed",
-                            "q": "Q1 B",
-                            "fork": true
+                            "change": "changed"
                         }
                     ],
                     "chips": [
@@ -23,10 +21,8 @@
                         },
                         {
                             "id": "hx-pace",
-                            "text": "claim paced slot, scheduled = slot",
-                            "change": "added",
-                            "q": "Q1 B",
-                            "fork": true
+                            "text": "book prepaid slot, scheduled = slot (slice 2)",
+                            "change": "added"
                         }
                     ],
                     "used": 2
@@ -53,15 +49,7 @@
                     "name": "SES gate (email worker loop)",
                     "note": "worker-rate-limited.ts + job-queue-rate-limited",
                     "flex": 1,
-                    "seam": [
-                        "claimBatchLimit",
-                        {
-                            "name": "countWork → claim → dequeue",
-                            "change": "removed",
-                            "q": "Q1 C",
-                            "fork": true
-                        }
-                    ],
+                    "seam": ["claimBatchLimit"],
                     "chips": [
                         {
                             "id": "gate-claim",
@@ -69,8 +57,10 @@
                         },
                         {
                             "id": "gate-loop",
-                            "text": "copied runConsumerLoop: 13 base-worker symbols",
-                            "cycle": false
+                            "text": "fold loop into base worker hook",
+                            "cycle": false,
+                            "followUp": true,
+                            "change": "added"
                         }
                     ],
                     "used": 1
@@ -88,10 +78,8 @@
                         },
                         {
                             "id": "em-park",
-                            "text": "workflow limit: deny → park; B: prepaid wake skips it",
-                            "change": "changed",
-                            "q": "Q1 B",
-                            "fork": true
+                            "text": "workflow limit: unbooked → book prepaid slot; booked → skip claim",
+                            "change": "changed"
                         },
                         {
                             "id": "em-cap",
@@ -99,17 +87,9 @@
                         },
                         {
                             "id": "em-refund",
-                            "text": "settle: refund token on non-send",
+                            "text": "refund token for skips, count cc/bcc",
                             "change": "added",
-                            "q": "Q1 A",
-                            "fork": true
-                        },
-                        {
-                            "id": "em-claim",
-                            "text": "claim recipients at SES call",
-                            "change": "added",
-                            "q": "Q1 C",
-                            "fork": true
+                            "followUp": true
                         },
                         {
                             "id": "em-ses",
@@ -134,24 +114,19 @@
                         {
                             "name": "refund",
                             "change": "added",
-                            "q": "Q1 A",
-                            "fork": true
+                            "followUp": true
                         }
                     ],
                     "chips": [
                         {
                             "id": "lim-resv",
                             "text": "reserve slot: place in line, not a promise",
-                            "change": "removed",
-                            "q": "Q1 B",
-                            "fork": true
+                            "change": "removed"
                         },
                         {
                             "id": "lim-prepaid",
-                            "text": "prepaid slot: debit token at reserve time",
-                            "change": "added",
-                            "q": "Q1 B",
-                            "fork": true
+                            "text": "prepaid slot: token taken at booking, no horizon",
+                            "change": "added"
                         }
                     ],
                     "used": 1
@@ -186,13 +161,11 @@
             "to": "limiter-seam",
             "toAt": 0.3,
             "change": "added",
-            "q": "Q1 B",
-            "fork": true,
             "label": "prepaid slot",
             "bend": 60,
-            "labelAt": 0.15,
-            "labelAlign": "start",
-            "labelOffset": [8, 0]
+            "labelAt": 0.82,
+            "labelAlign": "end",
+            "labelOffset": [-8, 0]
         },
         {
             "from": "jobs",
@@ -234,20 +207,9 @@
             "to": "limiter-seam",
             "toAt": 0.85,
             "change": "added",
-            "q": "Q1 A",
-            "fork": true,
             "label": "refund",
-            "labelAt": 0.5
-        },
-        {
-            "from": "em-claim",
-            "to": "limiter-seam",
-            "toAt": 0.95,
-            "change": "added",
-            "q": "Q1 C",
-            "fork": true,
-            "label": "claim n",
-            "labelAt": 0.6
+            "labelAt": 0.5,
+            "followUp": true
         },
         {
             "from": "em-ses",
