@@ -133,6 +133,9 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.conversations.backend.api.ticket_macros.TicketMacroViewSet",
     "products.conversations.backend.api.tickets.TicketViewSet",
     "products.customer_analytics.backend.presentation.views.announcements.AnnouncementViewSet",
+    # HogQL paginates after person aggregation. Tied-sort boundaries are covered by
+    # TestAccountUsersQuery.test_persons_are_narrowed_aggregated_and_paginated.
+    "products.customer_analytics.backend.presentation.views.account_persons_query.AccountPersonsViewSet",
     "products.customer_analytics.backend.presentation.views.customer_tasks.CustomerTaskViewSet",
     "products.customer_analytics.backend.presentation.views.views.AccountNotebookViewSet",
     "products.customer_analytics.backend.presentation.views.views.AccountNotesViewSet",
