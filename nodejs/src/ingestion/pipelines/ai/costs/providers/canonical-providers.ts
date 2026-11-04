@@ -1,10 +1,9 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-11-04 10:05:05 UTC
+// Generated at: 2026-11-04 20:03:50 UTC
 
 export type CanonicalProvider =
     | 'default'
     | 'aion-labs'
-    | 'akashml-bf16'
     | 'akashml-fp4'
     | 'akashml-fp8'
     | 'alibaba'
@@ -118,11 +117,14 @@ export type CanonicalProvider =
     | 'inference-net-fp4'
     | 'inference-net-fp4-us'
     | 'inference-net-fp8'
+    | 'inference-net-mxfp4'
+    | 'inference-net-mxfp4-us'
     | 'inference-net-us'
     | 'inference-net-us-fast'
     | 'io-net'
     | 'io-net-bf16'
     | 'io-net-fp16'
+    | 'io-net-fp4'
     | 'io-net-nvfp4'
     | 'ionstream'
     | 'ionstream-fp8'
@@ -143,7 +145,6 @@ export type CanonicalProvider =
     | 'mistral'
     | 'mistral-eu'
     | 'mistral-fp8'
-    | 'mistral-nvfp4'
     | 'mistral-nvfp4-eu'
     | 'mistral-us'
     | 'mistral-zdr'
@@ -185,6 +186,7 @@ export type CanonicalProvider =
     | 'openai-ultrafast'
     | 'parasail'
     | 'parasail-bf16'
+    | 'parasail-fast'
     | 'parasail-fp16'
     | 'parasail-fp4'
     | 'parasail-fp8'
@@ -231,7 +233,6 @@ export type CanonicalProvider =
     | 'tencent-fp8'
     | 'tenstorrent-fp4'
     | 'tenstorrent-fp8'
-    | 'thinkingmachines-nvfp4'
     | 'together'
     | 'typesafe'
     | 'unbiased'
