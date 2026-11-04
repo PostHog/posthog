@@ -55,6 +55,7 @@ import {
     AcceptedSendRequestSchema,
     CODE_SEND_TOKEN_CLAIMS,
     RescheduleRequestSchema,
+    ScheduledSendsListQuerySchema,
     TEMPLATE_SEND_TOKEN_CLAIMS,
     TransactionalEmailOutcome,
     TransactionalEmailRequest,
@@ -410,6 +411,11 @@ export class CdpApi {
         router.post(
             '/api/projects/:team_id/hog_flows/:id/transactional_email/send',
             asyncHandler(this.postTransactionalEmail(AcceptedSendRequestSchema, CODE_SEND_TOKEN_CLAIMS))
+        )
+        // Before the `:message_id` routes, so that `scheduled` is never read as a message id.
+        router.get(
+            '/api/projects/:team_id/transactional_emails/scheduled',
+            asyncHandler(this.getScheduledTransactionalEmails)
         )
         // `:message_id`, not `:id`: verifyScopedWorkflowJwt matches `:id` against a workflow claim.
         router.post(
@@ -1299,6 +1305,20 @@ export class CdpApi {
                 case 'not_found':
                     return res.status(404).json({ error: 'not_found' })
             }
+        })
+    }
+
+    private getScheduledTransactionalEmails = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+        return await this.manageScheduledSend(req, res, 'list', async (sends, teamId) => {
+            const query = ScheduledSendsListQuerySchema.safeParse(req.query)
+            if (!query.success) {
+                return res.status(400).json({ error: 'invalid_request' })
+            }
+            const result = await sends.list(teamId, query.data.cursor, query.data.limit)
+            if (result.outcome === 'invalid_cursor') {
+                return res.status(400).json({ error: 'invalid_request' })
+            }
+            return res.status(200).json({ results: result.results, next: result.next })
         })
     }
 

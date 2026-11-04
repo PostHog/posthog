@@ -1314,6 +1314,7 @@ describe('CDP API', () => {
                 resumeParkedBatchResolver: jest.fn(),
                 cancelUnclaimed: jest.fn(),
                 rescheduleUnclaimed: jest.fn(),
+                listUnclaimed: jest.fn(),
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
 
@@ -1380,6 +1381,7 @@ describe('CDP API', () => {
                     resumeParkedBatchResolver: jest.fn(),
                     cancelUnclaimed: jest.fn(),
                     rescheduleUnclaimed: jest.fn(),
+                    listUnclaimed: jest.fn(),
                     disconnect: jest.fn().mockResolvedValue(undefined),
                 }
 
@@ -1424,6 +1426,7 @@ describe('CDP API', () => {
                 resumeParkedBatchResolver: jest.fn(),
                 cancelUnclaimed: jest.fn(),
                 rescheduleUnclaimed: jest.fn(),
+                listUnclaimed: jest.fn(),
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
 
@@ -1479,6 +1482,7 @@ describe('CDP API', () => {
                 resumeParkedBatchResolver: jest.fn(),
                 cancelUnclaimed: jest.fn(),
                 rescheduleUnclaimed: jest.fn(),
+                listUnclaimed: jest.fn(),
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
 
@@ -1542,6 +1546,7 @@ describe('CDP API', () => {
                 resumeParkedBatchResolver: jest.fn(),
                 cancelUnclaimed: jest.fn(),
                 rescheduleUnclaimed: jest.fn(),
+                listUnclaimed: jest.fn(),
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
 
@@ -1609,6 +1614,7 @@ describe('CDP API', () => {
                 resumeParkedBatchResolver: jest.fn(),
                 cancelUnclaimed: jest.fn(),
                 rescheduleUnclaimed: jest.fn(),
+                listUnclaimed: jest.fn(),
                 disconnect: jest.fn().mockResolvedValue(undefined),
             }
 
@@ -1786,6 +1792,7 @@ describe('CDP API', () => {
                 resumeParkedBatchResolver: jest.fn(),
                 cancelUnclaimed: jest.fn(),
                 rescheduleUnclaimed: jest.fn(),
+                listUnclaimed: jest.fn(),
             }
 
             countHogFlow = await insertHogFlow({
@@ -1883,6 +1890,7 @@ describe('CDP API', () => {
                 resumeParkedBatchResolver: jest.fn(),
                 cancelUnclaimed: jest.fn(),
                 rescheduleUnclaimed: jest.fn(),
+                listUnclaimed: jest.fn(),
             }
 
             rescheduleHogFlow = await insertHogFlow({
@@ -2062,6 +2070,7 @@ describe('CDP API', () => {
                 resumeParkedBatchResolver: jest.fn(),
                 cancelUnclaimed: jest.fn(),
                 rescheduleUnclaimed: jest.fn(),
+                listUnclaimed: jest.fn(),
             }
         })
 
@@ -2887,6 +2896,7 @@ describe('CDP API', () => {
         describe('cancel and reschedule of a scheduled send', () => {
             let cancelUnclaimed: jest.Mock
             let rescheduleUnclaimed: jest.Mock
+            let listUnclaimed: jest.Mock
 
             const mintManageToken = (
                 teamId: number,
@@ -2906,6 +2916,10 @@ describe('CDP API', () => {
                     .post(`/api/projects/${team.id}/transactional_emails/${messageId}/${action}`)
                     .set(headers)
                     .send(payload)
+            const list = (
+                query: Record<string, string> = {},
+                headers: Record<string, string> = { Authorization: `Bearer ${mintManageToken(team.id)}` }
+            ) => supertest(app).get(`/api/projects/${team.id}/transactional_emails/scheduled`).query(query).set(headers)
 
             const scheduleSend = async (): Promise<CyclotronJobInvocation> => {
                 const res = await send(
@@ -2920,6 +2934,7 @@ describe('CDP API', () => {
             beforeEach(() => {
                 cancelUnclaimed = jest.fn()
                 rescheduleUnclaimed = jest.fn()
+                listUnclaimed = jest.fn()
                 api['batchResolverProducer'] = {
                     createJob: jest.fn(),
                     disconnect: jest.fn(),
@@ -2930,6 +2945,7 @@ describe('CDP API', () => {
                     resumeParkedBatchResolver: jest.fn(),
                     cancelUnclaimed,
                     rescheduleUnclaimed,
+                    listUnclaimed,
                 }
             })
 
@@ -3097,7 +3113,60 @@ describe('CDP API', () => {
                 expect(emailStatusRows()).toEqual([])
             })
 
-            describe.each(['cancel', 'reschedule'] as const)('on %s', (action) => {
+            it('lists waiting sends a page at a time, and its next cursor continues after the last one', async () => {
+                const jobs = [1, 2, 3].map((days) => ({
+                    id: new UUIDT().toString(),
+                    to: `user${days}@example.com`,
+                    scheduled: new Date(inDays(days)),
+                    created: new Date(Date.now() - 60_000),
+                }))
+                const asResult = (job: (typeof jobs)[number]): Record<string, string> => ({
+                    id: job.id,
+                    to: job.to,
+                    scheduled_at: job.scheduled.toISOString(),
+                    created_at: job.created.toISOString(),
+                })
+                listUnclaimed.mockResolvedValueOnce(jobs).mockResolvedValueOnce(jobs.slice(2)).mockResolvedValueOnce([])
+
+                const first = await list({ limit: '2' })
+                const second = await list({ limit: '2', cursor: first.body.next })
+                const byDefault = await list()
+
+                expect(first.status).toEqual(200)
+                expect(first.body).toEqual({ results: jobs.slice(0, 2).map(asResult), next: expect.any(String) })
+                expect(second.status).toEqual(200)
+                expect(second.body).toEqual({ results: [asResult(jobs[2])], next: null })
+                expect(byDefault.body).toEqual({ results: [], next: null })
+                expect(listUnclaimed.mock.calls).toEqual([
+                    [team.id, null, 3],
+                    [team.id, { scheduled: jobs[1].scheduled, id: jobs[1].id }, 3],
+                    [team.id, null, 101],
+                ])
+            })
+
+            it.each([
+                ['a limit of 0', { limit: '0' }],
+                ['a limit above 100', { limit: '101' }],
+                ['a limit that is not a number', { limit: 'ten' }],
+                ['a cursor that does not decode', { cursor: 'not-a-cursor' }],
+                [
+                    'a cursor without a time',
+                    { cursor: Buffer.from(JSON.stringify(['soon', new UUIDT().toString()])).toString('base64url') },
+                ],
+            ])('refuses a list with %s', async (_desc, query) => {
+                const res = await list(query)
+
+                expect(res.status).toEqual(400)
+                expect(res.body).toEqual({ error: 'invalid_request' })
+                expect(listUnclaimed).not.toHaveBeenCalled()
+            })
+
+            describe.each(['cancel', 'reschedule', 'list'] as const)('on %s', (action) => {
+                const request = (headers?: Record<string, string>): supertest.Test =>
+                    action === 'list'
+                        ? list({}, headers)
+                        : manage(action, new UUIDT().toString(), { scheduled_at: inDays(2) }, headers)
+
                 it.each([
                     ['no token', () => ({})],
                     ["another team's token", () => ({ Authorization: `Bearer ${mintManageToken(team.id + 1)}` })],
@@ -3110,11 +3179,12 @@ describe('CDP API', () => {
                         }),
                     ],
                 ])('rejects a request with %s', async (_desc, headers) => {
-                    const res = await manage(action, new UUIDT().toString(), { scheduled_at: inDays(2) }, headers())
+                    const res = await request(headers())
 
                     expect(res.status).toEqual(401)
                     expect(cancelUnclaimed).not.toHaveBeenCalled()
                     expect(rescheduleUnclaimed).not.toHaveBeenCalled()
+                    expect(listUnclaimed).not.toHaveBeenCalled()
                 })
 
                 it('fails closed when the transactional email JWT key is not provisioned', async () => {
@@ -3124,11 +3194,12 @@ describe('CDP API', () => {
                         ''
                     )
                     try {
-                        const res = await manage(action, new UUIDT().toString(), { scheduled_at: inDays(2) })
+                        const res = await request()
 
                         expect(res.status).toEqual(503)
                         expect(cancelUnclaimed).not.toHaveBeenCalled()
                         expect(rescheduleUnclaimed).not.toHaveBeenCalled()
+                        expect(listUnclaimed).not.toHaveBeenCalled()
                     } finally {
                         api['manageTransactionalEmailJwt'] = savedJwt
                     }
@@ -3169,6 +3240,7 @@ describe('CDP API', () => {
                 resumeParkedBatchResolver: mockResume,
                 cancelUnclaimed: jest.fn(),
                 rescheduleUnclaimed: jest.fn(),
+                listUnclaimed: jest.fn(),
             }
         })
 
@@ -3237,6 +3309,7 @@ describe('CDP API', () => {
                 resumeParkedBatchResolver: jest.fn(),
                 cancelUnclaimed: jest.fn(),
                 rescheduleUnclaimed: jest.fn(),
+                listUnclaimed: jest.fn(),
             }
         })
 
@@ -3376,6 +3449,7 @@ describe('CDP API', () => {
                 resumeParkedBatchResolver: jest.fn(),
                 cancelUnclaimed: jest.fn(),
                 rescheduleUnclaimed: jest.fn(),
+                listUnclaimed: jest.fn(),
             }
         })
 

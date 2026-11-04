@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
+import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { UUID, UUIDT } from '~/common/utils/utils'
 import { Team } from '~/types'
@@ -11,6 +12,7 @@ import { convertToHogFunctionFilterGlobal } from '../../utils/hog-function-filte
 import { createCanceledInvocationResult } from '../../utils/invocation-utils'
 import type { CyclotronV2JobProducer } from '../cyclotron-v2'
 import { v2JobToInvocation } from '../cyclotron-v2/job-codec'
+import type { CyclotronV2UnclaimedEmailCursor } from '../cyclotron-v2/types'
 import type { InvocationResultsService } from '../invocation-results.service'
 import { JobQueue } from '../job-queue/job-queue.interface'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
@@ -247,7 +249,7 @@ export class TransactionalSends {
 }
 
 export type ScheduledTransactionalSendsDeps = {
-    jobs: Pick<CyclotronV2JobProducer, 'cancelUnclaimed' | 'rescheduleUnclaimed'>
+    jobs: Pick<CyclotronV2JobProducer, 'cancelUnclaimed' | 'rescheduleUnclaimed' | 'listUnclaimed'>
     hogFlows: Pick<HogFlowManagerService, 'getHogFlowCheckingPrimaryOnMiss'>
     invocationResults: Pick<InvocationResultsService, 'monitoringService' | 'invocationResultsRowsService'>
     emailStatus: EmailStatusService
@@ -259,8 +261,57 @@ export type ScheduledSendRescheduleResult =
     | { outcome: 'rescheduled'; scheduledAt: string }
     | { outcome: 'invalid_scheduled_at' | 'canceled' | 'claimed' | 'not_found' }
 
+export type ScheduledSend = { id: string; to: string | null; scheduled_at: string; created_at: string }
+
+export type ScheduledSendListResult =
+    | { outcome: 'listed'; results: ScheduledSend[]; next: string | null }
+    | { outcome: 'invalid_cursor' }
+
+// The cursor names the last send of a page, as base64url JSON of [scheduled time, message id].
+const encodeCursor = ({ scheduled, id }: CyclotronV2UnclaimedEmailCursor): string =>
+    Buffer.from(JSON.stringify([scheduled.toISOString(), id])).toString('base64url')
+
+const decodeCursor = (cursor: string): CyclotronV2UnclaimedEmailCursor | null => {
+    let decoded: unknown
+    try {
+        decoded = parseJSON(Buffer.from(cursor, 'base64url').toString('utf-8'))
+    } catch {
+        return null
+    }
+    if (!Array.isArray(decoded) || decoded.length !== 2) {
+        return null
+    }
+    const [time, id] = decoded
+    const scheduled = typeof time === 'string' ? new Date(time) : null
+    if (!scheduled || isNaN(scheduled.getTime()) || typeof id !== 'string' || !UUID.validateString(id, false)) {
+        return null
+    }
+    return { scheduled, id }
+}
+
 export class ScheduledTransactionalSends {
     constructor(private readonly deps: ScheduledTransactionalSendsDeps) {}
+
+    async list(teamId: number, cursor: string | undefined, limit: number): Promise<ScheduledSendListResult> {
+        const after = cursor === undefined ? null : decodeCursor(cursor)
+        if (cursor !== undefined && !after) {
+            return { outcome: 'invalid_cursor' }
+        }
+        // One row past the page tells whether a next page exists.
+        const jobs = await this.deps.jobs.listUnclaimed(teamId, after, limit + 1)
+        const page = jobs.slice(0, limit)
+        const last = page[page.length - 1]
+        return {
+            outcome: 'listed',
+            results: page.map((job) => ({
+                id: job.id,
+                to: job.to,
+                scheduled_at: job.scheduled.toISOString(),
+                created_at: job.created.toISOString(),
+            })),
+            next: jobs.length > limit ? encodeCursor(last) : null,
+        }
+    }
 
     async cancel(teamId: number, messageId: string): Promise<ScheduledSendCancelResult> {
         if (!UUID.validateString(messageId, false)) {

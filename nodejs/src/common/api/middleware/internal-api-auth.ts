@@ -45,6 +45,8 @@ const SCOPED_AUTH_PATH_PATTERNS = [
     /^\/api\/projects\/[^/]+\/transactional_emails\/[^/]+\/cancel$/,
     // CdpApi.postTransactionalEmailReschedule, verified against WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET, audience-pinned.
     /^\/api\/projects\/[^/]+\/transactional_emails\/[^/]+\/reschedule$/,
+    // CdpApi.getScheduledTransactionalEmails, verified against WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET, audience-pinned.
+    /^\/api\/projects\/[^/]+\/transactional_emails\/scheduled$/,
 ]
 
 export interface InternalApiAuthOptions {

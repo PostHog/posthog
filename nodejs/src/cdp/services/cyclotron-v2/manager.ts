@@ -9,7 +9,7 @@ import { sleep } from '~/common/utils/utils'
 
 import { BatchResolverResumeOutcome, resumeParkedBatchResolver } from '../hogflows/batch-resolver-resume'
 import { StepResume, StepResumeOutcome, processStepResumes } from '../hogflows/step-resume.service'
-import { withScheduledAt } from './job-codec'
+import { decodeJobState, withScheduledAt } from './job-codec'
 import {
     CYCLOTRON_COUNTER_MAX,
     CyclotronV2CancelJobsOptions,
@@ -22,6 +22,8 @@ import {
     CyclotronV2RescheduleParkedOptions,
     CyclotronV2RescheduleParkedResult,
     CyclotronV2RescheduleUnclaimedResult,
+    CyclotronV2UnclaimedEmailCursor,
+    CyclotronV2UnclaimedEmailJob,
 } from './types'
 
 /**
@@ -110,7 +112,30 @@ const CANCELED_BEFORE_CLAIM = `(cyclotron_jobs.status = 'canceled' AND cyclotron
 
 // The guard of a job no worker has claimed yet. A claim takes the row lock and bumps transition_count, so an
 // update that waits on a claim re-checks this guard after the claim commits and then matches nothing.
-const UNCLAIMED_EMAIL_JOB = `id = $1 AND team_id = $2 AND queue_name = 'email' AND status = 'available' AND transition_count = 0`
+// idx_cyclotron_jobs_email_unclaimed has this predicate, so a change here needs a new index.
+const UNCLAIMED_EMAIL = `queue_name = 'email' AND status = 'available' AND transition_count = 0`
+const UNCLAIMED_EMAIL_JOB = `id = $1 AND team_id = $2 AND ${UNCLAIMED_EMAIL}`
+
+export const LIST_UNCLAIMED_EMAIL_SQL = `SELECT id, scheduled, created, state FROM cyclotron_jobs
+    WHERE team_id = $1 AND ${UNCLAIMED_EMAIL} AND scheduled > NOW()
+      AND (scheduled, id) > ($2::timestamptz, $3::uuid)
+    ORDER BY scheduled, id
+    LIMIT $4`
+
+// Every waiting row is later than this, so the first page uses the same keyset query as the next ones.
+const FIRST_PAGE: CyclotronV2UnclaimedEmailCursor = {
+    scheduled: new Date(0),
+    id: '00000000-0000-0000-0000-000000000000',
+}
+
+export async function countUnclaimedEmailsWaiting(pool: Pool): Promise<number> {
+    const result = await pool.query<{ count: number }>(
+        `SELECT COUNT(*)::int AS count FROM cyclotron_jobs WHERE ${UNCLAIMED_EMAIL} AND scheduled > NOW()`
+    )
+    return result.rows[0].count
+}
+
+type RecipientState = { event?: { properties?: { to?: unknown } } } | null
 
 type UnclaimedJobRow = {
     id: string
@@ -818,6 +843,30 @@ export class CyclotronV2Manager {
             return { outcome: 'not_found' }
         }
         return { outcome: existing.status === 'canceled' || existing.cancelRequested ? 'canceled' : 'claimed' }
+    }
+
+    // A worker can claim a listed job right after the read, so the list is a snapshot.
+    async listUnclaimed(
+        teamId: number,
+        after: CyclotronV2UnclaimedEmailCursor | null,
+        limit: number
+    ): Promise<CyclotronV2UnclaimedEmailJob[]> {
+        const from = after ?? FIRST_PAGE
+        const result = await this.pool.query<{
+            id: string
+            scheduled: string | Date
+            created: string | Date
+            state: Buffer | null
+        }>(LIST_UNCLAIMED_EMAIL_SQL, [teamId, from.scheduled, from.id, limit])
+        return result.rows.map((row) => {
+            const to = (decodeJobState(row).state as RecipientState)?.event?.properties?.to
+            return {
+                id: row.id,
+                to: typeof to === 'string' ? to : null,
+                scheduled: toDateTime(row.scheduled).toJSDate(),
+                created: toDateTime(row.created).toJSDate(),
+            }
+        })
     }
 
     private async findJob(teamId: number, id: string): Promise<{ status: string; cancelRequested: boolean } | null> {

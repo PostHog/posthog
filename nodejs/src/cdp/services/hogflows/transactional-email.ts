@@ -52,6 +52,11 @@ const ScheduledAtSchema = z.string().datetime({ offset: true })
 
 export const RescheduleRequestSchema = z.object({ scheduled_at: ScheduledAtSchema })
 
+export const ScheduledSendsListQuerySchema = z.object({
+    cursor: z.string().optional(),
+    limit: z.coerce.number().int().min(1).max(100).default(100),
+})
+
 // What Django sends to run a transactional email's workflow once.
 export const TransactionalEmailRequestSchema = z.object({
     to: z.string().email({ pattern: RECIPIENT_ADDRESS_PATTERN }),

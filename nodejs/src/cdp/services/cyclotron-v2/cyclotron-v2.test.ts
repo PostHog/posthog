@@ -12,7 +12,7 @@ import {
 } from '../hogflows/batch-resolver.types'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
 import { CyclotronV2Janitor, JANITOR_POISON_PILL_ERROR_KIND } from './janitor'
-import { CyclotronV2Manager } from './manager'
+import { CyclotronV2Manager, LIST_UNCLAIMED_EMAIL_SQL } from './manager'
 import {
     CYCLOTRON_COUNTER_MAX,
     CYCLOTRON_TRANSITION_CHURN_THRESHOLD,
@@ -1186,28 +1186,42 @@ describe('Cyclotron V2', () => {
             })
         })
 
-        describe('cancelUnclaimed and rescheduleUnclaimed', () => {
+        describe('unclaimed email jobs', () => {
             const IN_A_WEEK = (): Date => new Date(Date.now() + 7 * 24 * 3600 * 1000)
             const IN_TWO_DAYS = new Date(Date.now() + 2 * 24 * 3600 * 1000)
             const storedState = { state: { scheduledAt: 'original', html: 'a\u0000b' }, queueParameters: { x: 1 } }
 
-            async function seedScheduledEmail(teamId = 1): Promise<string> {
+            async function seedScheduledEmail(
+                teamId = 1,
+                scheduled = IN_A_WEEK(),
+                state: unknown = storedState
+            ): Promise<string> {
                 const [id] = await manager.bulkCreateJobs([
                     {
                         teamId,
                         queueName: 'email',
                         functionId: uuidv7(),
-                        scheduled: IN_A_WEEK(),
-                        state: Buffer.from(JSON.stringify(storedState)),
+                        scheduled,
+                        state: Buffer.from(JSON.stringify(state)),
                     },
                 ])
                 return id
             }
 
+            const sendTo = (to: string): unknown => ({ state: { event: { properties: { to } } } })
+
             // What a worker's dequeue writes when it claims the row.
             const claimSql = `UPDATE cyclotron_jobs
                 SET status = 'running', lock_id = gen_random_uuid(), transition_count = transition_count + 1
                 WHERE id = $1`
+
+            // A worker that claimed the job and gave it back, so only transition_count tells it apart.
+            async function claimAndRelease(id: string): Promise<void> {
+                await assertPool.query(claimSql, [id])
+                await assertPool.query(`UPDATE cyclotron_jobs SET status = 'available', lock_id = NULL WHERE id = $1`, [
+                    id,
+                ])
+            }
 
             const operations = [
                 ['cancelUnclaimed', (teamId: number, id: string) => manager.cancelUnclaimed(teamId, id)],
@@ -1303,6 +1317,76 @@ describe('Cyclotron V2', () => {
 
                 expect(result).toEqual({ outcome })
                 expect(await queryJob(before.id)).toEqual(before)
+            })
+
+            it("lists only the team's waiting sends in (scheduled, id) order, and a cursor walks them page by page", async () => {
+                const later = IN_A_WEEK()
+                const sooner = new Date(later.getTime() - 3600 * 1000)
+                const [a, b] = [await seedScheduledEmail(1, later, sendTo('a@example.com')), uuidv7()]
+                await seedScheduledEmail(2, sooner, sendTo('other-team@example.com'))
+                // Same time as `a`, so the id breaks the tie.
+                await manager.bulkCreateJobs([
+                    {
+                        id: b,
+                        teamId: 1,
+                        queueName: 'email',
+                        functionId: uuidv7(),
+                        scheduled: later,
+                        state: Buffer.from(JSON.stringify(sendTo('b@example.com'))),
+                    },
+                ])
+                const c = await seedScheduledEmail(1, sooner, sendTo('c@example.com'))
+                await claimAndRelease(await seedScheduledEmail(1, sooner))
+                await manager.cancelUnclaimed(1, await seedScheduledEmail(1, sooner))
+                await seedScheduledEmail(1, new Date(Date.now() - 1000))
+
+                const all = await manager.listUnclaimed(1, null, 10)
+                const pages: string[][] = []
+                let after: { scheduled: Date; id: string } | null = null
+                for (let i = 0; i < 4; i++) {
+                    const page = await manager.listUnclaimed(1, after, 1)
+                    pages.push(page.map((job) => job.id))
+                    after = page.length ? { scheduled: page[0].scheduled, id: page[0].id } : after
+                }
+
+                const [first, second] = [a, b].sort()
+                expect(all).toEqual([
+                    { id: c, to: 'c@example.com', scheduled: sooner, created: expect.any(Date) },
+                    {
+                        id: first,
+                        to: first === a ? 'a@example.com' : 'b@example.com',
+                        scheduled: later,
+                        created: expect.any(Date),
+                    },
+                    {
+                        id: second,
+                        to: second === a ? 'a@example.com' : 'b@example.com',
+                        scheduled: later,
+                        created: expect.any(Date),
+                    },
+                ])
+                expect(pages).toEqual([[c], [first], [second], []])
+            })
+
+            it('lists through the unclaimed email index', async () => {
+                const client = await assertPool.connect()
+                try {
+                    // The test table holds a few rows, so the planner prefers a seq scan unless it is off.
+                    await client.query('SET enable_seqscan = off')
+                    const plan = await client.query<{ 'QUERY PLAN': string }>(`EXPLAIN ${LIST_UNCLAIMED_EMAIL_SQL}`, [
+                        1,
+                        new Date(),
+                        uuidv7(),
+                        10,
+                    ])
+
+                    expect(plan.rows.map((row) => row['QUERY PLAN']).join('\n')).toContain(
+                        'idx_cyclotron_jobs_email_unclaimed'
+                    )
+                } finally {
+                    await client.query('RESET enable_seqscan')
+                    client.release()
+                }
             })
         })
     })
@@ -2971,6 +3055,22 @@ describe('Cyclotron V2', () => {
 
             expect(result.depths.get('queue-a')).toBe(2)
             expect(result.depths.get('queue-b')).toBe(1)
+        })
+
+        it('reports the scheduled emails of all teams that still wait, on start', async () => {
+            const inADay = new Date(Date.now() + 24 * 3600 * 1000)
+            await insertRawJob({ id: uuidv7(), queue_name: 'email', scheduled: inADay })
+            await insertRawJob({ id: uuidv7(), queue_name: 'email', team_id: 2, scheduled: inADay })
+            await insertRawJob({ id: uuidv7(), queue_name: 'email', scheduled: inADay, transition_count: 1 })
+            await insertRawJob({ id: uuidv7(), queue_name: 'email', scheduled: inADay, status: 'canceled' })
+            await insertRawJob({ id: uuidv7(), queue_name: 'email', scheduled: new Date(Date.now() - 1000) })
+
+            const janitor = createJanitor({ stallTimeoutMs: 60_000 })
+            await janitor.start()
+            await janitor.stop()
+
+            const metric = await register.getSingleMetricAsString('cdp_transactional_email_scheduled_waiting')
+            expect(Number(metric.trim().split('\n').pop()!.split(' ').pop())).toBe(2)
         })
 
         it('sweeps expired conversion watchers and keeps live ones', async () => {

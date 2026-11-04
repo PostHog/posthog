@@ -183,6 +183,15 @@ export type CyclotronV2CancelUnclaimedResult =
 
 export type CyclotronV2RescheduleUnclaimedResult = { outcome: 'rescheduled' | 'canceled' | 'claimed' | 'not_found' }
 
+export type CyclotronV2UnclaimedEmailJob = {
+    id: string
+    to: string | null
+    scheduled: Date
+    created: Date
+}
+
+export type CyclotronV2UnclaimedEmailCursor = { scheduled: Date; id: string }
+
 /**
  * Producer-side surface of `CyclotronV2Manager`. Lets API entrypoints depend
  * on the interface (testable, mockable) without pulling the full manager
@@ -205,6 +214,11 @@ export interface CyclotronV2JobProducer {
     cancelJobs(options: CyclotronV2CancelJobsOptions): Promise<CyclotronV2CancelJobsResult>
     cancelUnclaimed(teamId: number, id: string): Promise<CyclotronV2CancelUnclaimedResult>
     rescheduleUnclaimed(teamId: number, id: string, scheduled: Date): Promise<CyclotronV2RescheduleUnclaimedResult>
+    listUnclaimed(
+        teamId: number,
+        after: CyclotronV2UnclaimedEmailCursor | null,
+        limit: number
+    ): Promise<CyclotronV2UnclaimedEmailJob[]>
     resumeParkedSteps(teamId: number, resumes: StepResume[]): Promise<Map<string, StepResumeOutcome>>
     resumeParkedBatchResolver(options: {
         teamId: number

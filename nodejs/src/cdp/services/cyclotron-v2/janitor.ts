@@ -8,6 +8,7 @@ import { captureException } from '~/common/utils/posthog'
 import { CYCLOTRON_INVOCATION_JOB_QUEUES, CyclotronJobInvocationHogFlow } from '../../types'
 import { HogInvocationResultsService } from '../monitoring/hog-invocation-results.service'
 import { v2JobToInvocation } from './job-codec'
+import { countUnclaimedEmailsWaiting } from './manager'
 import { CYCLOTRON_COUNTER_MAX, CyclotronV2CleanupResult, CyclotronV2JanitorConfig } from './types'
 
 // Stable, low-cardinality `error_kind` stamped on the failed invocation result
@@ -82,6 +83,14 @@ const queueOldestDueAgeGauge = new Gauge({
     labelNames: ['queue'],
 })
 
+const scheduledEmailsWaitingGauge = new Gauge({
+    name: 'cdp_transactional_email_scheduled_waiting',
+    help: 'Scheduled transactional emails that wait for their send time, across all teams.',
+})
+
+// Slower than the cleanup tick, because the count reads every waiting row of every team.
+const SCHEDULED_EMAILS_COUNT_INTERVAL_MS = 60_000
+
 interface PoisonRow {
     id: string
     team_id: number
@@ -100,6 +109,7 @@ interface PoisonRow {
 export class CyclotronV2Janitor {
     private pool: Pool
     private intervalHandle: ReturnType<typeof setInterval> | null = null
+    private scheduledEmailsCountHandle: ReturnType<typeof setInterval> | null = null
     // Queue names this process has seen hold work, so a drained queue can report 0.
     private readonly seenQueues = new Set<string>()
 
@@ -155,9 +165,23 @@ export class CyclotronV2Janitor {
                 logger.error('CyclotronV2Janitor run error', { error: String(err) })
             })
         }, this.cleanupIntervalMs)
+        this.scheduledEmailsCountHandle = setInterval(
+            () => void this.measureScheduledEmailsWaiting(),
+            SCHEDULED_EMAILS_COUNT_INTERVAL_MS
+        )
 
         // Run immediately on start
+        await this.measureScheduledEmailsWaiting()
         await this.runOnce()
+    }
+
+    // A failed count keeps the last value, so the gauge does not drop to 0 and hide a backlog.
+    async measureScheduledEmailsWaiting(): Promise<void> {
+        try {
+            scheduledEmailsWaitingGauge.set(await countUnclaimedEmailsWaiting(this.pool))
+        } catch (err) {
+            logger.error('CyclotronV2Janitor scheduled email count failed', { error: String(err) })
+        }
     }
 
     async runOnce(): Promise<CyclotronV2CleanupResult> {
@@ -550,6 +574,10 @@ export class CyclotronV2Janitor {
         if (this.intervalHandle) {
             clearInterval(this.intervalHandle)
             this.intervalHandle = null
+        }
+        if (this.scheduledEmailsCountHandle) {
+            clearInterval(this.scheduledEmailsCountHandle)
+            this.scheduledEmailsCountHandle = null
         }
         await this.pool.end()
     }
