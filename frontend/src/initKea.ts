@@ -111,7 +111,7 @@ whose path is given here handles its own failures, so the same action elsewhere 
 const ERROR_FILTER_ALLOW_LIST_BY_LOGIC_PATH: Record<string, string> = {
     loadFeatureFlag: 'scenes.feature-flags.featureFlagLogic', // A retry banner, or a retry toast once the flag is on screen
     loadTopReports: 'scenes.project-homepage.today.todayLogic',
-    loadAccountActivityMatrix: 'products.customer_analytics.accountDotMatrixTileLogic',
+    loadMatrix: 'products.customer_analytics.accountDotMatrixTileLogic',
     loadHighlights: 'scenes.project-homepage.today.todayHighlightsLogic',
     loadFullReport: 'scenes.project-homepage.today.todayReportLogic',
     loadPage: 'scenes.project-homepage.today.todayReportLogic',

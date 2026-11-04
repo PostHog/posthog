@@ -3,10 +3,11 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { FEATURE_FLAGS } from 'lib/constants'
 
 import { mswDecorator } from '~/mocks/browser'
-import type { AccountActivityMatrixResult } from '~/queries/schema/schema-general'
+import type { AccountActivityMatrixResult, BookActivityMatrixResult } from '~/queries/schema/schema-general'
 
 import { EMPTY_ACCOUNT_ACTIVITY_MATRIX } from './accountActivityMatrix'
 import { AccountDotMatrixTile } from './AccountDotMatrixTile'
+import { BOOK_ACTIVITY_MATRIX_MOCK } from './bookActivityMatrixMock'
 
 const WEEKS = [
     '2026-09-06',
@@ -39,11 +40,14 @@ const ACTIVITY: AccountActivityMatrixResult = {
     skippedMetricIds: [],
 }
 
-function queryResponse(results: AccountActivityMatrixResult): ReturnType<typeof mswDecorator> {
+function queryResponse(
+    results: AccountActivityMatrixResult | BookActivityMatrixResult | unknown[][],
+    columns?: string[]
+): ReturnType<typeof mswDecorator> {
     return mswDecorator({
         post: {
-            '/api/environments/:team_id/query/': { results },
-            '/api/environments/:team_id/query/:query_kind/': { results },
+            '/api/environments/:team_id/query/': { results, columns },
+            '/api/environments/:team_id/query/:query_kind/': { results, columns },
         },
     })
 }
@@ -74,4 +78,46 @@ export const PersonActivity: Story = {
 
 export const NoUsageMetrics: Story = {
     decorators: [queryResponse({ ...EMPTY_ACCOUNT_ACTIVITY_MATRIX, emptyReason: 'no_metrics' })],
+}
+
+export const Unconfigured: Story = {
+    args: { initialConfig: { source: null } },
+}
+
+export const ProductUsage: Story = {
+    args: { initialConfig: { source: { kind: 'product_usage' } } },
+    decorators: [
+        queryResponse({
+            ...BOOK_ACTIVITY_MATRIX_MOCK,
+            rows: BOOK_ACTIVITY_MATRIX_MOCK.rows.slice(0, 1),
+            data: BOOK_ACTIVITY_MATRIX_MOCK.data.filter(({ row }) => row === BOOK_ACTIVITY_MATRIX_MOCK.rows[0].key),
+            combinations: BOOK_ACTIVITY_MATRIX_MOCK.combinations.filter(
+                ({ row }) => row === BOOK_ACTIVITY_MATRIX_MOCK.rows[0].key
+            ),
+        }),
+    ],
+}
+
+export const CustomQuery: Story = {
+    args: {
+        initialConfig: {
+            source: {
+                kind: 'hogql',
+                query: "SELECT 'Example' AS row, 'Week 1' AS column, 4 AS value",
+                mapping: { row: 'row', column: 'column', value: 'value' },
+            },
+        },
+    },
+    decorators: [queryResponse([['Example', 'Week 1', 4]], ['row', 'column', 'value'])],
+}
+
+export const LoadFailure: Story = {
+    decorators: [
+        mswDecorator({
+            post: {
+                '/api/environments/:team_id/query/': [500, { detail: 'Could not load activity.' }],
+                '/api/environments/:team_id/query/:query_kind/': [500, { detail: 'Could not load activity.' }],
+            },
+        }),
+    ],
 }

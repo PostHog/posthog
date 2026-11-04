@@ -114,6 +114,7 @@ class TestAccountViewContentValidation(SimpleTestCase):
             ({},),
             ({"dataset": "ci", "mode": "count", "selectedSeries": ["build", "test"]},),
             ({"weeks": 12, "metricIds": ["metric-one"], "selectedSeries": ["metric-one"]},),
+            ({"source": None},),
             ({"source": {"kind": "product_usage"}},),
             ({"source": {"kind": "hogql", "query": "SELECT 1", "mapping": {"row": "person", "column": "week"}}},),
         ]
@@ -196,8 +197,15 @@ class TestAccountViews(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
         return response.json()
 
-    def test_dot_matrix_config_roundtrips_and_rejects_invalid_updates(self) -> None:
-        config = {"dataset": "ci", "mode": "count", "selectedSeries": ["build"]}
+    @parameterized.expand(
+        [
+            ({"dataset": "ci", "mode": "count", "selectedSeries": ["build"]},),
+            ({"source": None},),
+            ({"source": {"kind": "product_usage"}},),
+            ({"source": {"kind": "hogql", "query": "SELECT 1 AS r, 2 AS c", "mapping": {"row": "r", "column": "c"}}},),
+        ]
+    )
+    def test_dot_matrix_config_roundtrips_and_rejects_invalid_updates(self, config: dict) -> None:
         content = account_view_content(f'<DotMatrix nodeId="matrix-one" config={{{json.dumps(config)}}} />')
         response = self.client.post(self.endpoint, {"name": "Dot matrix", "content": content}, format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED, response.json())
