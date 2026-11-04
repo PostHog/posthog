@@ -3,9 +3,12 @@ import type { Context } from '@/core/context'
 import { EXIT_USAGE, HogError } from '@/core/errors'
 import { escapeControls } from '@/core/output'
 import type { Prompts, Spinner } from '@/core/prompts'
+import { PersonalAPIKey } from '@/posthog/access-key'
+import type { StoreChoice } from '@/posthog/credential-store/types'
 import { checkApiKey, checkHost, checkProjectId } from '@/posthog/credentials'
 import type { PendingLogin } from '@/posthog/device-auth'
-import { completeLogin, readPendingLogin, saveLogin, startLogin, type LoggedIn } from '@/posthog/login'
+import { trimHost } from '@/posthog/host'
+import { completeLogin, readPendingLogin, saveLogin, startLogin, type LoggedIn } from '@/posthog/login/flow'
 
 const REGIONS = { us: 'https://us.posthog.com', eu: 'https://eu.posthog.com' } as const
 
@@ -34,11 +37,15 @@ type LoginResult =
           instructions: string
           next: string
       }
-    | { status: 'logged_in'; host: string; projectId: string; credentialsPath: string; next: string }
-
-function isTruthy(value: string | undefined): boolean {
-    return value !== undefined && value !== '' && value !== '0' && value.toLowerCase() !== 'false'
-}
+    | {
+          status: 'logged_in'
+          host: string
+          projectId: string
+          store: StoreChoice
+          credentialsPath: string | null
+          keychainError: string | null
+          next: string
+      }
 
 function nextCommand(scopes: readonly string[]): string {
     const canQuery = scopes.some((scope) => scope === '*' || scope.startsWith('query:'))
@@ -58,8 +65,8 @@ function pendingResult(pending: PendingLogin): LoginResult {
 }
 
 function loggedInResult(loggedIn: LoggedIn): LoginResult {
-    const { host, projectId, credentialsPath, scopes } = loggedIn
-    return { status: 'logged_in', host, projectId, credentialsPath, next: nextCommand(scopes) }
+    const { host, projectId, store, credentialsPath, keychainError, scopes } = loggedIn
+    return { status: 'logged_in', host, projectId, store, credentialsPath, keychainError, next: nextCommand(scopes) }
 }
 
 async function finish(ctx: Context, pending: PendingLogin, spinner?: Spinner): Promise<LoginResult> {
@@ -78,11 +85,12 @@ async function keyLogin(ctx: Context, prompts: Prompts): Promise<LoginResult> {
     const host = await prompts.text('PostHog host', { initialValue: REGIONS.us, validate: checkHost })
     const projectId = await prompts.text('Project ID, the number in your project URL', { validate: checkProjectId })
     const apiKey = await prompts.password('Personal API key', { validate: checkApiKey })
-    return loggedInResult(await saveLogin(ctx.runtime, { apiKey, projectId, host: host.replace(/\/+$/, '') }))
+    const key = new PersonalAPIKey({ host: trimHost(host), projectId, apiKey })
+    return loggedInResult(await saveLogin(ctx.runtime, key))
 }
 
 export default defineCommand({
-    description: 'Log in to PostHog and store a personal API key on this machine',
+    description: 'Log in to PostHog',
     writes: true,
     options: {
         region: {
@@ -100,6 +108,7 @@ export default defineCommand({
     notes: [
         'At a terminal, hog asks where your PostHog account is hosted and opens the browser to approve the login.',
         'Agents and scripts get a link and a code to hand to a person, then finish with `hog auth login --wait`.',
+        'hog stores the key in the system keychain. If no keychain is available, such as over SSH, it stores the key in a file only you can read.',
         'In CI, skip login and set HOG_PERSONAL_API_KEY, HOG_PROJECT_ID and HOG_HOST.',
     ].join('\n'),
     examples: ['hog auth login', 'hog auth login --region eu', 'hog auth login --wait'],
@@ -120,7 +129,7 @@ export default defineCommand({
             return finish(ctx, pending, prompts?.spinner('Waiting for the login to be approved in the browser'))
         }
 
-        if (!prompts && ctx.mode.agent === undefined && isTruthy(env.CI)) {
+        if (!prompts && ctx.mode.agent === undefined && ctx.mode.ci) {
             throw new HogError(
                 'login_needs_a_person',
                 'hog auth login needs a person to approve it in a browser, so it does not run in CI.',
@@ -190,7 +199,17 @@ export default defineCommand({
             return
         }
         out.line(`${out.style('Logged in', 'green', 'bold')} to ${result.host}, project ${result.projectId}.`)
-        out.line(out.style(`Credentials saved to ${result.credentialsPath}`, 'dim'))
+        switch (result.store) {
+            case 'keychain':
+                out.line(out.style('Credentials saved to the system keychain', 'dim'))
+                break
+            case 'file':
+                if (result.keychainError) {
+                    out.line(out.style(`${escapeControls(result.keychainError).replace(/\.$/, '')}.`, 'yellow'))
+                }
+                out.line(out.style(`Credentials saved to ${result.credentialsPath}, which only you can read`, 'dim'))
+                break
+        }
         out.line(`Try it: ${result.next}`)
     },
 })
