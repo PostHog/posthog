@@ -117,8 +117,7 @@ async def trim_source_job_inputs(source: "ExternalDataSource") -> None:
                 did_update_inputs = True
 
     if did_update_inputs:
-        SourceInputsStore.assign(source, job_inputs)
-        await database_sync_to_async_pool(source.save)()
+        await SourceInputsStore.asave(source, job_inputs)
 
 
 def _source_type_for_death_event(inputs: "ImportDataActivityInputs") -> str | None:

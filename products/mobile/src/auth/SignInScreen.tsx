@@ -279,6 +279,9 @@ const useStyles = createStyles(({ colors }) => ({
     },
     main: {
         flexGrow: 1,
+        width: '100%',
+        maxWidth: 600,
+        alignSelf: 'center',
         justifyContent: 'center',
         paddingVertical: 24,
     },

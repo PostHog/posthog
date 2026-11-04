@@ -9,9 +9,9 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from posthog.hogql import ast
+from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_COMPLETE_DAYS
 from posthog.hogql.parser import parse_select
 from posthog.hogql.transforms.flag_calls_from_flag_evaluations import (
-    FLAG_EVALUATIONS_COMPLETE_DAYS,
     EventsScan,
     can_read_flag_evaluations,
     filter_conjuncts,

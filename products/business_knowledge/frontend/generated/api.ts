@@ -266,6 +266,24 @@ export const businessKnowledgeGapSuggestionsDismissTopicCreate = async (
     })
 }
 
+export const getBusinessKnowledgeLearningBackfillCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/business_knowledge/learning_backfill/`
+}
+
+/**
+ * Start learning from resolved support tickets of the last 90 days. Tickets that were already analyzed are skipped. The work runs in the background in small batches and can take a few hours.
+ * @summary Learn from past support tickets
+ */
+export const businessKnowledgeLearningBackfillCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<BusinessKnowledgeSettingsApi> => {
+    return apiMutator<BusinessKnowledgeSettingsApi>(getBusinessKnowledgeLearningBackfillCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getBusinessKnowledgeLibrariesListUrl = (projectId: string) => {
     return `/api/projects/${projectId}/business_knowledge/libraries/`
 }

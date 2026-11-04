@@ -1,4 +1,4 @@
-from collections.abc import Collection, Iterable
+from collections.abc import Collection, Iterable, Iterator
 from typing import Any
 from uuid import UUID
 
@@ -362,6 +362,13 @@ def delete_ses_identity(identity: str) -> None:
     from products.workflows.backend import providers  # noqa: PLC0415
 
     providers.SESProvider().delete_identity(identity)
+
+
+def list_ses_bounce_suppressions() -> Iterator[list[str]]:
+    """Yield the addresses on the SES account-level suppression list for a bounce, one page at a time."""
+    from products.workflows.backend import providers  # noqa: PLC0415
+
+    yield from providers.SESProvider().list_bounce_suppressions()
 
 
 def get_maildev_mock_dns_records() -> list[EmailDomainDnsRecord]:

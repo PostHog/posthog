@@ -1,1 +1,1 @@
-0194_externaldatasource_credentials_integration_idx
+0196_externaldataschema_masked_columns

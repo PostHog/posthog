@@ -25,6 +25,7 @@ from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import Team
 from posthog.models.integration import (
     TLS,
+    AnyRedshiftIntegration,
     Authority,
     AWSRedshiftIntegration,
     AWSRedshiftRoleBasedIntegration,
@@ -33,6 +34,10 @@ from posthog.models.integration import (
     Credentials,
     IntegrationError,
     RedshiftIntegration,
+    RedshiftProvisionedCluster,
+    RedshiftServerlessWorkgroup,
+    parse_redshift_host,
+    redshift_integration_from_record,
 )
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
@@ -91,6 +96,7 @@ LOGGER = get_write_only_logger(__name__)
 EXTERNAL_LOGGER = get_logger()
 
 NON_RETRYABLE_ERROR_TYPES = (
+    "UnsupportedColumnTypeError",
     # The integration backing this export is missing, of the wrong kind, or
     # misconfigured. Retrying can never recover it.
     "IntegrationError",
@@ -898,21 +904,14 @@ def _get_merge_settings(
         return NotRequiredMergeSettings(requires_merge=False)
 
 
-async def _get_redshift_integration(
-    integration_id: int, team_id: int
-) -> AWSRedshiftRoleBasedIntegration | AWSRedshiftIntegration | RedshiftIntegration:
+async def _get_redshift_integration(integration_id: int, team_id: int) -> AnyRedshiftIntegration:
     """Fetch a Redshift integration from the database."""
     try:
         integration = await IntegrationManager.aws_redshift.credentials.aget(team_id, integration_id)
     except IntegrationNotFound:
         raise IntegrationError(f"Redshift integration with ID '{integration_id}' not found for team '{team_id}'")
 
-    if "aws_role_arn" in integration.config:
-        return AWSRedshiftRoleBasedIntegration(integration)
-    elif "aws_access_key_id" in integration.sensitive_config:
-        return AWSRedshiftIntegration(integration)
-    else:
-        return RedshiftIntegration(integration)
+    return redshift_integration_from_record(integration)
 
 
 async def _get_aws_s3_integration(integration_id: int, team_id: int) -> AWSS3RoleBasedIntegration | AWSS3Integration:
@@ -934,51 +933,10 @@ class RedshiftCredentials:
     password: str = dataclasses.field(repr=False)
 
 
-@frozen
-class ProvisionedCluster:
-    """A provisioned Redshift cluster parsed from its endpoint hostname."""
-
-    cluster_identifier: str
-    region: str
-
-
-@frozen
-class ServerlessWorkgroup:
-    """A Redshift Serverless workgroup parsed from its endpoint hostname."""
-
-    workgroup: str
-    account_id: str
-    region: str
-
-
-def _parse_redshift_host(host: str) -> ProvisionedCluster | ServerlessWorkgroup:
-    """Parse a Redshift endpoint hostname into its cluster or workgroup location."""
-    match host.split(".", maxsplit=3):
-        case [cluster_identifier, _, region, "redshift.amazonaws.com"]:
-            return ProvisionedCluster(cluster_identifier=cluster_identifier, region=region)
-        case [workgroup, account_id, region, "redshift-serverless.amazonaws.com"]:
-            return ServerlessWorkgroup(workgroup=workgroup, account_id=account_id, region=region)
-        case _:
-            raise IntegrationError(
-                f"Redshift host '{host}' is not a recognized AWS Redshift endpoint. Expected "
-                "'<cluster>.<id>.<region>.redshift.amazonaws.com' or "
-                "'<workgroup>.<account>.<region>.redshift-serverless.amazonaws.com'"
-            )
-
-
-def _get_host_from_connection(connection: ConnectionParameters | ServerConnectionParameters) -> str:
-    if connection.host is None:
-        raise IntegrationError(
-            "An AWS Redshift integration requires the cluster endpoint to be set as 'host' in the "
-            "batch export configuration"
-        )
-    return connection.host
-
-
 async def _get_temporary_redshift_credentials(
     aws_credentials: AWSCredentials,
     *,
-    server: ProvisionedCluster | ServerlessWorkgroup,
+    server: RedshiftProvisionedCluster | RedshiftServerlessWorkgroup,
     user: str,
     database: str,
     auto_create: bool | None = None,
@@ -1016,7 +974,7 @@ async def _get_temporary_redshift_credentials(
     )
 
     match server:
-        case ProvisionedCluster():
+        case RedshiftProvisionedCluster():
             optional: dict[str, typing.Any] = {}
             if auto_create is not None:
                 optional["AutoCreate"] = auto_create
@@ -1035,7 +993,7 @@ async def _get_temporary_redshift_credentials(
 
             return RedshiftCredentials(user=response["DbUser"], password=response["DbPassword"])
 
-        case ServerlessWorkgroup():
+        case RedshiftServerlessWorkgroup():
             async with session.client("redshift-serverless", region_name=server.region) as redshift_serverless:
                 response = await redshift_serverless.get_credentials(
                     workgroupName=server.workgroup,
@@ -1073,12 +1031,12 @@ async def _get_redshift_client_inputs(
 
 def _get_redshift_credentials_policy_statements(
     integration: AWSRedshiftRoleBasedIntegration,
-    server: ProvisionedCluster | ServerlessWorkgroup,
+    server: RedshiftProvisionedCluster | RedshiftServerlessWorkgroup,
     database: str,
 ) -> list[PolicyStatement]:
     """Build policy statements scoping an assumed role to obtaining Redshift credentials."""
     match server:
-        case ProvisionedCluster():
+        case RedshiftProvisionedCluster():
             account_id = integration.aws_account_id
             get_cluster_credentials_policy = PolicyStatement(
                 Effect="Allow",
@@ -1105,22 +1063,8 @@ def _get_redshift_credentials_policy_statements(
                 )
             return policy_statements
 
-        case ServerlessWorkgroup():
-            # Workgroup ARNs contain a UUID that cannot be derived from the endpoint hostname,
-            # so Serverless requires the ARN on the integration to scope the policy exactly.
-            workgroup_arn = integration.workgroup_arn
-            if workgroup_arn is None:
-                raise IntegrationError(
-                    "A Redshift Serverless workgroup requires 'workgroup_arn' to be set on the integration"
-                )
-
-            _, _, _, arn_region, arn_account_id, _ = workgroup_arn.split(":", maxsplit=5)
-            if arn_region != server.region or arn_account_id != server.account_id:
-                raise IntegrationError(
-                    f"The integration's workgroup ARN '{workgroup_arn}' does not match the region or account "
-                    f"of the Redshift Serverless host (region '{server.region}', account '{server.account_id}')"
-                )
-
+        case RedshiftServerlessWorkgroup():
+            workgroup_arn = integration.workgroup_arn_for(server)
             return [
                 PolicyStatement(
                     Effect="Allow",
@@ -1134,10 +1078,37 @@ def _get_redshift_credentials_policy_statements(
 
 
 async def _get_redshift_client_inputs_from_integration(
-    integration: AWSRedshiftRoleBasedIntegration | AWSRedshiftIntegration | RedshiftIntegration,
+    integration: AnyRedshiftIntegration,
     inputs: RedshiftInsertInputs | RedshiftCopyActivityInputs,
 ) -> _PostgreSQLClientInputsProtocol:
-    """Return PostgreSQL client inputs to establish a connection from Redshift.
+    """Return PostgreSQL client inputs for a batch export backed by an integration."""
+    host = inputs.connection.host
+    if host is None and not isinstance(integration, RedshiftIntegration):
+        raise IntegrationError(
+            "An AWS Redshift integration requires the cluster endpoint to be set as 'host' in the "
+            "batch export configuration"
+        )
+
+    return await resolve_redshift_client_inputs(
+        integration,
+        host=host,
+        port=inputs.connection.port,
+        database=inputs.connection.database,
+        team_id=inputs.batch_export.team_id,
+        session_name=f"PostHog-batch-exports-{inputs.batch_export.batch_export_id}",
+    )
+
+
+async def resolve_redshift_client_inputs(
+    integration: AnyRedshiftIntegration,
+    *,
+    host: str | None,
+    port: int,
+    database: str,
+    team_id: int,
+    session_name: str,
+) -> _PostgreSQLClientInputsProtocol:
+    """Return PostgreSQL client inputs to connect to Redshift with an integration.
 
     These inputs can be obtained from an integration by:
     * Generating temporary credentials using a short-lived session via assuming
@@ -1146,26 +1117,26 @@ async def _get_redshift_client_inputs_from_integration(
       in the integration.
     * Directly reading inputs stored in the integration.
 
-    Depending on the type of integration, is which one we'll use.
+    Depending on the type of integration, is which one we'll use. `host` and `port` are
+    only read for the two AWS integrations, because a plain Redshift integration stores
+    its own.
     """
     client_inputs: _PostgreSQLClientInputsProtocol
 
     match integration:
         case AWSRedshiftRoleBasedIntegration():
-            host = _get_host_from_connection(inputs.connection)
-            server = _parse_redshift_host(host)
+            host = _require_aws_host(host)
+            server = parse_redshift_host(host)
 
-            team = await Team.objects.aget(id=inputs.batch_export.team_id)
+            team = await Team.objects.aget(id=team_id)
             external_id = f"posthog-{team.organization_id}"
 
-            policy_statements = _get_redshift_credentials_policy_statements(
-                integration, server, inputs.connection.database
-            )
+            policy_statements = _get_redshift_credentials_policy_statements(integration, server, database)
 
             credentials = await get_credentials_using_user_aws_role(
                 integration.aws_role_arn,
                 external_id,
-                session_name=f"PostHog-batch-exports-{inputs.batch_export.batch_export_id}",
+                session_name=session_name,
                 policy_statements=policy_statements,
             )
 
@@ -1173,7 +1144,7 @@ async def _get_redshift_client_inputs_from_integration(
                 credentials,
                 server=server,
                 user=integration.user,
-                database=inputs.connection.database,
+                database=database,
                 groups=integration.groups,
                 auto_create=integration.auto_create,
             )
@@ -1181,13 +1152,13 @@ async def _get_redshift_client_inputs_from_integration(
                 user=redshift_credentials.user,
                 password=redshift_credentials.password,
                 host=host,
-                port=inputs.connection.port,
-                database=inputs.connection.database,
+                port=port,
+                database=database,
             )
 
         case AWSRedshiftIntegration():
-            host = _get_host_from_connection(inputs.connection)
-            server = _parse_redshift_host(host)
+            host = _require_aws_host(host)
+            server = parse_redshift_host(host)
 
             redshift_credentials = await _get_temporary_redshift_credentials(
                 AWSCredentials(
@@ -1196,7 +1167,7 @@ async def _get_redshift_client_inputs_from_integration(
                 ),
                 server=server,
                 user=integration.user,
-                database=inputs.connection.database,
+                database=database,
                 groups=integration.groups,
                 auto_create=integration.auto_create,
             )
@@ -1204,8 +1175,8 @@ async def _get_redshift_client_inputs_from_integration(
                 user=redshift_credentials.user,
                 password=redshift_credentials.password,
                 host=host,
-                port=inputs.connection.port,
-                database=inputs.connection.database,
+                port=port,
+                database=database,
             )
 
         case RedshiftIntegration():
@@ -1215,6 +1186,12 @@ async def _get_redshift_client_inputs_from_integration(
             typing.assert_never(integration)
 
     return client_inputs
+
+
+def _require_aws_host(host: str | None) -> str:
+    if host is None:
+        raise IntegrationError("An AWS Redshift integration requires the cluster endpoint as 'host'")
+    return host
 
 
 @activity.defn

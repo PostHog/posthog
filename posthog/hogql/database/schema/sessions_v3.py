@@ -198,7 +198,7 @@ for session_ad_id in SESSION_V3_LOWER_TIER_AD_IDS:
 def ad_id_value_from_set_expr(set_expr: ast.Expr, session_ad_id: str) -> ast.Call:
     prefix = session_ad_id + "="
     # arrayFirst guarantees the prefix sits at position 0, so replaceOne strips exactly the prefix
-    return ast.Call(
+    value = ast.Call(
         name="replaceOne",
         args=[
             ast.Call(
@@ -215,6 +215,9 @@ def ad_id_value_from_set_expr(set_expr: ast.Expr, session_ad_id: str) -> ast.Cal
             ast.Constant(value=""),
         ],
     )
+    # arrayFirst returns '' when no element matches. nullIf turns a missing ad id into NULL, as v2 does,
+    # so an "is set" filter does not match every session.
+    return ast.Call(name="nullIf", args=[value, ast.Constant(value="")])
 
 
 def ad_id_present_in_set_expr(set_expr: ast.Expr, session_ad_id: str) -> ast.Call:

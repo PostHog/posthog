@@ -27,12 +27,13 @@ export const ERRORS_SCOPES = ['error_tracking:read', 'error_tracking:write'] as 
 /** The scopes the sessions list and session screen need. `replay_scanner` covers the AI summary. */
 export const REPLAY_SCOPES = ['session_recording:read', 'replay_scanner:read', 'replay_scanner:write'] as const
 
-export type ScopedFeature = 'views' | 'errors' | 'replay'
+export type ScopedFeature = 'views' | 'errors' | 'replay' | 'inbox'
 
 export const FEATURE_SCOPES: Record<ScopedFeature, readonly string[]> = {
     views: VIEWS_SCOPES,
     errors: ERRORS_SCOPES,
     replay: REPLAY_SCOPES,
+    inbox: ['inbox:read', 'inbox:write'],
 }
 
 /** The first scope of `feature` a grant lacks, or null for an unknown grant. */
