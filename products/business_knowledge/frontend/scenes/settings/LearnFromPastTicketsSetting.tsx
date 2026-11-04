@@ -48,15 +48,15 @@ export function LearnFromPastTicketsSetting(): JSX.Element {
                 <div className="flex flex-col gap-1">
                     <div className="flex items-center gap-2">
                         <Spinner textColored />
-                        <span>Reading past tickets. Started {dayjs(progress.started_at).fromNow()}.</span>
+                        <span>{`Reading past tickets. Started ${dayjs(progress.started_at).fromNow()}.`}</span>
                     </div>
                     <span className="text-secondary">
-                        {progressSummary(progress)}, {progress.tickets_in_progress} being read now.
+                        {`${progressSummary(progress)}, ${progress.tickets_in_progress} being read now.`}
                     </span>
                 </div>
             ) : progress?.finished_at ? (
                 <span className="text-secondary">
-                    Read every past ticket {dayjs(progress.finished_at).fromNow()}: {progressSummary(progress)}.
+                    {`Read every past ticket ${dayjs(progress.finished_at).fromNow()}: ${progressSummary(progress)}.`}
                 </span>
             ) : null}
             <LemonButton

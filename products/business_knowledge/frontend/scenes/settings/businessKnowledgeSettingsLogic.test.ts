@@ -178,4 +178,36 @@ describe('businessKnowledgeSettingsLogic', () => {
             jest.useRealTimers()
         }
     })
+
+    it('keeps reloading progress after a failed reload', async () => {
+        jest.useFakeTimers()
+        try {
+            const { ApiError } = jest.requireMock('lib/api')
+            ;(businessKnowledgeSettingsRetrieve as jest.Mock)
+                .mockResolvedValueOnce({
+                    learn_from_support_enabled: true,
+                    support_enabled: true,
+                    learning_backfill: {
+                        status: 'running',
+                        started_at: '2026-11-01T00:00:00Z',
+                        finished_at: null,
+                        tickets_read: 1,
+                        tickets_in_progress: 0,
+                        knowledge_created: 0,
+                    },
+                })
+                .mockRejectedValueOnce(new ApiError('Server Error', 500, undefined, { detail: 'unavailable' }))
+            initKeaTests()
+            logic = businessKnowledgeSettingsLogic()
+            logic.mount()
+            await jest.advanceTimersByTimeAsync(0)
+
+            await jest.advanceTimersByTimeAsync(30_000)
+            await jest.advanceTimersByTimeAsync(30_000)
+
+            expect(businessKnowledgeSettingsRetrieve).toHaveBeenCalledTimes(3)
+        } finally {
+            jest.useRealTimers()
+        }
+    })
 })

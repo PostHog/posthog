@@ -35,6 +35,9 @@ export interface businessKnowledgeSettingsLogicActions {
         settings: BusinessKnowledgeSettingsApi
         payload?: any
     }
+    scheduleLearningBackfillPoll: () => {
+        value: true
+    }
     setLearnFromSupportEnabled: (enabled: boolean) => {
         enabled: boolean
     }
@@ -57,6 +60,7 @@ export const businessKnowledgeSettingsLogic = kea<businessKnowledgeSettingsLogic
         setLearnFromSupportEnabled: (enabled: boolean) => ({ enabled }),
         startLearningBackfill: true,
         startLearningBackfillDone: true,
+        scheduleLearningBackfillPoll: true,
     }),
     loaders(() => ({
         settings: [
@@ -92,8 +96,15 @@ export const businessKnowledgeSettingsLogic = kea<businessKnowledgeSettingsLogic
         ],
     }),
     listeners(({ actions, values, cache }) => ({
-        loadSettingsSuccess: ({ settings }) => {
-            if (settings.learning_backfill?.status !== 'running') {
+        loadSettingsSuccess: () => {
+            actions.scheduleLearningBackfillPoll()
+        },
+        loadSettingsFailure: () => {
+            // A failed poll must not end polling, or the block keeps a stale running state.
+            actions.scheduleLearningBackfillPoll()
+        },
+        scheduleLearningBackfillPoll: () => {
+            if (values.settings?.learning_backfill?.status !== 'running') {
                 cache.disposables.dispose('learningBackfillPoll')
                 return
             }
