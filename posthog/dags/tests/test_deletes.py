@@ -1027,6 +1027,34 @@ def test_update_plan_deletions_shorter_period_pushes_the_next_pass(deployment: s
     assert (_plan_state(downgraded), _plan_state(standard)) == ((12, next_pass), (24, next_pass))
 
 
+@pytest.mark.django_db
+@override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
+def test_a_downgrade_below_a_set_period_deletes_past_the_set_period_until_the_pass(cluster: ClickhouseCluster):
+    team = Team.objects.create(
+        organization=Organization.objects.create(name="Downgraded"), name="Downgraded", event_retention_months=24
+    )
+    TeamEventsRetentionConfig.objects.create(team=team, events_retention_months=36)
+    TeamEventsPlanDeletion.objects.create(team=team, months=36, next_deletion_on=cleanup_date())
+    _insert_events(cluster, _events(team.id, _mid_month(30), 0, 1) + _events(team.id, _mid_month(40), 100, 1))
+    past_the_set_period, past_the_plan = _partition(_mid_month(40)), _partition(_mid_month(30))
+
+    passes = update_plan_deletions(build_op_context(), PlanDeletionConfig())
+    plan = plan_old_events_cleanup(build_op_context(), MonthlyCleanupConfig(), cluster, passes)
+
+    first_pass = _first_pass()
+    assert _plan_state(team) == (24, first_pass)
+    assert [item.partition for item in plan.partitions] == [past_the_set_period]
+
+    with time_machine.travel(
+        datetime.combine(first_pass, datetime.min.time(), tzinfo=UTC) + timedelta(hours=20), tick=False
+    ):
+        passes = update_plan_deletions(build_op_context(), PlanDeletionConfig())
+        plan = plan_old_events_cleanup(build_op_context(), MonthlyCleanupConfig(), cluster, passes)
+
+    assert passes.due_team_ids == [team.id]
+    assert [item.partition for item in plan.partitions] == [past_the_plan, past_the_set_period]
+
+
 def _insert_pending_deletes(table: PendingDeletesTable, client: Client, count: int = 5, first_id: int = 0) -> None:
     client.execute(
         table.populate_query,
