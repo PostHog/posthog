@@ -109,6 +109,7 @@ export function AddInsightToDashboardModal(): JSX.Element {
                                                     type === InsightType.SQL
                                                         ? urls.sqlEditor({
                                                               dashboard: dashboard?.id,
+                                                              tileGroupKey: newTileGroupKey,
                                                           })
                                                         : urls.insightNew({
                                                               type: type as InsightType,

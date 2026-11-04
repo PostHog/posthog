@@ -1184,13 +1184,6 @@ export interface dashboardLogicActions {
         value: any
         variableId: string
     }
-    placeAddedTiles: (
-        tileIds: number[],
-        groupKey?: string | null
-    ) => {
-        groupKey: string | null | undefined
-        tileIds: number[]
-    }
     previewDashboardChanges: () => {
         value: true
     }
@@ -2151,7 +2144,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
         /** Creates tiles in the add's target group, in the same request. */
         createTiles: (tiles: NewDashboardTile[]) => ({ tiles }),
         /** For tiles another endpoint created: moves them into the target group, then reloads. */
-        placeAddedTiles: (tileIds: number[], groupKey?: string | null) => ({ tileIds, groupKey }),
         /** Debounced run_widgets refresh for a single tile (tile filters). */
         scheduleRefreshDashboardWidgets: (tileId: number) => ({ tileId }),
         applyWidgetIssueMetadataChange: (payload: {
@@ -5859,10 +5851,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 tiles: groupKey ? tiles.map((tile) => ({ ...tile, group_key: groupKey })) : tiles,
             })
         },
-        placeAddedTiles: async ({ tileIds, groupKey = values.newTileGroupKey }) => {
-            await placeTilesInGroup(values.currentTeamId, props.id, tileIds, groupKey)
-            actions.loadDashboard({ action: DashboardLoadAction.Update })
-        },
         setTileGroups: ({ groups }) => {
             // Each write sends every group, so a second write waits for the first.
             if (cache.tileGroupsSaving) {
@@ -6097,12 +6085,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 const createdTiles = findNewlyAddedWidgetTiles(previousWidgetTileIds, response.tiles).map((tile) =>
                     groupKey ? { ...tile, group_key: groupKey } : tile
                 )
-                if (groupKey && createdTiles.length > 0) {
-                    actions.placeAddedTiles(
-                        createdTiles.map((tile) => tile.id),
-                        groupKey
-                    )
-                }
+                // The tiles already show in their group, and a reload would drop an unsaved layout edit.
+                void placeTilesInGroup(
+                    values.currentTeamId,
+                    dashboardId,
+                    createdTiles.map((tile) => tile.id),
+                    groupKey
+                )
                 if (createdTiles.length > 0 && values.dashboard?.id === dashboardId) {
                     const dashboard = {
                         ...values.dashboard,

@@ -1367,9 +1367,11 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(tasksToComplete)
 
             // A new insight started from a dashboard tile group's Add menu goes into that group.
-            const tileGroupKey = router.values.searchParams.tile_group
+            const tileGroupParam = router.values.searchParams.tile_group
+            const tileGroupKey =
+                typeof tileGroupParam === 'string' || typeof tileGroupParam === 'number' ? String(tileGroupParam) : ''
             const newDashboardTile =
-                !insightNumericId && dashboards?.length === 1 && typeof tileGroupKey === 'string' && tileGroupKey
+                !insightNumericId && dashboards?.length === 1 && tileGroupKey
                     ? savedInsight.dashboard_tiles?.find(({ dashboard_id }) => dashboard_id === dashboards[0])
                     : undefined
             if (newDashboardTile) {
