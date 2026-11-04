@@ -49,7 +49,8 @@ def _seen(team_id: int, since: dt.datetime, until: dt.datetime, limit: int) -> l
     # Imported here, because this module loads in `ready()` and the query layer must stay off that path.
     from products.logs.backend.pattern_appearance_query import first_sightings  # noqa: PLC0415
 
-    return [_identity(*row) for row in first_sightings(team_id, since, until, limit)]
+    # The registry's bounds are sighting times, which are bucket ends, so the buckets they cover start one bucket earlier.
+    return [_identity(*row) for row in first_sightings(team_id, since - BUCKET, until - BUCKET, limit)]
 
 
 def _identity(
@@ -74,8 +75,13 @@ def _identity(
             "namespace": namespace,
             "pattern": pattern,
         },
-        detail={"pattern": pattern[:MAX_PATTERN_DETAIL], "pattern_version": version},
+        detail={"pattern": _clipped(pattern), "pattern_version": version},
     )
+
+
+def _clipped(pattern: str) -> str:
+    """The pattern cut to `MAX_PATTERN_DETAIL` bytes, so wide characters cannot push the detail over its budget."""
+    return pattern.encode()[:MAX_PATTERN_DETAIL].decode(errors="ignore")
 
 
 def _utc(moment: dt.datetime) -> dt.datetime:
@@ -116,7 +122,7 @@ def _logs_url(project_id: int, labels: dict[str, str], detail: dict[str, Any]) -
     }
     pattern = detail.get("pattern")
     # A pattern cut to fit the detail would match nothing, so the link then filters by service and severity only.
-    if isinstance(pattern, str) and len(pattern) < MAX_PATTERN_DETAIL and detail.get("pattern_version"):
+    if isinstance(pattern, str) and len(pattern.encode()) < MAX_PATTERN_DETAIL and detail.get("pattern_version"):
         filters["filterGroup"] = {
             "type": "AND",
             "values": [
