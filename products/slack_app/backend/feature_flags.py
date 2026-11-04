@@ -156,11 +156,7 @@ def is_slack_app_byos_enabled(
 
 
 def is_slack_app_footer_cost_enabled(integration: IntegrationRecord, distinct_id: str | None) -> bool:
-    """Gate for the cost of a turn in the footer under an answer.
-
-    ``distinct_id`` identifies the PostHog user whose run this is, so an internal rollout can
-    name them. Without it the gate falls back to the workspace.
-    """
+    """Gate for the thread cost in the footer under an answer, keyed on the run's PostHog user."""
     return _workspace_flag_enabled(
         SLACK_APP_FOOTER_COST_FLAG,
         integration,

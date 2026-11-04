@@ -692,20 +692,6 @@ def invalidate_thread_messages_cache(integration_id: int, channel: str, thread_t
 UNFURL_OPT_OUT_PARAM = "unfurl"
 
 
-# Run-state key for the run's token cost at the last reply that showed a cost. A run serves
-# every turn of a thread and its cost only grows, so one reply's cost is the growth since then.
-FOOTER_COST_BASELINE_STATE_KEY = "slack_footer_cost_microusd"
-
-
-@frozen
-class TurnCost:
-    """What one reply's turn cost, for the footer."""
-
-    microusd: int
-    # The run's whole token cost so far, which the next reply measures its own cost against.
-    run_total_microusd: int
-
-
 @dataclass(frozen=True)
 class RunFooter:
     """What a reply knows about the run behind it.
@@ -732,8 +718,9 @@ class RunFooter:
     # Whether the run shares charts as insight links instead of images, so reply analytics can
     # compare the two delivery modes. Not rendered.
     chart_links: bool = False
-    # Set only for a reply that closes a turn, and only inside the footer cost rollout.
-    turn_cost: TurnCost | None = None
+    # What the thread's task spent on models so far, in USD. Set only for a reply that closes a
+    # turn, and only inside the footer cost rollout.
+    thread_cost_usd: Decimal | None = None
 
     def has_content(self) -> bool:
         """Whether this would render as anything.
@@ -743,7 +730,7 @@ class RunFooter:
         keeps meaning "None-coalesce" and cannot silently discard a partial instance.
         The ids are not part of the answer — they say nothing on their own.
         """
-        return any((self.task_url, self.model, self.project, self.plan, self.turn_cost))
+        return any((self.task_url, self.model, self.project, self.plan, self.thread_cost_usd is not None))
 
 
 def _project_name(team_id: int, *, integration_id: int | None, created_by_id: int | None) -> str | None:
@@ -819,7 +806,9 @@ def _plan_label(state: dict[str, Any] | None, *, task_id: Any, integration_id: i
     return f"<@{owner_slack_user_id}>'s {plan.plan_name}"
 
 
-def load_run_footer(run_id: str | UUID | None, *, integration_id: int | None) -> RunFooter:
+def load_run_footer(
+    run_id: str | UUID | None, *, integration_id: int | None, include_thread_cost: bool = False
+) -> RunFooter:
     """Describe a run for the footer.
 
     Never raises: the footer is the last thing added to an answer that is already
@@ -831,6 +820,8 @@ def load_run_footer(run_id: str | UUID | None, *, integration_id: int | None) ->
     ``integration_id`` is the install the reply is posted through, and the workspace
     behind it is what the project segment is judged against. Required rather than
     defaulted, so a new caller cannot drop the segment without saying so.
+
+    ``include_thread_cost`` is for the reply that closes a turn.
     """
     # Deferred so the tasks product stays off this module's import path, matching
     # `model_catalogue`.
@@ -844,6 +835,7 @@ def load_run_footer(run_id: str | UUID | None, *, integration_id: int | None) ->
         if run is None:
             return RunFooter()
         state = parse_run_state(run.state)
+        plan = _plan_label(run.state, task_id=run.task_id, integration_id=integration_id)
         return RunFooter(
             run_id=str(run.id),
             task_id=str(run.task_id),
@@ -855,58 +847,53 @@ def load_run_footer(run_id: str | UUID | None, *, integration_id: int | None) ->
                 integration_id=integration_id,
                 created_by_id=run.created_by_id,
             ),
-            plan=_plan_label(run.state, task_id=run.task_id, integration_id=integration_id),
+            plan=plan,
             chart_links=bool((run.state or {}).get("slack_chart_links")),
+            # A run on someone's own plan is not paid with PostHog credits, so its cost says nothing.
+            thread_cost_usd=_thread_cost(run, integration_id=integration_id)
+            if include_thread_cost and plan is None
+            else None,
         )
     except Exception:
         logger.exception("slack_app_run_footer_load_failed", run_id=str(run_id))
         return RunFooter()
 
 
-def load_turn_cost(run: "TaskRunDTO") -> TurnCost | None:
-    """What the run's latest turn cost, or `None` when that is unknown.
+def _thread_cost(run: "TaskRunDTO", *, integration_id: int | None) -> Decimal | None:
+    """What the thread's task spent on models so far, or `None` outside the rollout or when unknown.
 
-    The cost comes from the run's `$ai_generation` events, the same source AI credit billing
-    reads. Those events reach ClickHouse with a short delay, so the newest requests of a turn
-    can be missing here. They then count toward the next reply, because the baseline is the
-    total this reply measured. Never raises, for the same reason as `load_run_footer`.
+    Reads the same task usage that PostHog Desktop shows, which sums the task's `$ai_generation`
+    events. Those events arrive with a short delay and the usage is cached for a minute, so the
+    newest requests can be missing here. A later reply's total then includes them.
     """
-    from posthog.clickhouse.query_tagging import Product  # noqa: PLC0415
+    from products.slack_app.backend.feature_flags import is_slack_app_footer_cost_enabled  # noqa: PLC0415
+    from products.tasks.backend.facade.billing import get_task_usage  # noqa: PLC0415
 
-    from products.tasks.backend.facade.billing import get_local_task_run_token_costs  # noqa: PLC0415
-
-    if run.task_origin_product is None or run.created_at is None:
+    if integration_id is None or run.task_created_at is None:
         return None
     try:
-        costs = get_local_task_run_token_costs(
-            team_id=run.team_id,
-            origin_product=run.task_origin_product,
-            generated_after=run.created_at,
-            product=Product.POSTHOG_CODE,
-            task_run_ids=[run.id],
-        )
-        total_usd = costs.get(str(run.id))
-        if total_usd is None:
+        integration = IntegrationManager.slack.oauth.get(run.team_id, integration_id)
+        if not is_slack_app_footer_cost_enabled(integration, run.created_by_distinct_id):
             return None
-        total = int(total_usd * 1_000_000)
-        baseline = (run.state or {}).get(FOOTER_COST_BASELINE_STATE_KEY)
-        baseline = baseline if isinstance(baseline, int) else 0
-        return TurnCost(microusd=max(0, total - baseline), run_total_microusd=total)
+        return get_task_usage(
+            team_id=run.team_id, task_id=run.task_id, task_created_at=run.task_created_at
+        ).token_cost_usd
     except Exception:
-        logger.warning("slack_app_turn_cost_load_failed", run_id=str(run.id), exc_info=True)
+        # Its own guard, like `_project_name`: a failed lookup costs the reader one segment.
+        logger.warning("slack_app_thread_cost_load_failed", task_id=str(run.task_id), exc_info=True)
         return None
 
 
-def describe_turn_cost(cost: TurnCost) -> str:
+def describe_thread_cost(cost_usd: Decimal) -> str:
     """The cost in dollars to the cent."""
-    if cost.microusd < 10_000:
-        return "Cost: <$0.01"
-    return f"Cost: ${Decimal(cost.microusd) / 1_000_000:.2f}"
+    if cost_usd < Decimal("0.01"):
+        return "Thread cost: <$0.01"
+    return f"Thread cost: ${cost_usd:.2f}"
 
 
 def _run_context_segments(footer: RunFooter) -> list[str]:
-    """What the run is, as footer segments: the model, the plan that pays for it, then the
-    project it answered from.
+    """What the run is, as footer segments: the model, the thread cost, the plan that pays for
+    it, then the project it answered from.
 
     Shared by the reply footer and the progress message so the two cannot describe one
     run differently, and so the escaping below has a single home.
@@ -914,6 +901,8 @@ def _run_context_segments(footer: RunFooter) -> list[str]:
     segments: list[str] = []
     if footer.model:
         segments.append(describe_run_model(footer.model, footer.reasoning_effort))
+    if footer.thread_cost_usd is not None:
+        segments.append(describe_thread_cost(footer.thread_cost_usd))
     if footer.plan:
         segments.append(footer.plan)
     if footer.project:
@@ -945,11 +934,7 @@ def reply_footer_block(footer: RunFooter, configure_url: str | None = None) -> d
     segments: list[str] = []
     if footer.task_url:
         segments.append(f"<{footer.task_url}|View session>")
-    context_segments = _run_context_segments(footer)
-    if footer.turn_cost is not None:
-        # Beside the model, because the model is what decides the cost.
-        context_segments.insert(1 if footer.model else 0, describe_turn_cost(footer.turn_cost))
-    segments.extend(context_segments)
+    segments.extend(_run_context_segments(footer))
     if configure_url:
         segments.append(f"<{configure_url}|Configure>")
     if not segments:
