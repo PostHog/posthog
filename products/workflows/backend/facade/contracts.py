@@ -710,6 +710,10 @@ class TransactionalEmailSenderUnavailable(Exception):
     """No verified email sender: neither the requested one nor the project's default."""
 
 
+class TransactionalEmailSandboxSender(TransactionalEmailSenderUnavailable):
+    """The sender is the sandbox sender, which only workflow email steps and test sends may use."""
+
+
 class TransactionalEmailContentInvalid(Exception):
     """The content has no subject or no body, so the workflow could not send it."""
 

@@ -1,7 +1,7 @@
 from typing import Any
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from django.db.models import QuerySet
 from django.test import override_settings
@@ -17,14 +17,8 @@ from posthog.models.organization import OrganizationMembership
 class TestSandboxSenderAPI(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
-        self.boto3_client = self._patch("products.workflows.backend.providers.ses.boto3.client")
-        self.flag_enabled = self._patch("posthoganalytics.feature_enabled", return_value=True)
-
-    def _patch(self, target: str, **kwargs: Any) -> MagicMock:
-        patcher = patch(target, **kwargs)
-        mock = patcher.start()
-        self.addCleanup(patcher.stop)
-        return mock
+        self.boto3_client = self.enterContext(patch("products.workflows.backend.providers.ses.boto3.client"))
+        self.flag_enabled = self.enterContext(patch("posthoganalytics.feature_enabled", return_value=True))
 
     def _sandbox_rows(self) -> QuerySet[Integration]:
         return Integration.objects.filter(team=self.team, kind="email", integration_id=SANDBOX_EMAIL_INTEGRATION_ID)
