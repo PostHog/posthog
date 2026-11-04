@@ -158,6 +158,11 @@ fn a_deep_chain_of_named_records_is_rejected_without_overflow() {
         20_000,
     ));
     assert!(Schema::parse_json(&format!("[{}]", redefined.join(","))).is_err());
+
+    // A shallow redefinition passes the depth check, so only the duplicate name stops it, as in avsc.
+    let duplicate = r#"[{"type":"record","name":"R","fields":[]},{"type":"record","name":"R","fields":[]}]"#;
+    let err = Schema::parse_json(duplicate).unwrap_err().to_string();
+    assert!(err.contains("duplicate type name: R"), "{err}");
 }
 
 #[test]
