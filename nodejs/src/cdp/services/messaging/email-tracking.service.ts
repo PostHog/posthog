@@ -595,12 +595,21 @@ export class EmailTrackingService {
                         )
                     }
                 }
-                for (const { teamId, emailAddresses, diagnostic, nonexistentAddresses } of hardBounceRecipients ?? []) {
+                for (const {
+                    teamId,
+                    emailAddresses,
+                    diagnostic,
+                    nonexistentAddresses,
+                    bounceTimestamp,
+                } of hardBounceRecipients ?? []) {
                     const parsedTeamId = teamId ? parseInt(teamId, 10) : NaN
                     if (parsedTeamId && !isNaN(parsedTeamId)) {
                         await this.emailSuppressionService.recordHardBounces(parsedTeamId, emailAddresses, diagnostic)
                         if (nonexistentAddresses) {
-                            await this.emailSuppressionService.recordGlobalHardBounces(nonexistentAddresses)
+                            await this.emailSuppressionService.recordGlobalHardBounces(
+                                nonexistentAddresses,
+                                bounceTimestamp
+                            )
                         }
                     }
                 }

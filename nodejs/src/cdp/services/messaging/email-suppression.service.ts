@@ -40,6 +40,9 @@ export type SuppressionCheckOptions = {
     transactional?: boolean
 }
 
+// An address the global hard-bounce list can still block. `listed` marks an active row on the team's own list.
+type GlobalCandidate = { key: string; teamId: number; identifier: string; listed: boolean }
+
 // An active suppression. It blocks transactional email only when the address hard-bounced. `global` marks
 // an entry that only the global hard-bounce list holds.
 type SuppressionEntry = { blocksTransactional: boolean; global?: 'shadow' | 'enforce' }
@@ -236,7 +239,12 @@ export class EmailSuppressionService {
         }
     }
 
-    private async upsertHardBounces(teamId: number, identifiers: string[], diagnostic?: string): Promise<void> {
+    private async upsertHardBounces(
+        teamId: number,
+        identifiers: string[],
+        diagnostic?: string,
+        { keepRemoved = false }: { keepRemoved?: boolean } = {}
+    ): Promise<void> {
         const diag = diagnostic ? diagnostic.slice(0, DIAGNOSTIC_MAX_LENGTH) : null
         // Params: teamId, reason, diag, then one identifier per row.
         const valueClauses: string[] = []
@@ -281,6 +289,7 @@ export class EmailSuppressionService {
                     WHEN posthog_messagesuppression.source = 'MANUAL' THEN posthog_messagesuppression.deleted
                     ELSE false END,
                 updated_at = NOW()
+            ${keepRemoved ? 'WHERE NOT posthog_messagesuppression.deleted' : ''}
         `
 
         await this.postgres.query(PostgresUse.COMMON_WRITE, query, params, 'recordHardBounces')
@@ -291,19 +300,25 @@ export class EmailSuppressionService {
      * not exist. A bounce caused by the sender, such as a failed DMARC check, must stay on the team's own
      * list. Otherwise one team could block valid addresses for every team.
      */
-    public async recordGlobalHardBounces(emails: string[]): Promise<void> {
+    public async recordGlobalHardBounces(emails: string[], bounceTimestamp?: string): Promise<void> {
         const identifiers = Array.from(new Set(emails.map(normalizeIdentifier).filter(Boolean)))
         if (identifiers.length === 0) {
             return
         }
-        const valueClauses = identifiers.map((_, i) => `($${i + 1}, NOW(), NOW())`)
+        // Store when SES saw the bounce, not when we processed it. A delivery's timestamp is compared
+        // against it, and the two webhooks can arrive in either order.
+        const valueClauses = identifiers.map(
+            (_, i) => `($${i + 2}, COALESCE($1::timestamptz, NOW()), COALESCE($1::timestamptz, NOW()))`
+        )
         try {
             await this.postgres.query(
                 PostgresUse.COMMON_WRITE,
                 `INSERT INTO posthog_emailhardbounce (email, first_bounced_at, last_bounced_at)
                  VALUES ${valueClauses.join(', ')}
-                 ON CONFLICT (email) DO UPDATE SET last_bounced_at = NOW()`,
-                identifiers,
+                 ON CONFLICT (email) DO UPDATE SET
+                     first_bounced_at = LEAST(posthog_emailhardbounce.first_bounced_at, EXCLUDED.first_bounced_at),
+                     last_bounced_at = GREATEST(posthog_emailhardbounce.last_bounced_at, EXCLUDED.last_bounced_at)`,
+                [bounceTimestamp ?? null, ...identifiers],
                 'recordGlobalHardBounces'
             )
             cdpEmailSuppressionTotal.inc({ result: 'global_hard_bounce' }, identifiers.length)
@@ -472,8 +487,9 @@ export class EmailSuppressionService {
         }
 
         const entries = new Map<string, SuppressionEntry>()
-        // Keys with no active row and no removed row on the team's own list. Only these can hit the global list.
-        const unlisted: { key: string; teamId: number; identifier: string }[] = []
+        // Keys the global list can still affect: no row on the team's list, or an active row that lets
+        // transactional email through. A removed row is the team's override, so it is never a candidate.
+        const candidates: GlobalCandidate[] = []
         for (const [teamId, identifiers] of byTeam) {
             // A removed row (deleted = true) is the team's choice to email the address again, so it also
             // overrides the global list. The reason check covers rows that hard-bounced before
@@ -500,19 +516,24 @@ export class EmailSuppressionService {
             const listed = new Set<string>()
             for (const row of result.rows) {
                 listed.add(row.identifier)
-                if (!row.deleted) {
-                    entries.set(toKey(teamId, row.identifier), { blocksTransactional: row.blocks_transactional })
+                if (row.deleted) {
+                    continue
+                }
+                const key = toKey(teamId, row.identifier)
+                entries.set(key, { blocksTransactional: row.blocks_transactional })
+                if (!row.blocks_transactional) {
+                    candidates.push({ key, teamId, identifier: row.identifier, listed: true })
                 }
             }
             for (const identifier of identifiers) {
                 if (!listed.has(identifier)) {
-                    unlisted.push({ key: toKey(teamId, identifier), teamId, identifier })
+                    candidates.push({ key: toKey(teamId, identifier), teamId, identifier, listed: false })
                 }
             }
         }
 
-        if (unlisted.length > 0) {
-            await this.applyGlobalHardBounces(unlisted, entries)
+        if (candidates.length > 0) {
+            await this.applyGlobalHardBounces(candidates, entries)
         }
 
         // Default every requested key to false so the LazyLoader caches negatives too.
@@ -520,7 +541,7 @@ export class EmailSuppressionService {
     }
 
     private async applyGlobalHardBounces(
-        unlisted: { key: string; teamId: number; identifier: string }[],
+        candidates: GlobalCandidate[],
         entries: Map<string, SuppressionEntry>
     ): Promise<void> {
         let bounced: Set<string>
@@ -528,7 +549,7 @@ export class EmailSuppressionService {
             const result = await this.postgres.query<{ email: string }>(
                 PostgresUse.COMMON_READ,
                 `SELECT email FROM posthog_emailhardbounce WHERE email = ANY($1)`,
-                [Array.from(new Set(unlisted.map((u) => u.identifier)))],
+                [Array.from(new Set(candidates.map((c) => c.identifier)))],
                 'loadGlobalHardBounces'
             )
             bounced = new Set(result.rows.map((row) => row.email))
@@ -539,8 +560,15 @@ export class EmailSuppressionService {
         }
 
         const hitsByTeam = new Map<number, string[]>()
-        for (const { key, teamId, identifier } of unlisted) {
+        for (const { key, teamId, identifier, listed } of candidates) {
             if (!bounced.has(identifier)) {
+                continue
+            }
+            if (listed) {
+                // The team's own list already blocks other email, so only transactional email changes.
+                if (this.globalHardBounceEnforce) {
+                    entries.set(key, { blocksTransactional: true })
+                }
                 continue
             }
             if (!this.globalHardBounceEnforce) {
@@ -552,10 +580,11 @@ export class EmailSuppressionService {
         }
 
         // Copy each hit to the team's own list as a hard bounce. The team then sees the address there and can
-        // remove it, which overrides the global list for that team.
+        // remove it, which overrides the global list for that team. The read can come from a lagging replica,
+        // so the copy never touches a row the team removed meanwhile.
         for (const [teamId, identifiers] of hitsByTeam) {
             try {
-                await this.upsertHardBounces(teamId, identifiers, GLOBAL_HARD_BOUNCE_DIAGNOSTIC)
+                await this.upsertHardBounces(teamId, identifiers, GLOBAL_HARD_BOUNCE_DIAGNOSTIC, { keepRemoved: true })
             } catch (error) {
                 logger.error('[EmailSuppression] Failed to copy global hard bounces to the team list', {
                     teamId,

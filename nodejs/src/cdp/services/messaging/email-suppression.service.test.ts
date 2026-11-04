@@ -415,6 +415,45 @@ describe('EmailSuppressionService', () => {
 
             expect(await newService(true).isSuppressed(team.id, email)).toBe(false)
         })
+
+        it("blocks transactional email when the team's own entry only blocks other email", async () => {
+            const email = `complained-${team.id}@example.com`
+            await bounceForAnotherTeam(email)
+            const svc = newService(true)
+            await svc.recordComplaints(team.id, [email], 'abuse')
+
+            expect(await svc.isSuppressed(team.id, email, { transactional: true })).toBe(true)
+        })
+
+        it('clears the entry for a delivery that happened after the bounce but arrived first', async () => {
+            const email = `late-bounce-${team.id}@example.com`
+            const svc = newService(true)
+            const bounceAt = new Date(Date.now() - 120_000).toISOString()
+            const deliveredAt = new Date(Date.now() - 60_000).toISOString()
+            await svc.recordGlobalHardBounces([email], bounceAt)
+            await svc.recordDeliveries(team.id, [email], deliveredAt)
+
+            expect(await newService(true).isSuppressed(team.id, email)).toBe(false)
+        })
+
+        it('does not undo a removal that a lagging read missed', async () => {
+            const email = `removed-${team.id}@example.com`
+            await bounceForAnotherTeam(email)
+            await hub.postgres.query(
+                PostgresUse.COMMON_WRITE,
+                `INSERT INTO posthog_messagesuppression
+                    (id, team_id, identifier, source, reason, transient_bounce_count,
+                     suppressed, suppressed_at, deleted, created_at, updated_at)
+                 VALUES (gen_random_uuid(), $1, $2, 'BOUNCE', NULL, 0, false, NULL, true, NOW(), NOW())`,
+                [team.id, email],
+                'test-insert-removed-suppression'
+            )
+
+            // The copy a read runs when a replica does not show the removal yet.
+            await (newService(true) as any).upsertHardBounces(team.id, [email], 'copied', { keepRemoved: true })
+
+            expect(await readRow(email)).toMatchObject({ suppressed: false, deleted: true })
+        })
     })
 
     describe('cache invalidation', () => {

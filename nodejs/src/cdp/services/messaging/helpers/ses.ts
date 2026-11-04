@@ -121,8 +121,11 @@ const SesBounceEventSchema = SesCommonEventBase.extend({
     }),
 })
 
-// SMTP status codes that say the mailbox does not exist: 5.1.1 (unknown user) and 5.1.10 (null MX).
-const ADDRESS_DOES_NOT_EXIST_STATUS = /\b5\.1\.(1|10)\b/
+// SMTP status codes that say the mailbox does not exist: 5.1.1 (unknown user) and 5.1.10 (null MX). Match the
+// status field exactly, and in the diagnostic only the code right after the reply code. Free text in the
+// diagnostic can quote sender-chosen values, such as a domain named 5.1.1.example.com.
+const ADDRESS_DOES_NOT_EXIST_STATUS = /^5\.1\.(1|10)$/
+const ADDRESS_DOES_NOT_EXIST_DIAGNOSTIC = /^(smtp;\s*)?5\d\d[\s-]+5\.1\.(1|10)(\s|$)/i
 
 /**
  * The recipients of a permanent bounce that the bounce proves do not exist. SES also files a sender-side
@@ -138,7 +141,9 @@ export function nonexistentRecipients(bounce: z.infer<typeof SesBounceEventSchem
             (r) =>
                 bounce.bounceSubType === 'NoEmail' ||
                 (bounce.bounceSubType === 'General' &&
-                    ADDRESS_DOES_NOT_EXIST_STATUS.test(`${r.status ?? ''} ${r.diagnosticCode ?? ''}`))
+                    (r.status
+                        ? ADDRESS_DOES_NOT_EXIST_STATUS.test(r.status.trim())
+                        : ADDRESS_DOES_NOT_EXIST_DIAGNOSTIC.test((r.diagnosticCode ?? '').trim())))
         )
         .map((r) => r.emailAddress)
 }
@@ -689,6 +694,8 @@ export class SesWebhookHandler {
             // The bounced addresses that the bounce proves do not exist. These go on the global hard-bounce
             // list. Absent when there are none.
             nonexistentAddresses?: string[]
+            // When SES saw the bounce.
+            bounceTimestamp?: string
         }[]
         // Spam complaints — recorded in the suppression list so future sends to the address are
         // blocked. A complaint is the recipient asking us to stop, and provider complaint-rate
@@ -800,6 +807,7 @@ export class SesWebhookHandler {
             emailAddresses: string[]
             diagnostic?: string
             nonexistentAddresses?: string[]
+            bounceTimestamp?: string
         }[] = []
         const complainedRecipients: {
             teamId?: string
@@ -989,7 +997,9 @@ export class SesWebhookHandler {
                     teamId,
                     emailAddresses: emails,
                     diagnostic,
-                    ...(nonexistentAddresses.length > 0 ? { nonexistentAddresses } : {}),
+                    ...(nonexistentAddresses.length > 0
+                        ? { nonexistentAddresses, bounceTimestamp: rec.bounce.timestamp }
+                        : {}),
                 })
             }
 
