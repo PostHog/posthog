@@ -66,6 +66,21 @@ describe('broadcastAudienceSuggestionsLogic', () => {
         initKeaTests()
     })
 
+    it('shows the cards while their counts run, and keeps polling', async () => {
+        const counting = { ...suggestion, reachable_count: null }
+        jest.mocked(broadcastAudienceSuggestionsGenerate).mockResolvedValue({
+            status: 'generating',
+            suggestions: [counting],
+        })
+        const logic = broadcastAudienceSuggestionsLogic()
+        logic.mount()
+
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.suggestions).toEqual([counting])
+        expect(logic.values.generating).toBe(true)
+    })
+
     const minutesAgo = (minutes: number): string => new Date(Date.now() - minutes * 60_000).toISOString()
     const snapshot = (overrides: Record<string, any> = {}): Record<string, any> => ({
         id: 7,

@@ -29,7 +29,7 @@ import { broadcastAudienceSuggestionsCurrent, broadcastAudienceSuggestionsGenera
 import type { AudienceSuggestionApi, AudienceSuggestionsResponseApi } from '../../generated/api.schemas'
 import { urlForNewBroadcastWithAudience } from '../broadcastAudiencePrefill'
 
-const POLL_INTERVAL_MS = 2000
+const POLL_INTERVAL_MS = 1000
 const POLL_DEADLINE_MS = 5 * 60 * 1000
 const REQUEST_TIMEOUT_MS = 10_000
 // A snapshot older than this may hold people who no longer match the idea.
@@ -201,8 +201,7 @@ export const broadcastAudienceSuggestionsLogic = kea<broadcastAudienceSuggestion
     selectors({
         suggestions: [
             (s) => [s.result],
-            (result: AudienceSuggestionsResponseApi | null): AudienceSuggestionApi[] =>
-                result?.status === 'ready' ? result.suggestions : [],
+            (result: AudienceSuggestionsResponseApi | null): AudienceSuggestionApi[] => result?.suggestions ?? [],
         ],
         generating: [
             (s) => [s.result, s.resultLoading, s.pollingTimedOut],
