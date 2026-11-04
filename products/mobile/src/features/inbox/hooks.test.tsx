@@ -7,6 +7,7 @@ import { inboxCacheKey, type SavedInbox } from '@/api/readCacheKeys'
 import { INBOX_PAGE_SIZE, postReadStates, reportKeys } from '@/api/reports'
 import { useAuthStore } from '@/auth/authStore'
 import { type DataMode, useDemoMode } from '@/demo/demoMode'
+import { useFeatureAccess, useScopeErrorStore } from '@/features/views/useViewsAccess'
 import { inboxFromReports } from '@/model/adapters/inbox'
 import { reportFixture } from '@/model/adapters/testFixtures'
 
@@ -46,6 +47,7 @@ describe('inbox hooks', () => {
     const posted: unknown[] = []
 
     beforeEach(() => {
+        useScopeErrorStore.getState().clear()
         posted.length = 0
         useSnoozeStore.setState({ entries: {} })
         jest.spyOn(AppState, 'addEventListener').mockReturnValue({ remove: () => undefined })
@@ -63,6 +65,27 @@ describe('inbox hooks', () => {
     afterEach(() => {
         setAuthProvider(null)
         jest.restoreAllMocks()
+    })
+
+    test.each([
+        ["API key missing required scope 'inbox:read'", 'reauth'],
+        ['You do not have permission to perform this action.', 'ok'],
+    ])('handles an inbox rejection: %s', async (detail, state) => {
+        globalThis.fetch = jest.fn(async () => jsonResponse({ detail }, 403)) as typeof fetch
+        const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } })
+        const wrapper = ({ children }: { children: ReactNode }): ReactElement => (
+            <QueryClientProvider client={client}>{children}</QueryClientProvider>
+        )
+        const { result, unmount } = renderHook(() => ({ query: useInboxItems(), access: useFeatureAccess('inbox') }), {
+            wrapper,
+        })
+        try {
+            await waitFor(() => expect(result.current.query.isError).toBe(true))
+            expect(result.current.access.state).toBe(state)
+        } finally {
+            unmount()
+            client.clear()
+        }
     })
 
     test('marks each report read on a fast Prev/Next', async () => {

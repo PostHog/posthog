@@ -24636,6 +24636,17 @@
                     "description": "Free-text search across exception type, message, and stack frames.",
                     "type": "string"
                 },
+                "severity": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ErrorTrackingQueryIssueSeverity"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Filter by issue severity."
+                },
                 "status": {
                     "$ref": "#/definitions/ErrorTrackingQueryStatus",
                     "description": "Filter by issue status."
@@ -39734,6 +39745,13 @@
                 "type": {
                     "const": "MetricsAlertConfig",
                     "type": "string"
+                },
+                "variables": {
+                    "additionalProperties": {
+                        "$ref": "#/definitions/MetricsDashboardVariableSelection"
+                    },
+                    "description": "Values for the `$name` variables in the insight's query.",
+                    "type": "object"
                 }
             },
             "required": ["type"],
