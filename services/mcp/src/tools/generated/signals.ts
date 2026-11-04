@@ -749,6 +749,7 @@ const inboxReportsForMe = (): ToolBase<ReturnType<typeof InboxReportsForMeSchema
             query: {
                 focus: params.focus,
                 limit: params.limit,
+                max_age_minutes: params.max_age_minutes,
                 refresh: params.refresh,
                 wait_seconds: params.wait_seconds,
             },

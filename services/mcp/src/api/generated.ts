@@ -89376,7 +89376,7 @@ export namespace Schemas {
       personalized: boolean;
       /** True when the list is a stored one. False when it is the inbox order fallback or the new list that `wait_seconds` waited for. */
       cached: boolean;
-      /** True when the list does not match your current inbox or focus. When `building` is true, a newer list is on the way. Otherwise a build limit was reached, so try again later. */
+      /** True when the list does not match your current inbox or focus. When `building` is true, a newer list is on the way. Otherwise a report in the list changed since the build, and the next scheduled build updates it. Pass `refresh` for a new list now. */
       stale: boolean;
       /** True when a new list is being built in the background. Call again in a few seconds, or pass `wait_seconds`, to get it. */
       building: boolean;
@@ -89390,6 +89390,11 @@ export namespace Schemas {
          * @nullable
          */
       generated_at: string | null;
+      /**
+         * When a build or a check last compared the list with your full inbox. The list is current as at this time. Null when no list is stored.
+         * @nullable
+         */
+      checked_at: string | null;
       /**
          * How long the model call of the build took, in ms. Null when there was no model call.
          * @nullable
@@ -132405,6 +132410,12 @@ export namespace Schemas {
      * @maximum 100
      */
     limit?: number;
+    /**
+     * The oldest `checked_at` you accept. When the stored list is older, the request reads every candidate report, which can take some seconds, and starts a build if your inbox changed. Leave it out to get the stored list quickly. A new report then joins the list at the next scheduled build.
+     * @minimum 0
+     * @maximum 10080
+     */
+    max_age_minutes?: number;
     /**
      * Start a new build even when the stored one is current. The build runs in the background, so the response has `building: true`. Pass `wait_seconds` to wait for it.
      */

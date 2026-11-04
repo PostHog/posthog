@@ -969,26 +969,33 @@ class TestForMeEndpoint(APIBaseTest):
 
         first.title = "First, edited"
         first.save()
-        assert self._state(self._get()) == (True, True, True)
+        self._claimed_report("Not in the stored list")
+        with (
+            patch.object(personal_ranking_serve, "gather_candidates") as gather,
+            self.assertNumQueries(23),
+        ):
+            body = self._get(max_age_minutes=60)
+        assert (self._state(body), self.queued, gather.call_count) == ((True, True, False), [], 0)
+        assert body["checked_at"] == body["generated_at"]
+        assert self._state(self._get(max_age_minutes=0)) == (True, True, True)
         self._run_builds()
         assert (self._state(self._get()), self._rows()) == ((True, False, False), 3)
 
         second = self._claimed_report("Second")
         body = self._get()
         assert (self._state(body), self.queued) == ((True, False, False), [])
-        assert [entry["report"]["id"] for entry in body["results"]] == [str(first.id)]
+        assert len(body["results"]) == 2
         PersonalInboxRanking.objects.for_team(self.team.id).update(
             created_at=F("created_at") - datetime.timedelta(days=2)
         )
-        assert self._state(self._get()) == (True, True, True)
+        assert self._state(self._get()) == (True, False, True)
         self._run_builds()
         body = self._get()
-        assert {entry["report"]["id"] for entry in body["results"]} == {str(first.id), str(second.id)}
+        assert str(second.id) in {entry["report"]["id"] for entry in body["results"]}
 
         assert self._state(self._get(focus="checkout")) == (True, True, True)
         self._run_builds()
-        assert (self._state(self._get()), self._rows()) == ((True, True, True), 5)
-        self._run_builds()
+        assert (self._state(self._get()), self.queued, self._rows()) == ((True, True, False), [], 5)
 
         self.delay.side_effect = build_personal_inbox_ranking
         body = self._get(refresh="true", wait_seconds=5)
@@ -996,11 +1003,11 @@ class TestForMeEndpoint(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("during_gather", "gather_candidates", {}, False, False),
-            ("before_lock", "may_call_model", {}, False, False),
+            ("during_gather", "gather_candidates", {"max_age_minutes": 0}, False, False),
+            ("before_lock", "may_call_model", {"max_age_minutes": 0}, False, False),
             ("refresh", "gather_candidates", {"refresh": "true"}, False, False),
             ("refresh_before_lock", "may_call_model", {"refresh": "true"}, False, False),
-            ("inputs_changed", "gather_candidates", {}, True, True),
+            ("inputs_changed", "gather_candidates", {"max_age_minutes": 0}, True, True),
             ("focus", "gather_candidates", {"focus": "checkout"}, False, True),
         ]
     )
@@ -1013,7 +1020,7 @@ class TestForMeEndpoint(APIBaseTest):
         self._run_builds()
         report.title = "First, edited"
         report.save()
-        self._get()
+        self._get(max_age_minutes=0)
 
         real_step = getattr(personal_ranking_serve, step)
 
@@ -1088,7 +1095,7 @@ class TestForMeEndpoint(APIBaseTest):
             self._claimed_report(f"Claimed by {user.email}", user)
 
         with patch(
-            "products.signals.backend.personal_ranking.serve.get_summary",
+            "products.signals.backend.personal_ranking.logic.get_summary",
             side_effect=lambda _team, user_id: summaries[user_id],
         ):
             assert self._get()["building"] is True
@@ -1100,22 +1107,26 @@ class TestForMeEndpoint(APIBaseTest):
 
         assert [args[1] for args in self.queued] == [self.user.id, third.id]
 
-    def test_a_list_the_tick_checked_stays_fresh_past_its_build_time(self) -> None:
+    def test_an_old_list_is_served_at_once_and_checked_in_the_background(self) -> None:
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
         self._claimed_report("First")
         with time_machine.travel(timezone.now(), tick=False) as traveller:
             self._get()
             self._run_builds()
             traveller.shift(datetime.timedelta(hours=2))
-            assert self._get()["stale"] is True
-            self._run_builds()
-
-            traveller.shift(datetime.timedelta(hours=2))
-            PersonalInboxRanking.objects.for_team(self.team.id).filter(user_id=self.user.id).update(
-                checked_at=timezone.now()
+            with patch.object(personal_ranking_serve, "gather_candidates") as gather:
+                body = self._get()
+            assert (self._state(body), gather.call_count, [args[-1] for args in self.queued]) == (
+                (True, False, True),
+                0,
+                [True],
             )
+            self._run_builds()
             body = self._get()
 
-        assert (self._state(body), self.queued) == ((True, False, False), [])
+        assert (self._state(body), self.queued, self._rows()) == ((True, False, False), [], 1)
+        assert body["checked_at"] > body["generated_at"]
 
     def test_another_user_never_reads_your_list(self) -> None:
         self._get()

@@ -1528,6 +1528,16 @@ class PersonalRankingQuerySerializer(serializers.Serializer):
             "the request started. Defaults to 0, which does not wait. A build usually takes 10 to 60 seconds."
         ),
     )
+    max_age_minutes = serializers.IntegerField(
+        required=False,
+        min_value=0,
+        max_value=10080,
+        help_text=(
+            "The oldest `checked_at` you accept. When the stored list is older, the request reads every candidate "
+            "report, which can take some seconds, and starts a build if your inbox changed. Leave it out to get "
+            "the stored list quickly. A new report then joins the list at the next scheduled build."
+        ),
+    )
 
 
 class PersonalRankingReportSerializer(serializers.Serializer):
@@ -1596,7 +1606,8 @@ class PersonalRankingSerializer(serializers.Serializer):
     stale = serializers.BooleanField(
         help_text=(
             "True when the list does not match your current inbox or focus. When `building` is true, a newer "
-            "list is on the way. Otherwise a build limit was reached, so try again later."
+            "list is on the way. Otherwise a report in the list changed since the build, and the next scheduled "
+            "build updates it. Pass `refresh` for a new list now."
         )
     )
     building = serializers.BooleanField(
@@ -1618,6 +1629,13 @@ class PersonalRankingSerializer(serializers.Serializer):
         ),
     )
     generated_at = serializers.DateTimeField(allow_null=True, help_text="When the list was built.")
+    checked_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text=(
+            "When a build or a check last compared the list with your full inbox. The list is current as at this "
+            "time. Null when no list is stored."
+        ),
+    )
     latency_ms = serializers.IntegerField(
         allow_null=True,
         help_text="How long the model call of the build took, in ms. Null when there was no model call.",

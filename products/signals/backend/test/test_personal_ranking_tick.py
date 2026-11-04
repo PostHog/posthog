@@ -212,7 +212,6 @@ class TestTickPair(_TickTest):
         for target, value in (
             ("products.signals.backend.personal_ranking.logic.build_openai_client", MagicMock(return_value=self.llm)),
             ("products.signals.backend.personal_ranking.logic.get_summary", MagicMock(return_value=summary)),
-            ("products.signals.backend.personal_ranking.serve.get_summary", MagicMock(return_value=summary)),
             ("products.signals.backend.personal_ranking.logic.ph_scoped_capture", scoped_capture),
             (
                 "products.signals.backend.personal_ranking.candidates.fetch_source_products_for_reports",

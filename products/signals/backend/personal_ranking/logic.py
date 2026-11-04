@@ -324,6 +324,16 @@ def latest_row(team: Team, user: User) -> PersonalInboxRanking | None:
     return PersonalInboxRanking.objects.for_team(team.id).filter(user_id=user.id).order_by("-created_at", "-id").first()
 
 
+def ready_summary_version(team: Team, user: User) -> int | None:
+    summary = get_summary(team, user.id)
+    return summary.version if summary is not None and summary.status == ActivitySummaryStatus.READY else None
+
+
+def record_check(team: Team, row: PersonalInboxRanking, now: datetime.datetime) -> None:
+    """Record that the list still matches the current inputs, so it counts as fresh again."""
+    PersonalInboxRanking.objects.for_team(team.id).filter(id=row.id).update(checked_at=now)
+
+
 def _client(
     team: Team, user: User, now: datetime.datetime, config: PersonalRankingConfig, trigger: BuildTrigger
 ) -> OpenAI:
