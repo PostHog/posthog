@@ -36,6 +36,11 @@ function deviceErrorMessage(error: unknown): string {
     return "Couldn't reach PostHog. Check your connection and try again."
 }
 
+// The server's answer for a code that is wrong, expired or already used. Retrying it can't work.
+function isInvalidCode(error: unknown): boolean {
+    return error instanceof ApiError && error.data?.error === 'invalid_code'
+}
+
 // The project picker loads every page, so a project past the first page can still be picked.
 const PROJECTS_PAGE_SIZE = 100
 
@@ -265,6 +270,11 @@ export const oauthDeviceAuthorizeLogic = kea<oauthDeviceAuthorizeLogicType>([
         projects: {
             setOrganizationId: () => [],
             loadProjectsFailure: () => [],
+        },
+        // A code that expired during review goes back to code entry, so the person can type the new one.
+        deviceGrant: {
+            approveFailure: (state, { errorObject }) => (isInvalidCode(errorObject) ? null : state),
+            denyFailure: (state, { errorObject }) => (isInvalidCode(errorObject) ? null : state),
         },
     }),
     selectors({
