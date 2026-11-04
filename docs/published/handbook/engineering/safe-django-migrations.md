@@ -992,6 +992,15 @@ Before deploying risky migrations:
 - **Important:** With `atomic=False`, migrations may partially apply changes. If a migration fails, Django won't automatically roll back the changes. Always verify schema consistency after failed runs and be prepared to manually fix partial states.
 - Remember that infra team may roll back deployments at any time for any reason (performance issues, alerts, etc.) - plan for this
 
+### 5. Apply the Migration Before Node or Rust Code Reads the Column
+
+Node and Rust services deploy on their own schedule, often before the Django deploy that runs `bin/migrate`, so a merged migration is not yet live when their new image starts.
+Code in those services that reads a new table or column needs the migration applied in production first: merge the migration in its own PR and wait for it to deploy, or make the reader tolerate the missing column.
+For Node, the schema check in `nodejs/src/schema-check/` enforces this once its deploy hook is enabled.
+Each Node image records the Django migrations it needs at build time, and the hook holds the rollout until `django_migrations` has all of them.
+If Django has not applied them when the hook's wait ends, the sync fails and the old pods keep serving until a later sync passes.
+Column and table drops are the opposite case and stay code-first: remove every reader, deploy, then drop.
+
 ## Getting Help
 
 If you're unsure about a migration:

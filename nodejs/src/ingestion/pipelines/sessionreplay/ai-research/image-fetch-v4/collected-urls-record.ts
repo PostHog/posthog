@@ -3,8 +3,7 @@ import type { UrlPolicyDecline } from '@posthog/ai-research-v4-native'
 import { parseJSON } from '~/common/utils/json-parse'
 
 import { ImageFetchBlockReason, isImageFetchBlockReason } from './block-reason'
-import { tryCanonicalizeUrl } from './politeness-key'
-import { parseV4UrlRef } from './v4-url-ref'
+import { parseV4UrlRef, tryCanonicalizeUrl } from './v4-native'
 
 export const MAX_HOPS = 10
 export const MAX_JOBS_PER_RECORD = 1_000
