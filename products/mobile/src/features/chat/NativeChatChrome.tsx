@@ -42,6 +42,7 @@ export function NativeChatChrome({
     const leading = useMemo(
         () => (
             <Stack.Toolbar.Button
+                iconRenderingMode="template"
                 icon={dismiss ? nativeIcons.close : nativeIcons.back}
                 accessibilityLabel={dismiss ? 'Close' : 'Back'}
                 onPress={back}
@@ -54,6 +55,7 @@ export function NativeChatChrome({
             !dismiss && hasActions
                 ? [
                       <Stack.Toolbar.Button
+                          iconRenderingMode="template"
                           key="new"
                           icon={nativeIcons.compose}
                           accessibilityLabel="New chat"
@@ -62,6 +64,7 @@ export function NativeChatChrome({
                           onPress={compose}
                       />,
                       <Stack.Toolbar.Button
+                          iconRenderingMode="template"
                           key="more"
                           icon={nativeIcons.more}
                           accessibilityLabel="Chat options"

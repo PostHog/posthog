@@ -33,6 +33,7 @@ export function SessionChrome({ onBack, onOpenFull, onMore, title }: SessionChro
                     <>
                         {onOpenFull !== undefined ? (
                             <Stack.Toolbar.Button
+                                iconRenderingMode="template"
                                 icon={nativeIcons.external}
                                 accessibilityLabel="Open full replay"
                                 disabled={!onOpenFull}
@@ -40,6 +41,7 @@ export function SessionChrome({ onBack, onOpenFull, onMore, title }: SessionChro
                             />
                         ) : null}
                         <Stack.Toolbar.Button
+                            iconRenderingMode="template"
                             icon={nativeIcons.more}
                             accessibilityLabel="More"
                             disabled={!onMore}

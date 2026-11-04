@@ -34,6 +34,7 @@ export function NativeScreenChrome({ onBack, nativeActions }: ScreenChromeProps)
             />
             <Stack.Toolbar placement="left">
                 <Stack.Toolbar.Button
+                    iconRenderingMode="template"
                     icon={dismiss ? nativeIcons.close : nativeIcons.back}
                     accessibilityLabel={dismiss ? 'Close' : 'Back'}
                     onPress={dismiss ?? onBack}

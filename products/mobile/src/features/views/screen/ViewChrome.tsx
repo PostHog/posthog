@@ -28,6 +28,7 @@ export function ViewChrome({ onBack, onMore, title }: ViewChromeProps): ReactEle
             nativeActions={
                 Platform.OS === 'ios' ? (
                     <Stack.Toolbar.Button
+                        iconRenderingMode="template"
                         icon={nativeIcons.more}
                         accessibilityLabel="More"
                         disabled={!onMore}

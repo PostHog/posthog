@@ -49,6 +49,7 @@ export function NativeTabsLayout(): ReactElement {
             hidden={!nativeRail}
             disableHiddenAnimation
             tintColor={colors.ink}
+            iconColor={colors.ink}
             preferredPlacement="tabBar"
             screenListeners={({ route }) => ({
                 focus: () => {

@@ -39,14 +39,26 @@ export function TopChrome({
     const navigation = useMemo(
         () =>
             Platform.OS === 'ios' && contentWidth >= 600 && height >= 480 ? (
-                <Stack.Toolbar.Menu icon={nativeIcons.views} accessibilityLabel="Navigate">
-                    <Stack.Toolbar.MenuAction icon={nativeIcons.home} onPress={() => router.navigate('/inbox')}>
+                <Stack.Toolbar.Menu iconRenderingMode="template" icon={nativeIcons.views} accessibilityLabel="Navigate">
+                    <Stack.Toolbar.MenuAction
+                        iconRenderingMode="template"
+                        icon={nativeIcons.home}
+                        onPress={() => router.navigate('/inbox')}
+                    >
                         Home
                     </Stack.Toolbar.MenuAction>
-                    <Stack.Toolbar.MenuAction icon={nativeIcons.chats} onPress={() => router.navigate('/chats')}>
+                    <Stack.Toolbar.MenuAction
+                        iconRenderingMode="template"
+                        icon={nativeIcons.chats}
+                        onPress={() => router.navigate('/chats')}
+                    >
                         Chats
                     </Stack.Toolbar.MenuAction>
-                    <Stack.Toolbar.MenuAction icon={nativeIcons.views} onPress={() => router.navigate('/views')}>
+                    <Stack.Toolbar.MenuAction
+                        iconRenderingMode="template"
+                        icon={nativeIcons.views}
+                        onPress={() => router.navigate('/views')}
+                    >
                         Views
                     </Stack.Toolbar.MenuAction>
                 </Stack.Toolbar.Menu>
@@ -66,12 +78,14 @@ export function TopChrome({
                     <>
                         {navigation}
                         <Stack.Toolbar.Button
+                            iconRenderingMode="template"
                             icon={nativeIcons.back}
                             accessibilityLabel="Previous report"
                             disabled={!onPrevious}
                             onPress={onPrevious}
                         />
                         <Stack.Toolbar.Button
+                            iconRenderingMode="template"
                             icon={nativeIcons.next}
                             accessibilityLabel="Next report"
                             disabled={!onNext}

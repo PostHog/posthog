@@ -51,6 +51,7 @@ export function NativeTabChrome({ slot, onMore }: { slot: TabHeaderSlot | null; 
                 : editing
                   ? [
                         <Stack.Toolbar.Button
+                            iconRenderingMode="template"
                             key="done"
                             icon={nativeIcons.done}
                             accessibilityLabel="Done"
@@ -61,6 +62,7 @@ export function NativeTabChrome({ slot, onMore }: { slot: TabHeaderSlot | null; 
                         ...(hasFilter
                             ? [
                                   <Stack.Toolbar.Button
+                                      iconRenderingMode="template"
                                       key="filter"
                                       icon={nativeIcons.filter}
                                       accessibilityLabel="Filter and sort"
@@ -70,6 +72,7 @@ export function NativeTabChrome({ slot, onMore }: { slot: TabHeaderSlot | null; 
                               ]
                             : []),
                         <Stack.Toolbar.Button
+                            iconRenderingMode="template"
                             key="compose"
                             icon={nativeIcons.compose}
                             accessibilityLabel="Chat"
@@ -78,6 +81,7 @@ export function NativeTabChrome({ slot, onMore }: { slot: TabHeaderSlot | null; 
                             onPress={compose}
                         />,
                         <Stack.Toolbar.Button
+                            iconRenderingMode="template"
                             key="more"
                             icon={nativeIcons.more}
                             accessibilityLabel="More"
