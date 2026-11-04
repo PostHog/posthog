@@ -415,6 +415,25 @@ class TestWarehouseAlerts(APIBaseTest):
 
         assert response.status_code == expected, response.json()
 
+    @parameterized.expand(
+        [
+            ("platform_alerts_only", "platform-alerts", status.HTTP_403_FORBIDDEN),
+            ("warehouse_flag_only", "platform-alerts-source-warehouse", status.HTTP_200_OK),
+        ]
+    )
+    def test_destinations_open_on_the_warehouse_flag(self, _name: str, flag_on: str, expected: int) -> None:
+        configuration_id = self._alert(SourceKind.WAREHOUSE_SOURCE, {}, "source_id")
+        self.enterContext(
+            patch(
+                "posthog.permissions.posthog_feature_flag_enabled",
+                side_effect=lambda flag, *_args, **_kwargs: flag == flag_on,
+            )
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/warehouse_alerts/{configuration_id}/destinations/")
+
+        assert response.status_code == expected, response.json()
+
     def test_an_alert_and_its_slack_destination_route_a_failure_to_that_channel(self) -> None:
         schema = self._schema(self._source(), "charges", Status.FAILED)
 
