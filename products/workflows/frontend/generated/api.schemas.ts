@@ -2000,6 +2000,18 @@ export interface BroadcastConversionCandidatesApi {
     readonly results: readonly BroadcastConversionCandidateApi[]
 }
 
+export interface HogFlowBulkDeleteRequestApi {
+    /** IDs of the archived workflows to delete permanently. */
+    ids: string[]
+}
+
+export interface HogFlowBulkDeleteResponseApi {
+    /** Number of workflows deleted. */
+    deleted: number
+    /** IDs of the deleted workflows. A workflow that is not archived, or that you cannot edit, is skipped. */
+    deleted_ids: string[]
+}
+
 /**
  * * `add` - add
  * * `remove` - remove

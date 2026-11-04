@@ -1405,6 +1405,20 @@ class WorkflowStatsRowSerializer(serializers.Serializer):
     failed = serializers.IntegerField(help_text="Failed invocations in the window.")
 
 
+class HogFlowBulkDeleteRequestSerializer(serializers.Serializer):
+    ids = serializers.ListField(
+        child=serializers.UUIDField(), help_text="IDs of the archived workflows to delete permanently."
+    )
+
+
+class HogFlowBulkDeleteResponseSerializer(serializers.Serializer):
+    deleted = serializers.IntegerField(help_text="Number of workflows deleted.")
+    deleted_ids = serializers.ListField(
+        child=serializers.UUIDField(),
+        help_text="IDs of the deleted workflows. A workflow that is not archived, or that you cannot edit, is skipped.",
+    )
+
+
 class HogFlowConfigFunctionInputsSerializer(serializers.Serializer):
     inputs_schema = InputsSchemaSerializer(required=False)
     inputs = InputsSerializer(required=False)
@@ -7159,6 +7173,7 @@ class HogFlowViewSet(
         rows.sort(key=lambda row: cast(int, row["failed"]), reverse=True)
         return Response(WorkflowStatsRowSerializer(rows, many=True).data)
 
+    @extend_schema(request=HogFlowBulkDeleteRequestSerializer, responses={200: HogFlowBulkDeleteResponseSerializer})
     @action(methods=["POST"], detail=False)
     def bulk_delete(self, request: Request, **kwargs):
         ids = request.data.get("ids", [])
@@ -7182,7 +7197,11 @@ class HogFlowViewSet(
                 "hog_flow_deleted", _DeletedWorkflow(id=flow_id, name=name), {"via": "bulk_delete"}
             )
 
-        return Response({"deleted": len(deleted), "deleted_ids": [str(flow_id) for flow_id, _ in deleted]})
+        return Response(
+            HogFlowBulkDeleteResponseSerializer(
+                {"deleted": len(deleted), "deleted_ids": [flow_id for flow_id, _ in deleted]}
+            ).data
+        )
 
     # Cap the per-workflow breakdown to bound the response; worst-first sorting means the cut
     # tail is the healthiest workflows, and search reaches past the cap.

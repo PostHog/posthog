@@ -52531,6 +52531,18 @@ export namespace Schemas {
       done: boolean;
     }
 
+    export interface HogFlowBulkDeleteRequest {
+      /** IDs of the archived workflows to delete permanently. */
+      ids: string[];
+    }
+
+    export interface HogFlowBulkDeleteResponse {
+      /** Number of workflows deleted. */
+      deleted: number;
+      /** IDs of the deleted workflows. A workflow that is not archived, or that you cannot edit, is skipped. */
+      deleted_ids: string[];
+    }
+
     export interface HogFlowConvertedToBroadcast {
       /** Id of the workflow that is now a broadcast. */
       readonly id: string;
