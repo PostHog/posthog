@@ -11,6 +11,7 @@ from posthog.management.commands.migrate import (
     check_database_version,
     find_unsafe_fallback,
     resolve_replaced,
+    resolve_target,
 )
 
 
@@ -88,3 +89,19 @@ class TestFindUnsafeFallback(SimpleTestCase):
     )
     def test_flags_only_edited_files_that_would_run(self, _name, applied, target, expected):
         assert find_unsafe_fallback(self.REPLACED, self.DEPENDENTS, applied, target) == expected
+
+
+class TestResolveTarget(SimpleTestCase):
+    DISK = [("a", "0001_x"), ("a", "0002_y"), ("a", "0002_y_more"), ("b", "0001_x")]
+
+    @parameterized.expand(
+        [
+            ("unique_prefix", "a", "0001", ("a", "0001_x")),
+            ("exact_name_beats_a_longer_match", "a", "0002_y", ("a", "0002_y")),
+            ("ambiguous_prefix", "a", "0002", None),
+            ("zero", "a", "zero", None),
+            ("app_only", "a", None, None),
+        ]
+    )
+    def test_matches_a_target_like_django(self, _name, app_label, migration_name, expected):
+        assert resolve_target(self.DISK, app_label, migration_name) == expected
