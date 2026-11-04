@@ -1632,7 +1632,7 @@ class TestReadDataTool(BaseTest):
         )
 
         with patch.object(tool, "user_access_control") as mock_uac:
-            mock_uac.check_access_level_for_object.return_value = False
+            mock_uac.check_access_level_for_ref.return_value = False
 
             with pytest.raises(MaxToolAccessDeniedError):
                 await tool._arun_impl({"kind": "dashboard", "dashboard_id": str(dashboard.id), "execute": False})
@@ -1651,7 +1651,7 @@ class TestReadDataTool(BaseTest):
         )
 
         with patch.object(tool, "user_access_control") as mock_uac:
-            mock_uac.check_access_level_for_object.return_value = True
+            mock_uac.check_access_level_for_ref.return_value = True
 
             result, artifact = await tool._arun_impl(
                 {"kind": "dashboard", "dashboard_id": str(dashboard.id), "execute": False}
