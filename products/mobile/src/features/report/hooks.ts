@@ -21,6 +21,7 @@ import { useSetPriorityAction } from '../priority/hooks'
 import { useSetReviewersAction } from '../reviewers/hooks'
 import { useSnoozeAction } from '../snooze/hooks'
 import { useDismissAction, useResolveAction } from '../verdict/hooks'
+import { reportScopeError, useFeatureAccess } from '../views/useViewsAccess'
 import { reportArtefactsQuery, reportDetailQuery, reportPageQuery, reportSignalsQuery } from './queries'
 
 export const REPORT_POLL_INTERVAL_MS = 15_000
@@ -34,7 +35,8 @@ function useLiveReport(reportId: string, enabled: boolean, refreshWhileVisible: 
     const scope = useProjectScope()
     const offline = useConnectivity((state) => state.status === 'offline')
     const appActive = useAppActive()
-    const active = enabled && appActive && scope !== null
+    const access = useFeatureAccess('inbox')
+    const active = enabled && appActive && scope !== null && access.state === 'ok'
     const queryClient = useQueryClient()
     const refetchInterval = active && refreshWhileVisible ? REPORT_POLL_INTERVAL_MS : false
     const [report, artefacts, page, signals] = useQueries({
@@ -45,6 +47,11 @@ function useLiveReport(reportId: string, enabled: boolean, refreshWhileVisible: 
             { ...reportSignalsQuery(scope, reportId), enabled: active, refetchOnMount: 'always' },
         ],
     })
+    useEffect(() => {
+        for (const error of [report.error, artefacts.error, page.error, signals.error]) {
+            reportScopeError(error, 'inbox')
+        }
+    }, [report.error, artefacts.error, page.error, signals.error])
     const taskId = report.data && artefacts.data ? reportTaskId(report.data, artefacts.data.results) : undefined
     const task = useQuery({
         queryKey: reportKeys.task(scope, taskId),
