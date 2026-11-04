@@ -4,7 +4,7 @@ Move one email at a time. Pick a low-risk email first, switch it, check a few re
 
 ## Map the send call
 
-Keep the email in the app's code unless the user chose a PostHog template. A code send takes a `template_key` that names the email, one recipient, the subject, the HTML and/or text body, the recipient's distinct ID, and an idempotency key. A template send takes a template ID and the values for its placeholders in place of the key, subject and body. First find where the email lives today:
+Keep the email in the app's code unless the user chose a PostHog template. First find where the email lives today:
 
 | Provider                  | What the code sends today                                                   | Where the email lives |
 | ------------------------- | --------------------------------------------------------------------------- | --------------------- |
@@ -21,12 +21,13 @@ Every row becomes the same PostHog send. The fields are in the skill's **Send fr
 
 ## Move the content
 
-- **An email built in code** stays where it is. Only the send call changes, and it keeps the subject and the HTML and text bodies the old send passed.
+- **An email built in code** stays where it is. Only the send call changes, and it keeps the subject and the HTML and text bodies the old send passed. When the old send passed a React Email component, render it to HTML in the app and pass that as `html`.
 - **An email stored at the provider** becomes code: export its HTML, or ask the user for it or a screenshot if you can't read it, and write it as a function in the repo that takes the values the provider's template variables held. When the app uses React Email, write it as a component. Keep the same logo, colors, and layout.
 - **For a PostHog template** instead, recreate the email with the skill's **Design it in PostHog** steps, starting from the email the provider sends today. Rename the placeholders to Liquid: a variable `name` becomes `{{ variables.name }}`. The template can't read person properties, so pass every value in `templateData`. Values that the old template computed, such as loops or conditions, become Liquid tags, and logic that needs backend data stays in the backend.
 
 ## Check before the switch
 
+- **What the send can't carry:** A PostHog send has one recipient and no attachments, cc or bcc. If the old send passes any of them, tell the user what the switch would drop before you change the call.
 - **Sender:** The sending domain must be verified in PostHog, even if it already sends with the other provider. The app shows the DNS records to add.
 - **Suppressions:** Addresses that the old provider suppressed after bounces or complaints are not in PostHog's suppression list. Ask the user whether to add them before high-volume emails move.
 - **Errors:** Map the old provider's error handling to PostHog's error codes, such as `recipient_suppressed`, `recipient_unreachable`, and `quota_limited`. A code that means "don't retry" must not go back into a retry loop.
