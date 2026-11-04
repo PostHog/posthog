@@ -3215,6 +3215,69 @@ class TestSavedQueryRun(APIBaseTest):
         else:
             mock_client.start_workflow.assert_called_once()
 
+    @parameterized.expand(
+        [
+            ("every_built_view_ran_recently", 10, NodeType.MAT_VIEW, False, 429, "300"),
+            ("one_built_view_ran_before_the_limit", 20, NodeType.MAT_VIEW, False, 200, None),
+            ("one_built_view_never_ran", None, NodeType.MAT_VIEW, False, 200, None),
+            ("plain_view_never_ran", None, NodeType.VIEW, False, 429, "600"),
+            ("deleted_view_never_ran", None, NodeType.MAT_VIEW, True, 429, "600"),
+        ]
+    )
+    @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
+    def test_run_with_direction_is_refused_only_when_every_built_view_ran_recently(
+        self,
+        _name,
+        related_started_minutes_ago,
+        related_type,
+        related_deleted,
+        expected_status,
+        expected_retry_after,
+        mock_sync_connect,
+    ):
+        mock_client = AsyncMock()
+        mock_sync_connect.return_value = mock_client
+        now = timezone.now()
+        saved_query, dag, node = self._make_saved_query_with_node("floored_view")
+        node.type = NodeType.MAT_VIEW
+        mark_node_suspended(node, engine="clickhouse", reason="boom", job_id="job-1")
+        node.save()
+        related_saved_query = DataWarehouseSavedQuery.objects.create(
+            name="floored_related",
+            team=self.team,
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+            deleted=related_deleted,
+        )
+        related_node = Node.objects.create(team=self.team, dag=dag, saved_query=related_saved_query, type=related_type)
+        Edge.objects.create(team=self.team, dag=dag, source=related_node, target=node)
+        runs = [(saved_query, 5)]
+        if related_started_minutes_ago is not None:
+            runs.append((related_saved_query, related_started_minutes_ago))
+        for run_saved_query, started_minutes_ago in runs:
+            job = DataModelingJob.objects.create(
+                team=self.team,
+                saved_query=run_saved_query,
+                status=DataModelingJob.Status.COMPLETED,
+                engine=DataModelingJobEngine.CLICKHOUSE,
+            )
+            DataModelingJob.objects.filter(id=job.id).update(created_at=now - timedelta(minutes=started_minutes_ago))
+
+        with time_machine.travel(now, tick=False):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query.id}/run/",
+                {"direction": "upstream"},
+            )
+
+        self.assertEqual(response.status_code, expected_status, response.content)
+        node.refresh_from_db()
+        if expected_status == 429:
+            self.assertEqual(response.headers["Retry-After"], expected_retry_after)
+            mock_client.start_workflow.assert_not_called()
+            self.assertIn("clickhouse", suspension_state(node))
+        else:
+            mock_client.start_workflow.assert_called_once()
+            self.assertNotIn("clickhouse", suspension_state(node))
+
     @parameterized.expand([("upstream",), ("downstream",)])
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
     def test_run_with_dependencies(self, direction, mock_sync_connect):
@@ -3232,12 +3295,6 @@ class TestSavedQueryRun(APIBaseTest):
         )
         source, target = (related_node, node) if direction == "upstream" else (node, related_node)
         Edge.objects.create(team=self.team, dag=dag, source=source, target=target)
-        DataModelingJob.objects.create(
-            team=self.team,
-            saved_query=saved_query,
-            status=DataModelingJob.Status.COMPLETED,
-            engine=DataModelingJobEngine.CLICKHOUSE,
-        )
         mock_client = AsyncMock()
         mock_sync_connect.return_value = mock_client
 

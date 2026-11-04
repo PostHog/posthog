@@ -1,5 +1,6 @@
 import math
 import asyncio
+from collections.abc import Set as AbstractSet
 from dataclasses import asdict
 from datetime import timedelta
 from uuid import UUID, uuid4
@@ -42,8 +43,15 @@ from products.data_modeling.backend.logic.freshness import SCHEDULABLE_BUCKETS, 
 from products.data_modeling.backend.logic.incremental import TRINO_INCREMENTAL_SCOPE, clear_incremental_state
 from products.data_modeling.backend.logic.node_suspension import unsuspend_nodes
 from products.data_modeling.backend.logic.saved_query_dag_sync import MissingDagNodeError
-from products.data_modeling.backend.models import DataModelingJob, DataModelingJobEngine, DataModelingJobStatus, Node
+from products.data_modeling.backend.models import (
+    DataModelingJob,
+    DataModelingJobEngine,
+    DataModelingJobStatus,
+    Node,
+    NodeType,
+)
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.models.node import SAVED_QUERY_NODE_TYPES
 from products.data_modeling.backend.schedule import get_v2_saved_query_ids
 
 logger = structlog.get_logger(__name__)
@@ -57,6 +65,11 @@ MANUAL_RUN_MIN_INTERVAL = min(SCHEDULABLE_BUCKETS)
 RAN_RECENTLY_REFUSAL = (
     f"This view ran less than {humanize_cadence(MANUAL_RUN_MIN_INTERVAL)} ago, so it can't run again yet."
 )
+RELATED_RUN_RAN_RECENTLY_REFUSAL = (
+    f"Every view in this run ran less than {humanize_cadence(MANUAL_RUN_MIN_INTERVAL)} ago, so it can't run again yet."
+)
+# A DAG run treats plain views as ephemeral and records no job for them, so they cannot show a recent run.
+DAG_BUILT_NODE_TYPES = SAVED_QUERY_NODE_TYPES - {NodeType.VIEW}
 # Long enough for the state changes that follow the start to commit before the workflow first reads them.
 MANUAL_TRINO_RUN_START_DELAY = timedelta(seconds=5)
 MAX_NAMED_BUILDING_MODELS = 5
@@ -99,40 +112,38 @@ def start_node_materialization(node: Node, *, resume: bool = True, triggered_by_
     )
 
 
-def raise_if_ran_recently(team_id: int, saved_query_id: UUID | str) -> None:
-    """Refuse a manual run of a view whose latest ClickHouse run started less than MANUAL_RUN_MIN_INTERVAL ago.
+def _raise_if_all_ran_recently(team_id: int, saved_query_ids: AbstractSet[UUID | str], refusal: str) -> None:
+    """Refuse a manual run when the latest ClickHouse run of every view started less than MANUAL_RUN_MIN_INTERVAL ago.
 
     A failed or cancelled latest run does not count, so a person can retry it at once. A query edit after
-    the latest run started lifts the limit, because that run did not build the new query.
+    the latest run started lifts the limit, because that run did not build the new query. The wait is for
+    the view that leaves the limit first, because a retry can succeed from that moment.
     """
     now = timezone.now()
-    latest_run = (
+    latest_runs = (
         DataModelingJob.objects.filter(
             team_id=team_id,
-            saved_query_id=saved_query_id,
+            saved_query_id__in=saved_query_ids,
             engine=DataModelingJobEngine.CLICKHOUSE,
-            created_at__gte=now - MANUAL_RUN_MIN_INTERVAL,
+            created_at__gt=now - MANUAL_RUN_MIN_INTERVAL,
         )
         .exclude(status=DataModelingJobStatus.SKIPPED)
-        .order_by("-created_at")
-        .values_list("status", "created_at")
-        .first()
+        .order_by("saved_query_id", "-created_at")
+        .distinct("saved_query_id")
+        .values_list("status", "created_at", "saved_query__query_updated_at")
     )
-    if latest_run is None:
-        return
-    status, started_at = latest_run
-    if status not in (DataModelingJobStatus.RUNNING, DataModelingJobStatus.COMPLETED):
-        return
-    query_updated_at = (
-        DataWarehouseSavedQuery.objects.filter(team_id=team_id, id=saved_query_id)
-        .values_list("query_updated_at", flat=True)
-        .first()
-    )
-    if query_updated_at is not None and query_updated_at > started_at:
-        return
-    wait_seconds = (started_at + MANUAL_RUN_MIN_INTERVAL - now).total_seconds()
-    if wait_seconds > 0:
-        raise MaterializationRanRecentlyError(RAN_RECENTLY_REFUSAL, retry_after_seconds=math.ceil(wait_seconds))
+    wait_seconds = [
+        (started_at + MANUAL_RUN_MIN_INTERVAL - now).total_seconds()
+        for status, started_at, query_updated_at in latest_runs
+        if status in (DataModelingJobStatus.RUNNING, DataModelingJobStatus.COMPLETED)
+        and (query_updated_at is None or query_updated_at <= started_at)
+    ]
+    if wait_seconds and len(wait_seconds) == len(saved_query_ids):
+        raise MaterializationRanRecentlyError(refusal, retry_after_seconds=math.ceil(min(wait_seconds)))
+
+
+def raise_if_ran_recently(team_id: int, saved_query_id: UUID | str) -> None:
+    _raise_if_all_ran_recently(team_id, {saved_query_id}, RAN_RECENTLY_REFUSAL)
 
 
 def _get_node(team_id: int, node_id: UUID | str) -> Node:
@@ -195,6 +206,12 @@ def run_related_node_materializations(
 ) -> list[str]:
     node = _get_node(team_id, node_id)
     node_ids = _related_node_ids(node, direction=direction, user=user, hidden_types=hidden_types)
+    built_saved_query_ids = set(
+        Node.objects.filter(team_id=team_id, id__in=node_ids, type__in=DAG_BUILT_NODE_TYPES)
+        .exclude(saved_query__deleted=True)
+        .values_list("saved_query_id", flat=True)
+    )
+    _raise_if_all_ran_recently(team_id, built_saved_query_ids, RELATED_RUN_RAN_RECENTLY_REFUSAL)
 
     # The workflow skips suspended nodes, so an explicit run must resume every selected node first.
     unsuspend_nodes(Node.objects.filter(team_id=node.team_id, id__in=node_ids), by="manual_run")

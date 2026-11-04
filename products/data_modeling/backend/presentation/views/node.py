@@ -21,6 +21,7 @@ from posthog.rbac.query_access import assert_user_can_read_query
 from products.data_modeling.backend.facade.api import (
     SCHEDULABLE_BUCKETS,
     MaterializationForbiddenError,
+    MaterializationRanRecentlyError,
     MaterializationRunDirection,
     SavedQueryFrequencyBounds,
     UnsatisfiableFrequencyError,
@@ -678,7 +679,15 @@ class NodeViewSet(
             self.ordering
         )
 
-    @extend_schema(request=NodeRunSerializer, responses={200: NodeRunResponseSerializer})
+    @extend_schema(
+        request=NodeRunSerializer,
+        responses={
+            200: NodeRunResponseSerializer,
+            429: OpenApiResponse(
+                description="Every view this run would build ran too recently and has not changed since. The Retry-After header gives the wait in seconds."
+            ),
+        },
+    )
     @action(methods=["POST"], detail=True)
     def run(self, req: request.Request, *args, **kwargs) -> response.Response:
         """Run this node with its upstream dependencies or downstream dependents."""
@@ -707,6 +716,8 @@ class NodeViewSet(
             )
         except MaterializationForbiddenError as error:
             raise PermissionDenied(str(error))
+        except MaterializationRanRecentlyError as error:
+            raise Throttled(wait=error.retry_after_seconds, detail=str(error))
         return response.Response({"node_ids": node_ids}, status=status.HTTP_200_OK)
 
     def _lineage_lookup(self, req: request.Request) -> dict[str, UUID]:
@@ -797,11 +808,7 @@ class NodeViewSet(
     @action(methods=["POST"], detail=True)
     def materialize(self, req: request.Request, *args, **kwargs) -> response.Response:
         """Materialize just this single node."""
-        from products.data_modeling.backend.facade.api import (
-            MaterializationRanRecentlyError,
-            raise_if_ran_recently,
-            start_node_materialization,
-        )
+        from products.data_modeling.backend.facade.api import raise_if_ran_recently, start_node_materialization
 
         node = self.get_object()
 

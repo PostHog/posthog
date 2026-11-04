@@ -309,7 +309,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             ),
             409: OpenApiResponse(description="engine is 'trino' and a managed warehouse run is already in progress."),
             429: OpenApiResponse(
-                description="A run without direction or engine 'trino' started too recently and the query has not changed since. The Retry-After header gives the wait in seconds."
+                description="Every view this run would build ran too recently and has not changed since. Runs with engine 'trino' have no such limit. The Retry-After header gives the wait in seconds."
             ),
         },
     )
@@ -338,21 +338,6 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             raise exceptions.ValidationError(detail="Views that run raw Trino SQL cannot be materialized yet.")
         on_trino = body.validated_data["engine"] == MaterializationEngine.TRINO
         direction = body.validated_data.get("direction")
-
-        if not direction and not on_trino:
-            # Checked before the watermark is dropped below, so a refused full refresh changes nothing.
-            try:
-                raise_if_ran_recently(self.team_id, saved_query.id)
-            except MaterializationRanRecentlyError as error:
-                raise exceptions.Throttled(wait=error.retry_after_seconds, detail=str(error))
-
-        if body.validated_data["full_refresh"] and not on_trino:
-            # Dropping the watermark is the whole mechanism: the next run finds no progress to
-            # build on and rebuilds. Commit it before dispatch, and outside any transaction the
-            # dispatch could roll back, or the worker reads the old watermark and runs
-            # incrementally instead.
-            clear_incremental_state(saved_query)
-            clear_incremental_state(saved_query, scope=TRINO_INCREMENTAL_SCOPE)
 
         try:
             if direction or on_trino:
@@ -386,6 +371,15 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
                         hidden_types=hidden_types,
                     )
             else:
+                # Checked before the watermark is dropped below, so a refused full refresh changes nothing.
+                raise_if_ran_recently(self.team_id, saved_query.id)
+                if body.validated_data["full_refresh"]:
+                    # Dropping the watermark is the whole mechanism: the next run finds no progress to
+                    # build on and rebuilds. Commit it before dispatch, and outside any transaction the
+                    # dispatch could roll back, or the worker reads the old watermark and runs
+                    # incrementally instead.
+                    clear_incremental_state(saved_query)
+                    clear_incremental_state(saved_query, scope=TRINO_INCREMENTAL_SCOPE)
                 node_id = materialize_saved_query(saved_query, triggered_by_id=request.user.pk)
                 node_ids = [str(node_id)]
         except MissingDagNodeError:
@@ -396,6 +390,8 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, AccessControlViewSe
             raise exceptions.PermissionDenied(str(error))
         except MaterializationAlreadyRunningError as error:
             raise Conflict(str(error))
+        except MaterializationRanRecentlyError as error:
+            raise exceptions.Throttled(wait=error.retry_after_seconds, detail=str(error))
 
         log_activity(
             organization_id=self.team.organization_id,
