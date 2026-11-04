@@ -4,17 +4,12 @@ Events retention settings for organizations and projects.
 The windows set here are the ones the monthly events cleanup deletes by, so a saved window deletes events.
 """
 
-from typing import TYPE_CHECKING
-
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.user import User
 
 from products.product_analytics.backend import events_retention
 from products.product_analytics.backend.facade.contracts import OrganizationEventsRetention
-
-if TYPE_CHECKING:
-    from rest_framework.request import Request
 
 
 def organization_events_retention(organization: Organization) -> OrganizationEventsRetention:
@@ -33,11 +28,11 @@ def set_organization_events_retention(
     *,
     user: User,
     was_impersonated: bool,
-    request: "Request | None" = None,
+    analytics_properties: dict[str, object] | None = None,
 ) -> None:
     """Set or clear the organization's window. Raises a Django ValidationError for a window outside the range."""
     events_retention.set_organization_events_retention(
-        organization, months, user=user, was_impersonated=was_impersonated, request=request
+        organization, months, user=user, was_impersonated=was_impersonated, analytics_properties=analytics_properties
     )
 
 
@@ -47,9 +42,9 @@ def set_project_events_retention(
     *,
     user: User,
     was_impersonated: bool,
-    request: "Request | None" = None,
+    analytics_properties: dict[str, object] | None = None,
 ) -> None:
     """Set or clear the project's window. Raises a Django ValidationError for a window outside the range."""
     events_retention.set_project_events_retention(
-        team, months, user=user, was_impersonated=was_impersonated, request=request
+        team, months, user=user, was_impersonated=was_impersonated, analytics_properties=analytics_properties
     )
