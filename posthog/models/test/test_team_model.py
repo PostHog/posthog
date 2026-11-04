@@ -1,9 +1,12 @@
+from collections.abc import Callable
+
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.test import override_settings
 
 from parameterized import parameterized
 
@@ -13,6 +16,7 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.team.team_caching import get_team_in_cache, set_team_in_cache
 from posthog.models.user import User
+from posthog.storage.team_metadata_cache import team_metadata_hypercache
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role, RoleMembership
@@ -464,6 +468,32 @@ class TestTeamSetTokenAndSave(BaseTest):
         assert change["field"] == "api_token"
         assert change["before"] == "phc_old_token_value"
         assert change["after"] == "phc_new_token_value"
+
+    @parameterized.expand(
+        [
+            ("reset", lambda team, user: team.reset_token_and_save(user=user, is_impersonated_session=False)),
+            (
+                "set",
+                lambda team, user: team.set_token_and_save(
+                    new_token="phc_new_token_value", user=user, is_impersonated_session=False
+                ),
+            ),
+        ]
+    )
+    @override_settings(FLAGS_REDIS_URL="redis://test:6379/0")
+    @patch("posthog.tasks.remote_config.update_team_remote_config.delay")
+    @patch("posthog.tasks.integrations.push_vercel_secrets.delay")
+    def test_token_change_evicts_old_token_from_team_metadata_cache(
+        self, _name: str, change_token: Callable[[Team, User], None], _mock_push_vercel, _mock_sync_remote_config
+    ) -> None:
+        old_key = team_metadata_hypercache.get_cache_key("phc_old_token_value")
+        team_metadata_hypercache.set_cache_value_redis_only(self.team, {"id": self.team.id})
+        assert team_metadata_hypercache.cache_client.get(old_key) is not None
+
+        with self.captureOnCommitCallbacks(execute=True):
+            change_token(self.team, self.user)
+
+        assert team_metadata_hypercache.cache_client.get(old_key) is None
 
     def test_set_token_and_save_rejects_token_already_taken_by_another_team(self) -> None:
         other_team = Team.objects.create(organization=self.organization, api_token="phc_already_taken")

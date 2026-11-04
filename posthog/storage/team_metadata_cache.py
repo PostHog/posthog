@@ -31,6 +31,7 @@ Cache Invalidation:
 Caches are invalidated automatically when:
 - Team is saved (via Django signal → Celery task)
 - Team is deleted (via Django signal → immediate clear)
+- Project API token is reset or set (old token's entry cleared after commit)
 - Hourly refresh job detects expiring entries (TTL < 24h)
 
 Manual invalidation:
@@ -49,6 +50,7 @@ from django.db import transaction
 from django.utils import timezone
 
 import structlog
+from posthoganalytics import capture_exception
 
 from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
 from posthog.metrics import TOMBSTONE_COUNTER
@@ -475,6 +477,25 @@ def clear_team_metadata_cache(team: Team | str | int, kinds: list[str] | None = 
         kinds: Optional list of cache types to clear (["redis", "s3"])
     """
     team_metadata_hypercache.clear_cache(team, kinds=kinds)
+
+
+def evict_team_metadata_cache_for_token(old_token: str) -> None:
+    """
+    Delete the cache entry of a project API token that the team no longer uses.
+
+    The flags service accepts any token that has an entry here and does not check Postgres,
+    so the entry of a rotated token must go, or the token keeps working until the entry expires.
+    """
+    if not settings.FLAGS_REDIS_URL:
+        return
+
+    # NB: For unit tests, only clear Redis to avoid S3 timestamp issues with frozen time
+    kinds = ["redis"] if settings.TEST else None
+    try:
+        team_metadata_hypercache.delete_cache_entry(old_token, kinds=kinds)
+    except Exception as e:
+        logger.exception("Failed to evict team metadata cache entry of a rotated token")
+        capture_exception(e)
 
 
 # ===================================================================
