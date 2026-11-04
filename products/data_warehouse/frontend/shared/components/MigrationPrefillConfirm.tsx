@@ -11,7 +11,6 @@ export interface MigrationPrefillConfirmProps {
     rows: { label: string; value: string }[]
     confirmed: boolean
     onConfirmedChange: (confirmed: boolean) => void
-    // What the connect page sets up. It names the link and the `data-attr` values.
     noun: 'source' | 'destination'
     trustNote: string
     newSetupUrl: string
