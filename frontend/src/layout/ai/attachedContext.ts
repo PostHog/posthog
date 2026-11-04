@@ -13,6 +13,7 @@ export interface AttachedContextItem {
     type: string
     /** Resource identifier — entity id, short_id, $ai_trace_id, … */
     key?: string | number
+    pageId?: string | number
     /** Optional human-readable label. */
     label?: string
     /**

@@ -3,7 +3,12 @@ import { contextItemPath, isOnContextItemPage } from './contextItemLink'
 describe('contextItemLink', () => {
     test.each([
         [{ type: 'experiment', key: 17 }, '/experiments/17'],
-        [{ type: 'feature_flag', key: 12 }, '/feature-flags/12'],
+        [{ type: 'feature_flag', key: 'new-checkout', pageId: 12 }, '/feature-flags/12'],
+        [{ type: 'feature_flag', key: '99', pageId: 12 }, '/feature-flags/12'],
+        [{ type: 'feature_flag', key: '12' }, null],
+        [{ type: 'feature_flag', key: 'new-checkout', pageId: '' }, null],
+        [{ type: 'error_tracking_issue', key: 'issue-id' }, '/error_tracking/issue-id'],
+        [{ type: 'signal_report', key: 'report-id' }, '/inbox/report-id'],
         [{ type: 'insight', key: 'aBc123' }, '/insights/aBc123'],
         // An event item's key is the event name, and the event page needs a definition id.
         [{ type: 'event', key: '$pageview' }, null],

@@ -14,7 +14,7 @@ const meta: Meta<typeof QuillAttachedContextChip> = {
     render: () => (
         <div data-quill className="flex flex-wrap items-center gap-1 p-4">
             <QuillAttachedContextChip
-                item={{ type: 'feature_flag', key: 12, label: 'new-checkout-flow' }}
+                item={{ type: 'feature_flag', key: 'new-checkout-flow', pageId: 12, label: 'new-checkout-flow' }}
                 label="new-checkout-flow"
                 onRemove={() => {}}
             />
