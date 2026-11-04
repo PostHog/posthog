@@ -537,7 +537,6 @@
 3 posthog/session/risk.py
 3 posthog/slo/types.py
 3 posthog/tasks/ai_observability_usage_report.py
-3 products/slack_app/backend/temporal/eval_slack_repo_selection.py
 3 posthog/temporal/ai_observability/evaluation_clustering/coordinator.py
 3 posthog/temporal/ai_observability/run_aggregate_evaluation.py
 3 posthog/temporal/ai_observability/run_tagger.py
@@ -624,7 +623,7 @@
 6 products/marketing_analytics/backend/services/mapping_suggester.py
 6 products/tasks/backend/temporal/task_management/workflow.py
 7 posthog/session_recordings/synthetic_playlists.py
-7 posthog/temporal/experiments/models.py
+5 posthog/temporal/experiments/models.py
 7 products/batch_exports/backend/temporal/monitoring.py
 7 products/growth/backend/sdk_health.py
 7 products/marketing_analytics/backend/services/types.py

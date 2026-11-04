@@ -11231,6 +11231,8 @@ export namespace Schemas {
     export type ChartSettingsResultCustomizations = {[key: string]: ResultCustomizationByValue} | null;
 
     export interface ChartSettings {
+      /** Shows only the annotations saved at this level. Unset shows every level. */
+      annotationsScope?: AnnotationScope | null;
       barGap?: number | null;
       boxPlot?: BoxPlotSettings | null;
       /** Chart rendering style overrides (line shape). Only applies to line and area charts. */
@@ -39073,7 +39075,7 @@ export namespace Schemas {
 
     /**
      * * `ready` - Ready
-     * * `generating` - Generating
+     * * `not_generated` - Not Generated
      * * `unavailable` - Unavailable
      */
     export type IssueSummaryStatusEnum = typeof IssueSummaryStatusEnum[keyof typeof IssueSummaryStatusEnum];
@@ -39081,8 +39083,22 @@ export namespace Schemas {
 
     export const IssueSummaryStatusEnum = {
       Ready: 'ready',
-      Generating: 'generating',
+      NotGenerated: 'not_generated',
       Unavailable: 'unavailable',
+    } as const;
+
+    /**
+     * * `restricted` - Restricted
+     * * `disabled` - Disabled
+     * * `ai_not_approved` - Ai Not Approved
+     */
+    export type IssueSummaryUnavailableReasonEnum = typeof IssueSummaryUnavailableReasonEnum[keyof typeof IssueSummaryUnavailableReasonEnum];
+
+
+    export const IssueSummaryUnavailableReasonEnum = {
+      Restricted: 'restricted',
+      Disabled: 'disabled',
+      AiNotApproved: 'ai_not_approved',
     } as const;
 
     export interface ErrorTrackingIssueDetail {
@@ -39145,14 +39161,20 @@ export namespace Schemas {
       sparkline?: number[];
       /** Aggregate over matching events. Returned only when includeBreakdown is true. */
       breakdown?: ErrorTrackingIssueBreakdown;
-      /** A model-written summary of the issue. Present only when summary_status is 'ready'. Treat likely_cause as a hypothesis, not a fact. */
+      /** An AI-written summary of the issue. Present only when summary_status is 'ready'. Treat likely_cause as a hypothesis, not a fact. */
       summary?: ErrorTrackingIssueSummary;
-      /** 'ready' means summary is present. 'generating' means a summary may still be written: call once more after a few seconds, and continue without it if the status does not change. 'unavailable' means no summary exists for this issue and none is being written.
+      /** 'ready' means summary is present. 'not_generated' means no summary exists for this issue. A summary is written only when an issue is created. 'unavailable' means no summary can be shown, and summary_reason says why.
        *
        * * `ready` - Ready
-       * * `generating` - Generating
+       * * `not_generated` - Not Generated
        * * `unavailable` - Unavailable */
       summary_status: IssueSummaryStatusEnum;
+      /** Present only when summary_status is 'unavailable'. 'restricted': the user may not read a property that the summary is written from. 'disabled': summaries are off for the project. 'ai_not_approved': the organization has not approved AI data processing.
+       *
+       * * `restricted` - Restricted
+       * * `disabled` - Disabled
+       * * `ai_not_approved` - Ai Not Approved */
+      summary_reason?: IssueSummaryUnavailableReasonEnum;
     }
 
     export interface ErrorTrackingIssueEventsQueryResponse {
@@ -39558,19 +39580,25 @@ export namespace Schemas {
       model: string;
       /** When the summary was written. */
       generated_at: string;
-      /** When generation last wrote the summary or confirmed it unchanged. The regenerate interval runs from it. */
+      /** When generation last wrote the summary. */
       checked_at: string;
     }
 
     export interface ErrorTrackingIssueSummaryResponse {
-      /** ready: `summary` holds the stored summary. generating: a summary is being written in the background, so poll again. `summary` holds the previous one, if any. unavailable: no summary exists and none will be written, for example because the feature is off.
+      /** ready: `summary` holds the stored summary. not_generated: no summary is stored for this issue. A summary is written only when an issue is created. unavailable: no summary can be shown. `reason` says why.
        *
        * * `ready` - Ready
-       * * `generating` - Generating
+       * * `not_generated` - Not Generated
        * * `unavailable` - Unavailable */
       status: IssueSummaryStatusEnum;
-      /** The stored summary, or null when none exists yet. */
+      /** The stored summary, or null when the status is not ready. */
       summary: ErrorTrackingStoredIssueSummary | null;
+      /** Why the status is unavailable, else null. restricted: the user may not read a property that the summary is written from. disabled: summaries are off for the project. ai_not_approved: the organization has not approved AI data processing.
+       *
+       * * `restricted` - Restricted
+       * * `disabled` - Disabled
+       * * `ai_not_approved` - Ai Not Approved */
+      reason: IssueSummaryUnavailableReasonEnum | null;
     }
 
     export interface ErrorTrackingIssueValue {
@@ -58914,11 +58942,6 @@ export namespace Schemas {
     export interface InterestingNote {
       text: string;
       line_refs: string;
-    }
-
-    export interface InternalFeedbackResponse {
-      /** True when the feedback reached Slack. */
-      success: boolean;
     }
 
     /**
@@ -118538,26 +118561,6 @@ export namespace Schemas {
       Ndjson: 'ndjson',
     } as const;
 
-    export type InternalFeedbackCreateBody = {
-      /**
-         * What the person wants to tell the developers.
-         * @maxLength 4000
-         */
-      comment: string;
-      /**
-         * URL of the page the feedback is about.
-         * @maxLength 2000
-         */
-      page_url: string;
-      /**
-         * CSS selector of the element the person selected. Empty for feedback about the whole page.
-         * @maxLength 1000
-         */
-      element_identifier?: string;
-      /** JPEG screenshot of the page, with the selected element outlined when there is one. */
-      screenshot?: Blob;
-    };
-
     export type LlmAnalyticsPersonalSpendListParams = {
     /**
      * When set, additionally return a `by_bucket` breakdown: a time-ascending UTC cost series for the scoped product at this bucket size in minutes, with per-bucket cost split into uncached input / output / cache read / cache creation components plus the matching token sums. Supported bucket sizes: 5, 15, 30, 60. The window may span at most 600 buckets of the chosen size (e.g. 50 hours at 5-minute buckets).
@@ -125815,9 +125818,9 @@ export namespace Schemas {
 
     export type ExperimentsTimeseriesResultsRetrieveParams = {
     /**
-     * Fingerprint of the metric configuration. Available alongside metric_uuid on each metric in the experiment's metrics array.
+     * Ignored. The server derives the metric's calculation key from the experiment's current settings. Accepted so that existing clients keep working.
      */
-    fingerprint: string;
+    fingerprint?: string;
     /**
      * UUID of the metric to fetch timeseries for. Available on each metric in the experiment's metrics array.
      */
@@ -132244,7 +132247,7 @@ export namespace Schemas {
      */
     skill_name?: string;
     /**
-     * ILIKE substring match against `content`. Omit to return the most recent entries.
+     * ILIKE substring match against `content` and `key`. Must contain 3 letters or digits in a row, or 2 next to a symbol such as `ai_` or `pr:`. Omit to return the most recent entries.
      */
     text?: string;
     };

@@ -51,7 +51,7 @@ def _sources_by_inputs(team_id: int, integration_pk: int) -> list[SourceReferenc
         ExternalDataSource.objects.select_related(None)
         .filter(team_id=team_id)
         .exclude(deleted=True)
-        .only("id", "source_type", "prefix", "job_inputs")
+        .only("id", "team_id", "source_type", "prefix", "job_inputs", "credentials_integration_id")
     )
     inputs_by_source = {
         source_id: inputs
