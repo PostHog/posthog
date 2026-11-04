@@ -196,7 +196,7 @@ type CallerChosenSender = Partial<NonNullable<AcceptedSend['from']>>
 const withSenderTheCallerChose = ({
     from,
     ...send
-}: AcceptedSend): Omit<AcceptedSend, 'from'> & { from?: CallerChosenSender } => ({
+}: QueuedSend): Omit<QueuedSend, 'from'> & { from?: CallerChosenSender } => ({
     ...send,
     from: senderTheCallerChose(from),
 })
