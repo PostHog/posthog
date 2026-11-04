@@ -42,6 +42,7 @@ import api, { getJSONOrNull } from 'lib/api'
 import { ApiError, isAccessDeniedError } from 'lib/api-error'
 import { ApiRequestTiming, flattenRequestTiming } from 'lib/apiRequestTiming'
 import { DataColorTheme } from 'lib/colors'
+import { preloadRichContent } from 'lib/components/RichContentEditor/LazyRichContent'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { Dayjs, dayjs, now } from 'lib/dayjs'
@@ -131,6 +132,7 @@ import {
     TileLayout,
 } from '~/types'
 
+import { getImageOnlyTextCardImage } from 'products/dashboards/frontend/components/ImageTile/imageTileUtils'
 import { DashboardGridCompaction, getDashboardGridCompactor } from 'products/dashboards/frontend/dashboardCustomization'
 import {
     dashboardFiltersEqual,
@@ -2001,6 +2003,13 @@ function planTileMove(
         sourceGroupKey: sectionGroupKey(source),
         groupKey: sectionGroupKey(target),
         message: tileMoveMessage(target),
+    }
+}
+
+/** Text tiles render rich text, so start loading it while the rest of the dashboard renders. */
+function preloadTextTileRenderer(dashboard: DashboardType): void {
+    if (dashboard.tiles?.some((tile) => !!tile.text && !getImageOnlyTextCardImage(tile.text.body))) {
+        preloadRichContent()
     }
 }
 
@@ -6350,6 +6359,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.dashboardNotFound()
                     return // We hit a 404
                 }
+                preloadTextTileRenderer(values.dashboard)
             },
             sharedListeners.handleDashboardLoadComplete,
         ],
@@ -6360,6 +6370,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 actions.dashboardNotFound()
                 return // We hit a 404
             }
+            preloadTextTileRenderer(dashboard)
         },
         tileStreamingComplete: sharedListeners.handleDashboardLoadComplete,
         dashboardNotFound: () => {

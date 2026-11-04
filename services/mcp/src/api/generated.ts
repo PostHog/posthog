@@ -10666,6 +10666,8 @@ export namespace Schemas {
       response?: ErrorTrackingQueryResponse | null;
       /** Free-text search across exception type, message, and stack frames. */
       searchQuery?: string | null;
+      /** Filter by issue severity. */
+      severity?: ErrorTrackingQueryIssueSeverity | null;
       /** Filter by issue status. */
       status?: ErrorTrackingIssueStatus | string | null;
       tags?: QueryLogTags | null;
@@ -13170,10 +13172,17 @@ export namespace Schemas {
       MetricsAlertConfig: 'MetricsAlertConfig',
     } as const;
 
+    /**
+     * Values for the `$name` variables in the insight's query.
+     */
+    export type MetricsAlertConfigVariables = {[key: string]: MetricsDashboardVariableSelection} | null;
+
     export interface MetricsAlertConfig {
       /** When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one. */
       check_ongoing_interval?: boolean | null;
       type: MetricsAlertConfigType;
+      /** Values for the `$name` variables in the insight's query. */
+      variables?: MetricsAlertConfigVariables;
     }
 
     /**
@@ -39971,6 +39980,8 @@ export namespace Schemas {
     }
 
     export interface ErrorTrackingSettings {
+      /** Project preference for adaptive ingestion. Turning this on does not currently change ingestion. */
+      adaptive_ingestion_enabled?: boolean;
       /**
          * Maximum number of exception events ingested per bucket for the entire project. Null removes the limit.
          * @minimum 1
@@ -40366,6 +40377,7 @@ export namespace Schemas {
      * * `subscription_usage_limit` - subscription_usage_limit
      * * `task_spend_limit` - task_spend_limit
      * * `agent_error` - agent_error
+     * * `ActiveSessionCapError` - ActiveSessionCapError
      */
     export type ErrorTypeEnum = typeof ErrorTypeEnum[keyof typeof ErrorTypeEnum];
 
@@ -40387,6 +40399,7 @@ export namespace Schemas {
       SubscriptionUsageLimit: 'subscription_usage_limit',
       TaskSpendLimit: 'task_spend_limit',
       AgentError: 'agent_error',
+      ActiveSessionCapError: 'ActiveSessionCapError',
     } as const;
 
     export interface EstimateExperimentScope {
@@ -43132,6 +43145,47 @@ export namespace Schemas {
       NotChecked: 'not_checked',
     } as const;
 
+    /**
+     * * `percentage` - Percentage of exposed units
+     * * `p_value` - P-value of a statistical test
+     */
+    export type ExperimentHealthMeasurementUnitEnum = typeof ExperimentHealthMeasurementUnitEnum[keyof typeof ExperimentHealthMeasurementUnitEnum];
+
+
+    export const ExperimentHealthMeasurementUnitEnum = {
+      Percentage: 'percentage',
+      PValue: 'p_value',
+    } as const;
+
+    /**
+     * * `above` - Finding above the threshold
+     * * `below` - Finding below the threshold
+     */
+    export type ExperimentHealthMeasurementSideEnum = typeof ExperimentHealthMeasurementSideEnum[keyof typeof ExperimentHealthMeasurementSideEnum];
+
+
+    export const ExperimentHealthMeasurementSideEnum = {
+      Above: 'above',
+      Below: 'below',
+    } as const;
+
+    export interface ExperimentHealthMeasurement {
+      /** The value that the check measured on the experiment. */
+      value: number;
+      /** The value at which the check reports a finding. */
+      threshold: number;
+      /** percentage: a share of the exposed users or groups, on the 0-100 scale. p_value: the p-value of a statistical test.
+       *
+       * * `percentage` - Percentage of exposed units
+       * * `p_value` - P-value of a statistical test */
+      unit: ExperimentHealthMeasurementUnitEnum;
+      /** The side of the threshold that reports a finding: above or below.
+       *
+       * * `above` - Finding above the threshold
+       * * `below` - Finding below the threshold */
+      warns: ExperimentHealthMeasurementSideEnum;
+    }
+
     export interface ExperimentHealthCheckResult {
       /** Stable identifier of the check. A check can report several finding codes, so the key is not a finding code.
        *
@@ -43161,6 +43215,8 @@ export namespace Schemas {
       key: ExperimentHealthCheckKeyEnum;
       /** The problem the check looks for, for example 'Metrics not set up'. */
       name: string;
+      /** What the check looks for and why it matters. The same for every experiment and every status. */
+      description: string;
       /** passed: the check found no problem. finding: the check reported a finding in `findings`. not_applicable: the check does not cover the experiment's current state, for example a check of the changes since launch on a draft. not_checked: the check covers the experiment, but it could not read an input or it failed, so a problem it looks for can be present without a finding.
        *
        * * `passed` - Passed
@@ -43173,6 +43229,8 @@ export namespace Schemas {
          * @nullable
          */
       reason: string | null;
+      /** The value that decided a passed check, against its threshold. Null for the other statuses, and for a pass without a value. A finding carries its values in `evidence`. */
+      measurement: ExperimentHealthMeasurement | null;
     }
 
     export interface ExperimentHealth {
@@ -43439,6 +43497,33 @@ export namespace Schemas {
       TestAccountFilterRemovesExposures: 'test_account_filter_removes_exposures',
     } as const;
 
+    export type ExperimentExposureHealthMeasurementUnit = typeof ExperimentExposureHealthMeasurementUnit[keyof typeof ExperimentExposureHealthMeasurementUnit];
+
+
+    export const ExperimentExposureHealthMeasurementUnit = {
+      Percentage: 'percentage',
+      PValue: 'p_value',
+    } as const;
+
+    export type ExperimentExposureHealthMeasurementSide = typeof ExperimentExposureHealthMeasurementSide[keyof typeof ExperimentExposureHealthMeasurementSide];
+
+
+    export const ExperimentExposureHealthMeasurementSide = {
+      Above: 'above',
+      Below: 'below',
+    } as const;
+
+    export interface ExperimentExposureHealthMeasurement {
+      /** The value at which the check reports a finding. */
+      threshold: number;
+      /** percentage: a share of the exposed users or groups, on the 0-100 scale. p_value: the p-value of a statistical test. */
+      unit: ExperimentExposureHealthMeasurementUnit;
+      /** The value that the check measured on the experiment. */
+      value: number;
+      /** The side of the threshold that reports a finding. */
+      warns: ExperimentExposureHealthMeasurementSide;
+    }
+
     export type ExperimentExposureHealthCheckStatus = typeof ExperimentExposureHealthCheckStatus[keyof typeof ExperimentExposureHealthCheckStatus];
 
 
@@ -43450,8 +43535,12 @@ export namespace Schemas {
     } as const;
 
     export interface ExperimentExposureHealthCheck {
+      /** What the check looks for and why it matters. Missing on an answer cached before the field existed. */
+      description?: string | null;
       /** Stable identifier of the check. */
       key: ExperimentExposureHealthCheckKey;
+      /** The value that decided a passed check. Null for the other statuses and for a pass without a value. */
+      measurement?: ExperimentExposureHealthMeasurement | null;
       /** The problem the check looks for, as the health panel lists it. */
       name: string;
       /** Why the check did not look, for the statuses not_applicable and not_checked, for example 'Runs after launch'. Null for passed and finding. */
@@ -49148,6 +49237,22 @@ export namespace Schemas {
     }
 
     /**
+     * * `monitoring` - Monitoring
+     * * `verifying` - Verifying
+     * * `assessment_required` - Assessment required
+     * * `verification_complete` - Verification complete
+     */
+    export type FinalVerificationStateEnum = typeof FinalVerificationStateEnum[keyof typeof FinalVerificationStateEnum];
+
+
+    export const FinalVerificationStateEnum = {
+      Monitoring: 'monitoring',
+      Verifying: 'verifying',
+      AssessmentRequired: 'assessment_required',
+      VerificationComplete: 'verification_complete',
+    } as const;
+
+    /**
      * * `review` - review
      * * `observe` - observe
      */
@@ -51847,6 +51952,7 @@ export namespace Schemas {
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts
      * * `transactional_emails` - Transactional emails
+     * * `transactional_email_keys` - Transactional email keys
      */
     export type HogFlowOriginProductEnum = typeof HogFlowOriginProductEnum[keyof typeof HogFlowOriginProductEnum];
 
@@ -51855,6 +51961,7 @@ export namespace Schemas {
       Loops: 'loops',
       Broadcasts: 'broadcasts',
       TransactionalEmails: 'transactional_emails',
+      TransactionalEmailKeys: 'transactional_email_keys',
     } as const;
 
     export interface HogFlowMasking {
@@ -52175,11 +52282,12 @@ export namespace Schemas {
        * * `active` - Active
        * * `archived` - Archived */
       status?: HogFlowStateEnum;
-      /** Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.
+      /** Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow, and never to `transactional_email_keys`: the email send API sets that one. Filter the list with `?origin_product=`.
        *
        * * `loops` - Loops
        * * `broadcasts` - Broadcasts
-       * * `transactional_emails` - Transactional emails */
+       * * `transactional_emails` - Transactional emails
+       * * `transactional_email_keys` - Transactional email keys */
       origin_product?: HogFlowOriginProductEnum | null;
       /**
          * The record another product's entry point started this workflow from, as '<kind>:<id>'. Set only when creating a workflow. Filter the list with `?source_record=`.
@@ -52333,7 +52441,8 @@ export namespace Schemas {
        *
        * * `loops` - Loops
        * * `broadcasts` - Broadcasts
-       * * `transactional_emails` - Transactional emails */
+       * * `transactional_emails` - Transactional emails
+       * * `transactional_email_keys` - Transactional email keys */
       readonly origin_product: HogFlowOriginProductEnum;
     }
 
@@ -52803,7 +52912,8 @@ export namespace Schemas {
        *
        * * `loops` - Loops
        * * `broadcasts` - Broadcasts
-       * * `transactional_emails` - Transactional emails */
+       * * `transactional_emails` - Transactional emails
+       * * `transactional_email_keys` - Transactional email keys */
       readonly origin_product: HogFlowOriginProductEnum | null;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -66656,7 +66766,7 @@ export namespace Schemas {
     } as const;
 
     export interface MonitoringCheckTiming {
-      /** Whether this check has an interim measurement due, is paused, or has finished its observation window. No state implies a final verdict.
+      /** Monitoring timing state. Final verification phases use paused for compatibility; read final_verification_state for their phase.
        *
        * * `scheduled` - Scheduled
        * * `due` - Due
@@ -66668,6 +66778,13 @@ export namespace Schemas {
        * * `unavailable` - Timing unavailable
        * * `expiry_reached` - Expiry reached */
       state: MonitoringCheckTimingStateEnum;
+      /** Final verification phase when state is paused. Null for other timing states. Read the check outcome for its verdict.
+       *
+       * * `monitoring` - Monitoring
+       * * `verifying` - Verifying
+       * * `assessment_required` - Assessment required
+       * * `verification_complete` - Verification complete */
+      readonly final_verification_state?: FinalVerificationStateEnum | null;
       /**
          * Original Monitoring start for this check's report.
          * @nullable
@@ -80675,6 +80792,8 @@ export namespace Schemas {
     }
 
     export interface PatchedErrorTrackingSettings {
+      /** Project preference for adaptive ingestion. Turning this on does not currently change ingestion. */
+      adaptive_ingestion_enabled?: boolean;
       /**
          * Maximum number of exception events ingested per bucket for the entire project. Null removes the limit.
          * @minimum 1
@@ -82205,7 +82324,8 @@ export namespace Schemas {
        *
        * * `loops` - Loops
        * * `broadcasts` - Broadcasts
-       * * `transactional_emails` - Transactional emails */
+       * * `transactional_emails` - Transactional emails
+       * * `transactional_email_keys` - Transactional email keys */
       readonly origin_product?: HogFlowOriginProductEnum | null;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
@@ -87590,7 +87710,8 @@ export namespace Schemas {
        * * `turn_ended_without_response` - turn_ended_without_response
        * * `subscription_usage_limit` - subscription_usage_limit
        * * `task_spend_limit` - task_spend_limit
-       * * `agent_error` - agent_error */
+       * * `agent_error` - agent_error
+       * * `ActiveSessionCapError` - ActiveSessionCapError */
       error_type?: ErrorTypeEnum | null;
     }
 
@@ -104003,7 +104124,8 @@ export namespace Schemas {
        *
        * * `loops` - Loops
        * * `broadcasts` - Broadcasts
-       * * `transactional_emails` - Transactional emails */
+       * * `transactional_emails` - Transactional emails
+       * * `transactional_email_keys` - Transactional email keys */
       readonly origin_product: HogFlowOriginProductEnum | null;
       /** User who created the workflow. */
       readonly created_by: UserBasic | null;
@@ -104057,14 +104179,38 @@ export namespace Schemas {
       to: string;
       /** Data for the template's Liquid placeholders, available as `variables`. For example `{"reset_link": "https://..."}` fills `{{ variables.reset_link }}`. */
       message_data?: SendEmailMessageData;
-      /** ID of the email template to send. The template must be made transactional first. */
-      template_id: string;
+      /** ID of the email template to send. The template must be made transactional first. Send either `template_id` or `template_key`. */
+      template_id?: string;
+      /**
+         * Names an email whose content your code rendered, such as `order-shipped`, so its metrics, logs and status group under it. Letters, numbers, hyphens (-) and underscores (_) only. Send it with `subject` and `html` or `text`. PostHog sends the content as is and never stores it as a template.
+         * @maxLength 400
+         * @pattern ^[a-zA-Z0-9_-]+$
+         */
+      template_key?: string;
       /**
          * Distinct ID of the recipient's person. The email's engagement events (sent, delivered, opened, clicked, bounced) and the send itself are recorded against that person. Defaults to the recipient's email address. The template can't read the person's properties, so pass everything it needs in `message_data`.
          * @maxLength 400
          * @nullable
          */
       distinct_id?: string | null;
+      /** Subject of the email your code rendered. */
+      subject?: string;
+      /** HTML body of the email your code rendered, at most 5 MiB as UTF-8. */
+      html?: string;
+      /** Plain text body of the email your code rendered, at most 5 MiB as UTF-8. Without it, PostHog derives the text from `html`. */
+      text?: string;
+      /**
+         * Addresses replies to the email your code rendered go to.
+         * @maxItems 10
+         */
+      reply_to?: string[];
+      /** Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A project whose admin turned engagement capture off captures nothing, whatever the send says. */
+      capture_engagement?: boolean;
+      /**
+         * Sender of the email your code rendered, as `security@example.com` or `Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from the project's default sender, or from its only verified sender when it has no default.
+         * @maxLength 1024
+         */
+      from?: string;
     }
 
     /**
@@ -112215,6 +112361,26 @@ export namespace Schemas {
       summary: TraceFeedbackSummary;
     }
 
+    export interface TraceHumanReviewScore {
+      /** The scorer's name. */
+      name: string;
+      /** The saved score as a reviewer reads it: option labels joined by commas, a number, or the scorer's yes or no label. */
+      value: string;
+      /** The scorer's name and the score together, such as `Tone: 4.5`. */
+      label: string;
+    }
+
+    export interface TraceHumanReview {
+      /** The display name of whoever last saved the review, or null when that user was removed. */
+      reviewedBy: string | null;
+      /** When the review was last saved. */
+      reviewedAt: string;
+      /** The reviewer's reasoning, if any. */
+      comment: string | null;
+      /** Ordered by scorer name. Empty when the review only marks the trace as reviewed. */
+      scores: TraceHumanReviewScore[];
+    }
+
     export interface TracePullRequest {
       /** The owner of the pull request's repository. */
       repoOwner: string;
@@ -112249,6 +112415,22 @@ export namespace Schemas {
          * @nullable
          */
       queue_id?: string | null;
+    }
+
+    export interface TraceReviewQueueAssignment {
+      /** The review queue's id. */
+      id: string;
+      /** The review queue's name. */
+      name: string;
+      /** The queue item that holds the trace, for moving or removing it. */
+      itemId: string;
+    }
+
+    export interface TraceReviewStatus {
+      /** The trace's human review, or null when it has none or the user may not see it. */
+      review: TraceHumanReview | null;
+      /** The review queue the trace waits in, or null when it waits in none the user may see. Saving a review normally takes the trace out of its queue. */
+      queue: TraceReviewQueueAssignment | null;
     }
 
     export interface TraceSearchMatch {
