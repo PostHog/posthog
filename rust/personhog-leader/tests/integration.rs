@@ -1010,10 +1010,7 @@ async fn update_produces_person_state_to_kafka() {
     .unwrap();
     consumer.assign(&tpl).unwrap();
 
-    let msg = consumer
-        .poll(Duration::from_secs(5))
-        .expect("no message received on the routing partition")
-        .expect("kafka error");
+    let msg = common::poll_record(&consumer, Duration::from_secs(5), "the routing partition");
 
     // Verify message key
     let key = std::str::from_utf8(msg.key().unwrap()).unwrap();
@@ -1171,7 +1168,7 @@ async fn kafka_produce_failure_leaves_cache_unchanged() {
 
 // ============================================================
 // Test 7: E2E - update produces to local Kafka and is consumable
-// Requires local Kafka (localhost:9092) and etcd running.
+// Requires local Kafka (127.0.0.1:9092) and etcd running.
 // ============================================================
 
 #[tokio::test]
@@ -1257,10 +1254,7 @@ async fn e2e_update_produces_to_local_kafka() {
         .unwrap();
     consumer.assign(&tpl).unwrap();
 
-    let msg = consumer
-        .poll(Duration::from_secs(10))
-        .expect("no message received from local Kafka")
-        .expect("kafka error");
+    let msg = common::poll_record(&consumer, Duration::from_secs(10), "local Kafka");
 
     let key = std::str::from_utf8(msg.key().unwrap()).unwrap();
     assert_eq!(key, "1:42");

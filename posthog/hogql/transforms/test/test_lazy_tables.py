@@ -39,6 +39,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests
 
 from posthog.models import Organization, PropertyDefinition, Team
+from posthog.schema_enums import PersonsArgMaxVersion
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
 
@@ -66,7 +67,69 @@ class TestNamespacedLazyTables(SimpleTestCase):
         actual = self._compile(query.format(table=f"posthog.{table}"))
         self.assertEqual(actual.replace(f"posthog__{table}", table), expected)
 
-    def _compile(self, query: str) -> str:
+    @parameterized.expand(
+        [
+            (name, query, HogQLQueryModifiers(personsArgMaxVersion=version))
+            for name, query in (
+                ("unused", "WITH raw_persons AS (SELECT 7 AS marker) SELECT id FROM persons"),
+                (
+                    "used",
+                    "WITH raw_persons AS (SELECT 7 AS marker) SELECT persons.id FROM persons CROSS JOIN raw_persons",
+                ),
+                (
+                    "materialized",
+                    "WITH raw_persons AS MATERIALIZED (SELECT 7 AS marker) SELECT id FROM persons",
+                ),
+                (
+                    "filter",
+                    "WITH raw_persons AS (SELECT id FROM persons) SELECT id FROM persons WHERE id IN (SELECT id FROM raw_persons)",
+                ),
+                (
+                    "promoted_filter",
+                    "WITH members AS MATERIALIZED (SELECT id FROM persons) SELECT p.id FROM persons AS p "
+                    "INNER JOIN members AS m ON p.id = m.id AND p.id IN (SELECT id FROM members)",
+                ),
+            )
+            for version in (PersonsArgMaxVersion.V1, PersonsArgMaxVersion.V2)
+        ]
+        + [
+            ("groups", "WITH raw_groups AS (SELECT 7 AS marker) SELECT key FROM groups", HogQLQueryModifiers()),
+            (
+                "identities",
+                "WITH raw_person_distinct_ids AS (SELECT 7 AS marker) SELECT person_id FROM person_distinct_ids",
+                HogQLQueryModifiers(),
+            ),
+            (
+                "cohorts",
+                "WITH raw_cohort_people AS (SELECT 7 AS marker) SELECT person_id FROM cohort_people",
+                HogQLQueryModifiers(),
+            ),
+            (
+                "logs",
+                "WITH log_entries AS (SELECT 7 AS marker) SELECT message FROM console_logs_log_entries",
+                HogQLQueryModifiers(),
+            ),
+            (
+                "replay",
+                "WITH raw_session_replay_events AS (SELECT 7 AS marker) SELECT session_id FROM session_replay_events",
+                HogQLQueryModifiers(),
+            ),
+        ]
+        + [
+            (
+                f"sessions_{version.value}",
+                "WITH raw_sessions AS (SELECT 7 AS marker) SELECT session.$session_duration FROM events",
+                HogQLQueryModifiers(sessionTableVersion=version),
+            )
+            for version in (SessionTableVersion.V1, SessionTableVersion.V2, SessionTableVersion.V3)
+        ]
+    )
+    def test_ctes_do_not_shadow_generated_backing_tables(
+        self, _name: str, query: str, modifiers: HogQLQueryModifiers
+    ) -> None:
+        self._compile(query, modifiers)
+
+    def _compile(self, query: str, modifiers: HogQLQueryModifiers | None = None) -> str:
         context = HogQLContext(
             team_id=1,
             team=Team(id=1, organization=Organization()),
@@ -74,9 +137,14 @@ class TestNamespacedLazyTables(SimpleTestCase):
             enable_select_queries=True,
             use_new_events_schema=False,
             apply_events_retention_floor=False,
+            modifiers=modifiers or HogQLQueryModifiers(),
             restricted_properties=set(),
         )
-        with patch("posthog.hogql.transforms.property_types.load_property_metadata", return_value=PropertyMetadata()):
+        with (
+            patch("posthog.hogql.transforms.property_types.load_property_metadata", return_value=PropertyMetadata()),
+            patch("products.cohorts.backend.models.cohort.Cohort.objects") as cohorts,
+        ):
+            cohorts.filter.return_value.exclude.return_value.values_list.return_value = []
             return prepare_and_print_ast(parse_select(query), context, "clickhouse")[0]
 
 

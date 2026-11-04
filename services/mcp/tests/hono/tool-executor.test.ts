@@ -17,7 +17,7 @@ import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
 import { MCPClientProfile } from '@/lib/client-detection'
-import { PostHogApiError } from '@/lib/errors'
+import { PostHogApiError, PostHogPermissionError } from '@/lib/errors'
 import { buildToolDomainsCompact } from '@/lib/instructions'
 import { CHATGPT_APP_OAUTH_CLIENT_ID } from '@/lib/oauth-constants'
 import { RENDER_UI_RESOURCE_URI, URI_MAP } from '@/resources/ui-apps.generated'
@@ -667,6 +667,12 @@ describe('ToolExecutor', () => {
             expect(properties.context!.description).toBeTruthy()
             expect(properties.llm_model!.description).toBeTruthy()
             expect(renderUiEntry.inputSchema.required).toEqual(['tool_name', 'context', 'llm_model'])
+            expect(renderUiEntry.annotations).toEqual({
+                destructiveHint: false,
+                idempotentHint: true,
+                openWorldHint: false,
+                readOnlyHint: true,
+            })
 
             const restrictedResult = await executor.handleToolsList(
                 makeToolExecutorState([], { useSingleExec: true, renderUiEnabled: true })
@@ -964,6 +970,110 @@ describe('ToolExecutor', () => {
             )) as any
 
             expect(result.content[0].text.includes('NONCANONICAL')).toBe(marked)
+        })
+    })
+
+    describe('a missing scope reported by the API', () => {
+        let getToolByNameSpy: MockInstance | undefined
+
+        afterEach(() => {
+            getToolByNameSpy?.mockRestore()
+            getToolByNameSpy = undefined
+        })
+
+        function stubToolDeniedWith(error: PostHogPermissionError): void {
+            getToolByNameSpy = vi.spyOn(catalog, 'getToolByName').mockReturnValue({
+                build() {
+                    return this.base
+                },
+                base: {
+                    schema: z.object({}),
+                    handler: async () => {
+                        throw error
+                    },
+                },
+            } as any)
+        }
+
+        // The client replays the request after re-consent, so a scope the API reports missing
+        // after the tool started must not become a step-up 403.
+        it('returns the plain tool error to a step-up token when the API reports a missing scope mid-run', async () => {
+            stubToolDeniedWith(
+                new PostHogPermissionError({
+                    detail: "API key missing required scope 'person:read'",
+                    missingScope: 'person:read',
+                    challengeScopes: ['person:read', 'cohort:read'],
+                    url: 'https://us.posthog.com/api/projects/1/persons/cohorts/',
+                    method: 'GET',
+                })
+            )
+
+            const result = (await executor.handleToolCall(
+                { name: 'mock-tool', arguments: {} },
+                makeToolExecutorState([{ name: 'mock-tool' }], { supportsStepUp: true })
+            )) as any
+
+            expect(result.isError).toBe(true)
+            expect(result.content[0].text).toContain("Missing PostHog API scope: 'person:read'")
+            expect(result._meta).toBeUndefined()
+        })
+    })
+
+    describe('a tool that needs a scope the token lacks', () => {
+        const scopeGatedTools = [
+            {
+                name: 'endpoint-create',
+                title: 'Create endpoint',
+                description: 'Create a new endpoint',
+                missingScopes: ['endpoint:write'],
+                requiredScopes: ['endpoint:write', 'query:read'],
+            },
+        ]
+        const gated = {
+            scopeGatedTools,
+            findScopeGatedTool: (name: string) => scopeGatedTools.find((tool) => tool.name === name),
+        }
+        const calls = [
+            { mode: 'tools', useSingleExec: false, params: { name: 'endpoint-create', arguments: {} } },
+            {
+                mode: 'exec',
+                useSingleExec: true,
+                params: { name: 'exec', arguments: { command: 'call endpoint-create {}' } },
+            },
+        ]
+
+        it.each(calls)('throws the step-up challenge before the tool runs in $mode mode', async (call) => {
+            const result = executor.handleToolCall(
+                call.params,
+                makeToolExecutorState([], { useSingleExec: call.useSingleExec, ...gated, supportsStepUp: true })
+            )
+
+            await expect(result).rejects.toMatchObject({
+                challenge: 'Bearer error="insufficient_scope", scope="endpoint:write query:read"',
+            })
+        })
+
+        it.each([
+            ...calls.map((call) => ({ ...call, supportsStepUp: false })),
+            {
+                mode: 'exec info',
+                useSingleExec: true,
+                params: { name: 'exec', arguments: { command: 'info endpoint-create' } },
+                supportsStepUp: true,
+            },
+        ])('returns the plain tool error in $mode mode', async (call) => {
+            const result = (await executor.handleToolCall(
+                call.params,
+                makeToolExecutorState([], {
+                    useSingleExec: call.useSingleExec,
+                    ...gated,
+                    supportsStepUp: call.supportsStepUp,
+                })
+            )) as any
+
+            expect(result.isError).toBe(true)
+            expect(result.content[0].text).toContain('missing the required scope(s): endpoint:write')
+            expect(result._meta).toBeUndefined()
         })
     })
 

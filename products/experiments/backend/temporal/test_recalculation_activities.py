@@ -12,7 +12,7 @@ import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from clickhouse_driver.errors import ServerException
@@ -21,15 +21,19 @@ from rest_framework.exceptions import ValidationError
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
+from posthog.schema import PrecomputationMode
+
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
+from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.tests.utils.asyncify import restored_asyncify_executor
 
 from products.experiments.backend.facade.enums import ExposuresPath
+from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.metric_calculation.config import get_metric_calculation_config
 from products.experiments.backend.metric_calculation.results import _recalc_fingerprint
 from products.experiments.backend.models.experiment import (
@@ -39,6 +43,7 @@ from products.experiments.backend.models.experiment import (
     ExperimentSavedMetric,
     ExperimentToSavedMetric,
 )
+from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.temporal.models import (
     CAPACITY_MAX_METRIC_ATTEMPTS,
     MAX_METRIC_ATTEMPTS,
@@ -94,10 +99,11 @@ def _calculate(
     role: str = "primary",
     is_final_attempt: bool = True,
     attempt: int = 1,
+    precomputation_mode: PrecomputationMode | None = None,
 ):
     with patch("products.experiments.backend.temporal.recalculation_logic.close_old_connections"):
         return _calculate_experiment_metric_for_recalculation_sync(
-            experiment_id, metric_uuid, recalculation_id, query_to, role, is_final_attempt, attempt
+            experiment_id, metric_uuid, recalculation_id, query_to, role, is_final_attempt, attempt, precomputation_mode
         )
 
 
@@ -209,6 +215,72 @@ class TestRecalculationActivities(BaseTest):
         assert set(recalc.metric_uuids) == expected_uuids
         assert {m.metric_uuid for m in metrics} == expected_uuids
         assert {m.role for m in metrics} == expected_roles
+
+    @parameterized.expand(
+        [
+            # name, activity queue flag, team_enabled, runtime_hours, funnel_order_type, route_check_fails, expected route
+            ("eligible", "on", True, 36, "ordered", False, "precompute-q", None),
+            ("team_disabled", "on", False, 36, "ordered", False, "activity-q", PrecomputationMode.DIRECT),
+            ("below_min_runtime", "on", True, 6, "ordered", False, "activity-q", PrecomputationMode.DIRECT),
+            ("metric_not_eligible", "on", True, 36, "unordered", False, "activity-q", PrecomputationMode.DIRECT),
+            ("route_check_fails", "on", False, 36, "ordered", True, "precompute-q", None),
+            ("flag_off", "off", True, 36, "ordered", False, None, None),
+            ("flag_check_fails", "error", True, 36, "ordered", False, None, None),
+        ]
+    )
+    @override_settings(
+        EXPERIMENTS_RECALCULATION_ACTIVITY_TASK_QUEUE="activity-q",
+        EXPERIMENTS_RECALCULATION_PRECOMPUTE_TASK_QUEUE="precompute-q",
+    )
+    @time_machine.travel("2026-04-30T12:00:00Z", tick=False)
+    def test_discover_routes_each_metric(
+        self,
+        name: str,
+        flag: str,
+        team_enabled: bool,
+        runtime_hours: int,
+        funnel_order_type: str,
+        route_check_fails: bool,
+        expected_task_queue: str | None,
+        expected_mode: PrecomputationMode | None,
+    ):
+        exp = self._experiment(flag_key=f"route-{name}")
+        exp.start_date = timezone.now() - timedelta(hours=runtime_hours)
+        exp.metrics = [
+            {
+                "uuid": "m1",
+                "kind": "ExperimentMetric",
+                "metric_type": "funnel",
+                "series": [{"kind": "EventsNode", "event": "purchase"}],
+                "funnel_order_type": funnel_order_type,
+            }
+        ]
+        exp.save()
+        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
+        config.experiment_precomputation_enabled = team_enabled
+        config.save()
+        recalc = self._recalc(exp)
+
+        with (
+            patch(
+                "products.experiments.backend.recalculation._organization_flag_enabled",
+                return_value=flag == "on",
+                side_effect=Exception("flags down") if flag == "error" else None,
+            ),
+            patch(
+                "products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner",
+                side_effect=Exception("boom") if route_check_fails else ExperimentQueryRunner,
+            ) as runner,
+            patch(
+                "products.experiments.backend.temporal.recalculation_logic.get_or_create_team_extension",
+                wraps=get_or_create_team_extension,
+            ) as config_read,
+        ):
+            metrics = _discover(str(recalc.id))
+
+        assert [(m.task_queue, m.precomputation_mode) for m in metrics] == [(expected_task_queue, expected_mode)]
+        assert runner.called is (flag == "on")
+        assert config_read.called is (flag == "on")
 
     @parameterized.expand(
         [
@@ -1077,7 +1149,8 @@ class TestCalculateActivity(BaseTest):
         row = ExperimentMetricResult.objects.get(experiment=exp, metric_uuid="m1")
         assert row.status == ExperimentMetricResult.Status.FAILED
 
-    def test_query_to_is_passed_as_as_of_to_runner(self):
+    @parameterized.expand([("auto", None), ("direct", PrecomputationMode.DIRECT)])
+    def test_run_window_and_precompute_mode_reach_the_runner(self, _name: str, mode: PrecomputationMode | None):
         # The run's shared query_to MUST be threaded into the ClickHouse query bounds via the runner's
         # as_of, not just stored on the result row. Without as_of the runner falls back to its own now(),
         # so every metric in the run queries a slightly different time window — silently violating the
@@ -1088,12 +1161,13 @@ class TestCalculateActivity(BaseTest):
 
         with _patched_runner() as mock_runner:
             mock_runner.return_value.run.return_value.model_dump.return_value = {}
-            _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
+            _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, precomputation_mode=mode)
 
         mock_runner.assert_called_once()
         kwargs = mock_runner.call_args.kwargs
         assert kwargs["as_of"] == datetime.fromisoformat(_QUERY_TO)
         assert kwargs["workload"] == Workload.OFFLINE
+        assert kwargs["query"].precomputation_mode == mode
 
     def test_query_from_matches_experiment_start_date_on_result_row(self):
         # Companion to test_query_to_is_passed_as_as_of_to_runner: the lower bound of the run's

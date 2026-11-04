@@ -2,6 +2,7 @@ import re
 from collections import defaultdict
 from collections.abc import Iterable
 from typing import Literal
+from urllib.parse import quote
 
 import tldextract
 
@@ -70,6 +71,11 @@ ADS_CAMPAIGNS_URL = "https://ads.google.com/aw/campaigns"
 ADS_KEYWORDS_URL = "https://ads.google.com/aw/keywords"
 ADS_NEGATIVE_KEYWORDS_URL = "https://ads.google.com/aw/keywords/negative"
 ADS_SEARCH_TERMS_URL = "https://ads.google.com/aw/keywords/searchterms"
+SEARCH_CONSOLE_PERFORMANCE_URL = "https://search.google.com/search-console/performance/search-analytics"
+SEARCH_CONSOLE_URL = "https://search.google.com/search-console"
+REVIEW_TERMS_SHOWN = 3
+# A non-brand campaign is up for review when its cost per conversion reaches this multiple of the non-brand average.
+REVIEW_CPA_MULTIPLE = 3
 
 
 @frozen
@@ -110,6 +116,13 @@ class OrganicQueryStats:
 
 
 @frozen
+class RankingPage:
+    query: str
+    page: str
+    impressions: float
+
+
+@frozen
 class TermKeywordStats:
     term: str
     keyword: str
@@ -126,6 +139,7 @@ class RecommendationInputs:
     currency: str | None
     days: int
     term_keywords: tuple[TermKeywordStats, ...] = ()
+    ranking_pages: tuple[RankingPage, ...] = ()
 
 
 @frozen
@@ -212,6 +226,12 @@ class _Recommender:
             current = self.top_keyword.get(keyword_row.term)
             if current is None or keyword_row.cost > current.cost:
                 self.top_keyword[keyword_row.term] = keyword_row
+        top_pages: dict[str, RankingPage] = {}
+        for page_row in inputs.ranking_pages:
+            current_page = top_pages.get(page_row.query)
+            if current_page is None or page_row.impressions > current_page.impressions:
+                top_pages[page_row.query] = page_row
+        self.ranking_page = {query: row.page for query, row in top_pages.items()}
 
     def run(self) -> list[MarketingAnalyticsRecommendation]:
         campaign_rules = sorted(self._campaign_rules(), key=lambda rec: -(rec.impact or 0))
@@ -286,7 +306,7 @@ class _Recommender:
                 nonbrand_cpa
                 and search_cost
                 and campaign.cost >= 0.05 * search_cost
-                and (cpa is None or cpa >= 3 * nonbrand_cpa)
+                and (cpa is None or cpa >= REVIEW_CPA_MULTIPLE * nonbrand_cpa)
             ):
                 recommendations.append(self._review(campaign, cpa, nonbrand_cpa))
         return recommendations
@@ -423,7 +443,74 @@ class _Recommender:
             campaign.cost * self.per_month,
             "save",
             "measured",
+            steps=self._review_steps(campaign, nonbrand_cpa),
         )
+
+    def _review_steps(self, campaign: CampaignStats, nonbrand_cpa: float) -> tuple[Step, ...]:
+        spend: dict[str, list[float]] = defaultdict(lambda: [0.0, 0.0])
+        # ADDED means the search is already a keyword and EXCLUDED means it is already a negative.
+        targeted_or_excluded: set[str] = set()
+        excluded: set[str] = set()
+        for row in self.inputs.search_terms:
+            if row.campaign_id != campaign.id or row.term in self.brand_terms:
+                continue
+            spend[row.term][0] += row.cost
+            spend[row.term][1] += row.conversions
+            if row.status not in ("NONE", ""):
+                targeted_or_excluded.add(row.term)
+            if "EXCLUDED" in row.status:
+                excluded.add(row.term)
+        competitors = self._competitor_names()
+        draining = sorted(
+            (
+                term
+                for term, (cost, conversions) in spend.items()
+                if cost >= nonbrand_cpa
+                and not conversions
+                and term not in targeted_or_excluded
+                and not self._mentions(term, competitors)
+            ),
+            key=lambda term: -spend[term][0],
+        )[:REVIEW_TERMS_SHOWN]
+        converting = sorted(
+            (
+                term
+                for term, (cost, conversions) in spend.items()
+                if conversions > 0 and cost / conversions <= nonbrand_cpa and term not in excluded
+            ),
+            key=lambda term: -spend[term][1],
+        )[:REVIEW_TERMS_SHOWN]
+        steps = [self._open_campaign(campaign.name)]
+        if draining:
+            listed = ", ".join(f'"{term}" ({self._money(spend[term][0])})' for term in draining)
+            steps.append(
+                Step(
+                    text=f"Start with the searches that spent the most without converting: {listed}. "
+                    "Open Negative keywords and add them for the campaign in exact match.",
+                    copyValue="\n".join(f"[{term}]" for term in draining),
+                    url=ADS_NEGATIVE_KEYWORDS_URL,
+                    linkText="Negative keywords",
+                )
+            )
+        if converting:
+            listed = ", ".join(
+                f'"{term}" ({self._money(spend[term][0] / spend[term][1])} per conversion)' for term in converting
+            )
+            steps.append(
+                Step(
+                    text=f"Keep the searches that convert at or below the non-brand average: {listed}. "
+                    "Check that their keywords stay active."
+                )
+            )
+        steps.append(
+            Step(
+                text=f"If its non-brand cost per conversion is still more than {REVIEW_CPA_MULTIPLE}x the non-brand "
+                "average after two weeks, pause it in Campaigns.",
+                url=ADS_CAMPAIGNS_URL,
+                linkText="Campaigns",
+            )
+        )
+        return tuple(steps)
 
     # Search term rules
 
@@ -448,16 +535,18 @@ class _Recommender:
                     MarketingAnalyticsRecommendationRule.CONTENT_GAP,
                     term,
                     "Create or improve a page for this search",
-                    f"Converts in Ads at a CPA of {self._money(term.cost / term.conversions)} "
-                    f"(account {self._money(cpa)}), but "
+                    f"You pay {self._money(term.cost * self.per_month)}/mo in Ads for this search, which converts "
+                    f"at a CPA of {self._money(term.cost / term.conversions)} (account {self._money(cpa)}). "
                     + (
-                        f"ranks #{term.organic.position:.1f} organically"
+                        f"It ranks #{term.organic.position:.1f} organically, so moving that page into the top 3 "
                         if term.organic
-                        else "does not rank organically"
-                    ),
+                        else "It does not rank organically, so a new page in the top 3 "
+                    )
+                    + "could bring these visitors without ad spend.",
                     term.conversions * cpa,
                     "gain",
                     "measured",
+                    steps=self._content_gap_steps(term),
                 )
                 for term in terms
                 if term.term not in self.brand_terms
@@ -500,6 +589,7 @@ class _Recommender:
                     max(term.organic.impressions * TOP3_CTR - term.organic.clicks, 0) * term.cost / term.clicks,
                     "gain",
                     "estimated",
+                    steps=self._improve_page_steps(term.term),
                 )
                 for term in terms
                 if term.organic
@@ -864,6 +954,60 @@ class _Recommender:
             url=ADS_CAMPAIGNS_URL,
             linkText="Campaigns",
         )
+
+    def _content_gap_steps(self, term: _Term) -> tuple[Step, ...]:
+        keep_ad = Step(text="Keep the ad running until the page reaches the top 3, then test pausing it.")
+        if term.organic:
+            return (*self._improve_page_steps(term.term), keep_ad)
+        return (
+            Step(
+                text="Create a page that answers this search. Use the search in the page title and main heading.",
+                copyValue=term.term,
+            ),
+            self._internal_links_step(),
+            Step(
+                text="In Search Console, use URL inspection to request indexing of the new page.",
+                url=self._search_console_url(SEARCH_CONSOLE_URL),
+                linkText="Search Console",
+            ),
+            keep_ad,
+        )
+
+    def _improve_page_steps(self, query: str) -> tuple[Step, ...]:
+        page = self.ranking_page.get(query)
+        find_page = (
+            Step(text="Open the page that ranks for this search.", copyValue=page, url=page, linkText="page")
+            if page
+            else Step(
+                text="In Search Console, open Performance, filter by this search and check the Pages tab to find "
+                "the page that ranks.",
+                copyValue=query,
+                url=self._search_console_url(SEARCH_CONSOLE_PERFORMANCE_URL),
+                linkText="Performance",
+            )
+        )
+        return (
+            find_page,
+            Step(
+                text="Use the search in the page title and main heading, and answer it near the top of the page.",
+                copyValue=query,
+            ),
+            self._internal_links_step(),
+            Step(
+                text="In Search Console, use URL inspection to request indexing of the updated page.",
+                url=self._search_console_url(SEARCH_CONSOLE_URL),
+                linkText="Search Console",
+            ),
+        )
+
+    def _search_console_url(self, url: str) -> str:
+        # With several properties the right one is unknown, so Search Console opens its property picker.
+        sites = set(self.inputs.site_urls)
+        return f"{url}?resource_id={quote(sites.pop(), safe='')}" if len(sites) == 1 else url
+
+    @staticmethod
+    def _internal_links_step() -> Step:
+        return Step(text="Link to the page from related pages on your site, using the search as the link text.")
 
     def _term_recommendation(
         self,
