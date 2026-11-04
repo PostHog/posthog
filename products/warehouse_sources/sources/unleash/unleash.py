@@ -1,6 +1,5 @@
 import re
 import dataclasses
-from collections.abc import Iterator
 from typing import Any, Optional
 from urllib.parse import urlparse
 
@@ -9,6 +8,7 @@ import requests
 from products.warehouse_sources.sources.sdk import (
     Endpoint,
     OffsetPaginator,
+    Resource,
     RESTAPIConfig,
     ResumableSourceManager,
     SinglePagePaginator,
@@ -170,16 +170,15 @@ def unleash_source(
             initial_paginator_state = {"offset": resume.offset}
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
-        # Persist only when a next page remains; save AFTER a page is yielded so a crash re-yields
-        # the last page (merge dedupes) rather than skipping it.
+        # Persist only when a next page remains. The framework stages it with the page it covers.
         if state and state.get("offset") is not None:
             resumable_source_manager.save_state(UnleashResumeConfig(offset=int(state["offset"])))
 
-    def items() -> Iterator[list[dict[str, Any]]]:
+    def items() -> Resource:
         # Re-check at run time (not just at source-create) in case the instance URL was edited or
         # now resolves to an internal address (SSRF / DNS rebinding). Only enforced on cloud.
         _check_host(instance_url, team_id)
-        resource = rest_api_resource(
+        return rest_api_resource(
             rest_config,
             team_id,
             job_id,
@@ -187,10 +186,6 @@ def unleash_source(
             resume_hook=save_checkpoint if config.paginated else None,
             initial_paginator_state=initial_paginator_state,
         )
-        for batch in resource:
-            # An empty collection/page must not push an empty batch into the pipeline.
-            if batch:
-                yield batch
 
     return SourceResponse(
         name=endpoint,

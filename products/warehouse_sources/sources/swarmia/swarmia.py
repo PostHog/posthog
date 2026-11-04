@@ -28,10 +28,10 @@ class SwarmiaRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass(frozen=False)
+@dataclasses.dataclass(frozen=True)
 class SwarmiaResumeConfig:
-    # ISO date (YYYY-MM-DD) of the start of the next window to fetch. Saved after each window's rows
-    # are yielded, so a crash resumes at the first window whose rows may not have been committed.
+    # ISO date (YYYY-MM-DD) of the start of the next window to fetch. Staged before each window's rows
+    # are yielded, so the pipeline commits it together with those rows.
     next_window_start: str
 
 
@@ -377,14 +377,14 @@ def get_rows(
         params = _window_params(config, window_start, window_end)
         raw_rows = _fetch_csv(session, config.path, params, headers, logger)
         rows = _rows_from_csv(config, raw_rows)
-        if rows:
-            yield rows
-        # Save AFTER yielding so a crash re-fetches (and merge dedupes) the last window rather than
-        # skipping it.
         if index + 1 < len(windows):
             resumable_source_manager.save_state(
                 SwarmiaResumeConfig(next_window_start=windows[index + 1][0].isoformat())
             )
+        if rows:
+            yield rows
+        else:
+            resumable_source_manager.safe_point()
 
 
 def swarmia_source(

@@ -20,9 +20,9 @@ import pydantic
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries, tags_context
 from posthog.cloud_utils import is_cloud
+from posthog.constants import GroupTypeIndex
 from posthog.helpers.session_recording_playlist_templates import DEFAULT_PLAYLISTS
 from posthog.migration_helpers import deprecate_field
-from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.project_secret_api_key import (

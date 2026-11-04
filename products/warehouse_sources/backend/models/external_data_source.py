@@ -6,6 +6,7 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
@@ -347,9 +348,14 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         # Lazy import to avoid circular: SourceRegistry → helpers.py → this module.
         from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 
-        source = SourceRegistry.get_source(ExternalDataSourceType(self.source_type))
-        source.cleanup_cdc_resources_on_deletion(self)
-        source.on_source_deleted(self)
+        # A plugin vendor that no longer imports has no hooks to run, and its row must still delete.
+        try:
+            source = SourceRegistry.get_source(self.source_type)
+        except ValueError as e:
+            capture_exception(e, {"source_id": str(self.id), "team_id": self.team_id})
+        else:
+            source.cleanup_cdc_resources_on_deletion(self)
+            source.on_source_deleted(self)
 
     def reload_schemas(self):
         # temporalio at module scope would put the Temporal client on the django.setup() path —

@@ -9,6 +9,7 @@ from products.warehouse_sources.sources.pretix.pretix import (
     validate_credentials as validate_pretix_credentials,
 )
 from products.warehouse_sources.sources.pretix.settings import (
+    APPEND_ENDPOINTS,
     ENDPOINTS,
     INCREMENTAL_ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -125,7 +126,7 @@ Self-hosted users should set the API URL to their own pretix host (for example `
             SourceSchema(
                 name=endpoint,
                 supports_incremental=endpoint in INCREMENTAL_ENDPOINTS,
-                supports_append=endpoint in INCREMENTAL_ENDPOINTS,
+                supports_append=endpoint in APPEND_ENDPOINTS,
                 incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
             )
             for endpoint in ENDPOINTS

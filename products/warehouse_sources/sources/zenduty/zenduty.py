@@ -119,9 +119,16 @@ def _with_team_id(row: dict[str, Any], team_id: str) -> dict[str, Any]:
 
 
 def _list_team_ids(
-    session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger, page_size: int
+    session: requests.Session,
+    headers: dict[str, str],
+    logger: FilteringBoundLogger,
+    page_size: int,
+    resumable_source_manager: ResumableSourceManager[ZendutyResumeConfig],
 ) -> list[str]:
-    """Enumerate every team's `unique_id` — the parents fan-out endpoints iterate over."""
+    """Enumerate every team's `unique_id` — the parents fan-out endpoints iterate over.
+
+    No rows are held while it runs, so each page is a safe point.
+    """
     url: str | None = _initial_url(ZENDUTY_ENDPOINTS["teams"].path, page_size)
     team_ids: list[str] = []
     while url:
@@ -131,6 +138,7 @@ def _list_team_ids(
             unique_id = row.get("unique_id")
             if isinstance(unique_id, str) and unique_id:
                 team_ids.append(unique_id)
+        resumable_source_manager.safe_point()
         url = _ensure_zenduty_url(next_url) if next_url else None
     return team_ids
 
@@ -156,6 +164,7 @@ def _paginate_top_level(
         # dedupes on the primary key. Advance the URL before the next fetch to avoid re-looping it.
         # Validate before saving so an off-origin URL never lands in the resume checkpoint.
         resumable_source_manager.save_state(ZendutyResumeConfig(next_url=_ensure_zenduty_url(next_url)))
+        resumable_source_manager.safe_point()
         url = next_url
 
 
@@ -168,7 +177,7 @@ def _paginate_fan_out(
     resume: ZendutyResumeConfig | None,
     page_size: int,
 ) -> Iterator[list[dict[str, Any]]]:
-    team_ids = _list_team_ids(session, headers, logger, page_size)
+    team_ids = _list_team_ids(session, headers, logger, page_size, resumable_source_manager)
     if not team_ids:
         return
 
@@ -194,12 +203,14 @@ def _paginate_fan_out(
                 resumable_source_manager.save_state(
                     ZendutyResumeConfig(next_url=_ensure_zenduty_url(next_url), team_id=team_id)
                 )
+                resumable_source_manager.safe_point()
                 url = next_url
                 continue
             # Team done — checkpoint at the next team's start so a resume skips completed teams
             # instead of re-walking them.
             if idx + 1 < len(team_ids):
                 resumable_source_manager.save_state(ZendutyResumeConfig(next_url=None, team_id=team_ids[idx + 1]))
+            resumable_source_manager.safe_point()
             break
 
 

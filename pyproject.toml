@@ -39,7 +39,7 @@ dependencies = [
     "dagster-webserver==1.12.11",
     "deltalake[pyarrow]==1.6.1",
     "dj-database-url~=3.1.2",
-    "django~=6.1.0",
+    "django~=6.1.3",
     "django-axes[ipware]==8.3.1",
     "django-cors-headers~=4.9.0",
     "django-extensions~=4.1.0",
@@ -104,12 +104,12 @@ dependencies = [
     "paramiko~=3.5.0",
     "pillow==12.3.0",
     "protobuf~=6.31.1",
-    "posthoganalytics==7.82.2",
+    "posthoganalytics==7.83.1",
     "polars==1.37.1",
     "psycopg2-binary==2.9.11",
     "psycopg[binary]==3.2.10",
     "pyarrow==23.0.1",
-    "pydantic~=2.12.0",
+    "pydantic~=2.14.2",
     "pypdf==6.10.2",
     "pyod==2.0.7",
     "pyjwt~=2.12.1",
@@ -221,6 +221,7 @@ dependencies = [
     "posthog-hogland==0.4.1",
     "requests-oauthlib~=2.0.0",
     "adlfs~=2026.8.0",
+    "sqlglot==30.25.0",
 ]
 
 [dependency-groups]
@@ -326,7 +327,7 @@ proto-codegen = [
 required-version = ">=0.13.4"
 add-bounds = "major"
 exclude-newer = "7 days"
-exclude-newer-package = { brotli = false, certifi = false, hogql-parser = false, hogql-parser-rs = false, deltalite = false, posthoganalytics = false, pixelhog = false, django = false, modal = false, posthog-hogland = false, google-ads = false, grpcio = false }
+exclude-newer-package = { brotli = false, certifi = false, hogql-parser = false, hogql-parser-rs = false, deltalite = false, posthoganalytics = false, pixelhog = false, django = false, modal = false, pydantic = false, pydantic-core = false, posthog-hogland = false, google-ads = false, grpcio = false }
 # posthoganalytics 8 removes legacy capture. The SDK release bot rewrites the
 # dependency spec on every release, so this constraint is what stops a new major from
 # landing by accident. Lift it in the migration PR that moves the call sites.
@@ -518,6 +519,10 @@ python_version = "3.14"
 
 [tool.mypy]
 python_version = "3.14"
+# CI runs in parallel mode, which forces the native parser. Setting it here keeps sequential
+# runs (local mypy, dmypy, reports) on the same parser as CI. Do not set num_workers here:
+# parallel mode breaks dmypy and report flags, so CI sets MYPY_NUM_WORKERS instead.
+native_parser = true
 plugins = [
     "mypy_django_plugin.main",
     "mypy_drf_plugin.main",
@@ -627,7 +632,21 @@ ignore_imports = [
     "products.warehouse_sources.sources.sdk -> products.**",
     "products.warehouse_sources.sources.sdk.** -> posthog",
     "products.warehouse_sources.sources.sdk.** -> products.**",
+    "products.warehouse_sources.sources.sdk.testing -> common",
     "products.warehouse_sources.sources.conftest -> products.**",
+]
+
+# Vendors do not import each other, in code or in tests. tach covers vendor code only, and the
+# contract above ignores imports inside the shared package. Independence expands the wildcard to
+# one module per vendor, so a vendor that imports a sibling fails here. Imports of the SDK are
+# allowed, and so are imports inside one vendor.
+[[tool.importlinter.contracts]]
+name = "sources vendors do not import each other"
+type = "independence"
+modules = ["products.warehouse_sources.sources.*"]
+ignore_imports = [
+    "products.warehouse_sources.sources.** -> products.warehouse_sources.sources.sdk",
+    "products.warehouse_sources.sources.** -> products.warehouse_sources.sources.sdk.**",
 ]
 
 # Presentation must only reach product internals through the facade.

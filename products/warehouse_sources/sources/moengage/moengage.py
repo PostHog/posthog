@@ -325,6 +325,7 @@ def _iter_report_days(
     days: list[date],
     save_checkpoint: Callable[[date], None],
     clear_checkpoint: Callable[[], None],
+    safe_point: Callable[[], None],
 ) -> Iterator[list[dict[str, Any]]]:
     """Yield every day's pages in ascending day order, checkpointing once a day is fully yielded.
 
@@ -335,6 +336,8 @@ def _iter_report_days(
         yield from build_resource(day)
         if index + 1 < len(days):
             save_checkpoint(days[index + 1])
+        # Most days hold no stats, so a backfill can make many requests without a yield.
+        safe_point()
 
     # The walk finished: leaving the last checkpoint would make a later attempt resume mid-stream.
     clear_checkpoint()
@@ -565,7 +568,12 @@ def moengage_source(
             resumable_source_manager.save_state(MoEngageResumeConfig(report_day_state={"start": next_day.isoformat()}))
 
         items = partial(
-            _iter_report_days, build_day_resource, days, save_day_checkpoint, resumable_source_manager.clear_state
+            _iter_report_days,
+            build_day_resource,
+            days,
+            save_day_checkpoint,
+            resumable_source_manager.clear_state,
+            resumable_source_manager.safe_point,
         )
 
     return SourceResponse(

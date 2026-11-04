@@ -135,3 +135,20 @@ def test_sync_token_failure_shows_the_message_for_its_error_code(error_code: str
     ]
 
     assert friendly[0] == expected
+
+
+def test_edition_dependent_modules_do_not_sync_by_default() -> None:
+    # Each of these only exists on some Zoho CRM editions (Inventory), so Zoho answers
+    # INVALID_MODULE for an org that never enabled it. A default-synced module fails every first
+    # sync for such an org instead of just sitting unticked.
+    for name in (
+        "Vendors",
+        "Price_Books",
+        "Quotes",
+        "Sales_Orders",
+        "Purchase_Orders",
+        "Invoices",
+        "Cases",
+        "Solutions",
+    ):
+        assert ZOHO_CRM_ENDPOINTS[name].should_sync_default is False

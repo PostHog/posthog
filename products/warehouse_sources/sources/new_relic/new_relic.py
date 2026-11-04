@@ -373,6 +373,7 @@ def _get_event_rows(
         # rows a re-yield can append.
         if window_end_ms < until_ms:
             resumable_source_manager.save_state(NewRelicResumeConfig(window_start_ms=window_end_ms))
+        resumable_source_manager.safe_point()
 
         window_start_ms = window_end_ms
 

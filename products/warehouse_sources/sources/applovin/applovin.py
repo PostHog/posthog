@@ -234,27 +234,31 @@ def get_rows(
 
         while True:
             rows = _fetch_page(session, config, api_key, start, window_end, offset, logger)
-            if rows:
-                yield rows
-
             # A short page means the window is exhausted: AppLovin returns an empty set once
             # `offset` passes the total row count.
-            if len(rows) < REPORT_PAGE_SIZE:
-                break
+            window_done = len(rows) < REPORT_PAGE_SIZE
+            if window_done:
+                next_start = window_end + timedelta(days=1)
+                if next_start <= today:
+                    resumable_source_manager.save_state(
+                        AppLovinResumeConfig(next_window_start=next_start.isoformat(), next_offset=0)
+                    )
+            else:
+                offset += REPORT_PAGE_SIZE
+                resumable_source_manager.save_state(
+                    AppLovinResumeConfig(next_window_start=start.isoformat(), next_offset=offset)
+                )
 
-            offset += REPORT_PAGE_SIZE
-            # Saved after yielding so a crash re-yields the in-flight page instead of skipping
-            # it (the merge dedupes on the dimension primary key).
-            resumable_source_manager.save_state(
-                AppLovinResumeConfig(next_window_start=start.isoformat(), next_offset=offset)
-            )
+            if rows:
+                yield rows
+            else:
+                resumable_source_manager.safe_point()
+
+            if window_done:
+                break
 
         start = window_end + timedelta(days=1)
         offset = 0
-        if start <= today:
-            resumable_source_manager.save_state(
-                AppLovinResumeConfig(next_window_start=start.isoformat(), next_offset=0)
-            )
 
     # The whole window is walked, so drop the checkpoint rather than leaving a later attempt to
     # resume from the final report window.

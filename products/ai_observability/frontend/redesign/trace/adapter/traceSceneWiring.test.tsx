@@ -1,11 +1,14 @@
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { performQuery } from '~/queries/query'
 import { initKeaTests } from '~/test/init'
@@ -31,6 +34,7 @@ import {
 const FLAG = FEATURE_FLAGS.AI_OBSERVABILITY_TRACE_REDESIGN
 const DATASETS_FLAG = FEATURE_FLAGS.LLM_ANALYTICS_DATASETS
 const ENGINEERING_ANALYTICS_FLAG = FEATURE_FLAGS.ENGINEERING_ANALYTICS
+const TRACE_NAVIGATION_FLAG = FEATURE_FLAGS.LLM_ANALYTICS_TRACE_NAVIGATION
 
 jest.mock('~/queries/query', () => ({ ...jest.requireActual('~/queries/query'), performQuery: jest.fn() }))
 jest.mock('../../../utils', () => ({
@@ -87,7 +91,10 @@ const generation = makeEvent({
     },
 })
 
-function renderNewView(flags: Record<string, boolean> = {}): ReturnType<typeof render> {
+function renderNewView(
+    flags: Record<string, boolean> = {},
+    params: Record<string, string> = {}
+): ReturnType<typeof render> {
     initKeaTests()
     featureFlagLogic.mount()
     featureFlagLogic.actions.setFeatureFlags(
@@ -98,7 +105,7 @@ function renderNewView(flags: Record<string, boolean> = {}): ReturnType<typeof r
     jest.mocked(performQuery).mockReset()
     jest.mocked(performQuery).mockResolvedValue({ results: [] })
     aiObservabilityTraceLogic.mount()
-    router.actions.push(urls.aiObservabilityTrace('trace-1'))
+    router.actions.push(urls.aiObservabilityTrace('trace-1', params))
     return render(<TraceScene />)
 }
 
@@ -107,7 +114,10 @@ describe('TraceScene', () => {
         clusters = []
     })
 
-    afterEach(cleanup)
+    afterEach(() => {
+        cleanup()
+        resumeKeaLoadersErrors()
+    })
 
     describe('the new view', () => {
         beforeEach(() => {
@@ -124,12 +134,128 @@ describe('TraceScene', () => {
             })
         })
 
-        it('opens on the default node without the legacy trace query', async () => {
-            const { findAllByText, findByText } = renderNewView()
+        it('opens on the default node without the legacy trace or neighbours queries', async () => {
+            const apiQuery = jest.spyOn(api, 'query').mockResolvedValue({ results: [] })
+            const { findAllByText, findByText } = renderNewView({ [TRACE_NAVIGATION_FLAG]: true })
 
             expect((await findAllByText('answer-billing-question')).length).toBeGreaterThan(0)
             expect(await findByText('Two seats were added.')).toBeTruthy()
+            await expectLogic(aiObservabilityTraceLogic).toFinishAllListeners()
             expect(jest.mocked(performQuery).mock.calls.some(([query]) => query.kind === 'TraceQuery')).toBe(false)
+            expect(apiQuery.mock.calls.some(([query]) => query.kind === 'TraceNeighborsQuery')).toBe(false)
+            apiQuery.mockRestore()
+        })
+
+        it('starts another trace with an empty search, its own timestamp and Spans', async () => {
+            const timestampHints: Record<string, string | null> = {}
+            useMocks({
+                get: {
+                    [TRACE_URL]: ({ params, request }) => {
+                        const traceId = decodeIdSegment(String(params.id))
+                        timestampHints[traceId] = new URL(request.url).searchParams.get('timestamp_hint')
+                        return [
+                            200,
+                            makeTraceResource({
+                                defaultNodeId: 'gen-2',
+                                name: traceId === 'trace-2' ? 'answer-refund-question' : 'answer-billing-question',
+                            }),
+                        ]
+                    },
+                },
+            })
+            const { container, findAllByText, findByText } = renderNewView({}, { search: 'invoice' })
+            const treeRow = (): Element | null => container.querySelector('[data-attr="trace-view-tree-node"]')
+            const searchInput = (): HTMLInputElement | null =>
+                container.querySelector<HTMLInputElement>('input[data-attr="trace-view-search-input"]')
+
+            fireEvent.click(await findByText('Thread'))
+            await waitFor(() => expect(treeRow()).toBeNull())
+            expect(searchInput()?.value).toBe('invoice')
+
+            router.actions.push(urls.aiObservabilityTrace('trace-2', { timestamp: '2026-09-02T08:00:00Z' }))
+
+            expect((await findAllByText('answer-refund-question')).length).toBeGreaterThan(0)
+            expect(timestampHints['trace-2']).toBe('2026-09-02T08:00:00Z')
+            expect(searchInput()?.value).toBe('')
+            expect(treeRow()).not.toBeNull()
+        })
+
+        it.each([
+            [
+                'the header',
+                200,
+                (view: ReturnType<typeof render>): Promise<HTMLElement> =>
+                    view.findByLabelText('Back to generations', { selector: '[data-attr="trace-view-back"]' }),
+            ],
+            [
+                'the error screen',
+                500,
+                (view: ReturnType<typeof render>): Promise<HTMLElement> => view.findByText('Back to generations'),
+            ],
+        ])('links back to the list the trace came from on %s', async (_name, status, findBackLink) => {
+            silenceKeaLoadersErrors()
+            useMocks({
+                get: {
+                    [TRACE_URL]: () =>
+                        status === 200 ? [200, makeTraceResource()] : [status, { detail: 'Server error.' }],
+                },
+            })
+
+            const link = (await findBackLink(renderNewView({}, { back_to: 'generations' }))).closest('a')
+
+            expect(link?.getAttribute('href')?.endsWith(urls.aiObservabilityGenerations())).toBe(true)
+        })
+
+        it('selects the step named in the URL', async () => {
+            const { container } = renderNewView({}, { event: 'span-1' })
+
+            await waitFor(() =>
+                expect(
+                    container.querySelector('[data-attr="trace-view-tree-node"][aria-current="true"]')?.textContent
+                ).toContain('span-1')
+            )
+        })
+
+        it('opens Summary from a tab=summary link', async () => {
+            useMocks({
+                get: {
+                    [SUMMARY_URL]: () => [
+                        200,
+                        {
+                            status: 'ready',
+                            content: {
+                                title: 'Invoice question answered',
+                                bullets: [{ text: 'Context is retrieved first.', nodeId: 'span-1' }],
+                                notes: [],
+                                flow: 'retrieve → answer',
+                                model: 'gpt-4.1-mini',
+                                generatedAt: '2026-09-01T10:20:00Z',
+                            },
+                            failure: null,
+                        },
+                    ],
+                },
+            })
+            const { findByText } = renderNewView({}, { tab: 'summary' })
+
+            expect(await findByText('Context is retrieved first.')).toBeTruthy()
+        })
+
+        it('seeds the search box from the URL', async () => {
+            const { container, findByText } = renderNewView({}, { search: 'invoice' })
+
+            expect(await findByText('1 match')).toBeTruthy()
+            expect(container.querySelector<HTMLInputElement>('input[data-attr="trace-view-search-input"]')?.value).toBe(
+                'invoice'
+            )
+        })
+
+        it('writes a clicked step to the URL', async () => {
+            const { findByText } = renderNewView()
+
+            fireEvent.click(await findByText('span-1'))
+
+            await waitFor(() => expect(router.values.searchParams.event).toBe('span-1'))
         })
 
         it('starts reading a step when the pointer rests on its row', async () => {
@@ -418,20 +544,14 @@ describe('TraceScene', () => {
             return render(<TraceRoute />)
         }
 
-        it('switches to the old view and back when the flag is on', async () => {
-            const { findByText } = await renderTraceRoute(true)
+        it.each([
+            ['new', true, '[data-attr="trace-view-tree-node"]', '.AIObservabilityTraceScene__wrapper'],
+            ['old', false, '.AIObservabilityTraceScene__wrapper', '[data-attr="trace-view-tree-node"]'],
+        ])('renders only the %s view when the flag is %s', async (_view, flagEnabled, shown, hidden) => {
+            const { container } = await renderTraceRoute(flagEnabled)
 
-            fireEvent.click(await findByText('Switch to the old view'))
-            fireEvent.click(await findByText('Switch to the new view'))
-
-            expect(await findByText('Switch to the old view')).toBeTruthy()
-        })
-
-        it('offers no switch on the old view when the flag is off', async () => {
-            const { container, queryByText } = await renderTraceRoute(false)
-
-            await waitFor(() => expect(container.querySelector('.AIObservabilityTraceScene__wrapper')).not.toBeNull())
-            expect(queryByText('Switch to the new view')).toBeNull()
+            await waitFor(() => expect(container.querySelector(shown)).not.toBeNull())
+            expect(container.querySelector(hidden)).toBeNull()
         })
     })
 })

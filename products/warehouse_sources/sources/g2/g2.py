@@ -138,6 +138,10 @@ def get_rows(
                 if next_url:
                     resumable_source_manager.save_state(G2ResumeConfig(next_url=next_url))
 
+        # The batcher spans pages, so only a drained batcher leaves no row behind the staged cursor.
+        if not batcher.should_yield(include_incomplete_chunk=True):
+            resumable_source_manager.safe_point()
+
         if not next_url:
             break
         url = next_url

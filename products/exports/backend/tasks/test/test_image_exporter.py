@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 from typing import Any
 from urllib.parse import parse_qs, urlparse
@@ -292,9 +293,17 @@ class TestImageExporter(APIBaseTest):
                 f"Call {i + 1} has unexpected insight {called_insight.id}"
             )
 
+    @parameterized.expand(
+        [
+            ("plain_key", "test_cache_key_123"),
+            ("key_with_backslash", "cache_[{'regex': '/project/\\\\d+'}]"),
+        ]
+    )
     @patch("products.exports.backend.tasks.image_exporter.calculate_for_query_based_insight")
     def test_export_captures_cache_keys_and_passes_to_url(
         self,
+        _name: str,
+        cache_key: str,
         mock_calculate: Any,
         mock_remove: Any,
         mock_open: Any,
@@ -312,7 +321,7 @@ class TestImageExporter(APIBaseTest):
             insight=insight,
         )
 
-        mock_calculate.return_value = make_insight_result("test_cache_key_123")
+        mock_calculate.return_value = make_insight_result(cache_key)
 
         with self.settings(OBJECT_STORAGE_ENABLED=False):
             image_exporter.export_image(exported_asset)
@@ -323,11 +332,20 @@ class TestImageExporter(APIBaseTest):
         url_to_render = call_args[0][1]  # Second positional arg is the URL
 
         assert "cache_keys=" in url_to_render, f"URL should contain cache_keys parameter: {url_to_render}"
-        assert "test_cache_key_123" in url_to_render, f"URL should contain the cache key: {url_to_render}"
+        exported_cache_keys = json.loads(parse_qs(urlparse(url_to_render).query)["cache_keys"][0])
+        assert exported_cache_keys == {str(insight.id): cache_key}
 
+    @parameterized.expand(
+        [
+            ("plain_keys", ""),
+            ("keys_with_backslash", "\\d+"),
+        ]
+    )
     @patch("products.exports.backend.tasks.image_exporter.calculate_for_query_based_insight")
     def test_dashboard_export_captures_all_cache_keys(
         self,
+        _name: str,
+        cache_key_suffix: str,
         mock_calculate: Any,
         mock_remove: Any,
         mock_open: Any,
@@ -353,7 +371,7 @@ class TestImageExporter(APIBaseTest):
         )
 
         def mock_calc(insight: Any, **kwargs: Any) -> InsightResult:
-            return make_insight_result(f"cache_key_for_insight_{insight.id}")
+            return make_insight_result(f"cache_key_for_insight_{insight.id}{cache_key_suffix}")
 
         mock_calculate.side_effect = mock_calc
 
@@ -364,11 +382,10 @@ class TestImageExporter(APIBaseTest):
         assert mock_screenshot_asset.called
         url_to_render = mock_screenshot_asset.call_args[0][1]
 
-        # URL should contain cache_keys for all insights
-        for insight in insights:
-            assert f"cache_key_for_insight_{insight.id}" in url_to_render, (
-                f"URL should contain cache key for insight {insight.id}"
-            )
+        exported_cache_keys = json.loads(parse_qs(urlparse(url_to_render).query)["cache_keys"][0])
+        assert exported_cache_keys == {
+            str(insight.id): f"cache_key_for_insight_{insight.id}{cache_key_suffix}" for insight in insights
+        }
 
     @patch("products.exports.backend.tasks.image_exporter._screenshot_asset_browserless")
     @patch("products.exports.backend.tasks.image_exporter.open", new_callable=mock_open, read_data=b"image_data")

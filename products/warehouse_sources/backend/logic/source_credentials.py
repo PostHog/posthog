@@ -12,7 +12,8 @@ only marked rows of the kind and auth type.
 
 Several sources (and later other products) can use one row. An edit of a shared row needs a
 confirmation, and an edit that changes where the credentials connect makes a new row. The store
-never deletes a row: a row that nothing uses stays in the integrations list.
+never deletes a row that a source used: a row that nothing uses stays in the integrations list. The
+one exception is `discard`, for the row of a source whose create did not finish.
 
 No method returns a queryset or a model, so a later credentials service can sit behind the same
 methods without a change to the callers.
@@ -31,6 +32,7 @@ from posthog.helpers.encrypted_fields import FERNET_TOKEN_PREFIX, EncryptedJSONF
 from posthog.integrations import (
     SOURCE_MARKER_CONFIG_KEY,
     AuthAccessor,
+    IntegrationInUse,
     IntegrationNotFound,
     IntegrationReference,
     IntegrationUsage,
@@ -214,6 +216,23 @@ class WarehouseSourceCredentialsStore:
             return _other_usages(rows, source, pk)
         except IntegrationNotFound:
             return []
+
+    @staticmethod
+    def discard(source: ExternalDataSource) -> bool:
+        """Delete the row of a source whose create did not finish. Returns True when it deleted the row.
+
+        Call it after the source row is gone. The row stays when another object uses it. The row of an
+        OAuth source is out of scope, so it always stays.
+        """
+        pk = _pk(source)
+        rows = _accessor_or_none(source)
+        if pk is None or rows is None:
+            return False
+        try:
+            rows.delete(source.team_id, pk)
+        except (IntegrationNotFound, IntegrationInUse):
+            return False
+        return True
 
     @staticmethod
     async def aget(source: ExternalDataSource) -> dict[str, Any] | None:

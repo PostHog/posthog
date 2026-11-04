@@ -17,6 +17,7 @@ from posthog.sync import database_sync_to_async_pool
 
 from products.warehouse_sources.backend.facade.contracts import SharedCredentialsEdit, UnreadableSourceInputsError
 from products.warehouse_sources.backend.logic.credential_auth_types import has_typed_in_credentials
+from products.warehouse_sources.backend.logic.source_credentials import WarehouseSourceCredentialsStore
 from products.warehouse_sources.backend.logic.source_credentials_rollout import (
     assign_credentials_reference,
     preload_connection_fields,
@@ -24,7 +25,7 @@ from products.warehouse_sources.backend.logic.source_credentials_rollout import 
     read_connection_fields_many,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.types import source_key
 
 if TYPE_CHECKING:
     from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_input_classification import (
@@ -170,6 +171,17 @@ class SourceInputsStore:
         return source
 
     @staticmethod
+    def discard_created(source: ExternalDataSource) -> None:
+        """Delete a source that `create` made when a later step of the same create fails.
+
+        One transaction deletes the source and its credentials row. The row stays when another object
+        uses it. Do not use this for a source that was in use: the store keeps the credentials rows of those.
+        """
+        with transaction.atomic():
+            source.delete()
+            WarehouseSourceCredentialsStore.discard(source)
+
+    @staticmethod
     def update_runtime(
         source: ExternalDataSource,
         updates: Mapping[str, Any] | None = None,
@@ -262,7 +274,7 @@ def _split(source_type: str, inputs: Mapping[str, Any]) -> "SplitJobInputs":
         split_job_inputs,
     )
 
-    return split_job_inputs(ExternalDataSourceType(source_type), inputs)
+    return split_job_inputs(source_key(source_type), inputs)
 
 
 def _has_runtime_prefix(key: str) -> bool:

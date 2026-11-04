@@ -45,6 +45,13 @@ class TestLangfuseSource:
         )
         assert any(pattern in observed_error for pattern in self.source.get_retryable_errors())
 
+    def test_exhausted_chunked_transfer_error_is_classified_retryable(self):
+        # Matches the message requests raises when a chunked body breaks mid-transfer and
+        # get_rows's tenacity retry exhausts its budget — keeps this transient, self-recovering
+        # failure out of error tracking instead of reaching `logger.aexception`.
+        observed_error = "Connection broken: IncompleteRead(20474 bytes read, 12278 more expected)"
+        assert any(pattern in observed_error for pattern in self.source.get_retryable_errors())
+
     @pytest.mark.parametrize(
         "api_version, expected",
         [

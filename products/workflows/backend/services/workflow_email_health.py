@@ -420,10 +420,6 @@ def pause_workflow_email_sending(
         # A pause landing inside the repeat window of the previous resume is staff-resumable only,
         # and its email must not point the customer at a resume button that will refuse them.
         staff_only = pause_requires_staff(paused_at=now, paused_by=paused_by, resumed_at=flow.email_sending_resumed_at)
-        # A queryset update rather than save: the post_save signal publishes the worker reload
-        # immediately, and inside this transaction that is before the pause commits, so a worker
-        # could reload, read the still-unpaused row, and cache it for minutes. The explicit publish
-        # below waits for the commit; it is what stops in-flight runs and queued batch sends.
         HogFlow.objects.filter(id=hog_flow_id, team_id=team_id).update(
             email_sending_paused_at=now,
             email_sending_paused_reason=reason,
@@ -614,8 +610,6 @@ def resume_email_sending(
             resumed_at=locked.email_sending_resumed_at,
         ):
             raise StaffPausedError("Only PostHog staff can resume this pause.")
-        # Queryset update for the same reason as the pause writer: the reload must publish only
-        # once the resume is committed.
         HogFlow.objects.filter(id=hog_flow_id, team_id=team_id).update(
             email_sending_paused_at=None,
             email_sending_paused_reason="",
