@@ -15,6 +15,7 @@ import {
     SignalReportPriority,
     SignalRunKind,
 } from './types'
+import { rankingPillLifts } from './utils/reportOrdering'
 import { reportPullRequests } from './utils/reportPullRequests'
 
 /**
@@ -318,10 +319,34 @@ function reportAgeHours(report: Pick<SignalReport, 'created_at'>): number {
 // and sort changes read it, so the ranking test can join them to the ranker without each caller
 // passing it. The Inbox scene clears it on unmount.
 let servedInboxRankerId: string | null = null
+// The reports whose pill reached the screen, from impressions. A list response cannot answer this,
+// because the list stays mounted and hidden behind a deep-linked report and still loads a pill arm.
+const seenInboxRankingPillReportIds = new Set<string>()
 
-/** Record the ranker of the latest list response. Null when the sort is not Recommended. */
-export function setInboxServedRanker(rankerId: string | null): void {
+/** Record the ranker of the latest list response, null when the sort is not Recommended. A list without pills ends pill attribution. */
+export function setInboxServedRanker(rankerId: string | null, rankingPill: boolean = false): void {
     servedInboxRankerId = rankerId
+    if (!rankingPill) {
+        seenInboxRankingPillReportIds.clear()
+    }
+}
+
+interface RankingPillProperties {
+    pill_shown: boolean
+    pill_open: number | null
+    pill_action: number | null
+    pill_fix: number | null
+}
+
+/** The lifts the person saw on the report's pill. A list without pills, or a stale or unscored report, shows none. */
+function rankingPillProperties(report: SignalReport, rankingPill: boolean): RankingPillProperties {
+    const lifts = rankingPill ? rankingPillLifts(report) : null
+    return {
+        pill_shown: lifts !== null,
+        pill_open: lifts?.open ?? null,
+        pill_action: lifts?.action ?? null,
+        pill_fix: lifts?.fix ?? null,
+    }
 }
 
 interface BaseReportProperties {
@@ -466,8 +491,15 @@ export function captureInboxReportsImpressed(params: {
     createdWindow: string | null
     /** The ranker the server used for a Recommended list. Null for other sorts. */
     rankerId: string | null
+    /** Whether the Recommended list showed score pills. */
+    rankingPill: boolean
 }): void {
     const rankingSort = params.sortField.startsWith('ranking_')
+    if (params.rankingPill) {
+        params.reports
+            .filter((report) => rankingPillLifts(report) !== null)
+            .forEach((report) => seenInboxRankingPillReportIds.add(report.id))
+    }
     captureInboxEvent(INBOX_EVENTS.REPORTS_IMPRESSED, {
         tab: params.tab,
         list_size: params.listSize,
@@ -478,6 +510,7 @@ export function captureInboxReportsImpressed(params: {
         sort_direction: params.sortDirection,
         created_window: params.createdWindow,
         ranker_id: params.rankerId,
+        ranking_pill: params.rankingPill,
         has_pr: params.reports.some((report) => reportPullRequests(report).length > 0),
         impression_count: params.reports.length,
         impressions: params.reports.map((report, index) => ({
@@ -489,6 +522,7 @@ export function captureInboxReportsImpressed(params: {
             total_weight: report.total_weight,
             is_suggested_reviewer: report.is_suggested_reviewer,
             ...(rankingSort ? { ranking_served_key: report.ranking?.model ?? null } : {}),
+            ...rankingPillProperties(report, params.rankingPill),
         })),
     })
 }
@@ -526,6 +560,7 @@ export function captureInboxReportOpened(
             list_size: params.listSize,
             section: params.section,
             ranker_id: params.rankerId,
+            ...rankingPillProperties(params.report, seenInboxRankingPillReportIds.has(params.report.id)),
         },
         options
     )
@@ -571,15 +606,20 @@ export function captureInboxReportScrolled(params: {
     })
 }
 
-/** The hover card on a report's model score opened, under one of the model sorts. */
+/**
+ * The hover card on a report's model score opened. `tag` is the single-head tag under a model sort,
+ * and `pill` is the three-score pill on the Recommended sort, which has no active head.
+ */
 export function captureInboxRankingDetailsViewed(params: {
     report: SignalReport
-    head: string
+    surface: 'tag' | 'pill'
+    head: string | null
     state: 'scored' | 'stale' | 'unscored'
     strength: string | null
 }): void {
     captureInboxEvent(INBOX_EVENTS.RANKING_DETAILS_VIEWED, {
         ...baseReportProperties(params.report),
+        surface: params.surface,
         ranking_head: params.head,
         ranking_state: params.state,
         ranking_strength: params.strength,
@@ -606,6 +646,12 @@ export function captureInboxReportAction(params: {
         bulk_size: params.bulkSize ?? 1,
         // Today lists reports in its own order, so its actions never belong to an Inbox ranker.
         ranker_id: params.surface === 'today' ? null : servedInboxRankerId,
+        ...(params.report
+            ? rankingPillProperties(
+                  params.report,
+                  params.surface !== 'today' && seenInboxRankingPillReportIds.has(params.report.id)
+              )
+            : {}),
         ...params.extra,
     })
 }

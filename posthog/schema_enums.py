@@ -358,6 +358,7 @@ class FunnelAggregateByHogQL(Enum):
 
 
 class AssistantFunnelsMath(StrEnum):
+    TOTAL = "total"
     FIRST_TIME_FOR_USER = "first_time_for_user"
     FIRST_TIME_FOR_USER_WITH_FILTERS = "first_time_for_user_with_filters"
 
@@ -3055,6 +3056,11 @@ class SlackIntegrationScope(StrEnum):
     TEAM_READ = "team:read"
     USERS_READ = "users:read"
     USERS_READ_EMAIL = "users:read.email"
+
+
+class SlackIntegrationScopeInReview(StrEnum):
+    CANVASES_READ = "canvases:read"
+    CHANNELS_JOIN = "channels:join"
 
 
 class SlashCommandName(StrEnum):

@@ -14,7 +14,11 @@ const TONE_DOT: Record<StatusTone, string> = {
 }
 
 const STATUS_LABEL: Record<ScannerStatus['kind'], { label: string; tone: StatusTone }> = {
+    no_ai_consent: { label: 'Needs AI consent', tone: 'danger' },
+    creator_lost_access: { label: 'Creator lost access', tone: 'danger' },
     off: { label: 'Off', tone: 'muted' },
+    replay_off: { label: 'Replay off', tone: 'danger' },
+    no_recordings: { label: 'No recordings', tone: 'warning' },
     limit_reached: { label: 'Stopped', tone: 'danger' },
     quota_exhausted: { label: 'Stopped', tone: 'danger' },
     filter_error: { label: 'Filter error', tone: 'danger' },

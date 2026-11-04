@@ -106,7 +106,7 @@ export function getSkillDisplayName(skillId: string): string {
 
 /**
  * Inline logo + display name for a wizard skill_id. Use anywhere a wizard
- * session needs to be visually identified (progress panel, FAB, logs, etc.).
+ * session needs to be visually identified (progress panel, logs, etc.).
  *
  * Unknown skills fall back to a generic code icon plus a tidied display name.
  */
