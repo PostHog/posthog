@@ -59,6 +59,7 @@ export type CommandKRow =
       }
     | { kind: 'ask-ai'; key: string; question: string }
     | { kind: 'scope'; key: string; type: string; label: string }
+    | { kind: 'expand'; key: string; group: string; label: string }
     | { kind: 'notice'; key: string; reason: 'partial' | 'typos' | 'corrected'; missing: string[]; shown: string[] }
     | { kind: 'loading-more'; key: string }
 
@@ -237,6 +238,7 @@ export interface SectionsInput extends SectionsQuery {
     personsFirst: boolean
     unifiedRanking: boolean
     searchCorrection: SearchCorrection | null
+    expandedGroups?: string[]
 }
 
 const isRanked = (query: SectionsQuery): boolean =>
@@ -323,7 +325,8 @@ function rankedResultsSections(
     persons: SearchItem[],
     accounts: SearchItem[],
     unifiedRanking: boolean,
-    themeItem: SearchItem | null
+    themeItem: SearchItem | null,
+    expandedGroups: string[]
 ): CommandKSection[] {
     const words = freeWords(query)
     const rankedSettingsQuery = settingsQuery(localQuery, unifiedRanking)
@@ -334,7 +337,10 @@ function rankedResultsSections(
         persons,
         accounts,
         settings: [...(themeItem ? [themeItem] : []), ...rankable],
-        unrankedSettingsCount: exactSettingsMatches(local.settings, rankedSettingsQuery).length - rankable.length,
+        unrankedSettings: exactSettingsMatches(local.settings, rankedSettingsQuery).filter(
+            (item) => !rankable.some((ranked) => ranked.id === item.id)
+        ),
+        expandedGroups,
         query: unifiedRanking ? freeText : words.join(' '),
         highlightWords: words,
         results,
@@ -498,7 +504,8 @@ function buildSectionsForQuery(input: SectionsInput): CommandKSection[] {
             leadingPersons,
             accountsQuery ? remote.accounts.cache[accountsQuery] : [],
             input.unifiedRanking,
-            input.themeItem
+            input.themeItem,
+            input.expandedGroups ?? []
         )
         sections.push(
             ...(rankedSections.some((section) => section.key === 'results')

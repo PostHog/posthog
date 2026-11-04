@@ -21,13 +21,20 @@ describe('commandKSearchLogic', () => {
         ['typing', (): void => logic.actions.inputChanged('revenue', 7, false)],
         ['clearing the input', (): void => logic.actions.clearQuery()],
         ['removing a chip', (): void => logic.actions.applyKeyIntent({ type: 'remove-chip', index: 0 })],
-    ])('a new query from %s drops the remembered highlight', (_, changeQuery) => {
+    ])('a new query from %s drops the remembered highlight and collapses expanded groups', (_, changeQuery) => {
         logic.actions.setChipsAndText([{ key: 'is', value: 'dashboard', label: 'Dashboard', negated: false }], 'rev', 3)
         logic.actions.setHighlightedKey('recents/dashboard:1')
+        logic.actions.activateRow(
+            { kind: 'expand', key: 'group-settings/expand', group: 'settings', label: 'Show all 11 settings' },
+            false,
+            'enter'
+        )
+        expect(logic.values.expandedGroups).toEqual(['settings'])
 
         changeQuery()
 
         expect(logic.values.highlightedKey).toBeNull()
+        expect(logic.values.expandedGroups).toEqual([])
     })
 
     test.each([

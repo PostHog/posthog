@@ -2,7 +2,6 @@ import { router } from 'kea-router'
 
 import { IconClock, IconDownload, IconLeave, IconNotification, IconSupport, IconTerminal } from '@posthog/icons'
 
-import { compareRanks, rankLocalItem, searchWords } from 'lib/components/CommandKSearch/commandKRanking'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
 import { isFileSystemImportFlagEnabled } from 'lib/utils/fileSystemImportFlags'
@@ -17,7 +16,7 @@ import { isDefinitionsTabHref } from '~/layout/panel-layout/navbar/tabs/navProdu
 import { getDefaultTreePersons } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { getTreeItemsMetadata, getTreeItemsNew, getTreeItemsProducts } from '~/products'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
-import type { SettingId, SettingLevelId, SettingSectionId } from '~/scenes/settings/types'
+import type { SettingId, SettingLevelId, SettingSection, SettingSectionId } from '~/scenes/settings/types'
 import { ActivityTab } from '~/types'
 
 import { SearchItem, fileSystemEntryToSearchItem } from './searchItems'
@@ -345,6 +344,89 @@ export const actionSearchItems = (toggleTerminal: (() => void) | null): SearchIt
  * on mount and only the searchable metadata is kept.
  */
 export interface SettingsSectionSummary {
+    id: SettingSection['id']
+    level: SettingSection['level']
+    titleString: string | null
+    hideFromNavigation?: boolean
+    flag?: SettingSection['flag']
+    to?: string
+    keywords?: string[]
+    settings: {
+        id: string
+        hasTitle: boolean
+        titleString: string | null
+        descriptionString: string | null
+        keywords?: string[]
+        flag?: SettingSection['flag']
+    }[]
+}
+
+interface SettingsGates {
+    isFlagEnabled: (flag: SettingSection['flag']) => boolean
+    hasOrganizationIntegrations: boolean
+    billingEntryUrl: string | null
+}
+
+const SHARED_SECTION_TITLES = new Set(['General', 'Danger zone', 'Integrations'])
+
+const sentenceCaseId = (id: string): string => toSentenceCase(id.replace(/-/g, ' '))
+
+const settingSearchTerms = (setting: SettingsSectionSummary['settings'][number]): string[] => [
+    sentenceCaseId(setting.id),
+    ...(setting.titleString ? [setting.titleString] : []),
+    ...(setting.descriptionString ? [setting.descriptionString] : []),
+    ...(setting.keywords ?? []),
+]
+
+// Sections hidden from navigation are only reachable from their product's own configuration page.
+// Integrations and billing mirror the sidebar gates. billingEntryUrl is null when the user has no
+// billing access, and for view-only members it points at Usage, which keeps them off the admin-only
+// Overview and the restricted state it renders first.
+const isSectionShown = (section: SettingsSectionSummary, gates: SettingsGates): boolean =>
+    !section.hideFromNavigation &&
+    gates.isFlagEnabled(section.flag) &&
+    (section.id !== 'organization-integrations' || gates.hasOrganizationIntegrations) &&
+    (section.id !== 'organization-billing' || !!gates.billingEntryUrl)
+
+const toSettingsSearchItem = (section: SettingsSectionSummary, gates: SettingsGates): SearchItem => {
+    // Environment sections show as project sections.
+    const level = section.level === 'environment' ? 'project' : section.level
+    const sectionId = section.id.replace(/^environment-/, 'project-') as SettingSectionId
+    const levelName = toSentenceCase(level)
+    const title = section.titleString ?? sentenceCaseId(section.id)
+    const searchTerms = [
+        ...(section.keywords ?? []),
+        ...section.settings
+            .filter((setting) => setting.hasTitle && gates.isFlagEnabled(setting.flag))
+            .flatMap(settingSearchTerms),
+    ]
+    return {
+        id: `settings-${sectionId}`,
+        name: `${levelName}: ${title} (${searchTerms.join(',')})`,
+        displayName: SHARED_SECTION_TITLES.has(title) ? `${title} (${levelName})` : title,
+        category: 'settings',
+        href:
+            (section.id === 'organization-billing' && gates.billingEntryUrl) || section.to || urls.settings(sectionId),
+        itemType: 'settings',
+        record: { type: 'settings', level, sectionId },
+    }
+}
+
+export const settingsSearchItems = (sections: SettingsSectionSummary[], gates: SettingsGates): SearchItem[] => {
+    const items = new Map<string, SearchItem>()
+    for (const section of sections) {
+        if (!isSectionShown(section, gates)) {
+            continue
+        }
+        const item = toSettingsSearchItem(section, gates)
+        if (!items.has(item.id)) {
+            items.set(item.id, item)
+        }
+    }
+    return [...items.values()]
+}
+
+export interface CommandKSettingsSection {
     id: SettingSectionId
     level: Exclude<SettingLevelId, 'environment'>
     titleString: string | null
@@ -358,7 +440,7 @@ export interface SettingsSectionSummary {
     }[]
 }
 
-const LEVEL_SEARCH_KEYWORDS: Partial<Record<SettingsSectionSummary['level'], string[]>> = {
+const LEVEL_SEARCH_KEYWORDS: Partial<Record<CommandKSettingsSection['level'], string[]>> = {
     user: ['account settings', 'personal settings', 'my settings'],
 }
 
@@ -386,8 +468,6 @@ const settingsLevelName = (level: SettingLevelId): string =>
 const settingsContextText = (level: SettingLevelId, sectionTitle: string): string =>
     `${settingsLevelName(level)} ${sectionTitle}`
 
-const sentenceCaseId = (id: string): string => toSentenceCase(id.replace(/-/g, ' '))
-
 interface SettingSearchTextSetting {
     id: string
     title: string | null
@@ -414,7 +494,7 @@ const settingsSearchText = (
         .filter(Boolean)
         .join(' ')
 
-type SettingSummary = SettingsSectionSummary['settings'][number]
+type SettingSummary = CommandKSettingsSection['settings'][number]
 
 const textSetting = (setting: SettingSummary): SettingSearchTextSetting => ({
     id: setting.id,
@@ -423,7 +503,7 @@ const textSetting = (setting: SettingSummary): SettingSearchTextSetting => ({
     description: setting.descriptionString,
 })
 
-const sectionSearchItems = (section: SettingsSectionSummary, billingEntryUrl: string | null): SearchItem[] => {
+const commandKSectionSearchItems = (section: CommandKSettingsSection, billingEntryUrl: string | null): SearchItem[] => {
     const levelName = settingsLevelName(section.level)
     const title = section.titleString ?? sentenceCaseId(section.id)
     const context = settingsContextText(section.level, title)
@@ -466,8 +546,8 @@ const sectionSearchItems = (section: SettingsSectionSummary, billingEntryUrl: st
     ]
 }
 
-export const settingsSearchItems = (
-    sections: SettingsSectionSummary[],
+export const commandKSettingsSearchItems = (
+    sections: CommandKSettingsSection[],
     billingEntryUrl: string | null
 ): SearchItem[] => {
     if (!sections.length) {
@@ -485,23 +565,7 @@ export const settingsSearchItems = (
                 { searchKeywords: LEVEL_SEARCH_KEYWORDS[level] }
             )
         ),
-        ...sections.flatMap((section) => sectionSearchItems(section, billingEntryUrl)),
+        ...sections.flatMap((section) => commandKSectionSearchItems(section, billingEntryUrl)),
     ]
     return [...new Map(items.map((item) => [item.id, item])).values()]
-}
-
-export const bestSettingsFirst = (items: SearchItem[], query: string): SearchItem[] => {
-    const wordCount = searchWords(query).length
-    const exact = (rank: number[] | undefined): number[] | null =>
-        rank && -rank[0] === wordCount && rank[1] === 0 ? rank : null
-    const tiers = items.map((item, index) => {
-        const name = String(item.displayName || item.name)
-        const byName = exact(rankLocalItem(query, name)?.rank)
-        const byAlias = byName ? null : exact(rankLocalItem(query, name, item.searchKeywords)?.rank)
-        const depth = item.parentName ? item.parentName.split(' › ').length : 0
-        return { item, index, depth, tier: byName ? 0 : byAlias ? 1 : 2, rank: byName ?? byAlias ?? [] }
-    })
-    return tiers
-        .sort((a, b) => a.tier - b.tier || compareRanks(a.rank, b.rank) || a.depth - b.depth || a.index - b.index)
-        .map((entry) => entry.item)
 }

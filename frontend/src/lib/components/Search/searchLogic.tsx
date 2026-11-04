@@ -37,7 +37,6 @@ import {
     ticketToSearchItem,
     unifiedSearchResultToSearchItem,
 } from './searchItems'
-import { bestSettingsFirst } from './searchListItems'
 import { searchListsLogic } from './searchListsLogic'
 import { SEARCH_TAB_CATEGORY, filterSearchItems, shouldSearchTickets } from './utils'
 
@@ -985,7 +984,7 @@ export const searchLogic = kea<searchLogicType>([
                 }
 
                 // Filter and show settings if searching with matching results
-                const filteredSettings = bestSettingsFirst(filterBySearch(settingsItems), search)
+                const filteredSettings = filterBySearch(settingsItems)
                 if (hasSearch && filteredSettings.length > 0) {
                     categories.push({
                         key: 'settings',

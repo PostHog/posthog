@@ -111,67 +111,6 @@ describe('searchListsLogic', () => {
         ).toEqual([{ displayName: 'Alerts', parentName: 'Product analytics' }])
     })
 
-    it.each([
-        ['project general', 'settings-project-details', true],
-        ['2fa', 'settings-user-profile-2fa', true],
-        ['rename project', 'settings-project-customization-display-name', false],
-        ['desktop images', 'settings-project-ai-cloud-environments-ai-cloud-custom-images', false],
-    ])('finds the setting row %s', (query, id, ranked) => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true })
-        const component = {} as JSX.Element
-        logic.actions.setSettingsSections([
-            {
-                id: 'environment-ai-cloud-environments',
-                level: 'environment',
-                title: 'Cloud environments',
-                flag: 'TODAY_RAIL_NAV',
-                keywords: ['desktop'],
-                settings: [
-                    { id: 'ai-cloud-environments', title: 'Environments', component },
-                    { id: 'ai-cloud-custom-images', title: 'Custom images', keywords: ['dependencies'], component },
-                ],
-            },
-            {
-                id: 'environment-details',
-                level: 'environment',
-                title: 'General',
-                settings: [{ id: 'variables', title: 'Project token & ID', component }],
-            },
-            {
-                id: 'environment-customization',
-                level: 'environment',
-                title: 'Customization',
-                settings: [{ id: 'display-name', title: 'Project details', keywords: ['rename'], component }],
-            },
-            {
-                id: 'user-profile',
-                level: 'user',
-                title: 'Profile',
-                settings: [{ id: '2fa', title: 'Two-factor authentication', component }],
-            },
-        ])
-        const items = logic.values.settingsItems
-
-        const fuzzy = filterSearchItems(items, query)
-        expect(fuzzy.map((item) => item.id)).toContain(id)
-        const strictIds = strictLocalMatches(items, query).map((item) => item.id)
-        expect(ranked ? strictIds : [id]).toContain(id)
-        const rankedRows = buildRankedResults({
-            query,
-            highlightWords: [],
-            results: [],
-            products: [],
-            settings: strictLocalMatches(fuzzy, query),
-            state: 'ready',
-            scoped: false,
-        }).flatMap((section) => section.rows)
-        expect(
-            [...fuzzy, ...rankedRows.flatMap((row) => (row.kind === 'item' ? [row.item] : []))]
-                .map((item) => item.matchedSearchKeyword ?? null)
-                .filter(Boolean)
-        ).toEqual([])
-    })
-
     it('shows only the Inbox Scouts destination', () => {
         featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true })
 
@@ -218,6 +157,154 @@ describe('searchListsLogic', () => {
         ['on', true, 'Agent preferences', true],
     ])(
         'shows one copy of a section gated on a flag and its negation, with the flag %s',
+        (_state, flagOn, expectedName, expectsGatedKeyword) => {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TODAY_RAIL_NAV]: flagOn })
+            const settings = [
+                {
+                    id: 'task-agent-my-preference',
+                    hasTitle: true,
+                    titleString: 'My default model',
+                    descriptionString: null,
+                },
+                {
+                    id: 'task-comments-slack-dm',
+                    hasTitle: true,
+                    titleString: 'Gated setting',
+                    descriptionString: null,
+                    keywords: ['zebra'],
+                    flag: 'TODAY_RAIL_NAV' as const,
+                },
+            ]
+            logic.actions.setSettingsSections([
+                {
+                    id: 'environment-task-agents',
+                    level: 'environment',
+                    titleString: 'Agent preferences',
+                    flag: 'TODAY_RAIL_NAV',
+                    settings,
+                },
+                {
+                    id: 'environment-task-agents',
+                    level: 'environment',
+                    titleString: 'Model preferences',
+                    flag: '!TODAY_RAIL_NAV',
+                    settings,
+                },
+            ])
+
+            const items = logic.values.settingsItems.filter((item) => item.id === 'settings-project-task-agents')
+            expect(items.map((item) => item.displayName)).toEqual([expectedName])
+            expect(items[0].name.includes('zebra')).toBe(expectsGatedKeyword)
+        }
+    )
+
+    it('keeps one row per settings section for the search list', () => {
+        logic.actions.setSettingsSections([
+            {
+                id: 'environment-details',
+                level: 'environment',
+                titleString: 'General',
+                settings: [
+                    {
+                        id: 'variables',
+                        hasTitle: true,
+                        titleString: 'Project token & ID',
+                        descriptionString: null,
+                        keywords: ['api key'],
+                    },
+                ],
+            },
+            { id: 'organization-members', level: 'organization', titleString: 'Members', settings: [] },
+        ])
+
+        expect(logic.values.settingsItems).toEqual([
+            {
+                id: 'settings-project-details',
+                name: 'Project: General (Variables,Project token & ID,api key)',
+                displayName: 'General (Project)',
+                category: 'settings',
+                href: urls.settings('project-details'),
+                itemType: 'settings',
+                record: { type: 'settings', level: 'project', sectionId: 'project-details' },
+            },
+            {
+                id: 'settings-organization-members',
+                name: 'Organization: Members ()',
+                displayName: 'Members',
+                category: 'settings',
+                href: urls.settings('organization-members'),
+                itemType: 'settings',
+                record: { type: 'settings', level: 'organization', sectionId: 'organization-members' },
+            },
+        ])
+    })
+
+    it.each([
+        ['project general', 'settings-project-details', true],
+        ['2fa', 'settings-user-profile-2fa', true],
+        ['rename project', 'settings-project-customization-display-name', false],
+        ['desktop images', 'settings-project-ai-cloud-environments-ai-cloud-custom-images', false],
+    ])('finds the Command K setting row %s', (query, id, ranked) => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true })
+        const component = {} as JSX.Element
+        logic.actions.setSettingsMap([
+            {
+                id: 'environment-ai-cloud-environments',
+                level: 'environment',
+                title: 'Cloud environments',
+                flag: 'TODAY_RAIL_NAV',
+                keywords: ['desktop'],
+                settings: [
+                    { id: 'ai-cloud-environments', title: 'Environments', component },
+                    { id: 'ai-cloud-custom-images', title: 'Custom images', keywords: ['dependencies'], component },
+                ],
+            },
+            {
+                id: 'environment-details',
+                level: 'environment',
+                title: 'General',
+                settings: [{ id: 'variables', title: 'Project token & ID', component }],
+            },
+            {
+                id: 'environment-customization',
+                level: 'environment',
+                title: 'Customization',
+                settings: [{ id: 'display-name', title: 'Project details', keywords: ['rename'], component }],
+            },
+            {
+                id: 'user-profile',
+                level: 'user',
+                title: 'Profile',
+                settings: [{ id: '2fa', title: 'Two-factor authentication', component }],
+            },
+        ])
+        const items = logic.values.commandKSettingsItems
+
+        const fuzzy = filterSearchItems(items, query)
+        expect(fuzzy.map((item) => item.id)).toContain(id)
+        const strictIds = strictLocalMatches(items, query).map((item) => item.id)
+        expect(ranked ? strictIds : [id]).toContain(id)
+        const rankedRows = buildRankedResults({
+            query,
+            highlightWords: [],
+            results: [],
+            products: [],
+            settings: strictLocalMatches(fuzzy, query),
+            state: 'ready',
+            scoped: false,
+        }).flatMap((section) => section.rows)
+        expect(
+            [...fuzzy, ...rankedRows.flatMap((row) => (row.kind === 'item' ? [row.item] : []))]
+                .map((item) => item.matchedSearchKeyword ?? null)
+                .filter(Boolean)
+        ).toEqual([])
+    })
+
+    it.each([
+        ['off', false, 'Model preferences', false],
+        ['on', true, 'Agent preferences', true],
+    ])(
+        'gives Command K one copy of a section gated on a flag and its negation, with the flag %s',
         (_state, flagOn, expectedName, expectsGatedSetting) => {
             featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TODAY_RAIL_NAV]: flagOn })
             const settings: Setting[] = [
@@ -230,7 +317,7 @@ describe('searchListsLogic', () => {
                     flag: 'TODAY_RAIL_NAV',
                 },
             ]
-            logic.actions.setSettingsSections([
+            logic.actions.setSettingsMap([
                 {
                     id: 'environment-task-agents',
                     level: 'environment',
@@ -247,11 +334,13 @@ describe('searchListsLogic', () => {
                 },
             ])
 
-            const sections = logic.values.settingsItems.filter((item) => item.id === 'settings-project-task-agents')
+            const sections = logic.values.commandKSettingsItems.filter(
+                (item) => item.id === 'settings-project-task-agents'
+            )
             expect(sections.map((item) => [item.displayName, item.parentName])).toEqual([
                 [expectedName, 'Project settings'],
             ])
-            const gated = filterSearchItems(logic.values.settingsItems, 'zebra').map((item) => item.href)
+            const gated = filterSearchItems(logic.values.commandKSettingsItems, 'zebra').map((item) => item.href)
             expect(gated).toEqual(expectsGatedSetting ? ['/settings/project-task-agents#task-comments-slack-dm'] : [])
         }
     )

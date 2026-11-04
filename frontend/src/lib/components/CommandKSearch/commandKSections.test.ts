@@ -491,9 +491,14 @@ describe('buildSections', () => {
         }
     )
 
-    test.each([false, true])(
-        'shows one Settings section that counts every match when unified ranking is %s',
-        (unifiedRanking) => {
+    test.each([
+        [false, false],
+        [true, false],
+        [false, true],
+        [true, true],
+    ])(
+        'shows one Settings group that expands to every match, unified ranking %s, expanded %s',
+        (unifiedRanking, expanded) => {
             const settings: SearchItem[] = [
                 ...Array.from({ length: 10 }, (_, index) => ({
                     id: `settings-${index}`,
@@ -519,17 +524,34 @@ describe('buildSections', () => {
                     remoteQueries: { results: 'settings' },
                     localQuery: 'settings',
                     unifiedRanking,
+                    expandedGroups: expanded ? ['settings'] : [],
                 })
             )
 
             const settingsSections = sections.filter((section) => section.label === 'Settings')
             expect(settingsSections).toHaveLength(1)
             expect(settingsSections[0].count).toBe(11)
-            expect(
-                sections
-                    .flatMap((section) => section.rows)
-                    .some((row) => row.kind === 'item' && row.item.name.startsWith('See all'))
-            ).toBe(false)
+            const settingRowIds = sections.flatMap((section) =>
+                section.rows.flatMap((row) =>
+                    row.kind === 'item' && row.item.category === 'settings' ? [row.item.id] : []
+                )
+            )
+            const expandRows = settingsSections[0].rows.filter((row) => row.kind === 'expand')
+            expect([settingRowIds.length, expandRows]).toEqual(
+                expanded
+                    ? [11, []]
+                    : [
+                          4,
+                          [
+                              {
+                                  kind: 'expand',
+                                  key: 'group-settings/expand',
+                                  group: 'settings',
+                                  label: 'Show all 11 settings',
+                              },
+                          ],
+                      ]
+            )
         }
     )
 

@@ -286,7 +286,8 @@ interface RankedResultsInput {
     products: SearchItem[]
     persons?: SearchItem[]
     settings?: SearchItem[]
-    unrankedSettingsCount?: number
+    unrankedSettings?: SearchItem[]
+    expandedGroups?: string[]
     accounts?: SearchItem[]
     state: CommandKSection['state']
     scoped: boolean
@@ -300,7 +301,8 @@ export function buildRankedResults({
     products,
     persons = [],
     settings = [],
-    unrankedSettingsCount = 0,
+    unrankedSettings = [],
+    expandedGroups = [],
     accounts = [],
     state,
     scoped,
@@ -443,14 +445,28 @@ export function buildRankedResults({
         searchWords(groupLabel(groupKey)).some((word) => tokenTypos(queryWords[0], word) !== null)
     const orderedGroups = [...groups].sort(([a], [b]) => Number(typeIntent(b)) - Number(typeIntent(a)))
     for (const [groupKey, entries] of orderedGroups) {
-        const shown = entries.slice(0, GROUP_LIMIT)
+        const expandable = groupKey === 'settings'
+        const expanded = expandable && expandedGroups.includes(groupKey)
+        const shown = expanded ? entries : entries.slice(0, GROUP_LIMIT)
         const inBest = best.filter((entry) => entry.groupKey === groupKey)
         const sample = entries[0] ?? inBest[0]
-        const total = Math.max(sample.item.searchMatch?.typeCount ?? 0, entries.length + inBest.length)
-        const rows: CommandKRow[] = shown.map((entry) =>
-            itemRow(`group-${groupKey}`, entry.item, highlightWords, entry.duplicates, entry.duplicates > 0)
-        )
+        const extra = expandable ? unrankedSettings : []
+        const total = Math.max(sample.item.searchMatch?.typeCount ?? 0, entries.length + inBest.length) + extra.length
+        const rows: CommandKRow[] = [
+            ...shown.map((entry) =>
+                itemRow(`group-${groupKey}`, entry.item, highlightWords, entry.duplicates, entry.duplicates > 0)
+            ),
+            ...(expanded ? extra.map((item) => itemRow(`group-${groupKey}`, item, highlightWords)) : []),
+        ]
         const covered = inBest.length + shown.reduce((sum, entry) => sum + 1 + entry.duplicates, 0)
+        if (expandable && !expanded && total > covered) {
+            rows.push({
+                kind: 'expand',
+                key: `group-${groupKey}/expand`,
+                group: groupKey,
+                label: `Show all ${total.toLocaleString()} ${groupLabel(groupKey).toLowerCase()}`,
+            })
+        }
         rows.push(...scopeSeeAll(groupKey, total, covered, capped, `group-${groupKey}`))
         if (!rows.length) {
             continue
@@ -458,7 +474,7 @@ export function buildRankedResults({
         sections.push({
             key: `group-${groupKey}`,
             label: groupLabel(groupKey),
-            count: groupKey === 'settings' ? total + unrankedSettingsCount : total,
+            count: total,
             countIsLowerBound: capped && !LOCAL_GROUPS.includes(groupKey),
             rows,
             state,
