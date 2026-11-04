@@ -47,7 +47,12 @@ def load_experiment_health_inputs(
     experiment = _load_experiment(team_id, experiment_id)
     return HealthInputs(
         context=_health_context(experiment, reader_access, user),
-        exposures=load_exposure_inputs(experiment, user=user, can_query_events=reader_access.can_query_events),
+        exposures=load_exposure_inputs(
+            experiment,
+            user=user,
+            can_query_events=reader_access.can_query_events,
+            can_read_flag_history=reader_access.can_read_flag_history,
+        ),
         reader_access=reader_access,
         flag_version=experiment.feature_flag.version if experiment.feature_flag_id else None,
         project=build_project_setup_facts(

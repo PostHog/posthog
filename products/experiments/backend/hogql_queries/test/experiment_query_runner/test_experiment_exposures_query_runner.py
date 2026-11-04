@@ -1,4 +1,5 @@
 import re
+from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -7,6 +8,7 @@ import time_machine
 from posthog.test.base import _create_event, _create_person, flush_persons_and_events, snapshot_clickhouse_queries
 from unittest.mock import patch
 
+from django.db import OperationalError
 from django.forms.models import model_to_dict
 from django.test import override_settings
 
@@ -2023,6 +2025,23 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
                 12,
                 [(ExperimentExposureHealthFindingCode.ZERO_EXPOSURES, "flag_not_called")],
             ),
+            (
+                "launch_hidden_from_a_reader_without_the_flag_history",
+                "2024-01-02T01:00:00Z",
+                None,
+                12,
+                [(ExperimentExposureHealthFindingCode.ZERO_EXPOSURES, "flag_not_called")],
+                False,
+            ),
+            (
+                "launch_lookup_fails",
+                "2024-01-02T01:00:00Z",
+                None,
+                12,
+                [(ExperimentExposureHealthFindingCode.ZERO_EXPOSURES, "flag_not_called")],
+                True,
+                True,
+            ),
         ]
     )
     def test_zero_exposures_finding_waits_a_day_and_names_the_flag_calls(
@@ -2032,6 +2051,8 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         last_called_at: datetime | None,
         launched_hours_after_start: int | None,
         expected: list[tuple[ExperimentExposureHealthFindingCode, str]],
+        reads_flag_history: bool = True,
+        launch_lookup_fails: bool = False,
     ) -> None:
         self.feature_flag.last_called_at = last_called_at
         self.feature_flag.save()
@@ -2055,8 +2076,14 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             exposure_criteria=self.experiment.exposure_criteria,
         )
 
-        with time_machine.travel(now, tick=False):
-            response = ExperimentExposuresQueryRunner(team=self.team, query=query).calculate()
+        lookup = patch(
+            "products.experiments.backend.health.launch_time.ActivityLog.objects.filter",
+            side_effect=OperationalError("the activity log is unavailable"),
+        )
+        with time_machine.travel(now, tick=False), lookup if launch_lookup_fails else nullcontext():
+            response = ExperimentExposuresQueryRunner(
+                team=self.team, query=query, user=self.user if reads_flag_history else None
+            ).calculate()
 
         self.assertEqual(response.total_exposures, {"control": 0, "test": 0})
         self.assertEqual([(finding.code, finding.subcode) for finding in response.health_findings or []], expected)

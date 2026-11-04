@@ -196,6 +196,8 @@ def _consequence(effect: BucketingNetEffect) -> list[str]:
                 "Users whose device ID differs from their user ID got a new variant draw, so they may have switched "
                 "variants."
             )
+        case _ if effect.net_changes[0].after:
+            consequence = "Users exposed between these changes may have switched variants."
         case _:
             consequence = (
                 "Users who logged in while it was on no longer keep the variant they got before logging in, so they "
@@ -209,8 +211,13 @@ def _consequence(effect: BucketingNetEffect) -> list[str]:
 
 
 def _continuity_turned_on(effect: BucketingNetEffect) -> bool:
-    # Persistence sorts last among the settings, so it is the only net change when it gives the shape.
-    return effect.shape == BucketingChangeShape.EXPERIENCE_CONTINUITY_CHANGED and bool(effect.net_changes[0].after)
+    """Whether one save turned persistence on and no other setting changed. A setting that changed and was set back,
+    or persistence that was off for a while, can have moved exposed users in between."""
+    return (
+        effect.changed_settings == (BucketingSetting.EXPERIENCE_CONTINUITY,)
+        and effect.change_count == 1
+        and bool(effect.net_changes[0].after)
+    )
 
 
 def _key_state(effect: BucketingNetEffect) -> list[str]:
