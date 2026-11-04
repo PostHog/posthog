@@ -39,6 +39,8 @@ export interface DeviceApprovalApi {
     user_code: string
     /** The project the token is scoped to. */
     project_id: number
+    /** The requested scopes the person kept. Leave it out to grant every requested scope. It must include every scope in `required_scopes`, and nothing outside the requested scopes. */
+    scopes?: string[]
 }
 
 /**
@@ -99,6 +101,8 @@ export interface DeviceGrantDetailsApi {
     is_verified: boolean
     /** The scopes the token will carry if the person approves. */
     scopes: string[]
+    /** The requested scopes the person can't leave out: the client's required scopes and identity scopes such as `openid`. */
+    required_scopes: string[]
     /** The scopes the person already gave this client, per project. A step-up in a project asks for these plus new ones, and the page lists only the new ones. */
     granted_scopes: GrantedScopesApi[]
     /** When the code expires. */

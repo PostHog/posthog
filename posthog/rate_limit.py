@@ -471,12 +471,6 @@ class WorkloadTrustPolicyRequestSustainedThrottle(_WorkloadTrustPolicyRequestThr
     rate = "30/day"
 
 
-# Each internal feedback post lands in a shared Slack channel, so cap it per user.
-class InternalFeedbackUserThrottle(UserRateThrottle):
-    scope = "internal_feedback_user"
-    rate = "60/hour"
-
-
 class BurstRateThrottle(PersonalApiKeyRateThrottle):
     # Throttle class that's applied on all endpoints (except for capture + decide)
     # Intended to block quick bursts of requests, per project
