@@ -458,7 +458,7 @@ class FileSystemViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             queryset = queryset.filter(team_id__in=accessible_team_ids)
         queryset = filter_workflow_files_by_access_level(queryset, self.user_access_control, self.team.project_id)
         return self.user_access_control.filter_and_annotate_file_system_queryset(
-            queryset, extra_denied_refs=self._denied_short_id_refs
+            queryset, extra_denied_refs=self._denied_short_id_refs, resolved_types=WORKFLOW_FILE_SYSTEM_TYPES
         )
 
     def _ensure_can_delete_objects(self, objects: builtins.list[tuple[str, str, int]]) -> None:

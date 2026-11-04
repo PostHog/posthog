@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from posthog.constants import AvailableFeature
 from posthog.models.file_system.file_system import FileSystem
+from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
@@ -55,6 +56,44 @@ class TestWorkflowFolders(APIBaseTest):
                 format="json",
             )
             self.assertEqual(restored.status_code, 200 if level == "editor" else 400, restored.content)
+
+    @patch("products.workflows.backend.models.hog_flow.hog_flow.reload_hog_flows_on_workers")
+    def test_private_workflow_files_follow_member_grants(self, _reload: MagicMock) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        workflow = HogFlow.objects.create(team=self.team, name="Private renewal", created_by=self.user)
+        files_url = f"/api/projects/{self.team.id}/file_system/"
+        entry = FileSystem.objects.get(team=self.team, type="hog_flow", ref=str(workflow.id))
+        create_access_control(
+            team_id=self.team.id, resource="hog_flow", resource_id=str(workflow.id), access_level="none"
+        )
+        member = User.objects.create_and_join(self.organization, "granted@example.com", "invented-password")
+        membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
+        create_access_control(
+            team_id=self.team.id,
+            resource="hog_flow",
+            resource_id=str(workflow.id),
+            access_level="editor",
+            organization_member_id=membership.id,
+        )
+        self.client.force_login(member)
+
+        rows = self.client.get(files_url, {"type": "hog_flow"}).json()["results"]
+        self.assertEqual([row["id"] for row in rows], [str(entry.id)])
+        moved = self.client.post(
+            f"{files_url}{entry.id}/move/", {"new_path": "Campaigns/Private renewal"}, format="json"
+        )
+        self.assertEqual(moved.status_code, 200, moved.content)
+
+        revoked = User.objects.create_and_join(self.organization, "revoked@example.com", "invented-password")
+        stale = FileSystemShortcut.objects.create(
+            team=self.team, user=revoked, path="Private renewal", type="hog_flow", ref=str(workflow.id)
+        )
+        self.client.force_login(revoked)
+        removed = self.client.delete(f"/api/projects/{self.team.id}/file_system_shortcut/{stale.id}/")
+        self.assertEqual(removed.status_code, 204, removed.content)
 
     @patch("posthoganalytics.feature_enabled", return_value=False)
     def test_disabled_files_do_not_leave_an_empty_unfiled_tree(self, _flag: MagicMock) -> None:
