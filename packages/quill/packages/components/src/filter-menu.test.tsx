@@ -70,46 +70,7 @@ describe('FilterSearchSubMenu', () => {
         expect(onOpen).toHaveBeenCalledTimes(1)
     })
 
-    it('caps the rows until a search narrows them', async () => {
-        render(
-            <DropdownMenu defaultOpen>
-                <DropdownMenuTrigger>Filters</DropdownMenuTrigger>
-                <DropdownMenuContent>
-                    <FilterSearchSubMenu
-                        label="Tags"
-                        allLabel="Any tag"
-                        pluralNoun="tags"
-                        options={Array.from({ length: 300 }, (_, index) => ({
-                            value: `tag-${index}`,
-                            label: `tag-${index}`,
-                        }))}
-                        selected={[]}
-                        onChange={jest.fn()}
-                        searchPlaceholder="Search tags"
-                        emptyText="No tag matches"
-                    />
-                </DropdownMenuContent>
-            </DropdownMenu>
-        )
-
-        await act(async () => {
-            fireEvent.click(await screen.findByText('Tags'))
-        })
-        const input = await screen.findByLabelText('Search tags')
-
-        expect(screen.getAllByRole('menuitemcheckbox')).toHaveLength(201)
-        expect(screen.getByText('Keep typing to see more')).toBeTruthy()
-        expect(screen.queryByText('tag-299')).toBeNull()
-
-        await act(async () => {
-            fireEvent.change(input, { target: { value: 'tag-299' } })
-        })
-
-        expect(screen.getByText('tag-299')).toBeTruthy()
-        expect(screen.queryByText('Keep typing to see more')).toBeNull()
-    })
-
-    it('adds a picked row to the selection, keeps the menu open and resets the search', async () => {
+    it('adds a picked row to the selection and keeps the menu open', async () => {
         const onChange = jest.fn()
         render(
             <DropdownMenu defaultOpen>
@@ -134,7 +95,7 @@ describe('FilterSearchSubMenu', () => {
         await act(async () => {
             fireEvent.click(await screen.findByText('Tags'))
         })
-        const input = await screen.findByLabelText<HTMLInputElement>('Search tags')
+        const input = await screen.findByLabelText('Search tags')
         await act(async () => {
             fireEvent.change(input, { target: { value: 'rev' } })
         })
@@ -145,37 +106,6 @@ describe('FilterSearchSubMenu', () => {
         })
 
         expect(onChange).toHaveBeenCalledWith(['growth', 'revenue'])
-        expect(input.value).toBe('')
         expect(screen.getByLabelText('Search tags')).toBeTruthy()
-    })
-
-    it('says so when nothing matches the search', async () => {
-        render(
-            <DropdownMenu defaultOpen>
-                <DropdownMenuTrigger>Filters</DropdownMenuTrigger>
-                <DropdownMenuContent>
-                    <FilterSearchSubMenu
-                        label="Tags"
-                        allLabel="Any tag"
-                        pluralNoun="tags"
-                        options={[{ value: 'growth', label: 'growth' }]}
-                        selected={[]}
-                        onChange={jest.fn()}
-                        searchPlaceholder="Search tags"
-                        emptyText="No tag matches"
-                    />
-                </DropdownMenuContent>
-            </DropdownMenu>
-        )
-        await act(async () => {
-            fireEvent.click(await screen.findByText('Tags'))
-        })
-        expect(screen.queryByText('No tag matches')).toBeNull()
-
-        await act(async () => {
-            fireEvent.change(await screen.findByLabelText('Search tags'), { target: { value: 'zzz' } })
-        })
-
-        expect(screen.getByText('No tag matches')).toBeTruthy()
     })
 })

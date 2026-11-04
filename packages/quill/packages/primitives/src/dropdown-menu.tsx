@@ -10,6 +10,7 @@ import { InputGroup, InputGroupInput } from './input-group'
 import { Kbd } from './kbd'
 import { cn } from './lib/utils'
 import { MenuItemBody } from './menu-item-body'
+import { MenuEmpty } from './menu-empty'
 import { MenuLabel } from './menu-label'
 import { RadioIndicator } from './radio-group'
 import { hasTooltipContent, withTooltip } from './with-tooltip'
@@ -212,7 +213,6 @@ const DropdownMenuSubContent = React.forwardRef<
 })
 
 const DropdownMenuFilterProvider = MenuPrimitive.FilterProvider
-const useDropdownMenuFilter = MenuPrimitive.useFilter
 
 const DropdownMenuInput = React.forwardRef<HTMLInputElement, MenuPrimitive.Input.Props>(
     function DropdownMenuInput(props, ref) {
@@ -223,6 +223,12 @@ const DropdownMenuInput = React.forwardRef<HTMLInputElement, MenuPrimitive.Input
                 </InputGroup>
             </div>
         )
+    }
+)
+
+const DropdownMenuEmpty = React.forwardRef<HTMLDivElement, MenuPrimitive.Empty.Props>(
+    function DropdownMenuEmpty(props, ref) {
+        return <MenuPrimitive.Empty ref={ref} data-slot="dropdown-menu-empty" render={<MenuEmpty />} {...props} />
     }
 )
 
@@ -481,6 +487,7 @@ export {
     DropdownMenuPortal,
     DropdownMenuTrigger,
     DropdownMenuContent,
+    DropdownMenuEmpty,
     DropdownMenuFilterProvider,
     DropdownMenuGroup,
     DropdownMenuInput,
@@ -496,7 +503,6 @@ export {
     DropdownMenuSub,
     DropdownMenuSubTrigger,
     DropdownMenuSubContent,
-    useDropdownMenuFilter,
     useDropdownMenuSelectAll,
 }
 export type { SelectAllState, UseSelectAllResult }

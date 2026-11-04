@@ -7,6 +7,7 @@ import {
     DropdownMenu,
     DropdownMenuGroup,
     DropdownMenuContent,
+    DropdownMenuEmpty,
     DropdownMenuFilterProvider,
     DropdownMenuInput,
     DropdownMenuList,
@@ -167,11 +168,12 @@ export const Filterable: Story = {
                     <DropdownMenuTrigger render={<Button variant="outline" size="sm" />}>Click me</DropdownMenuTrigger>
                     <DropdownMenuContent className="w-64" flush>
                         <DropdownMenuInput autoFocus placeholder="Search projects" aria-label="Search projects" />
+                        <DropdownMenuEmpty>No project matches</DropdownMenuEmpty>
                         <DropdownMenuList>
-                            <DropdownMenuItem label="Analytics">Analytics</DropdownMenuItem>
-                            <DropdownMenuItem label="Billing">Billing</DropdownMenuItem>
-                            <DropdownMenuItem label="Marketing site">Marketing site</DropdownMenuItem>
-                            <DropdownMenuItem label="Onboarding">Onboarding</DropdownMenuItem>
+                            <DropdownMenuItem>Analytics</DropdownMenuItem>
+                            <DropdownMenuItem>Billing</DropdownMenuItem>
+                            <DropdownMenuItem>Marketing site</DropdownMenuItem>
+                            <DropdownMenuItem>Onboarding</DropdownMenuItem>
                         </DropdownMenuList>
                     </DropdownMenuContent>
                 </DropdownMenu>

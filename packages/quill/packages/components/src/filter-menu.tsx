@@ -5,6 +5,7 @@ import {
     Button,
     cn,
     DropdownMenuCheckboxItem,
+    DropdownMenuEmpty,
     DropdownMenuFilterProvider,
     DropdownMenuInput,
     DropdownMenuItem,
@@ -16,11 +17,9 @@ import {
     DropdownMenuSubContent,
     DropdownMenuSubTrigger,
     DropdownMenuTrigger,
-    MenuEmpty,
     Tooltip,
     TooltipContent,
     TooltipTrigger,
-    useDropdownMenuFilter,
 } from '@posthog/quill-primitives'
 
 export interface FilterOption<Value extends string = string> {
@@ -200,9 +199,6 @@ export function FilterCheckboxSubMenu<Value extends string>({
     )
 }
 
-// Each row is a mounted component, and opening the menu slows past a few hundred of them.
-const SEARCH_OPTION_LIMIT = 200
-
 /** A filter with several choices from a long list, such as people or tags. An empty selection means all of them. */
 export function FilterSearchSubMenu({
     label,
@@ -232,23 +228,12 @@ export function FilterSearchSubMenu({
     dataAttr?: string
     optionDataAttr?: string
 }): React.ReactElement {
-    const [query, setQuery] = React.useState('')
-    const { contains } = useDropdownMenuFilter()
     // Values the options do not know yet, such as a tag from the URL before the list loads, still count as picked.
     const unknown = selected.filter((value) => !options.some((option) => option.value === value))
     const known: FilterOption[] = [...options, ...unknown.map((value) => ({ value, label: value }))]
     const picked = known.filter((option) => selected.includes(option.value))
-    const search = query.trim()
-    const matches = (label: string): boolean => contains(label, search)
-    const showAll = matches(allLabel)
-    const matching = known.filter((option) => matches(option.label))
-    const select = (next: string[]): void => {
-        onChange(next)
-        setQuery('')
-    }
     return (
-        // We filter here because Base UI's own filter keeps every row mounted, and only hides the ones that do not match.
-        <DropdownMenuFilterProvider filter={null} autoHighlight value={query} onValueChange={setQuery}>
+        <DropdownMenuFilterProvider autoHighlight>
             <DropdownMenuSub onOpenChange={(open) => open && onOpen?.()}>
                 <FilterSubMenuRow
                     label={label}
@@ -264,26 +249,26 @@ export function FilterSearchSubMenu({
                 <DropdownMenuSubContent flush className="w-64">
                     {/* Autofocus because Base UI leaves the focus on the row when hover opens the submenu, and typing would go nowhere. */}
                     <DropdownMenuInput autoFocus placeholder={searchPlaceholder} aria-label={searchPlaceholder} />
-                    {!showAll && matching.length === 0 && <MenuEmpty>{emptyText}</MenuEmpty>}
+                    <DropdownMenuEmpty>{emptyText}</DropdownMenuEmpty>
                     <DropdownMenuList>
-                        {showAll && (
-                            <DropdownMenuCheckboxItem
-                                checked={selected.length === 0}
-                                closeOnClick={false}
-                                onCheckedChange={() => select([])}
-                                title={allLabel}
-                                data-attr={optionDataAttr}
-                            >
-                                <span className="truncate">{allLabel}</span>
-                            </DropdownMenuCheckboxItem>
-                        )}
-                        {matching.slice(0, SEARCH_OPTION_LIMIT).map((option) => (
+                        <DropdownMenuCheckboxItem
+                            label={allLabel}
+                            checked={selected.length === 0}
+                            closeOnClick={false}
+                            onCheckedChange={() => onChange([])}
+                            title={allLabel}
+                            data-attr={optionDataAttr}
+                        >
+                            <span className="truncate">{allLabel}</span>
+                        </DropdownMenuCheckboxItem>
+                        {known.map((option) => (
                             <DropdownMenuCheckboxItem
                                 key={option.value}
+                                label={option.label}
                                 checked={selected.includes(option.value)}
                                 closeOnClick={false}
                                 onCheckedChange={(checked) =>
-                                    select(
+                                    onChange(
                                         checked
                                             ? [...selected, option.value]
                                             : selected.filter((value) => value !== option.value)
@@ -300,9 +285,6 @@ export function FilterSearchSubMenu({
                             </DropdownMenuCheckboxItem>
                         ))}
                     </DropdownMenuList>
-                    {matching.length > SEARCH_OPTION_LIMIT && (
-                        <div className="p-2 text-xs text-muted-foreground">Keep typing to see more</div>
-                    )}
                     {loading && <div className="p-2 text-xs text-muted-foreground">Loading…</div>}
                 </DropdownMenuSubContent>
             </DropdownMenuSub>

@@ -74,7 +74,7 @@ export const Default: Story = {
     },
 }
 
-const MANY_TAGS = Array.from({ length: 300 }, (_, index) => ({ value: `tag-${index}`, label: `tag-${index}` }))
+const MANY_TAGS = Array.from({ length: 1000 }, (_, index) => ({ value: `tag-${index}`, label: `tag-${index}` }))
 
 export const ManySearchOptions: Story = {
     render: function Render() {
