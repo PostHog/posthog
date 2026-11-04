@@ -129,7 +129,7 @@ const SETUP_SCREEN = productEmptyStateStory(mcpAnalyticsEmptyState, 'needs-setup
     },
 })
 
-// The setup screen with setup mode on: both install routes in one card, and the how-it-works sidebar above the
+// The setup screen with setup mode on: the Start setup card, and the how-it-works sidebar above the
 // demo card. At medium width the stacked sidebar is wide enough for its three-column layout.
 export const SetupScreen: StoryObj<typeof ProductEmptyState> = {
     ...SETUP_SCREEN,

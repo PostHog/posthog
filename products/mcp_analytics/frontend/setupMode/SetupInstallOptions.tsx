@@ -16,6 +16,7 @@ import { useMCPAnalyticsWizardCommand } from '../onboarding/MCPAnalyticsInstall'
 const COPY = {
     wizard: "Run the Wizard in your server's repository",
     agent: 'Or ask your coding agent',
+    agentOnly: 'Ask your coding agent',
     restart: 'Restart your server when setup is done.',
 }
 
@@ -30,17 +31,22 @@ export function SetupInstallOptions(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4 rounded border border-primary bg-surface-primary p-4">
-            <div className="flex flex-col gap-2">
-                <span className="text-xs font-semibold text-secondary">{COPY.wizard}</span>
-                <TerminalCard
-                    command={command}
-                    copyLabel="MCP analytics wizard command"
-                    onCopy={() => reportSetupInteraction('wizard command copied', 'needs-setup', 'wizard')}
-                />
-            </div>
+            {/* The Wizard only works against PostHog Cloud. */}
+            {isCloudOrDev ? (
+                <div className="flex flex-col gap-2">
+                    <span className="text-xs font-semibold text-secondary">{COPY.wizard}</span>
+                    <TerminalCard
+                        command={command}
+                        copyLabel="MCP analytics wizard command"
+                        onCopy={() => reportSetupInteraction('wizard command copied', 'needs-setup', 'wizard')}
+                    />
+                </div>
+            ) : null}
             {agentPrompt ? (
                 <div className="flex flex-col gap-2">
-                    <span className="text-xs font-semibold text-secondary">{COPY.agent}</span>
+                    <span className="text-xs font-semibold text-secondary">
+                        {isCloudOrDev ? COPY.agent : COPY.agentOnly}
+                    </span>
                     <div className="flex min-w-0 items-center gap-2 rounded border border-primary py-1 pl-3 pr-1">
                         <span className="min-w-0 flex-1 truncate font-mono text-xs text-secondary" title={agentPrompt}>
                             {agentPrompt}
