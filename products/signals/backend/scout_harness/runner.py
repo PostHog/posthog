@@ -32,6 +32,7 @@ from posthog.temporal.oauth import SCOUT_DEFAULT_WRITE_SCOPES, scout_mcp_scopes,
 from products.business_knowledge.backend.logic import is_maintained_for_team
 from products.data_catalog.backend.facade.api import approved_metric_names_for_team
 from products.mcp_store.backend.facade.api import get_sandbox_mcp_server_names
+from products.signals.backend.activity_summary.search import searchable_config
 from products.signals.backend.agent_runtime import STEP_SCOUT, AgentRuntime, resolve_agent_runtime
 from products.signals.backend.constants import FIRST_REPORT_SCOUT, FIRST_REPORT_SCOUT_TIMEOUT_SECONDS
 from products.signals.backend.facade.source_scouts import refresh_source_scout
@@ -79,7 +80,7 @@ from products.signals.backend.scout_harness.team_limits import (
     resolve_background_backoff,
     withheld_skills_for_team,
 )
-from products.signals.backend.scout_harness.tool_catalogue import scout_tool_access_enabled
+from products.signals.backend.scout_harness.tool_catalogue import scout_held_mcp_tools, scout_tool_access_enabled
 from products.signals.backend.scout_harness.trial_launch import (
     TrialLaunch,
     assert_trial_model_access,
@@ -860,6 +861,26 @@ def _project_has_governed_metrics(team: Team, user_id: int) -> bool:
         return False
 
 
+ACTIVITY_SUMMARY_SEARCH_TOOL = "activity-summary-search"
+
+
+def _activity_summary_search_available(team: Team, mcp_tool_allowlist: list[str] | None) -> bool:
+    """Whether the run's prompt should name `activity-summary-search` for reviewer routing.
+
+    True only when the team can search and the run holds the tool, so the prompt never names a tool
+    the run cannot call. A failed check is False: the mention is optional steering.
+    """
+    try:
+        if mcp_tool_allowlist is not None and ACTIVITY_SUMMARY_SEARCH_TOOL not in scout_held_mcp_tools(
+            mcp_tool_allowlist
+        ):
+            return False
+        return searchable_config(team) is not None
+    except Exception as error:
+        capture_exception(error)
+        return False
+
+
 def _report_tags_in_use(team: Team, *, report_channel: bool) -> list[str]:
     """The team's report tags for the prompt, or none for a signal-channel scout.
 
@@ -1113,6 +1134,9 @@ async def _spawn_and_run(
     report_tags_in_use = await database_sync_to_async(_report_tags_in_use, thread_sensitive=False)(
         team, report_channel=report_channel
     )
+    activity_summary_search = report_channel and await database_sync_to_async(
+        _activity_summary_search_available, thread_sensitive=False
+    )(team, mcp_tool_allowlist)
     prompt = build_run_prompt(
         skill,
         run_id=str(run_id),
@@ -1121,6 +1145,7 @@ async def _spawn_and_run(
         project_timezone=team.timezone,
         github_read_access=github_guidance,
         project_has_governed_metrics=project_has_governed_metrics,
+        activity_summary_search_available=activity_summary_search,
         # Names the external MCP servers the sandbox will mount, so *How to call tools* can carve
         # them out of the exec-interface rule; empty renders nothing.
         mcp_server_names=mcp_server_names,

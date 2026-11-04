@@ -26,6 +26,7 @@ from .auth_types import (
     register_kind_auth_types,
 )
 from .aws import (
+    AnyRedshiftIntegration,
     AWSCredentialsIntegration,
     AWSRedshiftIntegration,
     AWSRedshiftRoleBasedIntegration,
@@ -34,8 +35,12 @@ from .aws import (
     AWSS3RoleBasedIntegration,
     AWSWarehouseSourcesRoleBasedIntegration,
     DuplicateNameError,
+    RedshiftProvisionedCluster,
+    RedshiftServerlessWorkgroup,
     S3CompatibleIntegration,
     is_unique_aws_role_by_organization_id,
+    parse_redshift_host,
+    redshift_integration_from_record,
     validate_aws_credentials,
 )
 from .azure_blob import AzureBlobIntegration, AzureBlobIntegrationError
@@ -288,6 +293,11 @@ __all__ = [
     "AWSCredentialsIntegration",
     "AWSS3Integration",
     "AWSRedshiftIntegration",
+    "AnyRedshiftIntegration",
+    "RedshiftProvisionedCluster",
+    "RedshiftServerlessWorkgroup",
+    "parse_redshift_host",
+    "redshift_integration_from_record",
     "S3CompatibleIntegration",
     "STRIPE_POSTHOG_SECRET_NAMES",
     "StripeIntegration",

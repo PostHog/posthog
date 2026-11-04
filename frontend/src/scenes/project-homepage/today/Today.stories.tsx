@@ -932,7 +932,6 @@ export const HomeWithFrequentItems: Story = {
         featureFlags: {
             [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
             [FEATURE_FLAGS.POSTHOG_CODE_TASK_ANALYSIS]: true,
-            [FEATURE_FLAGS.TODAY_JUMP_BACK_RANKING]: 'test',
         },
     },
     decorators: [
@@ -959,17 +958,6 @@ export const HomeWithFrequentItems: Story = {
             },
         }),
     ],
-}
-
-export const HomeWithRecentRanking: Story = {
-    ...HomeWithFrequentItems,
-    parameters: {
-        featureFlags: {
-            [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
-            [FEATURE_FLAGS.POSTHOG_CODE_TASK_ANALYSIS]: true,
-            [FEATURE_FLAGS.TODAY_JUMP_BACK_RANKING]: 'control',
-        },
-    },
 }
 
 export const HomeWithSampleReports: Story = {
