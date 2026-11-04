@@ -84,7 +84,7 @@ const metricAttributesList = (): ToolBase<
                 limit: params.limit,
                 metricName: params.metricName,
                 search: params.search,
-                searchValues: params.searchValues,
+                search_values: params.search_values,
             },
         })
         const filtered = pickResponseFields(result, ['results']) as typeof result

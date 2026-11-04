@@ -659,7 +659,7 @@ class _MetricAttributeKeysParamsSerializer(serializers.Serializer):
         max_length=255,
         help_text="Substring filter (case-insensitive) applied to attribute keys.",
     )
-    searchValues = serializers.BooleanField(
+    search_values = serializers.BooleanField(
         required=False,
         default=False,
         help_text="When true and `search` has 4 or more characters, also return keys whose values match `search`. They follow the keys whose names match. Each result says whether it matched on key or value.",
@@ -1145,7 +1145,7 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 date_from=params.validated_data["dateFrom"],
                 date_to=params.validated_data["dateTo"],
                 limit=params.validated_data["limit"],
-                search_values=params.validated_data["searchValues"],
+                search_values=params.validated_data["search_values"],
             )
         except ValueError as exc:
             raise ParseError(str(exc))

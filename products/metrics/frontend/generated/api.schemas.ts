@@ -1545,7 +1545,7 @@ export type MetricsAttributesRetrieveParams = {
     /**
      * When true and `search` has 4 or more characters, also return keys whose values match `search`. They follow the keys whose names match. Each result says whether it matched on key or value.
      */
-    searchValues?: boolean
+    search_values?: boolean
 }
 
 export type MetricsDashboardTemplatesListParams = {

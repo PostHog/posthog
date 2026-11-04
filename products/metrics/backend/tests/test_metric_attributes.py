@@ -78,30 +78,30 @@ class TestMetricAttributesAPI(ClickhouseTestMixin, APIBaseTest):
         [
             (
                 "datapoint_value",
-                {"search": "prod", "searchValues": "true"},
+                {"search": "prod", "search_values": "true"},
                 [{"name": "env", "value_count": 1, "matchedOn": "value", "matchedValue": "prod"}],
             ),
             (
                 "resource_value",
-                {"search": "pod-1", "searchValues": "true"},
+                {"search": "pod-1", "search_values": "true"},
                 [{"name": "k8s.pod.name", "value_count": 1, "matchedOn": "value", "matchedValue": "pod-1"}],
             ),
             (
                 "service_name_value",
-                {"search": "billing", "searchValues": "true"},
+                {"search": "billing", "search_values": "true"},
                 [{"name": "service_name", "value_count": 1, "matchedOn": "value", "matchedValue": "billing"}],
             ),
             (
                 "metric_name_limits_value_matches",
-                {"search": "old", "searchValues": "true", "metricName": "http_requests"},
+                {"search": "old", "search_values": "true", "metricName": "http_requests"},
                 [],
             ),
             (
                 "key_match_listed_once_and_first",
-                {"search": "region", "searchValues": "true"},
+                {"search": "region", "search_values": "true"},
                 [{"name": "region", "value_count": 1, "matchedOn": "key"}],
             ),
-            ("search_too_short_for_values", {"search": "us", "searchValues": "true"}, []),
+            ("search_too_short_for_values", {"search": "us", "search_values": "true"}, []),
             ("values_not_searched_without_flag", {"search": "prod"}, []),
         ]
     )

@@ -116,7 +116,7 @@ export const MetricsAttributesRetrieveQueryParams = () => zod.object({
         .max(metricsAttributesRetrieveQuerySearchMax)
         .default(metricsAttributesRetrieveQuerySearchDefault)
         .describe('Substring filter (case-insensitive) applied to attribute keys.'),
-    searchValues: zod
+    search_values: zod
         .boolean()
         .default(metricsAttributesRetrieveQuerySearchValuesDefault)
         .describe(

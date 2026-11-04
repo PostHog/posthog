@@ -60,6 +60,16 @@ def _validate_limit(limit: int) -> int:
     return limit
 
 
+def _metric_name_filter(metric_name: str) -> ast.Expr:
+    if not metric_name:
+        return ast.Constant(value=True)
+    return ast.CompareOperation(
+        op=ast.CompareOperationOp.Eq,
+        left=ast.Field(chain=["metric_name"]),
+        right=ast.Constant(value=metric_name),
+    )
+
+
 class MetricAttributeKeysQueryRunner:
     """Attribute keys ordered by distinct value count from recent series.
     The synthetic `service_name` key only stands in for series without a `service.name`
@@ -169,15 +179,7 @@ class MetricAttributeKeysQueryRunner:
             placeholders={
                 "date_from": ast.Constant(value=self.bucket_date_from),
                 "exclude": ast.Tuple(exprs=[ast.Constant(value=key) for key in exclude] or [ast.Constant(value="")]),
-                "metric_name_filter": (
-                    ast.CompareOperation(
-                        op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=["metric_name"]),
-                        right=ast.Constant(value=self.metric_name),
-                    )
-                    if self.metric_name
-                    else ast.Constant(value=True)
-                ),
+                "metric_name_filter": _metric_name_filter(self.metric_name),
                 "search_pattern": ast.Constant(value=ilike_pattern(self.search)),
                 "limit": ast.Constant(value=limit),
             },
@@ -244,11 +246,7 @@ class MetricAttributeKeysQueryRunner:
             """,
             placeholders={
                 "date_from": ast.Constant(value=self.date_from),
-                "metric_name_filter": ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq,
-                    left=ast.Field(chain=["metric_name"]),
-                    right=ast.Constant(value=self.metric_name),
-                ),
+                "metric_name_filter": _metric_name_filter(self.metric_name),
                 "search_pattern": ast.Constant(value=ilike_pattern(self.search)),
                 "limit": ast.Constant(value=self.limit),
             },
@@ -340,15 +338,7 @@ class MetricAttributeValuesQueryRunner:
             "date_from": ast.Constant(value=self.date_from),
             "date_to": ast.Constant(value=self.date_to),
             "key": ast.Constant(value=self.key),
-            "metric_name_filter": (
-                ast.CompareOperation(
-                    op=ast.CompareOperationOp.Eq,
-                    left=ast.Field(chain=["metric_name"]),
-                    right=ast.Constant(value=self.metric_name),
-                )
-                if self.metric_name
-                else ast.Constant(value=True)
-            ),
+            "metric_name_filter": _metric_name_filter(self.metric_name),
             "search_pattern": ast.Constant(value=ilike_pattern(self.search)),
             "exact": ast.Constant(value=self.search),
             "limit": ast.Constant(value=self.limit),
