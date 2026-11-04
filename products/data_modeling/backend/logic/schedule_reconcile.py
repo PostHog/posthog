@@ -79,6 +79,7 @@ from products.data_modeling.backend.schedule import (
     DATA_MODELING_EXECUTE_DAG_WORKFLOW,
     build_schedule_spec,
     dag_schedule_search_attributes,
+    get_v2_scheduled_dag_ids,
 )
 
 if TYPE_CHECKING:
@@ -371,6 +372,20 @@ def reconcile_dag_schedules(dag: DAG, *, graph: FrequencyGraph | None = None) ->
         team_timezone=team.timezone,
         desired_tiers=desired_tiers,
     )
+
+
+def reconcile_organization_dags(organization_id: str) -> None:
+    """Reconcile the organization's scheduled DAGs, because a plan change can move the floor they run at.
+
+    An endpoint's serving window follows the floor on the next request, so a schedule that stays on
+    the old floor makes requests run inline. A DAG with no schedule is left out, because a reconcile
+    would create its first schedules.
+    """
+    dags = {
+        str(dag.id): dag for dag in DAG.objects.filter(team__organization_id=organization_id).select_related("team")
+    }
+    for dag_id in get_v2_scheduled_dag_ids(dags):
+        _reconcile_dag_best_effort(dags[dag_id])
 
 
 def convert_dag_to_tiers(dag: DAG, default: timedelta | None = None) -> int:

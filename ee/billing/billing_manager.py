@@ -37,6 +37,8 @@ from posthog.models.team.event_retention import (
 from posthog.models.team.logs_retention import reset_revoked_logs_retention
 from posthog.models.user import User
 
+from products.data_modeling.backend.facade import api as data_modeling_api
+
 from ee.billing.access_token import mint_billing_access_token
 from ee.billing.billing_types import BillingProvider, BillingStatus, CustomerInfo
 from ee.billing.grants import EffectiveBillingGrants
@@ -784,6 +786,7 @@ class BillingManager:
         available_product_features = data.get("available_product_features", None)
         revoked_feature_keys: set[str] = set()
         events_retention_changed = False
+        plan_changed = False
         # An empty list is deliberately ignored: this runs on hot paths (get_billing, usage
         # reports) and a partial or error-path billing response must not downgrade the org.
         # Genuine cancellations still send the (non-empty) free-tier feature list.
@@ -813,6 +816,7 @@ class BillingManager:
             if has_active_subscription != organization.has_active_subscription:
                 organization.has_active_subscription = has_active_subscription
                 org_modified = True
+                plan_changed = True
 
         customer_trust_scores = data.get("customer_trust_scores", {})
 
@@ -847,6 +851,9 @@ class BillingManager:
 
         if revoked_feature_keys:
             reset_revoked_logs_retention(organization, revoked_feature_keys)
+
+        if plan_changed:
+            data_modeling_api.schedule_organization_schedule_reconcile(str(organization.id))
 
         if should_update_org_billing_quotas:
             update_org_billing_quotas(organization)

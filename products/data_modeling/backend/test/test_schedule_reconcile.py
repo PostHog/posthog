@@ -36,6 +36,7 @@ from products.data_modeling.backend.logic.schedule_reconcile import (
     delete_team_data_modeling_schedules,
     maybe_reconcile_dag,
     reconcile_dag_schedules,
+    reconcile_organization_dags,
 )
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -618,6 +619,19 @@ class TestMaybeReconcileDag(BaseTest):
         update.assert_not_called()
         delete.assert_not_called()
         capture.assert_called_once()
+
+    def test_organization_reconcile_only_touches_dags_that_already_have_a_schedule(self):
+        scheduled = self._dag_with_target()
+        unscheduled = DAG.objects.create(team=self.team, name="never scheduled")
+
+        with (
+            mock.patch(f"{RECONCILE}.get_v2_scheduled_dag_ids", return_value={str(scheduled.id)}) as lookup,
+            mock.patch(f"{RECONCILE}.reconcile_dag_schedules") as reconcile,
+        ):
+            reconcile_organization_dags(str(self.organization.id))
+
+        self.assertEqual(set(lookup.call_args.args[0]), {str(scheduled.id), str(unscheduled.id)})
+        self.assertEqual([call.args[0] for call in reconcile.call_args_list], [scheduled])
 
     def test_unreadable_plan_floor_still_takes_a_cleared_node_off_its_schedule(self):
         dag = self._dag_with_target()

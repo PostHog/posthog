@@ -10,7 +10,7 @@ from urllib.request import Request as UrllibRequest
 
 import time_machine
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 from django.test import SimpleTestCase, override_settings
 
@@ -523,6 +523,37 @@ class TestBillingManager(BaseTest):
         self.team.refresh_from_db()
         # Retention drops to the default; unrelated Logs settings survive.
         assert self.team.logs_settings == {"retention_days": 14, "json_parse_logs": True}
+
+    @parameterized.expand(
+        [
+            ("upgrade", False, {"has_active_subscription": True}, True),
+            ("downgrade", True, {"has_active_subscription": False}, True),
+            ("same_plan", True, {"has_active_subscription": True}, False),
+            ("partial_response", False, {}, False),
+        ]
+    )
+    def test_update_org_details_reconciles_refresh_schedules_only_on_a_plan_change(
+        self, _name: str, was_paid: bool, customer: dict[str, bool], expect_reconcile: bool
+    ) -> None:
+        organization = self.organization
+        organization.has_active_subscription = was_paid
+        organization.save()
+        license = super(LicenseManager, cast(LicenseManager, License.objects)).create(
+            key="key123::key123",
+            plan="enterprise",
+            valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
+        )
+
+        with (
+            patch(
+                "products.data_modeling.backend.tasks.reconcile_organization_schedules"
+                ".reconcile_organization_schedules.delay"
+            ) as delay,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            BillingManager(license).update_org_details(organization, cast(BillingStatus, {"customer": customer}))
+
+        assert delay.call_args_list == ([call(str(organization.id))] if expect_reconcile else [])
 
     def test_update_org_details_keeps_logs_retention_while_entitled(self):
         organization = self.organization
