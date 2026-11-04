@@ -331,6 +331,7 @@ describe('InstructionsFormatter', () => {
 
             expect(rendered).toContain('### Existing Inbox reports')
             expect(rendered).toContain(`Look for a report with ${list}`)
+            expect(rendered).toContain('`suppression_source` is `safety_judge`')
             expect(rendered.includes('inbox-reports-claim')).toBe(claim)
             expect(rendered).not.toMatch(/\{inbox_/)
         })
