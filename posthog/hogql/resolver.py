@@ -485,12 +485,10 @@ class Resolver(CloningVisitor):
         self.ctes: dict[str, ast.CTE] = {}
         self.current_view_depth: int = 0
         self._compilation_budget = compilation_budget.get() or CompilationBudget()
-        # The saved query being resolved, if the caller has one. It may not be in the database yet, so seeding it
-        # here makes a body that reads its own name a cycle.
+        # Seed unsaved queries so a body that reads its own name is a cycle.
         self.initial_view_name = initial_view_name
         self._resolving_saved_views: set[str] = {initial_view_name} if initial_view_name else set()
-        # id(resolved union body) -> the view it was inlined from. SelectSetQuery has no `view_name`, so a
-        # union-bodied view would otherwise lose its identity once resolved.
+        # SelectSetQuery has no `view_name`, so track the source view by object identity.
         self.union_view_name_by_id: dict[int, str] = {}
         self._pending_saved_view: str | None = None
         self.swap_flag_calls_in_views = False

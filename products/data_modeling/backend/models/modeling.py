@@ -166,15 +166,12 @@ class BoundedResolver(Resolver):
         self.deadline_violated = True
 
     def _check_saved_view_expansion(self, view_name: str) -> None:
-        # current_view_depth is incremented when the view body is visited; look ahead by one
+        super()._check_saved_view_expansion(view_name)
         next_depth = self.current_view_depth + 1
         if next_depth > self.max_view_depth_observed:
             self.max_view_depth_observed = next_depth
-        # soft mode: still expand, but record the overshoot via max_view_depth_observed
         if self.enforce_bounds and next_depth > self.max_view_depth:
             raise ResolutionDepthExceededError(next_depth, self.max_view_depth, initial_view=self.initial_view_name)
-        # cycles and the hard limits always raise
-        super()._check_saved_view_expansion(view_name)
 
 
 def bounded_resolver_factory_for_view(
