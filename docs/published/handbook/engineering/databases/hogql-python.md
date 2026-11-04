@@ -195,6 +195,8 @@ In practice, you should avoid both and access `person.properties.$browser`, whic
 
 On the native JSON events table, HogQL compares non-empty string constants directly with declared String paths and casts Dynamic paths to Nullable(String) for properties with String or unknown definition types.
 This keeps equality and membership predicates visible to the JSON skip index without failing on mixed scalar types.
+Equality and inequality with Boolean constants use the strings `'true'` and `'false'` for single-key properties with String or unknown definition types, including feature flags.
+Explicit Boolean casts and Boolean or Numeric property definitions keep their typed comparisons.
 Numeric and Boolean properties on the native table compare as text when a string literal cannot be converted to the property's definition type.
 Boolean literals keep ClickHouse's case-insensitive spellings, including yes/no, on/off and enable/disable.
 DateTime property definitions keep their conversions when compared with strings, for both event and person properties.

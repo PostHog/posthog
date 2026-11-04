@@ -792,6 +792,16 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
                 "String",
                 ("blob", "native"),
             ),
+            (
+                "boolean_literals",
+                "SELECT properties.value AS original, true = original, equals(original, false), "
+                "notEquals(false, original), countIf(properties.value = true) "
+                "FROM events GROUP BY original ORDER BY original",
+                ['{"value":"false"}', '{"value":"true"}', '{"value":"true"}', '{"value":"variant"}', "{}"],
+                [("false", 0, 1, 0, 0), ("true", 1, 0, 1, 2), ("variant", 0, 0, 1, 0), (None, 0, 0, 1, 0)],
+                "String",
+                ("native",),
+            ),
         ]
     )
     def test_grouped_property_queries(

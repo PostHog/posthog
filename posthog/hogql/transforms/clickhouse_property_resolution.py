@@ -1445,6 +1445,23 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
         return result
 
     def visit_call(self, node: ast.Call) -> ast.Expr:
+        # A comparison written in call form (`equals(properties.x, v)`, `ilike(toString(properties.x), p)`,
+        # `in(properties.x, (...))`) is still a comparison: route it through visit_compare_operation so the same rewrites
+        # fire. Otherwise we'd descend into the args and substitute the value, losing the optimization. Only the plain
+        # 2-arg form, no extra params.
+        if (
+            node.name in HOGQL_COMPARISON_MAPPING
+            and len(node.args) == 2
+            and node.params is None
+            and node.distinct is False
+            and node.within_group is None
+            and node.order_by is None
+            and node.filter_expr is None
+        ):
+            return self.visit_compare_operation(
+                ast.CompareOperation(left=node.args[0], right=node.args[1], op=HOGQL_COMPARISON_MAPPING[node.name])
+            )
+
         if node.name == "toJSONString" and len(node.args) == 1:
             exported_json_text = _exported_json_text_read(node.args[0])
             if exported_json_text is not None:
@@ -1522,23 +1539,6 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
         optimized = self._optimize_property_group_call(node)
         if optimized is not None:
             return optimized
-
-        # A comparison written in call form (`equals(properties.x, v)`, `ilike(toString(properties.x), p)`,
-        # `in(properties.x, (...))`) is still a comparison: route it through visit_compare_operation so the same rewrites
-        # fire. Otherwise we'd descend into the args and substitute the value, losing the optimization. Only the plain
-        # 2-arg form, no extra params.
-        if (
-            node.name in HOGQL_COMPARISON_MAPPING
-            and len(node.args) == 2
-            and node.params is None
-            and node.distinct is False
-            and node.within_group is None
-            and node.order_by is None
-            and node.filter_expr is None
-        ):
-            return self.visit_compare_operation(
-                ast.CompareOperation(left=node.args[0], right=node.args[1], op=HOGQL_COMPARISON_MAPPING[node.name])
-            )
 
         return super().visit_call(node)
 
@@ -1974,7 +1974,35 @@ class ClickHousePropertyResolver(GroupedClauseTracker, CloningVisitor):
 
         return _call("isNotNull", [_json_subcolumn_value_expr(field_type, [first_key], source=source)])
 
+    def _normalize_native_boolean_comparison(self, node: ast.CompareOperation) -> ast.CompareOperation:
+        if node.op not in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.NotEq):
+            return node
+        for property_expr, constant_expr, constant_on_left in (
+            (node.left, node.right, False),
+            (node.right, node.left, True),
+        ):
+            if not isinstance(constant_expr, ast.Constant) or not isinstance(constant_expr.value, bool):
+                continue
+            single = self._property_operand(property_expr)
+            if single is None:
+                continue
+            if not self.context.uses_new_events_schema():
+                return node
+            field_type, property_name = single
+            property_type = ast.PropertyType(field_type=field_type, chain=[property_name])
+            if not isinstance(property_type.resolve_constant_type(self.context), ast.StringType):
+                continue
+            # Legacy property maps compare Boolean literals with their textual storage values.
+            constant = replace(
+                constant_expr,
+                value="true" if constant_expr.value else "false",
+                type=ast.StringType(nullable=False),
+            )
+            return replace(node, left=constant) if constant_on_left else replace(node, right=constant)
+        return node
+
     def visit_compare_operation(self, node: ast.CompareOperation) -> ast.Expr:
+        node = self._normalize_native_boolean_comparison(node)
         if self._in_grouped_clause:
             return super().visit_compare_operation(node)
 

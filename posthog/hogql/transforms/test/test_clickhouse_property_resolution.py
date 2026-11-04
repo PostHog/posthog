@@ -102,6 +102,73 @@ class TestMaterializedLikePatternLimit(SimpleTestCase):
 class TestNativeJSONPropertyComparisons(SimpleTestCase):
     @parameterized.expand(
         [
+            ("event", "properties", "value", "properties.value", "JSON"),
+            ("person", "person_properties", "value", "poe.properties.value", PERSON_PROPERTIES_JSON_TYPE()),
+            ("declared", "properties", "$browser", "properties.$browser", EVENTS_PROPERTIES_JSON_TYPE()),
+            (
+                "feature_flag",
+                "properties",
+                "$feature/example-flag",
+                "properties.`$feature/example-flag`",
+                EVENTS_PROPERTIES_JSON_TYPE(),
+            ),
+        ]
+    )
+    def test_boolean_literals_compare_with_text_properties(
+        self, name: str, column: str, key: str, property_expr: str, json_type: str
+    ) -> None:
+        metadata = PropertyMetadata(person_properties={key: {"type": "String"}})
+        context = HogQLContext(
+            use_new_events_schema=True,
+            property_metadata=metadata,
+            database=Database(),
+            apply_events_retention_floor=False,
+        )
+        context.property_swapper = PropertySwapper(
+            "UTC", metadata.event_properties, metadata.person_properties, {}, context, False
+        )
+        query = parse_select(
+            f"SELECT tuple({property_expr} = true, true = {property_expr}, "
+            f"{property_expr} = false, false = {property_expr}, "
+            f"{property_expr} != true, true != {property_expr}, "
+            f"equals({property_expr}, false), notEquals(false, {property_expr}), "
+            f"if({property_expr} = true, 'yes', 'no'), toBool({property_expr}) = true) FROM events"
+        )
+        prepared = prepare_ast_for_printing(query, context, "clickhouse")
+        assert isinstance(prepared, ast.SelectQuery)
+        printed = print_prepared_ast(prepared.select[0], context, "clickhouse")
+        values = ["true", "false", "variant", "TRUE", ""]
+        if name == "feature_flag":
+            documents = [{"$feature_flags": {"example-flag": value}} for value in [*values, "$true", "$false"]]
+            values.extend(["true", "false"])
+        else:
+            documents = [{key: value} for value in values]
+        rows = sync_execute(
+            f"SELECT {printed} FROM (SELECT CAST(arrayJoin(%(documents)s), %(json_type)s) AS {column}) AS events",
+            {
+                **context.values,
+                "documents": [json.dumps(document) for document in [*documents, {}]],
+                "json_type": json_type,
+            },
+        )
+        assert [row[0] for row in rows] == [
+            (
+                int(value == "true"),
+                int(value == "true"),
+                int(value == "false"),
+                int(value == "false"),
+                int(value != "true"),
+                int(value != "true"),
+                int(value == "false"),
+                int(value != "false"),
+                "yes" if value == "true" else "no",
+                int(value in ("true", "TRUE")),
+            )
+            for value in [*values, None]
+        ]
+
+    @parameterized.expand(
+        [
             ("event", "properties", "value", "properties.value", False),
             ("person", "person_properties", "value", "poe.properties.value", False),
             ("dotted", "properties", "value.child", "properties.`value.child`", False),
