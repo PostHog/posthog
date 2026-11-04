@@ -476,9 +476,9 @@ jobs:
     tests:
         # Not on master push — master coverage comes from the hourly run (see `schedule`).
         if: needs.changes.outputs.nodejs == 'true' && github.event_name != 'push'
-        name: Node.js ${{ matrix.lane }} Tests ${{ matrix.shard }}/${{ matrix.shard_count }} (depot-ubuntu-24.04-4)
+        name: Node.js ${{ matrix.lane }} Tests ${{ matrix.shard }}/${{ matrix.shard_count }} (${{ matrix.runner }})
         needs: changes
-        runs-on: depot-ubuntu-24.04-4
+        runs-on: ${{ matrix.runner }}
         # Tests fit comfortably in 30, but a rust change misses the turbo cache and cold-builds the
         # replay-anonymizer addon's whole dependency tree first (no rust caching in this job yet).
         timeout-minutes: 45
@@ -489,15 +489,19 @@ jobs:
                     - lane: parallel
                       shard: 1
                       shard_count: 1
+                      runner: depot-ubuntu-24.04-4
                     - lane: serial
                       shard: 1
                       shard_count: 3
+                      runner: depot-ubuntu-24.04
                     - lane: serial
                       shard: 2
                       shard_count: 3
+                      runner: depot-ubuntu-24.04
                     - lane: serial
                       shard: 3
                       shard_count: 3
+                      runner: depot-ubuntu-24.04
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
             DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -812,9 +816,9 @@ jobs:
     rust_ingestion_e2e:
         # Not on master push — master coverage comes from the hourly run (see `schedule`).
         if: (needs.changes.outputs.nodejs == 'true' || needs.changes.outputs.personhog_e2e == 'true') && github.event_name != 'push'
-        name: Rust ingestion consumer Node API e2e (depot-ubuntu-24.04-4)
+        name: Rust ingestion consumer Node API e2e (depot-ubuntu-24.04)
         needs: changes
-        runs-on: depot-ubuntu-24.04-4
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 30
         env:
             DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
