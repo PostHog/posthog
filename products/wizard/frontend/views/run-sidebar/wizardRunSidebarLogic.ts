@@ -18,6 +18,9 @@ import type { WizardRunApi } from '../../generated/api.schemas'
 import { wizardRunIsActive } from '../../lib/wizardRunDisplay'
 import { wizardRunSyncLogic } from '../../logics/wizardRunSyncLogic'
 
+// pinned: analytics property values, renaming breaks dashboards
+export type WizardRunStateLocation = 'navbar_sidebar' | 'today_more_menu'
+
 interface WizardRunSidebarProps {
     projectId: string
     userId: number
@@ -27,11 +30,14 @@ export interface wizardRunSidebarLogicValues {
     userRuns: WizardRunApi[]
     dismissedRunIds: string[]
     visibleRuns: WizardRunApi[]
+    runsSeenAt: string | null
+    hasUnseenRuns: boolean
 }
 
 export interface wizardRunSidebarLogicActions {
-    clickState: () => { value: true }
+    clickState: (location: WizardRunStateLocation) => { location: WizardRunStateLocation }
     dismissRuns: (runIds: string[]) => { runIds: string[] }
+    markRunsSeen: () => { seenAt: string }
     syncWatchedRuns: () => { value: true }
     watchRuns: (source: string, runIds: string[]) => { source: string; runIds: string[] }
 }
@@ -50,7 +56,12 @@ export const wizardRunSidebarLogic: LogicWrapper<wizardRunSidebarLogicType> = ke
         values: [wizardRunSyncLogic({ projectId }), ['userRuns']],
         actions: [wizardRunSyncLogic({ projectId }), ['watchRuns']],
     })),
-    actions({ clickState: true, dismissRuns: (runIds: string[]) => ({ runIds }), syncWatchedRuns: true }),
+    actions({
+        clickState: (location: WizardRunStateLocation) => ({ location }),
+        dismissRuns: (runIds: string[]) => ({ runIds }),
+        markRunsSeen: () => ({ seenAt: new Date().toISOString() }),
+        syncWatchedRuns: true,
+    }),
     reducers(({ props: { projectId, userId } }) => ({
         dismissedRunIds: [
             [] as string[],
@@ -58,8 +69,18 @@ export const wizardRunSidebarLogic: LogicWrapper<wizardRunSidebarLogicType> = ke
             // Store IDs instead of a cutoff so dismissing history cannot hide a subsequently discovered run.
             { dismissRuns: (state, { runIds }) => [...new Set([...(Array.isArray(state) ? state : []), ...runIds])] },
         ],
+        runsSeenAt: [
+            null as string | null,
+            { persist: true, storageKey: `${projectId}.${userId}.wizard_runs_seen_at` },
+            { markRunsSeen: (_, { seenAt }) => seenAt },
+        ],
     })),
     selectors({
+        hasUnseenRuns: [
+            (s) => [s.userRuns, s.runsSeenAt],
+            (runs: WizardRunApi[], seenAt: string | null): boolean =>
+                runs.some((run) => seenAt === null || (run.finished_at ?? run.created_at) > seenAt),
+        ],
         visibleRuns: [
             (s) => [s.userRuns, s.dismissedRunIds],
             (runs: WizardRunApi[], dismissed: string[]): WizardRunApi[] => {
@@ -78,12 +99,15 @@ export const wizardRunSidebarLogic: LogicWrapper<wizardRunSidebarLogicType> = ke
                 'sidebar',
                 values.visibleRuns.map((run) => run.id)
             ),
-        clickState: () => {
+        clickState: ({ location }) => {
+            // The More menu ignores sidebar dismissals, so count the runs it displays.
+            const runs = location === 'today_more_menu' ? values.userRuns : values.visibleRuns
             posthog.capture('wizard sidebar state clicked', {
                 event_source: 'wizard_ui',
                 project_id: projectId,
-                run_count: values.visibleRuns.length,
-                active_run_count: values.visibleRuns.filter(wizardRunIsActive).length,
+                location,
+                run_count: runs.length,
+                active_run_count: runs.filter(wizardRunIsActive).length,
             })
         },
         dismissRuns: ({ runIds }) => {

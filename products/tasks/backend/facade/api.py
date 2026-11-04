@@ -8010,8 +8010,6 @@ def create_task(
 
     if user_id is not None:
         validated_data["created_by"] = User.objects.get(id=user_id)
-    created_by = validated_data.get("created_by")
-    title_distinct_id = created_by.distinct_id if created_by else None
 
     if validated_data.get("repository") and not validated_data.get("github_integration"):
         default_integration = IntegrationManager.github.oauth.find(team.id)
@@ -8131,7 +8129,7 @@ def create_task(
                 warm_task.title_manually_set = True
                 update_fields += ["title", "title_manually_set"]
             elif description and not (warm_task.title or "").strip():
-                warm_task.title = generate_task_title(naming_source or description, distinct_id=title_distinct_id)
+                warm_task.title = generate_task_title(naming_source or description)
                 warm_task.title_manually_set = False
                 update_fields += ["title", "title_manually_set"]
             if description and not (warm_task.description or "").strip():
@@ -8265,9 +8263,7 @@ def create_task(
 
     title = (validated_data.get("title") or "").strip()
     if not title and (naming_source or validated_data.get("description")):
-        validated_data["title"] = generate_task_title(
-            naming_source or validated_data["description"], distinct_id=title_distinct_id
-        )
+        validated_data["title"] = generate_task_title(naming_source or validated_data["description"])
         validated_data.setdefault("title_manually_set", False)
     elif title:
         validated_data.setdefault("title_manually_set", True)
