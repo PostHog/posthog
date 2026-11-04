@@ -8,6 +8,7 @@ from parameterized import parameterized
 
 from posthog.schema import QueryStatus
 
+from posthog.clickhouse.query_tagging import reset_query_tags
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.query_runner import get_query_runner
 from posthog.models import OrganizationMembership, PersonalAPIKey
@@ -26,6 +27,21 @@ class TestBookActivityQueryAccess(BookActivityTestCase):
         if kind != "BookActivityFirstsQuery":
             query.update(dateRange={"date_from": "-4w"}, interval="week")
         return query
+
+    @parameterized.expand(KINDS)
+    def test_untagged_queries_run_with_rate_limits(self, kind: str) -> None:
+        self._event(ANA, "insight created", "2026-10-26T10:00:00Z", self.alpha)
+        flush_persons_and_events()
+        reset_query_tags()
+        self.addCleanup(reset_query_tags)
+        with patch("posthog.clickhouse.client.limit.TEST", False):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/query/",
+                {"query": self._query(kind), "refresh": "blocking"},
+                format="json",
+            )
+        assert response.status_code == 200, response.content
+        assert response.json()["results"]["rows"]
 
     @parameterized.expand(KINDS)
     def test_flag_revocation_blocks_cached_results_and_async_status(self, kind: str) -> None:
