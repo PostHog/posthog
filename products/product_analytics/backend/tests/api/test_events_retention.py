@@ -216,11 +216,12 @@ class TestEventsRetentionAPI(APIBaseTest):
                 "HTTP_X_POSTHOG_TRACE_ID": "test-ai-trace",
             }
 
+        self.client.credentials(**headers)
         with patch("posthoganalytics.capture") as capture:
             for before, after in [(None, 6), (6, 12), (12, None)]:
                 capture.reset_mock()
                 with self.captureOnCommitCallbacks(execute=True):
-                    response = self.client.post(url, {"retention_months": after}, format="json", **headers)
+                    response = self.client.post(url, {"retention_months": after}, format="json")
                 assert response.status_code == status.HTTP_200_OK
                 events = [
                     call.kwargs for call in capture.call_args_list if call.kwargs.get("event") == "events retention set"
@@ -246,9 +247,20 @@ class TestEventsRetentionAPI(APIBaseTest):
 
                 capture.reset_mock()
                 with self.captureOnCommitCallbacks(execute=True):
-                    response = self.client.post(url, {"retention_months": after}, format="json", **headers)
+                    response = self.client.post(url, {"retention_months": after}, format="json")
                 assert response.status_code == status.HTTP_200_OK
                 assert not any(call.kwargs.get("event") == "events retention set" for call in capture.call_args_list)
+
+    @parameterized.expand([("project",), ("organization",)])
+    def test_saves_retention_with_malformed_analytics_headers(self, scope: str) -> None:
+        self._set_membership("organization_admin")
+        url = self.url() if scope == "project" else self.organization_url()
+
+        with patch("posthoganalytics.capture"), self.captureOnCommitCallbacks(execute=True):
+            response = self.client.post(url, {"retention_months": 6}, format="json", HTTP_REFERER="https://[")
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()[f"{scope}_retention_months"] == 6
 
     @parameterized.expand([("project",), ("organization",)])
     def test_does_not_track_rolled_back_retention_changes(self, scope: str) -> None:
@@ -268,7 +280,7 @@ class TestEventsRetentionAPI(APIBaseTest):
         [(scope, source) for scope in ("project", "organization") for source in ("mcp", "invalid", 42)]
     )
     def test_sanitizes_retention_analytics_properties(self, scope: str, source: str | int) -> None:
-        properties = {
+        properties: dict[str, object] = {
             "source": source,
             "$mcp_session_id": " \x00session\n ",
             "$mcp_conversation_id": {"id": "invalid"},

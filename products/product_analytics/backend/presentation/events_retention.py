@@ -26,8 +26,12 @@ EVENTS_RETENTION_DOCS_URL = "https://posthog.com/docs/data/events-retention"
 
 
 def _retention_analytics_properties(request: Request) -> dict[str, object]:
+    try:
+        properties: dict[str, object] = {**get_request_analytics_properties(request)}
+    except ValueError:
+        properties = {}
     return {
-        **get_request_analytics_properties(request),
+        **properties,
         "$mcp_session_id": request.headers.get("X-Posthog-Mcp-Session-Id"),
         "$mcp_conversation_id": request.headers.get("X-Posthog-Mcp-Conversation-Id"),
         "$ai_trace_id": request.headers.get("X-PostHog-Trace-Id"),
