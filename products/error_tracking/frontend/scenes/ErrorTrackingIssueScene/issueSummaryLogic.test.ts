@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { initKeaTests } from '~/test/init'
 
@@ -7,6 +8,7 @@ import type {
     ErrorTrackingStoredIssueSummaryApi,
     ErrorTrackingIssueSummaryResponseApi,
 } from '../../generated/api.schemas'
+import { issuePaneSectionsLogic } from './issuePaneSectionsLogic'
 import { issueSummaryLogic } from './issueSummaryLogic'
 
 jest.mock('../../generated/api')
@@ -25,6 +27,12 @@ const SUMMARY: ErrorTrackingStoredIssueSummaryApi = {
 const READY: ErrorTrackingIssueSummaryResponseApi = { status: 'ready', summary: SUMMARY, reason: null }
 const NOT_GENERATED: ErrorTrackingIssueSummaryResponseApi = { status: 'not_generated', summary: null, reason: null }
 const UNAVAILABLE: ErrorTrackingIssueSummaryResponseApi = { status: 'unavailable', summary: null, reason: 'disabled' }
+const AI_NOT_APPROVED: ErrorTrackingIssueSummaryResponseApi = {
+    status: 'unavailable',
+    summary: null,
+    reason: 'ai_not_approved',
+}
+const RESTRICTED: ErrorTrackingIssueSummaryResponseApi = { status: 'unavailable', summary: null, reason: 'restricted' }
 
 describe('issueSummaryLogic', () => {
     const retrieve = jest.mocked(errorTrackingIssuesSummaryRetrieve)
@@ -37,6 +45,7 @@ describe('issueSummaryLogic', () => {
 
     afterEach(() => {
         logic?.unmount()
+        localStorage.clear()
         jest.useRealTimers()
         jest.resetAllMocks()
     })
@@ -47,8 +56,10 @@ describe('issueSummaryLogic', () => {
 
     it.each([
         ['a summary is stored', READY, 'ready'],
-        ['no summary is stored', NOT_GENERATED, 'hidden'],
-        ['summaries are unavailable', UNAVAILABLE, 'hidden'],
+        ['no summary is stored', NOT_GENERATED, 'not_generated'],
+        ['summaries are off for the project', UNAVAILABLE, 'hidden'],
+        ['the organization has not approved AI', AI_NOT_APPROVED, 'ai_not_approved'],
+        ['the person cannot read the summary sources', RESTRICTED, 'restricted'],
     ])('reads once and never polls when %s', async (_name, response, view) => {
         retrieve.mockResolvedValue(response)
         logic = issueSummaryLogic({ issueId: ISSUE_ID })
@@ -72,5 +83,26 @@ describe('issueSummaryLogic', () => {
         logic.actions.loadSummary()
         await advance(0)
         expect(logic.values.view).toBe('ready')
+    })
+
+    it('reports whether the summary was open when viewed, and sends the rating', async () => {
+        const capture = jest.spyOn(posthog, 'capture')
+        retrieve.mockResolvedValue(READY)
+        issuePaneSectionsLogic.mount()
+        issuePaneSectionsLogic.actions.setSummaryOpen(true)
+        logic = issueSummaryLogic({ issueId: ISSUE_ID })
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadSummarySuccess'])
+        logic.actions.sendFeedback('bad')
+
+        expect(capture).toHaveBeenCalledWith(
+            'error_tracking_issue_summary_viewed',
+            expect.objectContaining({ issue_id: ISSUE_ID, summary_open: true })
+        )
+        expect(capture).toHaveBeenCalledWith(
+            'error_tracking_issue_summary_feedback',
+            expect.objectContaining({ issue_id: ISSUE_ID, feedback: 'bad', generated_at: SUMMARY.generated_at })
+        )
     })
 })
