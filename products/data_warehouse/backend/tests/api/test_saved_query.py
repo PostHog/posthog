@@ -3217,11 +3217,38 @@ class TestSavedQueryRun(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("every_built_view_ran_recently", 10, NodeType.MAT_VIEW, False, 429, "300"),
-            ("one_built_view_ran_before_the_limit", 20, NodeType.MAT_VIEW, False, 200, None),
-            ("one_built_view_never_ran", None, NodeType.MAT_VIEW, False, 200, None),
-            ("plain_view_never_ran", None, NodeType.VIEW, False, 429, "600"),
-            ("deleted_view_never_ran", None, NodeType.MAT_VIEW, True, 429, "600"),
+            (
+                "every_built_view_ran_recently",
+                10,
+                DataModelingJob.Status.COMPLETED,
+                NodeType.MAT_VIEW,
+                False,
+                429,
+                "300",
+            ),
+            ("other_view_failed_recently", 3, DataModelingJob.Status.FAILED, NodeType.MAT_VIEW, False, 429, "600"),
+            (
+                "other_view_cancelled_recently",
+                3,
+                DataModelingJob.Status.CANCELLED,
+                NodeType.MAT_VIEW,
+                False,
+                429,
+                "600",
+            ),
+            ("other_view_skipped_recently", 3, DataModelingJob.Status.SKIPPED, NodeType.MAT_VIEW, False, 429, "600"),
+            (
+                "one_built_view_ran_before_the_limit",
+                20,
+                DataModelingJob.Status.COMPLETED,
+                NodeType.MAT_VIEW,
+                False,
+                200,
+                None,
+            ),
+            ("one_built_view_never_ran", None, None, NodeType.MAT_VIEW, False, 200, None),
+            ("plain_view_never_ran", None, None, NodeType.VIEW, False, 429, "600"),
+            ("deleted_view_never_ran", None, None, NodeType.MAT_VIEW, True, 429, "600"),
         ]
     )
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
@@ -3229,6 +3256,7 @@ class TestSavedQueryRun(APIBaseTest):
         self,
         _name,
         related_started_minutes_ago,
+        related_status,
         related_type,
         related_deleted,
         expected_status,
@@ -3250,14 +3278,14 @@ class TestSavedQueryRun(APIBaseTest):
         )
         related_node = Node.objects.create(team=self.team, dag=dag, saved_query=related_saved_query, type=related_type)
         Edge.objects.create(team=self.team, dag=dag, source=related_node, target=node)
-        runs = [(saved_query, 5)]
+        runs = [(saved_query, 5, DataModelingJob.Status.COMPLETED)]
         if related_started_minutes_ago is not None:
-            runs.append((related_saved_query, related_started_minutes_ago))
-        for run_saved_query, started_minutes_ago in runs:
+            runs.append((related_saved_query, related_started_minutes_ago, related_status))
+        for run_saved_query, started_minutes_ago, run_status in runs:
             job = DataModelingJob.objects.create(
                 team=self.team,
                 saved_query=run_saved_query,
-                status=DataModelingJob.Status.COMPLETED,
+                status=run_status,
                 engine=DataModelingJobEngine.CLICKHOUSE,
             )
             DataModelingJob.objects.filter(id=job.id).update(created_at=now - timedelta(minutes=started_minutes_ago))
