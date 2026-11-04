@@ -41,7 +41,8 @@ import type { MCPConnectState } from './setupMode'
 const RECENT_CALLS = 2
 
 // Faster than the onboarding logic's own poll: someone in setup mode is watching for the moment
-// their server answers. Both queries stay cheap while the project has a handful of events.
+// their server answers. Only a new project polls, and its queries stay cheap while it has a handful
+// of events. A project with earlier calls, reopened from the scene, loads each step once.
 const CONNECT_POLL_MS = 5000
 const FIRST_CALL_POLL_MS = 10000
 const SERVER_TOOLS_POLL_MS = 10000
@@ -80,6 +81,11 @@ export function resetSetupModeTrackingForTests(): void {
 
 /** What setup mode polls for while it is open: the signals until a call lands, then the calls themselves. */
 type SetupPollTarget = 'signals' | 'calls' | null
+
+/** A project with more calls than the reveal shows was set up before, so nothing it waits for is imminent. */
+function isNewProject(signals: MCPOnboardingSignals | null): boolean {
+    return (signals?.toolCallsTotal ?? 0) <= RECENT_CALLS
+}
 
 function capture(event: string, properties: Record<string, unknown>): void {
     if (userLogic.findMounted()?.values.user?.is_impersonated) {
@@ -373,7 +379,8 @@ export const mcpSetupModeLogic = kea<mcpSetupModeLogicType>([
             }
         },
         step: (step: MCPSetupStep | null) => {
-            if (step === 'useful' && values.recentCalls === null && !values.recentCallsLoading) {
+            // Once per visit, so a reopen shows the failures since the last one.
+            if (step === 'useful' && !values.recentCallsLoading) {
                 actions.loadRecentCalls()
             }
             if (step === 'first-call') {
@@ -400,6 +407,9 @@ export const mcpSetupModeLogic = kea<mcpSetupModeLogicType>([
                 }, 'setupPoll')
             } else if (pollTarget === 'calls') {
                 actions.loadRecentCalls()
+                if (!isNewProject(values.signals)) {
+                    return
+                }
                 cache.disposables.add(() => {
                     const id = window.setInterval(
                         () => !values.recentCallsLoading && actions.loadRecentCalls(),
@@ -413,6 +423,9 @@ export const mcpSetupModeLogic = kea<mcpSetupModeLogicType>([
             cache.disposables.dispose('serverToolsPoll')
             if (pollsServerTools) {
                 actions.loadServerTools()
+                if (!isNewProject(values.signals)) {
+                    return
+                }
                 cache.disposables.add(() => {
                     const id = window.setInterval(
                         () => !values.serverToolsLoading && actions.loadServerTools(),

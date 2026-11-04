@@ -31,6 +31,7 @@ export interface MCPSetupModeViewProps {
     connectState: MCPConnectState
     recentCalls: MCPActivityRecentCallApi[] | null
     recentCallsFailed: boolean
+    toolCallsTotal: number
     serverTools: MCPServerTools | null
     serverToolsFailed: boolean
     onExit: (reason: MCPSetupExitReason) => void
@@ -83,6 +84,7 @@ function StepBody({ step, ...props }: MCPSetupModeViewProps & { step: MCPSetupSt
         return (
             <SetupFirstCallStep
                 calls={props.recentCalls}
+                toolCallsTotal={props.toolCallsTotal}
                 loadFailed={props.recentCallsFailed}
                 serverTools={props.serverTools}
                 serverToolsFailed={props.serverToolsFailed}

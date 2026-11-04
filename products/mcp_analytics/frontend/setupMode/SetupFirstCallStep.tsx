@@ -29,18 +29,26 @@ const COPY = {
         lead: 'Call a tool from your agent and it shows up here.',
     },
     success: {
-        title: (count: number) =>
-            count > 1 ? 'Your first tool calls just landed' : 'Your first tool call just landed',
+        title: (count: number, latest: boolean) =>
+            latest
+                ? count > 1
+                    ? 'Your latest tool calls'
+                    : 'Your latest tool call'
+                : count > 1
+                  ? 'Your first tool calls just landed'
+                  : 'Your first tool call just landed',
         lead: 'This is what every call looks like in PostHog: which client called which tool, why, and how it went.',
         next: 'Make it useful',
     },
     failure: {
-        title: (count: number, failed: number) =>
+        title: (count: number, failed: number, latest: boolean) =>
             count === 1
-                ? 'Your first tool call failed'
+                ? `Your ${latest ? 'latest' : 'first'} tool call failed`
                 : failed === count
-                  ? 'Both of your first tool calls failed'
-                  : 'Two calls in, and one already needs you',
+                  ? `Both of your ${latest ? 'latest' : 'first'} tool calls failed`
+                  : latest
+                    ? 'One of your latest tool calls failed'
+                    : 'Two calls in, and one already needs you',
         lead: "PostHog caught the error your agent got back. Failures like this are the ones you'll want to hear about.",
         next: 'Catch these automatically',
     },
@@ -48,6 +56,8 @@ const COPY = {
 
 interface SetupFirstCallStepProps {
     calls: MCPActivityRecentCallApi[] | null
+    /** Every call the project has had, so a returning project's calls are not called its first. */
+    toolCallsTotal: number
     loadFailed: boolean
     serverTools: MCPServerTools | null
     serverToolsFailed: boolean
@@ -56,9 +66,10 @@ interface SetupFirstCallStepProps {
 
 function FirstCallBody({
     calls,
+    toolCallsTotal,
     loadFailed,
     onNext,
-}: Pick<SetupFirstCallStepProps, 'calls' | 'loadFailed' | 'onNext'>): JSX.Element {
+}: Pick<SetupFirstCallStepProps, 'calls' | 'toolCallsTotal' | 'loadFailed' | 'onNext'>): JSX.Element {
     if (calls === null) {
         return loadFailed ? (
             <LemonBanner type="error">{COPY.failedToLoad}</LemonBanner>
@@ -96,11 +107,16 @@ function FirstCallBody({
     }
 
     const [newest, previous] = revealed
+    const latest = toolCallsTotal > revealed.length
     return (
         <>
             <SetupStepHero
                 Hedgehog={failed > 0 ? HedgehogError : HedgehogParty}
-                title={failed > 0 ? COPY.failure.title(revealed.length, failed) : COPY.success.title(revealed.length)}
+                title={
+                    failed > 0
+                        ? COPY.failure.title(revealed.length, failed, latest)
+                        : COPY.success.title(revealed.length, latest)
+                }
                 lead={copy.lead}
             />
             <ToolCallHeroCard call={newest} />

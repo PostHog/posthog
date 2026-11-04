@@ -30,6 +30,7 @@ const captureRawMock = posthog.captureRaw as jest.Mock
 const NOT_INSTRUMENTED = [0, 0, 0, '1970-01-01T00:00:00Z']
 const CONNECTED = [1, 0, 0, '1970-01-01T00:00:00Z']
 const ONE_CALL = [1, 1, 1, '2026-07-01T00:00:00Z']
+const RETURNING = [1, 50, 12, '2026-06-01T00:00:00Z']
 
 describe('mcpSetupModeLogic', () => {
     let logic: ReturnType<typeof mcpSetupModeLogic.build>
@@ -203,6 +204,7 @@ describe('mcpSetupModeLogic', () => {
             { state: 'waiting to connect', signals: NOT_INSTRUMENTED, setupStep: undefined, polls: false },
             { state: 'connected', signals: CONNECTED, setupStep: undefined, polls: true },
             { state: 'on the first call', signals: ONE_CALL, setupStep: undefined, polls: true },
+            { state: 'reopened with earlier calls', signals: RETURNING, setupStep: undefined, polls: false },
             { state: 'on the last step', signals: ONE_CALL, setupStep: 'useful' as const, polls: false },
         ])('asks for the server tools while $state: $polls', async ({ signals, setupStep, polls }) => {
             const query = jest.spyOn(api, 'query').mockResolvedValue({ results: [signals] } as any)
@@ -217,17 +219,20 @@ describe('mcpSetupModeLogic', () => {
             expect(queriesOf(query, 'server tools') - sentBefore > 0).toBe(polls)
         })
 
-        it('loads the calls once on the last step instead of polling them', async () => {
-            jest.spyOn(api, 'query').mockResolvedValue({ results: [ONE_CALL] } as any)
+        it.each([
+            { state: 'the last step', signals: ONE_CALL, setupStep: 'useful' as const, step: 'useful' },
+            { state: 'a reopened first call', signals: RETURNING, setupStep: undefined, step: 'first-call' },
+        ])('loads the calls once on $state instead of polling them', async ({ signals, setupStep, step }) => {
+            jest.spyOn(api, 'query').mockResolvedValue({ results: [signals] } as any)
             const overview = jest.mocked(mcpAnalyticsSessionsActivityOverview).mockReset()
             overview.mockResolvedValue({ recent_calls: [] } as any)
             logic.actions.loadSignals()
             await jest.advanceTimersByTimeAsync(0)
 
-            await openAgentSetup('useful')
+            await openAgentSetup(setupStep)
             await jest.advanceTimersByTimeAsync(31000)
 
-            expect(logic.values.step).toBe('useful')
+            expect(logic.values.step).toBe(step)
             expect(overview).toHaveBeenCalledTimes(1)
         })
 
