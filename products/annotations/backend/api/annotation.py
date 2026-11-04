@@ -13,6 +13,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.models.user import User
 from posthog.models.utils import strict_fetch
 
+from products.annotations.backend.facade.enums import AnnotationScope
 from products.annotations.backend.models.annotation import Annotation
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.product_analytics.backend.facade.models import Insight
@@ -123,7 +124,7 @@ class AnnotationSerializer(serializers.ModelSerializer):
         team = self.context["get_team"]()
 
         scope = attrs.get("scope", None)
-        if scope == Annotation.Scope.RECORDING.value:
+        if scope == AnnotationScope.RECORDING.value:
             raise serializers.ValidationError("Recording scope is deprecated")
 
         # Resolve the parents the annotation will have after this write. A key absent from `attrs`
@@ -160,7 +161,7 @@ class AnnotationSerializer(serializers.ModelSerializer):
         instance = self.instance
         checked_scope = scope if instance is None else scope or instance.scope
         if (
-            checked_scope == Annotation.Scope.INSIGHT.value
+            checked_scope == AnnotationScope.INSIGHT.value
             and insight is None
             and not (instance is not None and instance.scope == checked_scope and instance.dashboard_item_id is None)
         ):
@@ -168,7 +169,7 @@ class AnnotationSerializer(serializers.ModelSerializer):
                 {"dashboard_item": "Set `dashboard_item` to the insight ID when the scope is `dashboard_item`."}
             )
         if (
-            checked_scope == Annotation.Scope.DASHBOARD.value
+            checked_scope == AnnotationScope.DASHBOARD.value
             and dashboard is None
             and not (instance is not None and instance.scope == checked_scope and instance.dashboard_id is None)
         ):
@@ -180,12 +181,12 @@ class AnnotationSerializer(serializers.ModelSerializer):
         # soft-deleted parent, so accepting one here would strand a row that nothing can list, edit
         # or delete. Project- and organization-scoped rows keep their pointers, which are only used
         # to show where the annotation was created.
-        effective_scope = scope or getattr(self.instance, "scope", Annotation.Scope.INSIGHT.value)
-        if effective_scope == Annotation.Scope.INSIGHT.value and insight is not None and insight.deleted:
+        effective_scope = scope or getattr(self.instance, "scope", AnnotationScope.INSIGHT.value)
+        if effective_scope == AnnotationScope.INSIGHT.value and insight is not None and insight.deleted:
             raise serializers.ValidationError(
                 {"dashboard_item": "This insight is deleted. Restore it, or pick a different scope."}
             )
-        if effective_scope == Annotation.Scope.DASHBOARD.value and dashboard is not None and dashboard.deleted:
+        if effective_scope == AnnotationScope.DASHBOARD.value and dashboard is not None and dashboard.deleted:
             raise serializers.ValidationError(
                 {"dashboard_id": "This dashboard is deleted. Restore it, or pick a different scope."}
             )
@@ -248,15 +249,15 @@ class AnnotationsViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mo
         # Gated on scope: every annotation records the insight and dashboard it was
         # created from, so a project- or organization-scoped one would otherwise
         # disappear project-wide once that parent is deleted.
-        queryset = queryset.exclude(scope=Annotation.Scope.INSIGHT, dashboard_item__deleted=True).exclude(
-            scope=Annotation.Scope.DASHBOARD, dashboard__deleted=True
+        queryset = queryset.exclude(scope=AnnotationScope.INSIGHT, dashboard_item__deleted=True).exclude(
+            scope=AnnotationScope.DASHBOARD, dashboard__deleted=True
         )
 
         scope = self.request.query_params.get("scope")
         if scope:
             # let's allow the more recently used "insight" scope to be used as "dashboard_item"
             scope = "dashboard_item" if scope == "insight" else scope
-            if scope not in [scope.value for scope in Annotation.Scope]:
+            if scope not in [scope.value for scope in AnnotationScope]:
                 raise serializers.ValidationError(f"Invalid scope: {scope}")
 
             queryset = queryset.filter(scope=scope)
@@ -304,5 +305,5 @@ class AnnotationsViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mo
     def _filter_queryset_by_parents_lookups(self, queryset):
         team = self.team
         return queryset.filter(
-            Q(scope=Annotation.Scope.ORGANIZATION, organization_id=team.organization_id) | Q(team=team)
+            Q(scope=AnnotationScope.ORGANIZATION, organization_id=team.organization_id) | Q(team=team)
         )

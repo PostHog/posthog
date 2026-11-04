@@ -7,11 +7,13 @@ from parameterized import parameterized
 
 from posthog.models import Organization, Team
 
-from products.annotations.backend.api.annotation_context import (
+from products.annotations.backend.facade.enums import AnnotationScope
+from products.annotations.backend.logic.ai_context import (
     format_annotations_for_prompt,
     get_annotations_for_ai_context,
     resolve_dashboard_date_range,
     resolve_query_date_range,
+    resolve_snapshot_date_range,
 )
 from products.annotations.backend.models.annotation import Annotation
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -23,7 +25,7 @@ class TestAnnotationContext(APIBaseTest):
         self,
         content: str,
         date_marker: datetime,
-        scope: str = Annotation.Scope.PROJECT,
+        scope: str = AnnotationScope.PROJECT,
         dashboard: Dashboard | None = None,
         dashboard_item: Insight | None = None,
         team: Team | None = None,
@@ -45,7 +47,7 @@ class TestAnnotationContext(APIBaseTest):
         in_window = datetime(2026, 1, 5, tzinfo=ZoneInfo("UTC"))
         out_of_window = datetime(2025, 11, 1, tzinfo=ZoneInfo("UTC"))
         self._make_annotation("rolled out new home page", in_window)
-        self._make_annotation("org-wide release", in_window, scope=Annotation.Scope.ORGANIZATION)
+        self._make_annotation("org-wide release", in_window, scope=AnnotationScope.ORGANIZATION)
         self._make_annotation("ancient", out_of_window)
 
         result = get_annotations_for_ai_context(
@@ -64,13 +66,13 @@ class TestAnnotationContext(APIBaseTest):
         my_insight = Insight.objects.create(team=self.team, name="mine")
         other_insight = Insight.objects.create(team=self.team, name="other")
 
-        self._make_annotation("on my dashboard", in_window, scope=Annotation.Scope.DASHBOARD, dashboard=my_dashboard)
+        self._make_annotation("on my dashboard", in_window, scope=AnnotationScope.DASHBOARD, dashboard=my_dashboard)
         self._make_annotation(
-            "on other dashboard", in_window, scope=Annotation.Scope.DASHBOARD, dashboard=other_dashboard
+            "on other dashboard", in_window, scope=AnnotationScope.DASHBOARD, dashboard=other_dashboard
         )
-        self._make_annotation("on my insight", in_window, scope=Annotation.Scope.INSIGHT, dashboard_item=my_insight)
+        self._make_annotation("on my insight", in_window, scope=AnnotationScope.INSIGHT, dashboard_item=my_insight)
         self._make_annotation(
-            "on other insight", in_window, scope=Annotation.Scope.INSIGHT, dashboard_item=other_insight
+            "on other insight", in_window, scope=AnnotationScope.INSIGHT, dashboard_item=other_insight
         )
 
         result = get_annotations_for_ai_context(
@@ -89,9 +91,9 @@ class TestAnnotationContext(APIBaseTest):
         insight_a = Insight.objects.create(team=self.team, name="a")
         insight_b = Insight.objects.create(team=self.team, name="b")
         insight_c = Insight.objects.create(team=self.team, name="c")
-        self._make_annotation("a", in_window, scope=Annotation.Scope.INSIGHT, dashboard_item=insight_a)
-        self._make_annotation("b", in_window, scope=Annotation.Scope.INSIGHT, dashboard_item=insight_b)
-        self._make_annotation("c", in_window, scope=Annotation.Scope.INSIGHT, dashboard_item=insight_c)
+        self._make_annotation("a", in_window, scope=AnnotationScope.INSIGHT, dashboard_item=insight_a)
+        self._make_annotation("b", in_window, scope=AnnotationScope.INSIGHT, dashboard_item=insight_b)
+        self._make_annotation("c", in_window, scope=AnnotationScope.INSIGHT, dashboard_item=insight_c)
 
         result = get_annotations_for_ai_context(
             self.team,
@@ -120,8 +122,8 @@ class TestAnnotationContext(APIBaseTest):
     def test_includes_org_scoped_annotation_from_sibling_team_in_same_org(self) -> None:
         in_window = datetime(2026, 1, 5, tzinfo=ZoneInfo("UTC"))
         sibling_team = Team.objects.create(organization=self.organization, name="sibling")
-        self._make_annotation("org-wide release", in_window, scope=Annotation.Scope.ORGANIZATION, team=sibling_team)
-        self._make_annotation("sibling's project note", in_window, scope=Annotation.Scope.PROJECT, team=sibling_team)
+        self._make_annotation("org-wide release", in_window, scope=AnnotationScope.ORGANIZATION, team=sibling_team)
+        self._make_annotation("sibling's project note", in_window, scope=AnnotationScope.PROJECT, team=sibling_team)
         self._make_annotation("my own project note", in_window)
 
         result = get_annotations_for_ai_context(
@@ -136,7 +138,7 @@ class TestAnnotationContext(APIBaseTest):
     def test_returns_most_recent_when_window_exceeds_cap(self) -> None:
         # When the window contains more annotations than the cap, we want the most
         # recent ones — they're the ones a "what changed?" summary should care about.
-        from products.annotations.backend.api.annotation_context import MAX_ANNOTATIONS_FOR_AI_CONTEXT
+        from products.annotations.backend.logic.ai_context import MAX_ANNOTATIONS_FOR_AI_CONTEXT
 
         total = MAX_ANNOTATIONS_FOR_AI_CONTEXT + 5
         base = datetime(2026, 1, 1, tzinfo=ZoneInfo("UTC"))
@@ -279,7 +281,7 @@ class TestAnnotationContext(APIBaseTest):
         assert "‹core_memory›" in block
 
     def test_format_annotations_truncates_long_content_and_strips_newlines(self) -> None:
-        from products.annotations.backend.api.annotation_context import MAX_ANNOTATION_CONTENT_CHARS
+        from products.annotations.backend.logic.ai_context import MAX_ANNOTATION_CONTENT_CHARS
 
         block = format_annotations_for_prompt(
             [
@@ -298,3 +300,55 @@ class TestAnnotationContext(APIBaseTest):
         body_line = next(line for line in block.split("\n") if line.startswith("- 2026-01-05"))
         # +ellipsis +date/scope prefix is well under 2x the cap
         assert len(body_line) < MAX_ANNOTATION_CONTENT_CHARS * 2
+
+
+def _snap_with_range(date_from: str | None, date_to: str | None) -> dict:
+    qr: dict = {}
+    if date_from is not None and date_to is not None:
+        qr["resolved_date_range"] = {"date_from": date_from, "date_to": date_to}
+    return {"insights": [{"id": 1, "query_results": qr}]}
+
+
+class TestResolveSnapshotDateRange:
+    @parameterized.expand(
+        [
+            ("no_snapshots", [], False),
+            ("snapshot_without_insights", [{"insights": []}], False),
+            ("missing_resolved_date_range", [_snap_with_range(None, None)], False),
+            (
+                "malformed_dates",
+                [
+                    {
+                        "insights": [
+                            {
+                                "id": 1,
+                                "query_results": {
+                                    "resolved_date_range": {"date_from": "garbage", "date_to": "also-garbage"}
+                                },
+                            }
+                        ]
+                    }
+                ],
+                False,
+            ),
+            (
+                "single_valid_range",
+                [_snap_with_range("2025-04-01T00:00:00Z", "2025-04-15T00:00:00Z")],
+                True,
+            ),
+        ]
+    )
+    def test_resolve_snapshot_date_range(self, _name: str, snapshots: list[dict], expect_window: bool) -> None:
+        result = resolve_snapshot_date_range(snapshots)
+        assert (result is not None) is expect_window
+
+    def test_combines_ranges_across_snapshots(self) -> None:
+        snapshots = [
+            _snap_with_range("2025-04-01T00:00:00Z", "2025-04-07T00:00:00Z"),
+            _snap_with_range("2025-04-10T00:00:00Z", "2025-04-20T00:00:00Z"),
+        ]
+        result = resolve_snapshot_date_range(snapshots)
+        assert result is not None
+        date_from, date_to = result
+        assert date_from == datetime(2025, 4, 1, tzinfo=ZoneInfo("UTC"))
+        assert date_to == datetime(2025, 4, 20, tzinfo=ZoneInfo("UTC"))

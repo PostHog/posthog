@@ -12,7 +12,8 @@ from posthog.permissions import get_authenticator_scopes
 from posthog.scopes import APIScopeObject, scopes_not_covered
 
 from products.annotations.backend.facade import api
-from products.annotations.backend.facade.change_feed import ChangeKind, ChangeWindow, KindVisibility
+from products.annotations.backend.facade.contracts import ChangeWindow, KindVisibility
+from products.annotations.backend.facade.enums import ChangeKind
 
 from .serializers import ChangeFeedQuerySerializer, ChangeFeedSerializer
 

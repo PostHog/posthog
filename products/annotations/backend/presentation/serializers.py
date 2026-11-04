@@ -7,7 +7,7 @@ from rest_framework import serializers
 
 from posthog.api.fields import JSONTolerantListField, RepeatedOrCommaSeparatedListField
 
-from products.annotations.backend.facade.change_feed import ChangeKind
+from products.annotations.backend.facade.enums import ChangeKind
 
 DEFAULT_WINDOW = timedelta(hours=24)
 DEFAULT_LIMIT = 100

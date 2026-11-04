@@ -14,6 +14,7 @@ from rest_framework import status
 from posthog.models import Organization, Team, User
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.annotations.backend.facade.enums import AnnotationScope
 from products.annotations.backend.models.annotation import Annotation
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.product_analytics.backend.facade.models import Insight
@@ -107,7 +108,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
                 created_by=User.objects.create_and_join(self.organization, f"dash-{index}", ""),
                 content=now().isoformat(),
                 dashboard=dashboard,
-                scope=Annotation.Scope.PROJECT,
+                scope=AnnotationScope.PROJECT,
             )
 
         with self.assertNumQueries(FuzzyInt(9, 10)), snapshot_postgres_queries_context(self):
@@ -121,7 +122,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
             team=second_team,
             created_by=self.user,
             content="Cross-project annotation!",
-            scope=Annotation.Scope.ORGANIZATION,
+            scope=AnnotationScope.ORGANIZATION,
         )
 
         response = self.client.get(f"/api/projects/{self.team.id}/annotations/").json()
@@ -135,13 +136,13 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
             organization=separate_org,
             team=separate_team,
             content="Intra-project annotation!",
-            scope=Annotation.Scope.PROJECT,
+            scope=AnnotationScope.PROJECT,
         )
         Annotation.objects.create(
             organization=separate_org,
             team=separate_team,
             content="Cross-project annotation!",
-            scope=Annotation.Scope.ORGANIZATION,
+            scope=AnnotationScope.ORGANIZATION,
         )
 
         response_1 = self.client.get(f"/api/projects/{separate_team.id}/annotations/")
@@ -212,19 +213,19 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
             organization=self.organization,
             team=self.team,
             content="hello world!",
-            scope=Annotation.Scope.ORGANIZATION,
+            scope=AnnotationScope.ORGANIZATION,
         )
         mock_capture.reset_mock()  # Disregard the "annotation created" call
         self.client.force_login(self.user)
 
         response = self.client.patch(
             f"/api/projects/{second_team.id}/annotations/{test_annotation.pk}/",
-            {"scope": Annotation.Scope.PROJECT},
+            {"scope": AnnotationScope.PROJECT},
         )
         test_annotation.refresh_from_db()
 
         assert response.status_code == status.HTTP_200_OK
-        assert test_annotation.scope == Annotation.Scope.PROJECT
+        assert test_annotation.scope == AnnotationScope.PROJECT
         # Previously the project was `self.team``, but after downgrading scope from "Organization" to "Project", we want
         # the current project (i.e. `second_team`, whose ID was used in the API request) to own the annotation.
         # This is so that an annotation doesn't disappear when its downgraded and it actually belonged to a different
@@ -361,7 +362,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
                 organization=self.organization,
                 team=self.team,
                 content=content,
-                scope=Annotation.Scope.PROJECT,
+                scope=AnnotationScope.PROJECT,
                 hidden_in_user_interface=hidden,
             )
 
@@ -399,25 +400,25 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
             organization=self.organization,
             team=self.team,
             content="organization scoped",
-            scope=Annotation.Scope.ORGANIZATION,
+            scope=AnnotationScope.ORGANIZATION,
         )
         Annotation.objects.create(
             organization=self.organization,
             team=self.team,
             content="project scoped",
-            scope=Annotation.Scope.PROJECT,
+            scope=AnnotationScope.PROJECT,
         )
         Annotation.objects.create(
             organization=self.organization,
             team=self.team,
             content="insight scoped",
-            scope=Annotation.Scope.INSIGHT,
+            scope=AnnotationScope.INSIGHT,
         )
         Annotation.objects.create(
             organization=self.organization,
             team=self.team,
             content="dashboard scoped",
-            scope=Annotation.Scope.DASHBOARD,
+            scope=AnnotationScope.DASHBOARD,
         )
 
         scope_query_param = f"?scope={scope}" if scope else ""
@@ -430,10 +431,10 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
     @parameterized.expand(
         [
             # Test case: (scope, should_be_visible_in_date_range, should_be_visible_in_scope_filter)
-            (Annotation.Scope.PROJECT, True, True),
-            (Annotation.Scope.ORGANIZATION, True, True),
-            (Annotation.Scope.PROJECT, False, True),  # Outside date range
-            (Annotation.Scope.ORGANIZATION, False, True),  # Outside date range
+            (AnnotationScope.PROJECT, True, True),
+            (AnnotationScope.ORGANIZATION, True, True),
+            (AnnotationScope.PROJECT, False, True),  # Outside date range
+            (AnnotationScope.ORGANIZATION, False, True),  # Outside date range
         ]
     )
     def test_filter_annotations_by_date_range_and_scope(
@@ -685,10 +686,10 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
                 created_by=self.user,
                 content="Original annotation",
                 scope={
-                    "dashboard": Annotation.Scope.DASHBOARD,
-                    "detached_dashboard": Annotation.Scope.DASHBOARD,
-                    "project": Annotation.Scope.PROJECT,
-                }.get(existing_parent, Annotation.Scope.INSIGHT),
+                    "dashboard": AnnotationScope.DASHBOARD,
+                    "detached_dashboard": AnnotationScope.DASHBOARD,
+                    "project": AnnotationScope.PROJECT,
+                }.get(existing_parent, AnnotationScope.INSIGHT),
                 dashboard_item=Insight.objects.create(team=self.team) if existing_parent == "insight" else None,
                 dashboard=Dashboard.objects.create(team=self.team) if existing_parent == "dashboard" else None,
             )
@@ -763,7 +764,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
                         team=tc.team,
                         created_by=tc.user,
                         content="Dashboard annotation",
-                        scope=Annotation.Scope.DASHBOARD,
+                        scope=AnnotationScope.DASHBOARD,
                         dashboard=dashboard,
                     ),
                 ),
@@ -801,9 +802,9 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ("project_scope_deleted_dashboard", Annotation.Scope.PROJECT, "dashboard"),
-            ("project_scope_deleted_insight", Annotation.Scope.PROJECT, "insight"),
-            ("organization_scope_deleted_dashboard", Annotation.Scope.ORGANIZATION, "dashboard"),
+            ("project_scope_deleted_dashboard", AnnotationScope.PROJECT, "dashboard"),
+            ("project_scope_deleted_insight", AnnotationScope.PROJECT, "insight"),
+            ("organization_scope_deleted_dashboard", AnnotationScope.ORGANIZATION, "dashboard"),
         ]
     )
     def test_project_and_org_scoped_annotations_survive_a_soft_deleted_parent(
@@ -879,10 +880,10 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ("insight_scope", "insight", Annotation.Scope.INSIGHT, "dashboard_item"),
-            ("dashboard_scope", "dashboard", Annotation.Scope.DASHBOARD, "dashboard_id"),
-            ("project_scope_insight_pointer", "insight", Annotation.Scope.PROJECT, "dashboard_item"),
-            ("project_scope_dashboard_pointer", "dashboard", Annotation.Scope.PROJECT, "dashboard_id"),
+            ("insight_scope", "insight", AnnotationScope.INSIGHT, "dashboard_item"),
+            ("dashboard_scope", "dashboard", AnnotationScope.DASHBOARD, "dashboard_id"),
+            ("project_scope_insight_pointer", "insight", AnnotationScope.PROJECT, "dashboard_item"),
+            ("project_scope_dashboard_pointer", "dashboard", AnnotationScope.PROJECT, "dashboard_id"),
         ]
     )
     def test_creating_an_annotation_pointing_at_a_soft_deleted_parent_returns_400(
@@ -919,7 +920,7 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
             team=self.team,
             created_by=self.user,
             content="Rolled out the new checkout",
-            scope=Annotation.Scope.PROJECT,
+            scope=AnnotationScope.PROJECT,
         )
 
         response = self.client.patch(
