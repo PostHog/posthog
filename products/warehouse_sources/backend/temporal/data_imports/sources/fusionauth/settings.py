@@ -51,6 +51,8 @@ class FusionAuthEndpointConfig:
     explode_field: Optional[str] = None
     # Per-user child endpoints: one GET per user returned by the user search.
     fanout: Optional[DependentEndpointConfig] = None
+    # GET reports that require a `start`/`end` range; we request the whole history up to now.
+    report_range: bool = False
     default_incremental_field: Optional[str] = None
 
 
@@ -245,6 +247,73 @@ FUSIONAUTH_ENDPOINTS: dict[str, FusionAuthEndpointConfig] = {
         incremental_fields=[],
         partition_key="insertInstant",
         method="GET",
+    ),
+    "UserComments": FusionAuthEndpointConfig(
+        name="UserComments",
+        path="/api/user/comment/search",
+        data_selector="userComments",
+        primary_keys=["id"],
+        incremental_fields=[],
+        partition_key="insertInstant",
+        order_by="id ASC",
+    ),
+    "RefreshTokens": FusionAuthEndpointConfig(
+        name="RefreshTokens",
+        path="/api/jwt/refresh?userId={user_id}",
+        data_selector="refreshTokens",
+        primary_keys=["id"],
+        incremental_fields=[],
+        partition_key="insertInstant",
+        method="GET",
+        # The token value itself is a live credential.
+        exclude_fields=("token",),
+        fanout=DependentEndpointConfig(
+            parent_name="Users",
+            resolve_param="user_id",
+            resolve_field="id",
+            include_from_parent=[],
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
+    "IdentityProviderLinks": FusionAuthEndpointConfig(
+        name="IdentityProviderLinks",
+        path="/api/identity-provider/link?userId={user_id}",
+        data_selector="identityProviderLinks",
+        # One identity provider account links to one user, but a user can link several accounts
+        # of the same provider.
+        primary_keys=["userId", "identityProviderId", "identityProviderUserId"],
+        incremental_fields=[],
+        partition_key="insertInstant",
+        method="GET",
+        # The access or refresh token the identity provider returned at login.
+        exclude_fields=("token",),
+        fanout=DependentEndpointConfig(
+            parent_name="Users",
+            resolve_param="user_id",
+            resolve_field="id",
+            include_from_parent=[],
+            child_response_actions=[{"status_code": 404, "action": "ignore"}],
+        ),
+    ),
+    # Global reports across all applications. `interval` is the number of days (or months) since
+    # the epoch in the report timezone, so it is unique within a report.
+    "DailyActiveUsers": FusionAuthEndpointConfig(
+        name="DailyActiveUsers",
+        path="/api/report/daily-active-user",
+        data_selector="dailyActiveUsers",
+        primary_keys=["interval"],
+        incremental_fields=[],
+        method="GET",
+        report_range=True,
+    ),
+    "MonthlyActiveUsers": FusionAuthEndpointConfig(
+        name="MonthlyActiveUsers",
+        path="/api/report/monthly-active-user",
+        data_selector="monthlyActiveUsers",
+        primary_keys=["interval"],
+        incremental_fields=[],
+        method="GET",
+        report_range=True,
     ),
 }
 
