@@ -2365,7 +2365,7 @@ class MarketingIntegrationConfig3(BaseModel):
     adsetTableName: Literal["adsets"] = "adsets"
     campaignTableName: Literal["campaigns"] = "campaigns"
     conversionActionTypes: ConversionActionTypes
-    defaultSources: list[str] = Field(..., max_length=9, min_length=9)
+    defaultSources: list[str] = Field(..., max_length=10, min_length=10)
     idField: Literal["id"] = "id"
     nameField: Literal["name"] = "name"
     primarySource: Literal["meta"] = "meta"
