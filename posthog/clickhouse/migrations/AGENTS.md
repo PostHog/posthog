@@ -405,10 +405,7 @@ Decide the start position before the migration runs, and state it in the PR desc
 For a high-volume topic, start at the latest offset and fill the gap with a backfill.
 This needs writes that are safe to overlap, such as `min` and `max` aggregates.
 
-The consumer starts as soon as the migration runs, so agree the merge time with the ClickHouse team and start in dev.
-Be ready to detach the view on every node of the role, as described below.
-When the group shows `Empty` in the WarpStream console, set its committed offsets to the latest offset, attach the view and run the backfill.
-The [restoring event offsets runbook](https://runbooks.posthog.com/services/clickhouse/operations/restore-event-offsets) has the console steps. Read it for the console only, because its warning against the latest offset is about restores.
+The consumer starts as soon as the migration runs, so agree how to set the start position with the ClickHouse team before the migration merges.
 
 Dropping the objects does not remove the group's committed offsets, and a later consumer with that name resumes from them.
 After a test, delete the group from its own page in the console. Do not use `Delete Empty Groups`, because that action is not limited to one group.
