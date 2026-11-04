@@ -73,7 +73,7 @@ class OpenRouterSource(ResumableSource[OpenRouterSourceConfig, OpenRouterResumeC
 Use a **management API key** (create one under [Settings -> Management Keys](https://openrouter.ai/settings/keys)) so the activity, API keys, credits, end users, organization members, workspaces, and workspace members tables can sync. A regular inference key can read only the models, model endpoints, providers, task classifications, session costs, and batches tables.
 
 A management key can't read batches. To sync them, connect a second OpenRouter source with a regular API key.""",
-            iconPath="/static/services/openrouter.png",
+            iconPath="/static/services/openrouter.svg",
             docsUrl="https://posthog.com/docs/cdp/sources/openrouter",
             keywords=["llm", "ai gateway", "usage", "inference"],
             fields=cast(
