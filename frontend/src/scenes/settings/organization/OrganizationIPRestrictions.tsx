@@ -67,7 +67,10 @@ export function OrganizationIPRestrictions(): JSX.Element {
                     checked={enabled}
                     onChange={(nextEnabled) => updateOrganization({ ip_restrictions_enabled: nextEnabled })}
                     loading={saving}
-                    disabledReason={restrictionReason}
+                    disabledReason={
+                        restrictionReason ||
+                        (!enabled && !canConfigure ? 'Upgrade your plan to enable IP restrictions' : null)
+                    }
                     data-attr="ip-restrictions-enabled-toggle"
                 />
                 <div className="flex flex-wrap items-end gap-2">

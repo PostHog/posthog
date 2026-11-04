@@ -39,7 +39,14 @@ function parseRestriction(value: string): [ipaddr.IPv4 | ipaddr.IPv6, number] | 
         return [address, maxPrefix]
     }
     if (!/^\d+$/.test(prefixString)) {
-        return null
+        if (address.kind() !== 'ipv4' || !ipaddr.IPv4.isValidFourPartDecimal(prefixString)) {
+            return null
+        }
+        const mask = ipaddr.IPv4.parse(prefixString)
+        const prefix =
+            mask.prefixLengthFromSubnetMask() ??
+            new ipaddr.IPv4(mask.octets.map((octet) => octet ^ 255)).prefixLengthFromSubnetMask()
+        return prefix === null ? null : [address, prefix]
     }
     const prefix = Number(prefixString)
     return prefix <= maxPrefix ? [address, prefix] : null
