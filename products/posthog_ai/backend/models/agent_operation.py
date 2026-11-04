@@ -27,7 +27,7 @@ class AgentOperation(TeamScopedRootMixin, UUIDModel):
 
     class Approvals(models.TextChoices):
         CLIENT = "client", "Client"
-        AUTO = "auto", "Auto"
+        NONE = "none", "None"
 
     class ParentCredentialKind(models.TextChoices):
         PERSONAL_API_KEY = "personal_api_key", "Personal API key"
@@ -50,8 +50,8 @@ class AgentOperation(TeamScopedRootMixin, UUIDModel):
     goal = models.TextField()
 
     state = models.CharField(max_length=16, choices=State.choices, default=State.QUEUED)
-    # "client": the run asks for approvals and the client's UI answers them. "auto": the run asks for none.
-    approvals = models.CharField(max_length=8, choices=Approvals.choices, default=Approvals.AUTO)
+    # "client": the run asks for approvals and the client's UI answers them. "none": the run asks for none.
+    approvals = models.CharField(max_length=8, choices=Approvals.choices, default=Approvals.NONE)
     state_reason = models.CharField(max_length=64, null=True, blank=True)
 
     granted_scopes = models.JSONField(default=list)

@@ -75,8 +75,8 @@ class AgentOperationStartSerializer(serializers.Serializer):
     approvals = serializers.ChoiceField(
         choices=AgentOperation.Approvals.choices,
         required=False,
-        default=AgentOperation.Approvals.AUTO,
-        help_text="'client' when the client can show approval prompts to its user, so PostHog AI asks before each sensitive tool call. 'auto' (default) runs with no prompts; the key's scopes still limit the run.",
+        default=AgentOperation.Approvals.NONE,
+        help_text="'client' when the client can show approval prompts to its user, so PostHog AI asks before each sensitive tool call. 'none' (default) runs with no prompts; the key's scopes still limit the run.",
     )
     ref = serializers.CharField(
         max_length=255,
@@ -312,7 +312,7 @@ class AgentOperationViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             conversation_id=str(data["conversation_id"]) if data.get("conversation_id") else None,
             repository=data.get("repository"),
             ref=data.get("ref"),
-            approvals=data.get("approvals", AgentOperation.Approvals.AUTO),
+            approvals=data.get("approvals", AgentOperation.Approvals.NONE),
         )
         try:
             outcome = service.start(start, authenticator=getattr(request, "successful_authenticator", None))

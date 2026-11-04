@@ -60,7 +60,7 @@ EXCLUDED_MCP_TOOLS = ["posthog-connection-call", "posthog-connection-forward", "
 # PostHog tool call, so its runs ask for none: the key's scopes, not per-call approvals, limit the run.
 PERMISSION_MODES: dict[str, str] = {
     AgentOperation.Approvals.CLIENT: "auto",
-    AgentOperation.Approvals.AUTO: "bypassPermissions",
+    AgentOperation.Approvals.NONE: "bypassPermissions",
 }
 ALLOW_REPLIES = frozenset({"allow", "approve", "approved", "yes", "y", "ok", "go ahead"})
 ALLOW_ALWAYS_REPLIES = frozenset({"allow all", "always", "always allow", "allow always"})
@@ -85,7 +85,7 @@ class StartRequest:
     conversation_id: str | None = None
     repository: str | None = None
     ref: str | None = None
-    approvals: str = AgentOperation.Approvals.AUTO
+    approvals: str = AgentOperation.Approvals.NONE
 
     def request_hash(self) -> str:
         payload = {

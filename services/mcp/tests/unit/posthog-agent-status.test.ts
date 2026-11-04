@@ -27,7 +27,7 @@ function operation(overrides: Partial<AgentOperation> = {}): AgentOperation {
         cursor: 'c1',
         retry_after_seconds: 10,
         question: null,
-        approvals: 'auto',
+        approvals: 'none',
         approval: null,
         result: null,
         created_at: '2026-01-01T00:00:00Z',
