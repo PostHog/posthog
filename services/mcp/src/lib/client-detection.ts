@@ -224,11 +224,7 @@ export type ClientCapabilities = {
     toolResultTokenLimit?: number
 }
 
-/**
- * Codex models declare a 10,000-token tool output limit (`truncation_policy` in
- * codex-rs/models-manager/models.json), which Codex counts as 4 UTF-8 bytes per token.
- * Codex cuts an MCP result above it out of the middle, through whatever value is there.
- */
+/** Codex's `truncation_policy` (codex-rs/models-manager/models.json); it cuts larger results out of the middle. */
 export const CODEX_TOOL_RESULT_TOKEN_LIMIT = 10_000
 
 export const DEFAULT_CLIENT_CAPABILITIES: ClientCapabilities = {

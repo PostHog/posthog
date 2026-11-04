@@ -8,11 +8,7 @@ import { formatResponse } from '@/lib/response'
 /** Codex converts a token limit to bytes at this rate, so a budget here is measured the same way. */
 const BYTES_PER_TOKEN = 4
 
-/**
- * Ceiling for clients that read a large tool result whole. It sits below the 500,000-character
- * hard ceiling Claude Code applies to a tool's text result, and above the p90 size of every
- * tool except the outliers it exists to stop.
- */
+/** Below the 500,000-character hard ceiling Claude Code applies to a tool's text result. */
 export const DEFAULT_MAX_RESPONSE_TOKENS = 100_000
 
 export const RESPONSE_BUDGET_KEY = '_responseBudget'
@@ -20,7 +16,6 @@ export const RESPONSE_BUDGET_KEY = '_responseBudget'
 const NOTICE_RESERVE_BYTES = 1_024
 /** Entries this small are kept before bulk fields, so ids, URLs, counts and tool notices survive. */
 const POINTER_ENTRY_BYTES = 512
-/** A string shorter than this after cutting carries no useful head, so it is dropped instead. */
 const MIN_STRING_KEEP_BYTES = 64
 const MAX_PROJECTION_DEPTH = 6
 const MAX_FIT_ATTEMPTS = 6
@@ -87,7 +82,6 @@ function prefixWithinBytes(text: string, maxBytes: number): string {
     return last >= 0xd800 && last <= 0xdbff ? text.slice(0, end - 1) : text.slice(0, end)
 }
 
-/** When no whole line fits, the first line is cut and marked, so a single-line body keeps its head. */
 export function clipLines(text: string, maxBytes: number): { text: string; cut: string } {
     let prefix = ''
     let body = text

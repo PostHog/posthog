@@ -173,7 +173,6 @@ describe('Tool schema snapshots', () => {
         const OVERSIZED_SCHEMA_COUNT = 39
         // Ratchet: the share of nested properties with a description may only go up.
         const NESTED_DESCRIPTION_COVERAGE_FLOOR_PERCENT = 55
-        // About 10k tokens, the cost of many ordinary tools together.
         const TOOL_SCHEMA_CHAR_BUDGET = 40_000
         // Ratchet: existing offenders at their size rounded up to 1,000 chars. Never add a tool here.
         const OVERSIZED_TOOL_SCHEMA_CEILINGS: Record<string, number> = {

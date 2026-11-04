@@ -3,10 +3,7 @@ import { assignKey, isRecord } from '@/lib/plain-object'
 import type { ToolHooks } from '@/tools/tool-hooks'
 import type { Context } from '@/tools/types'
 
-/**
- * Every log from one pod or host repeats the same resource attributes, and they are most of a
- * page's size. List each set once under `resources`, keyed by the `resource_fingerprint` the rows keep.
- */
+/** Every row from one pod repeats its resource attributes, which are most of a page's size. */
 function groupResourceAttributes(result: unknown): unknown {
     if (!isRecord(result) || !Array.isArray(result.results)) {
         return result

@@ -397,15 +397,8 @@ export class InstructionsFormatter {
     }
 
     /**
-     * The command reference for clients that can run `learn`: guidance needed for a
-     * correct first call stays inline, and task-specific sections load on demand
-     * through `learn <topic...>`.
-     *
-     * `claudeChat` serves Claude web/desktop. They never show `instructions` to the
-     * model, so the tool-domain index goes inline. Their registry also silently drops
-     * a tool whose serialized `inputSchema` crosses ~16,384 chars, and this reference
-     * lands in `inputSchema.properties.command.description`, so they get the compact
-     * skills section. Enforced by the budget test in `instructions-formatter-snapshot.test.ts`.
+     * `claudeChat` hosts never show `instructions` to the model, so the domain index goes inline, and they
+     * drop a tool whose serialized `inputSchema` crosses ~16,384 chars, so they get the compact skills section.
      */
     buildCompactExecCommandReference(
         ctx: InstructionsContext,
@@ -449,13 +442,7 @@ export class InstructionsFormatter {
         )
     }
 
-    /** Build the full `command` parameter description for the exec tool, with every
-     *  section inline. The query-tool catalog lives here: in single-exec mode
-     *  `instructions` only carries the `query` tool domain.
-     *
-     *  It serves clients that cannot run `learn`, such as the plugin and PostHog Code
-     *  consumers, which bundle their own skills. Clients with `learn` get
-     *  `buildCompactExecCommandReference` instead. */
+    /** The query-tool catalog lives here: in single-exec mode `instructions` only carries the `query` tool domain. */
     buildExecCommandReference(ctx: InstructionsContext): string {
         const sections = [
             CLI_SYNTAX,

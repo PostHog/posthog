@@ -138,10 +138,8 @@ export function estimateResponseTokens(response: ToolResultPayload): number {
 }
 
 /**
- * `response` with each channel the model can read bounded to `maxTokens`, or `response` itself when
- * both fit. The text and `structuredContent` are bounded separately, because a client reads one or
- * the other: Codex sends `structuredContent` to the model whenever it is present. `_meta` is left
- * whole, because hosts pass it to the UI app and not to the model.
+ * Text and `structuredContent` are bounded separately because Codex sends `structuredContent` to the model
+ * whenever it is present. `_meta` stays whole: hosts pass it to the UI app, not the model.
  */
 export function capResponseToBudget(response: ToolResultPayload, maxTokens: number | undefined): ToolResultPayload {
     if (maxTokens === undefined) {

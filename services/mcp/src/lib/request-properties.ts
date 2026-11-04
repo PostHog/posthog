@@ -40,9 +40,7 @@ export type RequestProperties = {
     // Origin product of the sandboxed task (`X-PostHog-Task-Origin`, e.g. `signals_scout`).
     // The consumer header can't carry this: scouts and Desktop tasks both send `posthog-code`.
     taskOriginProduct?: string | undefined
-    // `x-posthog-mcp-bundled-skills: true`: the client ships PostHog's bundled skills, including
-    // `querying-posthog-data`. The consumer header can't carry this: a Tasks run launched with
-    // skills disabled still sends `posthog-code`.
+    // A Tasks run launched with skills disabled still sends `posthog-code`, so the consumer header can't carry this.
     bundledSkills?: boolean | undefined
     // Dev/test-only per-request feature-flag overrides — a JSON object string from
     // `?flag_overrides=` or the `x-posthog-flag-overrides` header. Parsed and gated

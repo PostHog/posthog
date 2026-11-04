@@ -555,8 +555,7 @@ describe('ToolExecutor', () => {
         )
 
         // Hosts cache one tool roster and serve it to other accounts, so nothing
-        // account-specific may reach the advertised exec entry. Every client gets the
-        // learn guides instead of the inline analytics guidance. The domain index stays
+        // account-specific may reach the advertised exec entry. The domain index stays
         // out of the command description except for Claude web/desktop, which ignores
         // `instructions` and has nowhere else to receive it.
         it.each([

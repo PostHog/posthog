@@ -947,8 +947,7 @@ export class ToolExecutor {
 
         // CLI `info execute-sql` returns the tool's static description from the catalog.
         // Override it with the formatted prompt, so the information_schema schema-discovery
-        // steering matches tools mode. A client that can load the full HogQL reference on
-        // demand gets the compact variant; see formatExecuteSqlDescription.
+        // steering matches tools mode.
         const execTools = state.allTools.map((tool) =>
             tool.name === EXECUTE_SQL_TOOL_NAME
                 ? {
