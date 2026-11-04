@@ -1,15 +1,17 @@
 """Typed queries over the intent topic rollups.
 
-All four read ``mcp_intent_topic_daily`` (built nightly by the intent topics pipeline) and the
-Postgres topic registry, plus ``mcp_intent_assignments`` for outliers and map points. None of them
-scan the events table, so they stay fast at any call volume; the price is that only the tool and
-the date range filter, not the shared property filters.
+Topic totals, sparklines and similar tools read ``mcp_intent_topic_daily`` (rebuilt nightly by the intent
+topics pipeline) and the Postgres topic registry. Map points and outliers read the intents called in the
+window from ``mcp_intent_calls_hourly`` and their latest assignment. None of them scan the events table, so
+they stay fast at any call volume; the price is that only the tool and the date range filter, not the
+shared property filters.
 """
 
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from functools import cached_property
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
@@ -38,7 +40,8 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
@@ -47,6 +50,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.mcp_analytics.backend.hogql_queries.base import mcp_query_date_range, validate_mcp_analytics_access
 from products.mcp_analytics.backend.intent_topics.metrics import drift, focus_band, focus_score
+from products.mcp_analytics.backend.intent_topics.rollups import hourly_calls_source, topic_daily_source
 from products.mcp_analytics.backend.models import MCPIntentTopic
 
 if TYPE_CHECKING:
@@ -56,38 +60,114 @@ DEFAULT_TOPICS_LIMIT = 20
 DEFAULT_PROFILE_LIMIT = 5
 DEFAULT_SIMILAR_LIMIT = 10
 DEFAULT_MAP_LIMIT = 2000
-MAX_MAP_LIMIT = 5000
 OUTLIERS_LIMIT = 10
 TOP_TOOLS_PER_TOPIC = 5
+# Topics come from one clustering run per team, so a team never has this many; the limit only stops
+# HogQL from applying its default of 100 rows.
+MAX_TOPICS_READ = 10_000
 UNASSIGNED = ""
 
-# ReplacingMergeTree keeps duplicates until parts merge, so every read dedupes on the sort key first.
-_DAILY_DEDUPED_SQL = """
-SELECT day, tool, topic_id,
-       argMax(calls, inserted_at) AS calls,
-       argMax(sessions, inserted_at) AS sessions,
-       argMax(outlier_calls, inserted_at) AS outlier_calls,
-       argMax(intents, inserted_at) AS intents
-FROM mcp_intent_topic_daily
-WHERE day >= {day_from} AND day <= {day_to} {tool_filter}
-GROUP BY day, tool, topic_id
-"""
 
-
-def _daily_source(day_from: datetime, day_to: datetime, tool: str | None) -> ast.SelectQuery:
-    tool_filter = "AND tool = {tool}" if tool else ""
-    return parse_select(
-        _DAILY_DEDUPED_SQL.replace("{tool_filter}", tool_filter),
-        placeholders={
-            "day_from": ast.Constant(value=day_from.date()),
-            "day_to": ast.Constant(value=day_to.date()),
-            **({"tool": ast.Constant(value=tool)} if tool else {}),
-        },
-    )
+def _order(name: str, direction: str = "ASC") -> ast.OrderExpr:
+    return ast.OrderExpr(expr=ast.Field(chain=[name]), order="DESC" if direction == "DESC" else "ASC")
 
 
 def _pct(part: float, whole: float) -> float:
     return round(100.0 * part / whole, 2) if whole else 0.0
+
+
+@dataclass(frozen=True)
+class QueryWindow:
+    """The requested window and the window of the same number of calendar days just before it."""
+
+    previous_from: datetime
+    date_from: datetime
+    date_to: datetime
+
+    @property
+    def days(self) -> list[datetime]:
+        return [
+            self.date_from + timedelta(days=i) for i in range((self.date_to.date() - self.date_from.date()).days + 1)
+        ]
+
+
+@dataclass(frozen=True)
+class TopicTotals:
+    calls: int
+    sessions: int
+    outlier_calls: int
+    top_tools: list[str]
+
+
+@dataclass(frozen=True)
+class TopicSums:
+    current: dict[str, TopicTotals]
+    previous: dict[str, int]
+
+    @property
+    def calls_with_intent(self) -> int:
+        return sum(totals.calls for totals in self.current.values())
+
+
+@dataclass(frozen=True)
+class IntentUsage:
+    """One intent called in the window, with its latest assignment."""
+
+    intent_hash: str
+    intent_text: str
+    x: float
+    y: float
+    topic_id: str
+    is_outlier: bool
+    distance: float
+    calls: int
+    tool: str
+
+
+_TOPIC_SUMS_SQL = """
+SELECT topic_id,
+       sum(calls_now) AS calls,
+       length(groupUniqArrayArray(conversations_now)) AS sessions,
+       sum(outlier_calls_now) AS outlier_calls,
+       sum(calls_before) AS previous_calls,
+       arrayMap(t -> t.2, arraySlice(arraySort(t -> -t.1, groupArrayIf((calls_now, tool), calls_now > 0)), 1, {top_tools})) AS top_tools
+FROM (
+    SELECT topic_id, tool,
+           sumIf(calls, day >= {date_from}) AS calls_now,
+           groupUniqArrayArrayIf(conversation_hashes, day >= {date_from}) AS conversations_now,
+           sumIf(outlier_calls, day >= {date_from}) AS outlier_calls_now,
+           sumIf(calls, day < {date_from}) AS calls_before
+    FROM {source}
+    GROUP BY topic_id, tool
+)
+GROUP BY topic_id
+LIMIT {limit}
+"""
+
+# Intents called in the window (from the hourly rollup) joined to their latest assignment. Filters on the
+# assignment apply after the latest row is chosen, so an older assignment never resurfaces.
+_INTENT_USAGE_SQL = """
+SELECT u.intent_hash AS intent_hash, a.intent_text AS intent_text, a.x AS x, a.y AS y, a.topic_id AS topic_id,
+       a.is_outlier AS is_outlier, a.distance AS distance, u.calls AS calls, u.tool AS tool
+FROM (
+    SELECT intent_hash, sum(tool_calls) AS calls, argMax(tool, tool_calls) AS tool
+    FROM (SELECT intent_hash, tool, sum(calls) AS tool_calls FROM {usage} GROUP BY intent_hash, tool)
+    GROUP BY intent_hash
+) AS u
+INNER JOIN (
+    SELECT intent_hash,
+           argMax(intent_text, timestamp) AS intent_text,
+           argMax(x, timestamp) AS x,
+           argMax(y, timestamp) AS y,
+           argMax(ifNull(topic_id, ''), timestamp) AS topic_id,
+           argMax(is_outlier, timestamp) AS is_outlier,
+           argMax(distance, timestamp) AS distance
+    FROM posthog.raw_mcp_intent_assignments
+    WHERE intent_hash IN (SELECT intent_hash FROM {called})
+    GROUP BY intent_hash
+) AS a ON u.intent_hash = a.intent_hash
+WHERE {filters}
+"""
 
 
 class _IntentTopicsBase:
@@ -103,12 +183,12 @@ class _IntentTopicsBase:
     def query_date_range(self) -> QueryDateRange:
         return mcp_query_date_range(self.team, self.query.dateRange)
 
-    @property
-    def _window(self) -> tuple[datetime, datetime, datetime]:
+    @cached_property
+    def window(self) -> QueryWindow:
         date_from = self.query_date_range.date_from()
         date_to = self.query_date_range.date_to()
-        previous_from = date_from - (date_to - date_from) - timedelta(days=1)
-        return previous_from, date_from, date_to
+        days = (date_to.date() - date_from.date()).days + 1
+        return QueryWindow(previous_from=date_from - timedelta(days=days), date_from=date_from, date_to=date_to)
 
     def _execute(self, query: ast.SelectQuery, name: str) -> list[Any]:
         with tags_context(product=Product.MCP_ANALYTICS, feature=Feature.QUERY, team_id=self.team.id, name=name):
@@ -123,88 +203,112 @@ class _IntentTopicsBase:
         self._last_hogql = response.hogql
         return list(response.results or [])
 
-    def _topic_sums(
-        self, tool: str | None
-    ) -> tuple[dict[str, dict[str, int]], dict[str, int], dict[str, dict[str, int]]]:
-        """Returns (current per topic {calls, sessions, outlier_calls}, previous calls per topic, tool calls per topic)."""
-        previous_from, date_from, date_to = self._window
-        rows = self._execute(
+    def _topic_sums_query(self, tool: str | None) -> ast.SelectQuery:
+        return cast(
+            ast.SelectQuery,
             parse_select(
-                """
-                SELECT topic_id, tool,
-                       sumIf(calls, day >= {date_from}) AS calls_now,
-                       sumIf(sessions, day >= {date_from}) AS sessions_now,
-                       sumIf(outlier_calls, day >= {date_from}) AS outlier_calls_now,
-                       sumIf(calls, day < {date_from}) AS calls_before
-                FROM {source}
-                GROUP BY topic_id, tool
-                """,
+                _TOPIC_SUMS_SQL,
                 placeholders={
-                    "date_from": ast.Constant(value=date_from.date()),
-                    "source": _daily_source(previous_from, date_to, tool),
+                    "date_from": ast.Constant(value=self.window.date_from.date()),
+                    "source": topic_daily_source(
+                        day_from=self.window.previous_from, day_to=self.window.date_to, tool=tool
+                    ),
+                    "top_tools": ast.Constant(value=TOP_TOOLS_PER_TOPIC),
+                    "limit": ast.Constant(value=MAX_TOPICS_READ),
                 },
             ),
-            "mcp_intent_topics_sums",
         )
-        current: dict[str, dict[str, int]] = defaultdict(lambda: {"calls": 0, "sessions": 0, "outlier_calls": 0})
-        previous: dict[str, int] = defaultdict(int)
-        tools: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
-        for topic_id, tool_name, calls, sessions, outlier_calls, previous_calls in rows:
+
+    def _topic_sums(self, tool: str | None) -> TopicSums:
+        rows = self._execute(self._topic_sums_query(tool), "mcp_intent_topics_sums")
+        current: dict[str, TopicTotals] = {}
+        previous: dict[str, int] = {}
+        for topic_id, calls, sessions, outlier_calls, previous_calls, top_tools in rows:
             topic_id = topic_id or UNASSIGNED
             if calls:
-                current[topic_id]["calls"] += int(calls)
-                current[topic_id]["sessions"] += int(sessions)
-                current[topic_id]["outlier_calls"] += int(outlier_calls)
-                tools[topic_id][tool_name] += int(calls)
+                current[topic_id] = TopicTotals(
+                    calls=int(calls),
+                    sessions=int(sessions),
+                    outlier_calls=int(outlier_calls),
+                    top_tools=list(top_tools),
+                )
             if previous_calls:
-                previous[topic_id] += int(previous_calls)
-        return current, previous, tools
+                previous[topic_id] = int(previous_calls)
+        return TopicSums(current=current, previous=previous)
 
     def _topics_by_id(self) -> dict[str, MCPIntentTopic]:
         return {str(t.pk): t for t in MCPIntentTopic.objects.unscoped().filter(team=self.team)}
 
-    def _coverage(self, current: dict[str, dict[str, int]]) -> MCPIntentCoverage:
-        with_intent = sum(v["calls"] for v in current.values())
-        assigned = sum(v["calls"] for k, v in current.items() if k != UNASSIGNED)
+    def _coverage(self, sums: TopicSums) -> MCPIntentCoverage:
+        with_intent = sums.calls_with_intent
+        assigned = sum(totals.calls for topic_id, totals in sums.current.items() if topic_id != UNASSIGNED)
         return MCPIntentCoverage(
             calls_with_intent=with_intent, calls_assigned=assigned, assigned_pct=_pct(assigned, with_intent)
         )
 
-    def _topic_items(
-        self,
-        current: dict[str, dict[str, int]],
-        previous: dict[str, int],
-        tools: dict[str, dict[str, int]],
-        limit: int,
-    ) -> list[MCPIntentTopicItem]:
+    def _topic_items(self, sums: TopicSums, limit: int) -> list[MCPIntentTopicItem]:
         registry = self._topics_by_id()
-        total = sum(v["calls"] for v in current.values())
-        previous_total = sum(previous.values())
+        total = sums.calls_with_intent
+        previous_total = sum(sums.previous.values())
         items = []
-        for topic_id, sums in current.items():
+        for topic_id, totals in sums.current.items():
             if topic_id == UNASSIGNED:
                 continue
             topic = registry.get(topic_id)
-            share = _pct(sums["calls"], total)
-            previous_share = _pct(previous[topic_id], previous_total) if previous.get(topic_id) else None
+            share = _pct(totals.calls, total)
+            previous_share = _pct(sums.previous[topic_id], previous_total) if sums.previous.get(topic_id) else None
             items.append(
                 MCPIntentTopicItem(
                     topic_id=topic_id,
                     label=topic.label if topic else f"Topic {topic_id[:8]}",
                     summary=topic.summary if topic else "",
-                    calls=sums["calls"],
-                    sessions=sums["sessions"],
+                    calls=totals.calls,
+                    sessions=totals.sessions,
                     share_pct=share,
                     previous_share_pct=previous_share,
                     trend_pp=round(share - previous_share, 2) if previous_share is not None else None,
-                    outlier_calls=sums["outlier_calls"],
-                    top_tools=[
-                        t for t, _ in sorted(tools[topic_id].items(), key=lambda kv: -kv[1])[:TOP_TOOLS_PER_TOPIC]
-                    ],
+                    outlier_calls=totals.outlier_calls,
+                    top_tools=totals.top_tools,
                 )
             )
         items.sort(key=lambda item: (-item.calls, item.topic_id))
         return items[:limit]
+
+    def _intent_usage(
+        self, *, tool: str | None, filters: list[ast.Expr], order_by: list[ast.OrderExpr], limit: int
+    ) -> list[IntentUsage]:
+        query = self._intent_usage_query(tool=tool, filters=filters)
+        query.order_by = order_by
+        query.limit = ast.Constant(value=limit)
+        rows = self._execute(query, "mcp_intent_usage")
+        return [
+            IntentUsage(
+                intent_hash=row[0],
+                intent_text=row[1] or "",
+                x=float(row[2]),
+                y=float(row[3]),
+                topic_id=row[4] or UNASSIGNED,
+                is_outlier=bool(row[5]),
+                distance=float(row[6] or 0),
+                calls=int(row[7] or 0),
+                tool=row[8] or "",
+            )
+            for row in rows
+        ]
+
+    def _intent_usage_query(self, *, tool: str | None, filters: list[ast.Expr]) -> ast.SelectQuery:
+        since, until = self.window.date_from, self.window.date_to
+        return cast(
+            ast.SelectQuery,
+            parse_select(
+                _INTENT_USAGE_SQL,
+                placeholders={
+                    "usage": hourly_calls_source(since=since, until=until, tool=tool),
+                    "called": hourly_calls_source(since=since, until=until, tool=tool),
+                    "filters": ast.And(exprs=filters) if filters else ast.Constant(value=True),
+                },
+            ),
+        )
 
 
 class MCPIntentTopicsQueryRunner(_IntentTopicsBase, AnalyticsQueryRunner[MCPIntentTopicsQueryResponse]):
@@ -215,14 +319,13 @@ class MCPIntentTopicsQueryRunner(_IntentTopicsBase, AnalyticsQueryRunner[MCPInte
         return validate_mcp_analytics_access(self.team, user)
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
-        previous_from, _, date_to = self._window
-        return _daily_source(previous_from, date_to, self.query.toolName)
+        return self._topic_sums_query(self.query.toolName)
 
     def _calculate(self) -> MCPIntentTopicsQueryResponse:
-        current, previous, tools = self._topic_sums(self.query.toolName)
-        items = self._topic_items(current, previous, tools, self.query.limit or DEFAULT_TOPICS_LIMIT)
+        sums = self._topic_sums(self.query.toolName)
+        items = self._topic_items(sums, self.query.limit or DEFAULT_TOPICS_LIMIT)
         return MCPIntentTopicsQueryResponse(
-            results=items, coverage=self._coverage(current), hogql=self._last_hogql, modifiers=self.modifiers
+            results=items, coverage=self._coverage(sums), hogql=self._last_hogql, modifiers=self.modifiers
         )
 
 
@@ -234,19 +337,28 @@ class MCPToolIntentProfileQueryRunner(_IntentTopicsBase, AnalyticsQueryRunner[MC
         return validate_mcp_analytics_access(self.team, user)
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
-        previous_from, _, date_to = self._window
-        return _daily_source(previous_from, date_to, self.query.toolName)
+        return self._topic_sums_query(self.query.toolName)
 
     def _sparklines(self, topic_ids: list[str]) -> dict[str, list[int]]:
-        _, date_from, date_to = self._window
-        days = [(date_from + timedelta(days=i)).date() for i in range((date_to.date() - date_from.date()).days + 1)]
+        days = [day.date() for day in self.window.days]
         rows = self._execute(
-            parse_select(
-                "SELECT topic_id, day, sum(calls) FROM {source} WHERE topic_id IN {topic_ids} GROUP BY topic_id, day",
-                placeholders={
-                    "source": _daily_source(date_from, date_to, self.query.toolName),
-                    "topic_ids": ast.Constant(value=topic_ids),
-                },
+            cast(
+                ast.SelectQuery,
+                parse_select(
+                    """
+                    SELECT topic_id, day, sum(calls) FROM {source}
+                    WHERE topic_id IN {topic_ids}
+                    GROUP BY topic_id, day
+                    LIMIT {limit}
+                    """,
+                    placeholders={
+                        "source": topic_daily_source(
+                            day_from=self.window.date_from, day_to=self.window.date_to, tool=self.query.toolName
+                        ),
+                        "topic_ids": ast.Constant(value=topic_ids),
+                        "limit": ast.Constant(value=len(topic_ids) * len(days)),
+                    },
+                ),
             ),
             "mcp_tool_intent_profile_sparklines",
         )
@@ -256,49 +368,32 @@ class MCPToolIntentProfileQueryRunner(_IntentTopicsBase, AnalyticsQueryRunner[MC
         return {topic_id: [by_topic[topic_id].get(day, 0) for day in days] for topic_id in topic_ids}
 
     def _outliers(self) -> list[MCPIntentOutlierItem]:
-        _, date_from, date_to = self._window
-        rows = self._execute(
-            parse_select(
-                """
-                SELECT intent_hash, argMax(intent_text, timestamp) AS latest_text, argMax(calls_in_run, timestamp) AS latest_calls,
-                       argMax(distance, timestamp) AS latest_distance, argMax(tool, timestamp) AS latest_tool
-                FROM mcp_intent_assignments
-                WHERE tool = {tool} AND timestamp >= {date_from} AND timestamp <= {date_to}
-                GROUP BY intent_hash
-                HAVING argMax(is_outlier, timestamp) = 1
-                ORDER BY latest_calls DESC, latest_distance DESC
-                LIMIT {limit}
-                """,
-                placeholders={
-                    "tool": ast.Constant(value=self.query.toolName),
-                    "date_from": ast.Constant(value=date_from),
-                    "date_to": ast.Constant(value=date_to),
-                    "limit": ast.Constant(value=OUTLIERS_LIMIT),
-                },
-            ),
-            "mcp_tool_intent_profile_outliers",
+        usage = self._intent_usage(
+            tool=self.query.toolName,
+            filters=[parse_expr("a.is_outlier = 1")],
+            order_by=[_order("calls", "DESC"), _order("distance", "DESC"), _order("intent_hash")],
+            limit=OUTLIERS_LIMIT,
         )
         return [
             MCPIntentOutlierItem(
-                intent_hash=row[0],
-                intent_text=row[1] or "",
-                calls=int(row[2] or 0),
-                distance=round(float(row[3] or 0), 4),
-                tool=row[4] or "",
+                intent_hash=item.intent_hash,
+                intent_text=item.intent_text,
+                calls=item.calls,
+                distance=round(item.distance, 4),
+                tool=item.tool,
             )
-            for row in rows
+            for item in usage
         ]
 
     def _calculate(self) -> MCPToolIntentProfileQueryResponse:
-        current, previous, tools = self._topic_sums(self.query.toolName)
-        limit = self.query.limit or DEFAULT_PROFILE_LIMIT
-        items = self._topic_items(current, previous, tools, limit)
+        sums = self._topic_sums(self.query.toolName)
+        items = self._topic_items(sums, self.query.limit or DEFAULT_PROFILE_LIMIT)
         sparklines = self._sparklines([item.topic_id for item in items]) if items else {}
         for item in items:
             item.sparkline = sparklines.get(item.topic_id, [])
 
-        assigned_now = {k: v["calls"] for k, v in current.items() if k != UNASSIGNED}
-        assigned_before = {k: v for k, v in previous.items() if k != UNASSIGNED}
+        assigned_now = {k: v.calls for k, v in sums.current.items() if k != UNASSIGNED}
+        assigned_before = {k: v for k, v in sums.previous.items() if k != UNASSIGNED}
         score = focus_score(assigned_now)
         moved = drift(assigned_now, assigned_before)
         registry = self._topics_by_id()
@@ -327,7 +422,7 @@ class MCPToolIntentProfileQueryRunner(_IntentTopicsBase, AnalyticsQueryRunner[MC
                 gone=[ref(t) for t in moved.gone],
             ),
             outliers=self._outliers(),
-            coverage=self._coverage(current),
+            coverage=self._coverage(sums),
             hogql=self._last_hogql,
             modifiers=self.modifiers,
         )
@@ -341,17 +436,31 @@ class MCPSimilarToolsQueryRunner(_IntentTopicsBase, AnalyticsQueryRunner[MCPSimi
         return validate_mcp_analytics_access(self.team, user)
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
-        _, date_from, date_to = self._window
+        # One row per tool, most called first, so a server with more tools than the limit drops the least used.
         return parse_select(
-            "SELECT tool, topic_id, sum(calls) AS total_calls FROM {source} WHERE topic_id != '' GROUP BY tool, topic_id",
-            placeholders={"source": _daily_source(date_from, date_to, None)},
+            """
+            SELECT tool, groupArray(topic_id), groupArray(calls)
+            FROM (
+                SELECT tool, topic_id, sum(calls) AS calls FROM {source}
+                WHERE topic_id != ''
+                GROUP BY tool, topic_id
+            )
+            GROUP BY tool
+            ORDER BY sum(calls) DESC, tool
+            LIMIT {limit}
+            """,
+            placeholders={
+                "source": topic_daily_source(day_from=self.window.date_from, day_to=self.window.date_to),
+                "limit": ast.Constant(value=MAX_SELECT_RETURNED_ROWS),
+            },
         )
 
     def _calculate(self) -> MCPSimilarToolsQueryResponse:
-        rows = self._execute(self.to_query(), "mcp_similar_tools")
-        shares: dict[str, dict[str, int]] = defaultdict(lambda: defaultdict(int))
-        for tool, topic_id, calls in rows:
-            shares[tool][topic_id] += int(calls)
+        rows = self._execute(cast(ast.SelectQuery, self.to_query()), "mcp_similar_tools")
+        shares: dict[str, dict[str, int]] = {
+            tool: {topic_id: int(calls) for topic_id, calls in zip(topic_ids, calls_per_topic)}
+            for tool, topic_ids, calls_per_topic in rows
+        }
         target = shares.get(self.query.toolName)
         if not target:
             return MCPSimilarToolsQueryResponse(results=[], hogql=self._last_hogql, modifiers=self.modifiers)
@@ -405,74 +514,59 @@ class MCPIntentMapQueryRunner(_IntentTopicsBase, AnalyticsQueryRunner[MCPIntentM
     def validate_query_runner_access(self, user: "User") -> bool:
         return validate_mcp_analytics_access(self.team, user)
 
-    def _point_filters(self) -> tuple[str, dict[str, ast.Expr]]:
-        _, date_from, date_to = self._window
-        clauses = ["timestamp >= {date_from}", "timestamp <= {date_to}"]
-        placeholders: dict[str, ast.Expr] = {
-            "date_from": ast.Constant(value=date_from),
-            "date_to": ast.Constant(value=date_to),
-        }
-        if self.query.toolName:
-            clauses.append("tool = {tool}")
-            placeholders["tool"] = ast.Constant(value=self.query.toolName)
+    def _point_filters(self) -> list[ast.Expr]:
+        filters: list[ast.Expr] = []
         if self.query.topicId:
-            clauses.append("topic_id = {topic_id}")
-            placeholders["topic_id"] = ast.Constant(value=self.query.topicId)
+            filters.append(parse_expr("a.topic_id = {topic_id}", {"topic_id": ast.Constant(value=self.query.topicId)}))
         if self.query.bounds:
-            clauses.append("x >= {x_min} AND x <= {x_max} AND y >= {y_min} AND y <= {y_max}")
-            placeholders.update(
-                {
-                    "x_min": ast.Constant(value=self.query.bounds.x_min),
-                    "x_max": ast.Constant(value=self.query.bounds.x_max),
-                    "y_min": ast.Constant(value=self.query.bounds.y_min),
-                    "y_max": ast.Constant(value=self.query.bounds.y_max),
-                }
+            bounds = self.query.bounds
+            filters.append(
+                parse_expr(
+                    "a.x >= {x_min} AND a.x <= {x_max} AND a.y >= {y_min} AND a.y <= {y_max}",
+                    {
+                        "x_min": ast.Constant(value=bounds.x_min),
+                        "x_max": ast.Constant(value=bounds.x_max),
+                        "y_min": ast.Constant(value=bounds.y_min),
+                        "y_max": ast.Constant(value=bounds.y_max),
+                    },
+                )
             )
-        return " AND ".join(clauses), placeholders
+        return filters
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
-        where, placeholders = self._point_filters()
-        limit = min(self.query.limit or DEFAULT_MAP_LIMIT, MAX_MAP_LIMIT)
-        return parse_select(
-            f"""
-            SELECT intent_hash, argMax(intent_text, timestamp), argMax(x, timestamp), argMax(y, timestamp),
-                   argMax(topic_id, timestamp), argMax(is_outlier, timestamp), argMax(calls_in_run, timestamp) AS latest_calls,
-                   argMax(tool, timestamp)
-            FROM mcp_intent_assignments
-            WHERE {where}
-            GROUP BY intent_hash
-            ORDER BY latest_calls DESC, intent_hash
-            LIMIT {{limit}}
-            """,
-            placeholders={**placeholders, "limit": ast.Constant(value=limit)},
-        )
+        return self._intent_usage_query(tool=self.query.toolName, filters=self._point_filters())
 
     def _calculate(self) -> MCPIntentMapQueryResponse:
-        rows = self._execute(self.to_query(), "mcp_intent_map_points")
+        usage = self._intent_usage(
+            tool=self.query.toolName,
+            filters=self._point_filters(),
+            order_by=[_order("calls", "DESC"), _order("intent_hash")],
+            limit=self.query.limit or DEFAULT_MAP_LIMIT,
+        )
         points = [
             MCPIntentMapPoint(
-                intent_hash=row[0],
-                intent_text=row[1] or "",
-                x=float(row[2]),
-                y=float(row[3]),
-                topic_id=row[4],
-                is_outlier=bool(row[5]),
-                calls=int(row[6] or 0),
-                tool=row[7] or "",
+                intent_hash=item.intent_hash,
+                intent_text=item.intent_text,
+                x=item.x,
+                y=item.y,
+                topic_id=item.topic_id or None,
+                is_outlier=item.is_outlier,
+                calls=item.calls,
+                tool=item.tool,
             )
-            for row in rows
+            for item in usage
         ]
-        where, placeholders = self._point_filters()
         total_rows = self._execute(
-            parse_select(
-                f"SELECT uniqExact(intent_hash) FROM mcp_intent_assignments WHERE {where}", placeholders=placeholders
+            cast(
+                ast.SelectQuery,
+                parse_select("SELECT count() FROM {points}", placeholders={"points": self.to_query()}),
             ),
             "mcp_intent_map_total",
         )
         total_points = int(total_rows[0][0]) if total_rows else 0
 
-        current, _, _ = self._topic_sums(self.query.toolName)
-        total_calls = sum(v["calls"] for k, v in current.items() if k != UNASSIGNED)
+        sums = self._topic_sums(self.query.toolName)
+        total_calls = sums.calls_with_intent
         registry = self._topics_by_id()
         topics = [
             MCPIntentMapTopic(
@@ -481,12 +575,12 @@ class MCPIntentMapQueryRunner(_IntentTopicsBase, AnalyticsQueryRunner[MCPIntentM
                 summary=topic.summary,
                 x=topic.centroid_x,
                 y=topic.centroid_y,
-                calls=current[topic_id]["calls"],
-                share_pct=_pct(current[topic_id]["calls"], total_calls),
+                calls=sums.current[topic_id].calls,
+                share_pct=_pct(sums.current[topic_id].calls, total_calls),
             )
             for topic_id, topic in registry.items()
             if topic.status == MCPIntentTopic.Status.ACTIVE
-            and topic_id in current
+            and topic_id in sums.current
             and (not self.query.topicId or topic_id == self.query.topicId)
         ]
         topics.sort(key=lambda t: -t.calls)

@@ -4186,7 +4186,7 @@ export interface MCPIntentTopicItem {
     /** Tools most often called for this topic, most calls first. */
     top_tools: string[]
     /** Calls per day across the window, oldest first. Only filled for the top topics of a tool profile. */
-    sparkline?: integer[]
+    sparkline?: integer[] | null
 }
 
 export interface MCPIntentTopicsQueryResponse extends AnalyticsQueryResponseBase {
@@ -4200,8 +4200,13 @@ export interface MCPIntentTopicsQuery extends DataNode<MCPIntentTopicsQueryRespo
     /** Optional effective tool name to scope to. */
     toolName?: string
     dateRange?: DateRange
-    /** Maximum topics to return, by calls. Default 20. */
-    limit?: integer
+    /**
+     * Maximum topics to return, by calls. Default 20.
+     * @asType integer
+     * @minimum 1
+     * @maximum 200
+     */
+    limit?: number
 }
 
 export type CachedMCPIntentTopicsQueryResponse = CachedQueryResponse<MCPIntentTopicsQueryResponse>
@@ -4252,8 +4257,13 @@ export interface MCPToolIntentProfileQuery extends DataNode<MCPToolIntentProfile
     /** The effective tool name to profile. */
     toolName: string
     dateRange?: DateRange
-    /** Top topics to return with sparklines. Default 5. */
-    limit?: integer
+    /**
+     * Top topics to return with sparklines. Default 5.
+     * @asType integer
+     * @minimum 1
+     * @maximum 20
+     */
+    limit?: number
 }
 
 export type CachedMCPToolIntentProfileQueryResponse = CachedQueryResponse<MCPToolIntentProfileQueryResponse>
@@ -4277,8 +4287,13 @@ export interface MCPSimilarToolsQuery extends DataNode<MCPSimilarToolsQueryRespo
     kind: NodeKind.MCPSimilarToolsQuery
     toolName: string
     dateRange?: DateRange
-    /** Default 10. */
-    limit?: integer
+    /**
+     * Default 10.
+     * @asType integer
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
 }
 
 export type CachedMCPSimilarToolsQueryResponse = CachedQueryResponse<MCPSimilarToolsQueryResponse>
@@ -4327,8 +4342,13 @@ export interface MCPIntentMapQuery extends DataNode<MCPIntentMapQueryResponse> {
     topicId?: string
     dateRange?: DateRange
     bounds?: MCPIntentMapBounds
-    /** Default 2000, maximum 5000. */
-    limit?: integer
+    /**
+     * Default 2000.
+     * @asType integer
+     * @minimum 1
+     * @maximum 5000
+     */
+    limit?: number
 }
 
 export type CachedMCPIntentMapQueryResponse = CachedQueryResponse<MCPIntentMapQueryResponse>
