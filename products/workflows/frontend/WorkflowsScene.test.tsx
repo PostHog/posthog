@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, render, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 import { router } from 'kea-router'
@@ -165,7 +165,9 @@ describe('WorkflowsScene', () => {
         )
         await waitFor(() => expect(shownRowNames()).toHaveLength(6))
 
-        const nameHeader = within(screen.getByRole('columnheader', { name: /Name/ })).getByText('Name')
+        const nameHeader = Array.from(
+            document.querySelectorAll<HTMLElement>('[data-attr="workflows-list-v2"] .LemonTable__header-content')
+        ).find((header) => header.textContent === 'Name')!
         await user.click(nameHeader)
         await user.click(nameHeader)
         await waitFor(() => expect(shownRowNames()[0]).toEqual('Flow 5 odd'))
