@@ -13,6 +13,7 @@ from posthog.schema import PersonsOnEventsMode, RecordingsQuery
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models.group.util import create_group
+from posthog.models.person.util import create_person_distinct_id
 from posthog.session_recordings.queries.sub_queries.events_subquery import (
     UNSESSIONED_EVENTS_FLAG,
     ReplayFiltersEventsSubQuery,
@@ -53,13 +54,15 @@ class TestSessionRecordingsListByUnsessionedEvents(ClickhouseTestMixin, APIBaseT
         super().setUp()
         sync_execute(TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL())
 
-    def _produce_recording(self, session_id: str, distinct_id: str) -> None:
+    def _produce_recording(
+        self, session_id: str, distinct_id: str, start: datetime = RECORDING_START, end: datetime = RECORDING_END
+    ) -> None:
         produce_replay_summary(
             team_id=self.team.id,
             session_id=session_id,
             distinct_id=distinct_id,
-            first_timestamp=RECORDING_START,
-            last_timestamp=RECORDING_END,
+            first_timestamp=start,
+            last_timestamp=end,
         )
 
     def _create_order_paid(
@@ -196,10 +199,14 @@ class TestSessionRecordingsListByUnsessionedEvents(ClickhouseTestMixin, APIBaseT
             self._assert_matches([ORDER_PAID], ["recording-of-user-1"])
 
     @parameterized.expand(
-        [("backend_event_has_the_property", "pro", True), ("no_event_has_the_property", "free", False)]
+        [
+            ("backend_event_has_the_property", "pro", [ORDER_PAID], True),
+            ("no_event_has_the_property", "free", [ORDER_PAID], False),
+            ("property_filter_without_an_event_filter", "pro", [], False),
+        ]
     )
     def test_top_level_event_property_matches_event_without_session_id(
-        self, _name: str, plan: str, expected_match: bool
+        self, _name: str, plan: str, events: list[dict], expected_match: bool
     ) -> None:
         person = create_person(team=self.team, distinct_ids=["user-1"])
         self._produce_recording("recording-of-user-1", "user-1")
@@ -207,9 +214,75 @@ class TestSessionRecordingsListByUnsessionedEvents(ClickhouseTestMixin, APIBaseT
         flush_persons_and_events()
 
         self._assert_matches(
-            [ORDER_PAID],
+            events,
             ["recording-of-user-1"] if expected_match else [],
             properties=[{"key": "plan", "value": ["pro"], "operator": "exact", "type": "event"}],
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "recording_longer_than_three_hours",
+                [("long", RECORDING_START, RECORDING_START + timedelta(hours=4))],
+                RECORDING_START + timedelta(hours=3, minutes=30),
+                ["long"],
+            ),
+            (
+                "same_person_recorded_in_different_hours",
+                [
+                    ("morning", RECORDING_START, RECORDING_END),
+                    ("afternoon", RECORDING_START + timedelta(hours=5), RECORDING_END + timedelta(hours=5)),
+                ],
+                RECORDING_START + timedelta(hours=5, minutes=10),
+                ["afternoon"],
+            ),
+            (
+                "end_time_far_in_the_future_is_capped",
+                [("bad-end", RECORDING_START, RECORDING_START + timedelta(days=30))],
+                RECORDING_START + timedelta(hours=26),
+                [],
+            ),
+        ]
+    )
+    def test_recording_window_shapes(
+        self, _name: str, recordings: list[tuple[str, datetime, datetime]], event_time: datetime, expected: list[str]
+    ) -> None:
+        person = create_person(team=self.team, distinct_ids=["user-1"])
+        for session_id, start, end in recordings:
+            self._produce_recording(session_id, "user-1", start, end)
+        self._create_order_paid("user-1", person.uuid, event_time)
+        flush_persons_and_events()
+
+        self._assert_matches([ORDER_PAID], expected)
+
+    @parameterized.expand([("moved_to_another_person", False), ("deleted", True)])
+    def test_distinct_id_mapping_changed_after_the_event(self, _name: str, is_deleted: bool) -> None:
+        person = create_person(team=self.team, distinct_ids=["user-1", "anon-1"])
+        other = create_person(team=self.team, distinct_ids=["user-2"])
+        self._produce_recording("recording-of-user-1", "user-1")
+        self._create_order_paid("anon-1", person.uuid, INSIDE_WINDOW)
+        flush_persons_and_events()
+        create_person_distinct_id(
+            team_id=self.team.id,
+            distinct_id="anon-1",
+            person_id=str(person.uuid if is_deleted else other.uuid),
+            version=1,
+            is_deleted=is_deleted,
+        )
+
+        self._assert_matches([ORDER_PAID], [])
+
+    @parameterized.expand([("one_week", "-7d", True), ("two_weeks", "-14d", False)])
+    def test_match_only_runs_for_short_date_ranges(self, _name: str, date_from: str, expected_match: bool) -> None:
+        person = create_person(team=self.team, distinct_ids=["user-1"])
+        self._produce_recording("recording-of-user-1", "user-1")
+        self._create_order_paid("user-1", person.uuid, INSIDE_WINDOW)
+        flush_persons_and_events()
+
+        self._assert_matches(
+            [ORDER_PAID],
+            ["recording-of-user-1"] if expected_match else [],
+            query_overrides={"date_from": date_from},
         )
 
     @parameterized.expand(

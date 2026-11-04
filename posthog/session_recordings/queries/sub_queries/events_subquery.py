@@ -67,6 +67,12 @@ COMBINED_EVENT_FILTERS_FLAG = "replay-combined-event-filters"
 # Matches an event filter to a recording through the event's person and time when the event
 # carries no $session_id, as server-side events usually do.
 UNSESSIONED_EVENTS_FLAG = "replay-match-unsessioned-events"
+# The match reads the distinct id mapping of every recorded person and their events in range,
+# so a listing over a longer range does not use it.
+UNSESSIONED_EVENTS_MAX_RANGE_DAYS = 7
+# The SDK caps a session at 24 hours, plus an hour for clock skew. A bad end time far in the
+# future would otherwise expand one recording into a row for each hour up to it.
+UNSESSIONED_RECORDING_MAX_HOURS = 25
 EVENTS_SUBQUERY_ROW_LIMIT = 1_000_000
 MATCHING_EVENTS_LIMIT = 10_000
 
@@ -210,12 +216,19 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             # that an excluded event without a session id should remove.
             or self.negated_entities
             or self._collect_negative_properties()
+            # Without an event or action filter there is no event to match by time.
+            or not self.entities
             or all(isinstance(entity, DataWarehouseNode) for entity in self.entities)
+            # Explicit session ids keep the scope to one page or one recording.
+            or (self._query.session_ids is None and self._date_range_days() > UNSESSIONED_EVENTS_MAX_RANGE_DAYS)
         ):
             return False
         return feature_enabled_or_false(
             UNSESSIONED_EVENTS_FLAG, str(self._team.id), only_evaluate_locally=True, send_feature_flag_events=False
         )
+
+    def _date_range_days(self) -> int:
+        return (self.query_date_range.date_to().date() - self.query_date_range.date_from().date()).days
 
     @staticmethod
     def _global_in(field: str, subquery: ast.SelectQuery | ast.SelectSetQuery) -> ast.CompareOperation:
@@ -306,13 +319,14 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             ),
             (
                 ast.CompareOperationOp.LtEq,
-                "SELECT addMinutes(max(s.max_last_timestamp), {margin}) FROM raw_session_replay_events AS s WHERE {scope}",
+                "SELECT addMinutes(max(least(s.max_last_timestamp, addHours(s.min_first_timestamp, {max_hours}))), {margin}) FROM raw_session_replay_events AS s WHERE {scope}",
             ),
         ):
             bound = parse_select(
                 query,
                 placeholders={
                     "margin": ast.Constant(value=RECORDING_MATCH_MARGIN_MINUTES),
+                    "max_hours": ast.Constant(value=UNSESSIONED_RECORDING_MAX_HOURS),
                     "scope": self._recording_scope(),
                 },
             )
@@ -396,7 +410,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             SELECT s.session_id AS session_id,
                    recording_person.mapped_person_key AS person_key,
                    min(s.min_first_timestamp) AS window_start,
-                   max(s.max_last_timestamp) AS window_end
+                   least(max(s.max_last_timestamp), addHours(min(s.min_first_timestamp), {max_hours})) AS window_end
             FROM raw_session_replay_events AS s
             INNER JOIN {recording_person} AS recording_person ON recording_person.mapped_distinct_id = s.distinct_id
             WHERE {scope}
@@ -405,6 +419,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
             placeholders={
                 "recording_person": self._person_keys(self._recorded_distinct_ids()),
                 "scope": self._recording_scope(),
+                "max_hours": ast.Constant(value=UNSESSIONED_RECORDING_MAX_HOURS),
             },
         )
         assert isinstance(windows, ast.SelectQuery)
