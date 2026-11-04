@@ -1,13 +1,13 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { pluralize } from 'lib/utils/strings'
 
 import type { TransactionalEmailLogDetailApi } from 'products/messaging/frontend/generated/api.schemas'
 
-import { ACTIVITY_WINDOW_DAYS, PersonActivity, buildActivityTimeline } from './emailActivity'
+import { ACTIVITY_WINDOW_DAYS, PersonActivity, buildActivityTimeline, emailSentAt } from './emailActivity'
 import { TransactionalEmailActivityRow } from './TransactionalEmailActivityRow'
 import { TransactionalEmailActivitySummary } from './TransactionalEmailActivitySummary'
 import { transactionalEmailLogEntryLogic } from './transactionalEmailLogEntryLogic'
@@ -23,8 +23,10 @@ export function TransactionalEmailActivityTimeline({
     email: TransactionalEmailLogDetailApi
     activity: PersonActivity
 }): JSX.Element {
-    const { beforeExpanded, otherEmails } = useValues(transactionalEmailLogEntryLogic)
-    const { showAllBefore } = useActions(transactionalEmailLogEntryLogic)
+    const { beforeExpanded, otherEmails, otherEmailsFailed, otherEmailsLoading } = useValues(
+        transactionalEmailLogEntryLogic
+    )
+    const { showAllBefore, loadOtherEmails } = useActions(transactionalEmailLogEntryLogic)
 
     const before = beforeExpanded ? activity.before : activity.before.slice(-BEFORE_PREVIEW)
     const hiddenBefore = activity.before.length - before.length
@@ -33,12 +35,24 @@ export function TransactionalEmailActivityTimeline({
     const earliestShown = before[0]?.timestamp ?? email.created_at
     const shownOtherEmails = otherEmails.filter((entry) => !dayjs(entry.created_at).isBefore(earliestShown))
     // Times read relative to when the email went out, which is what a reader compares against.
-    const sentAt = email.timeline.find((event) => event.kind === 'sent')?.at ?? email.created_at
+    const sentAt = emailSentAt(email)
     const timeline = buildActivityTimeline([...before, ...activity.after], emailEvents, shownOtherEmails, sentAt)
     const nothingAround = !activity.before.length && !activity.after.length
     return (
         <div className="flex flex-col gap-4">
             <TransactionalEmailActivitySummary after={activity.after} timeline={email.timeline} />
+            {otherEmailsFailed && !otherEmailsLoading && (
+                <LemonBanner
+                    type="error"
+                    action={{
+                        children: 'Try again',
+                        onClick: () => loadOtherEmails(email),
+                        'data-attr': 'transactional-email-other-emails-retry',
+                    }}
+                >
+                    This person's other emails couldn't load. Check your connection and try again.
+                </LemonBanner>
+            )}
             {timeline.before.length > 0 && (
                 <div className="flex flex-col gap-2">
                     <div className="flex items-center justify-between gap-2">

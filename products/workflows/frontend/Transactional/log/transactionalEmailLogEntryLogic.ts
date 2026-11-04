@@ -14,7 +14,7 @@ import type {
     TransactionalEmailLogEntryApi,
 } from 'products/messaging/frontend/generated/api.schemas'
 
-import { ActivityPerson, PersonActivity } from './emailActivity'
+import { ActivityPerson, PersonActivity, emailSentAt } from './emailActivity'
 import { fetchActivityPerson, fetchOtherEmails, fetchPersonActivity } from './emailActivityQueries'
 
 export interface TransactionalEmailLogEntryLogicProps {
@@ -33,6 +33,7 @@ export interface transactionalEmailLogEntryLogicValues {
     emailFailed: boolean
     emailLoading: boolean
     otherEmails: TransactionalEmailLogEntryApi[]
+    otherEmailsFailed: boolean
     otherEmailsLoading: boolean
     person: ActivityPerson | null | undefined
     personFailed: boolean
@@ -164,6 +165,14 @@ export const transactionalEmailLogEntryLogic = kea<transactionalEmailLogEntryLog
                 loadActivityFailure: () => true,
             },
         ],
+        otherEmailsFailed: [
+            false,
+            {
+                loadOtherEmails: () => false,
+                loadOtherEmailsSuccess: () => false,
+                loadOtherEmailsFailure: () => true,
+            },
+        ],
         emailFailed: [
             false,
             {
@@ -245,7 +254,7 @@ export const transactionalEmailLogEntryLogic = kea<transactionalEmailLogEntryLog
     listeners(({ actions, values }) => ({
         loadPersonSuccess: ({ person }) => {
             if (person && values.email) {
-                actions.loadActivity({ personId: person.id, sentAt: values.email.created_at })
+                actions.loadActivity({ personId: person.id, sentAt: emailSentAt(values.email) })
             }
         },
         loadEmailSuccess: ({ email }) => {

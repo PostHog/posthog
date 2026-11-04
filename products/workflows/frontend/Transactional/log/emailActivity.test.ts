@@ -1,4 +1,4 @@
-import { ActivityEvent, ActivityRow, buildActivityTimeline } from './emailActivity'
+import { ActivityEvent, ActivityRow, buildActivityTimeline, emailSentAt, summarizeAfter } from './emailActivity'
 
 function event(uuid: string, timestamp: string, sessionId: string | null): ActivityEvent {
     return {
@@ -13,7 +13,7 @@ function event(uuid: string, timestamp: string, sessionId: string | null): Activ
     }
 }
 
-describe('buildActivityTimeline', () => {
+describe('emailActivity', () => {
     it('splits at the send, starts the after part with the email block, folds repeats, and keeps other emails in order', () => {
         const timeline = buildActivityTimeline(
             [
@@ -56,5 +56,24 @@ describe('buildActivityTimeline', () => {
             )
         expect(shape(timeline.before)).toEqual(['session', 'event(1)'])
         expect(shape(timeline.after)).toEqual(['emailGroup(3)', 'session', 'event(1)', 'event(2)', 'otherEmail'])
+    })
+
+    it('keeps a return to the app that came before a later open of the email', () => {
+        const summary = summarizeAfter(
+            [event('return', '2026-06-15T09:03:00Z', 's1')],
+            [
+                { kind: 'clicked', at: '2026-06-15T09:02:00Z', reason: null },
+                { kind: 'opened', at: '2026-06-15T10:00:00Z', reason: null },
+            ]
+        )
+
+        expect(summary.comeback).toBe('Back in your app 1m after clicking the email')
+    })
+
+    it('splits the activity at the send, or at the queue time when nothing went out', () => {
+        const sent = { kind: 'sent' as const, at: '2026-06-15T09:05:00Z', reason: null }
+
+        expect(emailSentAt({ created_at: '2026-06-15T09:00:00Z', timeline: [sent] })).toBe(sent.at)
+        expect(emailSentAt({ created_at: '2026-06-15T09:00:00Z', timeline: [] })).toBe('2026-06-15T09:00:00Z')
     })
 })

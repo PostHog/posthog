@@ -5,6 +5,7 @@ import { autoCaptureEventToDescription } from 'lib/utils/events'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import type {
+    TransactionalEmailLogDetailApi,
     TransactionalEmailLogEntryApi,
     TransactionalEmailLogEventApi,
 } from 'products/messaging/frontend/generated/api.schemas'
@@ -196,19 +197,36 @@ export interface ActivityAfterSummary {
     outcomes: string[]
 }
 
+/** When the email went out, which is the line between what the person did before and after it. */
+export function emailSentAt(email: Pick<TransactionalEmailLogDetailApi, 'timeline' | 'created_at'>): string {
+    return email.timeline.find((event) => event.kind === 'sent')?.at ?? email.created_at
+}
+
+function firstReturnToApp(
+    after: ActivityEvent[],
+    timeline: readonly TransactionalEmailLogEventApi[]
+): { event: ActivityEvent; engagement: TransactionalEmailLogEventApi } | null {
+    const engagements = timeline.filter((event) => event.kind === 'clicked' || event.kind === 'opened').reverse()
+    for (const event of after) {
+        const engagement = engagements.find((candidate) => dayjs(event.timestamp).isAfter(candidate.at))
+        if (engagement) {
+            return { event, engagement }
+        }
+    }
+    return null
+}
+
 export function summarizeAfter(
     after: ActivityEvent[],
     timeline: readonly TransactionalEmailLogEventApi[]
 ): ActivityAfterSummary {
-    const engagement = [...timeline].reverse().find((event) => event.kind === 'clicked' || event.kind === 'opened')
-    const firstReturn = engagement ? after.find((event) => dayjs(event.timestamp).isAfter(engagement.at)) : undefined
-    const comeback =
-        engagement && firstReturn
-            ? `Back in your app ${humanFriendlyDuration(
-                  Math.max(1, dayjs(firstReturn.timestamp).diff(dayjs(engagement.at), 'second')),
-                  { maxUnits: 1 }
-              )} after ${engagement.kind === 'clicked' ? 'clicking the email' : 'opening the email'}`
-            : null
+    const firstReturn = firstReturnToApp(after, timeline)
+    const comeback = firstReturn
+        ? `Back in your app ${humanFriendlyDuration(
+              Math.max(1, dayjs(firstReturn.event.timestamp).diff(dayjs(firstReturn.engagement.at), 'second')),
+              { maxUnits: 1 }
+          )} after ${firstReturn.engagement.kind === 'clicked' ? 'clicking the email' : 'opening the email'}`
+        : null
     return {
         comeback,
         eventCount: after.length,
