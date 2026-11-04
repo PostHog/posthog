@@ -262,10 +262,10 @@ class TestFanOutEndpoints:
             {"id": 2, "position_id": 10},
             {"id": 1, "position_id": 12},
         ]
-        assert [(s.parent_page, s.parent_index, s.next_page) for s in manager.saved] == [
-            (1, 0, 2),
-            (1, 1, 1),
-            (2, 0, 1),
+        assert [(s.parent_page, s.parent_index, s.parent_id, s.next_page) for s in manager.saved] == [
+            (1, 0, 10, 2),
+            (1, 1, 11, 1),
+            (2, 0, None, 1),
         ]
 
     def test_unpaginated_child_is_fetched_once_per_parent_without_page_param(self, monkeypatch: Any) -> None:
@@ -283,12 +283,26 @@ class TestFanOutEndpoints:
         ]
         assert requested == list(pages)
 
-    def test_resumes_from_saved_parent_and_child_page(self, monkeypatch: Any) -> None:
-        manager = _FakeResumableManager(SageHRResumeConfig(next_page=3, parent_page=2, parent_index=1))
+    @pytest.mark.parametrize(
+        "parent_index, parent_id, first_child_key",
+        [
+            pytest.param(1, 21, "/recruitment/positions/21/applicants?page=3", id="saved_parent_at_saved_index"),
+            # An earlier parent left the list, so the saved parent moved down one index.
+            pytest.param(2, 21, "/recruitment/positions/21/applicants?page=3", id="saved_parent_moved"),
+            # The saved parent left the list, so the parent now at its index starts from page 1.
+            pytest.param(1, 99, "/recruitment/positions/21/applicants?page=1", id="saved_parent_gone"),
+        ],
+    )
+    def test_resumes_from_saved_parent_and_child_page(
+        self, parent_index: int, parent_id: int, first_child_key: str, monkeypatch: Any
+    ) -> None:
+        manager = _FakeResumableManager(
+            SageHRResumeConfig(next_page=3, parent_page=2, parent_index=parent_index, parent_id=parent_id)
+        )
         # Earlier parent pages, earlier parents on the page and earlier child pages must never be fetched.
-        pages = {
+        pages: dict[str, tuple[list[dict], int | None]] = {
             "/recruitment/positions?page=2": ([{"id": 20}, {"id": 21}, {"id": 22}], None),
-            "/recruitment/positions/21/applicants?page=3": ([{"id": 7}], None),
+            first_child_key: ([{"id": 7}], None),
             "/recruitment/positions/22/applicants?page=1": ([{"id": 8}], None),
         }
         rows = self._collect(manager, monkeypatch, pages, "recruitment_applicants")
@@ -305,15 +319,16 @@ class TestFanOutEndpoints:
         bonus = {**salary, "amount": 200, "category": "Bonus"}
         pages: dict[str, tuple[list[dict], int | None]] = {
             "/employees?page=1": ([{"id": 5}, {"id": 6}], None),
-            "/employees/5/compensations?page=1": ([salary, bonus], None),
+            # Identical entries under one employee must still get distinct ids.
+            "/employees/5/compensations?page=1": ([salary, bonus, dict(bonus)], None),
             # The same compensation on another employee must not collide with employee 5's row.
             "/employees/6/compensations?page=1": ([salary], None),
         }
         first = self._collect(_FakeResumableManager(), monkeypatch, pages, "compensations")
         second = self._collect(_FakeResumableManager(), monkeypatch, pages, "compensations")
 
-        assert [row["employee_id"] for row in first] == [5, 5, 6]
-        assert len({row["id"] for row in first}) == 3
+        assert [row["employee_id"] for row in first] == [5, 5, 5, 6]
+        assert len({row["id"] for row in first}) == 4
         assert [row["id"] for row in first] == [row["id"] for row in second]
 
 

@@ -9,7 +9,7 @@ class SageHRFanOut:
     parent_key: str
 
 
-@dataclass
+@dataclass(frozen=True)
 class SageHREndpointConfig:
     name: str
     path: str

@@ -2,6 +2,7 @@ import re
 import json
 import hashlib
 import dataclasses
+from collections import Counter
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
@@ -45,15 +46,16 @@ class SageHRRetryableError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class SageHRResumeConfig:
     # Next 1-indexed page to fetch (from the response `meta.next_page`). None means "start over".
     next_page: int | None = None
     # For the windowed leave_requests endpoint: ISO date of the window `next_page` belongs to.
     window_from: str | None = None
-    # For fan-out endpoints: the parent page and the index on it of the parent `next_page` belongs to.
+    # For fan-out endpoints: the parent page, and the index and id on it of the parent `next_page` belongs to.
     parent_page: int | None = None
     parent_index: int | None = None
+    parent_id: Any = None
 
 
 def normalize_subdomain(subdomain: str) -> str:
@@ -209,17 +211,22 @@ def _get_windowed_rows(
             page = next_page
 
 
-def _derive_row_id(parent_id: Any, row: dict[str, Any]) -> str:
+def _derive_row_id(parent_id: Any, row: dict[str, Any], occurrences: Counter[str]) -> str:
     payload = json.dumps({"parent": parent_id, "row": row}, sort_keys=True, default=str)
+    # Identical rows under one parent would share a hash, so each repeat adds its ordinal to stay unique.
+    occurrence = occurrences[payload]
+    occurrences[payload] += 1
+    if occurrence:
+        payload = f"{payload}#{occurrence}"
     return hashlib.sha256(payload.encode()).hexdigest()[:32]
 
 
 def _shape_child_row(
-    config: SageHREndpointConfig, parent_key: str, parent_id: Any, row: dict[str, Any]
+    config: SageHREndpointConfig, parent_key: str, parent_id: Any, row: dict[str, Any], occurrences: Counter[str]
 ) -> dict[str, Any]:
     shaped = {**row, parent_key: parent_id}
     if config.derive_row_id:
-        shaped["id"] = _derive_row_id(parent_id, row)
+        shaped["id"] = _derive_row_id(parent_id, row, occurrences)
     return shaped
 
 
@@ -245,12 +252,22 @@ def _get_fan_out_rows(
             session, _build_url(base_url, fan_out.parent_path, {"page": parent_page}), logger
         )
         has_next_parent_page = bool(next_parent_page and parents and next_parent_page > parent_page)
-        first_index = resume_index if is_resumed_page else 0
+        first_index, first_child_page = 0, 1
+        if is_resumed_page and resume is not None:
+            # The parent list can shift between attempts (an employee leaves), so the saved child page
+            # applies only to the parent with the saved id. A parent that is gone restarts at its saved
+            # index from page 1.
+            first_index = resume_index
+            for candidate_index, parent in enumerate(parents):
+                if resume.parent_id is not None and parent.get("id") == resume.parent_id:
+                    first_index, first_child_page = candidate_index, resume_child_page
+                    break
 
         for index in range(first_index, len(parents)):
             parent_id = parents[index]["id"]
             child_path = config.path.format(id=quote(str(parent_id), safe=""))
-            child_page = resume_child_page if (is_resumed_page and index == first_index) else 1
+            child_page = first_child_page if index == first_index else 1
+            occurrences: Counter[str] = Counter()
 
             while True:
                 params = {"page": child_page} if config.paginated else {}
@@ -261,11 +278,18 @@ def _get_fan_out_rows(
 
                 if has_next_child_page:
                     resumable_source_manager.save_state(
-                        SageHRResumeConfig(next_page=next_child_page, parent_page=parent_page, parent_index=index)
+                        SageHRResumeConfig(
+                            next_page=next_child_page, parent_page=parent_page, parent_index=index, parent_id=parent_id
+                        )
                     )
                 elif index + 1 < len(parents):
                     resumable_source_manager.save_state(
-                        SageHRResumeConfig(next_page=1, parent_page=parent_page, parent_index=index + 1)
+                        SageHRResumeConfig(
+                            next_page=1,
+                            parent_page=parent_page,
+                            parent_index=index + 1,
+                            parent_id=parents[index + 1]["id"],
+                        )
                     )
                 elif has_next_parent_page:
                     resumable_source_manager.save_state(
@@ -273,7 +297,7 @@ def _get_fan_out_rows(
                     )
 
                 if items:
-                    yield [_shape_child_row(config, fan_out.parent_key, parent_id, row) for row in items]
+                    yield [_shape_child_row(config, fan_out.parent_key, parent_id, row, occurrences) for row in items]
                 else:
                     # Many parents have no children, so the walk needs a stop point that does not depend on rows.
                     resumable_source_manager.safe_point()
