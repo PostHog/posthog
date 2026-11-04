@@ -90,6 +90,17 @@ class TestAccountViewContentValidation(SimpleTestCase):
             ("identity", {"accountId": "example-account"}),
             ("weeks_out_of_range", {"weeks": 3}),
             ("duplicate_metric_id", {"metricIds": ["m", "m"]}),
+            ("unknown_source_kind", {"source": {"kind": "warehouse"}}),
+            ("preset_source_with_query", {"source": {"kind": "product_usage", "query": "SELECT 1"}}),
+            ("hogql_source_without_mapping", {"source": {"kind": "hogql", "query": "SELECT 1"}}),
+            (
+                "hogql_source_blank_query",
+                {"source": {"kind": "hogql", "query": " ", "mapping": {"row": "a", "column": "b"}}},
+            ),
+            (
+                "hogql_source_mapping_without_column",
+                {"source": {"kind": "hogql", "query": "SELECT 1", "mapping": {"row": "a", "size": "b"}}},
+            ),
         ]
     )
     def test_rejects_invalid_dot_matrix_config(self, _name: str, config: dict) -> None:
@@ -103,6 +114,8 @@ class TestAccountViewContentValidation(SimpleTestCase):
             ({},),
             ({"dataset": "ci", "mode": "count", "selectedSeries": ["build", "test"]},),
             ({"weeks": 12, "metricIds": ["metric-one"], "selectedSeries": ["metric-one"]},),
+            ({"source": {"kind": "product_usage"}},),
+            ({"source": {"kind": "hogql", "query": "SELECT 1", "mapping": {"row": "person", "column": "week"}}},),
         ]
     )
     def test_accepts_dot_matrix_config(self, config: dict) -> None:
