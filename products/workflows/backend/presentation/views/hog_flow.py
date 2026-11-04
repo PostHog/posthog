@@ -2221,7 +2221,6 @@ class HogFlowActionSerializer(serializers.Serializer):
                         if action_type == "function_email" and data.get("type") == "function_email"
                     ],
                     "sandbox_email_integration_cache": self.context.setdefault("_sandbox_email_integration_cache", {}),
-                    "sandbox_sender_enabled_cache": self.context.setdefault("_sandbox_sender_enabled_cache", {}),
                 }
                 for schema in input_schema or []:
                     if schema.get("type") in {"email", "native_email"} and isinstance(inputs, dict):

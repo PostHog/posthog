@@ -15,7 +15,7 @@ from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.services.hog_flow_activity import log_workflow_activity
 from products.workflows.backend.services.hog_flow_reads import BROADCAST_TRIGGER_TYPE, annotate_broadcast_shape
 from products.workflows.backend.services.hog_flow_writes import field_values
-from products.workflows.backend.services.sandbox_sender import sandbox_sender_enabled_for_team
+from products.workflows.backend.services.sandbox_sender import sandbox_sender_configured
 
 BROADCAST_CONVERSION_CANDIDATE_LIMIT: Final = 100
 
@@ -73,13 +73,11 @@ def _integration_id_key(integration_id: object) -> str:
 
 
 def _sandbox_sender_ids(team_id: int) -> set[str]:
-    """Broadcasts can't send through the sandbox sender, so a workflow that uses it stays a workflow."""
-    try:
-        if not sandbox_sender_enabled_for_team(team_id):
-            return set()
-    except Exception:
-        # Without a flag answer, look the senders up, so a sandbox workflow is never offered.
-        pass
+    """Broadcasts can't send through the sandbox sender, so a workflow that uses it stays a workflow.
+
+    The project flag only gates adoption, so a sandbox sender the project already has counts with the flag off."""
+    if not sandbox_sender_configured():
+        return set()
     return {
         str(sender.id)
         for sender in IntegrationManager.email.credentials.list(team_id, where={"provider": SANDBOX_EMAIL_PROVIDER})
