@@ -44507,9 +44507,9 @@ export namespace Schemas {
        *
        * * `recalculation` - recalculation
        * * `timeseries_fallback` - timeseries_fallback */
+      readonly result_source: ResultSourceEnum;
       /** True when the experiment started too long ago for its metrics to be recalculated. A recalculation request then returns a rejected run with the recalculation_window_too_long error, and the saved results stay as they are */
       readonly exceeds_recalculation_age_limit: boolean;
-      readonly result_source: ResultSourceEnum;
     }
 
     /**
