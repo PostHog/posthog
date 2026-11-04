@@ -529,13 +529,20 @@ def _usable_resume_state(
     return loaded
 
 
+@dataclasses.dataclass(frozen=True)
+class _ListedIssue:
+    position: int
+    issue: dict[str, Any]
+    is_checkpoint: bool
+
+
 def _resume_issue_order(
     list_issues: Callable[[], Iterable[dict[str, Any]]],
     checkpoint_issue_id: str | None,
     checkpoint_issue_done: bool,
     skip_limit: int,
     listing_floor: datetime | None,
-) -> Iterator[tuple[int, dict[str, Any], bool]]:
+) -> Iterator[_ListedIssue]:
     """Yield each issue from the checkpoint on, with its position and whether it is the checkpoint issue.
 
     This assumes the issue order of the earlier attempt, so the issues listed before the checkpoint
@@ -553,7 +560,7 @@ def _resume_issue_order(
             if str(issue["id"]) == checkpoint_issue_id:
                 found = True
                 if not checkpoint_issue_done:
-                    yield position, issue, True
+                    yield _ListedIssue(position=position, issue=issue, is_checkpoint=True)
                 break
             if position > skip_limit:
                 break
@@ -565,7 +572,7 @@ def _resume_issue_order(
             logger.info("sentry_source.stale_resume_checkpoint", resume_issue_id=checkpoint_issue_id)
             positioned = enumerate(list_issues(), start=1)
     for position, issue in positioned:
-        yield position, issue, False
+        yield _ListedIssue(position=position, issue=issue, is_checkpoint=False)
 
 
 def _iter_issue_tag_values_rows(
@@ -630,13 +637,16 @@ def _iter_issue_tag_values_rows(
 
     stale_issues: set[str] = set()
 
-    for issue_position, issue, is_checkpoint_issue in _resume_issue_order(
+    for listed in _resume_issue_order(
         list_issues,
         checkpoint_issue_id,
         checkpoint_issue_done,
         resume_skip_limit,
         None if use_warehouse_parent else cutoff_last_seen,
     ):
+        issue = listed.issue
+        issue_position = listed.position
+        is_checkpoint_issue = listed.is_checkpoint
         if cutoff_last_seen is not None:
             issue_last_seen = _parse_datetime_value(issue.get("lastSeen"))
             if issue_last_seen is not None and issue_last_seen <= cutoff_last_seen:
