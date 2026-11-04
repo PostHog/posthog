@@ -138,7 +138,7 @@ export interface intentMapLogicMeta {
         ) => IntentScatterSeries[]
         selectedTopic: (topics: MCPIntentMapTopic[], selectedTopicId: string | null) => MCPIntentMapTopic | null
         selectedTopicPoints: (points: MCPIntentMapPoint[], selectedTopicId: string | null) => MCPIntentMapPoint[]
-        visibleTopicPoints: (selectedTopicPoints: MCPIntentMapPoint[], topicPointsShown: 50) => MCPIntentMapPoint[]
+        visibleTopicPoints: (selectedTopicPoints: MCPIntentMapPoint[], topicPointsShown: number) => MCPIntentMapPoint[]
     }
 }
 
