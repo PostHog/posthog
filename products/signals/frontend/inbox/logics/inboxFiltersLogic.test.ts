@@ -342,6 +342,20 @@ describe('inboxFiltersLogic', () => {
                 .toMatchValues({ activeScoutFilter: ['my-custom-scout'], hasActiveFilters: true })
         })
 
+        it('preserves a monitoring URL selection while hiding it until monitoring is enabled', async () => {
+            router.actions.push(urls.inbox('reports'), { state: 'outcome-monitoring' })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.visibleStateFilter).toEqual([])
+            expect(router.values.searchParams.state).toBe('outcome-monitoring')
+
+            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIGNALS_REPORT_MONITORING], {
+                [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: true,
+            })
+
+            expect(logic.values.visibleStateFilter).toEqual(['outcome-monitoring'])
+        })
+
         it.each([
             ['the default view', () => {}, null, 0],
             ['a ranking sort with its automatic window', () => logic.actions.setSort('ranking_fix', 'desc'), '7d', 0],

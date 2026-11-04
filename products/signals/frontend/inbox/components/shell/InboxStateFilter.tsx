@@ -22,7 +22,7 @@ import {
  */
 export function InboxStateFilter(): JSX.Element {
     const { isStaff } = useValues(inboxSceneLogic)
-    const { stateFilter, visibleStateFilter } = useValues(inboxFiltersLogic)
+    const { stateFilter, visibleStateFilter, monitoringAvailable } = useValues(inboxFiltersLogic)
     const { hasProjectClosedReports } = useValues(reportListLogic(sectionListLogicProps('closed')))
     const { toggleState } = useActions(inboxFiltersLogic)
     const [visible, setVisible] = useState(false)
@@ -30,6 +30,7 @@ export function InboxStateFilter(): JSX.Element {
     const options = INBOX_REPORT_SECTION_KEYS.filter(
         (key) =>
             (isStaff || !INBOX_STAFF_ONLY_REPORT_SECTION_KEYS.includes(key)) &&
+            (key !== 'outcome-monitoring' || monitoringAvailable) &&
             (key !== 'closed' || hasProjectClosedReports || stateFilter.includes(key))
     )
     // Label from the visible selection: a shared link can carry the staff-only state, and the
