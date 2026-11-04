@@ -1,3 +1,4 @@
+import re
 import json
 from collections.abc import Iterator
 from contextlib import contextmanager, nullcontext
@@ -970,6 +971,7 @@ class TestHogFlowAPI(APIBaseTest):
         assert summaries_response.json()["results"][0]["pending_suggestions"] == 0
         assert secret not in summaries_response.content.decode()
         assert not any('"posthog_hogfunctiontemplate"' in query["sql"] for query in queries)
+        assert not any(re.search(r'"posthog_hogflow"\."draft(_encrypted_inputs)?"', query["sql"]) for query in queries)
 
         # The web app / raw API still get the full graph they rely on (e.g. client-side duplication) —
         # and it does carry the secret, proving the MCP omission above is the summary serializer at

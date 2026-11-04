@@ -266,7 +266,10 @@ def _list_queryset(
     # `id` breaks ties so LIMIT/OFFSET paging stays stable: rows sharing an updated_at can
     # otherwise repeat on one page and never appear on another.
     if query.summaries:
-        queryset = annotate_workflow_type(queryset).order_by("-created_at", "-id")
+        # A summary row has no step graph to show, so it skips the staged draft, which can be large.
+        queryset = (
+            annotate_workflow_type(queryset).defer("draft", "draft_encrypted_inputs").order_by("-created_at", "-id")
+        )
     elif query.suggestions_first:
         queryset = queryset.order_by("-pending_suggestions", "-updated_at", "-id")
     elif query.latest_send_first:
@@ -375,7 +378,7 @@ def _to_workflow(
         live_actions=flow.actions,
         live_trigger=flow.trigger,
         encrypted_inputs=flow.encrypted_inputs,
-        draft_encrypted_inputs=flow.draft_encrypted_inputs,
+        draft_encrypted_inputs=None if summaries else flow.draft_encrypted_inputs,
         template_cache=template_cache,
     )
     access_level: Optional[str] = (
