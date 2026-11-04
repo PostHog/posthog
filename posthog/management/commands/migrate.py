@@ -13,10 +13,12 @@ from __future__ import annotations
 
 import os
 import sys
+import json
 import time
 import shutil
 import warnings
 import subprocess
+from collections.abc import Collection, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -25,6 +27,7 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.core.management.commands.migrate import Command as DjangoMigrateCommand
 from django.db import DEFAULT_DB_ALIAS, NotSupportedError
+from django.db.migrations.loader import MigrationLoader
 from django.db.migrations.recorder import MigrationRecorder
 
 from posthog.cloud_utils import is_ci
@@ -227,6 +230,125 @@ def check_database_version(connection: BaseDatabaseWrapper) -> None:
         ) from exc
 
 
+# The last master commit before the newest squash. Its migration files are the ones the
+# squash replaced, before the squash tool removed any dependency entries from them, so a
+# database of any age migrates there in the original order. Move it with each new squash.
+MIGRATION_FLOOR_COMMIT = "3ae7a3ca6121e6836d82a6aaf00192f7749ee5d2"
+
+MigrationKey = tuple[str, str]
+
+
+def load_removed_dependencies() -> list[MigrationKey]:
+    """Return the migrations that run without a dependency entry the squash tool removed.
+
+    The squash tool removes cross-app entries from replaced files to break dependency
+    cycles between squashes. For a `dependencies` entry the edited file is the side
+    that lost its prerequisite. For a `run_before` entry the target is.
+    """
+    path = Path(settings.BASE_DIR) / str(settings.NEXTGENSQUASH["REMOVED_DEPENDENCIES_FILE"])
+    dependents = set()
+    for removed in json.loads(path.read_text())["removed"]:
+        side = removed["file"] if removed["attribute"] == "dependencies" else removed["entry"]
+        dependents.add((side[0], side[1]))
+    return sorted(dependents)
+
+
+def resolve_replaced(
+    replaces: Mapping[MigrationKey, Collection[MigrationKey]],
+) -> dict[MigrationKey, set[MigrationKey]]:
+    """Map each squash to the migration names it stands for, at any depth of nesting.
+
+    A database records these names when it runs the original files, so they decide
+    whether Django applies the squash or falls back to the files it replaces.
+    """
+
+    def originals(key: MigrationKey) -> set[MigrationKey]:
+        if key not in replaces:
+            return {key}
+        return {original for replaced in replaces[key] for original in originals(replaced)}
+
+    return {key: originals(key) for key in replaces}
+
+
+def find_unsafe_fallback(
+    replaced: Mapping[MigrationKey, set[MigrationKey]],
+    dependents: Collection[MigrationKey],
+    applied: Collection[MigrationKey],
+    target: MigrationKey | None = None,
+) -> list[str]:
+    """Return the migrations that lost a dependency entry and would run on this database.
+
+    Django runs a squash's replaced files instead of the squash when the database applied
+    some of them but not all. A file that lost a dependency entry then runs without that
+    ordering, so a run can fail half way. An applied file does not run again. A target that
+    names a replaced migration makes Django ignore every squash, so every such file runs.
+    """
+    targets_replaced = target is not None and any(target in members for members in replaced.values())
+    unsafe = []
+    for dependent in dependents:
+        if dependent in applied:
+            continue
+        if targets_replaced:
+            unsafe.append(f"{dependent[0]}.{dependent[1]}")
+            continue
+        containing = [members for members in replaced.values() if dependent in members]
+        if not containing:
+            continue
+        innermost = min(containing, key=len)
+        if any(member in applied for member in innermost):
+            unsafe.append(f"{dependent[0]}.{dependent[1]}")
+    return sorted(unsafe)
+
+
+def resolve_target(
+    disk: Collection[MigrationKey], app_label: str | None, migration_name: str | None
+) -> MigrationKey | None:
+    """Return the migration a `migrate <app> <name>` call targets, the way Django matches a prefix."""
+    if not app_label or not migration_name or migration_name == "zero":
+        return None
+    matches = [key for key in disk if key[0] == app_label and key[1].startswith(migration_name)]
+    exact = (app_label, migration_name)
+    if exact in matches:
+        return exact
+    return matches[0] if len(matches) == 1 else None
+
+
+def check_migration_history_is_supported(
+    connection: BaseDatabaseWrapper, app_label: str | None, migration_name: str | None
+) -> None:
+    """Stop with upgrade steps when this migrate would run files the squash tool edited.
+
+    Reads the migration files without building the graph, because a graph that cannot be
+    ordered raises before any message could explain it. A target that names a replaced
+    migration makes Django ignore every squash, so each edited file that is not applied runs.
+    """
+    loader = MigrationLoader(connection, load=False, ignore_no_migrations=True)
+    loader.load_disk()
+    replaces = {
+        key: [(app_label, name) for app_label, name in migration.replaces]
+        for key, migration in loader.disk_migrations.items()
+        if migration.replaces
+    }
+    replaced = resolve_replaced(replaces)
+    dependents = load_removed_dependencies()
+    applied = set(MigrationRecorder(connection).applied_migrations())
+    target = resolve_target(loader.disk_migrations, app_label, migration_name)
+    unsafe = find_unsafe_fallback(replaced, dependents, applied, target)
+    if not unsafe:
+        return
+    raise CommandError(
+        "This database stopped migrating before the oldest history this release supports. "
+        f"These migrations would run without the order they need: {', '.join(unsafe)}.\n\n"
+        "No migration ran, so the database is unchanged. Upgrade in two steps:\n"
+        f"  1. Run migrations on PostHog at commit {MIGRATION_FLOOR_COMMIT}.\n"
+        f"     In a dev checkout: git checkout {MIGRATION_FLOOR_COMMIT} && ./bin/migrate\n"
+        f"     On a Docker Compose deployment: set POSTHOG_APP_TAG={MIGRATION_FLOOR_COMMIT} and deploy.\n"
+        "  2. Return to this release and migrate again.\n\n"
+        "A local dev database can start over instead: hogli dev:reset deletes its data.",
+        returncode=UNSUPPORTED_DATABASE_EXIT_CODE,
+    )
+
+
 class Command(DjangoMigrateCommand):
     """Extended migrate command with caching and orphan detection."""
 
@@ -277,6 +399,9 @@ class Command(DjangoMigrateCommand):
         connection = connections[database]
 
         check_database_version(connection)
+        # A fake run records history without running operations, so the removed ordering cannot break it.
+        if not options.get("fake"):
+            check_migration_history_is_supported(connection, options.get("app_label"), options.get("migration_name"))
 
         # Check for orphaned migrations before proceeding
         if not skip_orphan_check and not options.get("check_unapplied"):
