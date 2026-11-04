@@ -7,10 +7,12 @@ import { getDotMatrixTileConfig } from './dotMatrixTileConfig'
 import { getDotMatrixTilePresentation } from './dotMatrixTilePresentation'
 import { createMatrixHogQLQuery } from './dotMatrixTileQuery'
 import {
+    DEFAULT_MATRIX_QUERY,
     DOT_MATRIX_MAX_COLUMNS,
     DOT_MATRIX_MAX_ROWS,
     DOT_MATRIX_MAX_SERIES,
     getHogQLActivityMatrix,
+    getHogQLLimitNotice,
 } from './hogqlActivityMatrix'
 
 describe('HogQL activity matrix', () => {
@@ -171,6 +173,118 @@ describe('HogQL activity matrix', () => {
             const secondRun = getHogQLActivityMatrix({ ...response, results: [...response.results].reverse() }, mapping)
                 .props!.series!
             expect(secondRun.map(({ key }) => key).sort()).toEqual(firstRun.map(({ key }) => key).sort())
+        })
+    })
+
+    describe('column order', () => {
+        const columnsOf = (values: unknown[]): string[] =>
+            getHogQLActivityMatrix(
+                { columns: ['r', 'c'], results: values.map((value) => ['person', value]) },
+                { row: 'r', column: 'c' }
+            ).props!.columns!.map(({ key }) => key)
+
+        it.each([
+            [
+                'newest-first dates',
+                ['2026-11-01', '2026-10-25', '2026-09-13'],
+                ['2026-09-13', '2026-10-25', '2026-11-01'],
+            ],
+            ['unordered dates', ['2026-09-27', '2026-09-20', '2026-10-04'], ['2026-09-20', '2026-09-27', '2026-10-04']],
+            [
+                'datetimes',
+                ['2026-10-04T10:00:00Z', '2026-10-04 09:00:00', '2026-10-03T23:00:00+00:00'],
+                ['2026-10-03T23:00:00+00:00', '2026-10-04 09:00:00', '2026-10-04T10:00:00Z'],
+            ],
+            ['months', ['2026-10', '2026-09'], ['2026-09', '2026-10']],
+            ['numbers', [10, 9, 100], ['9', '10', '100']],
+            ['numeric text', ['10', '9', '100.5'], ['9', '10', '100.5']],
+        ])('sorts %s ascending, left to right', (_, values, expected) => {
+            expect(columnsOf(values)).toEqual(expected)
+        })
+
+        it.each([
+            ['text labels', ['Beta', 'Alpha', 'Gamma']],
+            ['a mix of dates and text', ['2026-10-04', 'Total', '2026-09-27']],
+            ['an impossible date', ['2026-13-45', '2026-01-01']],
+        ])('keeps the query order for %s', (_, values) => {
+            expect(columnsOf(values)).toEqual(values)
+        })
+
+        it('keeps the latest dated columns when it has to drop some', () => {
+            const dates = Array.from({ length: DOT_MATRIX_MAX_COLUMNS + 2 }, (_, index) =>
+                new Date(Date.UTC(2024, 0, 1 + index)).toISOString().slice(0, 10)
+            ).reverse()
+            const shown = columnsOf(dates)
+            expect(shown).toHaveLength(DOT_MATRIX_MAX_COLUMNS)
+            expect(shown[shown.length - 1]).toBe(dates[0])
+            expect(shown).not.toContain('2024-01-01')
+        })
+
+        it('fetches newest first in the default query, so a LIMIT drops the oldest weeks', () => {
+            expect(DEFAULT_MATRIX_QUERY).toContain('ORDER BY column DESC, row, series')
+        })
+    })
+
+    describe('detecting a result cut off by LIMIT', () => {
+        const rows = (count: number): unknown[][] => Array.from({ length: count }, () => ['a'])
+        const notice = (results: unknown[][], hogql?: string, query = 'SELECT 1'): string | null =>
+            getHogQLLimitNotice({ columns: ['r'], results, hogql }, query)
+
+        it('warns when the row count reaches the LIMIT the server ran', () => {
+            expect(notice(rows(5), 'SELECT\n    event\nFROM\n    events\nLIMIT 5')).toBe(
+                'The query returned exactly its LIMIT of 5 rows, so some data may be missing. Raise the LIMIT to check.'
+            )
+        })
+
+        it('stays quiet when fewer rows came back than the LIMIT', () => {
+            expect(notice(rows(4), 'SELECT event FROM events LIMIT 5')).toBeNull()
+        })
+
+        it('falls back to the query text when the response has no printed query', () => {
+            expect(notice(rows(3), undefined, 'select event from events limit 3')).toContain('LIMIT of 3')
+        })
+
+        it('uses the limit the server capped to, not the one the user asked for', () => {
+            expect(
+                notice(rows(50), 'SELECT event FROM events LIMIT 50', 'SELECT event FROM events LIMIT 99999')
+            ).toContain('LIMIT of 50')
+        })
+
+        it.each([
+            ['a subquery limit', 'SELECT a FROM (SELECT a FROM events LIMIT 2)'],
+            ['LIMIT n BY', 'SELECT a FROM events LIMIT 2 BY a'],
+            ['a string', "SELECT 'LIMIT 2' AS a FROM events"],
+            ['a comment', 'SELECT a FROM events -- LIMIT 2'],
+            ['a block comment', 'SELECT a FROM events /* LIMIT 2 */'],
+            ['a column name', 'SELECT limit_2 FROM events'],
+        ])('ignores %s', (_, hogql) => {
+            expect(notice(rows(2), hogql)).toBeNull()
+        })
+
+        it('reads the outer LIMIT past a LIMIT BY and with an OFFSET', () => {
+            expect(notice(rows(2), 'SELECT a FROM events LIMIT 1 BY a LIMIT 2 OFFSET 1')).toContain('LIMIT of 2')
+        })
+
+        it('takes the count from LIMIT offset, count', () => {
+            expect(notice(rows(2), 'SELECT a FROM events LIMIT 7, 2')).toContain('LIMIT of 2')
+        })
+
+        it('shows through the tile presentation, and leaves hasMore its own message', () => {
+            const present = (hasMore: boolean): string[] =>
+                getDotMatrixTilePresentation(
+                    {
+                        kind: 'hogql',
+                        query: 'SELECT r, c FROM events LIMIT 1',
+                        result: { columns: ['r', 'c'], results: [['a', 'b']], hasMore },
+                    },
+                    [],
+                    { row: 'r', column: 'c' },
+                    8
+                ).notices
+            expect(present(false)[0]).toContain('LIMIT of 1')
+            expect(present(true)).toEqual([
+                'Showing a limited result. Narrow the date range or query to include all activity.',
+            ])
         })
     })
 })

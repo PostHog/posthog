@@ -13,7 +13,7 @@ export const DEFAULT_MATRIX_QUERY: string = `SELECT
 FROM events
 WHERE {filters}
 GROUP BY row, column, series
-ORDER BY column, row, series
+ORDER BY column DESC, row, series
 LIMIT 1000`
 
 export const DEFAULT_MATRIX_MAPPING: DotMatrixSourceMapping = {
@@ -57,6 +57,56 @@ function getSeriesAxisItem(value: string): { key: string; label?: string } {
         key: `${value.slice(0, 100)}~${value.length.toString(36)}~${hashCodeForString(value).toString(36)}`,
         label: `${value.slice(0, SERIES_KEY_MAX_LENGTH - 1)}…`,
     }
+}
+
+const ISO_DATE = /^\d{4}-\d{2}(-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}(:?\d{2})?)?)?)?$/
+const NUMBER = /^-?\d+(\.\d+)?$/
+
+function getSortValue(key: string): number {
+    return NUMBER.test(key) ? Number(key) : ISO_DATE.test(key) ? Date.parse(key.replace(' ', 'T')) : NaN
+}
+
+// Numbers and ISO dates read left to right in time order. Anything else keeps the order the query chose.
+function getSortedColumns(keys: string[]): string[] | null {
+    const allNumbers = keys.every((key) => NUMBER.test(key))
+    const allDates = keys.every((key) => ISO_DATE.test(key))
+    const values = new Map(keys.map((key) => [key, getSortValue(key)]))
+    if ((!allNumbers && !allDates) || [...values.values()].some(Number.isNaN)) {
+        return null
+    }
+    return [...keys].sort((first, second) => values.get(first)! - values.get(second)!)
+}
+
+const LIMIT_TOKENS = /'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*"|`(?:[^`\\]|\\.)*`|--[^\n]*|\/\*[\s\S]*?\*\/|[(),]|[\w.]+/g
+
+// The outermost LIMIT count, skipping strings, comments, subqueries and LIMIT n BY.
+function getOuterLimit(query: string): number | null {
+    let depth = 0
+    const outer: string[] = []
+    for (const [token] of query.matchAll(LIMIT_TOKENS)) {
+        if (token === '(' || token === ')') {
+            depth += token === '(' ? 1 : -1
+        } else if (depth === 0 && !/^(?:['"`]|--|\/\*)/.test(token)) {
+            outer.push(token.toUpperCase())
+        }
+    }
+    const start = outer.lastIndexOf('LIMIT')
+    if (start === -1) {
+        return null
+    }
+    const [first, next, second, afterSecond] = outer.slice(start + 1)
+    const count = next === ',' ? second : first
+    const following = next === ',' ? afterSecond : next
+    return /^\d+$/.test(count ?? '') && following !== 'BY' ? Number(count) : null
+}
+
+// hasMore is only set when the server added its own LIMIT, so a query's explicit LIMIT has to be read here.
+// It's a heuristic: a result of exactly LIMIT rows may also be complete, so the wording stays "may".
+export function getHogQLLimitNotice(response: HogQLQueryResponse, query: string): string | null {
+    const limit = getOuterLimit(response.hogql ?? query)
+    return limit !== null && limit > 0 && response.results.length === limit
+        ? `The query returned exactly its LIMIT of ${limit} rows, so some data may be missing. Raise the LIMIT to check.`
+        : null
 }
 
 function getBoundNotice(axes: { noun: string; shown: number; total: number }[]): string | null {
@@ -118,7 +168,10 @@ export function getHogQLActivityMatrix(
         cells.set(key, { row, column, series, value: (previous?.value ?? 0) + value })
     }
     const rows = [...rowKeys].slice(0, DOT_MATRIX_MAX_ROWS)
-    const columns = [...columnKeys].slice(0, DOT_MATRIX_MAX_COLUMNS)
+    const sortedColumns = getSortedColumns([...columnKeys])
+    const columns = sortedColumns
+        ? sortedColumns.slice(-DOT_MATRIX_MAX_COLUMNS)
+        : [...columnKeys].slice(0, DOT_MATRIX_MAX_COLUMNS)
     const series = [...seriesItems.values()].slice(0, DOT_MATRIX_MAX_SERIES)
     const shownRows = new Set(rows)
     const shownColumns = new Set(columns)

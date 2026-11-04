@@ -3,7 +3,7 @@ import { EMPTY_ACCOUNT_ACTIVITY_MATRIX, getAccountActivityMatrixProps } from './
 import { getBookActivityMatrixProps } from './bookActivityMatrix'
 import type { DotMatrixSourceMapping } from './dotMatrixTileConfig'
 import type { DotMatrixTileResult } from './dotMatrixTileQuery'
-import { getHogQLActivityMatrix } from './hogqlActivityMatrix'
+import { getHogQLActivityMatrix, getHogQLLimitNotice } from './hogqlActivityMatrix'
 
 export function getDotMatrixTilePresentation(
     response: DotMatrixTileResult | null,
@@ -25,7 +25,9 @@ export function getDotMatrixTilePresentation(
                 ...mapped.notices,
                 ...(response.result.hasMore
                     ? ['Showing a limited result. Narrow the date range or query to include all activity.']
-                    : []),
+                    : [getHogQLLimitNotice(response.result, response.query)].filter(
+                          (notice): notice is string => notice !== null
+                      )),
             ],
         }
     }
