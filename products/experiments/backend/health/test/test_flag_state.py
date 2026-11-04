@@ -15,7 +15,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
 )
-from products.experiments.backend.health.checks.flag_state import flag_state
+from products.experiments.backend.health.checks.flag_state import OTHER_EXPERIMENT_DECIDES, flag_state
 from products.experiments.backend.health.context import (
     ConditionSetTraffic,
     ExperimentOnFlag,
@@ -24,6 +24,7 @@ from products.experiments.backend.health.context import (
     load_health_context,
     parse_flag_state,
 )
+from products.experiments.backend.health.skips import CheckSkip, not_applicable
 from products.experiments.backend.health.test.factories import DRAFT, ENDED, RUNNING, RUNNING_CONTEXT, Status
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -189,7 +190,7 @@ class TestFlagState(TestCase):
                     flag_called_after_end=True,
                     other_experiments=(_other(launched_at=ENDED_AT - timedelta(days=3)),),
                 ),
-                None,
+                not_applicable(OTHER_EXPERIMENT_DECIDES),
             ),
             (
                 "ended_flag_served_a_later_experiment_that_ended",
@@ -202,7 +203,7 @@ class TestFlagState(TestCase):
                         _other(launched_at=ENDED_AT + timedelta(days=1), ended_at=ENDED_AT + timedelta(days=5)),
                     ),
                 ),
-                None,
+                not_applicable(OTHER_EXPERIMENT_DECIDES),
             ),
             (
                 "ended_flag_served_an_earlier_experiment",
@@ -258,7 +259,7 @@ class TestFlagState(TestCase):
                     filters=MULTIVARIANT,
                     other_experiments=(_other(launched_at=ENDED_AT - timedelta(days=3)),),
                 ),
-                None,
+                not_applicable(OTHER_EXPERIMENT_DECIDES),
             ),
             ("draft_zero_rollout", _context(DRAFT, active=True, filters=ZERO_ROLLOUT), None),
             ("draft_flag_disabled", _context(DRAFT, active=False, filters=MULTIVARIANT), None),
@@ -292,12 +293,15 @@ class TestFlagState(TestCase):
         ]
     )
     def test_flag_state(
-        self, _name: str, ctx: HealthContext, expected: tuple[ExperimentHealthFindingCode, str, str | None] | None
+        self,
+        _name: str,
+        ctx: HealthContext,
+        expected: tuple[ExperimentHealthFindingCode, str, str | None] | CheckSkip | None,
     ) -> None:
         finding = flag_state(ctx)
 
-        if expected is None:
-            self.assertIsNone(finding)
+        if not isinstance(expected, tuple):
+            self.assertEqual(finding, expected)
             return
         assert isinstance(finding, ExperimentHealthFinding)
         code, subcode, variant_key = expected
@@ -537,12 +541,12 @@ class TestFlagState(TestCase):
 class TestFlagStateOfAnEndedExperiment(BaseTest):
     @parameterized.expand(
         [
-            ("running_experiment_on_the_flag", False, None),
+            ("running_experiment_on_the_flag", False, not_applicable(OTHER_EXPERIMENT_DECIDES)),
             ("deleted_experiment_on_the_flag", True, "ended_but_multiple_variants_rolled_out"),
         ]
     )
     def test_reads_the_other_experiments_on_the_flag(
-        self, _name: str, other_deleted: bool, expected_subcode: str | None
+        self, _name: str, other_deleted: bool, expected: str | CheckSkip
     ) -> None:
         flag = FeatureFlag.objects.create(
             team=self.team,
@@ -572,4 +576,4 @@ class TestFlagStateOfAnEndedExperiment(BaseTest):
         ):
             finding = flag_state(load_health_context(experiment))
 
-        self.assertEqual(finding.subcode if isinstance(finding, ExperimentHealthFinding) else finding, expected_subcode)
+        self.assertEqual(finding.subcode if isinstance(finding, ExperimentHealthFinding) else finding, expected)

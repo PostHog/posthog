@@ -59,7 +59,10 @@ if TYPE_CHECKING:
     from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_input_classification import (
         SplitJobInputs,
     )
-    from products.warehouse_sources.backend.temporal.data_imports.sources.common.oauth_pointers import OAuthPointer
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.oauth_pointers import (
+        OAuthPointer,
+        PointerPath,
+    )
 
 logger = structlog.get_logger(__name__)
 
@@ -690,6 +693,25 @@ def _source_class(source_type: str) -> Any:
     )
 
     return SourceRegistry.get_source(ExternalDataSourceType(source_type))
+
+
+def connection_fields_equal(left: Mapping[str, Any], right: Mapping[str, Any]) -> bool:
+    """True when two connection field mappings hold the same stored values."""
+    return same_connection_fields(left, right)
+
+
+def split_connection_fields(source_type: str, inputs: Mapping[str, Any]) -> dict[str, Any]:
+    """The connection fields of ``inputs``, which a credentials row holds."""
+    return _connection_fields(source_type, inputs)
+
+
+def in_use_oauth_slot(source_type: str, inputs: Mapping[str, Any]) -> "PointerPath | None":
+    """Where ``inputs`` keep the OAuth pointer that the sync uses. See `_BaseSource.in_use_oauth_slot`.
+
+    Raises ValueError for an unknown source type, and `OAuthPointerShapeError` (a ValueError) when the inputs
+    cannot tell which OAuth field is in use.
+    """
+    return _source_class(source_type).in_use_oauth_slot(inputs)
 
 
 def _in_event_loop() -> bool:

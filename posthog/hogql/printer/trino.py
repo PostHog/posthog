@@ -908,11 +908,7 @@ class TrinoPrinter(PostgresPrinter):
                 node,
             )
         if name == "cityhash64":
-            self._unsupported(
-                "TRINO_FUNCTION_UNSUPPORTED",
-                f"{node.name} has no semantics-preserving Trino implementation.",
-                node,
-            )
+            return self._visit_city_hash_64(node)
         if name == "totypename":
             self._unsupported(
                 "TRINO_FUNCTION_UNSUPPORTED",
@@ -3350,6 +3346,40 @@ class TrinoPrinter(PostgresPrinter):
         if isinstance(value_type, ast.BooleanType):
             return f"IF({value} IS NULL, NULL, IF({value}, '1', '0'))"
         return f"CAST({value} AS VARCHAR)"
+
+    def _visit_city_hash_64(self, node: ast.Call) -> str:
+        # ch_cityhash64 comes from the trino-posthog-functions plugin in the PostHog Trino fork.
+        # It returns DECIMAL(20,0), so values equal ClickHouse's UInt64.
+        # ClickHouse hashes an integer as its unsigned bit pattern at the integer's own width,
+        # so the plugin has one overload per Trino integer width.
+        value = self._visit_unary_arg(node)
+        value_type = self._resolve_type(node.args[0])
+        if isinstance(value_type, ast.StringType):
+            return f"ch_cityhash64({value})"
+        if isinstance(value_type, ast.BooleanType):
+            return f"ch_cityhash64(CAST({value} AS TINYINT))"
+        if isinstance(value_type, ast.IntegerType):
+            arg = node.args[0]
+            if isinstance(arg, ast.Constant) and isinstance(arg.value, int):
+                return f"ch_cityhash64(CAST({value} AS {self._city_hash_64_literal_type(node, arg.value)}))"
+            return f"ch_cityhash64({value})"
+        self._invalid_function_arguments(
+            node, "cityHash64 in Trino mode supports only one String, integer or boolean argument."
+        )
+
+    def _city_hash_64_literal_type(self, node: ast.Call, value: int) -> str:
+        # ClickHouse types an integer literal as the smallest type that fits it.
+        if value > 2**63 - 1:
+            self._invalid_function_arguments(
+                node, "cityHash64 in Trino mode supports integer literals up to 9223372036854775807."
+            )
+        if value >= -(2**7):
+            return "TINYINT" if value < 0 else "BIGINT"
+        if value >= -(2**15):
+            return "SMALLINT"
+        if value >= -(2**31):
+            return "INTEGER"
+        return "BIGINT"
 
     def _visit_to_timestamp(self, node: ast.Call) -> str:
         if len(node.args) != 1 or not isinstance(self._resolve_type(node.args[0]), ast.IntegerType):
