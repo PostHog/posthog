@@ -109,6 +109,7 @@ McpScopePreset = Literal[
     "signals_research",
     "signals_assessment",
     "signals_implementation",
+    "feature_flag_rollout",
 ]
 SandboxOAuthApplication = Literal["array", "posthog_ai", "signals"]
 
@@ -370,6 +371,7 @@ MCP_SCOPE_PRESETS = (
     "signals_scout_experiment",
     "signals_research",
     "signals_implementation",
+    "feature_flag_rollout",
 )
 
 # Withheld from `signals_research`, which is otherwise the `read_only` resolution.
@@ -474,6 +476,11 @@ def resolve_scopes(
             if include_internal_scopes:
                 reads.append("signal_scout_internal:read")
             resolved = [*reads, *(scratchpad if scopes == "signals_research" else [])]
+        elif scopes == "feature_flag_rollout":
+            # A flag rollout's health check run: reads, plus reporting a result on its own plan. It
+            # turns read-only mode off, so it withholds the same scopes as `signals_research`.
+            reads = [scope for scope in (*MCP_READ_SCOPES, *internal) if scope not in RESEARCH_WITHHELD_SCOPES]
+            resolved = [*reads, *(["feature_flag_rollout_plan:write"] if include_internal_scopes else [])]
         elif scopes == "signals_scout_experiment":
             # Trials use a separate private Go token; their tool credential must not reach the legacy gateway.
             reads = [
@@ -537,6 +544,7 @@ def has_write_scopes(scopes: PosthogMcpScopes) -> bool:
             "signals_scout_experiment",
             "signals_research",
             "signals_implementation",
+            "feature_flag_rollout",
         )
     return any(s in MCP_WRITE_SCOPES for s in scopes)
 

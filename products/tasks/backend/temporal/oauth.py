@@ -269,9 +269,9 @@ def create_oauth_access_token_for_run(
         scopes = dispatched_run_scopes(task, state)
         # Only the provisioning activities omit `scopes`, and their token is the one the agent
         # server uses to upload the run's own log through `append_log`, which requires
-        # `task:write`. The research MCP session keeps the withheld posture because
+        # `task:write`. The MCP session of these presets keeps the withheld posture because
         # `start_agent_server` mints its token with explicit scopes.
-        if scopes == "signals_research":
+        if scopes in ("signals_research", "feature_flag_rollout"):
             scopes = [*resolve_scopes(scopes), *RESEARCH_WITHHELD_SCOPES]
     with transaction.atomic():
         locked_task = (

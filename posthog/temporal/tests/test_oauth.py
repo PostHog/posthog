@@ -356,6 +356,8 @@ class TestHasWriteScopes(SimpleTestCase):
             # scratchpad tools the postures exist to grant.
             ("signals_research_preset", "signals_research", True),
             ("signals_implementation_preset", "signals_implementation", True),
+            # Read-only mode hides the two tools that report a health check result on a rollout plan.
+            ("feature_flag_rollout_preset", "feature_flag_rollout", True),
             # Read-only mode has to stay off for a scout posture, or the MCP server strips the
             # scout's own tools whether or not the scout holds a grant.
             ("scout_posture_with_a_grant", {"preset": "signals_scout", "extra_write_scopes": ["alert:write"]}, True),
@@ -521,6 +523,22 @@ class TestCreateWizardOAuthAccessTokenForUser(TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "Wizard app not found"):
             create_wizard_oauth_access_token_for_user(user, team.id)
+
+
+class TestFeatureFlagRolloutToolset(SimpleTestCase):
+    def test_opens_the_plan_writes_and_nothing_else(self) -> None:
+        catalog = Path(__file__).parents[3] / "services" / "mcp" / "schema" / "generated-tool-definitions.json"
+        definitions: dict[str, dict] = json.loads(catalog.read_text())
+        granted = set(resolve_scopes("feature_flag_rollout"))
+
+        reachable_writes = {
+            name
+            for name, definition in definitions.items()
+            for required in [definition.get("required_scopes") or []]
+            if any(scope.endswith(":write") for scope in required) and set(required) <= granted
+        }
+
+        assert reachable_writes == {"feature-flag-rollout-plan-advance", "feature-flag-rollout-plan-fail"}
 
 
 class TestSignalsResearchToolset(SimpleTestCase):

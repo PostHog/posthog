@@ -12,7 +12,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
-from posthog.temporal.oauth import POSTHOG_AI_APP_CLIENT_ID_DEV
+from posthog.temporal.oauth import POSTHOG_AI_APP_CLIENT_ID_DEV, resolve_scopes
 
 from products.approvals.backend.exceptions import ApprovalRequired
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -118,7 +118,7 @@ class TestFeatureFlagRolloutPlanAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         plan = FeatureFlagRolloutPlan.objects.for_team(self.team.id).get(pk=response.json()["id"])
         assert (plan.task_id, plan.latest_run_id) == (TASK_ID, FIRST_RUN_ID)
-        scopes = create_and_run_task.call_args.kwargs["posthog_mcp_scopes"]
+        scopes = resolve_scopes(create_and_run_task.call_args.kwargs["posthog_mcp_scopes"])
         assert "feature_flag_rollout_plan:write" in scopes
         assert not [
             scope for scope in scopes if scope.endswith(":write") and scope != "feature_flag_rollout_plan:write"
@@ -209,7 +209,7 @@ class TestFeatureFlagRolloutPlanAPI(APIBaseTest):
 
     def test_run_token_cannot_write_flags_directly(self, *_: MagicMock) -> None:
         plan = self._plan()
-        self._use_run_token(scope=" ".join(ROLLOUT_PLAN_MCP_SCOPES))
+        self._use_run_token(scope=" ".join(resolve_scopes(ROLLOUT_PLAN_MCP_SCOPES)))
 
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/{self.other_flag.id}/set_release_condition_rollout/",

@@ -12,7 +12,7 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.temporal.oauth import MCP_READ_SCOPES
+from posthog.temporal.oauth import McpScopePreset
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.approvals.backend.exceptions import ApprovalRequired
@@ -36,7 +36,7 @@ from products.tasks.backend.facade.usage import task_run_usage_limited
 
 logger = structlog.get_logger(__name__)
 
-ROLLOUT_PLAN_MCP_SCOPES = [*MCP_READ_SCOPES, "feature_flag_rollout_plan:write"]
+ROLLOUT_PLAN_MCP_SCOPES: McpScopePreset = "feature_flag_rollout"
 TITLE_MAX_LENGTH = 255
 MAX_LISTED_PLANS = 20
 SCHEDULE_FAILURE_REASON = "PostHog could not schedule the next health check."

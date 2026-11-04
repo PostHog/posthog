@@ -587,6 +587,18 @@ def test_workflow_run_scopes_never_exceed_request_or_snapshot(
             "signals_research",
             "signals_research",
         ),
+        (
+            Task.OriginProduct.POSTHOG_AI,
+            {"pending_dispatch": {"posthog_mcp_scopes": "feature_flag_rollout"}},
+            None,
+            [*resolve_scopes("feature_flag_rollout"), *RESEARCH_WITHHELD_SCOPES],
+        ),
+        (
+            Task.OriginProduct.POSTHOG_AI,
+            {"pending_dispatch": {"posthog_mcp_scopes": "feature_flag_rollout"}},
+            "feature_flag_rollout",
+            "feature_flag_rollout",
+        ),
     ],
 )
 @patch("products.tasks.backend.temporal.oauth._create_oauth_access_token_for_user", return_value="token")
