@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 
 from posthog.hogql.constants import DEFAULT_RETURNED_ROWS
 
+from posthog.models.person.util import create_person_distinct_id
 from posthog.models.team import Team
 from posthog.tasks.early_access_feature import send_events_for_early_access_feature_stage_change
 from posthog.test.persons import add_distinct_id, create_person
@@ -88,9 +89,34 @@ class TestSendEventsForEarlyAccessFeatureStageChange(APIBaseTest):
         )
         add_distinct_id(person=enrolled, distinct_id="moved_id", version=1)
         other = create_person(team=team, distinct_ids=["other_id"], properties={})
-        # A merge reassigns moved_id to the other person with a higher version; the old
-        # mapping row stays in raw_person_distinct_ids.
+        # The old mapping row to the enrolled person stays in raw_person_distinct_ids.
         add_distinct_id(person=other, distinct_id="moved_id", version=2)
+
+        send_events_for_early_access_feature_stage_change(feature.id, "concept", "beta")
+
+        mock_capture.assert_called_once()
+        assert mock_capture.call_args.kwargs["distinct_id"] == "enrolled_id"
+        assert mock_capture.call_args.kwargs["properties"]["user_email"] == "test@example.com"
+
+    @patch("posthog.tasks.early_access_feature.capture_event")
+    def test_skips_deleted_distinct_id(self, mock_capture: MagicMock) -> None:
+        team = Team.objects.create(organization=self.organization)
+        feature_flag = FeatureFlag.objects.create(team=team, key="my-flag", filters={})
+        feature = EarlyAccessFeature.objects.create(
+            team=team,
+            feature_flag=feature_flag,
+            name="Test Feature",
+            description="desc",
+            stage=EarlyAccessFeature.Stage.BETA,
+        )
+
+        enrolled = create_person(
+            team=team,
+            distinct_ids=["enrolled_id"],
+            properties={f"$feature_enrollment/{feature_flag.key}": True, "email": "test@example.com"},
+        )
+        add_distinct_id(person=enrolled, distinct_id="gone_id", version=1)
+        create_person_distinct_id(team.pk, "gone_id", str(enrolled.uuid), version=2, is_deleted=True)
 
         send_events_for_early_access_feature_stage_change(feature.id, "concept", "beta")
 
