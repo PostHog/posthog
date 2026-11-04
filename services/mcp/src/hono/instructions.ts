@@ -218,11 +218,6 @@ export class InstructionsBuilder {
         return this.guidelines
     }
 
-    /**
-     * Without `state` (tools mode, which has no `learn`), the description carries the full
-     * HogQL guidelines and reference. With an exec state whose client can load that reference
-     * on demand, it carries only the essentials and a pointer to the reference.
-     */
     formatExecuteSqlDescription(state?: ExecToolState): string {
         // Metric discovery leads the splice so catalog-first routing still precedes
         // raw schema discovery, without displacing the tool's own intro line.
@@ -237,7 +232,6 @@ export class InstructionsBuilder {
         })
     }
 
-    /** Where this client loads the full HogQL reference, or undefined when it has no on-demand path. */
     private hogqlReferencePointer(state: ExecToolState): string | undefined {
         const { mcpConsumer } = getEffectiveMCPClientContext(state.requestContext, state.sessionContext)
         // PostHog Code is left out: a run launched with skills disabled has neither bundled
