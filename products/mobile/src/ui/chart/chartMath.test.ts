@@ -1,3 +1,5 @@
+import { getCalendars } from 'expo-localization'
+
 import { barSpan, yPosition } from './chartGeometry'
 import {
     formatAxisDate,
@@ -12,6 +14,10 @@ import {
 import type { ChartInterval, ChartKind } from './types'
 
 describe('chartMath', () => {
+    afterEach(() => {
+        jest.mocked(getCalendars).mockReturnValue([{ ...getCalendars()[0], uses24hourClock: false }])
+    })
+
     test.each<[string, number[], ChartKind, [number, number], number[]]>([
         ['small counts never get fractional ticks', [0, 1, 2, 1], 'bar', [0, 2], [0, 1, 2]],
         ['signed bars include zero', [-10, 0, 20], 'bar', [-10, 20], [-10, 0, 10, 20]],
@@ -63,7 +69,7 @@ describe('chartMath', () => {
     })
 
     test.each<[ChartInterval, string, string]>([
-        ['hour', '09:05', 'Tue, Oct 13, 09:05'],
+        ['hour', '9:05 AM', 'Tue, Oct 13, 9:05 AM'],
         ['day', 'Oct 13', 'Tue, Oct 13, 2026'],
         ['week', 'Oct 13', 'Oct 13 – 19, 2026'],
         ['month', 'Oct 2026', 'Oct 2026'],
@@ -71,6 +77,17 @@ describe('chartMath', () => {
         const at = new Date(2026, 9, 13, 9, 5).getTime()
         expect(formatAxisDate(at, interval)).toBe(axis)
         expect(formatTooltipDate(at, interval)).toBe(tooltip)
+    })
+
+    test.each([
+        [false, '4:07 PM'],
+        [true, '16:07'],
+    ])('hourly chart labels follow the 24-hour preference %s', (uses24hourClock, clock) => {
+        jest.mocked(getCalendars).mockReturnValue([{ ...getCalendars()[0], uses24hourClock }])
+        const at = new Date(2026, 9, 13, 16, 7).getTime()
+        expect(formatAxisDate(at, 'hour')).toBe(clock)
+        expect(formatTooltipDate(at, 'hour', true)).toBe(clock)
+        expect(formatTooltipDate(at, 'hour')).toBe(`Tue, Oct 13, ${clock}`)
     })
 
     test.each<[string, Date, boolean, string]>([

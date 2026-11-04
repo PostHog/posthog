@@ -1,4 +1,4 @@
-import { formatMonthDay, weekdayName } from '@/lib/dates'
+import { formatClock, formatMonthDay, weekdayName } from '@/lib/dates'
 
 import type { ChartInterval, ChartKind, ChartPoint } from './types'
 
@@ -153,14 +153,6 @@ export function tooltipLeft(anchorX: number, tooltipWidth: number, containerWidt
     return Math.min(maxLeft, Math.max(0, left))
 }
 
-function pad2(value: number): string {
-    return String(value).padStart(2, '0')
-}
-
-function clock24(date: Date): string {
-    return `${pad2(date.getHours())}:${pad2(date.getMinutes())}`
-}
-
 function monthYear(date: Date): string {
     const [month] = formatMonthDay(date).split(' ')
     return `${month} ${date.getFullYear()}`
@@ -170,7 +162,7 @@ export function formatAxisDate(at: number, interval: ChartInterval): string {
     const date = new Date(at)
     switch (interval) {
         case 'hour':
-            return clock24(date)
+            return formatClock(date)
         case 'day':
         case 'week':
             return formatMonthDay(date)
@@ -206,7 +198,7 @@ export function formatTooltipDate(at: number, interval: ChartInterval, compact =
     const date = new Date(at)
     switch (interval) {
         case 'hour':
-            return compact ? clock24(date) : `${weekdayName(date)}, ${formatMonthDay(date)}, ${clock24(date)}`
+            return compact ? formatClock(date) : `${weekdayName(date)}, ${formatMonthDay(date)}, ${formatClock(date)}`
         case 'day':
             return compact
                 ? `${weekdayName(date)}, ${formatMonthDay(date)}`
@@ -219,7 +211,7 @@ export function formatTooltipDate(at: number, interval: ChartInterval, compact =
 }
 
 export function formatClockTime(at: number): string {
-    return clock24(new Date(at))
+    return formatClock(new Date(at))
 }
 
 /**

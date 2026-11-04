@@ -1,4 +1,6 @@
-// Written by hand instead of with Intl so the output is identical in Hermes, the web build and Jest.
+import { getCalendars } from 'expo-localization'
+
+// Keep the English labels consistent across Hermes, the web build and Jest.
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'] as const
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const
@@ -11,6 +13,12 @@ const DAY = 24 * HOUR
 export function formatClock(date: Date): string {
     const hours = date.getHours()
     const minutes = date.getMinutes()
+    const uses24hourClock =
+        getCalendars()[0].uses24hourClock ??
+        Intl.DateTimeFormat(undefined, { hour: 'numeric' }).resolvedOptions().hour12 === false
+    if (uses24hourClock) {
+        return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
+    }
     const hour12 = hours % 12 === 0 ? 12 : hours % 12
     const suffix = hours < 12 ? 'AM' : 'PM'
     return `${hour12}:${String(minutes).padStart(2, '0')} ${suffix}`
