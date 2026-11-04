@@ -63,6 +63,7 @@ describe('telemetry', () => {
         ['with no identity cache', {}],
         // A broken cache must not fail the command.
         ['with a cache that is not an object', { '/home/test/.posthog/hog-telemetry-identity.json': 'null' }],
+        ['with a broken cache entry', { '/home/test/.posthog/hog-telemetry-identity.json': '{"other": null}' }],
     ])(
         'a PostHog Cloud key ties events to its user and groups, and hog looks them up once, %s',
         async (_name, files) => {
