@@ -337,12 +337,13 @@ Organization admins set the retention in project and organization settings, and 
 
 `monthly_retention_events_cleanup_job` has six steps:
 
-- `update_plan_deletions` tracks each team's pass period in `TeamEventsPlanDeletion`: the set period, never past the plan's period, else the default period. It reads only the teams where `should_enforce_events_retention` is true, so a team without enforcement gets no pass and its set period is never capped by its plan.
-  - It admits new teams in organization order, then team order. A team whose first pass, 3 months out, would delete events takes one place in `max_new_plan_deletion_teams`. Any other team is admitted without counting.
-  - To find those teams, it reads the month before each team's cutoff first. It reads further back only for the teams with no events in that month, so a team with a long history costs one month of reads.
+- `update_plan_deletions` tracks each team's pass period in `TeamEventsPlanDeletion`: the set period, never past the plan's period, else the default period. It gives a row only to the teams where `should_delete_past_default_period` is true, and removes the rows of all other teams. A team without a row gets no pass, and its set period is never capped by its plan.
+  - `should_delete_past_default_period` needs enforcement and the `events-data-retention-deletion` flag. The flag gets each team's plan period and organization, so a rollout can target plans and leave out organizations.
+  - A new row's first pass is at least 3 months out, so a team keeps its events for at least 3 months after the flag turns on.
+  - Turning the flag off removes the team's row at the next run. A run that already finished `update_plan_deletions` still deletes for that team.
   - A shorter period, from a downgrade or a change in Django admin, moves the team's next pass to at least 3 months out.
-  - At the end it locks the teams' rows, reads each period again, and writes its changes in one transaction. A period saved in settings during the run is therefore kept. It then hands on the teams whose pass is due.
-- Saving a period in settings writes the row of each enforced team straight away, so the settings page can show the next deletion. A shorter period moves the next pass to at least 3 months out. The save writes the rows before and after it changes the period, so a row that still holds a period from before a plan change first catches up to the period in use. Those rows are admitted without the cap.
+  - It locks the rows of 1000 teams at a time, reads their periods, and writes its changes in one transaction. A period saved in settings during the run is therefore kept. It then hands on the teams whose pass is due.
+- Saving a period in settings writes the row of each team that deletes past its default straight away, so the settings page can show the next deletion. A shorter period moves the next pass to at least 3 months out. The save writes the rows before and after it changes the period, so a row that still holds a period from before a plan change first catches up to the period in use.
 - The cleanup and settings write rows through `reschedule_plan_deletions`, which locks the rows before it reads the periods.
 - Pass dates fall on the 3rd, so the date shown is the run that deletes.
 - `plan_old_events_cleanup` reads every team's set period. A team with a set period uses it. A team whose pass is due uses its pass period, or the shorter of the two. It reads each due pass row again, so a period saved after the run started applies: a longer period raises the row's months, and a shorter one moves the pass past this run. It logs each team's period in months, then finds the months that hold events for each team and keeps the ones entirely past that team's period. It logs the teams due in each month.
@@ -353,8 +354,8 @@ Organization admins set the retention in project and organization settings, and 
 
 A manual run can narrow each plan with its own `team_ids` and `partitions`. The sessions plan covers only the teams the events plan covers. A listed team with neither a set period nor a pass due is ignored.
 A pass completes only for a team that both plans include, and only when neither sets `partitions`. Otherwise the pass stays due for the next full run.
-The `update_plan_deletions` config has its own `team_ids` for admission, and a manual run admits no team unless that config sets `max_new_plan_deletion_teams`.
-`monthly_retention_events_cleanup_schedule` starts one run on the 3rd of each month at 21:00 local time (Europe/Paris in EU, America/Los_Angeles elsewhere), and skips when no team has a retention or a row and `PLAN_DELETION_TEAMS_PER_RUN` is 0. It is stopped by default.
+The `update_plan_deletions` config has its own `team_ids`, which limits the rows it adds and removes.
+`monthly_retention_events_cleanup_schedule` starts one run on the 3rd of each month at 21:00 local time (Europe/Paris in EU, America/Los_Angeles elsewhere). It is stopped by default.
 Pass dates are dates in that local time zone, so the date shown in settings is the day its deletes start.
 The job runs `ensure_no_concurrent_deletes_run` before it plans, and that guard also runs in `deletes_job`. Each job fails at the start while a `deletes_job`, cleanup or squash run is executing, so the two never mutate the events tables at the same time.
 Both jobs and `squash_person_overrides` carry the `deletes_job_concurrency` tag. The Dagster deployment settings put a run-queue limit of 1 on that tag, so a second run of any of the three queues instead of starting.
