@@ -180,8 +180,8 @@ impl Drop for KafkaBatchSource {
         if self.consumer.client().fatal_error().is_some() {
             return;
         }
-        // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage
         // SAFETY: `consumer` is not used after this point, and `drop` runs once.
+        // nosemgrep: rust.lang.security.unsafe-usage.unsafe-usage
         unsafe { std::mem::ManuallyDrop::drop(&mut self.consumer) }
     }
 }
