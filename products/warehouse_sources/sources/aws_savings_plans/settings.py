@@ -168,6 +168,12 @@ ERROR_MESSAGES = {
 
 # The IAM actions this source calls. A role session can use only these.
 AWS_SESSION_ACTIONS = (
-    "ce:Get*",
-    "savingsplans:Describe*",
+    "ce:GetSavingsPlanPurchaseRecommendationDetails",
+    "ce:GetSavingsPlansCoverage",
+    "ce:GetSavingsPlansPurchaseRecommendation",
+    "ce:GetSavingsPlansUtilization",
+    "ce:GetSavingsPlansUtilizationDetails",
+    "savingsplans:DescribeSavingsPlanRates",
+    "savingsplans:DescribeSavingsPlans",
+    "savingsplans:DescribeSavingsPlansOfferings",
 )

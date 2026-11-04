@@ -107,7 +107,5 @@ ENDPOINT_DESCRIPTIONS: dict[str, str] = {
 
 
 # The IAM actions this source calls. A role session can use only these.
-AWS_SESSION_ACTIONS = (
-    "budgets:Describe*",
-    "budgets:View*",
-)
+# The Budgets API authorizes all its Describe calls with budgets:ViewBudget.
+AWS_SESSION_ACTIONS = ("budgets:ViewBudget",)

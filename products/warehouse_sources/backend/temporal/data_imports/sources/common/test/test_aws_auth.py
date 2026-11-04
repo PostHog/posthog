@@ -39,7 +39,7 @@ OUR_ROLE_ARN = "arn:aws:iam::000000000000:role/posthog-external-warehouse-source
 SESSION_ACTIONS = ("config:Describe*", "config:Get*")
 # A source calls only these verbs, apart from the actions listed per source in NON_READ_ACTIONS.
 READ_VERBS = ("BatchGet", "Describe", "Filter", "Get", "List", "Lookup", "Scan", "Select", "View")
-NON_READ_ACTIONS: dict[ExternalDataSourceType, set[str]] = {
+NON_READ_ACTIONS: dict[str, set[str]] = {
     # Athena runs the query as the caller and writes its results to the workgroup's S3 location.
     ExternalDataSourceType.AWSATHENA: {
         "athena:StartQueryExecution",
@@ -263,8 +263,8 @@ def test_every_source_with_the_aws_auth_field_lifts_it_and_reads_only_with_its_o
             problems.append(f"{source_type} declares no aws_session_actions")
         for action in actions:
             service, _, name = action.partition(":")
-            if not service or not name or name == "*":
-                problems.append(f"{source_type} allows a whole service or every action: {action}")
+            if not service or not name or "*" in name:
+                problems.append(f"{source_type} allows a wildcard instead of the actions it calls: {action}")
             elif not name.startswith(READ_VERBS) and action != "kms:Decrypt":
                 if action not in NON_READ_ACTIONS.get(source_type, set()):
                     problems.append(f"{source_type} allows an action that is not a read: {action}")

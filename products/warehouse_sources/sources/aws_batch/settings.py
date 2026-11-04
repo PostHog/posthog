@@ -91,6 +91,14 @@ NON_RETRYABLE_ERRORS: dict[str, str] = {
 
 # The IAM actions this source calls. A role session can use only these.
 AWS_SESSION_ACTIONS = (
-    "batch:Describe*",
-    "batch:List*",
+    "batch:DescribeComputeEnvironments",
+    "batch:DescribeConsumableResource",
+    "batch:DescribeJobDefinitions",
+    "batch:DescribeJobQueues",
+    "batch:DescribeJobs",
+    "batch:DescribeSchedulingPolicies",
+    "batch:ListConsumableResources",
+    "batch:ListJobs",
+    "batch:ListSchedulingPolicies",
+    "batch:ListServiceJobs",
 )

@@ -98,4 +98,8 @@ ENDPOINT_DESCRIPTIONS: dict[str, str] = {
 
 
 # The IAM actions this source calls. A role session can use only these.
-AWS_SESSION_ACTIONS = ("ce:Get*",)
+AWS_SESSION_ACTIONS = (
+    "ce:GetAnomalies",
+    "ce:GetAnomalyMonitors",
+    "ce:GetAnomalySubscriptions",
+)

@@ -210,6 +210,14 @@ ENDPOINT_DESCRIPTIONS: dict[str, str] = {
 
 # The IAM actions this source calls. A role session can use only these.
 AWS_SESSION_ACTIONS = (
-    "organizations:Describe*",
-    "organizations:List*",
+    "organizations:DescribeOrganization",
+    "organizations:ListAccounts",
+    "organizations:ListDelegatedAdministrators",
+    "organizations:ListDelegatedServicesForAccount",
+    "organizations:ListOrganizationalUnitsForParent",
+    "organizations:ListParents",
+    "organizations:ListPolicies",
+    "organizations:ListRoots",
+    "organizations:ListTagsForResource",
+    "organizations:ListTargetsForPolicy",
 )
