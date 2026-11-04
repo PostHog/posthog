@@ -143,7 +143,7 @@ export function QuillMaterializationSettings({
     const actionReason = materializationActionLoading ? 'Updating materialization' : undefined
 
     return (
-        <div className="flex flex-col items-start gap-4">
+        <div className="flex flex-col gap-4">
             {savedQuery.is_materialized ? (
                 <MaterializedSettings
                     savedQuery={savedQuery}
