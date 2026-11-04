@@ -2922,6 +2922,21 @@ export function getPickerSenderIds(
     return senderIds.filter((id) => !missingSenderIds.includes(id))
 }
 
+export function keepSandboxSenderOnEdit(
+    stored: BroadcastEmailValue,
+    edited: BroadcastEmailValue,
+    integrations: IntegrationType[] | null
+): BroadcastEmailValue {
+    if (
+        !integrations ||
+        getSenderIds(edited.from).length > 0 ||
+        getSandboxSenderIds(stored.from, integrations).length === 0
+    ) {
+        return edited
+    }
+    return { ...edited, from: stored.from }
+}
+
 export function getSandboxSenderIds(
     from: BroadcastEmailValue['from'] | undefined,
     integrations: IntegrationType[]
