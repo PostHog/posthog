@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'crypto'
 import {
     type DefaultTreeAdapterMap,
+    type TreeAdapter,
     defaultTreeAdapter,
     html as htmlSpec,
     parse,
@@ -357,6 +358,43 @@ function conditionHolds(condition: string, client: ConditionalClient): boolean {
 }
 
 const MAX_TEMPLATE_HTML_BYTES = 75_000
+const MAX_ELEMENT_DEPTH = 256
+
+const templateOwners = new WeakMap<DefaultTreeAdapterMap['parentNode'], DefaultTreeAdapterMap['template']>()
+
+function refuseDeepNesting(parent: DefaultTreeAdapterMap['parentNode']): void {
+    let depth = 0
+    let current: DefaultTreeAdapterMap['parentNode'] | null | undefined = parent
+    while (current) {
+        depth += 1
+        if (depth > MAX_ELEMENT_DEPTH) {
+            throw new Error(
+                'The sandbox email template could not retain its identification footer. Update the template and try again.'
+            )
+        }
+        current = 'parentNode' in current ? current.parentNode : templateOwners.get(current)
+    }
+}
+
+const depthBoundedTreeAdapter: TreeAdapter<DefaultTreeAdapterMap> = {
+    ...defaultTreeAdapter,
+    appendChild(parent, node) {
+        refuseDeepNesting(parent)
+        defaultTreeAdapter.appendChild(parent, node)
+    },
+    insertBefore(parent, node, reference) {
+        refuseDeepNesting(parent)
+        defaultTreeAdapter.insertBefore(parent, node, reference)
+    },
+    setTemplateContent(template, content) {
+        templateOwners.set(content, template)
+        defaultTreeAdapter.setTemplateContent(template, content)
+    },
+}
+
+function parseBounded(html: string, scriptingEnabled = false): DefaultTreeAdapterMap['document'] {
+    return parse(html, { scriptingEnabled, treeAdapter: depthBoundedTreeAdapter })
+}
 
 class TooLargeForSandbox extends Error {
     constructor() {
@@ -389,7 +427,7 @@ function conditionalMarker(comment: string): ConditionalMarker | null {
 }
 
 function outlookViews(html: string): DefaultTreeAdapterMap['document'][] {
-    const document = parse(html, { scriptingEnabled: false })
+    const document = parseBounded(html)
     const marker = `outlook-conditional-${randomUUID()}-`
     const markers: ConditionalMarker[] = []
     const parents: DefaultTreeAdapterMap['parentNode'][] = [document]
@@ -435,18 +473,19 @@ function outlookViews(html: string): DefaultTreeAdapterMap['document'][] {
         }
         views.add(view)
     }
-    return [...views].map((view) => parse(view, { scriptingEnabled: false }))
+    return [...views].map((view) => parseBounded(view))
 }
 
 function appendHtmlFooter(html: string, footer: string, preheader?: string): string {
     if (Buffer.byteLength(html) + Buffer.byteLength(preheader ?? '') > MAX_TEMPLATE_HTML_BYTES) {
         throw new TooLargeForSandbox()
     }
-    const preheaderText = parseFragment(preheader ?? '', { scriptingEnabled: false })
-    neutralizeRawTextElements(preheaderText.childNodes)
-    const document = parse(maybeAddPreheaderToEmail(html, serialize(preheaderText, { scriptingEnabled: false })), {
+    const preheaderText = parseFragment(preheader ?? '', {
         scriptingEnabled: false,
+        treeAdapter: depthBoundedTreeAdapter,
     })
+    neutralizeRawTextElements(preheaderText.childNodes)
+    const document = parseBounded(maybeAddPreheaderToEmail(html, serialize(preheaderText, { scriptingEnabled: false })))
     const body = htmlBody(document)
     if (!body) {
         throw new Error('The sandbox email template must have an HTML body. Update the template and try again.')
@@ -481,11 +520,7 @@ function appendHtmlFooter(html: string, footer: string, preheader?: string): str
         }
         throw error
     }
-    const renderings = [
-        parse(serialized, { scriptingEnabled: false }),
-        parse(serialized, { scriptingEnabled: true }),
-        ...conditionalRenderings,
-    ]
+    const renderings = [parseBounded(serialized), parseBounded(serialized, true), ...conditionalRenderings]
     for (const rendering of renderings) {
         const deliveredFooter = htmlBody(rendering)?.childNodes.at(-1)
         if (
