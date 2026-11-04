@@ -31,7 +31,7 @@ export interface BulkKeySummary {
     ownedByMe: number
 }
 
-const ALL_KEYS = 'all'
+export const ALL_KEYS = 'all'
 
 function countsFromOutcome({
     outcome,
