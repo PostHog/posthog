@@ -7,14 +7,17 @@ from django.test import override_settings
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.auth import mint_export_renderer_token
 from posthog.clickhouse.client import sync_execute
 from posthog.jwt import PosthogJwtAudience, decode_jwt
-from posthog.models import PersonalAPIKey, SessionRecording
+from posthog.models import PersonalAPIKey, SessionRecording, SharingConfiguration
 from posthog.models.utils import generate_random_token_personal, hash_key_value, uuid7
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.recordings.errors import RecordingDeletedError
 from posthog.session_recordings.session_recording_v2_service import RecordingBlock, listing_cache_key
+
+from products.exports.backend.models.exported_asset import ExportedAsset
 
 
 class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest):
@@ -145,25 +148,71 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         assert call_args_list[1].args == ("key1", 101, 200, session_id, self.team.id)
         assert call_args_list[1].kwargs.get("decompress") is True
 
-    @parameterized.expand([("logged_in", True), ("personal_api_key", False)])
-    @override_settings(REPLAY_PROXY_JWT_SECRET="replay-proxy-key")
+    @parameterized.expand(
+        [
+            ("logged_in", "session", True, True, True),
+            ("logged_in_flag_off", "session", False, True, False),
+            ("logged_in_unencrypted_recording", "session", True, False, False),
+            ("personal_api_key", "personal_api_key", True, True, False),
+            ("export_renderer", "export_renderer", True, True, True),
+            ("share_link", "share_link", True, True, False),
+        ]
+    )
+    @override_settings(REPLAY_PROXY_JWT_SECRET="replay-proxy-key", RECORDING_API_BLOCKS_JWT_SECRET="replay-blocks-key")
     @patch(
         "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
-    @patch("posthog.session_recordings.session_recording_api.list_blocks", return_value=[])
-    def test_sources_listing_gives_a_replay_proxy_token_only_to_the_player(
+    @patch("posthog.session_recordings.session_recording_api.list_blocks")
+    @patch("posthog.session_recordings.recordings.replay_blocks_jwt.posthoganalytics.feature_enabled")
+    def test_sources_listing_gives_player_tokens_only_to_the_player(
         self,
+        _name: str,
         auth: str,
-        expects_token: bool,
-        _mock_list_blocks,
+        flag_on: bool,
+        encrypted: bool,
+        expects_block_urls: bool,
+        mock_feature_enabled,
+        mock_list_blocks,
         mock_get_session_recording,
         _mock_exists,
     ) -> None:
         session_id = str(uuid7())
         mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
+        mock_feature_enabled.return_value = flag_on
+        mock_list_blocks.return_value = [
+            RecordingBlock(
+                key=f"key{i}",
+                start_byte=0,
+                end_byte=10,
+                start_timestamp=f"2026-01-01T00:00:0{i}Z",
+                end_timestamp=f"2026-01-01T00:00:0{i}Z",
+                ref=f"v1.ref{i}" if encrypted else None,
+            )
+            for i in range(2)
+        ]
+        is_player = auth != "personal_api_key"
         headers = {}
+        query = ""
+        viewer = f"u{self.user.pk}"
+        if auth == "export_renderer":
+            asset = ExportedAsset.objects.create(
+                team=self.team,
+                created_by=self.user,
+                export_format=ExportedAsset.ExportFormat.PNG,
+                export_context={"session_recording_id": session_id},
+            )
+            renderer_token = mint_export_renderer_token(
+                user_id=self.user.id, team_id=self.team.id, exported_asset_id=asset.id, scope="session_recording:read"
+            )
+            headers = {"authorization": f"Bearer {renderer_token}"}
+        if auth == "share_link":
+            recording = SessionRecording.objects.create(session_id=session_id, team=self.team)
+            sharing = SharingConfiguration.objects.create(team=self.team, recording=recording, enabled=True)
+            mock_get_session_recording.return_value = recording
+            query = f"?sharing_access_token={sharing.access_token}"
+            self.client.logout()
         if auth == "personal_api_key":
             personal_api_key = generate_random_token_personal()
             PersonalAPIKey.objects.create(
@@ -176,16 +225,38 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
             headers = {"authorization": f"Bearer {personal_api_key}"}
 
         response = self.client.get(
-            f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/", headers=headers
+            f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/{query}", headers=headers
         )
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        token = response.json()["replay_proxy_token"]
-        if expects_token:
-            claims = decode_jwt(token, PosthogJwtAudience.REPLAY_PROXY, verification_keys=["replay-proxy-key"])
+        body = response.json()
+        if is_player:
+            claims = decode_jwt(
+                body["replay_proxy_token"], PosthogJwtAudience.REPLAY_PROXY, verification_keys=["replay-proxy-key"]
+            )
             assert claims["team_id"] == self.team.pk
         else:
-            assert token is None
+            assert body["replay_proxy_token"] is None
+
+        urls = [source.get("url") for source in body["sources"]]
+        if expects_block_urls:
+            assert urls == [
+                f"http://testserver/replay-blocks/{self.team.pk}/{session_id}/{viewer}/v1.ref{i}" for i in range(2)
+            ]
+            claims = decode_jwt(
+                body["block_token"], PosthogJwtAudience.REPLAY_BLOCKS, verification_keys=["replay-blocks-key"]
+            )
+            assert {k: claims[k] for k in ("team_id", "session_id", "sub", "tier")} == {
+                "team_id": self.team.pk,
+                "session_id": session_id,
+                "sub": viewer,
+                "tier": "browser",
+            }
+            assert isinstance(claims["iat"], int)
+            assert body["block_token_expires_at"] is not None
+        else:
+            assert urls == [None, None]
+            assert body["block_token"] is None
 
     @parameterized.expand(
         [
