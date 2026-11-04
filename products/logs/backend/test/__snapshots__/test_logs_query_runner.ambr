@@ -27,7 +27,8 @@
                   logs_kafka_metrics_distributed
               GROUP BY
                   logs_kafka_metrics_distributed._topic,
-                  logs_kafka_metrics_distributed._partition)) AS live_logs_checkpoint
+                  logs_kafka_metrics_distributed._partition)
+          LIMIT 100) AS live_logs_checkpoint
   FROM
       logs_distributed
   PREWHERE
@@ -69,7 +70,8 @@
                   logs_kafka_metrics_distributed
               GROUP BY
                   logs_kafka_metrics_distributed._topic,
-                  logs_kafka_metrics_distributed._partition)) AS live_logs_checkpoint
+                  logs_kafka_metrics_distributed._partition)
+          LIMIT 100) AS live_logs_checkpoint
   FROM
       logs_distributed
   PREWHERE
@@ -121,7 +123,8 @@
                       logs_kafka_metrics_distributed
                   GROUP BY
                       logs_kafka_metrics_distributed._topic,
-                      logs_kafka_metrics_distributed._partition)) AS live_logs_checkpoint
+                      logs_kafka_metrics_distributed._partition)
+              LIMIT 100) AS live_logs_checkpoint
       FROM
           logs_distributed
       PREWHERE
@@ -171,7 +174,8 @@
                       logs_kafka_metrics_distributed
                   GROUP BY
                       logs_kafka_metrics_distributed._topic,
-                      logs_kafka_metrics_distributed._partition)) AS live_logs_checkpoint
+                      logs_kafka_metrics_distributed._partition)
+              LIMIT 100) AS live_logs_checkpoint
       FROM
           logs_distributed
       PREWHERE
@@ -224,7 +228,8 @@
                       logs_kafka_metrics_distributed
                   GROUP BY
                       logs_kafka_metrics_distributed._topic,
-                      logs_kafka_metrics_distributed._partition)) AS live_logs_checkpoint
+                      logs_kafka_metrics_distributed._partition)
+              LIMIT 100) AS live_logs_checkpoint
       FROM
           logs_distributed
       PREWHERE
