@@ -437,9 +437,10 @@ class TestHogFlowUtmDefaults(APIBaseTest):
             ) as mock_reload,
             patch("products.workflows.backend.presentation.views.hog_flow.publish_resources_edited") as mock_publish,
         ):
-            applied = self.client.post(
-                f"/api/projects/{self.team.id}/hog_flows/apply_utm_defaults", {"dry_run": False}, format="json"
-            )
+            with self.captureOnCommitCallbacks(execute=True):
+                applied = self.client.post(
+                    f"/api/projects/{self.team.id}/hog_flows/apply_utm_defaults", {"dry_run": False}, format="json"
+                )
 
         assert applied.status_code == 200, applied.json()
         assert applied.json()["workflows_updated"] == 3
