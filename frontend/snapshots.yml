@@ -1552,6 +1552,10 @@ snapshots:
         hash: v1.k794b7964.66f0d459b4954743f10f429a64e3e7f6a74b26aaf42896449ee98ec5b8a5e783.bMjI6PrvYtjTBFJBN_l9tquTCL9z2MiPiACCyg7NwpM
     components-hogcharts-timeseriesbarchart--y-axis-formats--light:
         hash: v1.k794b7964.f0589ce149310d1a832ccc2db09eda5cca7b0bb18684e05d094edaa6273cc72b.6lIAqygaq9W2YE6ENM_VZc6_V_xrukW5donVRn_sX2I
+    components-hogcharts-timeseriescombochart--axis-bounds-without-bars--dark:
+        hash: v1.k794b7964.46d2c2b260b332ca0bc639111ff7adb33435d4844ee0b20d34a6afef02013be7.NYBntcdtOnz1-00Onx60m6Suzq8IswvupfKOvA8ZPDU
+    components-hogcharts-timeseriescombochart--axis-bounds-without-bars--light:
+        hash: v1.k794b7964.549e7973b6641ef3c2718dec2e0df528c7b75cfcca2e12deb05856c655bd5b6a.LhtSK2b7lEnRpGzPPQBAj7ZJ0i_K3wEWMGvBmXj_klI
     components-hogcharts-timeseriescombochart--basic--dark:
         hash: v1.k794b7964.01ebf62eb35e385cd89a00bcf3207570c252e7b6bca8acdbfe9e88841747679f.lIbb4yy1TrccNA96voGPROTbdr61LQRAsE1jcm-x1ac
     components-hogcharts-timeseriescombochart--basic--light:
@@ -10177,15 +10181,7 @@ snapshots:
     scenes-app-ai-observability-trace-view-trace-view--timeline-mode--dark:
         hash: v1.k794b7964.4fb708d081e5ffe96afbe8184c45188f979ebc3c1403da74e5567308f7fe5157.lA2brEDkHaC4hJt7jwNoH55CMrB_jhrNjmb5npVz4KQ
     scenes-app-ai-observability-trace-view-trace-view--timeline-mode--light:
-        hash: v1.k794b7964.7e1d5ff2df1baa99e11677896249718a296f4493b1f79d0d212bd14de5e4b3e0.Pj6RpTRWxMXQgllOfFKbVS8vZCK2vqj8LWEXQMKywhs
-    scenes-app-ai-observability-trace-view-trace-view-switch--on-new-view--dark:
-        hash: v1.k794b7964.705e0647746424a98de2bbf79737ac43b3f60b57ae45b8f0e5d0cb5f01226aad.vSallcE6n-MHVAkWEOsfs2D1X--pp40NBjawl5otiOk
-    scenes-app-ai-observability-trace-view-trace-view-switch--on-new-view--light:
-        hash: v1.k794b7964.a0a6aa1d50cf3ba8efab106b863b781ec7963f26b4ac15c081846ef1a5f26be8.FENbz_MteTxpQoOtuabm33w_0L5OXGTEPrn-PnWRpVs
-    scenes-app-ai-observability-trace-view-trace-view-switch--on-old-view--dark:
-        hash: v1.k794b7964.13ae77563960d8df1279788e5a1b2a17b0f38c4469bb92d3a22f3cc569903681.v3gbz8mdvwkQ2INsmiXInoQZTCBj3KGPrqcynRaxFCU
-    scenes-app-ai-observability-trace-view-trace-view-switch--on-old-view--light:
-        hash: v1.k794b7964.de72868c75c31f3ba3d9813b5f86064d7dbf37bc1a896b8f13032dc102758876.Xpri2jtS8YkCfKQmwMkmtGGWN8oTE_vfUOaiXtOwJK0
+        hash: v1.k794b7964.a2443f5ee729993e26c5842b2f139209fcf1723ec5f5adbdfd324481b6813bbd.Saq9FjUVQPXqDnjkFCABEH-NjvGihIRi1G52alnk6_o
     scenes-app-analytics--list--dark:
         hash: v1.k794b7964.e692f466abc16179add1bb5dc8a717feeaf04a5b13523b0f716d6b4bb8811679.LQEOSA8cElMG8UsjhfDN9J_IgtUg02T1wq8RClGnENI
     scenes-app-analytics--list--light:
