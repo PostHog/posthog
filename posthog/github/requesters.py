@@ -43,7 +43,6 @@ from products.security.backend.facade.enums import Surface
 
 logger = structlog.get_logger(__name__)
 
-# The repository permissions GitHub reports for an account that can push to it.
 GITHUB_WRITE_PERMISSIONS = frozenset({"admin", "maintain", "write"})
 
 

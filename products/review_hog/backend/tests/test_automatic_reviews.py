@@ -249,7 +249,6 @@ class TestAuthoredPRWebhook(SimpleTestCase):
         [
             ("review_team", _review_request_payload(), True),
             ("another_team", _review_request_payload(team_slug="team-devex"), False),
-            # Reviewer-assignment automation must not start paid runs on its own.
             ("bot_sender", _review_request_payload(sender={"id": 1, "login": "assigner[bot]", "type": "Bot"}), False),
         ]
     )
@@ -659,7 +658,6 @@ class TestReviewTeamRequestTask(BaseTest):
         assert self._team_request_removed()
 
     def test_a_failed_permission_lookup_retries_and_still_clears_the_request(self) -> None:
-        # A request left in place could not be asked again until someone removed it by hand.
         self.github.get_collaborator_permission.side_effect = ConnectionError("github is down")
 
         with self.assertRaises(ConnectionError):
