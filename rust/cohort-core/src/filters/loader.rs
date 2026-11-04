@@ -67,10 +67,10 @@ pub async fn load_realtime_cohorts_for_teams(
     Ok(rows)
 }
 
-/// Group rows by team into a catalog for the teams in `processing`, which must name every row's
-/// team. The catalog keeps `processing`, so a reader can tell a team it does not process from a
-/// processed team with no realtime cohort. A cohort that fails to parse is counted, warned, and
-/// skipped rather than poisoning the rest of the catalog.
+/// Group rows by team into a catalog for the teams in `processing`. The catalog keeps the scope, so
+/// a reader can tell a team it does not process from a processed team with no realtime cohort. A
+/// cohort that fails to parse is counted, warned, and skipped rather than poisoning the rest of the
+/// catalog.
 pub fn build_catalog_from_rows(
     rows: Vec<CohortRow>,
     processing: TeamAllowlist,
@@ -257,12 +257,27 @@ mod tests {
     }
 
     #[test]
-    fn empty_rows_build_an_empty_catalog_that_processes_the_given_teams() {
-        let catalog =
-            build_catalog_from_rows(vec![], TeamAllowlist::Only(HashSet::from([8])), false);
-        assert_eq!(catalog.team_count(), 0);
-        assert!(catalog.processes(TeamId(8)));
-        assert!(!catalog.processes(TeamId(9)));
+    fn a_catalog_processes_exactly_its_scope() {
+        let scoped = build_catalog_from_rows(
+            vec![row(1, 9, behavioral_cohort())],
+            TeamAllowlist::Only(HashSet::from([8])),
+            false,
+        );
+        assert!(
+            scoped.processes(TeamId(8)),
+            "a team in scope with no cohort"
+        );
+        assert!(
+            !scoped.processes(TeamId(9)) && scoped.team(TeamId(9)).is_none(),
+            "a row outside the scope neither processes its team nor gives it filters",
+        );
+        assert_eq!(scoped.team_count(), 0);
+
+        let unscoped = build_catalog_from_rows(vec![], TeamAllowlist::All, false);
+        assert!(
+            unscoped.processes(TeamId(8)),
+            "every team, with or without a cohort"
+        );
     }
 
     #[test]

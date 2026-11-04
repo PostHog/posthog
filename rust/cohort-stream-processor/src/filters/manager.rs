@@ -277,11 +277,6 @@ async fn load_processing(
     }
 }
 
-/// Backstop for the load query's team filter.
-fn retain_processing(rows: &mut Vec<CohortRow>, teams: &ProcessingTeams) {
-    rows.retain(|row| teams.scope().includes(row.team_id));
-}
-
 /// A refresh that has begun and not yet published (test seam).
 #[cfg(test)]
 #[must_use = "a pending refresh publishes nothing until `publish` is called"]
@@ -409,16 +404,7 @@ impl CatalogRefresher {
         teams: &ProcessingTeams,
         load: impl AsyncFnOnce(&ProcessingTeams) -> Result<Vec<CohortRow>, FilterError>,
     ) -> Result<CatalogStats, CatalogRefreshError> {
-        let mut rows = tokio::time::timeout(LOAD_TIMEOUT, load(teams)).await??;
-        let fetched_rows = rows.len();
-        retain_processing(&mut rows, teams);
-        if rows.len() != fetched_rows {
-            debug!(
-                fetched_rows,
-                kept_rows = rows.len(),
-                "filter catalog dropped cohort rows of teams it does not process",
-            );
-        }
+        let rows = tokio::time::timeout(LOAD_TIMEOUT, load(teams)).await??;
         let processing = teams.scope().clone();
         let cascade_enabled = self.cascade_enabled;
         self.catalog
@@ -534,17 +520,6 @@ mod tests {
 
     use crate::filters::reverse_index::TeamFiltersBuilder;
     use crate::filters::{CohortId, TeamFilters, TeamId};
-
-    fn cohort_row(id: i32, team_id: i32) -> CohortRow {
-        CohortRow {
-            id,
-            team_id,
-            filters: serde_json::Value::Null,
-            behavioral_filters_shape_hash: None,
-            person_filters_shape_hash: None,
-            timezone: "UTC".to_string(),
-        }
-    }
 
     fn processing(env: TeamAllowlist, granted: &[i32]) -> Arc<ProcessingTeams> {
         TeamAccess::with_granted(env, granted.iter().copied())
@@ -919,20 +894,6 @@ mod tests {
     }
 
     #[test]
-    fn retain_processing_keeps_the_rows_of_the_env_list_and_the_granted_teams() {
-        for (env, granted, kept) in [
-            (TeamAllowlist::Only(HashSet::from([2])), vec![5], vec![2, 5]),
-            (TeamAllowlist::All, vec![], vec![2, 5, 7]),
-            (TeamAllowlist::Only(HashSet::new()), vec![], vec![]),
-        ] {
-            let mut rows = vec![cohort_row(1, 2), cohort_row(2, 5), cohort_row(3, 7)];
-            retain_processing(&mut rows, &processing(env.clone(), &granted));
-            let kept_teams: Vec<i32> = rows.iter().map(|row| row.team_id).collect();
-            assert_eq!(kept_teams, kept, "env {env:?}, granted {granted:?}");
-        }
-    }
-
-    #[test]
     fn next_interval_without_jitter_is_exact() {
         let interval = Duration::from_secs(300);
         assert_eq!(next_interval(interval, Duration::ZERO), interval);
@@ -982,7 +943,8 @@ mod tests {
         assert!(handle.is_loaded());
         assert_eq!(handle.load().team_count(), stats.teams);
 
-        // Bypass `retain_processing`, which would hide a missing SQL filter.
+        // Read the rows directly, because the catalog leaves out other teams' filters, which would
+        // hide a missing SQL filter.
         let keys = |rows: &[CohortRow]| -> BTreeSet<(i32, i32)> {
             rows.iter().map(|row| (row.team_id, row.id)).collect()
         };
