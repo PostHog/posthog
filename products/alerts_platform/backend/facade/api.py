@@ -189,15 +189,17 @@ def list_configurations(
     limit: int,
     offset: int,
     legacy_configuration_id: UUID | None = None,
+    configuration_ids: Collection[UUID] | None = None,
 ) -> PlatformAlertConfigurationPage:
     """One page of configurations a caller may read, with the total behind it. With a
-    `legacy_configuration_id`, only the copy of that source row."""
+    `legacy_configuration_id`, only the copy of that source row. With `configuration_ids`, only those."""
     return platform_reads.list_configurations(
         team_id=team_id,
         source_kinds=source_kinds,
         limit=limit,
         offset=offset,
         legacy_configuration_id=legacy_configuration_id,
+        configuration_ids=configuration_ids,
     )
 
 
