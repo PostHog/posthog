@@ -1,4 +1,4 @@
-import { escapeHogQLString } from '~/queries/utils'
+import { escapeHogQLString } from 'lib/utils/hogql'
 
 import type {
     EvaluationConfig,

@@ -1,8 +1,8 @@
+import { AttachedContextItem } from '~/layout/ai/attachedContext'
 import { BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
 
 import { validateMetricName } from 'products/data_catalog/frontend/common'
 import { DATA_CATALOG_CAPABILITY_CONTEXT } from 'products/data_catalog/frontend/dataCatalogAgentContext'
-import { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
 export function buildBIAgentContext(
     worksheet?: BIVisualizationNode,

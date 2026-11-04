@@ -18,6 +18,7 @@ pub const EVENTS_UNPARSEABLE: &str = "shuffler_events_unparseable_total";
 pub const EVENTS_PERSON_PAYLOAD_DROPPED: &str = "shuffler_events_person_payload_dropped_total";
 /// Delivery failures + fatal enqueue errors.
 pub const PRODUCE_ERRORS: &str = "shuffler_produce_errors_total";
+/// Gauge, sampled at each commit tick: teams whose events pass the team gate.
 pub const ACTIVE_TEAMS: &str = "shuffler_active_teams";
 
 pub const FORWARDS_ENQUEUED: &str = "shuffler_forwards_enqueued_total";

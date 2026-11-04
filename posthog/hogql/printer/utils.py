@@ -31,7 +31,7 @@ from posthog.hogql.printer.mysql import MySQLPrinter
 from posthog.hogql.printer.postgres import PostgresPrinter
 from posthog.hogql.printer.redshift import RedshiftPrinter
 from posthog.hogql.printer.snowflake import SnowflakePrinter
-from posthog.hogql.resolver import ResolverFactory, resolve_types
+from posthog.hogql.resolver import ResolverFactory, resolve_types, swapping_flag_calls_in_views
 from posthog.hogql.transforms.events_predicate_pushdown import apply_events_predicate_pushdown, events_pushdown_enabled
 from posthog.hogql.transforms.events_read_in_order import order_events_reads_by_sort_key
 from posthog.hogql.transforms.flag_calls_from_flag_evaluations import resolve_flag_calls_from_flag_evaluations
@@ -212,6 +212,10 @@ def prepare_ast_for_printing(
         context.direct_postgres_connection_metadata = getattr(context.database, "_direct_connection_metadata", None)
 
     context.modifiers = set_default_in_cohort_via(context.modifiers)
+    if dialect == "clickhouse":
+        # The resolver inlines a saved view's body during type resolution and lazy-table resolution, after the swap of
+        # the top-level query runs.
+        resolver_factory = swapping_flag_calls_in_views(resolver_factory)
 
     if dialect == "trino":
         from posthog.hogql.transforms.trino.normalize import (  # noqa: PLC0415 -- load the optional backend only for Trino compilation
@@ -331,11 +335,17 @@ def prepare_ast_for_printing(
         context.modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
 
     if context.modifiers.optimizeProjections:
-        with context.timings.measure("projection_pushdown"):
-            node = pushdown_projections(node, context)
-        # Pushdown mutates SelectQueryType.columns, staling cached CTE tables. Drop them so a
-        # wrongly pruned column fails loudly at compile time instead of emitting broken SQL.
-        context.cte_database_table_cache.clear()
+        from posthog.models.instance_setting import (  # noqa: PLC0415 -- keeps the printer importable without Django
+            get_instance_setting,
+        )
+
+        if get_instance_setting("HOGQL_PROJECTION_OPTIMIZATION_ENABLED"):
+            narrow_properties = dialect == "clickhouse" and get_instance_setting("HOGQL_PROPERTIES_NARROWING_ENABLED")
+            with context.timings.measure("projection_pushdown"):
+                node = pushdown_projections(node, context, narrow_properties=narrow_properties)
+            # Pushdown mutates SelectQueryType.columns, staling cached CTE tables. Drop them so a
+            # wrongly pruned column fails loudly at compile time instead of emitting broken SQL.
+            context.cte_database_table_cache.clear()
 
     if dialect == "clickhouse" and context.modifiers.materializeRepeatedCTEs:
         from django.conf import (

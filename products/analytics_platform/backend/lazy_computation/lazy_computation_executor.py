@@ -49,7 +49,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.dataclasses import frozen
-from posthog.models.event.new_events_schema import use_new_events_schema
+from posthog.models.event.new_events_schema import events_read_settings, use_new_events_schema
 from posthog.models.team import Team
 from posthog.settings import DEBUG, HOGQL_INCREASED_MAX_EXECUTION_TIME, TEST
 from posthog.utils import relative_date_parse_with_delta_mapping
@@ -195,6 +195,7 @@ def _get_insert_settings(
     spill_to_disk: bool = False,
     read_after_write: bool = True,
     overrides: Mapping[str, int | str] | None = None,
+    modifiers: HogQLQueryModifiers | None = None,
 ) -> dict:
     """Build ClickHouse settings for preaggregation INSERT queries.
 
@@ -215,6 +216,9 @@ def _get_insert_settings(
 
     `load_balancing` comes from the HogQL table that reads `table`, so the INSERT and the
     later SELECT choose replicas the same way. A table that sets none uses the profile default.
+
+    `modifiers` are the ones the INSERT's SELECT was printed with. The native read settings follow the
+    events table that SELECT reads, which a per-query modifier can switch away from the team's default.
     """
     settings = get_default_hogql_global_settings(team_id=team_id).model_dump(exclude_none=True)
     settings.pop("readonly", None)  # INSERTs need write access
@@ -233,6 +237,7 @@ def _get_insert_settings(
             **_read_table_load_balancing(table),
         }
     )
+    settings.update(events_read_settings(use_new_events_schema(team_id, modifiers)))
     if spill_to_disk:
         # Spill heavy GROUP BYs to disk instead of OOMing. This is a spill
         # *threshold*, not a memory reservation — it lowers peak RAM (vs. holding
@@ -668,6 +673,13 @@ class LazyComputationQuery:
     modifiers: HogQLQueryModifiers | None = None
 
 
+@frozen
+class ServedWindow:
+    start: datetime
+    end: datetime
+    computed_at: datetime | None
+
+
 @dataclass(frozen=True)
 class LazyComputationResult:
     """Result of executing lazy computation jobs."""
@@ -694,8 +706,15 @@ class LazyComputationResult:
     freshly_built: bool = False
     # Oldest `computed_at` across the served jobs — the moment the stalest window in the
     # range was last materialized. None when nothing was served (not ready) or a served
-    # job predates the column. Callers surface it as "data as of X".
+    # job predates the column.
     computed_at: datetime | None = None
+    # Every served job's range and computed_at, so a caller can ask how fresh a specific part of the
+    # range is (for example the latest day) instead of only the oldest stamp.
+    served_windows: tuple[ServedWindow, ...] = ()
+
+
+def _served_windows(jobs: list[PreaggregationJob]) -> tuple[ServedWindow, ...]:
+    return tuple(ServedWindow(start=j.time_range_start, end=j.time_range_end, computed_at=j.computed_at) for j in jobs)
 
 
 def _oldest_computed_at(jobs: list[PreaggregationJob]) -> datetime | None:
@@ -1124,7 +1143,7 @@ def run_lazy_computation_insert(
             sync_execute(
                 insert_sql,
                 values,
-                settings=_get_insert_settings(team.id, query_info.table),
+                settings=_get_insert_settings(team.id, query_info.table, modifiers=query_info.modifiers),
             )
         )
 
@@ -1327,6 +1346,7 @@ class LazyComputationExecutor:
                             job_ids=[j.id for j in covering],
                             stale=True,
                             computed_at=_oldest_computed_at(covering),
+                            served_windows=_served_windows(covering),
                         )
                         _log_execution("stale_hit", result)
                         return result
@@ -1591,6 +1611,7 @@ class LazyComputationExecutor:
             job_ids=[j.id for j in final_ready],
             freshly_built=jobs_created > 0 or bool(waited_job_ids),
             computed_at=_oldest_computed_at(final_ready),
+            served_windows=_served_windows(final_ready),
         )
         _log_execution("success", result)
         return result
@@ -1923,6 +1944,7 @@ def ensure_precomputed(
                         spill_to_disk=spill_to_disk,
                         read_after_write=read_after_write,
                         overrides=insert_settings,
+                        modifiers=modifiers,
                     ),
                 )
             )

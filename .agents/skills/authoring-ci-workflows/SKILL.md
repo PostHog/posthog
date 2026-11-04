@@ -30,7 +30,7 @@ The linters own the mechanical rules (below); this skill is the **judgment calls
 
 Run `bin/hogli lint:workflows` and `actionlint` before pushing — they gate CI, and they (not this list) are the source of truth for what's enforced.
 Today that's: `timeout-minutes` on every job, the canonical PR concurrency block, a repo-wide budget for unscoped PR event dispatches, `dorny/paths-filter` negation safety, justification for full-depth checkouts, cache-write gating, semgrep service coverage, MCP path-filter coverage of the trees the MCP build compiles, Storybook path-filter coverage of every `staticDirs` source, required-check gate hygiene, secrets a reusable workflow reads being declared and passed by its callers, runner labels that name an OS version rather than a floating `-latest` alias, `#`-free values for the action inputs an inner shell re-parses, and generic GHA correctness (bad `secrets.*` / `needs:` refs, deprecated `::set-output`, unknown runner labels).
-Renovate bumps third-party action digests, except in workflows listed in `actions.lock`.
+Renovate does not bump actions. Action bumps are manual.
 
 ## Check what a condition does before you push it
 
@@ -414,7 +414,7 @@ The only sanctioned exception is a job whose purpose is validating the migration
 
 ## Runners
 
-`depot-ubuntu-<version>[-<vCPU>]` for build/compute-heavy jobs (the `-4`/`-8` suffix bumps CPU from the 2-vCPU default); GitHub-hosted for light jobs.
+`depot-ubuntu-<version>[-<vCPU>]` for build/compute-heavy jobs (the `-4`/`-8` suffix bumps CPU from the 2-vCPU default); GitHub-hosted for light jobs, except light jobs on the critical path of a merge-queue required check, which pick Depot on `trunk-merge/` runs only because GitHub-hosted runners queue longer at busy hours.
 **Name the OS version, never `ubuntu-latest`.**
 GitHub moves the `-latest` aliases to a new image on its own schedule (24.04 became `latest` in 2025, 26.04 follows), which changes the toolchain and system packages under every job at once with nothing in this repo to bisect.
 `WF011` rejects `ubuntu-latest`, `macos-latest`, `windows-latest` and the `depot-*-latest` mirrors in `runs-on` and in `strategy.matrix`, so use `ubuntu-24.04` (or `depot-ubuntu-24.04`) and land an image bump as its own PR.

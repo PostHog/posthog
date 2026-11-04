@@ -135,8 +135,6 @@ Thus four shards used approximately 22 more minutes of CPU in each run, and decr
 
 A shard retry also repeats the 7.5 minutes of setup. Thus a retry of one shard is not much faster than a retry of all the tests.
 
-The workflow contains a comment about this decision. Read the comment near `runs-on` in `.github/workflows/ci-e2e-playwright.yml`.
-
 _Also asked as:_ split the E2E tests across runners, parallelize Playwright, reduce flaky retry scope by sharding
 
 ### Use Bazel to scope product tests
@@ -228,7 +226,7 @@ _Also asked as:_ snob, is test selection on, why does CI run all the tests, do w
 
 Jest selection on PRs ran three shards whatever it selected, and the selection was all or nothing: 60% of PR runs executed 2,171 of 2,720 test files and 39% executed under 50.
 The import graph that `--findRelatedTests` walks held one cycle of 2,851 files, and 92% of its edges were imports the transformer removes. Reading imports from the transformer output shrinks it to 218 files and 997 tests.
-The 997 tests that load the cycle cost 3.65 seconds each against 1.07 for the rest, so a changed-file count sizes nothing. `.github/scripts/jest-select.js` counts the related tests and assigns one shard per 342 files, capped at eight. This initial threshold comes from the probe runs and needs tuning against observed shard durations; file counts do not guarantee a ten-minute wall. The selector classifies known fallback cases before installing dependencies. Pricing each shard from the hourly run's JUnit was built and removed: two probe runs sized by count landed within 1.4x of the estimate, and the per-file map cost a recorder job and a cache.
+The 997 tests that load the cycle cost 3.65 seconds each against 1.07 for the rest, so a changed-file count sizes nothing. `.github/scripts/jest-select.js` counts the related tests and assigns one shard per 171 files, capped at eight. Shard durations measured after that first threshold put a shard at about 102s of fixed setup plus 31s and 1.38s per test file, so the original 342 files produced a ten-minute shard where 171 gives a six-minute one. The selector classifies known fallback cases before installing dependencies. Pricing each shard from the hourly run's JUnit was built and removed: two probe runs sized by count landed within 1.4x of the estimate, and the per-file map cost a recorder job and a cache.
 
 Measured on the way and not worth repeating: `--maxWorkers=100%` on the selective path gained nothing on the 4 vCPU runners; persisting jest's cache made a second run on the same runner 5% (12 seconds) faster; the V8 leak fix (`--retain-maps-for-n-gc=0`, [#114618](https://github.com/PostHog/posthog/pull/114618)) was worth 15 to 20% of a shard and about 5% on the merge queue; a different fixed shard count gained nothing.
 
@@ -466,10 +464,23 @@ The description covers the backend, frontend, and Rust workflows. The diff chang
 The PR did not merge, and no person reviewed it. The stale bot closed it. Thus there is no recorded reason for the result.
 
 Sparse-checkout is correct for small jobs, and `ci-storybook.yml`, `ci-security.yaml`, and `pr-resolve-outdated-bot-comments.yml` use it today.
+The bot IP updater needs only `bin/update-bots-list` and `nodejs/assets/bot-ips.txt`; its sparse checkout retains the tracked output so Git can detect and commit updates.
+`ci-depot-action-mirrors.yml` checks out `.depot/`, `.github/actions/`, and `depot_mirrors.py`; its Git diff still covers all changed paths.
+The Dagster path validator also uses a sparse checkout of every internal Python source file, its workflow, and the local uv action. Its import resolver needs the complete internal Python tree, including namespace packages.
 `ci-rust.yml` also uses it on the build and test jobs, but that came before this PR.
 The large Python and frontend test jobs do not use it. Their checkout is complete.
 
+Desktop agent release verification keeps the standalone `packages/agent/` workspace, its build action, `.nvmrc`, and the desktop lockfile used for caching.
+Validate its frozen install, workspace build, and agent tests from the sparse tree when changing those inputs.
+
+The HCL schema guard checks out `posthog/clickhouse/hcl/`, which contains its scripts, manifest, layers, golden dumps, and generated SQL.
+Keep the full directory so every environment and role remains available to validation and drift checks.
+
+OpenAPI codegen tests keep root files, every package manifest, patches, the pnpm setup actions, Husky hooks, the Linux-safe postinstall script, and `tools/openapi-codegen/`. The package manifests preserve workspace discovery during the frozen filtered install. Check both cold and warm installs, test discovery, and failure detection when changing these inputs.
+
 If you propose this again, name the jobs and prove that each one reads only the included paths. A test job can read more of the tree than an exclusion list expects.
+
+Storybook's `select-stories` job checks out only `.nvmrc` from the PR head. It keeps the bounded blobless history for changed-path detection, downloads the module graph, and runs the selector from a separate trusted base checkout, which also carries `common/storybook/storybook-timings.json`. Source files do not need to exist in the PR worktree for this job. The manifest is there because it sizes the shard count, and a file count cannot size that: the stories a frontend diff affects carry about twice the render time per story that the average story does. It is read from the base checkout so the nightly refresh applies to branches behind master and a fork cannot steer the shard count.
 
 _Also asked as:_ sparse-checkout, partial clone, do not check out the whole repo, speed up the checkout step
 

@@ -6,12 +6,13 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { featureFlagsActivityResponseJson } from 'lib/components/ActivityLog/__mocks__/activityLogMocks'
+import { activityDescriberLoaders } from 'lib/components/ActivityLog/activityDescribers'
 import {
     activityLogLogic,
     describerFor,
     ensureActivityDescribersLoaded,
 } from 'lib/components/ActivityLog/activityLogLogic'
-import { ActivityLogItem, humanize } from 'lib/components/ActivityLog/humanizeActivity'
+import { ActivityLogItem, defaultDescriber, humanize } from 'lib/components/ActivityLog/humanizeActivity'
 import { flagActivityDescriber } from 'scenes/feature-flags/activityDescriptions'
 
 import { useMocks } from '~/mocks/jest'
@@ -176,6 +177,22 @@ describe('the activity log logic', () => {
                     true
                 )
             }).not.toThrow()
+        })
+    })
+
+    describe('describer registry', () => {
+        it.each(Object.keys(activityDescriberLoaders))('resolves a describer for %s', (scope) => {
+            const describer = describerFor({ scope } as ActivityLogItem)
+
+            expect(describer).toBeInstanceOf(Function)
+            expect(describer).not.toBe(defaultDescriber)
+        })
+
+        it.each([
+            ['an unknown scope', { scope: 'NotARealScope' } as unknown as ActivityLogItem],
+            ['no item', undefined],
+        ])('falls back to the default describer for %s', (_, logItem) => {
+            expect(describerFor(logItem)).toBe(defaultDescriber)
         })
     })
 })

@@ -1,6 +1,7 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect } from 'react'
 
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { AUTH_NOTES, type AuthNotes } from 'scenes/authentication/shared/authScene/authNotes'
 import { AuthScene } from 'scenes/authentication/shared/authScene/AuthScene'
 import { AuthEntry } from 'scenes/authentication/shared/authStepViewed'
@@ -9,7 +10,6 @@ import { loginTelemetryLogic } from 'scenes/authentication/shared/loginTelemetry
 import { passkeyLogic } from 'scenes/authentication/shared/passkeyLogic'
 import { pendingOAuthConnectionLogic } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
 import { RedirectIfLoggedInOtherInstance } from 'scenes/authentication/shared/RedirectToLoggedInInstance'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { userLogic } from 'scenes/userLogic'
 

@@ -24,6 +24,7 @@ import click
 from hogli import telemetry
 from hogli.manifest import get_manifest
 
+from ..git_signing import DEVBOX_FEEDBACK_HINT, DEVBOX_SIGNING_NOTE, signs_with_secure_enclave_key
 from . import mutagen
 from .coder import (
     CLAUDE_CODE_OAUTH_ENV,
@@ -98,6 +99,7 @@ from .config import (
     clear_region,
     clear_worktree_auto_sources,
     clear_worktree_box_cleanup,
+    clear_worktree_provider,
     load_config,
     save_dotfiles_uri,
     save_git_identity,
@@ -575,7 +577,7 @@ def _resolve_local_signing_key() -> str | None:
 
     Git accepts three formats: a literal ``ssh-... / ecdsa-... / sk-...``
     string, the same with a ``key::`` prefix (used by tools like Secretive),
-    or a path to a public-key file. All are normalized here. Returns ``None``
+    or a path to a key file. All are normalized here. Returns ``None``
     when the value is unset or the referenced file can't be read.
     """
     result = subprocess.run(
@@ -592,10 +594,17 @@ def _resolve_local_signing_key() -> str | None:
         value = value.removeprefix("key::")
     if value.startswith(("ssh-", "ecdsa-", "sk-")):
         return value
-    try:
-        return Path(os.path.expanduser(value)).read_text().strip() or None
-    except OSError:
-        return None
+    key_path = Path(os.path.expanduser(value))
+    # git also accepts a private key path. The returned value goes into a Coder secret, so
+    # only public key content is returned, and a private key path falls back to its .pub file.
+    for candidate in (key_path, key_path.with_name(f"{key_path.name}.pub")):
+        try:
+            content = candidate.read_text().strip()
+        except OSError:
+            continue
+        if content.startswith(("ssh-", "ecdsa-", "sk-")):
+            return content
+    return None
 
 
 def _read_identity_agent(host: str, *, config_path: str | None = None) -> str | None:
@@ -718,6 +727,20 @@ def maybe_configure_git_signing(
         return
 
     if configure_git_signing is None and already_set:
+        return
+
+    # Pushing this public key would make the devbox ask the forwarded agent for a key it can't hold.
+    if signs_with_secure_enclave_key():
+        click.echo()
+        click.echo(click.style("Git commit signing (Secure Enclave keys not supported yet)", bold=True))
+        if already_set:
+            lines = DEVBOX_SIGNING_NOTE
+        else:
+            lines = (
+                "Devbox commits won't be signed, because the forwarded SSH agent can't hold a Secure Enclave key.",
+            )
+        for line in (*lines, DEVBOX_FEEDBACK_HINT):
+            click.echo(f"  {line}")
         return
 
     public_key = _resolve_local_signing_key()
@@ -1075,6 +1098,16 @@ def _reset_worktree_auto_sources() -> bool:
     return True
 
 
+def _reset_worktree_provider() -> bool:
+    config = load_config()
+    if not config.get("worktree_provider"):
+        click.echo("Nothing to clear: worktree boxes already run on coder.")
+        return False
+    clear_worktree_provider(config)
+    click.echo("Worktree boxes run on coder again.")
+    return True
+
+
 def _git_identity_status(config: DevboxConfig, _: set[str]) -> str | None:
     name = config.get("git_name")
     email = config.get("git_email")
@@ -1159,6 +1192,13 @@ _CONFIG_ITEMS: tuple[_ConfigItem, ...] = (
         needs_secrets=False,
         status=_field_status("worktree_auto_box"),
         reset=_reset_worktree_auto_sources,
+    ),
+    _ConfigItem(
+        cli_key="worktree-provider",
+        label="Worktree box provider",
+        needs_secrets=False,
+        status=_field_status("worktree_provider"),
+        reset=_reset_worktree_provider,
     ),
 )
 
@@ -1903,7 +1943,7 @@ def devbox_config_rm(keys: tuple[str, ...], reset_all: bool) -> None:
 
     Valid keys mirror the matching ``--configure-*`` flags on ``devbox:setup``:
     ``git-identity``, ``git-signing``, ``region``, ``dotfiles``, ``claude``, ``worktree-boxes``,
-    ``worktree-auto``.
+    ``worktree-auto``, ``worktree-provider``.
     """
     by_key = _config_items_by_key()
     valid_keys = tuple(by_key)

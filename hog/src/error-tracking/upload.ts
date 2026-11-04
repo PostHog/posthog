@@ -1,7 +1,7 @@
 import { HogError } from '@/core/errors'
 import type { Runtime } from '@/core/runtime'
+import type { AccessKey } from '@/posthog/access-key'
 import { USER_AGENT } from '@/posthog/api'
-import type { Credentials } from '@/posthog/credentials'
 
 import { contentHash } from './container'
 
@@ -24,6 +24,8 @@ export interface UploadOptions {
     force: boolean
     skipOnConflict: boolean
     concurrency?: number
+    // Filled as chunks finish, so a caller still sees what a failed run uploaded.
+    progress?: Map<string, UploadStatus>
 }
 
 export interface UploadOutcome {
@@ -143,14 +145,15 @@ export class SymbolSetClient {
 
     constructor(
         private readonly runtime: Runtime,
-        private readonly credentials: Credentials
+        private readonly key: AccessKey,
+        private readonly onFallback: () => void = () => {}
     ) {
         this.throttle = new Throttle(runtime, RATE_LIMIT_PER_MINUTE)
     }
 
     // Project-scoped API URL, resolved the way posthog-cli's `Url::join` does.
     projectUrl(path: string): URL {
-        return new URL(path, new URL(`api/projects/${this.credentials.projectId}/`, this.credentials.host))
+        return new URL(path, new URL(`api/projects/${this.key.projectId}/`, this.key.host))
     }
 
     async api(method: 'GET' | 'POST', path: string, body?: unknown): Promise<unknown> {
@@ -161,12 +164,12 @@ export class SymbolSetClient {
             response = await this.runtime.fetch(url, {
                 method,
                 headers: {
-                    Authorization: `Bearer ${this.credentials.apiKey}`,
+                    Authorization: `Bearer ${this.key.token}`,
                     'Content-Type': 'application/json',
                     'User-Agent': USER_AGENT,
                 },
                 body: body === undefined ? undefined : JSON.stringify(body),
-                signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+                timeoutMs: REQUEST_TIMEOUT_MS,
             })
         } catch (error) {
             throw new ApiFailure(undefined, error instanceof Error ? error.message : String(error), url.toString())
@@ -201,7 +204,7 @@ export class SymbolSetClient {
         options: UploadOptions,
         runId: string
     ): Promise<UploadOutcome> {
-        const status = new Map<string, UploadStatus>()
+        const status = options.progress ?? new Map<string, UploadStatus>()
         const contentHashes = new Map<string, string>()
         const kept: (SymbolSetUpload & { hash: string })[] = []
         for (const upload of uploads) {
@@ -388,8 +391,9 @@ export class SymbolSetClient {
                     `Object storage answered ${response.status}: ${await response.text()}`
                 )
             }
-            if (useFallback && primaryTransportErrors >= 2 && fallbackTransportErrors === 0) {
+            if (useFallback && primaryTransportErrors >= 2 && fallbackTransportErrors === 0 && !this.preferFallback) {
                 this.preferFallback = true
+                this.onFallback()
             }
         }).catch((error) => {
             throw new HogError(
@@ -405,7 +409,8 @@ export class SymbolSetClient {
             return this.runtime.fetch(target.url, {
                 method: 'PUT',
                 body: data as BodyInit,
-                signal: AbortSignal.timeout(transferTimeout(data.length)),
+                timeoutMs: transferTimeout(data.length),
+                skipRateLimit: true,
             })
         }
         const form = new FormData()
@@ -417,7 +422,8 @@ export class SymbolSetClient {
         return this.runtime.fetch(target.form.url, {
             method: 'POST',
             body: form,
-            signal: AbortSignal.timeout(transferTimeout(data.length)),
+            timeoutMs: transferTimeout(data.length),
+            skipRateLimit: true,
         })
     }
 }
@@ -440,14 +446,24 @@ function startFailure(error: unknown): Error {
     return new HogError('upload_failed', `PostHog didn't start the upload: ${describe(error)}`)
 }
 
+// Like posthog-cli's thread pool: after the first failure no new item starts, and the call returns
+// that failure once the items in flight are done.
 async function runWithConcurrency<T>(items: T[], limit: number, work: (item: T) => Promise<void>): Promise<void> {
     let next = 0
+    let failure: { error: unknown } | undefined
     const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-        while (next < items.length) {
-            await work(items[next++]!)
+        while (failure === undefined && next < items.length) {
+            try {
+                await work(items[next++]!)
+            } catch (error) {
+                failure ??= { error }
+            }
         }
     })
     await Promise.all(workers)
+    if (failure !== undefined) {
+        throw failure.error
+    }
 }
 
 export { ApiFailure }
