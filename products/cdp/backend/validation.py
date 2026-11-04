@@ -5,6 +5,7 @@ import contextlib
 from collections.abc import Iterable
 from typing import Any, Optional
 
+from django.conf import settings
 from django.db import models
 
 from drf_spectacular.utils import extend_schema_field
@@ -18,10 +19,11 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 
-from posthog.integrations import IntegrationManager
-from posthog.models.integration import POSTHOG_CONNECT_KIND, WAREHOUSE_SOURCE_TYPE_CONFIG_KEY
+from posthog.integrations import IntegrationManager, IntegrationRecord
+from posthog.models.integration import POSTHOG_CONNECT_KIND, SANDBOX_EMAIL_PROVIDER, WAREHOUSE_SOURCE_TYPE_CONFIG_KEY
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.permissions import posthog_feature_flag_enabled
 
 from products.actions.backend.models.action import Action
 from products.cdp.backend.filters import (
@@ -91,6 +93,118 @@ def _sender_integration_ids(from_value: dict) -> set[int]:
         for integration_id in [from_value.get("integrationId"), *(from_value.get("integrationIds") or [])]
         if isinstance(integration_id, int) and not isinstance(integration_id, bool)
     }
+
+
+def _delivery_sender_ids(from_value: dict) -> set[int]:
+    rotation = from_value.get("integrationIds")
+    # Mirrors selectEmailSenderIntegrationId in the worker: a non-empty rotation replaces integrationId.
+    configured = rotation if isinstance(rotation, list) and rotation else [from_value.get("integrationId")]
+    return {
+        int(integration_id)
+        for integration_id in configured
+        if isinstance(integration_id, (int, float))
+        and not isinstance(integration_id, bool)
+        and (not isinstance(integration_id, float) or integration_id.is_integer())
+    }
+
+
+def _sandbox_sender_configured() -> bool:
+    # Mirrors sandbox_sender_configured() in the workflows product, which imports this module.
+    return bool(
+        settings.WORKFLOWS_SANDBOX_SENDER_DOMAIN
+        and settings.SES_SANDBOX_FROM_ADDRESS
+        and settings.SES_SANDBOX_TENANT_NAME
+    )
+
+
+def _sandbox_email_integrations(
+    integration_ids: set[int], context: dict[str, Any]
+) -> dict[int, IntegrationRecord | None]:
+    cache: dict[int, IntegrationRecord | None] = context.setdefault("sandbox_email_integration_cache", {})
+    missing_ids = integration_ids - cache.keys()
+    if missing_ids:
+        integrations = IntegrationManager.email.credentials.get_many(context["get_team"]().id, missing_ids)
+        cache.update({integration_id: integrations.get(integration_id) for integration_id in missing_ids})
+    return cache
+
+
+def _sandbox_sender_enabled(team: Team, context: dict[str, Any]) -> bool:
+    flag_cache: dict[int, bool] = context.setdefault("sandbox_sender_enabled_cache", {})
+    if team.id not in flag_cache:
+        try:
+            flag_cache[team.id] = posthog_feature_flag_enabled(
+                "workflows-sandbox-sender", str(team.uuid), organization_id=team.organization_id, team_id=team.id
+            )
+        except Exception:
+            flag_cache[team.id] = False
+    return flag_cache[team.id]
+
+
+def _stored_email_values(context: dict[str, Any]) -> list[object]:
+    # A workflow step passes its stored email values. A hog function passes them by input key,
+    # so only the value stored under the input being validated counts.
+    stored = list(context.get("existing_email_values") or [])
+    by_key = context.get("existing_email_values_by_key")
+    schema = context.get("schema")
+    if isinstance(by_key, dict) and isinstance(schema, dict) and str(schema.get("key")) in by_key:
+        stored.append(by_key[str(schema.get("key"))])
+    return stored
+
+
+def validate_sandbox_email_sender(email_value: object, context: dict[str, Any]) -> None:
+    # Every check returns before any query or flag evaluation while the sandbox settings are empty,
+    # and before any integration lookup while the project lacks the flag.
+    if not _sandbox_sender_configured():
+        return
+    if not isinstance(email_value, dict) or not isinstance(email_value.get("from"), dict):
+        return
+    integration_ids = _delivery_sender_ids(email_value["from"])
+    get_team = context.get("get_team")
+    if not integration_ids or get_team is None or not _sandbox_sender_enabled(get_team(), context):
+        return
+    # Bounds the lookup below. InputsItemSerializer applies the same limit to every save.
+    if len(integration_ids) > MAX_WORKFLOW_EMAIL_SENDERS:
+        raise serializers.ValidationError({"input": f"At most {MAX_WORKFLOW_EMAIL_SENDERS} email senders are allowed."})
+    integrations = _sandbox_email_integrations(integration_ids, context)
+    if not any(
+        (integration := integrations[integration_id]) is not None
+        and (integration.config or {}).get("provider") == SANDBOX_EMAIL_PROVIDER
+        for integration_id in integration_ids
+    ):
+        return
+    if context.get("workflow_origin_product") == "broadcasts":
+        raise serializers.ValidationError(
+            {"input": "The sandbox sender cannot be used in broadcasts. Select a sender on your own verified domain."}
+        )
+    for stored in _stored_email_values(context):
+        if (
+            isinstance(stored, dict)
+            and email_value["from"] == stored.get("from")
+            and (email_value.get("replyTo") or "") == (stored.get("replyTo") or "")
+        ):
+            return
+    is_test_send = getattr(context.get("view"), "action", None) == "invocations"
+    if context.get("workflow_action_type") != "function_email" and not is_test_send:
+        raise serializers.ValidationError(
+            {
+                "input": "The sandbox sender can only be used in workflow email steps and test sends. "
+                "Select a sender on your own verified domain for destinations."
+            }
+        )
+    if len(integration_ids) != 1:
+        raise serializers.ValidationError(
+            {
+                "input": "The sandbox sender must be the only sender. Remove the other senders "
+                "or select a sender on your own verified domain."
+            }
+        )
+    if email_value["from"].get("email") or email_value["from"].get("name") or email_value.get("replyTo"):
+        raise serializers.ValidationError(
+            {
+                "input": "The sandbox sender uses a fixed From address and name and does not support Reply-To. "
+                "Remove these overrides or select a sender on your own verified domain."
+            }
+        )
 
 
 def _validate_not_posthog_connection(integration_ids: list[int], context: dict) -> None:
@@ -885,6 +999,7 @@ class InputsItemSerializer(serializers.Serializer):
         elif item_type == "email" or item_type == "native_email":
             if not isinstance(value, dict):
                 raise serializers.ValidationError({"input": f"Value must be an email object."})
+            validate_sandbox_email_sender(value, self.context)
             # Report every missing key in one error: these objects are typically authored
             # programmatically, and a one-at-a-time raise forces a round trip per missing key.
             missing = [f"'{key_}'" for key_ in ("from", "to", "subject") if not value.get(key_)]
