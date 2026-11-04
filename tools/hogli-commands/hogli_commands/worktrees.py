@@ -139,6 +139,13 @@ _INTERVAL_UNITS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
 _DU_TIMEOUT_SECONDS = 120.0
 
 
+@dataclass(frozen=True, kw_only=True, slots=True)
+class _ReapResult:
+    reclaimed_bytes: float
+    removed: int
+    failed: int
+
+
 @dataclass
 class Worktree:
     """A discovered agent worktree."""
@@ -445,7 +452,7 @@ def worktrees_clean(
         click.echo("Aborted.")
         return
 
-    reclaimed, removed, failed = _execute(
+    reap = _execute(
         stale,
         mode,
         repo_root,
@@ -453,11 +460,12 @@ def worktrees_clean(
             [box for box in registered_boxes if box.current_path == wt.path]
         ),
     )
-    _add_reclaimed_properties(reclaimed, removed)
-    if reclaimed >= 0:
-        summary = f"\n✓ Done. Reclaimed ~{_format_size(reclaimed)} of disk across {removed}/{len(stale)} worktree(s)."
+    _add_reclaimed_properties(reap.reclaimed_bytes, reap.removed)
+    if reap.reclaimed_bytes >= 0:
+        summary = f"\n✓ Done. Reclaimed ~{_format_size(reap.reclaimed_bytes)} of disk across {reap.removed}/{len(stale)} worktree(s)."
     else:
-        summary = f"\n✓ Done. Removed {removed}/{len(stale)} worktree(s) (reclaimed space could not be measured)."
+        summary = f"\n✓ Done. Removed {reap.removed}/{len(stale)} worktree(s) (reclaimed space could not be measured)."
+    failed = reap.failed
     if failed:
         summary += f" {failed} could not be fully removed (see warnings above)."
     click.echo(summary)
@@ -1295,14 +1303,13 @@ def _execute(
     mode: str,
     repo_root: Path,
     before_remove: Callable[[Worktree], None] = lambda wt: None,
-) -> tuple[float, int, int]:
+) -> _ReapResult:
     """Delete the selected worktrees (or their deps).
 
     ``before_remove`` runs for each worktree that passed the final in-use check,
     so a worktree kept at the last moment keeps its sync mirror too.
 
-    Returns (real_bytes_reclaimed, worktrees_removed, worktrees_failed). The
-    reclaimed figure is measured from actual filesystem free space before/after,
+    The reclaimed figure is measured from actual filesystem free space before/after,
     so it reflects what was genuinely freed — hardlinked (pnpm store) and
     copy-on-write-cloned (APFS) blocks that are shared elsewhere don't count,
     unlike the du-based pre-delete estimate. Falls back to -1.0 if free space
@@ -1358,7 +1365,7 @@ def _execute(
         subprocess.run(["git", "worktree", "prune"], cwd=repo_root, capture_output=True)
 
     after = _free_by_device(anchors)
-    return _reclaimed_bytes(before, after), removed, failed
+    return _ReapResult(reclaimed_bytes=_reclaimed_bytes(before, after), removed=removed, failed=failed)
 
 
 def _free_by_device(anchors: Sequence[Path]) -> dict[int, int]:

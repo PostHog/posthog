@@ -660,7 +660,7 @@ class TestExecute:
         monkeypatch.setattr(worktrees, "_process_cwds", lambda: next(snapshots))
         before_remove = Mock()
 
-        _, removed, failed = _execute(
+        reap = _execute(
             [
                 Worktree(source="claude", path=path, registered=False, locked=False, branch="", last_activity=0.0)
                 for path in (first, second)
@@ -670,7 +670,7 @@ class TestExecute:
             before_remove=before_remove,
         )
 
-        assert (removed, failed) == (1, 0)
+        assert (reap.removed, reap.failed) == (1, 0)
         assert not first.exists()
         assert second.exists()
         assert [call.args[0].path for call in before_remove.call_args_list] == [first]
@@ -685,13 +685,13 @@ class TestExecute:
             module.chmod(0o555)
             module.parent.chmod(0o555)
 
-        _, removed, failed = _execute(
+        reap = _execute(
             [Worktree(source="claude", path=worktree, registered=False, locked=False, branch="", last_activity=0.0)],
             "full",
             tmp_path,
         )
 
-        assert (removed, failed) == (1, 0)
+        assert (reap.removed, reap.failed) == (1, 0)
         assert not worktree.exists()
 
 
