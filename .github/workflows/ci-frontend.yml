@@ -107,6 +107,16 @@ jobs:
             replay_shared: >-
                 ${{ (steps.filter.outputs.replay_shared || 'true') == 'true' }}
             complexity_files: ${{ steps.filter.outputs.complexity_files }}
+            # The API caps lists at 3000 rows. Renames expand to two paths, so a
+            # count mismatch also keeps the full scan rather than trusting a partial list.
+            markdown: >-
+                ${{ github.event_name != 'pull_request'
+                    || startsWith(github.head_ref, 'trunk-merge/')
+                    || steps.filter.outputs.markdown != 'false'
+                    || github.event.pull_request.changed_files == null
+                    || steps.filter.outputs.all_files_count == ''
+                    || steps.filter.outputs.all_files_count >= 3000
+                    || steps.filter.outputs.all_files_count != github.event.pull_request.changed_files }}
         steps:
             # For pull requests it's not necessary to check out the code, but we
             # also want this to run on master, so we need to check out
@@ -135,6 +145,24 @@ jobs:
                   token: ${{ steps.app-token.outputs.token || github.token }}
                   list-files: 'escape'
                   filters: |
+                      all_files:
+                        - '**'
+                      markdown: &markdown_inputs
+                        - '**/*.{md,mdx}'
+                        - '**/.markdownlint*'
+                        - '.config/**'
+                        - '**/.gitignore'
+                        - '**/package.json'
+                        - '**/.npmrc'
+                        - '**/.pnpmfile.*'
+                        - 'pnpm-*.yaml'
+                        - 'patches/**'
+                        - '.nvmrc'
+                        - '.node-version'
+                        - '.github/workflows/ci-frontend.yml'
+                        - '.github/actions/paths-filter/**'
+                        - '.github/actions/pnpm-install/**'
+                        - '.github/actions/setup-pnpm/**'
                       # Consumed as a file list (complexity_files) by the changed-file
                       # complexity check — the PR files API, not a hand-rolled git diff.
                       complexity:
@@ -145,6 +173,7 @@ jobs:
                           - 'products/**/*.ts'
                           - 'products/**/*.tsx'
                       frontend:
+                        - *markdown_inputs
                         - '.github/scripts/jest-retries.cjs'
                         - '.github/scripts/jest-select.js'
                         - 'patches/jest-junit@16.0.0.patch'
@@ -438,6 +467,7 @@ jobs:
               run: pnpm exec oxfmt --check "**/*.{yaml,yml}"
 
             - name: Lint markdown files
+              if: needs.changes.outputs.markdown != 'false'
               run: pnpm exec markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc "**/*.{md,mdx}"
 
     frontend-bundle-size:
