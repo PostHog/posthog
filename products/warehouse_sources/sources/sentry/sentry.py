@@ -538,15 +538,17 @@ def _resume_issue_order(
 ) -> Iterator[tuple[int, dict[str, Any], bool]]:
     """Yield each issue from the checkpoint on, with its position and whether it is the checkpoint issue.
 
-    We rely on the deterministic sort=date ordering to land back on the same issue, so the issues
-    listed before it were read by an earlier attempt and are held back. The checkpoint issue can be
-    deleted or merged between attempts. When it is not found within `skip_limit` positions, or before
-    the listing ends or reaches `listing_floor`, the held issues are yielded after all, because a
-    resume that skips every issue completes with no rows and reports success.
+    This assumes the issue order of the earlier attempt, so the issues listed before the checkpoint
+    issue were read and are held back. Sentry orders `sort=date` by last seen, so an issue with a new
+    event can move ahead of the checkpoint and get skipped. The checkpoint issue can also be deleted or
+    merged between attempts. When it is not found within `skip_limit` positions, or before the listing
+    ends or reaches `listing_floor`, the held issues are yielded after all, because a resume that skips
+    every issue completes with no rows and reports success. A full refresh appends their rows again.
     """
     positioned = enumerate(issues, start=1)
     if checkpoint_issue_id is not None:
-        held: list[tuple[int, dict[str, Any]]] = []
+        # Only the fields the caller reads, so a deep checkpoint holds little memory.
+        held: list[tuple[int, Any, Any]] = []
         found = False
         for position, issue in positioned:
             if str(issue["id"]) == checkpoint_issue_id:
@@ -554,19 +556,25 @@ def _resume_issue_order(
                 if not checkpoint_issue_done:
                     yield position, issue, True
                 break
-            held.append((position, {"id": issue["id"], "lastSeen": issue.get("lastSeen")}))
-            issue_last_seen = _parse_datetime_value(issue.get("lastSeen"))
-            below_floor = listing_floor is not None and issue_last_seen is not None and issue_last_seen <= listing_floor
-            if position > skip_limit or below_floor:
+            held.append((position, issue["id"], issue.get("lastSeen")))
+            if position > skip_limit:
                 break
-        if not found:
+            if listing_floor is not None:
+                issue_last_seen = _parse_datetime_value(issue.get("lastSeen"))
+                if issue_last_seen is not None and issue_last_seen <= listing_floor:
+                    break
+        if found:
+            held.clear()
+        else:
             logger.info(
                 "sentry_source.stale_resume_checkpoint",
                 resume_issue_id=checkpoint_issue_id,
                 held_issues=len(held),
             )
-            for position, issue in held:
-                yield position, issue, False
+            held.reverse()
+            while held:
+                position, issue_id, last_seen = held.pop()
+                yield position, {"id": issue_id, "lastSeen": last_seen}, False
     for position, issue in positioned:
         yield position, issue, False
 
