@@ -5,7 +5,6 @@ import { IconPencil } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonLabel } from '@posthog/lemon-ui'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
-import { isSandboxEmailSender } from 'lib/integrations/sandboxEmailSender'
 
 import { senderAddressError, senderFrom, senderIntegrationFor } from './emailSenderFields'
 import { EmailSenderForm } from './EmailSenderForm'
@@ -14,13 +13,9 @@ import { emailTemplaterLogic } from './emailTemplaterLogic'
 export function EmailSenderSummary(): JSX.Element {
     const { emailTemplate } = useValues(emailTemplaterLogic)
     const { setEmailTemplateValue } = useActions(emailTemplaterLogic)
-    const { integrations } = useValues(integrationsLogic)
+    const { ownEmailIntegrations: senders } = useValues(integrationsLogic)
     const [isEditing, setIsEditing] = useState(false)
 
-    // make_transactional rejects the sandbox sender, so a transactional email cannot use it.
-    const senders = (integrations ?? []).filter(
-        (integration) => integration.kind === 'email' && !isSandboxEmailSender(integration)
-    )
     const from = senderFrom(emailTemplate)
     const sender = senderIntegrationFor(emailTemplate, senders)
     const name = from.name || sender?.config?.name
