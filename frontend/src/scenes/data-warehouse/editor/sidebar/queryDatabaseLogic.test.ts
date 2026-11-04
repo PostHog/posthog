@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
+import type { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import {
@@ -678,6 +679,47 @@ describe('queryDatabaseLogic', () => {
         logic.unmount()
     })
 
+    it.each([
+        ['PostHog', 'posthog'],
+        ['System', 'system'],
+    ] as const)('limits the default %s category and keeps all search matches', (categoryName, tableType) => {
+        initKeaTests()
+        const logic = queryDatabaseLogic()
+        logic.mount()
+        const names = Array.from({ length: 20 }, (_, index) => `${tableType}.example_${index + 1}`)
+        databaseTableListLogic.findMounted()!.actions.loadDatabaseSuccess({
+            tables: {
+                events: { id: 'events', name: 'events', type: 'posthog', fields: {} },
+                ...Object.fromEntries(names.map((name) => [name, { id: name, name, type: tableType, fields: {} }])),
+            },
+            joins: [],
+        })
+
+        const category = (): TreeDataItem =>
+            logic.values.visibleTreeData
+                .find((item) => item.record?.type === 'sources')!
+                .children!.find((item) => item.name === categoryName)!
+
+        expect(category().children).toHaveLength(16)
+        expect(category().children?.at(-1)?.name).toEqual('Show all')
+        expect(
+            logic.values.visibleTreeData
+                .find((item) => item.id === 'sources')!
+                .children!.find((item) => item.name === 'Popular')?.children
+        ).toHaveLength(1)
+
+        logic.actions.setSearchTerm('example')
+        expect(category().children).toHaveLength(20)
+        expect(category().children?.every((item) => item.record?.type === 'table')).toEqual(true)
+
+        logic.actions.clearSearch()
+        expect(category().children).toHaveLength(16)
+        category().children?.at(-1)?.onClick?.()
+        expect(category().children).toHaveLength(tableType === 'posthog' ? 21 : 20)
+
+        logic.unmount()
+    })
+
     it('combines status search tokens with names and clears them when locating a table', async () => {
         initKeaTests()
         const logic = queryDatabaseLogic()
@@ -1171,7 +1213,7 @@ describe('queryDatabaseLogic', () => {
             expect(category().children).toHaveLength(count > 15 ? 16 : 15)
         })
 
-        it('reveals a located table after the first 15 tables', () => {
+        it.each([1, 15, 18])('reveals only the necessary tables when locating table %i', (tableNumber) => {
             databaseTableListLogic.findMounted()!.actions.loadDatabaseSuccess({
                 tables: Object.fromEntries(
                     Array.from({ length: 18 }, (_, index) => {
@@ -1182,10 +1224,23 @@ describe('queryDatabaseLogic', () => {
                 joins: [],
             } as any)
 
-            logic.actions.locateTable('public.example_18')
+            const focusItem = jest.fn()
+            logic.actions.setTreeRef({ current: { focusItem, getVisibleItems: () => [] } })
+            const tableName = `public.example_${String(tableNumber).padStart(2, '0')}`
+            logic.actions.locateTable(tableName)
 
-            expect(logic.values.visibleTreeData[0].children?.at(-1)?.name).toEqual('public.example_18')
-            expect(logic.values.expandedItemIds).toContain('table-public.example_18')
+            expect(logic.values.visibleTreeData[0].children).toHaveLength(tableNumber <= 15 ? 16 : 18)
+            expect(logic.values.visibleTreeData[0].children?.at(-1)?.name).toEqual(
+                tableNumber <= 15 ? 'Show all' : 'public.example_18'
+            )
+            expect(logic.values.expandedItemIds).toContain(`table-${tableName}`)
+            expect(focusItem).toHaveBeenLastCalledWith(`table-${tableName}`, {
+                scrollPosition: 'top-third',
+                behavior: 'smooth',
+            })
+            if (tableNumber <= 15) {
+                expect(focusItem).toHaveBeenCalledTimes(1)
+            }
         })
 
         it('shows a direct schema failure and retry at the root of the sidebar', () => {

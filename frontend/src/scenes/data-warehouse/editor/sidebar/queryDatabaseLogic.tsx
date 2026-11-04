@@ -56,6 +56,7 @@ import type { DataCatalogMetricApi } from 'products/data_catalog/frontend/genera
 import { metricsLogic } from 'products/data_catalog/frontend/metricsLogic'
 import { SourceIcon, mapUrlToProvider } from 'products/data_warehouse/frontend/shared/components/SourceIcon'
 import {
+    TABLE_CATEGORY_LIMIT,
     groupDirectConnectionTableNodesBySchema,
     limitTableTreeCategories,
 } from 'products/data_warehouse/frontend/shared/connectionTableTree'
@@ -2815,11 +2816,13 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
             }
 
             const tableId = path[path.length - 1].id
-            path.forEach((item) => {
-                if (item.record?.type === 'source-folder') {
-                    actions.showAllTables(item.id, values.connectionId)
-                }
-            })
+            if (!findTreeItemById(values.visibleTreeData, tableId)) {
+                path.forEach((item) => {
+                    if (item.record?.type === 'source-folder') {
+                        actions.showAllTables(item.id, values.connectionId)
+                    }
+                })
+            }
             actions.setExpandedFolders(
                 Array.from(new Set([...values.expandedFolders, ...path.map((item) => item.id)])),
                 values.connectionId
@@ -2836,7 +2839,9 @@ export const queryDatabaseLogic = kea<queryDatabaseLogicType>([
 
         return {
             showAllTables: ({ folderId }) => {
-                const firstRevealedTable = findTreeItemById(values.displayedTreeData, folderId)?.children?.[15]
+                const firstRevealedTable = findTreeItemById(values.displayedTreeData, folderId)?.children?.[
+                    TABLE_CATEGORY_LIMIT
+                ]
                 if (firstRevealedTable) {
                     values.treeRef?.current?.focusItem(firstRevealedTable.id)
                 }

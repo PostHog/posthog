@@ -2,6 +2,8 @@ import { IconChevronDown, IconFolder } from '@posthog/icons'
 
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 
+export const TABLE_CATEGORY_LIMIT = 15
+
 export const limitTableTreeCategories = (
     items: TreeDataItem[],
     shownFolderIds: string[],
@@ -12,11 +14,15 @@ export const limitTableTreeCategories = (
             return item
         }
 
-        if (item.record?.type === 'source-folder' && item.children.length > 15 && !shownFolderIds.includes(item.id)) {
+        if (
+            item.record?.type === 'source-folder' &&
+            item.children.length > TABLE_CATEGORY_LIMIT &&
+            !shownFolderIds.includes(item.id)
+        ) {
             return {
                 ...item,
                 children: [
-                    ...item.children.slice(0, 15),
+                    ...item.children.slice(0, TABLE_CATEGORY_LIMIT),
                     {
                         id: `${item.id}-show-all-tables`,
                         name: 'Show all',
