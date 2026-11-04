@@ -597,6 +597,35 @@ describe('workflowsListV2Logic', () => {
         expect(logic.values.pendingRowActions).toEqual({})
     })
 
+    it('keeps row changes made while a reload is in flight', async () => {
+        router.actions.push(urls.workflows())
+        logic = workflowsListV2Logic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowsSuccess'])
+        let answerReload: () => void = () => {}
+        const reloadSent = new Promise<void>((markSent) => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/hog_flows/summaries/': () =>
+                        new Promise((resolve) => {
+                            answerReload = () => resolve([200, paginated(FIXTURE_WORKFLOWS)])
+                            markSent()
+                        }),
+                },
+            })
+        })
+
+        logic.actions.loadWorkflows()
+        await reloadSent
+        logic.actions.patchWorkflow('wf-renewal', { status: 'active' })
+        logic.actions.removeWorkflow('wf-old-promo')
+        answerReload()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowsSuccess'])
+
+        expect(logic.values.workflows?.find((workflow) => workflow.id === 'wf-renewal')?.status).toEqual('active')
+        expect(logic.values.workflows?.map((workflow) => workflow.id)).not.toContain('wf-old-promo')
+    })
+
     it('shows a copy that only the server search matches', async () => {
         router.actions.push(urls.workflows())
         logic = workflowsListV2Logic()

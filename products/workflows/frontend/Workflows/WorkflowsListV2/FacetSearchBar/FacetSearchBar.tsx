@@ -135,14 +135,19 @@ export function FacetSearchBar<TItem>({
                             onClick={() => applySuggestion(suggestion)}
                         >
                             <span className="flex items-center gap-2 w-full min-w-0">
-                                <span className={clsx('shrink-0', suggestion.kind === 'facet' && 'font-mono')}>
+                                <span className={clsx('truncate', suggestion.kind === 'facet' && 'font-mono')}>
                                     {suggestion.label}
                                 </span>
                                 {suggestion.detail && (
-                                    <span className="text-secondary font-normal truncate">{suggestion.detail}</span>
+                                    <span className="text-secondary font-normal truncate shrink-[2]">
+                                        {suggestion.detail}
+                                    </span>
                                 )}
                                 {suggestion.count !== undefined && (
-                                    <span className="ml-auto text-secondary font-normal tabular-nums" translate="no">
+                                    <span
+                                        className="ml-auto shrink-0 text-secondary font-normal tabular-nums"
+                                        translate="no"
+                                    >
                                         {suggestion.count}
                                     </span>
                                 )}
@@ -167,6 +172,8 @@ export function FacetSearchBar<TItem>({
         <Popover visible={open} overlay={overlay} placement="bottom-start">
             <div
                 className="w-full min-w-0"
+                // Focus alone can't reopen it: after Esc the input keeps the focus.
+                onClick={() => setOpen(true)}
                 onCompositionStart={() => setComposing(true)}
                 onCompositionEnd={() => setComposing(false, inputRef.current?.selectionEnd ?? undefined)}
             >

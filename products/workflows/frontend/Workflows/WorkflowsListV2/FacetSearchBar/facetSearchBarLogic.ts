@@ -175,14 +175,13 @@ function filterNamedBy(draft: FacetDraft, { facets, items, value, matchesText }:
     const facet = findFacet(facets, draft.facetKey)!
     const typed = draft.partial.toLowerCase()
     const namesOf = (v: string): string[] => [v.toLowerCase(), formatFacetValue(facet, v).toLowerCase()]
-    const values = createFacetCounter(
-        items,
-        { filters: value.filters, text: draft.rest },
-        facets,
-        matchesText
-    )(facet.key).map(({ value: v }) => v)
-    const named = values.filter((v) => namesOf(v).includes(typed))
-    const startsAnother = values.some((v) => !named.includes(v) && namesOf(v).some((name) => name.startsWith(typed)))
+    const valuesFor = (scope: FacetSearchValue): string[] =>
+        createFacetCounter(items, scope, facets, matchesText)(facet.key).map(({ value: v }) => v)
+    const named = valuesFor({ filters: value.filters, text: draft.rest }).filter((v) => namesOf(v).includes(typed))
+    // Values the other pills hide still count, so a pill change never decides what the typing meant.
+    const startsAnother = valuesFor({ filters: [], text: '' }).some(
+        (v) => !named.includes(v) && namesOf(v).some((name) => name.startsWith(typed))
+    )
     if (named.length !== 1 || startsAnother) {
         return null
     }

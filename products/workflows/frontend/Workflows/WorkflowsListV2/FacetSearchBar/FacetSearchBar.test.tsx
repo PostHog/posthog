@@ -100,12 +100,14 @@ describe('FacetSearchBar', () => {
         expect(shown('query')).toEqual('')
     })
 
-    it('Esc closes the popover', async () => {
+    it('Esc closes the popover, and a click on the focused input opens it again', async () => {
         const user = setup()
         await user.click(input())
         expect(listbox()).not.toBeNull()
         await user.keyboard('{Escape}')
         expect(listbox()).toBeNull()
+        await user.click(input())
+        expect(listbox()).not.toBeNull()
     })
 
     it('Backspace on an empty input removes the last pill', async () => {

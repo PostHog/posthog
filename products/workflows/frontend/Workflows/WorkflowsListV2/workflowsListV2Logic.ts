@@ -137,6 +137,15 @@ function rawSearchParam(name: string): string {
     return new URLSearchParams(router.values.location.search).get(name) ?? ''
 }
 
+type RowChange = { id: string; patch: Partial<HogFlowListSummaryApi> } | { id: string; removed: true }
+
+function applyRowChange(workflows: HogFlowListSummaryApi[], change: RowChange): HogFlowListSummaryApi[] {
+    if ('removed' in change) {
+        return workflows.filter((workflow) => workflow.id !== change.id)
+    }
+    return workflows.map((workflow) => (workflow.id === change.id ? { ...workflow, ...change.patch } : workflow))
+}
+
 function withFacetParams(searchParams: Record<string, unknown>, value: FacetSearchValue): Record<string, unknown> {
     const next: Record<string, unknown> = { ...searchParams }
     delete next.q
@@ -379,11 +388,14 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
             {
                 loadWorkflows: async (_, breakpoint) => {
                     const teamId = String(values.currentTeamId)
+                    // A row action that lands while the pages load is newer than what the server sent.
+                    const changes: RowChange[] = []
+                    cache.rowChangesDuringLoad = changes
                     const workflows = await loadAllPages((offset) =>
                         hogFlowsSummariesList(teamId, { type: WORKFLOWS_PAGE_TYPES, limit: PAGE_LIMIT, offset })
                     )
                     breakpoint()
-                    return workflows
+                    return changes.reduce(applyRowChange, workflows)
                 },
             },
         ],
@@ -499,9 +511,8 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
             },
         ],
         workflows: {
-            patchWorkflow: (state, { id, patch }) =>
-                state && state.map((workflow) => (workflow.id === id ? { ...workflow, ...patch } : workflow)),
-            removeWorkflow: (state, { id }) => state && state.filter((workflow) => workflow.id !== id),
+            patchWorkflow: (state, { id, patch }) => state && applyRowChange(state, { id, patch }),
+            removeWorkflow: (state, { id }) => state && applyRowChange(state, { id, removed: true }),
         },
     }),
     selectors({
@@ -644,6 +655,17 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
                     cache.searchAbort?.abort()
                 } else if (values.requestedSearchText !== text) {
                     actions.searchWorkflows(text)
+                }
+            },
+            patchWorkflow: ({ id, patch }) => {
+                cache.rowChangesDuringLoad?.push({ id, patch })
+            },
+            removeWorkflow: ({ id }) => {
+                cache.rowChangesDuringLoad?.push({ id, removed: true })
+            },
+            loadWorkflowsFailure: () => {
+                if (values.listLoaded) {
+                    lemonToast.error("Couldn't refresh workflows. Showing the list from before.")
                 }
             },
             loadWorkflowsSuccess: () => {

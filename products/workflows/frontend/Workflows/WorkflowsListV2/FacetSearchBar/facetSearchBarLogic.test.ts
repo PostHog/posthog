@@ -201,6 +201,21 @@ describe('facetSearchBarLogic', () => {
         expect(logic.values.input).toEqual(typed)
     })
 
+    it('waits for Space on a value that a value hidden by the other pills starts with', () => {
+        logic = facetSearchBarLogic({
+            id: 'test',
+            facets: FACETS,
+            items: [...ITEMS, { name: 'Desk', status: 'draft', subjects: ['Deal'] }],
+            value: { filters: [{ facet: 'status', value: 'draft', negated: false }], text: '' },
+            onChange,
+            matchesText,
+        })
+        logic.mount()
+        logic.actions.setInput('sends:deal')
+        expect(onChange).not.toHaveBeenCalled()
+        expect(logic.values.input).toEqual('sends:deal')
+    })
+
     it('waits for Space on a value whose caret is not at the end', () => {
         mountWith({ filters: [], text: '' })
         logic.actions.setInput('status:active', 'status:act'.length)

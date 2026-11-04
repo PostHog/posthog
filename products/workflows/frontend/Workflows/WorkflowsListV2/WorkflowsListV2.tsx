@@ -42,7 +42,7 @@ export function WorkflowsListV2(): JSX.Element {
     })
 
     const renderBody = (): JSX.Element => {
-        if (loadFailed) {
+        if (loadFailed && !listLoaded) {
             return (
                 <div className="flex flex-col items-center gap-2 border rounded p-8 text-center">
                     <span className="font-semibold">Couldn't load workflows</span>
