@@ -35,7 +35,7 @@ import {
     formatMailbox,
     parseAddressList,
     sanitizeEmailSubject,
-    teamEmailCapBuckets,
+    teamEmailCapBucket,
 } from './email.service'
 import { MailDevAPI } from './helpers/maildev'
 import { EmailTrackingCodeSigner } from './helpers/tracking-code'
@@ -915,13 +915,13 @@ describe('EmailService', () => {
         })
 
         describe('team sending cap (enforce mode)', () => {
-            let claimAllOrNothingPair: jest.Mock
+            let claimAllOrNothing: jest.Mock
             let claimUpTo: jest.Mock
             let cappedService: EmailService
             let cappedSendSpy: jest.SpyInstance
 
             beforeEach(() => {
-                claimAllOrNothingPair = jest.fn()
+                claimAllOrNothing = jest.fn()
                 claimUpTo = jest.fn().mockResolvedValue(0)
                 const configService = new TeamWorkflowsConfigService(hub.postgres, hub.pubSub)
                 jest.spyOn(configService, 'getEmailSendingTier').mockResolvedValue(0)
@@ -934,7 +934,6 @@ describe('EmailService', () => {
                         sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
                         sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
                         teamEmailCapMode: 'enforce',
-                        teamEmailTierHourlyCaps: [100],
                         teamEmailTierDailyCaps: [200],
                     },
                     hub.integrationManager,
@@ -948,7 +947,7 @@ describe('EmailService', () => {
                     { report: jest.fn() },
                     undefined,
                     null,
-                    { claimAllOrNothingPair, claimUpTo } as unknown as RateLimiterService
+                    { claimAllOrNothing, claimUpTo } as unknown as RateLimiterService
                 )
                 cappedSendSpy = jest.spyOn(cappedService.sesV2Client!, 'send') as any
                 cappedSendSpy.mockResolvedValue({ MessageId: 'test-message-id' })
@@ -960,7 +959,6 @@ describe('EmailService', () => {
 
             const buildEnforcedService = (
                 name: string,
-                hourlyCap: number,
                 dailyCap: number
             ): { service: EmailService; sendSpy: jest.SpyInstance; limiter: RateLimiterService } => {
                 const redis = createRedisV2PoolFromConfig({
@@ -985,7 +983,6 @@ describe('EmailService', () => {
                         sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
                         sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
                         teamEmailCapMode: 'enforce',
-                        teamEmailTierHourlyCaps: [hourlyCap],
                         teamEmailTierDailyCaps: [dailyCap],
                     },
                     hub.integrationManager,
@@ -1020,7 +1017,7 @@ describe('EmailService', () => {
                     2 * 60 * 60 * 1000,
                 ],
             ])('%s', async (_name, retryAfterMs, reserved, minMs, maxMs) => {
-                claimAllOrNothingPair.mockResolvedValue({ granted: false, deniedIndex: 1, retryAfterMs, reserved })
+                claimAllOrNothing.mockResolvedValue({ granted: false, retryAfterMs, reserved })
 
                 const before = Date.now()
                 const result = await cappedService.executeSendEmail(invocation)
@@ -1044,12 +1041,7 @@ describe('EmailService', () => {
                 // A Valkey fault denies with no horizon. Parking on the daily cap's pacing
                 // interval would hold the email long after the limiter recovered.
                 jest.spyOn(Math, 'random').mockReturnValue(0)
-                claimAllOrNothingPair.mockResolvedValue({
-                    granted: false,
-                    deniedIndex: null,
-                    retryAfterMs: null,
-                    reserved: false,
-                })
+                claimAllOrNothing.mockResolvedValue({ granted: false, retryAfterMs: null, reserved: false })
 
                 const before = Date.now()
                 const result = await cappedService.executeSendEmail(invocation)
@@ -1059,19 +1051,14 @@ describe('EmailService', () => {
                 const scheduledMs = result.invocation.queueScheduledAt!.toMillis()
                 expect(scheduledMs).toBeGreaterThanOrEqual(before + 5 * 60 * 1000)
                 expect(scheduledMs).toBeLessThan(before + 5 * 60 * 1000 + 5000)
-                // No bucket denied, so the customer must not be told they hit a cap they never hit.
+                // No cap was reached, so the customer must not be told they hit one.
                 const messages = result.logs.map((log) => log.message).join(' ')
                 expect(messages).not.toContain('reached its email sending limit')
                 expect(messages).toContain("Could not check this project's email sending limit")
             })
 
-            it('sends a transactional email past the cap and charges the buckets anyway', async () => {
-                claimAllOrNothingPair.mockResolvedValue({
-                    granted: false,
-                    deniedIndex: 1,
-                    retryAfterMs: 30 * 60 * 1000,
-                    reserved: true,
-                })
+            it('sends a transactional email past the cap and charges the bucket anyway', async () => {
+                claimAllOrNothing.mockResolvedValue({ granted: false, retryAfterMs: 30 * 60 * 1000, reserved: true })
                 invocation.hogFunction.metadata = { message_category_type: 'transactional' }
 
                 const result = await cappedService.executeSendEmail(invocation)
@@ -1079,29 +1066,20 @@ describe('EmailService', () => {
                 expect(result.finished).toBe(true)
                 expect(cappedSendSpy).toHaveBeenCalledTimes(1)
                 expect(result.invocation.queueScheduledAt).toBeUndefined()
-                expect(claimAllOrNothingPair).not.toHaveBeenCalled()
-                expect(claimUpTo).toHaveBeenCalledTimes(2)
+                expect(claimAllOrNothing).not.toHaveBeenCalled()
+                expect(claimUpTo).toHaveBeenCalledTimes(1)
                 // No cap was applied, so the customer must not be told one was.
                 expect(result.logs.map((log) => log.message).join(' ')).not.toContain('reached its email sending limit')
             })
 
             it('sends when the claim is granted', async () => {
-                claimAllOrNothingPair.mockResolvedValue({
-                    granted: true,
-                    deniedIndex: null,
-                    retryAfterMs: null,
-                    reserved: false,
-                })
+                claimAllOrNothing.mockResolvedValue({ granted: true, retryAfterMs: null, reserved: false })
 
                 const result = await cappedService.executeSendEmail(invocation)
 
                 // The reservation horizon must reach the limiter, or denials fall back to
                 // shared-horizon wakes and a denied backlog re-herds.
-                expect(claimAllOrNothingPair).toHaveBeenCalledWith(
-                    expect.anything(),
-                    expect.any(Number),
-                    60 * 60 * 1000
-                )
+                expect(claimAllOrNothing).toHaveBeenCalledWith(expect.anything(), 60 * 60 * 1000)
                 expect(result.finished).toBe(true)
                 expect(cappedSendSpy).toHaveBeenCalled()
             })
@@ -1110,23 +1088,17 @@ describe('EmailService', () => {
             // their own future slots instead of all waking together, and another team's send
             // goes straight out. Runs against the real limiter.
             it('spreads a capped team over distinct slots while another team keeps sending', async () => {
-                const hourlyCap = 360
                 const dailyCap = 8640
                 const {
                     service: enforcedService,
                     sendSpy: enforcedSendSpy,
                     limiter,
-                } = buildEnforcedService('team-email-cap-test', hourlyCap, dailyCap)
+                } = buildEnforcedService('team-email-cap-test', dailyCap)
 
-                // Drain the capped team's hourly bucket so every send below is a denial. The
+                // Drain the capped team's bucket so every send below is a denial. The
                 // 0.1 tokens/s refill makes the slot spacing 10s, far above test wall-clock.
-                const buckets = teamEmailCapBuckets(team.id, hourlyCap, dailyCap)
-                await limiter.claimUpTo({
-                    key: buckets[0].key,
-                    requested: hourlyCap,
-                    capacity: buckets[0].capacity,
-                    refillPerSecond: buckets[0].refillPerSecond,
-                })
+                const bucket = teamEmailCapBucket(team.id, dailyCap)
+                await limiter.claimUpTo({ ...bucket, requested: dailyCap })
 
                 const parkedAt: number[] = []
                 for (let i = 0; i < 4; i++) {
@@ -1166,16 +1138,15 @@ describe('EmailService', () => {
                 expect(enforcedSendSpy).toHaveBeenCalledTimes(1)
             })
 
-            // Enforce mode has only ever issued claimAllOrNothingPair against real Valkey, so
-            // transactional through the single-key claimUpTo has never run there. Real limiter.
-            it('charges a transactional send against the real buckets without delaying it', async () => {
-                const hourlyCap = 60
+            // Enforce mode has only ever issued claimAllOrNothing against real Valkey, so
+            // transactional through claimUpTo has never run there. Real limiter.
+            it('charges a transactional send against the real bucket without delaying it', async () => {
                 const dailyCap = 50
                 const {
                     service: enforcedService,
                     sendSpy: enforcedSendSpy,
                     limiter,
-                } = buildEnforcedService('team-email-cap-transactional-test', hourlyCap, dailyCap)
+                } = buildEnforcedService('team-email-cap-transactional-test', dailyCap)
 
                 // A team of its own, so the buckets start cold whatever else touched Valkey.
                 const capTeam = (await createTestTeamFixture(hub.postgres)).team
@@ -1202,34 +1173,25 @@ describe('EmailService', () => {
                     return next
                 }
 
-                // Empty the hourly bucket only, so the daily one can show the charge.
-                const buckets = teamEmailCapBuckets(capTeam.id, hourlyCap, dailyCap)
-                await limiter.claimUpTo({
-                    key: buckets[0].key,
-                    requested: hourlyCap,
-                    capacity: buckets[0].capacity,
-                    refillPerSecond: buckets[0].refillPerSecond,
-                })
+                // Leave one token, so the next send can show the charge before the cap closes.
+                const bucket = teamEmailCapBucket(capTeam.id, dailyCap)
+                await limiter.claimUpTo({ ...bucket, requested: dailyCap - 1 })
 
-                // Control: the cap really is reached, so a marketing send parks.
+                // The charge: this send takes the last token rather than riding past the bucket.
+                const charged = await enforcedService.executeSendEmail(sendFor('charged', true))
+                expect(charged.finished).toBe(true)
+                expect(enforcedSendSpy).toHaveBeenCalledTimes(1)
+
+                // Control: the cap really is closed now, so a marketing send parks.
                 const marketing = await enforcedService.executeSendEmail(sendFor('marketing', false))
                 expect(marketing.finished).toBe(false)
-                expect(enforcedSendSpy).not.toHaveBeenCalled()
+                expect(enforcedSendSpy).toHaveBeenCalledTimes(1)
 
+                // The exemption: a transactional send still goes out against the closed cap.
                 const transactional = await enforcedService.executeSendEmail(sendFor('transactional', true))
                 expect(transactional.finished).toBe(true)
                 expect(transactional.invocation.queueScheduledAt).toBeUndefined()
-                expect(enforcedSendSpy).toHaveBeenCalledTimes(1)
-
-                // A range, not an exact count, because the daily bucket refills as the test runs.
-                const dailyLeft = await limiter.claimUpTo({
-                    key: buckets[1].key,
-                    requested: dailyCap,
-                    capacity: buckets[1].capacity,
-                    refillPerSecond: buckets[1].refillPerSecond,
-                })
-                expect(dailyLeft).toBeLessThan(dailyCap)
-                expect(dailyLeft).toBeGreaterThanOrEqual(dailyCap - 2)
+                expect(enforcedSendSpy).toHaveBeenCalledTimes(2)
             })
         })
     })

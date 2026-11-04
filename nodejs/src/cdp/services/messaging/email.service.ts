@@ -298,19 +298,16 @@ export function parseTierCaps(value: string | undefined): number[] {
     return caps
 }
 
-// Mirrors WORKFLOWS_EMAIL_TIER_HOURLY_CAPS / _DAILY_CAPS in posthog/settings/web.py. Both sides
-// read the same tier index, so the two tables must stay in step.
-const DEFAULT_TEAM_EMAIL_TIER_HOURLY_CAPS = [50, 200, 600, 2000, 6000, 20000, 60000, 200000]
+// Mirrors WORKFLOWS_EMAIL_TIER_DAILY_CAPS in posthog/settings/web.py. Both sides read the same
+// tier index, so the two tables must stay in step.
 const DEFAULT_TEAM_EMAIL_TIER_DAILY_CAPS = [100, 1000, 3000, 10000, 30000, 100000, 300000, 1000000]
 
-// Comfortably longer than the window each bucket paces, so an idle bucket is never reset to full
+// Comfortably longer than the window the bucket paces, so an idle bucket is never reset to full
 // by expiry before it would have refilled on its own. Without that, a team that pauses for a day
 // would get a fresh daily allowance instead of waiting for the refill.
-const TEAM_EMAIL_HOUR_BUCKET_TTL_SECONDS = 6 * 60 * 60
 const TEAM_EMAIL_DAY_BUCKET_TTL_SECONDS = 3 * 24 * 60 * 60
 
 type TeamEmailCapBucket = {
-    name: 'hour' | 'day'
     key: string
     capacity: number
     refillPerSecond: number
@@ -319,28 +316,14 @@ type TeamEmailCapBucket = {
     label: string
 }
 
-// The `{teamId}` hash tag puts both bucket keys in the same cluster slot. Enforce mode claims
-// both keys in one Lua call (claimAllOrNothingPair), and clustered Valkey rejects a multi-key
-// call whose keys hash to different slots with a CROSSSLOT error.
-export function teamEmailCapBuckets(teamId: number, hourlyCap: number, dailyCap: number): TeamEmailCapBucket[] {
-    return [
-        {
-            name: 'hour',
-            key: `@posthog/team-email-rate-hour/{${teamId}}`,
-            capacity: hourlyCap,
-            refillPerSecond: hourlyCap / 3600,
-            ttlSeconds: TEAM_EMAIL_HOUR_BUCKET_TTL_SECONDS,
-            label: `${hourlyCap.toLocaleString('en-US')} emails per hour`,
-        },
-        {
-            name: 'day',
-            key: `@posthog/team-email-rate-day/{${teamId}}`,
-            capacity: dailyCap,
-            refillPerSecond: dailyCap / 86400,
-            ttlSeconds: TEAM_EMAIL_DAY_BUCKET_TTL_SECONDS,
-            label: `${dailyCap.toLocaleString('en-US')} emails per day`,
-        },
-    ]
+export function teamEmailCapBucket(teamId: number, dailyCap: number): TeamEmailCapBucket {
+    return {
+        key: `@posthog/team-email-rate-day/{${teamId}}`,
+        capacity: dailyCap,
+        refillPerSecond: dailyCap / 86400,
+        ttlSeconds: TEAM_EMAIL_DAY_BUCKET_TTL_SECONDS,
+        label: `${dailyCap.toLocaleString('en-US')} emails per day`,
+    }
 }
 
 export interface EmailServiceConfig {
@@ -356,7 +339,6 @@ export interface EmailServiceConfig {
     // Trust-tiered per-team sending caps. Optional and defaulting to off, so every send path that
     // builds an EmailService without them keeps its pre-cap behavior.
     teamEmailCapMode?: TeamEmailCapMode
-    teamEmailTierHourlyCaps?: number[]
     teamEmailTierDailyCaps?: number[]
     utmLinkScannerTeams?: string
 }
@@ -910,25 +892,25 @@ export class EmailService {
 
     /**
      * Claims one send (as `recipients` tokens, one per delivered copy) against the team's
-     * trust-tier buckets.
+     * trust-tier daily bucket.
      *
-     * Returns the delay to reschedule with when a cap is reached, or null when the send may go out.
-     * Two buckets, not one: the daily cap bounds how much damage a team can do to the shared SES
-     * account's reputation, and the hourly cap forces that volume to spread out so complaint
-     * feedback (which lags by hours) arrives while the team's total volume is still small.
+     * Returns the delay to reschedule with when the cap is reached, or null when the send may go
+     * out. The cap bounds how much damage a team can do to the shared SES account's reputation,
+     * and the continuous refill spreads that volume out so complaint feedback (which lags by
+     * hours) arrives while the team's total volume is still small.
      *
      * Failure stances differ on purpose. A failed tier lookup lets the send through, because a
-     * config blip must never throttle a legitimate customer. A failed bucket claim returns 0 from
-     * the limiter, which delays the send, because we must not send when we cannot account for it.
-     * That second case returns a null `label`: the send waits, but no cap was reached, so the
-     * caller must not tell the customer it hit one.
+     * config blip must never throttle a legitimate customer. A failed bucket claim delays the
+     * send, because we must not send when we cannot account for it. That second case returns a
+     * null `label`: the send waits, but no cap was reached, so the caller must not tell the
+     * customer it hit one.
      *
      * Transactional sends are charged but never delayed, because a password reset that arrives
      * two hours late has already failed the person waiting on it. The charge does not bound the
-     * exemption: claimUpTo records no debt, so once a bucket empties further transactional sends
-     * cost nothing. No other control bounds that volume per team either. The SES limiter paces
-     * the whole account, so what is left is suspension and the daily tier job, which demotes a
-     * team on its complaint and bounce rates after the fact.
+     * exemption: claimUpTo records no debt, so once the bucket empties further transactional
+     * sends cost nothing. No other control bounds that volume per team either. The SES limiter
+     * paces the whole account, so what is left is suspension and the daily tier job, which
+     * demotes a team on its complaint and bounce rates after the fact.
      */
     private async claimTeamSendingBudget(
         invocation: CyclotronJobInvocationHogFunction,
@@ -945,78 +927,54 @@ export class EmailService {
             return null
         }
 
-        const hourlyCaps = this.sesConfig.teamEmailTierHourlyCaps?.length
-            ? this.sesConfig.teamEmailTierHourlyCaps
-            : DEFAULT_TEAM_EMAIL_TIER_HOURLY_CAPS
         const dailyCaps = this.sesConfig.teamEmailTierDailyCaps?.length
             ? this.sesConfig.teamEmailTierDailyCaps
             : DEFAULT_TEAM_EMAIL_TIER_DAILY_CAPS
-        const topTier = Math.min(hourlyCaps.length, dailyCaps.length) - 1
+        const topTier = dailyCaps.length - 1
         if (topTier < 0) {
             return null
         }
         const tier = Math.min(Math.max(teamTier, 0), topTier)
 
-        const buckets = teamEmailCapBuckets(invocation.teamId, hourlyCaps[tier], dailyCaps[tier])
-        // Clamped to the smaller capacity: a send with more copies than a whole allowance could
-        // never be granted and would reschedule forever. It charges the entire bucket instead, so
-        // it still waits for full capacity and pays everything there is.
-        const requested = Math.min(Math.max(1, recipients), buckets[0].capacity, buckets[1].capacity)
+        const bucket = teamEmailCapBucket(invocation.teamId, dailyCaps[tier])
+        // Clamped to the capacity: a send with more copies than a whole allowance could never be
+        // granted and would reschedule forever. It charges the entire bucket instead, so it still
+        // waits for full capacity and pays everything there is.
+        const requested = Math.min(Math.max(1, recipients), bucket.capacity)
 
         const isTransactional = invocation.hogFunction?.metadata?.message_category_type === 'transactional'
 
         if (mode === 'enforce' && !isTransactional) {
-            // Both buckets in one atomic claim, granted whole or not at all. A denial consumes
-            // nothing, so a rescheduled multi-recipient send cannot burn the partial refill on
-            // every retry and starve the team's other emails while never sending itself.
-            const claim = await this.teamEmailRateLimiter.claimAllOrNothingPair(
-                [buckets[0], buckets[1]],
-                requested,
-                CAP_RETRY_MAX_MS
-            )
+            // All or nothing, so a denial consumes nothing and a rescheduled multi-recipient send
+            // cannot burn the partial refill on every retry and starve the team's other emails
+            // while never sending itself.
+            const claim = await this.teamEmailRateLimiter.claimAllOrNothing({ ...bucket, requested }, CAP_RETRY_MAX_MS)
             if (claim.granted) {
                 return null
             }
-            // `deniedIndex` is null when the limiter itself failed, not when a bucket was full. The
-            // send still waits, because we must not send what we cannot account for, but no cap was
-            // reached, so a null label tells the caller it has no cap to name to the customer.
-            const denied = claim.deniedIndex === null ? null : buckets[claim.deniedIndex]
-            // The daily bucket paces a limiter failure because it is the slower of the two, so the
-            // retry backs off at the safer rate while the limiter is unreachable.
-            const pacing = denied ?? buckets[1]
+            // A null `retryAfterMs` means the limiter itself failed rather than the bucket coming
+            // up short. The send still waits, because we must not send what we cannot account for,
+            // but no cap was reached, so a null label tells the caller it has no cap to name.
+            const capReached = claim.retryAfterMs !== null
             teamEmailCapDelayedTotal.inc({
                 tier: String(tier),
-                bucket: denied?.name ?? 'limiter_unavailable',
+                bucket: capReached ? 'day' : 'limiter_unavailable',
                 mode,
             })
-            const retryDelayMs = pickReservedRetryDelayMs(claim.retryAfterMs, pacing.refillPerSecond, claim.reserved)
+            const retryDelayMs = pickReservedRetryDelayMs(claim.retryAfterMs, bucket.refillPerSecond, claim.reserved)
             emailReservedParkMs.labels('team-email').observe(retryDelayMs)
             return {
                 retryDelayMs,
-                label: denied?.label ?? null,
+                label: capReached ? bucket.label : null,
             }
         }
 
         // Shadow mode, and transactional sends in any mode: the send goes out regardless, so
-        // drain each bucket and log the cap. Separate labels keep shadow a forecast of enforce.
+        // drain the bucket and log the cap. Separate labels keep shadow a forecast of enforce.
         const observedMode = isTransactional ? 'transactional' : mode
-        let firstDenial: TeamEmailCapBucket | null = null
-        for (const bucket of buckets) {
-            const granted = await this.teamEmailRateLimiter.claimUpTo({
-                key: bucket.key,
-                requested,
-                capacity: bucket.capacity,
-                refillPerSecond: bucket.refillPerSecond,
-                ttlSeconds: bucket.ttlSeconds,
-            })
-            if (granted >= requested) {
-                continue
-            }
-            teamEmailCapDelayedTotal.inc({ tier: String(tier), bucket: bucket.name, mode: observedMode })
-            firstDenial = firstDenial ?? bucket
-        }
-
-        if (firstDenial) {
+        const granted = await this.teamEmailRateLimiter.claimUpTo({ ...bucket, requested })
+        if (granted < requested) {
+            teamEmailCapDelayedTotal.inc({ tier: String(tier), bucket: 'day', mode: observedMode })
             logger.info(
                 '📧',
                 isTransactional
@@ -1025,8 +983,8 @@ export class EmailService {
                 {
                     teamId: invocation.teamId,
                     tier,
-                    bucket: firstDenial.name,
-                    cap: firstDenial.label,
+                    bucket: 'day',
+                    cap: bucket.label,
                 }
             )
         }

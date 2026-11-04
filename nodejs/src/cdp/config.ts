@@ -181,15 +181,14 @@ export type CdpConfig = ClickhouseConfig & {
     EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: number
 
     // Trust-tiered per-team workflow email caps ("team warming"). A team's tier, stored by the
-    // Django side, picks an hourly and a daily cap from these tables. See
-    // WORKFLOWS_EMAIL_TIER_* in posthog/settings/web.py, which must stay in step with them.
+    // Django side, picks a daily cap from this table. See WORKFLOWS_EMAIL_TIER_* in
+    // posthog/settings/web.py, which must stay in step with it.
     //   "off"     - the caps are not consulted.
     //   "shadow"  - the caps are evaluated and every send they would delay is logged and counted,
     //               but nothing is delayed.
     //   "enforce" - a reached cap reschedules the send.
     EMAIL_TEAM_SENDING_CAP_MODE: string
-    // Comma-separated caps indexed by tier. Both lists must be the same length.
-    EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER: string
+    // Comma-separated caps indexed by tier.
     EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER: string
     // Comma-separated team ids, or "*", whose UTM link tagging runs the scanner in helpers/utm.ts.
     // Every other team runs the previous scanner in helpers/utm-legacy.ts.
@@ -429,7 +428,6 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Ships dark: tiers are computed and stored first, then observed in shadow mode, and only
         // then enforced. Match the defaults in posthog/settings/web.py.
         EMAIL_TEAM_SENDING_CAP_MODE: 'off',
-        EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER: '50,200,600,2000,6000,20000,60000,200000',
         EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER: '100,1000,3000,10000,30000,100000,300000,1000000',
         CDP_EMAIL_UTM_LINK_SCANNER_TEAMS: '',
 
