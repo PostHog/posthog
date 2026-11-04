@@ -234,11 +234,12 @@ class TestEventFilterConfigAPI(APIBaseTest):
         mock_fetch.return_value = AppMetricsResponse(labels=["2026-04-01"], series=[])
         self._seed_config()
 
-        response = self.client.get(self._url() + "metrics/")
+        response = self.client.get(self._url() + "metrics/", {"kind": "success, failure,success"})
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         mock_fetch.assert_called_once()
         self.assertEqual(mock_fetch.call_args.kwargs["app_source"], "event_filter")
+        self.assertEqual(mock_fetch.call_args.kwargs["kind"], ["success", "failure"])
 
     @patch("posthog.api.event_filter_config.fetch_app_metric_totals")
     def test_metrics_totals_calls_clickhouse_when_config_exists(self, mock_fetch):

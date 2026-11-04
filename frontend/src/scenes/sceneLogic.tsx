@@ -216,6 +216,12 @@ export function isOnboardingNotRequiredForPath(pathname: string): boolean {
     return pathPrefixesOnboardingNotRequiredFor.some((prefix) => path.startsWith(prefix))
 }
 
+export function getOnboardingRedirectNextPath(nextParam: string | null | undefined, location: Location): string {
+    return (
+        getRelativeNextPath(nextParam, location) ?? `${removeProjectIdIfPresent(location.pathname)}${location.search}`
+    )
+}
+
 const DelayedLoadingSpinner = (): JSX.Element => {
     const [show, setShow] = useState(false)
     useEffect(() => {
@@ -1035,14 +1041,12 @@ export const sceneLogic = kea<sceneLogicType>([
                         !isOnboardingRedirectSuppressed(user) &&
                         !isOnboardingNotRequiredForPath(location.pathname)
                     ) {
-                        const nextUrl =
-                            getRelativeNextPath(params.searchParams.next, location) ??
-                            removeProjectIdIfPresent(location.pathname)
+                        const nextUrl = getOnboardingRedirectNextPath(params.searchParams.next, location)
 
                         // Check if user is coming from a coupon campaign link
-                        const campaign = nextUrl ? parseCouponCampaign(nextUrl) : null
-                        if (campaign) {
-                            router.actions.replace(urls.onboarding({ campaign }), { next: nextUrl })
+                        const couponCampaign = nextUrl ? parseCouponCampaign(nextUrl) : null
+                        if (couponCampaign) {
+                            router.actions.replace(urls.onboarding({ campaign: couponCampaign }), { next: nextUrl })
                             return
                         }
 

@@ -1570,7 +1570,6 @@ CREATE VIEW posthog.metrics4_view AS SELECT
   series_fingerprint,
   resource_fingerprint,
   timestamp,
-  observed_timestamp,
   original_expiry_timestamp,
   service_name,
   metric_type,
@@ -1603,7 +1602,6 @@ SELECT
   series_fingerprint,
   resource_fingerprint,
   point_timestamp AS timestamp,
-  point_observed_timestamp AS observed_timestamp,
   toDateTime64(original_expiry_date, 6) AS original_expiry_timestamp,
   service_name,
   metric_type,
@@ -1620,7 +1618,7 @@ SELECT
   toBool(is_monotonic) AS is_monotonic,
   instrumentation_scope
 FROM
-  posthog.metrics4_samples ARRAY JOIN timestamp_arr AS point_timestamp, observed_timestamp_arr AS point_observed_timestamp, value_arr AS point_value, count_arr AS point_count, histogram_counts_arr AS point_histogram_counts, trace_id_arr AS point_trace_id, span_id_arr AS point_span_id, trace_flags_arr AS point_trace_flags
+  posthog.metrics4_samples ARRAY JOIN timestamp_arr AS point_timestamp, value_arr AS point_value, count_arr AS point_count, histogram_counts_arr AS point_histogram_counts, trace_id_arr AS point_trace_id, span_id_arr AS point_span_id, trace_flags_arr AS point_trace_flags
 WHERE time_bucket >= toDateTime('2026-09-14 00:00:00');
 CREATE TABLE posthog.metric_samples (
   team_id Int32,
