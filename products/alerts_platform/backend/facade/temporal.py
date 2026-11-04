@@ -25,6 +25,7 @@ from products.alerts_platform.backend.temporal.workflows import (
     EVALUATION_WORKFLOWS,
     SHARED_ORCHESTRATION_ACTIVITIES,
     SHARED_ORCHESTRATION_WORKFLOWS,
+    record_and_start_deliveries,
     start_deliveries,
 )
 
@@ -49,5 +50,6 @@ __all__ = [
     "create_alerts_platform_inventory_schedule",
     "create_alerts_platform_tick_schedule",
     "source_evaluation_timeout",
+    "record_and_start_deliveries",
     "start_deliveries",
 ]

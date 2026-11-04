@@ -1,9 +1,10 @@
-"""Occurrence stores: where appearance alerts read which identities are new.
+"""The platform's occurrence registry: where appearance alerts read which identities are new, or back.
 
-A source with detection of its own registers a store that reads its own tables. A source without
-one registers a feed, and the platform's registry becomes its store. The registry records every
-identity the feed reports, whatever any alert filters on, so what "new" means does not depend on
-which alerts exist.
+A source pushes facts into it with `record`: an identity is new, or reappeared, at a time. A source
+with no detection of its own registers a feed instead, and a registrar records what the feed saw. The
+registry records every fact whatever any alert filters on, so what "new" means does not depend on
+which alerts exist. A check reads facts by when the registry recorded them, so a fact pushed late is
+still read by the next check.
 """
 
 from collections.abc import Sequence
@@ -11,18 +12,23 @@ from datetime import datetime, timedelta
 from typing import Any, Final
 
 from django.db import transaction
+from django.utils import timezone
 
 from products.alerts_platform.backend.facade.contracts import (
     Occurrence,
     OccurrenceFeed,
     OccurrenceKind,
-    OccurrenceStore,
     OccurrenceWindow,
     SeenIdentity,
     SourceKind,
 )
+from products.alerts_platform.backend.facade.enums import PlatformAlertKind
 from products.alerts_platform.backend.facade.grouping import UNSTORABLE, bounded_grouping_key
-from products.alerts_platform.backend.models import PlatformOccurrence, PlatformOccurrenceCursor
+from products.alerts_platform.backend.models import (
+    PlatformAlertConfiguration,
+    PlatformOccurrence,
+    PlatformOccurrenceCursor,
+)
 
 # One read of a feed records at most this many identities. A window with more is read again from
 # where this one stopped, so a burst takes several checks rather than one oversized transaction.
@@ -30,60 +36,66 @@ MAX_IDENTITIES_PER_READ: Final = 5000
 # A registry far behind, such as one seeding from the feed's lookback, catches up one slice per
 # read, so each read scans its own slice rather than everything since the cursor.
 MAX_READ_SPAN: Final = timedelta(days=1)
-# A read that fails is retried on half its span, down to this.
 MIN_READ_SPAN: Final = timedelta(minutes=5)
-# The smallest step past one instant, the resolution of the timestamps the registry stores.
 MIN_STEP: Final = timedelta(microseconds=1)
 
-_stores: dict[SourceKind, OccurrenceStore] = {}
+# A fact is visible once its transaction commits, a moment after `recorded_at` is set. A check reads
+# only up to this long ago, so it never passes a fact that is about to become visible.
+RECORD_ALLOWANCE: Final = timedelta(seconds=10)
+
+_feeds: dict[SourceKind, OccurrenceFeed] = {}
 
 
-def register_store(source: SourceKind, store: OccurrenceStore) -> None:
-    registered = _stores.get(source)
-    if registered is not None and registered is not store:
-        raise RuntimeError(f"A different occurrence store is already registered for {source} alerts.")
-    _stores[source] = store
+def has_enabled_alert(source: SourceKind, *, team_id: int) -> bool:
+    """Whether the project has an enabled appearance alert on the source, so its facts have a reader."""
+    return (
+        PlatformAlertConfiguration.objects.for_team(team_id)
+        .filter(source_kind=source.value, alert_kind=PlatformAlertKind.APPEARANCE, enabled=True)
+        .exists()
+    )
 
 
 def register_feed(source: SourceKind, feed: OccurrenceFeed) -> None:
-    registered = _stores.get(source)
-    if isinstance(registered, RegistryStore) and registered.feed is feed:
-        return
-    register_store(source, RegistryStore(source, feed))
+    registered = _feeds.get(source)
+    if registered is not None and registered is not feed:
+        raise RuntimeError(f"A different occurrence feed is already registered for {source} alerts.")
+    _feeds[source] = feed
 
 
-def store_for(source: SourceKind) -> OccurrenceStore | None:
-    return _stores.get(source)
+def store_for(source: SourceKind) -> "RegistryStore":
+    return RegistryStore(source, _feeds.get(source))
 
 
 class RegistryStore:
-    """The default store: the platform's per-project registry of one source's identities."""
+    """The platform's per-project registry of one source's identities."""
 
-    def __init__(self, source: SourceKind, feed: OccurrenceFeed) -> None:
+    def __init__(self, source: SourceKind, feed: OccurrenceFeed | None) -> None:
         self.source = source
         self.feed = feed
 
     def ready_until(self, *, team_id: int, now: datetime) -> datetime:
-        """Records what the feed saw since the last read first, so the answer covers it."""
-        return self.register(team_id=team_id, now=now)
+        """How far the registry is complete. A feed's new sightings are recorded first, so the answer covers them."""
+        if self.feed is not None:
+            self.register(team_id=team_id, now=now)
+        return now - RECORD_ALLOWANCE
 
     def appeared(self, *, team_id: int, since: datetime, until: datetime, limit: int) -> OccurrenceWindow:
-        rows = PlatformOccurrence.objects.for_team(team_id).filter(source_kind=self.source.value)
-        new = rows.filter(first_seen_at__gte=since, first_seen_at__lt=until).order_by("first_seen_at")[: limit + 1]
-        back = rows.filter(reappeared_at__gte=since, reappeared_at__lt=until).order_by("reappeared_at")[: limit + 1]
-        occurrences = sorted(
-            [_occurrence(row, OccurrenceKind.NEW) for row in new]
-            + [_occurrence(row, OccurrenceKind.REAPPEARED) for row in back],
-            key=lambda occurrence: occurrence.occurred_at,
+        rows = list(
+            PlatformOccurrence.objects.for_team(team_id)
+            .filter(source_kind=self.source.value, recorded_at__gte=since, recorded_at__lt=until)
+            .order_by("recorded_at", "id")[: limit + 1]
         )
-        return OccurrenceWindow(occurrences=tuple(occurrences[:limit]), truncated=len(occurrences) > limit)
+        return OccurrenceWindow(
+            occurrences=tuple(_occurrence(row) for row in rows[:limit]), truncated=len(rows) > limit
+        )
 
     def register(self, *, team_id: int, now: datetime) -> datetime:
-        """Records what the feed saw since the last read, and returns how far the registry is complete.
+        """Records what the feed saw since the last read, and returns where that read stopped.
 
         The feed's read runs outside the transaction, so no row lock waits on ClickHouse. The write
         then records only if the cursor has not moved, so two concurrent reads record one window once.
         """
+        assert self.feed is not None
         cursors = PlatformOccurrenceCursor.objects.for_team(team_id)
         cursor, _ = cursors.get_or_create(team_id=team_id, source_kind=self.source.value)
         ready = self.feed.ready_until(team_id, now)
@@ -96,7 +108,7 @@ class RegistryStore:
             locked = cursors.select_for_update().get(id=cursor.id)
             if locked.registered_until != cursor.registered_until:
                 return locked.registered_until or since
-            _record(self.source, team_id, seen)
+            _record_sightings(self.source, team_id, seen)
             locked.registered_until = until
             locked.save(update_fields=["registered_until"])
         return until
@@ -107,6 +119,7 @@ class RegistryStore:
         A read the feed cannot finish, such as one over its scan budget, is retried on half the span,
         so a large window still makes progress rather than failing on every check.
         """
+        assert self.feed is not None
         while True:
             try:
                 seen = list(self.feed.seen(team_id, since, until, MAX_IDENTITIES_PER_READ + 1))
@@ -120,27 +133,26 @@ class RegistryStore:
         seen.sort(key=lambda identity: identity.seen_at)
         cut = seen[MAX_IDENTITIES_PER_READ].seen_at
         if cut > since:
-            # Stop before the first sighting left out, so the next read starts on it.
             return [identity for identity in seen if identity.seen_at < cut], cut
         # One instant holds more first sightings than a read. Record those the read returned and move
         # just past that instant, so later sightings are read again rather than skipped.
         return [identity for identity in seen if identity.seen_at == since], since + MIN_STEP
 
 
-def _occurrence(row: PlatformOccurrence, kind: OccurrenceKind) -> Occurrence:
-    occurred_at = row.first_seen_at if kind == OccurrenceKind.NEW else row.reappeared_at
-    assert occurred_at is not None
+def _occurrence(row: PlatformOccurrence) -> Occurrence:
+    back = row.reappeared_at is not None
     return Occurrence(
         identity_key=row.identity_key,
-        kind=kind,
+        kind=OccurrenceKind.REAPPEARED if back else OccurrenceKind.NEW,
         first_seen_at=row.first_seen_at,
-        occurred_at=occurred_at,
+        occurred_at=row.reappeared_at if row.reappeared_at is not None else row.first_seen_at,
         labels=dict(row.labels),
         detail=dict(row.detail),
     )
 
 
-def _record(source: SourceKind, team_id: int, seen: Sequence[SeenIdentity]) -> None:
+def _record_sightings(source: SourceKind, team_id: int, seen: Sequence[SeenIdentity]) -> None:
+    """A feed's sightings as facts: an unknown identity is new, and a resolved one seen after its resolve is back."""
     earliest: dict[str, SeenIdentity] = {}
     latest: dict[str, datetime] = {}
     for identity in seen:
@@ -151,24 +163,75 @@ def _record(source: SourceKind, team_id: int, seen: Sequence[SeenIdentity]) -> N
         latest[key] = max(latest.get(key, last), last)
     if not earliest:
         return
-    rows = PlatformOccurrence.objects.for_team(team_id).filter(source_kind=source.value)
-    # Only a resolved identity changes on a sighting, so the other known ones are left untouched.
-    back: list[PlatformOccurrence] = []
-    for row in rows.select_for_update().filter(identity_key__in=list(earliest), resolved_at__isnull=False):
-        assert row.resolved_at is not None
-        first = earliest[row.identity_key].seen_at
-        if first > row.resolved_at:
-            row.reappeared_at = first
-        elif latest[row.identity_key] > row.resolved_at:
-            row.reappeared_at = latest[row.identity_key]
-        else:
-            continue
+    resolved = PlatformOccurrence.objects.for_team(team_id).filter(
+        source_kind=source.value, identity_key__in=list(earliest), resolved_at__isnull=False
+    )
+    for key, resolved_at in resolved.values_list("identity_key", "resolved_at"):
+        assert resolved_at is not None
+        sighting = earliest[key]
+        back_at = sighting.seen_at if sighting.seen_at > resolved_at else latest[key]
+        if back_at > resolved_at:
+            record(
+                source,
+                team_id=team_id,
+                identity_key=key,
+                kind=OccurrenceKind.REAPPEARED,
+                occurred_at=back_at,
+                first_seen_at=sighting.seen_at,
+                labels=sighting.labels,
+                detail=sighting.detail,
+            )
+    _insert_new(
+        source,
+        team_id,
+        [(key, identity.seen_at, identity.labels, identity.detail) for key, identity in earliest.items()],
+    )
+
+
+def record(
+    source: SourceKind,
+    *,
+    team_id: int,
+    identity_key: str,
+    kind: OccurrenceKind,
+    occurred_at: datetime,
+    first_seen_at: datetime,
+    labels: dict[str, str],
+    detail: dict[str, Any],
+) -> None:
+    """Records one fact. Idempotent: a repeated fact, or an older one arriving late, changes nothing."""
+    key = bounded_grouping_key(identity_key)
+    if kind == OccurrenceKind.NEW:
+        _insert_new(source, team_id, [(key, first_seen_at, labels, detail)])
+        return
+    with transaction.atomic():
+        rows = PlatformOccurrence.objects.for_team(team_id).filter(source_kind=source.value, identity_key=key)
+        row = rows.select_for_update().first()
+        if row is None:
+            PlatformOccurrence.objects.for_team(team_id).create(
+                team_id=team_id,
+                source_kind=source.value,
+                identity_key=key,
+                first_seen_at=first_seen_at,
+                reappeared_at=occurred_at,
+                labels=_storable(labels),
+                detail=_storable(detail),
+            )
+            return
+        if row.reappeared_at is not None and occurred_at <= row.reappeared_at:
+            return
+        row.reappeared_at = occurred_at
         row.resolved_at = None
         # What came back may differ from what was first seen, and filters and messages read the latest.
-        row.labels = _storable(earliest[row.identity_key].labels)
-        row.detail = _storable(earliest[row.identity_key].detail)
-        back.append(row)
-    rows.bulk_update(back, ["resolved_at", "reappeared_at", "labels", "detail"], batch_size=500)
+        row.labels = _storable(labels)
+        row.detail = _storable(detail)
+        row.recorded_at = timezone.now()
+        row.save(update_fields=["reappeared_at", "resolved_at", "labels", "detail", "recorded_at"])
+
+
+def _insert_new(
+    source: SourceKind, team_id: int, facts: Sequence[tuple[str, datetime, dict[str, str], dict[str, Any]]]
+) -> None:
     # A conflict is an identity the registry already knows, which is not new.
     PlatformOccurrence.objects.for_team(team_id).bulk_create(
         [
@@ -176,11 +239,11 @@ def _record(source: SourceKind, team_id: int, seen: Sequence[SeenIdentity]) -> N
                 team_id=team_id,
                 source_kind=source.value,
                 identity_key=key,
-                first_seen_at=identity.seen_at,
-                labels=_storable(identity.labels),
-                detail=_storable(identity.detail),
+                first_seen_at=first_seen_at,
+                labels=_storable(labels),
+                detail=_storable(detail),
             )
-            for key, identity in earliest.items()
+            for key, first_seen_at, labels, detail in facts
         ],
         ignore_conflicts=True,
         batch_size=500,
