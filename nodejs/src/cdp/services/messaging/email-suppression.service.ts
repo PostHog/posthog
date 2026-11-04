@@ -39,7 +39,14 @@ export type SuppressionCheckOptions = {
     transactional?: boolean
 }
 
-type GlobalCandidate = { key: string; teamId: number; identifier: string; hasActiveTeamRow: boolean }
+// `unlisted`: no active row on the team's list. `allowsTransactional`: an active row that lets transactional
+// email through. `copy`: a row this service copied from the global list, which only holds while the global entry does.
+type GlobalCandidate = {
+    key: string
+    teamId: number
+    identifier: string
+    kind: 'unlisted' | 'allowsTransactional' | 'copy'
+}
 
 // An active suppression. It blocks transactional email only when the address hard-bounced.
 type SuppressionEntry = { blocksTransactional: boolean; global?: 'shadow' | 'enforce' }
@@ -486,11 +493,13 @@ export class EmailSuppressionService {
             const result = await this.postgres.query<{
                 identifier: string
                 deleted: boolean
+                is_global_copy: boolean
                 blocks_transactional: boolean
             }>(
                 PostgresUse.COMMON_READ,
                 `SELECT identifier,
                         deleted,
+                        COALESCE(source = 'BOUNCE' AND last_bounce_diagnostic = $4, false) AS is_global_copy,
                         -- A soft-bounce row carries no reason until it crosses the threshold, and
                         -- NULL = ANY(...) is NULL, so COALESCE keeps the column a real boolean.
                         COALESCE(hard_bounced_at IS NOT NULL OR (source = 'BOUNCE' AND reason = ANY($3)), false)
@@ -499,7 +508,7 @@ export class EmailSuppressionService {
                  WHERE team_id = $1
                    AND identifier = ANY($2)
                    AND (deleted = true OR suppressed = true)`,
-                [teamId, identifiers, LEGACY_HARD_BOUNCE_REASONS],
+                [teamId, identifiers, LEGACY_HARD_BOUNCE_REASONS, GLOBAL_HARD_BOUNCE_DIAGNOSTIC],
                 'loadSuppressed'
             )
             const listed = new Set<string>()
@@ -510,13 +519,15 @@ export class EmailSuppressionService {
                 }
                 const key = toKey(teamId, row.identifier)
                 entries.set(key, { blocksTransactional: row.blocks_transactional })
-                if (!row.blocks_transactional) {
-                    candidates.push({ key, teamId, identifier: row.identifier, hasActiveTeamRow: true })
+                if (row.is_global_copy) {
+                    candidates.push({ key, teamId, identifier: row.identifier, kind: 'copy' })
+                } else if (!row.blocks_transactional) {
+                    candidates.push({ key, teamId, identifier: row.identifier, kind: 'allowsTransactional' })
                 }
             }
             for (const identifier of identifiers) {
                 if (!listed.has(identifier)) {
-                    candidates.push({ key: toKey(teamId, identifier), teamId, identifier, hasActiveTeamRow: false })
+                    candidates.push({ key: toKey(teamId, identifier), teamId, identifier, kind: 'unlisted' })
                 }
             }
         }
@@ -549,11 +560,22 @@ export class EmailSuppressionService {
         }
 
         const hitsByTeam = new Map<number, string[]>()
-        for (const { key, teamId, identifier, hasActiveTeamRow } of candidates) {
+        const releasesByTeam = new Map<number, string[]>()
+        for (const { key, teamId, identifier, kind } of candidates) {
+            if (kind === 'copy') {
+                if (!bounced.has(identifier)) {
+                    // A delivery cleared the global entry, which proves the address exists.
+                    entries.delete(key)
+                    releasesByTeam.set(teamId, [...(releasesByTeam.get(teamId) ?? []), identifier])
+                } else if (!this.globalHardBounceEnforce) {
+                    entries.set(key, { blocksTransactional: false, global: 'shadow' })
+                }
+                continue
+            }
             if (!bounced.has(identifier)) {
                 continue
             }
-            if (hasActiveTeamRow) {
+            if (kind === 'allowsTransactional') {
                 // The team's own list already blocks other email, so only transactional email changes.
                 if (this.globalHardBounceEnforce) {
                     entries.set(key, { blocksTransactional: true })
@@ -578,6 +600,28 @@ export class EmailSuppressionService {
                     teamId,
                     error,
                 })
+            }
+        }
+
+        // The WHERE clause re-checks the row is still an untouched copy, because a real bounce can land
+        // between the read and this write.
+        for (const [teamId, identifiers] of releasesByTeam) {
+            try {
+                await this.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    `UPDATE posthog_messagesuppression
+                     SET suppressed = false, hard_bounced_at = NULL, reason = NULL,
+                         last_bounce_diagnostic = NULL, updated_at = NOW()
+                     WHERE team_id = $1
+                       AND identifier = ANY($2)
+                       AND source = 'BOUNCE'
+                       AND last_bounce_diagnostic = $3
+                       AND deleted = false`,
+                    [teamId, identifiers, GLOBAL_HARD_BOUNCE_DIAGNOSTIC],
+                    'releaseGlobalHardBounceCopies'
+                )
+            } catch (error) {
+                logger.error('[EmailSuppression] Failed to release copied global hard bounces', { teamId, error })
             }
         }
     }

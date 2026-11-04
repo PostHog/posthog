@@ -985,7 +985,12 @@ export class SesWebhookHandler {
             if (suppressionAllowed && rec.eventType === 'Bounce' && rec.bounce.bounceType === 'Permanent') {
                 const emails = rec.bounce.bouncedRecipients.map((r) => r.emailAddress)
                 const diagnostic = rec.bounce.bouncedRecipients.find((r) => r.diagnosticCode)?.diagnosticCode
-                const nonexistentAddresses = nonexistentRecipients(rec.bounce)
+                // SES reports the DSN's final recipient, which the receiving server chooses. Only an address
+                // this send went to can go on the global list.
+                const sentTo = new Set(rec.mail.destination.map(normalizeAddress))
+                const nonexistentAddresses = nonexistentRecipients(rec.bounce).filter((email) =>
+                    sentTo.has(normalizeAddress(email))
+                )
                 hardBounceRecipients.push({
                     teamId,
                     emailAddresses: emails,

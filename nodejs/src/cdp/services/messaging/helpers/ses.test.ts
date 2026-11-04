@@ -535,6 +535,26 @@ describe('SesWebhookHandler', () => {
         expect(result.transientBounceRecipients).toEqual([])
     })
 
+    it('puts only addresses this send went to on the global hard-bounce list', async () => {
+        const body = [
+            {
+                eventType: 'Bounce',
+                mail: baseMail,
+                bounce: {
+                    bounceType: 'Permanent',
+                    bounceSubType: 'General',
+                    bouncedRecipients: [
+                        { emailAddress: 'TO@example.com', status: '5.1.1' },
+                        { emailAddress: 'someone-else@example.org', status: '5.1.1' },
+                    ],
+                    timestamp: '2025-10-03T12:04:00Z',
+                },
+            },
+        ]
+        const result = await handler.handleWebhook({ body, headers: {} })
+        expect(result.hardBounceRecipients?.[0]).toMatchObject({ nonexistentAddresses: ['TO@example.com'] })
+    })
+
     it('surfaces transient bounces for the soft-bounce counter, not the hard-bounce list', async () => {
         const body = [
             {
