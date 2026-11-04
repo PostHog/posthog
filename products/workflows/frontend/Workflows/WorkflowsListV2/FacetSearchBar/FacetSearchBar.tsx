@@ -1,3 +1,4 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
@@ -20,6 +21,7 @@ export interface FacetSearchBarProps<TItem> {
     /** Loaded items. Suggestions and their counts come from these; the bar never fetches. */
     items: TItem[]
     value: FacetSearchValue
+    viewFilters?: FacetFilter[]
     onChange: (value: FacetSearchValue) => void
     matchesText: MatchesText<TItem>
     /** Shown while no pill is set. */
@@ -37,6 +39,7 @@ export function FacetSearchBar<TItem>({
     facets,
     items,
     value,
+    viewFilters = [],
     onChange,
     matchesText,
     placeholder,
@@ -205,6 +208,9 @@ export function FacetSearchBar<TItem>({
                             <IconSearch className="text-secondary shrink-0" />
                             {value.filters.map((filter) => {
                                 const label = pillLabel(facets, filter)
+                                const fromView = viewFilters.some(
+                                    (viewFilter) => facetFilterKey(viewFilter) === facetFilterKey(filter)
+                                )
                                 return (
                                     <LemonSnack
                                         key={facetFilterKey(filter)}
@@ -212,9 +218,11 @@ export function FacetSearchBar<TItem>({
                                         onClose={() => removePill(filter)}
                                         title={label}
                                         data-attr={`${dataAttr}-pill`}
-                                        className="max-w-80"
+                                        className={clsx('max-w-80', fromView && 'bg-fill-secondary text-secondary')}
                                     >
-                                        <span className={filter.negated ? 'text-danger' : undefined}>{label}</span>
+                                        <span className={filter.negated && !fromView ? 'text-danger' : undefined}>
+                                            {label}
+                                        </span>
                                     </LemonSnack>
                                 )
                             })}

@@ -68,7 +68,7 @@ import { WorkflowListRow, buildWorkflowListRows } from './workflowListRows'
 
 const WORKFLOWS_PAGE_TYPES = LIST_TYPES.join(',')
 const PAGE_LIMIT = 500
-const MIN_SERVER_SEARCH_LENGTH = 3
+export const MIN_SERVER_SEARCH_LENGTH = 3
 const SERVER_SEARCH_DEBOUNCE_MS = 300
 
 export interface ServerSearchResult {
@@ -154,10 +154,10 @@ function withFacetParams(searchParams: Record<string, unknown>, value: FacetSear
     delete next.text
     const q = serializeFacetQuery(value.filters)
     const text = value.text.trim()
-    if (q) {
+    if (q || searchParams.view) {
         next.q = q
     }
-    if (text) {
+    if (text || searchParams.view) {
         next.text = text
     }
     return next
@@ -319,8 +319,15 @@ export interface workflowsListV2LogicActions {
         action: WorkflowRowAction | null
         id: string
     }
-    setValue: (value: FacetSearchValue) => {
+    setValue: (
+        value: FacetSearchValue,
+        fromUrl?: boolean
+    ) => {
+        fromUrl: boolean
         value: FacetSearchValue
+    }
+    setVisibleColumns: (columns: OptionalColumn[]) => {
+        columns: ('created_by' | 'health' | 'last_7_days' | 'owner' | 'trigger' | 'type')[]
     }
     toggleColumn: (column: OptionalColumn) => {
         column: 'created_by' | 'health' | 'last_7_days' | 'owner' | 'trigger' | 'type'
@@ -370,10 +377,11 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
         /** Reloads the rows and the server search, for workflows created outside this list. */
         refreshWorkflows: true,
         loadMetrics: true,
-        setValue: (value: FacetSearchValue) => ({ value }),
+        setValue: (value: FacetSearchValue, fromUrl: boolean = false) => ({ value, fromUrl }),
         clearFilters: true,
         toggleColumn: (column: OptionalColumn) => ({ column }),
         resetColumns: true,
+        setVisibleColumns: (columns: OptionalColumn[]) => ({ columns }),
         patchWorkflow: (id: string, patch: Partial<HogFlowListSummaryApi>) => ({ id, patch }),
         removeWorkflow: (id: string) => ({ id }),
         setRowActionPending: (id: string, action: WorkflowRowAction | null) => ({ id, action }),
@@ -499,6 +507,7 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
                         ? state.filter((c) => c !== column)
                         : OPTIONAL_COLUMNS.filter((c) => c === column || state.includes(c)),
                 resetColumns: () => DEFAULT_COLUMNS,
+                setVisibleColumns: (_, { columns }) => OPTIONAL_COLUMNS.filter((column) => columns.includes(column)),
             },
         ],
         pendingRowActions: [
@@ -654,8 +663,10 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
                 cache.searchAbort?.abort()
                 writeUrl()
             },
-            setValue: ({ value }) => {
-                writeUrl()
+            setValue: ({ value, fromUrl }) => {
+                if (!fromUrl) {
+                    writeUrl()
+                }
                 const text = value.text.trim()
                 if (text.length < MIN_SERVER_SEARCH_LENGTH) {
                     cache.searchAbort?.abort()
@@ -784,7 +795,7 @@ export const workflowsListV2Logic = kea<workflowsListV2LogicType>([
                 serializeFacetQuery(current.filters) !== serializeFacetQuery(values.value.filters) ||
                 current.text !== values.value.text
             ) {
-                actions.setValue(current)
+                actions.setValue(current, true)
             }
         }
         return {

@@ -1,14 +1,17 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheck, IconEllipsis } from '@posthog/icons'
+import { IconCheck, IconEllipsis, IconUndo } from '@posthog/icons'
 import { LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
 import { OPTIONAL_COLUMNS, OPTIONAL_COLUMN_TITLES } from './workflowListLabels'
 import { workflowsListV2Logic } from './workflowsListV2Logic'
+import { workflowsSavedViewsLogic } from './workflowsSavedViewsLogic'
 
 export function WorkflowsListV2ColumnsMenu(): JSX.Element {
     const { shownColumns } = useValues(workflowsListV2Logic)
     const { toggleColumn, resetColumns } = useActions(workflowsListV2Logic)
+    const { available, myWorkflowsDeleted, saving, writeDisabledReason } = useValues(workflowsSavedViewsLogic)
+    const { restoreMyWorkflows } = useActions(workflowsSavedViewsLogic)
 
     return (
         <LemonMenu
@@ -36,6 +39,18 @@ export function WorkflowsListV2ColumnsMenu(): JSX.Element {
                             onClick: resetColumns,
                             'data-attr': 'workflows-list-v2-reset-columns',
                         },
+                        ...(available && myWorkflowsDeleted
+                            ? [
+                                  {
+                                      label: 'Restore My workflows',
+                                      icon: <IconUndo />,
+                                      tooltip: 'Brings the view back for everyone in this project',
+                                      onClick: restoreMyWorkflows,
+                                      disabledReason: saving ? 'A view is being saved' : writeDisabledReason,
+                                      'data-attr': 'workflows-combined-restore-shipped-views',
+                                  },
+                              ]
+                            : []),
                     ],
                 },
             ]}
