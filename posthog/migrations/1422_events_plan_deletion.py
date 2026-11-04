@@ -31,13 +31,13 @@ class Migration(migrations.Migration):
                 (
                     "months",
                     models.PositiveSmallIntegerField(
-                        help_text="The window the team's passes delete past, as of the last cleanup or settings change."
+                        help_text="The period the team's passes delete past, as of the last cleanup or settings change."
                     ),
                 ),
                 (
                     "next_deletion_on",
                     models.DateField(
-                        help_text="The cleanup on or after this date deletes the team's events older than the window."
+                        help_text="The cleanup on or after this date deletes the team's events older than the period."
                     ),
                 ),
             ],
@@ -48,7 +48,7 @@ class Migration(migrations.Migration):
             field=models.PositiveSmallIntegerField(
                 blank=True,
                 help_text="Applies to every team in the organization that has no value of its own. Leave empty to use "
-                f"the plan's default window. {RETENTION_MONTHS_HELP}",
+                f"the plan's default period. {RETENTION_MONTHS_HELP}",
                 null=True,
                 validators=[django.core.validators.MinValueValidator(1)],
             ),

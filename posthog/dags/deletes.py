@@ -86,7 +86,7 @@ from posthog.models.sessions.sql import (
     TABLE_BASE_NAME as SESSIONS_TABLE_BASE_NAME,
 )
 from posthog.models.team import Team
-from posthog.models.team.event_retention import TeamPlan, retention_windows, should_enforce_events_retention, team_plan
+from posthog.models.team.event_retention import TeamPlan, retention_periods, should_enforce_events_retention, team_plan
 from posthog.run_mode import run_mode
 
 from products.error_tracking.backend.facade.api import (
@@ -173,13 +173,13 @@ class TeamProductDocumentsDeleteConfig(dagster.Config):
 class MonthlyCleanupConfig(dagster.Config):
     team_ids: list[int] = pydantic.Field(
         default_factory=list,
-        description="Only clean up these teams. Empty means every team with a window set in settings or a pass due. "
+        description="Only clean up these teams. Empty means every team with a period set in settings or a pass due. "
         "A listed team with neither is ignored.",
     )
     partitions: list[int] = pydantic.Field(
         default_factory=list,
         description="Only clean up these months, as YYYYMM (e.g. [202407]). Empty means every month that is due. "
-        "A plan-window pass completes only in a run that lists no months.",
+        "A plan-period pass completes only in a run that lists no months.",
     )
 
 
@@ -221,7 +221,7 @@ class PartitionCleanup:
 @frozen
 class OldEventsCleanupPlan:
     partitions: list[PartitionCleanup]
-    window_months_by_team: dict[int, int] = field(default_factory=dict)
+    period_months_by_team: dict[int, int] = field(default_factory=dict)
     completed_pass_team_ids: list[int] = field(default_factory=list)
 
 
@@ -1617,11 +1617,11 @@ def delete_team_product_documents_job():
 
 
 def teams_losing_events_at_first_pass(
-    cluster: ClickhouseCluster, window_months_by_team: dict[int, int], first_pass_on: date
+    cluster: ClickhouseCluster, period_months_by_team: dict[int, int], first_pass_on: date
 ) -> set[int]:
     first_pass = datetime.combine(first_pass_on, datetime.min.time())
     teams_by_cutoff: dict[datetime, list[int]] = defaultdict(list)
-    for team_id, months in sorted(window_months_by_team.items()):
+    for team_id, months in sorted(period_months_by_team.items()):
         teams_by_cutoff[whole_month_cutoff(first_pass, months)].append(team_id)
     losing: set[int] = set()
     for placement in resolve_placements(cluster, EVENTS_TARGETS):
@@ -1653,9 +1653,9 @@ def _admit(cluster: ClickhouseCluster, queue: list[TeamPlan], cap: int, today: d
     if cap <= 0:
         return admissions
     for chunk in chunked(queue, _TEAM_CHUNK_SIZE):
-        windows = retention_windows(chunk)
-        losing = teams_losing_events_at_first_pass(cluster, windows, next_pass_on(today))
-        for team_id in windows:
+        periods = retention_periods(chunk)
+        losing = teams_losing_events_at_first_pass(cluster, periods, next_pass_on(today))
+        for team_id in periods:
             if team_id not in losing:
                 admissions.losing_nothing.append(team_id)
             elif len(admissions.losing_events) < cap:
@@ -1671,7 +1671,7 @@ def update_plan_deletions(
     config: PlanDeletionConfig,
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> PlanDeletionPasses:
-    """Admit teams to window deletion, follow their window changes, and find the passes due."""
+    """Admit teams to period deletion, follow their period changes, and find the passes due."""
     today = cleanup_date()
     plans = _enforced_plans(Team.objects.filter(id__in=config.team_ids) if config.team_ids else Team.objects.all())
     admitted_team_ids = set(
@@ -1703,8 +1703,8 @@ def update_plan_deletions(
 def _still_due_pass_months(passes: PlanDeletionPasses) -> dict[int, int]:
     rows = TeamEventsPlanDeletion.objects.filter(team_id__in=passes.due_team_ids, next_deletion_on__lte=passes.run_on)
     pass_months = dict(rows.values_list("team_id", "months"))
-    windows = retention_windows(_enforced_plans(Team.objects.filter(id__in=pass_months)))
-    return {team_id: max(months, windows.get(team_id, months)) for team_id, months in pass_months.items()}
+    periods = retention_periods(_enforced_plans(Team.objects.filter(id__in=pass_months)))
+    return {team_id: max(months, periods.get(team_id, months)) for team_id, months in pass_months.items()}
 
 
 def _planned_partitions(
@@ -1745,27 +1745,27 @@ def plan_old_events_cleanup(
     cluster: dagster.ResourceParam[ClickhouseCluster],
     passes: PlanDeletionPasses,
 ) -> OldEventsCleanupPlan:
-    """Find each team's deletion window, and for each month the teams whose events in it are all past it."""
+    """Find each team's deletion period, and for each month the teams whose events in it are all past it."""
     setting_by_team = {item.team_id: item for item in effective_events_retention()}
     pass_months = _still_due_pass_months(passes)
     if config.team_ids:
         setting_by_team = {team_id: item for team_id, item in setting_by_team.items() if team_id in config.team_ids}
         pass_months = {team_id: months for team_id, months in pass_months.items() if team_id in config.team_ids}
     completed_pass_team_ids = [] if config.partitions else sorted(pass_months)
-    window_months = {
+    period_months = {
         team_id: months
         for team_id in sorted(setting_by_team.keys() | pass_months.keys())
         if (months := deletion_months(setting_by_team.get(team_id), pass_months.get(team_id))) is not None
     }
-    if ignored := sorted(set(config.team_ids) - set(window_months)):
-        context.log.info(f"Ignoring teams with neither a window set in settings nor a pass due: {ignored}")
-    if not window_months:
+    if ignored := sorted(set(config.team_ids) - set(period_months)):
+        context.log.info(f"Ignoring teams with neither a period set in settings nor a pass due: {ignored}")
+    if not period_months:
         context.log.info("No team has an events retention to enforce")
         return OldEventsCleanupPlan(partitions=[], completed_pass_team_ids=completed_pass_team_ids)
 
     now = datetime.now(UTC).replace(tzinfo=None)
     team_cutoffs: dict[int, datetime] = {}
-    for team_id, months in window_months.items():
+    for team_id, months in period_months.items():
         team_cutoffs[team_id] = whole_month_cutoff(now, months)
         context.log.info(f"team {team_id}, {months} months: months before {team_cutoffs[team_id]:%Y-%m} are due")
 
@@ -1793,7 +1793,7 @@ def plan_old_events_cleanup(
         partitions=_planned_partitions(
             context, team_months, {team_id: _yyyymm(cutoff) for team_id, cutoff in team_cutoffs.items()}
         ),
-        window_months_by_team=window_months,
+        period_months_by_team=period_months,
         completed_pass_team_ids=completed_pass_team_ids,
     )
 
@@ -1863,20 +1863,20 @@ def plan_old_sessions_cleanup(
     cluster: dagster.ResourceParam[ClickhouseCluster],
     events_plan: OldEventsCleanupPlan,
 ) -> OldSessionsCleanupPlan:
-    """For each month, find the teams whose sessions in it are all past the window their events were cleaned up by."""
-    window_months = events_plan.window_months_by_team
+    """For each month, find the teams whose sessions in it are all past the period their events were cleaned up by."""
+    period_months = events_plan.period_months_by_team
     completed_pass_team_ids = [] if config.partitions else events_plan.completed_pass_team_ids
     if config.team_ids:
-        if ignored := sorted(set(config.team_ids) - set(window_months)):
+        if ignored := sorted(set(config.team_ids) - set(period_months)):
             context.log.info(f"Ignoring teams whose events this run did not clean up: {ignored}")
-        window_months = {team_id: months for team_id, months in window_months.items() if team_id in config.team_ids}
+        period_months = {team_id: months for team_id, months in period_months.items() if team_id in config.team_ids}
         completed_pass_team_ids = [team_id for team_id in completed_pass_team_ids if team_id in config.team_ids]
-    if not window_months:
+    if not period_months:
         context.log.info("No team has an events retention to enforce")
         return OldSessionsCleanupPlan(partitions=[])
 
     now = datetime.now(UTC).replace(tzinfo=None)
-    team_cutoffs = {team_id: _yyyymm(whole_month_cutoff(now, months)) for team_id, months in window_months.items()}
+    team_cutoffs = {team_id: _yyyymm(whole_month_cutoff(now, months)) for team_id, months in period_months.items()}
 
     # Each sessions version partitions on a different expression of the session start, so the
     # month comes from the partition id.
@@ -1956,7 +1956,7 @@ def advance_plan_deletion_passes(
     }
 )
 def monthly_retention_events_cleanup_job():
-    """Delete each team's events and sessions past its window, monthly where set in settings, else on each pass."""
+    """Delete each team's events and sessions past its period, monthly where set in settings, else on each pass."""
     passes = update_plan_deletions(start_after=ensure_no_concurrent_deletes_run())
     events_plan = plan_old_events_cleanup(passes)
     events_deleted = cleanup_old_events_by_partition(events_plan)

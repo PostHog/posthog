@@ -102,7 +102,7 @@ export const getOrganizationEventsRetentionUpdateUrl = (organizationId: string) 
 }
 
 /**
- * Sets how long every project without its own window keeps events. Older events are deleted at the next monthly cleanup and can't be restored. Organization admins only.
+ * Sets how long every project without its own period keeps events. Older events are deleted at the next monthly cleanup and can't be restored. Organization admins only.
  * @summary Set the organization's events retention window
  */
 export const organizationEventsRetentionUpdate = async (
@@ -394,7 +394,7 @@ export const getEventsRetentionRetrieveUrl = (projectId: string) => {
 }
 
 /**
- * Returns how far back events stay queryable for this project, the windows set for the project and its organization, the range an admin can set, and the project's next deletion. Both queryable window fields are null while no retention window applies to the project.
+ * Returns how far back events stay queryable for this project, the windows set for the project and its organization, the range an admin can set, and the project's next deletion. Both queryable period fields are null while no retention period applies to the project.
  * @summary Get the events retention window for a project
  */
 export const eventsRetentionRetrieve = async (
@@ -412,7 +412,7 @@ export const getEventsRetentionUpdateUrl = (projectId: string) => {
 }
 
 /**
- * Sets how long this project keeps events, overriding the organization's window. Older events are deleted at the next monthly cleanup and can't be restored. Organization admins only.
+ * Sets how long this project keeps events, overriding the organization's period. Older events are deleted at the next monthly cleanup and can't be restored. Organization admins only.
  * @summary Set the events retention window for a project
  */
 export const eventsRetentionUpdate = async (

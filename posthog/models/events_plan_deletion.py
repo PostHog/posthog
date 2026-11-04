@@ -11,7 +11,7 @@ from dateutil.relativedelta import relativedelta
 from posthog.dataclasses import frozen
 from posthog.models.events_retention_config import TeamEventsRetention
 from posthog.models.team import Team
-from posthog.models.team.event_retention import TeamPlan, retention_windows
+from posthog.models.team.event_retention import TeamPlan, retention_periods
 
 PASS_INTERVAL_MONTHS = 3
 CLEANUP_DAY_OF_MONTH = 3
@@ -22,10 +22,10 @@ _WRITE_BATCH_SIZE = 1000
 class TeamEventsPlanDeletion(models.Model):
     team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True, db_constraint=False)
     months = models.PositiveSmallIntegerField(
-        help_text="The window the team's passes delete past, as of the last cleanup or settings change."
+        help_text="The period the team's passes delete past, as of the last cleanup or settings change."
     )
     next_deletion_on = models.DateField(
-        help_text="The cleanup on or after this date deletes the team's events older than the window."
+        help_text="The cleanup on or after this date deletes the team's events older than the period."
     )
 
     @property
@@ -61,21 +61,21 @@ def next_pass_on(today: date) -> date:
     return cleanup_on_or_after(today + relativedelta(months=PASS_INTERVAL_MONTHS))
 
 
-def admitted(window_months: int, today: date) -> PlanDeletionState:
-    return PlanDeletionState(months=window_months, next_deletion_on=next_pass_on(today))
+def admitted(period_months: int, today: date) -> PlanDeletionState:
+    return PlanDeletionState(months=period_months, next_deletion_on=next_pass_on(today))
 
 
-def is_shorter_window(state: PlanDeletionState, window_months: int) -> bool:
-    return window_months < state.months
+def is_shorter_period(state: PlanDeletionState, period_months: int) -> bool:
+    return period_months < state.months
 
 
-def with_window(state: PlanDeletionState, window_months: int, today: date) -> PlanDeletionState:
+def with_period(state: PlanDeletionState, period_months: int, today: date) -> PlanDeletionState:
     next_deletion_on = (
         max(state.next_deletion_on, next_pass_on(today))
-        if is_shorter_window(state, window_months)
+        if is_shorter_period(state, period_months)
         else state.next_deletion_on
     )
-    return PlanDeletionState(months=window_months, next_deletion_on=next_deletion_on)
+    return PlanDeletionState(months=period_months, next_deletion_on=next_deletion_on)
 
 
 def after_pass(state: PlanDeletionState, today: date) -> PlanDeletionState:
@@ -83,8 +83,8 @@ def after_pass(state: PlanDeletionState, today: date) -> PlanDeletionState:
 
 
 def deletion_months(setting: TeamEventsRetention | None, due_pass_months: int | None) -> int | None:
-    windows = [months for months in (setting.months if setting else None, due_pass_months) if months is not None]
-    return min(windows) if windows else None
+    periods = [months for months in (setting.months if setting else None, due_pass_months) if months is not None]
+    return min(periods) if periods else None
 
 
 def reschedule_plan_deletions(
@@ -95,13 +95,13 @@ def reschedule_plan_deletions(
         row.team_id: row.state
         for row in TeamEventsPlanDeletion.objects.select_for_update().filter(team_id__in=team_ids)
     }
-    windows = retention_windows(plans)
+    periods = retention_periods(plans)
     states: dict[int, PlanDeletionState] = {}
     for team_id in team_ids:
         if (state := rows.get(team_id)) is not None:
-            states[team_id] = with_window(state, windows[team_id], today)
+            states[team_id] = with_period(state, periods[team_id], today)
         elif team_id in admit:
-            states[team_id] = admitted(windows[team_id], today)
+            states[team_id] = admitted(periods[team_id], today)
 
     TeamEventsPlanDeletion.objects.bulk_create(
         [_row(team_id, state) for team_id, state in states.items() if team_id in rows and state != rows[team_id]],

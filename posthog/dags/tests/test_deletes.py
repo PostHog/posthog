@@ -774,7 +774,7 @@ def test_plan_old_events_cleanup_lists_the_due_teams_per_month(cluster: Clickhou
             PartitionCleanup(partition=_partition(_mid_month(15)), team_ids=[thirteen.id]),
             PartitionCleanup(partition=_partition(_mid_month(20)), team_ids=[thirteen.id, eighteen.id]),
         ],
-        window_months_by_team={thirteen.id: 13, eighteen.id: 18},
+        period_months_by_team={thirteen.id: 13, eighteen.id: 18},
     )
 
     only_oldest = plan_old_events_cleanup(
@@ -787,7 +787,7 @@ def test_plan_old_events_cleanup_lists_the_due_teams_per_month(cluster: Clickhou
     )
     assert only_eighteen == OldEventsCleanupPlan(
         partitions=[PartitionCleanup(partition=_partition(_mid_month(20)), team_ids=[eighteen.id])],
-        window_months_by_team={eighteen.id: 18},
+        period_months_by_team={eighteen.id: 18},
     )
 
 
@@ -948,7 +948,7 @@ def _both_plans(config: dict) -> dict:
     ],
 )
 @override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
-def test_pass_deletes_events_and_sessions_past_the_window_and_moves_only_a_completed_pass(
+def test_pass_deletes_events_and_sessions_past_the_period_and_moves_only_a_completed_pass(
     cluster: ClickhouseCluster,
     cleanup_ops: Callable[[Team], dict],
     months_left: dict[int, int],
@@ -985,8 +985,8 @@ def test_pass_deletes_events_and_sessions_past_the_window_and_moves_only_a_compl
     "plan_months,months,postponed,deleted_months",
     [
         pytest.param(12, 12, False, [13, 20], id="unchanged"),
-        pytest.param(12, 24, False, [], id="longer_window"),
-        pytest.param(12, 6, True, [], id="shorter_window"),
+        pytest.param(12, 24, False, [], id="longer_period"),
+        pytest.param(12, 6, True, [], id="shorter_period"),
         pytest.param(24, 12, False, [], id="plan_raised"),
     ],
 )
@@ -1018,7 +1018,7 @@ def test_plan_old_events_cleanup_uses_a_pass_changed_after_the_run_started(
     ],
 )
 @override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
-def test_update_plan_deletions_shorter_window_pushes_the_next_pass(
+def test_update_plan_deletions_shorter_period_pushes_the_next_pass(
     cluster: ClickhouseCluster, deployment: str, now: str, next_pass: date
 ):
     downgraded = Team.objects.create(
@@ -1042,7 +1042,7 @@ def test_update_plan_deletions_shorter_window_pushes_the_next_pass(
 
 @pytest.mark.django_db
 @override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
-def test_update_plan_deletions_keeps_a_window_saved_while_it_admits_teams(cluster: ClickhouseCluster):
+def test_update_plan_deletions_keeps_a_period_saved_while_it_admits_teams(cluster: ClickhouseCluster):
     organization = Organization.objects.create(name="Standard")
     Organization.objects.filter(id=organization.id).update(
         available_product_features=[{"key": "product_analytics_standard_data_retention"}]
@@ -1051,11 +1051,11 @@ def test_update_plan_deletions_keeps_a_window_saved_while_it_admits_teams(cluste
     Team.objects.create(organization=organization, name="Waiting", event_retention_months=84)
     TeamEventsPlanDeletion.objects.create(team=due, months=12, next_deletion_on=cleanup_date())
 
-    def save_a_window_during_admission(*args: object, **kwargs: object) -> set[int]:
+    def save_a_period_during_admission(*args: object, **kwargs: object) -> set[int]:
         TeamEventsRetentionConfig.objects.create(team=due, events_retention_months=36)
         return set()
 
-    with patch("posthog.dags.deletes.teams_losing_events_at_first_pass", side_effect=save_a_window_during_admission):
+    with patch("posthog.dags.deletes.teams_losing_events_at_first_pass", side_effect=save_a_period_during_admission):
         passes = update_plan_deletions(build_op_context(), PlanDeletionConfig(max_new_plan_deletion_teams=1), cluster)
 
     assert passes.due_team_ids == [due.id]

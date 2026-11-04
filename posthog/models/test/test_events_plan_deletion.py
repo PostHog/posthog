@@ -12,9 +12,9 @@ from posthog.models.events_plan_deletion import (
     admitted,
     after_pass,
     deletion_months,
-    is_shorter_window,
+    is_shorter_period,
     next_cleanup_on,
-    with_window,
+    with_period,
 )
 from posthog.models.events_retention_config import TeamEventsRetention
 
@@ -33,19 +33,19 @@ class TestPlanDeletionRules(SimpleTestCase):
 
     @parameterized.expand(
         [
-            ("shorter_window_pushes_a_near_pass", 24, date(2026, 12, 3), 12, date(2027, 2, 3), True),
-            ("shorter_window_keeps_a_later_pass", 24, date(2027, 4, 3), 12, date(2027, 4, 3), True),
-            ("longer_window_keeps_the_pass", 12, date(2026, 12, 3), 24, date(2026, 12, 3), False),
-            ("same_window_keeps_the_pass", 12, date(2026, 12, 3), 12, date(2026, 12, 3), False),
+            ("shorter_period_pushes_a_near_pass", 24, date(2026, 12, 3), 12, date(2027, 2, 3), True),
+            ("shorter_period_keeps_a_later_pass", 24, date(2027, 4, 3), 12, date(2027, 4, 3), True),
+            ("longer_period_keeps_the_pass", 12, date(2026, 12, 3), 24, date(2026, 12, 3), False),
+            ("same_period_keeps_the_pass", 12, date(2026, 12, 3), 12, date(2026, 12, 3), False),
         ]
     )
-    def test_with_window(
-        self, _name: str, months: int, next_on: date, window: int, expected_next_on: date, shorter: bool
+    def test_with_period(
+        self, _name: str, months: int, next_on: date, period: int, expected_next_on: date, shorter: bool
     ) -> None:
         state = PlanDeletionState(months=months, next_deletion_on=next_on)
 
-        assert is_shorter_window(state, window) is shorter
-        assert with_window(state, window, TODAY) == PlanDeletionState(months=window, next_deletion_on=expected_next_on)
+        assert is_shorter_period(state, period) is shorter
+        assert with_period(state, period, TODAY) == PlanDeletionState(months=period, next_deletion_on=expected_next_on)
 
     @parameterized.expand(
         [
@@ -61,7 +61,7 @@ class TestPlanDeletionRules(SimpleTestCase):
     @parameterized.expand(
         [
             ("setting", 6, None, 6),
-            ("pass_window", None, 6, 6),
+            ("pass_period", None, 6, 6),
             ("setting_shorter_than_the_pass", 6, 12, 6),
             ("pass_shorter_than_the_setting", 24, 12, 12),
             ("nothing_set", None, None, None),
