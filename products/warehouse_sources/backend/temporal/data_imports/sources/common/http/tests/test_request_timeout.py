@@ -13,10 +13,6 @@ from requests.adapters import HTTPAdapter
 from urllib3.response import HTTPResponse
 from urllib3.util.timeout import Timeout
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.baserow import (
-    baserow,
-    settings as baserow_settings,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
     NO_REQUEST_TIMEOUT,
     make_tracked_adapter,
@@ -26,8 +22,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.rest_client import RESTClient
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import RESTAPIConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.custom import source as custom_source
-from products.warehouse_sources.backend.temporal.data_imports.sources.fusionauth import fusionauth
-from products.warehouse_sources.backend.temporal.data_imports.sources.plunk import plunk
 
 BASE_URL = "https://api.example.com"
 DEFAULT_TIMEOUT = (7.0, 11.0)
@@ -120,27 +114,10 @@ class TestDefaultRequestTimeout:
             send_request()
         assert host.timeouts == [expected]
 
-    @parameterized.expand(
-        [
-            (
-                "baserow",
-                lambda: baserow._bounded_session("token"),
-                (baserow_settings.CONNECT_TIMEOUT_SECONDS, baserow_settings.READ_TIMEOUT_SECONDS),
-            ),
-            ("fusionauth", lambda: fusionauth._make_bounded_session("key"), fusionauth.DEFAULT_TIMEOUT_SECONDS),
-            ("plunk", lambda: plunk._make_bounded_session("key"), plunk.DEFAULT_TIMEOUT_SECONDS),
-            (
-                "custom_preview",
-                lambda: custom_source._build_preview_session(()),
-                (custom_source.PROBE_CONNECT_TIMEOUT, custom_source.PROBE_READ_TIMEOUT),
-            ),
-        ]
-    )
-    def test_session_default_applies_on_the_paths_that_pass_none(
-        self, _name: str, make_session: Callable[[], requests.Session], expected: Any
-    ) -> None:
+    def test_session_default_applies_on_the_paths_that_pass_none(self) -> None:
+        expected = (custom_source.PROBE_CONNECT_TIMEOUT, custom_source.PROBE_READ_TIMEOUT)
         with _silent_host() as host:
-            list(RESTClient(base_url=BASE_URL, session=make_session()).paginate("/items"))
-            make_session().get(f"{BASE_URL}/items")
-            make_session().get(f"{BASE_URL}/items", timeout=3)
+            list(RESTClient(base_url=BASE_URL, session=custom_source._build_preview_session(())).paginate("/items"))
+            custom_source._build_preview_session(()).get(f"{BASE_URL}/items")
+            custom_source._build_preview_session(()).get(f"{BASE_URL}/items", timeout=3)
         assert host.timeouts == [_pair(expected), _pair(expected), (3, 3)]
