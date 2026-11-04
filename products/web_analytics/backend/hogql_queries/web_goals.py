@@ -56,7 +56,7 @@ class WebGoalsQueryRunner(WebAnalyticsQueryRunner[WebGoalsQueryResponse]):
             outer_aliases: list[ast.Expr] = []
             action_exprs: list[ast.Expr] = []
             for n, action in enumerate(actions):
-                expr = action_to_expr(action)
+                expr = action_to_expr(action, team=self.team)
                 action_exprs.append(expr)
 
                 # Current/previous count

@@ -1958,9 +1958,12 @@ def steps_to_expr(steps: Sequence[ActionStep], team: Team, events_alias: Optiona
 def action_to_expr(action: Action, events_alias: Optional[str] = None, *, team: Optional[Team] = None) -> ast.Expr:
     """The condition an event must meet to match the action, compiled against the action's own team.
 
-    The action's team is read by id. A caller that already holds that team, from a join, can pass it
-    as `team` to skip the read; a team other than the action's own is not used.
+    The action's team is read by id. A caller that holds that team, or a child environment of it, can
+    pass it as `team` to skip the read; any other team is not used. Actions live on the project's root
+    team, so a child environment reaches it through its cached `parent_team`.
     """
+    if team is not None and team.pk != action.team_id and team.parent_team_id == action.team_id:
+        team = team.parent_team
     if team is None or team.pk != action.team_id:
         team = Team.objects.get(pk=action.team_id)
     return steps_to_expr(action.steps, team, events_alias)

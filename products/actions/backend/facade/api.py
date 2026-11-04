@@ -18,6 +18,10 @@ from typing import TYPE_CHECKING, Any
 
 from django.db import router
 
+import structlog
+
+from posthog.exceptions_capture import capture_exception
+
 from products.actions.backend.facade import contracts
 from products.actions.backend.logic import (
     actions as logic,
@@ -31,6 +35,8 @@ if TYPE_CHECKING:
     from posthog.models import Team, User
 
     from products.access_control.backend.facade.user_access_control import UserAccessControl
+
+logger = structlog.get_logger(__name__)
 
 __all__ = [
     "acount_actions_to_summarize",
@@ -366,7 +372,16 @@ async def alist_actions_to_summarize(
         if offset is None or batch_size is None:
             raise ValueError("Cannot provide only offset or only batch_size")
         queryset = queryset[offset : offset + batch_size]
-    return [_to_contract(action) async for action in queryset]
+    actions: list[contracts.Action] = []
+    async for action in queryset:
+        try:
+            actions.append(_to_contract(action))
+        except Exception as error:
+            # One action with an unreadable stored step must not stop the sync for every other team, so it is
+            # reported and left out. Its page position is kept, because the next page is read by offset.
+            capture_exception(error, additional_properties={"action_id": action.id, "tag": "max_ai"})
+            logger.exception("Error reading action to summarize", error=error, action_id=action.id)
+    return actions
 
 
 async def acount_actions_to_summarize(*, start_dt: datetime) -> int:

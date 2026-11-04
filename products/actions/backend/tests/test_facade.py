@@ -241,6 +241,14 @@ class TestActionSummariesAndEmbeddings(APIBaseTest):
         with self.assertRaises(ValueError):
             async_to_sync(api.alist_actions_to_summarize)(start_dt=now, offset=1)
 
+    def test_an_unreadable_action_is_left_out_of_the_page_without_failing_it(self):
+        readable, unreadable, last = self._actions()
+        Action.objects.filter(id=unreadable.id).update(steps_json=[{"event": "x", "legacy_key": 1}])
+
+        page = async_to_sync(api.alist_actions_to_summarize)(start_dt=datetime.now(UTC), offset=0, batch_size=3)
+
+        assert [action.id for action in page] == [readable.id, last.id]
+
     def test_deleted_actions_are_summarized_only_after_an_edit(self):
         never_summarized, edited, _ = self._actions()
         start_dt = datetime.now(UTC)

@@ -53,6 +53,8 @@ from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common imp
 )
 
 if TYPE_CHECKING:
+    from posthog.models.team import Team
+
     from products.web_analytics.backend.hogql_queries.web_goals import WebGoalsQueryRunner
 
 logger = structlog.get_logger(__name__)
@@ -178,11 +180,11 @@ def _events_session_id_expr(runner: "WebGoalsQueryRunner") -> ast.Expr:
     return runner.events_session_property
 
 
-def _action_or_expr(actions: Sequence) -> ast.Expr:
+def _action_or_expr(actions: Sequence, team: "Team") -> ast.Expr:
     """Build `Or(action_to_expr(a) for a in actions)` — gates the events scan
     to events that can possibly contribute to any of the actions, plus
     `$pageview`/`$screen` which always anchor the session."""
-    return ast.Or(exprs=[action_to_expr(a) for a in actions])
+    return ast.Or(exprs=[action_to_expr(a, team=team) for a in actions])
 
 
 def _build_insert_query(actions: Sequence) -> str:
@@ -286,7 +288,7 @@ def ensure_web_goals_precomputed(
 ) -> LazyComputationResult:
     placeholders: dict[str, ast.Expr] = {
         "events_session_id": _events_session_id_expr(runner),
-        "action_or_expr": _action_or_expr(actions),
+        "action_or_expr": _action_or_expr(actions, runner.team),
         "user_filter": host_filter_expr(runner.query.properties or [], team=runner.team),
         "test_account_filter": test_account_filter_expr(
             test_account_filters=runner._test_account_filters, team=runner.team
@@ -294,7 +296,7 @@ def ensure_web_goals_precomputed(
         "pad_minutes": ast.Constant(value=SESSION_FORWARD_PAD_MINUTES),
     }
     for n, action in enumerate(actions):
-        placeholders[f"action_{n}_expr"] = action_to_expr(action)
+        placeholders[f"action_{n}_expr"] = action_to_expr(action, team=runner.team)
         placeholders[f"action_{n}_id"] = ast.Constant(value=int(action.id))
 
     return web_ensure_precomputed(
