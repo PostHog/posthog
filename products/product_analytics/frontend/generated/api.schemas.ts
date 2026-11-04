@@ -9252,6 +9252,12 @@ export interface StoryEvidenceApi {
      * @nullable
      */
     query?: StoryEvidenceApiQuery
+    /**
+     * An https link to the source when it is not a query, for example a commit, a pull request or a deploy.
+     * @maxLength 2000
+     * @nullable
+     */
+    url?: string | null
     /** The MCP query tool that can redraw `query`. The page redraws the query only when this is set.
      *
      * * `query-trends` - Trends

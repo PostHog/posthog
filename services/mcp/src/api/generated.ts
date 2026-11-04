@@ -24859,7 +24859,7 @@ export namespace Schemas {
      * The query that shows the fact. The page links to it.
      * @nullable
      */
-    export type StoryEvidenceQuery = { [key: string]: unknown } | null;
+    export type StoryEvidenceQuery = {[key: string]: unknown} | null;
 
     export interface StoryEvidence {
       /**
@@ -24872,6 +24872,12 @@ export namespace Schemas {
          * @nullable
          */
       query?: StoryEvidenceQuery;
+      /**
+         * An https link to the source when it is not a query, for example a commit, a pull request or a deploy.
+         * @maxLength 2000
+         * @nullable
+         */
+      url?: string | null;
       /** The MCP query tool that can redraw `query`. The page redraws the query only when this is set.
        *
        * * `query-trends` - Trends
@@ -24930,7 +24936,7 @@ export namespace Schemas {
     /**
      * The insight query the explanation follows.
      */
-    export type ExplainChartDataQuery = { [key: string]: unknown };
+    export type ExplainChartDataQuery = {[key: string]: unknown};
 
     export interface ExplainChartData {
       /** What the explanation walks through, whichever insight drew the chart. A funnel over time is a time series too.
