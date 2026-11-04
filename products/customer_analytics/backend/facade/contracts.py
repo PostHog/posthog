@@ -16,10 +16,50 @@ from dataclasses import (
 )
 from datetime import date, datetime
 from enum import Enum
-from typing import Any, Literal, TypedDict
+from typing import TYPE_CHECKING, Any, Literal, TypedDict
 from uuid import UUID
 
 from pydantic.dataclasses import dataclass
+
+from posthog.dataclasses import frozen
+
+if TYPE_CHECKING:
+    from posthog.schema import PersonPropertyFilter
+
+
+class AccountPersonsPropertyAccessError(Exception):
+    pass
+
+
+@frozen
+class AccountPersonsOptions:
+    limit: int
+    offset: int
+    search: str
+    properties: list[str]
+    filters: list["PersonPropertyFilter"]
+    sort_column: str
+    sort_direction: Literal["asc", "desc"]
+
+
+@frozen
+class AccountPerson:
+    id: str
+    display_name: str
+    distinct_ids: list[str]
+    properties: dict[str, object]
+    account_first_seen: datetime
+    account_last_seen: datetime
+
+
+@frozen
+class AccountPersonsPage:
+    results: list[AccountPerson]
+    columns: list[str]
+    limit: int
+    offset: int
+    has_more: bool
+    next_offset: int | None
 
 
 class InvalidCustomPropertyOptions(ValueError):
