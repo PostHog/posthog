@@ -84,7 +84,7 @@ describe('oauthDeviceAuthorizeLogic', () => {
             ['dashboard', 'none'],
             ['insight', 'none'],
         ])
-        await expectLogic(logic).toMatchValues({ isStepUp, scopeSummary: 'Write access to 2 areas' })
+        await expectLogic(logic).toMatchValues({ isStepUp, scopeSummary: 'hog can view and change data in 2 areas.' })
     })
 
     it('approves only the scopes the person kept, at the level they picked', async () => {
@@ -101,7 +101,7 @@ describe('oauthDeviceAuthorizeLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(approvals).toEqual([{ user_code: 'BCDF-GHJK', project_id: 42, scopes: ['openid', 'insight:read'] }])
-        await expectLogic(logic).toMatchValues({ scopeSummary: 'Read access to 1 area' })
+        await expectLogic(logic).toMatchValues({ scopeSummary: 'hog can view data in 1 area.' })
     })
 
     it("drops the previous organization's projects when the next ones fail to load", async () => {

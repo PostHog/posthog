@@ -180,16 +180,9 @@ export function OAuthDeviceAuthorize(): JSX.Element {
                             {
                                 key: 'permissions',
                                 header: (
-                                    <div className="flex flex-col">
-                                        <span className="font-semibold">
-                                            {isStepUp
-                                                ? `${deviceGrant.client_name} keeps the access you gave it, and asks for more`
-                                                : `${deviceGrant.client_name} will be able to`}
-                                        </span>
-                                        <span className="text-secondary text-xs" data-attr="oauth-device-scope-summary">
-                                            {scopeSummary}
-                                        </span>
-                                    </div>
+                                    <span className="font-semibold" data-attr="oauth-device-scope-summary">
+                                        {scopeSummary}
+                                    </span>
                                 ),
                                 content: (
                                     <div className="flex flex-col gap-3">
