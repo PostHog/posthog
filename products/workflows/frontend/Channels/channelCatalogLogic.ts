@@ -215,7 +215,7 @@ export const channelCatalogLogic = kea<channelCatalogLogicType>([
         },
     })),
     afterMount(({ actions, values }) => {
-        if (values.canSetUpSandboxSender) {
+        if (values.sandboxEmailSenderEnabled) {
             actions.setUpSandboxSender()
         }
     }),
