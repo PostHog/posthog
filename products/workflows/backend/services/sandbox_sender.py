@@ -6,6 +6,7 @@ from posthog.models.team import Team
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 
 from products.workflows.backend.facade.contracts import SandboxEmailSender, SandboxSenderUnavailable
+from products.workflows.backend.models.sandbox_sender_organization_block import SandboxSenderOrganizationBlock
 
 SANDBOX_SENDER_FLAG = "workflows-sandbox-sender"
 SANDBOX_SENDER_FALLBACK_NAME = "PostHog sandbox"
@@ -52,9 +53,13 @@ def _sandbox_sender_enabled(team: Team) -> bool:
     )
 
 
+def _organization_blocked(team: Team) -> bool:
+    return SandboxSenderOrganizationBlock.objects.filter(organization_id=team.organization_id).exists()
+
+
 def ensure_sandbox_email_sender(team_id: int) -> SandboxEmailSender:
     team = Team.objects.select_related("organization").get(id=team_id)
-    if not _sandbox_sender_configured() or not _sandbox_sender_enabled(team):
+    if not _sandbox_sender_configured() or not _sandbox_sender_enabled(team) or _organization_blocked(team):
         raise SandboxSenderUnavailable()
 
     config = _sandbox_sender_config(team.organization.name)
