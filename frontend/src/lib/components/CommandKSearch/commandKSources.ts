@@ -2,9 +2,12 @@ import api, { isAbortError } from 'lib/api'
 import {
     SearchItem,
     accountToSearchItem,
+    alertToSearchItem,
     fileSystemEntryToSearchItem,
     groupToSearchItem,
     personToSearchItem,
+    productTourToSearchItem,
+    ticketResultToSearchItem,
     ticketToSearchItem,
     unifiedSearchResultToSearchItem,
 } from 'lib/components/Search/searchItems'
@@ -18,12 +21,15 @@ import type { FileSystemApi } from '~/generated/core/api.schemas'
 import { isFileSystemEntryTypeEnabled } from '~/layout/panel-layout/ProjectTree/utils'
 import type { Noun } from '~/models/groupsModel'
 import type { FileSystemEntry } from '~/queries/schema/schema-general'
-import { GroupType, GroupTypeIndex } from '~/types'
+import { GroupType, GroupTypeIndex, SearchableEntity } from '~/types'
 
+import { alertsList } from 'products/alerts/frontend/generated/api'
 import { conversationsTicketsList } from 'products/conversations/frontend/generated/api'
 import { accountsList } from 'products/customer_analytics/frontend/generated/api'
 import { personsList } from 'products/persons/frontend/generated/api'
+import { productToursList } from 'products/product_tours/frontend/generated/api'
 
+import { listSearchText, parseToken, tokenize } from './commandKQuery'
 import { freeWords } from './commandKRanking'
 
 export const RESULTS_LIMIT = 20
@@ -171,12 +177,81 @@ const UNIFIED_TYPES: Record<string, RemoteSource> = {
     hog_flow: 'workflows',
 }
 
+type TypeSearch = (text: string, signal: AbortSignal, context: RemoteContext) => Promise<SearchItem[]>
+
+const unifiedTypeSearch =
+    (entity: SearchableEntity, type: string): TypeSearch =>
+    async (q, signal) => {
+        const response = await api.search.list({ q, entities: [entity], include_counts: false }, { signal })
+        return response.results.map((result) => {
+            const item = unifiedSearchResultToSearchItem(result)
+            return { ...item, category: 'results', record: { ...item.record, type } }
+        })
+    }
+
+const TYPE_SEARCHES: Record<string, TypeSearch> = {
+    alert: async (search, signal, context) => {
+        const response = await alertsList(
+            String(context.currentTeamId),
+            { search: search || undefined, limit: RESULTS_LIMIT },
+            { signal }
+        )
+        return response.results.map(alertToSearchItem)
+    },
+    endpoints: unifiedTypeSearch('endpoint', 'endpoints'),
+    product_tour: async (search, signal, context) => {
+        const response = await productToursList(
+            String(context.currentTeamId),
+            { search: search || undefined, limit: RESULTS_LIMIT },
+            { signal }
+        )
+        return response.results.map(productTourToSearchItem)
+    },
+    ticket: async (search, signal, context) => {
+        if (search && !shouldSearchTickets(search)) {
+            return []
+        }
+        const response = await conversationsTicketsList(
+            String(context.currentTeamId),
+            { search: search || undefined, limit: RESULTS_LIMIT },
+            { signal }
+        )
+        return response.results.map(ticketResultToSearchItem)
+    },
+    workflows: unifiedTypeSearch('hog_flow', 'workflows'),
+}
+
+const PHRASE_FILTER_KEYS = new Set(['is', 'name'])
+
+async function fetchTypeResults(
+    search: string,
+    signal: AbortSignal,
+    context: RemoteContext
+): Promise<SearchItem[] | null> {
+    const raws = tokenize(search).map((token) => token.raw)
+    const tokens = raws.map(parseToken)
+    const type = tokens.find((token) => token.filter?.key === 'is' && !token.negated)?.value
+    const typeSearch = type && Object.hasOwn(TYPE_SEARCHES, type) ? TYPE_SEARCHES[type] : null
+    if (!typeSearch) {
+        return null
+    }
+    const excludes = raws.some((raw) => raw.length > 1 && /^[-!]/.test(raw))
+    if (excludes || tokens.some((token) => token.filter && !PHRASE_FILTER_KEYS.has(token.filter.key))) {
+        return []
+    }
+    return typeSearch(listSearchText({ backendSearch: search }), signal, context)
+}
+
 export const REMOTE_REQUESTS: RemoteRequest[] = [
     {
         id: 'objects',
         query: 'objects',
         sources: ['results'],
         fetch: async (search, signal, context) => {
+            const typeResults = await fetchTypeResults(search, signal, context)
+            if (typeResults) {
+                return { results: typeResults }
+            }
             const featureFlags = featureFlagLogic.findMounted()?.values.featureFlags ?? {}
             if (freeWords(search).length > 0) {
                 return { results: await fetchRankedResults(search, signal, context, featureFlags) }

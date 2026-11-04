@@ -416,7 +416,7 @@ const BACKEND_FILTER_FIELDS = new Set(['path', 'name', 'user', 'author', 'type',
 
 // Reads `backendSearch` like the file system search does, so the list searches the words Cmd+K matched.
 // List pages match one phrase, which cannot exclude, so excluded words and filters other than `name:` stay out.
-export function listSearchText({ backendSearch }: ResolvedQuery): string {
+export function listSearchText({ backendSearch }: Pick<ResolvedQuery, 'backendSearch'>): string {
     const words: string[] = []
     for (const raw of tokenizeSearch(backendSearch)) {
         if (raw.startsWith('-') || raw.startsWith('!')) {

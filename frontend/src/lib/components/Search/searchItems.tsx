@@ -12,9 +12,11 @@ import { getTreeItemsProducts } from '~/products'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { FileSystemIconColor, GroupTypeIndex, SearchResponse } from '~/types'
 
+import type { AlertApi } from 'products/alerts/frontend/generated/api.schemas'
 import type { TicketApi } from 'products/conversations/frontend/generated/api.schemas'
 import { getAccountStatusTags } from 'products/customer_analytics/frontend/components/Accounts/accountStatusTags'
 import type { AccountApi } from 'products/customer_analytics/frontend/generated/api.schemas'
+import type { ProductTourApi } from 'products/product_tours/frontend/generated/api.schemas'
 
 import { filterSearchItems } from './utils'
 
@@ -241,13 +243,18 @@ export const accountToSearchItem = (account: AccountApi): SearchItem => {
     }
 }
 
+// Only email tickets carry a subject, so a Slack or widget ticket falls back to
+// its latest message — the only line of it that reads as a title.
+const ticketSubject = (ticket: TicketApi): string =>
+    ticket.email_subject || ticket.last_message_text || 'Untitled ticket'
+
+const ticketStatus = (ticket: TicketApi): string | null =>
+    ticket.status ? capitalizeFirstLetter(ticket.status.replace(/_/g, ' ')) : null
+
 export const ticketToSearchItem = (ticket: TicketApi): SearchItem => {
-    // Only email tickets carry a subject, so a Slack or widget ticket falls back to
-    // its latest message — the only line of it that reads as a title. The number
-    // leads either way: it is how support refers to a ticket everywhere else, and
+    // The number leads either way: it is how support refers to a ticket everywhere else, and
     // it is what someone who typed a number is looking to confirm.
-    const subject = ticket.email_subject || ticket.last_message_text || 'Untitled ticket'
-    const displayName = `#${ticket.ticket_number} ${subject}`
+    const displayName = `#${ticket.ticket_number} ${ticketSubject(ticket)}`
     return {
         id: `ticket-${ticket.id}`,
         name: displayName,
@@ -259,10 +266,54 @@ export const ticketToSearchItem = (ticket: TicketApi): SearchItem => {
         itemType: 'conversations',
         // Rendered as the row's muted trailing text: which tickets are still open
         // is the first thing a support agent reads off a list of matches.
-        productCategory: ticket.status ? capitalizeFirstLetter(ticket.status.replace(/_/g, ' ')) : null,
+        productCategory: ticketStatus(ticket),
         record: { type: 'conversations', id: ticket.id, ticketNumber: ticket.ticket_number },
     }
 }
+
+export const ticketResultToSearchItem = (ticket: TicketApi): SearchItem => {
+    const traits = (ticket.anonymous_traits ?? {}) as Record<string, unknown>
+    const subject = ticketSubject(ticket)
+    return {
+        id: `ticket-${ticket.id}`,
+        name: subject,
+        displayName: subject,
+        category: 'results',
+        href: urls.supportTicketDetail(ticket.ticket_number),
+        itemType: 'conversations',
+        productCategory: [
+            `#${ticket.ticket_number}`,
+            safeString(traits.name) || safeString(traits.email),
+            ticketStatus(ticket),
+        ]
+            .filter(Boolean)
+            .join(' · '),
+        record: { type: 'ticket', id: ticket.id, ticketNumber: ticket.ticket_number, created_at: ticket.created_at },
+    }
+}
+
+export const alertToSearchItem = (alert: AlertApi): SearchItem => {
+    const displayName = alert.name || `Alert for ${alert.insight_display_name}`
+    return {
+        id: `alert-${alert.id}`,
+        name: displayName,
+        displayName,
+        category: 'results',
+        href: urls.alert(alert.id),
+        itemType: 'alert',
+        record: { type: 'alert', id: alert.id },
+    }
+}
+
+export const productTourToSearchItem = (tour: ProductTourApi): SearchItem => ({
+    id: `product_tour-${tour.id}`,
+    name: tour.name,
+    displayName: tour.name,
+    category: 'results',
+    href: urls.productTour(tour.id),
+    itemType: 'product_tour',
+    record: { type: 'product_tour', id: tour.id },
+})
 
 /** "Create new" items match when every word is "new"/"create" or appears in the item's name, type, or path. */
 const LEADING_CREATE_WORD = /^\s*create\b/i
