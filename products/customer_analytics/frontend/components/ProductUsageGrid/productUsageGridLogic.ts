@@ -554,13 +554,14 @@ export const productUsageGridLogic = kea<productUsageGridLogicType>([
         load: async ({ source }) => {
             cache.disposables.dispose('query')
             const id = uuid()
+            const teamId = values.currentTeamId
             cache.queryId = id
             const controller = new AbortController()
             cache.disposables.add(
                 () => () => {
                     controller.abort()
-                    void cancelQueryOnServer(id)
-                    void cancelQueryOnServer(`${id}-accounts`)
+                    void cancelQueryOnServer(teamId, id)
+                    void cancelQueryOnServer(teamId, `${id}-accounts`)
                 },
                 'query',
                 { pauseOnPageHidden: false }
@@ -797,9 +798,11 @@ export const productUsageGridLogic = kea<productUsageGridLogicType>([
         posthog.capture('customer analytics product activity viewed')
         try {
             const saved = getDotMatrixTileSource(JSON.parse(localStorage.getItem(values.storageKey) ?? 'null'))
-            if (saved && saved.kind !== 'usage_metrics') {
-                actions.setSource(saved)
-                actions.load(saved)
+            const source: ProductUsageSource | null =
+                saved?.kind === 'hogql' ? saved : saved?.kind === 'product_usage' ? { kind: 'product_usage' } : null
+            if (source) {
+                actions.setSource(source)
+                actions.load(source)
             }
         } catch {
             actions.setSaveError('Could not read the saved source. Add a query to continue.')

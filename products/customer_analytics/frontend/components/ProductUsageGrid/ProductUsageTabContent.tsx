@@ -104,6 +104,8 @@ export function ProductUsageTabContent(): JSX.Element {
             {result && (
                 <>
                     <OverviewGrid
+                        loading={loading}
+                        numSkeletons={result.matrix ? 3 : 2}
                         items={[
                             {
                                 key: 'accounts',

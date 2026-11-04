@@ -11,9 +11,7 @@ import type {
 } from '~/queries/schema/schema-general'
 
 import type { DotMatrixTileSource } from '../Accounts/dotMatrixTileConfig'
-export type ProductUsageSource =
-    | Exclude<DotMatrixTileSource, { kind: 'usage_metrics' | 'product_usage' }>
-    | { kind: 'product_usage' }
+export type ProductUsageSource = Extract<DotMatrixTileSource, { kind: 'hogql' }> | { kind: 'product_usage' }
 export type ProductUsageZoom = 'count' | 'products' | 'users'
 export interface ProductUsageLoadResult {
     accounts: AccountsTableQueryResponse

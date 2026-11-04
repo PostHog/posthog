@@ -1,8 +1,9 @@
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
+import { cancelQueryOnServer } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { performQuery } from '~/queries/query'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { NodeKind, type AccountsTableQueryResponse } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { BOOK_ACTIVITY_MATRIX_MOCK } from '../Accounts/bookActivityMatrixMock'
@@ -15,7 +16,7 @@ jest.mock('~/queries/nodes/DataNode/dataNodeLogic', () => ({
     cancelQueryOnServer: jest.fn(),
 }))
 const query = performQuery as jest.Mock
-const accounts = {
+const accounts: AccountsTableQueryResponse = {
     kind: NodeKind.AccountsTableQuery,
     limit: 200,
     offset: 0,
@@ -92,6 +93,19 @@ describe('productUsageGridLogic', () => {
         expect(logic.values.error).toContain('Product usage is unavailable')
         logic.unmount()
     })
+    it.each(['product_usage', 'usage_metrics'])('restores only a supported saved book source: %s', async (kind) => {
+        const initial = productUsageGridLogic()
+        initial.mount()
+        const key = initial.values.storageKey
+        initial.unmount()
+        localStorage.setItem(key, JSON.stringify({ kind }))
+        const restored = productUsageGridLogic()
+        restored.mount()
+        await expectLogic(restored).toFinishAllListeners()
+        expect(restored.values.source).toEqual(kind === 'product_usage' ? { kind: 'product_usage' } : null)
+        expect(query).not.toHaveBeenCalled()
+        restored.unmount()
+    })
     it('keeps the source and draft when browser storage rejects a save', async () => {
         const logic = productUsageGridLogic()
         logic.mount()
@@ -167,7 +181,11 @@ describe('productUsageGridLogic', () => {
             accounts,
             matrix: {
                 ...BOOK_ACTIVITY_MATRIX_MOCK,
-                rows: Array.from({ length: 12 }, (_, index) => ({ key: String(index), label: `Account ${index}` })),
+                rows: Array.from({ length: 12 }, (_, index) => ({
+                    key: String(index),
+                    label: `Account ${index}`,
+                    externalId: null,
+                })),
             },
             hogql: null,
             source: { kind: 'product_usage' },
@@ -192,7 +210,11 @@ describe('productUsageGridLogic', () => {
             accounts,
             matrix: {
                 ...BOOK_ACTIVITY_MATRIX_MOCK,
-                rows: Array.from({ length: 6 }, (_, index) => ({ key: String(index), label: `Account ${index}` })),
+                rows: Array.from({ length: 6 }, (_, index) => ({
+                    key: String(index),
+                    label: `Account ${index}`,
+                    externalId: null,
+                })),
             },
             hogql: null,
             source: { kind: 'product_usage' },
@@ -233,7 +255,9 @@ describe('productUsageGridLogic', () => {
                 })
         )
         logic.actions.runQuery()
+        const accountQueryId = query.mock.calls[query.mock.calls.length - 1][3]
         logic.actions.cancelEditor()
+        expect(cancelQueryOnServer).toHaveBeenCalledWith(logic.values.currentTeamId, accountQueryId)
         resolve(accounts)
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.result).toBeNull()
