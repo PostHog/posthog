@@ -5,6 +5,7 @@ import {
     connect,
     kea,
     key,
+    listeners,
     path,
     props,
     propsChanged,
@@ -150,8 +151,8 @@ export const canvasAppWidgetLogic = kea<canvasAppWidgetLogicType>([
                 loadViewSuccess: () => null,
             },
         ],
-        // Bumped to remount the frame when the viewer reloads the app after an error.
-        frameKey: [0, { reloadFrame: (state) => state + 1 }],
+        // Bumped on every view load, so the frame remounts with the freshly signed artifact URL.
+        frameKey: [0, { loadViewSuccess: (state) => state + 1 }],
     }),
 
     selectors(({ props }) => ({
@@ -197,6 +198,14 @@ export const canvasAppWidgetLogic = kea<canvasAppWidgetLogicType>([
                 instanceKey: `dashboard-tile-${props.tileId}`,
             }),
         ],
+    })),
+
+    listeners(({ actions }) => ({
+        // The artifact URL carries a short-lived token, so a reload fetches the view again rather than
+        // remounting the frame on a URL that may have expired.
+        reloadFrame: () => {
+            actions.loadView()
+        },
     })),
 
     afterMount(({ actions }) => {
