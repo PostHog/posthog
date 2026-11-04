@@ -37,12 +37,14 @@ from products.tasks.backend.facade.profiles import (
     TaskSource,
     get_task_profile,
 )
+from products.tasks.backend.logic.services.warm import ActiveSessionCaps, SandboxWarmer
 from products.tasks.backend.models import (
     TASK_OWNERSHIP_VERSION_STATE_KEY,
     Channel,
     ChannelMembership,
     SandboxCustomImage,
     SandboxEnvironment,
+    SandboxSession,
     Task,
     TaskRun,
     TaskWorkflowDispatch,
@@ -1333,6 +1335,62 @@ class TestFacadeReadsAndMappers(TestCase):
         trigger.assert_not_called()
         assert not task.runs.exists()
 
+    @parameterized.expand(
+        [
+            ("user_immediate", "user", False),
+            ("user_scheduled", "user", True),
+            ("org_immediate", "org", False),
+        ]
+    )
+    def test_run_task_at_the_active_session_cap(self, _name: str, scope: str, scheduled: bool) -> None:
+        caps = ActiveSessionCaps(per_user=2, per_org=3)
+        holder = self.user
+        if scope == "org":
+            holder = User.objects.create_and_join(self.organization, "busy@posthog.com", None)
+        busy_run = TaskRun.objects.create(
+            task=self._make_task(created_by=holder), team=self.team, status=TaskRun.Status.IN_PROGRESS
+        )
+        now = django_timezone.now()
+        for i in range(caps.per_user if scope == "user" else caps.per_org):
+            SandboxSession.objects.unscoped().create(
+                team=self.team,
+                task_run=busy_run,
+                sandbox_id=f"sb-busy-{i}",
+                cpu_cores=4.0,
+                memory_gb=16.0,
+                ttl_seconds=3600,
+                ttl_expires_at=now + timedelta(hours=1),
+                user_attributed_at=now,
+                origin_product=Task.OriginProduct.USER_CREATED,
+            )
+        task = self._make_task()
+        validated_data: dict[str, Any] = {"mode": "interactive"}
+        if scheduled:
+            validated_data["scheduled_at"] = now + timedelta(hours=2)
+
+        with (
+            patch.dict(SandboxWarmer.ORIGIN_ACTIVE_SESSION_CAPS, {Task.OriginProduct.USER_CREATED: caps}),
+            patch("products.tasks.backend.facade.api._trigger_task_processing_workflow", return_value=None) as trigger,
+        ):
+            result = facade.run_task(task.id, self.team.id, self.user.id, validated_data=validated_data)
+
+        assert result is not None
+        if scheduled:
+            assert result.error is None
+            assert task.runs.count() == 1
+        else:
+            assert result.error is not None
+            self.assertEqual(
+                result.error.detail,
+                "You already have 2 cloud sandboxes running. Wait for one to finish or stop one, then try again."
+                if scope == "user"
+                else "Your organization already has 3 cloud sandboxes running. "
+                "Wait for one to finish or stop one, then try again.",
+            )
+            assert result.error.code == "active_session_cap"
+            trigger.assert_not_called()
+            assert not task.runs.exists()
+
     def test_run_task_resumed_from_an_import_run_marks_the_new_run(self):
         task = self._make_task()
         import_run = TaskRun.objects.create(
@@ -1894,7 +1952,7 @@ class TestFacadeReadsAndMappers(TestCase):
         # When a client pastes text (stored as an attachment), it sends the pasted content as
         # naming_source so the title reads well, while description stays the bare prompt the
         # agent — and the reload transcript dedup — expect.
-        mock_title.side_effect = lambda text, **_: f"title:{text}"
+        mock_title.side_effect = lambda text: f"title:{text}"
         dto = facade.create_task(
             team_id=self.team.id,
             user_id=self.user.id,
@@ -1908,11 +1966,11 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertEqual(task.description, "Attached files: pasted-text.txt")
         self.assertEqual(task.title, "title:Deploy blocks on a stale lockfile")
         self.assertFalse(task.title_manually_set)
-        mock_title.assert_called_once_with("Deploy blocks on a stale lockfile", distinct_id=self.user.distinct_id)
+        mock_title.assert_called_once_with("Deploy blocks on a stale lockfile")
 
     @patch("products.tasks.backend.logic.services.title_generator.generate_task_title")
     def test_create_task_falls_back_to_description_without_naming_source(self, mock_title):
-        mock_title.side_effect = lambda text, **_: f"title:{text}"
+        mock_title.side_effect = lambda text: f"title:{text}"
         dto = facade.create_task(
             team_id=self.team.id,
             user_id=self.user.id,
@@ -1923,7 +1981,7 @@ class TestFacadeReadsAndMappers(TestCase):
         )
         task = Task.objects.get(id=dto.id)
         self.assertEqual(task.title, "title:Fix the login redirect")
-        mock_title.assert_called_once_with("Fix the login redirect", distinct_id=self.user.distinct_id)
+        mock_title.assert_called_once_with("Fix the login redirect")
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_persists_dispatch_params_for_reconcile(self, _mock_workflow):

@@ -14,7 +14,8 @@ typed when they dismissed, snoozed, or restored an inbox report (see
 asked when they opened a discussion on a report (see `discussion_notes.py`);
 `report_feedback`, forwarded from the note someone left when rating a report useful
 or not (see `feedback_notes.py`); and `report_reviewer_correction`, forwarded when
-someone added or removed a suggested reviewer (see `reviewer_correction_notes.py`).
+someone added or removed a suggested reviewer, or claimed a report (see
+`reviewer_correction_notes.py`).
 """
 
 from __future__ import annotations
@@ -131,7 +132,7 @@ def leave_note(
     writes `HUMAN`. `REPORT_DISMISSAL` belongs to `dismissal_notes.forward_dismissal_note`,
     `REPORT_DISCUSSION` to `discussion_notes.forward_discussion_note`, `REPORT_FEEDBACK` to
     `feedback_notes.forward_feedback_note`, and `REPORT_REVIEWER_CORRECTION` to
-    `reviewer_correction_notes.forward_reviewer_correction_note`.
+    `reviewer_correction_notes.forward_reviewer_correction_note` and `forward_reviewer_claim_note`.
     """
     _validate_note(team_id=team_id, skill_name=skill_name, content=content)
     row = SignalScoutNote.objects.create(

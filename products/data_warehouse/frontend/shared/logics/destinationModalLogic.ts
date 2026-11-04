@@ -47,6 +47,10 @@ export interface DestinationFormValues extends Record<string, any> {
 
 const DEFAULT_TYPE: CreatableDestinationType = 'Postgres'
 
+function findIntegration(integrations: IntegrationType[] | null, id: number | null): IntegrationType | null {
+    return (id && integrations?.find((one) => one.id === id)) || null
+}
+
 export function newDestinationForm(type: CreatableDestinationType = DEFAULT_TYPE): DestinationFormValues {
     const definition = WAREHOUSE_DESTINATIONS[type]
     return {
@@ -78,6 +82,7 @@ export interface destinationModalLogicValues {
     isDestinationFormSubmitting: boolean
     isDestinationFormValid: boolean
     isOpen: boolean
+    selectedIntegration: IntegrationType | null
     showDestinationFormErrors: boolean
 }
 
@@ -192,6 +197,7 @@ export interface destinationModalLogicMeta {
         definition: (destinationForm: any) => WarehouseDestinationDefinition
         availableIntegrations: (integrations: any, destinationForm: any) => IntegrationType[]
         editingIntegration: (editing: any, integrations: any) => IntegrationType | null
+        selectedIntegration: (integrations: any, destinationForm: any) => IntegrationType | null
     }
 }
 
@@ -247,6 +253,7 @@ export const destinationModalLogic = kea<destinationModalLogicType>([
                     {
                         isNew: !values.editing,
                         formValues,
+                        selectedIntegration: findIntegration(values.integrations, formValues.integrationId),
                     }
                 ),
             }),
@@ -294,8 +301,13 @@ export const destinationModalLogic = kea<destinationModalLogicType>([
             (
                 editing: ExternalDataDestinationApi | null,
                 integrations: IntegrationType[] | null
-            ): IntegrationType | null =>
-                (editing?.integration && integrations?.find((one) => one.id === editing.integration)) || null,
+            ): IntegrationType | null => findIntegration(integrations, editing?.integration ?? null),
+        ],
+        // The connection picked in the form, so a type's fields can depend on how it signs in.
+        selectedIntegration: [
+            (s: any) => [s.integrations, s.destinationForm],
+            (integrations: IntegrationType[] | null, destinationForm: DestinationFormValues): IntegrationType | null =>
+                findIntegration(integrations, destinationForm.integrationId),
         ],
     }),
     listeners(({ actions, values, props }: any) => ({

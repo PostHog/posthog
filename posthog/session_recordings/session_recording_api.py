@@ -78,6 +78,7 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
+from posthog.llm.gateway_client import build_openai_client, openai_gateway_configured
 from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.comment import Comment
@@ -96,7 +97,6 @@ from posthog.session_recordings.ai_data.ai_regex_prompts import AI_REGEX_PROMPTS
 from posthog.session_recordings.ai_data.ai_regex_schema import AiRegexSchema
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
-from posthog.session_recordings.openai_client import get_openai_client
 from posthog.session_recordings.queries.console_logs import (
     MAX_CONSOLE_LOGS_PAGE_SIZE,
     MAX_CONSOLE_MESSAGE_LENGTH,
@@ -2009,18 +2009,22 @@ class SessionRecordingViewSet(
             user_content=clean_prompt_whitespace(request.data["regex"]),
         )
 
-        client = get_openai_client()
+        if not openai_gateway_configured():
+            raise exceptions.ValidationError("AI features are only available in PostHog Cloud")
+
+        distinct_id = self._distinct_id_from_request(request)
+        client = build_openai_client(
+            "django",
+            ai_product="session_replay",
+            distinct_id=distinct_id,
+            properties={"ai_feature": "ai_regex", "team_id": str(self.team.id)},
+        )
 
         completion = client.beta.chat.completions.parse(
             model=SESSION_REPLAY_AI_REGEX_MODEL,
             messages=messages,
             response_format=AiRegexSchema,
-            posthog_distinct_id=self._distinct_id_from_request(request),
-            posthog_properties={
-                "ai_product": "session_replay",
-                "ai_feature": "ai_regex",
-                "team_id": self.team.id,
-            },
+            user=distinct_id,
         )
 
         if not completion.choices or not completion.choices[0].message.content:
