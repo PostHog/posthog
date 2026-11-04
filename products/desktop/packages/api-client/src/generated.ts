@@ -11150,6 +11150,10 @@ export namespace Schemas {
          */
         incremental_sync_blocked: IncrementalSyncBlockedReasonEnum | NullEnum;
         /**
+         * Whether this table uses webhook sync, but its source has no enabled webhook. Such a table gets no webhook updates. Each sync polls the source API instead, which is slower and can read the whole table. Set up the webhook on the source, or change `sync_type`.
+         */
+        webhook_not_registered: boolean;
+        /**
          * A schema of an external data source: its sync configuration and the warehouse table it syncs into.
          */
         enabled_columns?: (Array<string> | null) | undefined;
@@ -11374,6 +11378,10 @@ export namespace Schemas {
          */
         user_access_level: string | null;
         supports_webhooks: boolean;
+        /**
+         * Whether at least one table of this source uses webhook sync, but the source has no enabled webhook. Those tables get no webhook updates. Each of their syncs polls the source API instead, which is slower and can read the whole table. Set up the webhook, or change the sync method of those tables.
+         */
+        webhook_not_registered: boolean;
         /**
          * Whether this source supports per-column sync selection via `enabled_columns`.
          */
@@ -15423,6 +15431,7 @@ export namespace Schemas {
             unknown;
         user_access_level: string | null;
         supports_webhooks: boolean;
+        webhook_not_registered: boolean;
         supports_column_selection: boolean;
         file_name: string | null;
         api_version: string | null;

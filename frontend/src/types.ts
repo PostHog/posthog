@@ -6472,6 +6472,8 @@ export interface ExternalDataSource {
     revenue_analytics_config: ExternalDataSourceRevenueAnalyticsConfig
     user_access_level: AccessControlLevel
     supports_webhooks?: boolean
+    /** Whether a table of this source uses webhook sync, but the source has no enabled webhook. */
+    webhook_not_registered?: boolean
     supports_column_selection?: boolean
     api_version?: string | null
     api_version_deprecation?: ExternalDataSourceApiVersionDeprecation | null
@@ -6677,6 +6679,8 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
      * failure is current. A later run that succeeds, or fails for another reason, clears it.
      */
     incremental_sync_blocked?: IncrementalSyncBlockedReason | null
+    /** Whether this table uses webhook sync, but its source has no enabled webhook. */
+    webhook_not_registered?: boolean
     /**
      * User-selected source columns to sync. `null` means "sync all columns".
      * Primary-key + active incremental columns are always retained even if not listed.
