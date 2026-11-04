@@ -166,4 +166,35 @@ describe('DotMatrix', () => {
         })
         expect(aggregateSelection).toHaveBeenCalledWith(onCellClick.mock.calls[0][0], ['Safety'])
     })
+    it('renders the same series in each explicit group and uses the requested columns', () => {
+        const { container } = render(
+            <DotMatrix
+                data={data}
+                fields={fields}
+                groups={[
+                    { key: 'one', label: 'One', items: ['Safety'] },
+                    { key: 'two', label: 'Two', items: ['Safety'] },
+                ]}
+                columnsPerGroup={3}
+                legend={false}
+            />
+        )
+        const glyph = container.querySelector('.DotGlyph')!
+        expect(glyph.getAttribute('width')).toBe('51')
+        expect(glyph.getAttribute('height')).toBe('34')
+        expect(glyph.querySelectorAll('circle').length).toBe(6)
+    })
+
+    it('marks first use on the matching product without hiding the other dots', () => {
+        const { container } = render(
+            <DotMatrix
+                data={[...data, { location: 'North', period: 'Morning', check: 'Fire', total: 1 }]}
+                fields={fields}
+                firstUseSeries={() => ['Safety']}
+                legend={false}
+            />
+        )
+        expect(container.querySelectorAll('.DotGlyph polygon').length).toBe(1)
+        expect(container.querySelectorAll('.DotGlyph circle').length).toBe(3)
+    })
 })

@@ -24,6 +24,7 @@ export interface DotMatrixSeries extends DotMatrixAxisItem {
 }
 
 export interface DotMatrixGroup {
+    items?: string[]
     key: string
     label: string
     color?: string
@@ -68,6 +69,8 @@ export interface DotMatrixCountOptions<D> {
 export interface DotMatrixProps<D extends Record<string, unknown>>
     extends DotMatrixDataOptions<D>, DotMatrixCountOptions<D> {
     groups?: DotMatrixGroup[]
+    columnsPerGroup?: number
+    firstUseSeries?: (cell: DotMatrixCell<D>) => string[]
     mode?: 'dots' | 'count'
     // Up to three distinct positive thresholds, displayed in ascending order.
     sizeThresholds?: number[]

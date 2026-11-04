@@ -7,6 +7,7 @@ import {
     DOT_MATRIX_EMPTY_GROUPS,
     DOT_MATRIX_SIZE_THRESHOLDS,
     getDotMatrixActiveSeries,
+    getDotMatrixGroups,
     resolveDotMatrixSeries,
 } from './dotMatrixPresentation'
 import { DotMatrixSymbol } from './DotMatrixSymbol'
@@ -19,6 +20,7 @@ interface DotGlyphProps {
     sizeThresholds?: number[]
     label: string
     columnsPerGroup?: number
+    firstUseSeries?: string[]
 }
 
 export function DotGlyph({
@@ -28,12 +30,12 @@ export function DotGlyph({
     sizeThresholds = DOT_MATRIX_SIZE_THRESHOLDS,
     label,
     columnsPerGroup = 6,
+    firstUseSeries = [],
 }: DotGlyphProps): JSX.Element {
     const thresholds = useMemo(() => normalizeDotMatrixSizeThresholds(sizeThresholds), [sizeThresholds])
     const coloredSeries = useMemo(() => resolveDotMatrixSeries(series, groups), [series, groups])
     const perRow = Number.isFinite(columnsPerGroup) ? Math.max(1, Math.floor(columnsPerGroup)) : 6
-    const groupKeys = Array.from(new Set([...groups.map(({ key }) => key), ...series.map(({ group }) => group)]))
-    const rows = groupKeys.map((key) => coloredSeries.filter(({ group }) => group === key))
+    const rows = getDotMatrixGroups(coloredSeries, groups).map((group) => group.series)
     const rowCount = rows.reduce((total, items) => total + Math.max(1, Math.ceil(items.length / perRow)), 0)
     const width = perRow * 17
     const height = Math.max(1, rowCount) * 17
@@ -51,7 +53,7 @@ export function DotGlyph({
             role="img"
             aria-label={`${label}: ${valueLabel || 'No values'}`}
         >
-            {rows.map((items) => {
+            {rows.map((items, groupIndex) => {
                 const firstRow = rowOffset
                 rowOffset += Math.max(1, Math.ceil(items.length / perRow))
 
@@ -62,10 +64,11 @@ export function DotGlyph({
 
                     return (
                         <DotMatrixSymbol
-                            key={item.key}
+                            key={`${groupIndex}:${item.key}`}
                             cx={cx}
                             cy={cy}
                             value={value}
+                            firstUse={firstUseSeries.includes(item.key)}
                             thresholds={thresholds}
                             color={item.color}
                         />
