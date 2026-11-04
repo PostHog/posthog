@@ -20,6 +20,8 @@ import {
     NodeMotion,
     PathGroup,
     Point,
+    QUICK_ADD_ATTR,
+    STEP_DRAG_DATA_TYPE,
     VisibleEdge,
     VisibleGraph,
     VisibleNode,
@@ -213,6 +215,63 @@ export function nearestInsertEdge(
         }
     }
     return best?.edge ?? null
+}
+
+/** The part of a canvas drag event that a step drop reads, so a test can drive the handlers without a browser. */
+export interface StepDragEvent {
+    clientX: number
+    clientY: number
+    target: EventTarget | null
+    dataTransfer: { readonly types: readonly string[]; dropEffect: string }
+    preventDefault: () => void
+}
+
+export interface StepDropCanvas {
+    edges: TileEdgeType[]
+    placeableEdgeKeys: Set<string> | null
+    isWaitingForStep: boolean
+    toFlowPoint: (screenPoint: Point) => Point
+    dropTargetEdgeKey: string | null
+    setDropTargetEdgeKey: (key: string | null) => void
+    dropAt: (edge: HogFlowEdge, snapped: boolean) => void
+}
+
+/** The + a step drag lands on, null when no + takes the step, and undefined for a drag that carries no step. */
+function stepDropEdge(event: StepDragEvent, canvas: StepDropCanvas): HogFlowEdge | null | undefined {
+    if (!canvas.isWaitingForStep || !event.dataTransfer.types.includes(STEP_DRAG_DATA_TYPE)) {
+        return undefined
+    }
+    const point = canvas.toFlowPoint({ x: event.clientX, y: event.clientY })
+    return nearestInsertEdge(canvas.edges, point, canvas.placeableEdgeKeys)
+}
+
+export function handleStepDragOver(event: StepDragEvent, canvas: StepDropCanvas): void {
+    const edge = stepDropEdge(event, canvas)
+    if (edge === undefined) {
+        return
+    }
+    const key = edge ? getEdgeId(edge) : null
+    if (key !== canvas.dropTargetEdgeKey) {
+        canvas.setDropTargetEdgeKey(key)
+    }
+    // Accepting the drag only when a + can take the step shows the no-drop cursor everywhere else.
+    if (edge) {
+        event.preventDefault()
+        event.dataTransfer.dropEffect = 'move'
+    }
+}
+
+export function handleStepDrop(event: StepDragEvent, canvas: StepDropCanvas): void {
+    const edge = stepDropEdge(event, canvas)
+    if (edge === undefined) {
+        return
+    }
+    canvas.setDropTargetEdgeKey(null)
+    if (edge) {
+        event.preventDefault()
+        const isOnPlus = event.target instanceof Element && !!event.target.closest(`[data-attr="${QUICK_ADD_ATTR}"]`)
+        canvas.dropAt(edge, !isOnPlus)
+    }
 }
 
 export function buildCanvasEdges(graph: VisibleGraph, layout: CanvasLayout | null): TileEdgeType[] {

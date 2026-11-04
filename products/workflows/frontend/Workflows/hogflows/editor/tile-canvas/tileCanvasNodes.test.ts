@@ -1,13 +1,16 @@
 import { getEdgeId } from '../../edgeId'
-import type { HogFlow, HogFlowAction } from '../../types'
+import type { HogFlow, HogFlowAction, HogFlowEdge } from '../../types'
 import { CanvasLayout } from './tileCanvasLayout'
-import { computeVisibleGraph } from './tileCanvasModel'
+import { computeVisibleGraph, Point, QUICK_ADD_ATTR, STEP_DRAG_DATA_TYPE } from './tileCanvasModel'
 import {
     buildCanvasEdges,
     buildCanvasNodes,
     CanvasNodeState,
+    handleStepDragOver,
+    handleStepDrop,
     keepUnchangedNodes,
     nearestInsertEdge,
+    StepDragEvent,
 } from './tileCanvasNodes'
 
 const step = (id: string): HogFlowAction => ({ id, type: 'delay', name: id, config: {} }) as unknown as HogFlowAction
@@ -104,6 +107,86 @@ describe('tileCanvasNodes', () => {
 
         it('finds no + when none can take the step', () => {
             expect(nearestInsertEdge(edges, { x: 0, y: 50 }, new Set())).toBeNull()
+        })
+
+        describe('step drops on the canvas', () => {
+            const aToB = getEdgeId({ from: 'a', to: 'b', type: 'continue' } as HogFlow['edges'][0])
+
+            const dragAt = (point: Point, types: string[], onPlus: boolean): StepDragEvent => {
+                const plus = document.createElement('button')
+                plus.setAttribute('data-attr', QUICK_ADD_ATTR)
+                const icon = plus.appendChild(document.createElement('span'))
+                return {
+                    clientX: point.x,
+                    clientY: point.y,
+                    target: onPlus ? icon : document.createElement('div'),
+                    dataTransfer: { types, dropEffect: 'none' },
+                    preventDefault: jest.fn(),
+                }
+            }
+
+            it.each([
+                {
+                    name: 'snaps a step dropped far from every + to the nearest +',
+                    types: [STEP_DRAG_DATA_TYPE],
+                    point: { x: 4000, y: 3000 },
+                    expected: { highlights: [bToC, null], drops: [{ to: 'c', snapped: true }] },
+                },
+                {
+                    name: 'keeps a drop on the + itself direct',
+                    types: [STEP_DRAG_DATA_TYPE],
+                    point: { x: 0, y: 50 },
+                    onPlus: true,
+                    expected: { highlights: [aToB, null], drops: [{ to: 'b', snapped: false }] },
+                },
+                {
+                    name: 'refuses a step that no + can take',
+                    types: [STEP_DRAG_DATA_TYPE],
+                    point: { x: 0, y: 50 },
+                    placeableEdgeKeys: new Set<string>(),
+                    expected: { highlights: [null], drops: [] },
+                },
+                {
+                    name: 'ignores a text drag while a step waits to be placed',
+                    types: ['text/plain'],
+                    point: { x: 0, y: 50 },
+                    expected: { highlights: [], drops: [] },
+                },
+                {
+                    name: 'ignores a step drag when the canvas waits for no step',
+                    types: [STEP_DRAG_DATA_TYPE],
+                    point: { x: 0, y: 50 },
+                    isWaitingForStep: false,
+                    expected: { highlights: [], drops: [] },
+                },
+            ])(
+                '$name',
+                ({ types, point, onPlus = false, placeableEdgeKeys = null, isWaitingForStep = true, expected }) => {
+                    const setDropTargetEdgeKey = jest.fn()
+                    const dropAt = jest.fn<void, [HogFlowEdge, boolean]>()
+                    const canvas = {
+                        edges,
+                        placeableEdgeKeys,
+                        isWaitingForStep,
+                        toFlowPoint: (screenPoint: Point) => screenPoint,
+                        dropTargetEdgeKey: null,
+                        setDropTargetEdgeKey,
+                        dropAt,
+                    }
+                    const over = dragAt(point, types, onPlus)
+
+                    handleStepDragOver(over, canvas)
+                    handleStepDrop(dragAt(point, types, onPlus), canvas)
+
+                    const accepted = expected.drops.length > 0
+                    expect(over.preventDefault).toHaveBeenCalledTimes(accepted ? 1 : 0)
+                    expect(over.dataTransfer.dropEffect).toBe(accepted ? 'move' : 'none')
+                    expect(setDropTargetEdgeKey.mock.calls.map(([key]) => key)).toEqual(expected.highlights)
+                    expect(dropAt.mock.calls.map(([edge, snapped]) => ({ to: edge.to, snapped }))).toEqual(
+                        expected.drops
+                    )
+                }
+            )
         })
     })
 })

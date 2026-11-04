@@ -6,8 +6,6 @@ import { cn } from 'lib/utils/css-classes'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
-import { getEdgeId } from '../../edgeId'
-import type { HogFlowEdge } from '../../types'
 import { CommandBar } from './CommandBar'
 import { PathChip } from './PathChip'
 import { PathFrame } from './PathFrame'
@@ -17,12 +15,14 @@ import { TileCanvasControls } from './TileCanvasControls'
 import { TileCanvasLayoutError } from './TileCanvasLayoutError'
 import { tileCanvasLogic } from './tileCanvasLogic'
 import { TileCanvasMeasureLayer } from './TileCanvasMeasureLayer'
-import { CANVAS_MIN_ZOOM, hasStepMenu, isOnQuickAdd, isStepDrag } from './tileCanvasModel'
+import { CANVAS_MIN_ZOOM, hasStepMenu } from './tileCanvasModel'
 import {
     buildCanvasEdges,
     buildCanvasNodes,
+    handleStepDragOver,
+    handleStepDrop,
     keepUnchangedNodes,
-    nearestInsertEdge,
+    StepDropCanvas,
     TileCanvasNode,
     TileEdgeType,
 } from './tileCanvasNodes'
@@ -113,43 +113,19 @@ export function TileCanvasContent(): JSX.Element {
     const hasMenu = (nodeId: string): boolean =>
         drawnGraph.nodes.some((node) => node.id === nodeId && node.kind === 'step' && hasStepMenu(node.action))
 
-    const isCanvasStepDrag = (event: DragEvent<HTMLDivElement>): boolean =>
-        isStepDrag(event.dataTransfer.types, !!nodeToBeAdded || isDraggingStep)
-
-    const dropEdgeAt = (event: DragEvent<HTMLDivElement>): HogFlowEdge | null =>
-        nearestInsertEdge(edges, screenToFlowPosition({ x: event.clientX, y: event.clientY }), placeableEdgeKeys)
-
-    const onDragOver = (event: DragEvent<HTMLDivElement>): void => {
-        if (!isCanvasStepDrag(event)) {
-            return
-        }
-        const edge = dropEdgeAt(event)
-        const key = edge ? getEdgeId(edge) : null
-        if (key !== dropTargetEdgeKey) {
-            setDropTargetEdgeKey(key)
-        }
-        // Accepting the drag only when a + can take the step shows the no-drop cursor everywhere else.
-        if (edge) {
-            event.preventDefault()
-            event.dataTransfer.dropEffect = 'move'
-        }
+    const stepDropCanvas: StepDropCanvas = {
+        edges,
+        placeableEdgeKeys,
+        isWaitingForStep: !!nodeToBeAdded || isDraggingStep,
+        toFlowPoint: screenToFlowPosition,
+        dropTargetEdgeKey,
+        setDropTargetEdgeKey,
+        dropAt,
     }
 
     const onDragLeave = (event: DragEvent<HTMLDivElement>): void => {
         if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
             setDropTargetEdgeKey(null)
-        }
-    }
-
-    const onDrop = (event: DragEvent<HTMLDivElement>): void => {
-        if (!isCanvasStepDrag(event)) {
-            return
-        }
-        const edge = dropEdgeAt(event)
-        setDropTargetEdgeKey(null)
-        if (edge) {
-            event.preventDefault()
-            dropAt(edge, !isOnQuickAdd(event.target))
         }
     }
 
@@ -179,9 +155,9 @@ export function TileCanvasContent(): JSX.Element {
             <div
                 ref={wrapperRef}
                 onKeyDown={onKeyDown}
-                onDragOver={onDragOver}
+                onDragOver={(event) => handleStepDragOver(event, stepDropCanvas)}
                 onDragLeave={onDragLeave}
-                onDrop={onDrop}
+                onDrop={(event) => handleStepDrop(event, stepDropCanvas)}
                 className="TileCanvas__flow @container/tile-canvas relative flex min-h-0 min-w-0 grow @max-[48rem]/workflow-editor:min-h-48"
             >
                 <ReactFlow<TileCanvasNode, TileEdgeType>

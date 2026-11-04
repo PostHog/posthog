@@ -788,14 +788,6 @@ export const STEP_DRAG_DATA_TYPE = 'application/x-posthog-workflow-step'
 
 export const QUICK_ADD_ATTR = 'workflow-tile-quick-add'
 
-export function isStepDrag(dataTypes: readonly string[], isWaitingForStep: boolean): boolean {
-    return isWaitingForStep && dataTypes.includes(STEP_DRAG_DATA_TYPE)
-}
-
-export function isOnQuickAdd(target: EventTarget | null): boolean {
-    return target instanceof Element && !!target.closest(`[data-attr="${QUICK_ADD_ATTR}"]`)
-}
-
 export type PaletteItem<Command extends PaletteCommand = PaletteCommand> =
     | { kind: 'step'; key: string; section: string; label: string; description?: string; step: CreateActionType }
     | { kind: 'command'; key: string; section: string; label: string; description?: string; command: Command }

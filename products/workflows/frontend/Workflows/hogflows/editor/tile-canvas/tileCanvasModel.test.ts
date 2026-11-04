@@ -5,18 +5,14 @@ import {
     countableStepMetrics,
     filterPaletteItems,
     isHeadingToRect,
-    isOnQuickAdd,
-    isStepDrag,
     layoutMiniFlow,
     PaletteCommand,
     PaletteSection,
     PathPlace,
-    QUICK_ADD_ATTR,
     stepCount,
     stepCountsRequest,
     viewportAfterResize,
     readableFitViewport,
-    STEP_DRAG_DATA_TYPE,
     viewportAnchoredOn,
     viewportToFit,
 } from './tileCanvasModel'
@@ -408,34 +404,6 @@ describe('tileCanvasModel', () => {
                 focus
             )
         ).toEqual(expected)
-    })
-
-    describe('canvas step drops', () => {
-        it.each([
-            ['takes a step drag while the canvas waits for a step', [STEP_DRAG_DATA_TYPE], true, true],
-            ['ignores a text drag while the canvas waits for a step', ['text/plain'], true, false],
-            ['ignores a step drag while the canvas waits for nothing', [STEP_DRAG_DATA_TYPE], false, false],
-        ])('%s', (_, dataTypes, isWaitingForStep, expected) => {
-            expect(isStepDrag(dataTypes, isWaitingForStep)).toBe(expected)
-        })
-
-        it.each([
-            ['reads a release on the + button as on it', (plus: HTMLElement) => plus, true],
-            ['reads a release on the icon inside the + as on it', (plus: HTMLElement) => plus.firstElementChild, true],
-            [
-                'reads a release on the canvas next to the + as snapped',
-                (plus: HTMLElement) => plus.parentElement,
-                false,
-            ],
-        ])('%s', (_, targetOf, expected) => {
-            const canvas = document.createElement('div')
-            const plus = document.createElement('button')
-            plus.setAttribute('data-attr', QUICK_ADD_ATTR)
-            plus.append(document.createElement('svg'))
-            canvas.append(plus)
-
-            expect(isOnQuickAdd(targetOf(plus))).toBe(expected)
-        })
     })
 })
 
