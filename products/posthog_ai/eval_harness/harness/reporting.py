@@ -85,6 +85,7 @@ class ProgressReporter:
         self._revision = revision
         self._worktree_dirty = worktree_dirty
         self._skills_snapshot: SkillSnapshot | None = None
+        self._ai_gateway_generations_path: Path | None = None
         self._total_suites = total_suites
         self._verbose = verbose
         self._lock = asyncio.Lock()
@@ -372,6 +373,10 @@ class ProgressReporter:
             progress = f"[{self._case_counts[experiment_name]}/{total} cases]" if total is not None else ""
             await asyncio.to_thread(_emit, f"EXPERIMENT DONE  {experiment_name}  {progress}")
 
+    def set_ai_gateway_generations(self, path: Path) -> None:
+        self._ai_gateway_generations_path = path
+        _emit(f"AI GATEWAY GENERATIONS  {path}")
+
     def set_skill_snapshot(self, snapshot: SkillSnapshot) -> None:
         self._skills_snapshot = snapshot
         _emit(f"SKILLS SNAPSHOT  sha256={snapshot.sha256}  manifest={snapshot.manifest_path}")
@@ -405,6 +410,7 @@ class ProgressReporter:
             runtime=options.agent_runtime,
             model=options.agent_model,
             reasoning_effort=options.reasoning_effort,
+            service_tier=options.service_tier,
             provider=options.provider,
             trials=options.trials,
             suite_ids=[suite.id for suite in suites],
@@ -420,6 +426,9 @@ class ProgressReporter:
             else None,
             skills_source_sha256=self._skills_snapshot.source_sha256 if self._skills_snapshot is not None else None,
             skills_archive_path=str(self._skills_snapshot.archive_path) if self._skills_snapshot is not None else None,
+            ai_gateway_generations_path=str(self._ai_gateway_generations_path)
+            if self._ai_gateway_generations_path is not None
+            else None,
         )
         options.results_file.parent.mkdir(parents=True, exist_ok=True)
         temporary = options.results_file.with_suffix(".tmp")
