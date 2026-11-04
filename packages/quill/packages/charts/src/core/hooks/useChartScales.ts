@@ -62,11 +62,12 @@ export function useChartScales({
                       hiddenAxes: yAxisHidden,
                   })
                 : []
-        const dimensions = widenToFitGutters(canvasDimensions, guttersFor(firstScales), {
-            left: fixedLeft,
-            right: fixedRight,
-        })
-        const scales = dimensions === canvasDimensions ? firstScales : createScales(series, labels, dimensions)
+        const firstGutters = guttersFor(firstScales)
+        const dimensions = widenToFitGutters(canvasDimensions, firstGutters, { left: fixedLeft, right: fixedRight })
+        if (dimensions === canvasDimensions) {
+            return { dimensions, scales: firstScales, yGutters: firstGutters, resolvedYFormatter }
+        }
+        const scales = createScales(series, labels, dimensions)
         return { dimensions, scales, yGutters: guttersFor(scales), resolvedYFormatter }
     }, [
         canvasDimensions,
