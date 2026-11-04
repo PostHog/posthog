@@ -1,13 +1,10 @@
 import logging
-from functools import partial
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandParser
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
-
-from posthog.plugins.plugin_server_api import reload_hog_flows_on_workers
 
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
@@ -106,20 +103,6 @@ class Command(BaseCommand):
                         locked.draft_updated_at = timezone.now()
                         update_fields += ["draft", "draft_updated_at"]
                     locked.save(update_fields=update_fields)
-
-                    # The post_save receiver publishes the worker reload from inside this
-                    # transaction, so a worker can re-read the row before the UPDATE commits and
-                    # cache the old blob for another refresh window. Publishing again on commit is
-                    # what workers actually act on; the duplicate is harmless. Draft-only strips
-                    # publish nothing, matching the receiver that skips them.
-                    if live_stripped:
-                        transaction.on_commit(
-                            partial(
-                                reload_hog_flows_on_workers,
-                                team_id=locked.team_id,
-                                hog_flow_ids=[str(locked.pk)],
-                            )
-                        )
             except Exception:
                 logger.exception("Failed to strip placeholder sender", extra={"hog_flow_id": str(flow.pk)})
                 self.stderr.write(f"  FAILED on flow id={flow.id} team_id={flow.team_id}; continuing")
