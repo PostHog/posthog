@@ -40,7 +40,7 @@ export function WorkflowRowMenu({ row }: { row: WorkflowListRow }): JSX.Element 
                                 }
                                 data-attr="workflow-move-to"
                             >
-                                Move to
+                                Move to…
                             </LemonButton>
                         </AccessControlAction>
                     )}
