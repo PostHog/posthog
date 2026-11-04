@@ -357,10 +357,11 @@ function FlameGraphInner<Meta = unknown>({
         const tick = (): void => {
             const t = Math.min(1, (monotonicNow() - start) / FOCUS_ANIMATION_MS)
             const eased = easeInOutCubic(t)
-            viewRef.current = {
-                x0: from.x0 + (target.x0 - from.x0) * eased,
-                x1: from.x1 + (target.x1 - from.x1) * eased,
-            }
+            // The last frame lands on the exact target, so a later equal window counts as unchanged.
+            viewRef.current =
+                t >= 1
+                    ? target
+                    : { x0: from.x0 + (target.x0 - from.x0) * eased, x1: from.x1 + (target.x1 - from.x1) * eased }
             paintRef.current()
             if (t < 1) {
                 scheduleFrame(animationRafRef, tick)

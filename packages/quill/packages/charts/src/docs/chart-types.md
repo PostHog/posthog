@@ -223,8 +223,8 @@ There is no `series` or `labels`.
 - Click zooms into a node over 280ms (instant under reduced motion): it spans the full width, its ancestors stay above it at full width and fade, and its siblings leave the view.
   A "+N more" cell zooms to just the bundled nodes.
   The breadcrumb row above the graph shows the path with a reset button, and Escape zooms out one level while the graph has keyboard focus.
-  `onNodeClick` fires after the zoom with the resolved `FlameNodeDatum`; set `clickToFocus: false` to only report clicks.
-  `onFocusChange` reports every zoom change as a `FlameHit` (`{ kind: 'node', node }` or `{ kind: 'bundle', bundle }`), with `null` for the whole graph.
+  `onNodeClick` fires on a click on a node, after the zoom starts, with the resolved `FlameNodeDatum`; set `clickToFocus: false` to report node clicks without zooming. "+N more" cells still zoom and are not reported.
+  `onFocusChange` reports each zoom from a click, the breadcrumb, the reset button or Escape as a `FlameHit` (`{ kind: 'node', node }` or `{ kind: 'bundle', bundle }`), with `null` for the whole graph. It does not fire when a data update drops the focused node and the view falls back to the whole graph.
   `defaultFocusedId` zooms into a node on mount only; to open on another node, give the chart a new `key`.
 - `search` is a case-insensitive substring matched against names.
   Matches keep their color, everything else turns a neutral gray, and the breadcrumb row shows the match count and the share of the graph's width they cover, counting a match nested in another match once.

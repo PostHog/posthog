@@ -158,14 +158,15 @@ export interface FlameGraphConfig {
     /** `top-down` (default) draws the roots at the top, as an icicle chart. `bottom-up` draws them
      *  at the bottom, as a classic flame graph. */
     direction?: 'top-down' | 'bottom-up'
-    /** Zoom into a node on click. Defaults to true. */
+    /** Zoom into a node on click. "+N more" cells still zoom. Defaults to true. */
     clickToFocus?: boolean
-    /** Show the breadcrumb row with the focus path and a reset button. Defaults to true. */
+    /** Show the breadcrumb row with the focus path and a reset button. Without it, Escape is the only
+     *  way to zoom out. Defaults to true. */
     showBreadcrumb?: boolean
     /** The color legend, for `group` and `diff` colors. Unlike other charts it shows by default, below
      *  the graph and aligned to the start. Honors `show`, `position`, `align` and `gap`; its rows list
      *  colors rather than series, so they are not clickable. */
-    legend?: ChartLegendConfig
+    legend?: Pick<ChartLegendConfig, 'show' | 'position' | 'align' | 'gap'>
     tooltip?: {
         /** Show the tooltip on hover. Defaults to true. */
         enabled?: boolean
@@ -198,7 +199,7 @@ export interface FlameGraphProps<Meta = unknown> {
     defaultFocusedId?: string | null
     /** Replaces the tooltip content. */
     tooltip?: (ctx: FlameTooltipContext<Meta>) => React.ReactNode
-    /** Fires on a click on a node, after any zoom. Not fired for "+N more" cells, which zoom. */
+    /** Fires on a click on a node, after the zoom starts. Not fired for "+N more" cells, which zoom. */
     onNodeClick?: (node: FlameNodeDatum<Meta>) => void
     /** Fires when the zoom changes through a click, the breadcrumb, the reset button or Escape, with
      *  the focused node or "+N more" bundle. `null` means the whole graph is in view. */

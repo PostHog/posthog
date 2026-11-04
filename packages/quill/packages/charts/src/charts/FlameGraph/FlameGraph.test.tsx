@@ -186,6 +186,16 @@ describe('FlameGraph', () => {
         }
     })
 
+    it('reports a click without zooming or showing a tooltip when both are off', () => {
+        const onNodeClick = jest.fn()
+        const { chart } = renderFlame({ onNodeClick, config: { clickToFocus: false, tooltip: { enabled: false } } })
+        fireEvent.mouseMove(chart.element, { clientX: 200, clientY: rowY(1) })
+        expect(getChartTooltip()).toBeNull()
+        fireEvent.click(chart.element, { clientX: 200, clientY: rowY(1) })
+        expect(onNodeClick).toHaveBeenCalledWith(expect.objectContaining({ id: 'root/a' }))
+        expect(chart.flame.breadcrumb()).toEqual(['All'])
+    })
+
     it('lists group colors through the shared legend accessor, largest self share first', () => {
         const data: FlameNode = {
             name: 'main',
