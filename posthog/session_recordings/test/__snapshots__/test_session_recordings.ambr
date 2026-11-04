@@ -233,6 +233,45 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_returns_newest_first.10
   '''
+  SELECT "posthog_externaldatasource"."created_by_id",
+         "posthog_externaldatasource"."created_at",
+         "posthog_externaldatasource"."updated_at",
+         "posthog_externaldatasource"."deleted",
+         "posthog_externaldatasource"."deleted_at",
+         "posthog_externaldatasource"."id",
+         "posthog_externaldatasource"."source_id",
+         "posthog_externaldatasource"."connection_id",
+         "posthog_externaldatasource"."destination_id",
+         "posthog_externaldatasource"."team_id",
+         "posthog_externaldatasource"."sync_frequency",
+         "posthog_externaldatasource"."status",
+         "posthog_externaldatasource"."source_type",
+         "posthog_externaldatasource"."api_version",
+         "posthog_externaldatasource"."job_inputs",
+         "posthog_externaldatasource"."credentials_integration_id",
+         "posthog_externaldatasource"."connection_metadata",
+         "posthog_externaldatasource"."are_tables_created",
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."description",
+         "posthog_externaldatasource"."created_via",
+         "posthog_externaldatasource"."access_method",
+         "posthog_externaldatasource"."direct_query_enabled",
+         "posthog_externaldatasource"."auto_sync_new_schemas",
+         "posthog_externaldatasource"."auto_sync_schema_patterns",
+         "posthog_externaldatasource"."revenue_analytics_enabled",
+         "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
+         "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
+         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges"
+  FROM "posthog_externaldatasource"
+  LEFT OUTER JOIN "posthog_externaldatasourcerevenueanalyticsconfig" ON ("posthog_externaldatasource"."id" = "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id")
+  WHERE ("posthog_externaldatasource"."team_id" = 99999
+         AND NOT ("posthog_externaldatasource"."deleted"
+                  AND "posthog_externaldatasource"."deleted" IS NOT NULL)
+         AND "posthog_externaldatasource"."source_type" IN ('Stripe'))
+  '''
+# ---
+# name: TestSessionRecordings.test_get_session_recordings_returns_newest_first.11
+  '''
   SELECT "posthog_datawarehousejoin"."created_by_id",
          "posthog_datawarehousejoin"."created_at",
          "posthog_datawarehousejoin"."deleted",
@@ -251,7 +290,7 @@
                   AND "posthog_datawarehousejoin"."deleted" IS NOT NULL))
   '''
 # ---
-# name: TestSessionRecordings.test_get_session_recordings_returns_newest_first.11
+# name: TestSessionRecordings.test_get_session_recordings_returns_newest_first.12
   '''
   SELECT "data_tools_datawarehouseexpression"."deleted",
          "data_tools_datawarehouseexpression"."deleted_at",
@@ -270,7 +309,7 @@
          AND "data_tools_datawarehouseexpression"."connection_id" IS NULL)
   '''
 # ---
-# name: TestSessionRecordings.test_get_session_recordings_returns_newest_first.12
+# name: TestSessionRecordings.test_get_session_recordings_returns_newest_first.13
   '''
   SELECT "posthog_datawarehousetable"."created_by_id",
          "posthog_datawarehousetable"."created_at",
@@ -303,7 +342,7 @@
   ORDER BY "posthog_datawarehousetable"."created_at" DESC
   '''
 # ---
-# name: TestSessionRecordings.test_get_session_recordings_returns_newest_first.13
+# name: TestSessionRecordings.test_get_session_recordings_returns_newest_first.14
   '''
   SELECT "posthog_sessionrecording"."id",
          "posthog_sessionrecording"."session_id",
@@ -331,7 +370,7 @@
          AND "posthog_sessionrecording"."team_id" = 99999)
   '''
 # ---
-# name: TestSessionRecordings.test_get_session_recordings_returns_newest_first.14
+# name: TestSessionRecordings.test_get_session_recordings_returns_newest_first.15
   '''
   SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id"
   FROM "posthog_sessionrecordingviewed"
@@ -340,19 +379,6 @@
          AND "posthog_sessionrecordingviewed"."session_id" IN ('new_session',
                                                                'middle_session',
                                                                'old_session'))
-  '''
-# ---
-# name: TestSessionRecordings.test_get_session_recordings_returns_newest_first.15
-  '''
-  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id",
-         "posthog_user"."email" AS "user__email"
-  FROM "posthog_sessionrecordingviewed"
-  INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
-  WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('new_session',
-                                                           'middle_session',
-                                                           'old_session')
-         AND "posthog_sessionrecordingviewed"."team_id" = 99999
-         AND NOT ("posthog_sessionrecordingviewed"."user_id" = 99999))
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_returns_newest_first.16
@@ -565,6 +591,15 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_returns_newest_first.7
   '''
+  SELECT "posthog_mcp_custom_harness"."name" AS "name",
+         "posthog_mcp_custom_harness"."match_pattern" AS "match_pattern"
+  FROM "posthog_mcp_custom_harness"
+  WHERE "posthog_mcp_custom_harness"."team_id" = 99999
+  ORDER BY LENGTH("posthog_mcp_custom_harness"."match_pattern") DESC, "posthog_mcp_custom_harness"."created_at" ASC
+  '''
+# ---
+# name: TestSessionRecordings.test_get_session_recordings_returns_newest_first.8
+  '''
   SELECT "posthog_datawarehousesavedquery"."created_by_id",
          "posthog_datawarehousesavedquery"."created_at",
          "posthog_datawarehousesavedquery"."updated_at",
@@ -628,7 +663,7 @@
   ORDER BY "posthog_datawarehousesavedquery"."name" ASC
   '''
 # ---
-# name: TestSessionRecordings.test_get_session_recordings_returns_newest_first.8
+# name: TestSessionRecordings.test_get_session_recordings_returns_newest_first.9
   '''
   SELECT "posthog_teamrevenueanalyticsconfig"."team_id",
          "posthog_teamrevenueanalyticsconfig"."filter_test_accounts",
@@ -639,45 +674,6 @@
   FROM "posthog_teamrevenueanalyticsconfig"
   WHERE "posthog_teamrevenueanalyticsconfig"."team_id" = 99999
   LIMIT 21
-  '''
-# ---
-# name: TestSessionRecordings.test_get_session_recordings_returns_newest_first.9
-  '''
-  SELECT "posthog_externaldatasource"."created_by_id",
-         "posthog_externaldatasource"."created_at",
-         "posthog_externaldatasource"."updated_at",
-         "posthog_externaldatasource"."deleted",
-         "posthog_externaldatasource"."deleted_at",
-         "posthog_externaldatasource"."id",
-         "posthog_externaldatasource"."source_id",
-         "posthog_externaldatasource"."connection_id",
-         "posthog_externaldatasource"."destination_id",
-         "posthog_externaldatasource"."team_id",
-         "posthog_externaldatasource"."sync_frequency",
-         "posthog_externaldatasource"."status",
-         "posthog_externaldatasource"."source_type",
-         "posthog_externaldatasource"."api_version",
-         "posthog_externaldatasource"."job_inputs",
-         "posthog_externaldatasource"."credentials_integration_id",
-         "posthog_externaldatasource"."connection_metadata",
-         "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix",
-         "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."created_via",
-         "posthog_externaldatasource"."access_method",
-         "posthog_externaldatasource"."direct_query_enabled",
-         "posthog_externaldatasource"."auto_sync_new_schemas",
-         "posthog_externaldatasource"."auto_sync_schema_patterns",
-         "posthog_externaldatasource"."revenue_analytics_enabled",
-         "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
-         "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
-         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges"
-  FROM "posthog_externaldatasource"
-  LEFT OUTER JOIN "posthog_externaldatasourcerevenueanalyticsconfig" ON ("posthog_externaldatasource"."id" = "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id")
-  WHERE ("posthog_externaldatasource"."team_id" = 99999
-         AND NOT ("posthog_externaldatasource"."deleted"
-                  AND "posthog_externaldatasource"."deleted" IS NOT NULL)
-         AND "posthog_externaldatasource"."source_type" IN ('Stripe'))
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_0_basic_listing
@@ -906,6 +902,45 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_0_basic_listing.10
   '''
+  SELECT "posthog_externaldatasource"."created_by_id",
+         "posthog_externaldatasource"."created_at",
+         "posthog_externaldatasource"."updated_at",
+         "posthog_externaldatasource"."deleted",
+         "posthog_externaldatasource"."deleted_at",
+         "posthog_externaldatasource"."id",
+         "posthog_externaldatasource"."source_id",
+         "posthog_externaldatasource"."connection_id",
+         "posthog_externaldatasource"."destination_id",
+         "posthog_externaldatasource"."team_id",
+         "posthog_externaldatasource"."sync_frequency",
+         "posthog_externaldatasource"."status",
+         "posthog_externaldatasource"."source_type",
+         "posthog_externaldatasource"."api_version",
+         "posthog_externaldatasource"."job_inputs",
+         "posthog_externaldatasource"."credentials_integration_id",
+         "posthog_externaldatasource"."connection_metadata",
+         "posthog_externaldatasource"."are_tables_created",
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."description",
+         "posthog_externaldatasource"."created_via",
+         "posthog_externaldatasource"."access_method",
+         "posthog_externaldatasource"."direct_query_enabled",
+         "posthog_externaldatasource"."auto_sync_new_schemas",
+         "posthog_externaldatasource"."auto_sync_schema_patterns",
+         "posthog_externaldatasource"."revenue_analytics_enabled",
+         "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
+         "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
+         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges"
+  FROM "posthog_externaldatasource"
+  LEFT OUTER JOIN "posthog_externaldatasourcerevenueanalyticsconfig" ON ("posthog_externaldatasource"."id" = "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id")
+  WHERE ("posthog_externaldatasource"."team_id" = 99999
+         AND NOT ("posthog_externaldatasource"."deleted"
+                  AND "posthog_externaldatasource"."deleted" IS NOT NULL)
+         AND "posthog_externaldatasource"."source_type" IN ('Stripe'))
+  '''
+# ---
+# name: TestSessionRecordings.test_get_session_recordings_scenarios_0_basic_listing.11
+  '''
   SELECT "posthog_datawarehousejoin"."created_by_id",
          "posthog_datawarehousejoin"."created_at",
          "posthog_datawarehousejoin"."deleted",
@@ -924,7 +959,7 @@
                   AND "posthog_datawarehousejoin"."deleted" IS NOT NULL))
   '''
 # ---
-# name: TestSessionRecordings.test_get_session_recordings_scenarios_0_basic_listing.11
+# name: TestSessionRecordings.test_get_session_recordings_scenarios_0_basic_listing.12
   '''
   SELECT "data_tools_datawarehouseexpression"."deleted",
          "data_tools_datawarehouseexpression"."deleted_at",
@@ -943,7 +978,7 @@
          AND "data_tools_datawarehouseexpression"."connection_id" IS NULL)
   '''
 # ---
-# name: TestSessionRecordings.test_get_session_recordings_scenarios_0_basic_listing.12
+# name: TestSessionRecordings.test_get_session_recordings_scenarios_0_basic_listing.13
   '''
   SELECT "posthog_datawarehousetable"."created_by_id",
          "posthog_datawarehousetable"."created_at",
@@ -976,7 +1011,7 @@
   ORDER BY "posthog_datawarehousetable"."created_at" DESC
   '''
 # ---
-# name: TestSessionRecordings.test_get_session_recordings_scenarios_0_basic_listing.13
+# name: TestSessionRecordings.test_get_session_recordings_scenarios_0_basic_listing.14
   '''
   SELECT "posthog_sessionrecording"."id",
          "posthog_sessionrecording"."session_id",
@@ -1003,7 +1038,7 @@
          AND "posthog_sessionrecording"."team_id" = 99999)
   '''
 # ---
-# name: TestSessionRecordings.test_get_session_recordings_scenarios_0_basic_listing.14
+# name: TestSessionRecordings.test_get_session_recordings_scenarios_0_basic_listing.15
   '''
   SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id"
   FROM "posthog_sessionrecordingviewed"
@@ -1011,18 +1046,6 @@
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
          AND "posthog_sessionrecordingviewed"."session_id" IN ('session2',
                                                                'session1'))
-  '''
-# ---
-# name: TestSessionRecordings.test_get_session_recordings_scenarios_0_basic_listing.15
-  '''
-  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id",
-         "posthog_user"."email" AS "user__email"
-  FROM "posthog_sessionrecordingviewed"
-  INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
-  WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('session2',
-                                                           'session1')
-         AND "posthog_sessionrecordingviewed"."team_id" = 99999
-         AND NOT ("posthog_sessionrecordingviewed"."user_id" = 99999))
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_0_basic_listing.16
@@ -1234,6 +1257,15 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_0_basic_listing.7
   '''
+  SELECT "posthog_mcp_custom_harness"."name" AS "name",
+         "posthog_mcp_custom_harness"."match_pattern" AS "match_pattern"
+  FROM "posthog_mcp_custom_harness"
+  WHERE "posthog_mcp_custom_harness"."team_id" = 99999
+  ORDER BY LENGTH("posthog_mcp_custom_harness"."match_pattern") DESC, "posthog_mcp_custom_harness"."created_at" ASC
+  '''
+# ---
+# name: TestSessionRecordings.test_get_session_recordings_scenarios_0_basic_listing.8
+  '''
   SELECT "posthog_datawarehousesavedquery"."created_by_id",
          "posthog_datawarehousesavedquery"."created_at",
          "posthog_datawarehousesavedquery"."updated_at",
@@ -1297,7 +1329,7 @@
   ORDER BY "posthog_datawarehousesavedquery"."name" ASC
   '''
 # ---
-# name: TestSessionRecordings.test_get_session_recordings_scenarios_0_basic_listing.8
+# name: TestSessionRecordings.test_get_session_recordings_scenarios_0_basic_listing.9
   '''
   SELECT "posthog_teamrevenueanalyticsconfig"."team_id",
          "posthog_teamrevenueanalyticsconfig"."filter_test_accounts",
@@ -1308,45 +1340,6 @@
   FROM "posthog_teamrevenueanalyticsconfig"
   WHERE "posthog_teamrevenueanalyticsconfig"."team_id" = 99999
   LIMIT 21
-  '''
-# ---
-# name: TestSessionRecordings.test_get_session_recordings_scenarios_0_basic_listing.9
-  '''
-  SELECT "posthog_externaldatasource"."created_by_id",
-         "posthog_externaldatasource"."created_at",
-         "posthog_externaldatasource"."updated_at",
-         "posthog_externaldatasource"."deleted",
-         "posthog_externaldatasource"."deleted_at",
-         "posthog_externaldatasource"."id",
-         "posthog_externaldatasource"."source_id",
-         "posthog_externaldatasource"."connection_id",
-         "posthog_externaldatasource"."destination_id",
-         "posthog_externaldatasource"."team_id",
-         "posthog_externaldatasource"."sync_frequency",
-         "posthog_externaldatasource"."status",
-         "posthog_externaldatasource"."source_type",
-         "posthog_externaldatasource"."api_version",
-         "posthog_externaldatasource"."job_inputs",
-         "posthog_externaldatasource"."credentials_integration_id",
-         "posthog_externaldatasource"."connection_metadata",
-         "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix",
-         "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."created_via",
-         "posthog_externaldatasource"."access_method",
-         "posthog_externaldatasource"."direct_query_enabled",
-         "posthog_externaldatasource"."auto_sync_new_schemas",
-         "posthog_externaldatasource"."auto_sync_schema_patterns",
-         "posthog_externaldatasource"."revenue_analytics_enabled",
-         "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
-         "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
-         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges"
-  FROM "posthog_externaldatasource"
-  LEFT OUTER JOIN "posthog_externaldatasourcerevenueanalyticsconfig" ON ("posthog_externaldatasource"."id" = "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id")
-  WHERE ("posthog_externaldatasource"."team_id" = 99999
-         AND NOT ("posthog_externaldatasource"."deleted"
-                  AND "posthog_externaldatasource"."deleted" IS NOT NULL)
-         AND "posthog_externaldatasource"."source_type" IN ('Stripe'))
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_1_multiple_snapshots
@@ -1575,6 +1568,45 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_1_multiple_snapshots.10
   '''
+  SELECT "posthog_externaldatasource"."created_by_id",
+         "posthog_externaldatasource"."created_at",
+         "posthog_externaldatasource"."updated_at",
+         "posthog_externaldatasource"."deleted",
+         "posthog_externaldatasource"."deleted_at",
+         "posthog_externaldatasource"."id",
+         "posthog_externaldatasource"."source_id",
+         "posthog_externaldatasource"."connection_id",
+         "posthog_externaldatasource"."destination_id",
+         "posthog_externaldatasource"."team_id",
+         "posthog_externaldatasource"."sync_frequency",
+         "posthog_externaldatasource"."status",
+         "posthog_externaldatasource"."source_type",
+         "posthog_externaldatasource"."api_version",
+         "posthog_externaldatasource"."job_inputs",
+         "posthog_externaldatasource"."credentials_integration_id",
+         "posthog_externaldatasource"."connection_metadata",
+         "posthog_externaldatasource"."are_tables_created",
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."description",
+         "posthog_externaldatasource"."created_via",
+         "posthog_externaldatasource"."access_method",
+         "posthog_externaldatasource"."direct_query_enabled",
+         "posthog_externaldatasource"."auto_sync_new_schemas",
+         "posthog_externaldatasource"."auto_sync_schema_patterns",
+         "posthog_externaldatasource"."revenue_analytics_enabled",
+         "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
+         "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
+         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges"
+  FROM "posthog_externaldatasource"
+  LEFT OUTER JOIN "posthog_externaldatasourcerevenueanalyticsconfig" ON ("posthog_externaldatasource"."id" = "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id")
+  WHERE ("posthog_externaldatasource"."team_id" = 99999
+         AND NOT ("posthog_externaldatasource"."deleted"
+                  AND "posthog_externaldatasource"."deleted" IS NOT NULL)
+         AND "posthog_externaldatasource"."source_type" IN ('Stripe'))
+  '''
+# ---
+# name: TestSessionRecordings.test_get_session_recordings_scenarios_1_multiple_snapshots.11
+  '''
   SELECT "posthog_datawarehousejoin"."created_by_id",
          "posthog_datawarehousejoin"."created_at",
          "posthog_datawarehousejoin"."deleted",
@@ -1593,7 +1625,7 @@
                   AND "posthog_datawarehousejoin"."deleted" IS NOT NULL))
   '''
 # ---
-# name: TestSessionRecordings.test_get_session_recordings_scenarios_1_multiple_snapshots.11
+# name: TestSessionRecordings.test_get_session_recordings_scenarios_1_multiple_snapshots.12
   '''
   SELECT "data_tools_datawarehouseexpression"."deleted",
          "data_tools_datawarehouseexpression"."deleted_at",
@@ -1612,7 +1644,7 @@
          AND "data_tools_datawarehouseexpression"."connection_id" IS NULL)
   '''
 # ---
-# name: TestSessionRecordings.test_get_session_recordings_scenarios_1_multiple_snapshots.12
+# name: TestSessionRecordings.test_get_session_recordings_scenarios_1_multiple_snapshots.13
   '''
   SELECT "posthog_datawarehousetable"."created_by_id",
          "posthog_datawarehousetable"."created_at",
@@ -1645,7 +1677,7 @@
   ORDER BY "posthog_datawarehousetable"."created_at" DESC
   '''
 # ---
-# name: TestSessionRecordings.test_get_session_recordings_scenarios_1_multiple_snapshots.13
+# name: TestSessionRecordings.test_get_session_recordings_scenarios_1_multiple_snapshots.14
   '''
   SELECT "posthog_sessionrecording"."id",
          "posthog_sessionrecording"."session_id",
@@ -1671,24 +1703,13 @@
          AND "posthog_sessionrecording"."team_id" = 99999)
   '''
 # ---
-# name: TestSessionRecordings.test_get_session_recordings_scenarios_1_multiple_snapshots.14
+# name: TestSessionRecordings.test_get_session_recordings_scenarios_1_multiple_snapshots.15
   '''
   SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id"
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
          AND "posthog_sessionrecordingviewed"."session_id" IN ('session_with_duration'))
-  '''
-# ---
-# name: TestSessionRecordings.test_get_session_recordings_scenarios_1_multiple_snapshots.15
-  '''
-  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id",
-         "posthog_user"."email" AS "user__email"
-  FROM "posthog_sessionrecordingviewed"
-  INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
-  WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('session_with_duration')
-         AND "posthog_sessionrecordingviewed"."team_id" = 99999
-         AND NOT ("posthog_sessionrecordingviewed"."user_id" = 99999))
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_1_multiple_snapshots.16
@@ -1899,6 +1920,15 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_1_multiple_snapshots.7
   '''
+  SELECT "posthog_mcp_custom_harness"."name" AS "name",
+         "posthog_mcp_custom_harness"."match_pattern" AS "match_pattern"
+  FROM "posthog_mcp_custom_harness"
+  WHERE "posthog_mcp_custom_harness"."team_id" = 99999
+  ORDER BY LENGTH("posthog_mcp_custom_harness"."match_pattern") DESC, "posthog_mcp_custom_harness"."created_at" ASC
+  '''
+# ---
+# name: TestSessionRecordings.test_get_session_recordings_scenarios_1_multiple_snapshots.8
+  '''
   SELECT "posthog_datawarehousesavedquery"."created_by_id",
          "posthog_datawarehousesavedquery"."created_at",
          "posthog_datawarehousesavedquery"."updated_at",
@@ -1962,7 +1992,7 @@
   ORDER BY "posthog_datawarehousesavedquery"."name" ASC
   '''
 # ---
-# name: TestSessionRecordings.test_get_session_recordings_scenarios_1_multiple_snapshots.8
+# name: TestSessionRecordings.test_get_session_recordings_scenarios_1_multiple_snapshots.9
   '''
   SELECT "posthog_teamrevenueanalyticsconfig"."team_id",
          "posthog_teamrevenueanalyticsconfig"."filter_test_accounts",
@@ -1973,45 +2003,6 @@
   FROM "posthog_teamrevenueanalyticsconfig"
   WHERE "posthog_teamrevenueanalyticsconfig"."team_id" = 99999
   LIMIT 21
-  '''
-# ---
-# name: TestSessionRecordings.test_get_session_recordings_scenarios_1_multiple_snapshots.9
-  '''
-  SELECT "posthog_externaldatasource"."created_by_id",
-         "posthog_externaldatasource"."created_at",
-         "posthog_externaldatasource"."updated_at",
-         "posthog_externaldatasource"."deleted",
-         "posthog_externaldatasource"."deleted_at",
-         "posthog_externaldatasource"."id",
-         "posthog_externaldatasource"."source_id",
-         "posthog_externaldatasource"."connection_id",
-         "posthog_externaldatasource"."destination_id",
-         "posthog_externaldatasource"."team_id",
-         "posthog_externaldatasource"."sync_frequency",
-         "posthog_externaldatasource"."status",
-         "posthog_externaldatasource"."source_type",
-         "posthog_externaldatasource"."api_version",
-         "posthog_externaldatasource"."job_inputs",
-         "posthog_externaldatasource"."credentials_integration_id",
-         "posthog_externaldatasource"."connection_metadata",
-         "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix",
-         "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."created_via",
-         "posthog_externaldatasource"."access_method",
-         "posthog_externaldatasource"."direct_query_enabled",
-         "posthog_externaldatasource"."auto_sync_new_schemas",
-         "posthog_externaldatasource"."auto_sync_schema_patterns",
-         "posthog_externaldatasource"."revenue_analytics_enabled",
-         "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
-         "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
-         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges"
-  FROM "posthog_externaldatasource"
-  LEFT OUTER JOIN "posthog_externaldatasourcerevenueanalyticsconfig" ON ("posthog_externaldatasource"."id" = "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id")
-  WHERE ("posthog_externaldatasource"."team_id" = 99999
-         AND NOT ("posthog_externaldatasource"."deleted"
-                  AND "posthog_externaldatasource"."deleted" IS NOT NULL)
-         AND "posthog_externaldatasource"."source_type" IN ('Stripe'))
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_2_many_distinct_ids
@@ -2240,6 +2231,45 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_2_many_distinct_ids.10
   '''
+  SELECT "posthog_externaldatasource"."created_by_id",
+         "posthog_externaldatasource"."created_at",
+         "posthog_externaldatasource"."updated_at",
+         "posthog_externaldatasource"."deleted",
+         "posthog_externaldatasource"."deleted_at",
+         "posthog_externaldatasource"."id",
+         "posthog_externaldatasource"."source_id",
+         "posthog_externaldatasource"."connection_id",
+         "posthog_externaldatasource"."destination_id",
+         "posthog_externaldatasource"."team_id",
+         "posthog_externaldatasource"."sync_frequency",
+         "posthog_externaldatasource"."status",
+         "posthog_externaldatasource"."source_type",
+         "posthog_externaldatasource"."api_version",
+         "posthog_externaldatasource"."job_inputs",
+         "posthog_externaldatasource"."credentials_integration_id",
+         "posthog_externaldatasource"."connection_metadata",
+         "posthog_externaldatasource"."are_tables_created",
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."description",
+         "posthog_externaldatasource"."created_via",
+         "posthog_externaldatasource"."access_method",
+         "posthog_externaldatasource"."direct_query_enabled",
+         "posthog_externaldatasource"."auto_sync_new_schemas",
+         "posthog_externaldatasource"."auto_sync_schema_patterns",
+         "posthog_externaldatasource"."revenue_analytics_enabled",
+         "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
+         "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
+         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges"
+  FROM "posthog_externaldatasource"
+  LEFT OUTER JOIN "posthog_externaldatasourcerevenueanalyticsconfig" ON ("posthog_externaldatasource"."id" = "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id")
+  WHERE ("posthog_externaldatasource"."team_id" = 99999
+         AND NOT ("posthog_externaldatasource"."deleted"
+                  AND "posthog_externaldatasource"."deleted" IS NOT NULL)
+         AND "posthog_externaldatasource"."source_type" IN ('Stripe'))
+  '''
+# ---
+# name: TestSessionRecordings.test_get_session_recordings_scenarios_2_many_distinct_ids.11
+  '''
   SELECT "posthog_datawarehousejoin"."created_by_id",
          "posthog_datawarehousejoin"."created_at",
          "posthog_datawarehousejoin"."deleted",
@@ -2258,7 +2288,7 @@
                   AND "posthog_datawarehousejoin"."deleted" IS NOT NULL))
   '''
 # ---
-# name: TestSessionRecordings.test_get_session_recordings_scenarios_2_many_distinct_ids.11
+# name: TestSessionRecordings.test_get_session_recordings_scenarios_2_many_distinct_ids.12
   '''
   SELECT "data_tools_datawarehouseexpression"."deleted",
          "data_tools_datawarehouseexpression"."deleted_at",
@@ -2277,7 +2307,7 @@
          AND "data_tools_datawarehouseexpression"."connection_id" IS NULL)
   '''
 # ---
-# name: TestSessionRecordings.test_get_session_recordings_scenarios_2_many_distinct_ids.12
+# name: TestSessionRecordings.test_get_session_recordings_scenarios_2_many_distinct_ids.13
   '''
   SELECT "posthog_datawarehousetable"."created_by_id",
          "posthog_datawarehousetable"."created_at",
@@ -2310,7 +2340,7 @@
   ORDER BY "posthog_datawarehousetable"."created_at" DESC
   '''
 # ---
-# name: TestSessionRecordings.test_get_session_recordings_scenarios_2_many_distinct_ids.13
+# name: TestSessionRecordings.test_get_session_recordings_scenarios_2_many_distinct_ids.14
   '''
   SELECT "posthog_sessionrecording"."id",
          "posthog_sessionrecording"."session_id",
@@ -2336,24 +2366,13 @@
          AND "posthog_sessionrecording"."team_id" = 99999)
   '''
 # ---
-# name: TestSessionRecordings.test_get_session_recordings_scenarios_2_many_distinct_ids.14
+# name: TestSessionRecordings.test_get_session_recordings_scenarios_2_many_distinct_ids.15
   '''
   SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id"
   FROM "posthog_sessionrecordingviewed"
   WHERE ("posthog_sessionrecordingviewed"."team_id" = 99999
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
          AND "posthog_sessionrecordingviewed"."session_id" IN ('session_many_ids'))
-  '''
-# ---
-# name: TestSessionRecordings.test_get_session_recordings_scenarios_2_many_distinct_ids.15
-  '''
-  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id",
-         "posthog_user"."email" AS "user__email"
-  FROM "posthog_sessionrecordingviewed"
-  INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
-  WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('session_many_ids')
-         AND "posthog_sessionrecordingviewed"."team_id" = 99999
-         AND NOT ("posthog_sessionrecordingviewed"."user_id" = 99999))
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_2_many_distinct_ids.16
@@ -2564,6 +2583,15 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_scenarios_2_many_distinct_ids.7
   '''
+  SELECT "posthog_mcp_custom_harness"."name" AS "name",
+         "posthog_mcp_custom_harness"."match_pattern" AS "match_pattern"
+  FROM "posthog_mcp_custom_harness"
+  WHERE "posthog_mcp_custom_harness"."team_id" = 99999
+  ORDER BY LENGTH("posthog_mcp_custom_harness"."match_pattern") DESC, "posthog_mcp_custom_harness"."created_at" ASC
+  '''
+# ---
+# name: TestSessionRecordings.test_get_session_recordings_scenarios_2_many_distinct_ids.8
+  '''
   SELECT "posthog_datawarehousesavedquery"."created_by_id",
          "posthog_datawarehousesavedquery"."created_at",
          "posthog_datawarehousesavedquery"."updated_at",
@@ -2627,7 +2655,7 @@
   ORDER BY "posthog_datawarehousesavedquery"."name" ASC
   '''
 # ---
-# name: TestSessionRecordings.test_get_session_recordings_scenarios_2_many_distinct_ids.8
+# name: TestSessionRecordings.test_get_session_recordings_scenarios_2_many_distinct_ids.9
   '''
   SELECT "posthog_teamrevenueanalyticsconfig"."team_id",
          "posthog_teamrevenueanalyticsconfig"."filter_test_accounts",
@@ -2638,45 +2666,6 @@
   FROM "posthog_teamrevenueanalyticsconfig"
   WHERE "posthog_teamrevenueanalyticsconfig"."team_id" = 99999
   LIMIT 21
-  '''
-# ---
-# name: TestSessionRecordings.test_get_session_recordings_scenarios_2_many_distinct_ids.9
-  '''
-  SELECT "posthog_externaldatasource"."created_by_id",
-         "posthog_externaldatasource"."created_at",
-         "posthog_externaldatasource"."updated_at",
-         "posthog_externaldatasource"."deleted",
-         "posthog_externaldatasource"."deleted_at",
-         "posthog_externaldatasource"."id",
-         "posthog_externaldatasource"."source_id",
-         "posthog_externaldatasource"."connection_id",
-         "posthog_externaldatasource"."destination_id",
-         "posthog_externaldatasource"."team_id",
-         "posthog_externaldatasource"."sync_frequency",
-         "posthog_externaldatasource"."status",
-         "posthog_externaldatasource"."source_type",
-         "posthog_externaldatasource"."api_version",
-         "posthog_externaldatasource"."job_inputs",
-         "posthog_externaldatasource"."credentials_integration_id",
-         "posthog_externaldatasource"."connection_metadata",
-         "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix",
-         "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."created_via",
-         "posthog_externaldatasource"."access_method",
-         "posthog_externaldatasource"."direct_query_enabled",
-         "posthog_externaldatasource"."auto_sync_new_schemas",
-         "posthog_externaldatasource"."auto_sync_schema_patterns",
-         "posthog_externaldatasource"."revenue_analytics_enabled",
-         "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
-         "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
-         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges"
-  FROM "posthog_externaldatasource"
-  LEFT OUTER JOIN "posthog_externaldatasourcerevenueanalyticsconfig" ON ("posthog_externaldatasource"."id" = "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id")
-  WHERE ("posthog_externaldatasource"."team_id" = 99999
-         AND NOT ("posthog_externaldatasource"."deleted"
-                  AND "posthog_externaldatasource"."deleted" IS NOT NULL)
-         AND "posthog_externaldatasource"."source_type" IN ('Stripe'))
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_
@@ -2905,6 +2894,45 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.10
   '''
+  SELECT "posthog_externaldatasource"."created_by_id",
+         "posthog_externaldatasource"."created_at",
+         "posthog_externaldatasource"."updated_at",
+         "posthog_externaldatasource"."deleted",
+         "posthog_externaldatasource"."deleted_at",
+         "posthog_externaldatasource"."id",
+         "posthog_externaldatasource"."source_id",
+         "posthog_externaldatasource"."connection_id",
+         "posthog_externaldatasource"."destination_id",
+         "posthog_externaldatasource"."team_id",
+         "posthog_externaldatasource"."sync_frequency",
+         "posthog_externaldatasource"."status",
+         "posthog_externaldatasource"."source_type",
+         "posthog_externaldatasource"."api_version",
+         "posthog_externaldatasource"."job_inputs",
+         "posthog_externaldatasource"."credentials_integration_id",
+         "posthog_externaldatasource"."connection_metadata",
+         "posthog_externaldatasource"."are_tables_created",
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."description",
+         "posthog_externaldatasource"."created_via",
+         "posthog_externaldatasource"."access_method",
+         "posthog_externaldatasource"."direct_query_enabled",
+         "posthog_externaldatasource"."auto_sync_new_schemas",
+         "posthog_externaldatasource"."auto_sync_schema_patterns",
+         "posthog_externaldatasource"."revenue_analytics_enabled",
+         "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
+         "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
+         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges"
+  FROM "posthog_externaldatasource"
+  LEFT OUTER JOIN "posthog_externaldatasourcerevenueanalyticsconfig" ON ("posthog_externaldatasource"."id" = "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id")
+  WHERE ("posthog_externaldatasource"."team_id" = 99999
+         AND NOT ("posthog_externaldatasource"."deleted"
+                  AND "posthog_externaldatasource"."deleted" IS NOT NULL)
+         AND "posthog_externaldatasource"."source_type" IN ('Stripe'))
+  '''
+# ---
+# name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.11
+  '''
   SELECT "posthog_datawarehousejoin"."created_by_id",
          "posthog_datawarehousejoin"."created_at",
          "posthog_datawarehousejoin"."deleted",
@@ -2923,7 +2951,7 @@
                   AND "posthog_datawarehousejoin"."deleted" IS NOT NULL))
   '''
 # ---
-# name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.11
+# name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.12
   '''
   SELECT "data_tools_datawarehouseexpression"."deleted",
          "data_tools_datawarehouseexpression"."deleted_at",
@@ -2942,7 +2970,7 @@
          AND "data_tools_datawarehouseexpression"."connection_id" IS NULL)
   '''
 # ---
-# name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.12
+# name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.13
   '''
   SELECT "posthog_datawarehousetable"."created_by_id",
          "posthog_datawarehousetable"."created_at",
@@ -2975,7 +3003,7 @@
   ORDER BY "posthog_datawarehousetable"."created_at" DESC
   '''
 # ---
-# name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.13
+# name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.14
   '''
   SELECT "posthog_sessionrecording"."id",
          "posthog_sessionrecording"."session_id",
@@ -3002,7 +3030,7 @@
          AND "posthog_sessionrecording"."team_id" = 99999)
   '''
 # ---
-# name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.14
+# name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.15
   '''
   SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id"
   FROM "posthog_sessionrecordingviewed"
@@ -3010,18 +3038,6 @@
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
          AND "posthog_sessionrecordingviewed"."session_id" IN ('at_base_time_plus_20',
                                                                'at_base_time'))
-  '''
-# ---
-# name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.15
-  '''
-  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id",
-         "posthog_user"."email" AS "user__email"
-  FROM "posthog_sessionrecordingviewed"
-  INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
-  WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('at_base_time_plus_20',
-                                                           'at_base_time')
-         AND "posthog_sessionrecordingviewed"."team_id" = 99999
-         AND NOT ("posthog_sessionrecordingviewed"."user_id" = 99999))
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.16
@@ -3233,6 +3249,15 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.7
   '''
+  SELECT "posthog_mcp_custom_harness"."name" AS "name",
+         "posthog_mcp_custom_harness"."match_pattern" AS "match_pattern"
+  FROM "posthog_mcp_custom_harness"
+  WHERE "posthog_mcp_custom_harness"."team_id" = 99999
+  ORDER BY LENGTH("posthog_mcp_custom_harness"."match_pattern") DESC, "posthog_mcp_custom_harness"."created_at" ASC
+  '''
+# ---
+# name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.8
+  '''
   SELECT "posthog_datawarehousesavedquery"."created_by_id",
          "posthog_datawarehousesavedquery"."created_at",
          "posthog_datawarehousesavedquery"."updated_at",
@@ -3296,7 +3321,7 @@
   ORDER BY "posthog_datawarehousesavedquery"."name" ASC
   '''
 # ---
-# name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.8
+# name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.9
   '''
   SELECT "posthog_teamrevenueanalyticsconfig"."team_id",
          "posthog_teamrevenueanalyticsconfig"."filter_test_accounts",
@@ -3307,45 +3332,6 @@
   FROM "posthog_teamrevenueanalyticsconfig"
   WHERE "posthog_teamrevenueanalyticsconfig"."team_id" = 99999
   LIMIT 21
-  '''
-# ---
-# name: TestSessionRecordings.test_get_session_recordings_sorted_0_descending_original_.9
-  '''
-  SELECT "posthog_externaldatasource"."created_by_id",
-         "posthog_externaldatasource"."created_at",
-         "posthog_externaldatasource"."updated_at",
-         "posthog_externaldatasource"."deleted",
-         "posthog_externaldatasource"."deleted_at",
-         "posthog_externaldatasource"."id",
-         "posthog_externaldatasource"."source_id",
-         "posthog_externaldatasource"."connection_id",
-         "posthog_externaldatasource"."destination_id",
-         "posthog_externaldatasource"."team_id",
-         "posthog_externaldatasource"."sync_frequency",
-         "posthog_externaldatasource"."status",
-         "posthog_externaldatasource"."source_type",
-         "posthog_externaldatasource"."api_version",
-         "posthog_externaldatasource"."job_inputs",
-         "posthog_externaldatasource"."credentials_integration_id",
-         "posthog_externaldatasource"."connection_metadata",
-         "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix",
-         "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."created_via",
-         "posthog_externaldatasource"."access_method",
-         "posthog_externaldatasource"."direct_query_enabled",
-         "posthog_externaldatasource"."auto_sync_new_schemas",
-         "posthog_externaldatasource"."auto_sync_schema_patterns",
-         "posthog_externaldatasource"."revenue_analytics_enabled",
-         "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
-         "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
-         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges"
-  FROM "posthog_externaldatasource"
-  LEFT OUTER JOIN "posthog_externaldatasourcerevenueanalyticsconfig" ON ("posthog_externaldatasource"."id" = "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id")
-  WHERE ("posthog_externaldatasource"."team_id" = 99999
-         AND NOT ("posthog_externaldatasource"."deleted"
-                  AND "posthog_externaldatasource"."deleted" IS NOT NULL)
-         AND "posthog_externaldatasource"."source_type" IN ('Stripe'))
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_1_descending
@@ -3574,6 +3560,45 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_1_descending.10
   '''
+  SELECT "posthog_externaldatasource"."created_by_id",
+         "posthog_externaldatasource"."created_at",
+         "posthog_externaldatasource"."updated_at",
+         "posthog_externaldatasource"."deleted",
+         "posthog_externaldatasource"."deleted_at",
+         "posthog_externaldatasource"."id",
+         "posthog_externaldatasource"."source_id",
+         "posthog_externaldatasource"."connection_id",
+         "posthog_externaldatasource"."destination_id",
+         "posthog_externaldatasource"."team_id",
+         "posthog_externaldatasource"."sync_frequency",
+         "posthog_externaldatasource"."status",
+         "posthog_externaldatasource"."source_type",
+         "posthog_externaldatasource"."api_version",
+         "posthog_externaldatasource"."job_inputs",
+         "posthog_externaldatasource"."credentials_integration_id",
+         "posthog_externaldatasource"."connection_metadata",
+         "posthog_externaldatasource"."are_tables_created",
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."description",
+         "posthog_externaldatasource"."created_via",
+         "posthog_externaldatasource"."access_method",
+         "posthog_externaldatasource"."direct_query_enabled",
+         "posthog_externaldatasource"."auto_sync_new_schemas",
+         "posthog_externaldatasource"."auto_sync_schema_patterns",
+         "posthog_externaldatasource"."revenue_analytics_enabled",
+         "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
+         "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
+         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges"
+  FROM "posthog_externaldatasource"
+  LEFT OUTER JOIN "posthog_externaldatasourcerevenueanalyticsconfig" ON ("posthog_externaldatasource"."id" = "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id")
+  WHERE ("posthog_externaldatasource"."team_id" = 99999
+         AND NOT ("posthog_externaldatasource"."deleted"
+                  AND "posthog_externaldatasource"."deleted" IS NOT NULL)
+         AND "posthog_externaldatasource"."source_type" IN ('Stripe'))
+  '''
+# ---
+# name: TestSessionRecordings.test_get_session_recordings_sorted_1_descending.11
+  '''
   SELECT "posthog_datawarehousejoin"."created_by_id",
          "posthog_datawarehousejoin"."created_at",
          "posthog_datawarehousejoin"."deleted",
@@ -3592,7 +3617,7 @@
                   AND "posthog_datawarehousejoin"."deleted" IS NOT NULL))
   '''
 # ---
-# name: TestSessionRecordings.test_get_session_recordings_sorted_1_descending.11
+# name: TestSessionRecordings.test_get_session_recordings_sorted_1_descending.12
   '''
   SELECT "data_tools_datawarehouseexpression"."deleted",
          "data_tools_datawarehouseexpression"."deleted_at",
@@ -3611,7 +3636,7 @@
          AND "data_tools_datawarehouseexpression"."connection_id" IS NULL)
   '''
 # ---
-# name: TestSessionRecordings.test_get_session_recordings_sorted_1_descending.12
+# name: TestSessionRecordings.test_get_session_recordings_sorted_1_descending.13
   '''
   SELECT "posthog_datawarehousetable"."created_by_id",
          "posthog_datawarehousetable"."created_at",
@@ -3644,7 +3669,7 @@
   ORDER BY "posthog_datawarehousetable"."created_at" DESC
   '''
 # ---
-# name: TestSessionRecordings.test_get_session_recordings_sorted_1_descending.13
+# name: TestSessionRecordings.test_get_session_recordings_sorted_1_descending.14
   '''
   SELECT "posthog_sessionrecording"."id",
          "posthog_sessionrecording"."session_id",
@@ -3671,7 +3696,7 @@
          AND "posthog_sessionrecording"."team_id" = 99999)
   '''
 # ---
-# name: TestSessionRecordings.test_get_session_recordings_sorted_1_descending.14
+# name: TestSessionRecordings.test_get_session_recordings_sorted_1_descending.15
   '''
   SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id"
   FROM "posthog_sessionrecordingviewed"
@@ -3679,18 +3704,6 @@
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
          AND "posthog_sessionrecordingviewed"."session_id" IN ('at_base_time_plus_20',
                                                                'at_base_time'))
-  '''
-# ---
-# name: TestSessionRecordings.test_get_session_recordings_sorted_1_descending.15
-  '''
-  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id",
-         "posthog_user"."email" AS "user__email"
-  FROM "posthog_sessionrecordingviewed"
-  INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
-  WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('at_base_time_plus_20',
-                                                           'at_base_time')
-         AND "posthog_sessionrecordingviewed"."team_id" = 99999
-         AND NOT ("posthog_sessionrecordingviewed"."user_id" = 99999))
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_1_descending.16
@@ -3902,6 +3915,15 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_1_descending.7
   '''
+  SELECT "posthog_mcp_custom_harness"."name" AS "name",
+         "posthog_mcp_custom_harness"."match_pattern" AS "match_pattern"
+  FROM "posthog_mcp_custom_harness"
+  WHERE "posthog_mcp_custom_harness"."team_id" = 99999
+  ORDER BY LENGTH("posthog_mcp_custom_harness"."match_pattern") DESC, "posthog_mcp_custom_harness"."created_at" ASC
+  '''
+# ---
+# name: TestSessionRecordings.test_get_session_recordings_sorted_1_descending.8
+  '''
   SELECT "posthog_datawarehousesavedquery"."created_by_id",
          "posthog_datawarehousesavedquery"."created_at",
          "posthog_datawarehousesavedquery"."updated_at",
@@ -3965,7 +3987,7 @@
   ORDER BY "posthog_datawarehousesavedquery"."name" ASC
   '''
 # ---
-# name: TestSessionRecordings.test_get_session_recordings_sorted_1_descending.8
+# name: TestSessionRecordings.test_get_session_recordings_sorted_1_descending.9
   '''
   SELECT "posthog_teamrevenueanalyticsconfig"."team_id",
          "posthog_teamrevenueanalyticsconfig"."filter_test_accounts",
@@ -3976,45 +3998,6 @@
   FROM "posthog_teamrevenueanalyticsconfig"
   WHERE "posthog_teamrevenueanalyticsconfig"."team_id" = 99999
   LIMIT 21
-  '''
-# ---
-# name: TestSessionRecordings.test_get_session_recordings_sorted_1_descending.9
-  '''
-  SELECT "posthog_externaldatasource"."created_by_id",
-         "posthog_externaldatasource"."created_at",
-         "posthog_externaldatasource"."updated_at",
-         "posthog_externaldatasource"."deleted",
-         "posthog_externaldatasource"."deleted_at",
-         "posthog_externaldatasource"."id",
-         "posthog_externaldatasource"."source_id",
-         "posthog_externaldatasource"."connection_id",
-         "posthog_externaldatasource"."destination_id",
-         "posthog_externaldatasource"."team_id",
-         "posthog_externaldatasource"."sync_frequency",
-         "posthog_externaldatasource"."status",
-         "posthog_externaldatasource"."source_type",
-         "posthog_externaldatasource"."api_version",
-         "posthog_externaldatasource"."job_inputs",
-         "posthog_externaldatasource"."credentials_integration_id",
-         "posthog_externaldatasource"."connection_metadata",
-         "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix",
-         "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."created_via",
-         "posthog_externaldatasource"."access_method",
-         "posthog_externaldatasource"."direct_query_enabled",
-         "posthog_externaldatasource"."auto_sync_new_schemas",
-         "posthog_externaldatasource"."auto_sync_schema_patterns",
-         "posthog_externaldatasource"."revenue_analytics_enabled",
-         "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
-         "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
-         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges"
-  FROM "posthog_externaldatasource"
-  LEFT OUTER JOIN "posthog_externaldatasourcerevenueanalyticsconfig" ON ("posthog_externaldatasource"."id" = "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id")
-  WHERE ("posthog_externaldatasource"."team_id" = 99999
-         AND NOT ("posthog_externaldatasource"."deleted"
-                  AND "posthog_externaldatasource"."deleted" IS NOT NULL)
-         AND "posthog_externaldatasource"."source_type" IN ('Stripe'))
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_2_ascending
@@ -4243,6 +4226,45 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_2_ascending.10
   '''
+  SELECT "posthog_externaldatasource"."created_by_id",
+         "posthog_externaldatasource"."created_at",
+         "posthog_externaldatasource"."updated_at",
+         "posthog_externaldatasource"."deleted",
+         "posthog_externaldatasource"."deleted_at",
+         "posthog_externaldatasource"."id",
+         "posthog_externaldatasource"."source_id",
+         "posthog_externaldatasource"."connection_id",
+         "posthog_externaldatasource"."destination_id",
+         "posthog_externaldatasource"."team_id",
+         "posthog_externaldatasource"."sync_frequency",
+         "posthog_externaldatasource"."status",
+         "posthog_externaldatasource"."source_type",
+         "posthog_externaldatasource"."api_version",
+         "posthog_externaldatasource"."job_inputs",
+         "posthog_externaldatasource"."credentials_integration_id",
+         "posthog_externaldatasource"."connection_metadata",
+         "posthog_externaldatasource"."are_tables_created",
+         "posthog_externaldatasource"."prefix",
+         "posthog_externaldatasource"."description",
+         "posthog_externaldatasource"."created_via",
+         "posthog_externaldatasource"."access_method",
+         "posthog_externaldatasource"."direct_query_enabled",
+         "posthog_externaldatasource"."auto_sync_new_schemas",
+         "posthog_externaldatasource"."auto_sync_schema_patterns",
+         "posthog_externaldatasource"."revenue_analytics_enabled",
+         "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
+         "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
+         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges"
+  FROM "posthog_externaldatasource"
+  LEFT OUTER JOIN "posthog_externaldatasourcerevenueanalyticsconfig" ON ("posthog_externaldatasource"."id" = "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id")
+  WHERE ("posthog_externaldatasource"."team_id" = 99999
+         AND NOT ("posthog_externaldatasource"."deleted"
+                  AND "posthog_externaldatasource"."deleted" IS NOT NULL)
+         AND "posthog_externaldatasource"."source_type" IN ('Stripe'))
+  '''
+# ---
+# name: TestSessionRecordings.test_get_session_recordings_sorted_2_ascending.11
+  '''
   SELECT "posthog_datawarehousejoin"."created_by_id",
          "posthog_datawarehousejoin"."created_at",
          "posthog_datawarehousejoin"."deleted",
@@ -4261,7 +4283,7 @@
                   AND "posthog_datawarehousejoin"."deleted" IS NOT NULL))
   '''
 # ---
-# name: TestSessionRecordings.test_get_session_recordings_sorted_2_ascending.11
+# name: TestSessionRecordings.test_get_session_recordings_sorted_2_ascending.12
   '''
   SELECT "data_tools_datawarehouseexpression"."deleted",
          "data_tools_datawarehouseexpression"."deleted_at",
@@ -4280,7 +4302,7 @@
          AND "data_tools_datawarehouseexpression"."connection_id" IS NULL)
   '''
 # ---
-# name: TestSessionRecordings.test_get_session_recordings_sorted_2_ascending.12
+# name: TestSessionRecordings.test_get_session_recordings_sorted_2_ascending.13
   '''
   SELECT "posthog_datawarehousetable"."created_by_id",
          "posthog_datawarehousetable"."created_at",
@@ -4313,7 +4335,7 @@
   ORDER BY "posthog_datawarehousetable"."created_at" DESC
   '''
 # ---
-# name: TestSessionRecordings.test_get_session_recordings_sorted_2_ascending.13
+# name: TestSessionRecordings.test_get_session_recordings_sorted_2_ascending.14
   '''
   SELECT "posthog_sessionrecording"."id",
          "posthog_sessionrecording"."session_id",
@@ -4340,7 +4362,7 @@
          AND "posthog_sessionrecording"."team_id" = 99999)
   '''
 # ---
-# name: TestSessionRecordings.test_get_session_recordings_sorted_2_ascending.14
+# name: TestSessionRecordings.test_get_session_recordings_sorted_2_ascending.15
   '''
   SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id"
   FROM "posthog_sessionrecordingviewed"
@@ -4348,18 +4370,6 @@
          AND "posthog_sessionrecordingviewed"."user_id" = 99999
          AND "posthog_sessionrecordingviewed"."session_id" IN ('at_base_time',
                                                                'at_base_time_plus_20'))
-  '''
-# ---
-# name: TestSessionRecordings.test_get_session_recordings_sorted_2_ascending.15
-  '''
-  SELECT "posthog_sessionrecordingviewed"."session_id" AS "session_id",
-         "posthog_user"."email" AS "user__email"
-  FROM "posthog_sessionrecordingviewed"
-  INNER JOIN "posthog_user" ON ("posthog_sessionrecordingviewed"."user_id" = "posthog_user"."id")
-  WHERE ("posthog_sessionrecordingviewed"."session_id" IN ('at_base_time',
-                                                           'at_base_time_plus_20')
-         AND "posthog_sessionrecordingviewed"."team_id" = 99999
-         AND NOT ("posthog_sessionrecordingviewed"."user_id" = 99999))
   '''
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_2_ascending.16
@@ -4571,6 +4581,15 @@
 # ---
 # name: TestSessionRecordings.test_get_session_recordings_sorted_2_ascending.7
   '''
+  SELECT "posthog_mcp_custom_harness"."name" AS "name",
+         "posthog_mcp_custom_harness"."match_pattern" AS "match_pattern"
+  FROM "posthog_mcp_custom_harness"
+  WHERE "posthog_mcp_custom_harness"."team_id" = 99999
+  ORDER BY LENGTH("posthog_mcp_custom_harness"."match_pattern") DESC, "posthog_mcp_custom_harness"."created_at" ASC
+  '''
+# ---
+# name: TestSessionRecordings.test_get_session_recordings_sorted_2_ascending.8
+  '''
   SELECT "posthog_datawarehousesavedquery"."created_by_id",
          "posthog_datawarehousesavedquery"."created_at",
          "posthog_datawarehousesavedquery"."updated_at",
@@ -4634,7 +4653,7 @@
   ORDER BY "posthog_datawarehousesavedquery"."name" ASC
   '''
 # ---
-# name: TestSessionRecordings.test_get_session_recordings_sorted_2_ascending.8
+# name: TestSessionRecordings.test_get_session_recordings_sorted_2_ascending.9
   '''
   SELECT "posthog_teamrevenueanalyticsconfig"."team_id",
          "posthog_teamrevenueanalyticsconfig"."filter_test_accounts",
@@ -4645,45 +4664,6 @@
   FROM "posthog_teamrevenueanalyticsconfig"
   WHERE "posthog_teamrevenueanalyticsconfig"."team_id" = 99999
   LIMIT 21
-  '''
-# ---
-# name: TestSessionRecordings.test_get_session_recordings_sorted_2_ascending.9
-  '''
-  SELECT "posthog_externaldatasource"."created_by_id",
-         "posthog_externaldatasource"."created_at",
-         "posthog_externaldatasource"."updated_at",
-         "posthog_externaldatasource"."deleted",
-         "posthog_externaldatasource"."deleted_at",
-         "posthog_externaldatasource"."id",
-         "posthog_externaldatasource"."source_id",
-         "posthog_externaldatasource"."connection_id",
-         "posthog_externaldatasource"."destination_id",
-         "posthog_externaldatasource"."team_id",
-         "posthog_externaldatasource"."sync_frequency",
-         "posthog_externaldatasource"."status",
-         "posthog_externaldatasource"."source_type",
-         "posthog_externaldatasource"."api_version",
-         "posthog_externaldatasource"."job_inputs",
-         "posthog_externaldatasource"."credentials_integration_id",
-         "posthog_externaldatasource"."connection_metadata",
-         "posthog_externaldatasource"."are_tables_created",
-         "posthog_externaldatasource"."prefix",
-         "posthog_externaldatasource"."description",
-         "posthog_externaldatasource"."created_via",
-         "posthog_externaldatasource"."access_method",
-         "posthog_externaldatasource"."direct_query_enabled",
-         "posthog_externaldatasource"."auto_sync_new_schemas",
-         "posthog_externaldatasource"."auto_sync_schema_patterns",
-         "posthog_externaldatasource"."revenue_analytics_enabled",
-         "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
-         "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
-         "posthog_externaldatasourcerevenueanalyticsconfig"."include_invoiceless_charges"
-  FROM "posthog_externaldatasource"
-  LEFT OUTER JOIN "posthog_externaldatasourcerevenueanalyticsconfig" ON ("posthog_externaldatasource"."id" = "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id")
-  WHERE ("posthog_externaldatasource"."team_id" = 99999
-         AND NOT ("posthog_externaldatasource"."deleted"
-                  AND "posthog_externaldatasource"."deleted" IS NOT NULL)
-         AND "posthog_externaldatasource"."source_type" IN ('Stripe'))
   '''
 # ---
 # name: TestSessionRecordings.test_listing_recordings_is_not_nplus1_for_persons
