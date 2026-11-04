@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 
 import yaml
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, model_validator
 
 _FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
@@ -14,10 +14,33 @@ _MAX_SKILL_DESCRIPTION_LENGTH = 1024
 # A skill name becomes a directory under dist/skills and .agents/skills, so it must stay one path segment.
 SKILL_NAME_PATTERN = r"^[a-z0-9][a-z0-9-]*$"
 
+# Name prefixes the signals scout harness and the PostHog Review pipeline seed into team skill rows
+# and read through `skill-get`. The published bundle still ships these skills, so every plugin user
+# would pay for their descriptions in the agent's skill listing unless they opt out of model
+# invocation. Mirrors the discovery prefixes in `products/signals/backend/scout_harness/skill_loader.py`
+# and `products/review_hog/backend/reviewer/skill_loader.py`; `review-hog-authoring` is user-facing.
+RUNTIME_SKILL_PREFIXES = (
+    "signals-scout-",
+    "review-hog-perspective-",
+    "review-hog-blind-spots-",
+    "review-hog-validation-",
+    "review-hog-resolution-",
+)
+
 
 class SkillFrontmatter(BaseModel):
     name: str = Field(pattern=SKILL_NAME_PATTERN)
     description: str = Field(max_length=_MAX_SKILL_DESCRIPTION_LENGTH)
+    disable_model_invocation: bool = Field(default=False, alias="disable-model-invocation")
+
+    @model_validator(mode="after")
+    def _runtime_skills_stay_out_of_the_listing(self) -> SkillFrontmatter:
+        if self.name.startswith(RUNTIME_SKILL_PREFIXES) and not self.disable_model_invocation:
+            raise ValueError(
+                f"'{self.name}' is a runtime-internal skill, so it must set "
+                "`disable-model-invocation: true` to keep its description out of users' skill listings"
+            )
+        return self
 
 
 def validate_frontmatter(text: str, source_label: str = "<unknown>") -> SkillFrontmatter:
