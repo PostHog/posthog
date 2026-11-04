@@ -14,11 +14,19 @@ import {
     SubjectGroup,
     dataQualityOverviewLogic,
     groupChecksBySubject,
+    subjectKeyOf,
 } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
 
 import { itemsOnPage, pageCountFor } from '../catalogPagination'
 import { ColumnSort, SortValueGetters, nextColumnSort, sortByColumn } from '../catalogSort'
-import { ChecksFilter, checkGroupCounts, matchesChecksFilter, passingShare } from '../catalogTableRows'
+import {
+    CheckCounts,
+    ChecksFilter,
+    displayedCheckCounts,
+    matchesChecksFilter,
+    passingShare,
+    rolledUpCheckCounts,
+} from '../catalogTableRows'
 import { metricDisplayName } from '../common'
 import type { DataCatalogMetricApi } from '../generated/api.schemas'
 import { metricsLogic } from '../metricsLogic'
@@ -40,13 +48,13 @@ export function metricOwnerName(metric: DataCatalogMetricApi, ownerNameByEmail: 
 }
 
 function metricSortGetters(
-    checkGroupByMetricId: Record<string, SubjectGroup>,
+    checkCountsByMetricId: Record<string, CheckCounts | null>,
     ownerNameByEmail: Record<string, string>
 ): SortValueGetters<DataCatalogMetricApi, MetricsSortColumn> {
     return {
         name: metricDisplayName,
         status: (metric) => STATUS_RANK[metric.status] ?? null,
-        checks: (metric) => passingShare(checkGroupCounts(checkGroupByMetricId[metric.id])),
+        checks: (metric) => passingShare(checkCountsByMetricId[metric.id] ?? null),
         owner: (metric) => metricOwnerName(metric, ownerNameByEmail),
         updated: metricUpdatedAt,
     }
@@ -60,6 +68,7 @@ export interface catalogMetricsLogicValues {
     } // dataQualityOverviewLogic
     meFirstMembers: OrganizationMemberType[] // membersLogic
     metrics: DataCatalogMetricApi[] // metricsLogic
+    checkCountsByMetricId: Record<string, CheckCounts | null>
     checkGroupByMetricId: Record<string, SubjectGroup>
     checksFilter: ChecksFilter
     currentPage: number
@@ -119,9 +128,16 @@ export interface catalogMetricsLogicMeta {
                 [k: string]: DataQualitySubjectHealthApi
             }
         ) => Record<string, SubjectGroup>
-        visibleMetrics: (
+        checkCountsByMetricId: (
             metrics: DataCatalogMetricApi[],
             checkGroupByMetricId: Record<string, SubjectGroup>,
+            healthBySubjectKey: {
+                [k: string]: DataQualitySubjectHealthApi
+            }
+        ) => Record<string, CheckCounts | null>
+        visibleMetrics: (
+            metrics: DataCatalogMetricApi[],
+            checkCountsByMetricId: Record<string, CheckCounts | null>,
             ownerNameByEmail: Record<string, string>,
             checksFilter: ChecksFilter,
             sort: MetricsSort | null
@@ -226,19 +242,34 @@ export const catalogMetricsLogic = kea<catalogMetricsLogicType>([
                         .map((group) => [group.subjectUuid, group])
                 ),
         ],
-        visibleMetrics: [
-            (s) => [s.metrics, s.checkGroupByMetricId, s.ownerNameByEmail, s.checksFilter, s.sort],
+        checkCountsByMetricId: [
+            (s) => [s.metrics, s.checkGroupByMetricId, s.healthBySubjectKey],
             (
                 metrics: DataCatalogMetricApi[],
                 checkGroupByMetricId: Record<string, SubjectGroup>,
+                healthBySubjectKey: Record<string, DataQualitySubjectHealthApi>
+            ): Record<string, CheckCounts | null> =>
+                Object.fromEntries(
+                    metrics.map((metric) => {
+                        const group = checkGroupByMetricId[metric.id]
+                        const health = healthBySubjectKey[subjectKeyOf(SubjectTypeEnumApi.Metric, metric.id)]
+                        return [metric.id, displayedCheckCounts(group, rolledUpCheckCounts(health, group))]
+                    })
+                ),
+        ],
+        visibleMetrics: [
+            (s) => [s.metrics, s.checkCountsByMetricId, s.ownerNameByEmail, s.checksFilter, s.sort],
+            (
+                metrics: DataCatalogMetricApi[],
+                checkCountsByMetricId: Record<string, CheckCounts | null>,
                 ownerNameByEmail: Record<string, string>,
                 checksFilter: ChecksFilter,
                 sort: MetricsSort | null
             ): DataCatalogMetricApi[] =>
                 sortByColumn(
-                    metrics.filter((metric) => matchesChecksFilter(!!checkGroupByMetricId[metric.id], checksFilter)),
+                    metrics.filter((metric) => matchesChecksFilter(!!checkCountsByMetricId[metric.id], checksFilter)),
                     sort,
-                    metricSortGetters(checkGroupByMetricId, ownerNameByEmail),
+                    metricSortGetters(checkCountsByMetricId, ownerNameByEmail),
                     metricDisplayName
                 ),
         ],

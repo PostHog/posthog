@@ -184,10 +184,7 @@ export function buildCatalogTableRows(sources: CatalogTableSources): CatalogTabl
         return {
             ...row,
             subtitle: subtitleFor(origin, node),
-            checkCounts: {
-                total: Math.max(subjectHealth?.checks_total ?? 0, row.checkGroup?.checks.length ?? 0),
-                failing: Math.max(subjectHealth?.checks_failing ?? 0, failingChecks.length),
-            },
+            checkCounts: rolledUpCheckCounts(subjectHealth, row.checkGroup),
             health,
             problems: subjectIssueKinds(health),
             certification: certificationLookupKey ? (certificationsByKey.get(certificationLookupKey) ?? null) : null,
@@ -371,8 +368,26 @@ export function checkGroupCounts(group: SubjectGroup | null | undefined): CheckC
     return { total: checks.length, failing: checks.filter((check) => check.last_status !== 'passed').length }
 }
 
+export function rolledUpCheckCounts(
+    subjectHealth: DataQualitySubjectHealthApi | undefined,
+    group: SubjectGroup | null | undefined
+): CheckCounts {
+    const checks = group?.checks ?? []
+    return {
+        total: Math.max(subjectHealth?.checks_total ?? 0, checks.length),
+        failing: Math.max(subjectHealth?.checks_failing ?? 0, checks.filter(isFailingCheck).length),
+    }
+}
+
+export function displayedCheckCounts(
+    group: SubjectGroup | null | undefined,
+    rolledUp: CheckCounts
+): CheckCounts | null {
+    return checkGroupCounts(group) ?? (rolledUp.total > 0 ? rolledUp : null)
+}
+
 export function passingChecks(row: CatalogTableRow): CheckCounts | null {
-    return checkGroupCounts(row.checkGroup) ?? (row.checkCounts.total > 0 ? row.checkCounts : null)
+    return displayedCheckCounts(row.checkGroup, row.checkCounts)
 }
 
 export function passingShare(counts: CheckCounts | null): number | null {

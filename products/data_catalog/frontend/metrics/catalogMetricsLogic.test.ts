@@ -10,6 +10,7 @@ import { catalogMetricsLogic } from './catalogMetricsLogic'
 const METRICS = [
     { id: 'metric-approved', name: 'active_accounts', display_name: '', status: 'approved', created_at: '2026-09-01' },
     { id: 'metric-proposed', name: 'trial_conversion', display_name: '', status: 'proposed', created_at: '2026-09-02' },
+    { id: 'metric-unlisted', name: 'weekly_signups', display_name: '', status: 'approved', created_at: '2026-09-03' },
 ]
 
 const METRIC_CHECK = {
@@ -30,7 +31,15 @@ describe('catalogMetricsLogic', () => {
             get: {
                 '/api/projects/:team_id/data_catalog/metrics/': { results: METRICS, next: null },
                 '/api/projects/:team_id/data_quality_checks/': { results: [METRIC_CHECK] },
-                '/api/projects/:team_id/data_quality_checks/health/': [],
+                '/api/projects/:team_id/data_quality_checks/health/': [
+                    {
+                        subject_type: 'metric',
+                        subject_uuid: 'metric-unlisted',
+                        health: 'failing',
+                        checks_total: 3,
+                        checks_failing: 1,
+                    },
+                ],
             },
         })
         initKeaTests()
@@ -42,17 +51,24 @@ describe('catalogMetricsLogic', () => {
     })
 
     it('lists proposed metrics first and narrows to the metrics that have checks', () => {
-        expect(logic.values.visibleMetrics.map((metric) => metric.id)).toEqual(['metric-proposed', 'metric-approved'])
+        expect(logic.values.visibleMetrics.map((metric) => metric.id)).toEqual([
+            'metric-proposed',
+            'metric-approved',
+            'metric-unlisted',
+        ])
 
         logic.actions.setChecksFilter('with')
-        expect(logic.values.visibleMetrics.map((metric) => metric.id)).toEqual(['metric-approved'])
+        expect(logic.values.visibleMetrics.map((metric) => metric.id)).toEqual(['metric-approved', 'metric-unlisted'])
 
         logic.actions.setChecksFilter('without')
         expect(logic.values.visibleMetrics.map((metric) => metric.id)).toEqual(['metric-proposed'])
     })
 
-    it('expands only the metrics that have checks', () => {
+    it('counts checks from the health rollup but expands only the metrics whose checks are loaded', () => {
+        expect(logic.values.checkCountsByMetricId['metric-unlisted']).toEqual({ total: 3, failing: 1 })
+
         logic.actions.toggleMetricExpanded('metric-proposed')
+        logic.actions.toggleMetricExpanded('metric-unlisted')
         expect(logic.values.expandedMetricIds).toEqual([])
 
         logic.actions.toggleMetricExpanded('metric-approved')

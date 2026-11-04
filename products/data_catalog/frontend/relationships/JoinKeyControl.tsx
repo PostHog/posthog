@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useMemo, useRef } from 'react'
 
 import {
     Badge,
@@ -43,10 +43,6 @@ interface JoinKeyControlProps {
     sqlPlaceholder: string
 }
 
-function columnType(table: DatabaseSchemaTable | undefined, columnName: string): string | undefined {
-    return Object.values(table?.fields ?? {}).find((field) => field.name === columnName)?.type
-}
-
 function ColumnCombobox({
     label,
     columnOptions,
@@ -57,6 +53,10 @@ function ColumnCombobox({
 }: Omit<JoinKeyControlProps, 'mode' | 'onModeChange' | 'sqlPlaceholder' | 'onExpressionChange'>): JSX.Element {
     const triggerRef = useRef<HTMLButtonElement>(null)
     const disabledReasons = new Map(columnOptions.map((option) => [option.value, option.disabledReason]))
+    const typeByColumn = useMemo(
+        () => new Map(Object.values(table?.fields ?? {}).map((field) => [field.name, field.type])),
+        [table]
+    )
 
     return (
         <Combobox
@@ -84,7 +84,7 @@ function ColumnCombobox({
                 <ComboboxList>
                     {(columnName: string) => {
                         const disabledReason = disabledReasons.get(columnName)
-                        const type = columnType(table, columnName)
+                        const type = typeByColumn.get(columnName)
                         return (
                             <ComboboxItem key={columnName} value={columnName} disabled={!!disabledReason}>
                                 <div className="flex min-w-0 flex-col">

@@ -19,6 +19,7 @@ import {
     TableHead,
     TableHeader,
     TableRow,
+    Spinner,
     Text,
     Tooltip,
     TooltipContent,
@@ -31,9 +32,10 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { stripMarkdown } from 'lib/utils/markdown'
 import { urls } from 'scenes/urls'
 
+import { dataQualityOverviewLogic } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
+
 import { CATALOG_PAGE_SIZE } from '../catalogPagination'
 import { sortDirectionFor } from '../catalogSort'
-import { checkGroupCounts } from '../catalogTableRows'
 import { humanizeDefinitionKind, metricDisplayName } from '../common'
 import { CheckGroupSummary } from '../components/CheckGroupSummary'
 import { ChecksToggleButton } from '../components/ChecksToggleButton'
@@ -159,11 +161,20 @@ function NameCell({ metric, expanded }: { metric: DataCatalogMetricApi; expanded
 }
 
 function MetricChecksToggle({ metric, expanded }: { metric: DataCatalogMetricApi; expanded: boolean }): JSX.Element {
-    const { checkGroupByMetricId } = useValues(catalogMetricsLogic)
+    const { checkGroupByMetricId, checkCountsByMetricId } = useValues(catalogMetricsLogic)
+    const { snapshotLoaded, overviewError } = useValues(dataQualityOverviewLogic)
     const { toggleMetricExpanded } = useActions(catalogMetricsLogic)
     const group = checkGroupByMetricId[metric.id]
-    if (!group) {
+    const counts = checkCountsByMetricId[metric.id] ?? null
+    if (!snapshotLoaded) {
+        return overviewError ? <MutedCellText>Unavailable</MutedCellText> : <Spinner aria-label="Loading checks" />
+    }
+    if (!counts) {
         return <MutedCellText>No checks</MutedCellText>
+    }
+    const label = <CheckGroupSummary counts={counts} subjectKey={group?.subjectKey} />
+    if (!group) {
+        return label
     }
     return (
         <ChecksToggleButton
@@ -173,7 +184,7 @@ function MetricChecksToggle({ metric, expanded }: { metric: DataCatalogMetricApi
             onToggle={() => toggleMetricExpanded(metric.id)}
             dataAttr="data-catalog-metrics-expand"
         >
-            <CheckGroupSummary counts={checkGroupCounts(group)} subjectKey={group.subjectKey} />
+            {label}
         </ChecksToggleButton>
     )
 }

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
 import { Button, Popover, PopoverContent, PopoverTrigger, Text } from '@posthog/quill'
 
@@ -27,6 +27,15 @@ export function JoinSqlExpressionPopover({
 }: JoinSqlExpressionPopoverProps): JSX.Element {
     const [open, setOpen] = useState(false)
     const [draft, setDraft] = useState(value)
+    const latestDraft = useRef(value)
+    const updateDraft = (nextDraft: string): void => {
+        latestDraft.current = nextDraft
+        setDraft(nextDraft)
+    }
+    const apply = (expression: string): void => {
+        onChange(expression)
+        setOpen(false)
+    }
 
     return (
         <Popover
@@ -34,7 +43,7 @@ export function JoinSqlExpressionPopover({
             onOpenChange={(nextOpen: boolean) => {
                 setOpen(nextOpen)
                 if (nextOpen) {
-                    setDraft(value)
+                    updateDraft(value)
                 }
             }}
         >
@@ -55,7 +64,7 @@ export function JoinSqlExpressionPopover({
                 <CodeEditorInline
                     data-attr="data-catalog-join-sql-editor"
                     value={draft}
-                    onChange={(nextValue) => setDraft(nextValue ?? '')}
+                    onChange={(nextValue) => updateDraft(nextValue ?? '')}
                     language="hogQLExpr"
                     minHeight="78px"
                     autoFocus
@@ -63,10 +72,7 @@ export function JoinSqlExpressionPopover({
                         kind: NodeKind.HogQLQuery,
                         query: `SELECT * FROM ${escapeDottedHogQLIdentifier(tableName)}`,
                     }}
-                    onPressCmdEnter={() => {
-                        onChange(draft)
-                        setOpen(false)
-                    }}
+                    onPressCmdEnter={() => apply(latestDraft.current)}
                 />
                 <Text size="xs" variant="muted" render={<pre className="m-0" />}>
                     {placeholder}
@@ -74,10 +80,7 @@ export function JoinSqlExpressionPopover({
                 <Button
                     variant="primary"
                     disabledReason={draft ? undefined : 'Enter a SQL expression'}
-                    onClick={() => {
-                        onChange(draft)
-                        setOpen(false)
-                    }}
+                    onClick={() => apply(draft)}
                     data-attr="data-catalog-join-sql-update"
                 >
                     Update SQL expression

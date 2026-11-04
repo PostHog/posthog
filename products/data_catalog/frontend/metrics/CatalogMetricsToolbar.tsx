@@ -3,6 +3,8 @@ import { useActions, useValues } from 'kea'
 import { IconRefresh, IconSearch } from '@posthog/icons'
 import { Button, InputGroup, InputGroupAddon, InputGroupInput } from '@posthog/quill'
 
+import { dataQualityOverviewLogic } from 'products/data_quality/frontend/overview/dataQualityOverviewLogic'
+
 import { reloadDisabledReason } from '../metricActionGuards'
 import { metricsLogic } from '../metricsLogic'
 import { CatalogMetricsFilterMenu } from './CatalogMetricsFilterMenu'
@@ -10,6 +12,8 @@ import { CatalogMetricsFilterMenu } from './CatalogMetricsFilterMenu'
 export function CatalogMetricsToolbar(): JSX.Element {
     const { filters, allMetricsLoading, actionsInFlight, bulkActionInFlight } = useValues(metricsLogic)
     const { setFilters, loadMetrics } = useActions(metricsLogic)
+    const { overviewLoading } = useValues(dataQualityOverviewLogic)
+    const { loadOverview } = useActions(dataQualityOverviewLogic)
 
     return (
         <div className="flex flex-wrap items-center gap-2">
@@ -32,9 +36,12 @@ export function CatalogMetricsToolbar(): JSX.Element {
                 aria-label="Reload metrics"
                 tooltip="Reload metrics"
                 className="ml-auto text-muted-foreground"
-                loading={allMetricsLoading}
+                loading={allMetricsLoading || overviewLoading}
                 disabledReason={reloadDisabledReason(bulkActionInFlight, actionsInFlight)}
-                onClick={() => loadMetrics()}
+                onClick={() => {
+                    loadMetrics()
+                    loadOverview()
+                }}
                 data-attr="data-catalog-metrics-reload"
             >
                 <IconRefresh />
