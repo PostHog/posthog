@@ -42,6 +42,7 @@ function makeAgent(): { agent: Agent; client: ClientMocks } {
 function installFakeSession(
   agent: Agent,
   sessionId: string,
+  waitForSubagents = false,
 ): { query: MockQuery; input: Pushable<SDKUserMessage> } {
   const query = createMockQuery();
   const input = new Pushable<SDKUserMessage>();
@@ -49,6 +50,7 @@ function installFakeSession(
 
   const session = {
     query,
+    waitForSubagents,
     queryOptions: { sessionId, cwd: "/tmp/repo", abortController },
     buildInProcessMcpServers: () => ({}),
     localToolsServerNames: [] as string[],
@@ -140,7 +142,7 @@ function taskNotificationUserMessage(sessionId: string, event: string) {
     uuid: `task-notification-${event}`,
     message: {
       role: "user",
-      content: `<task-notification>\n<event>${event}</event>\n</task-notification>`,
+      content: `<task-notification>\n<task-id>${event}</task-id>\n</task-notification>`,
     },
     origin: { kind: "task-notification" },
   };
@@ -207,6 +209,296 @@ describe("ClaudeAcpAgent — task-notification results", () => {
       ),
     ).toHaveLength(0);
   });
+
+  it.each(["completed", "failed", "stopped"])(
+    "waits for every sub-agent and the parent's reply when a worker %s",
+    async (status) => {
+      const { agent, client } = makeAgent();
+      const sessionId = "s-pending-subagents";
+      const { query, input } = installFakeSession(agent, sessionId, true);
+      const settled = vi.fn();
+      const prompt = agent
+        .prompt({
+          sessionId,
+          prompt: [{ type: "text", text: "Choose a repository." }],
+        })
+        .then((result) => {
+          settled(result);
+          return result;
+        });
+      await tick();
+      await echoUserMessage(query, input);
+      for (const taskId of ["worker-a", "worker-b"]) {
+        await send(query, {
+          type: "system",
+          subtype: "task_started",
+          task_id: taskId,
+          task_type: "local_agent",
+          is_backgrounded: true,
+        });
+      }
+      await send(
+        query,
+        assistantMessage(sessionId, "waiting", "Research is pending."),
+      );
+      await send(query, {
+        ...resultSuccess(sessionId, "initial"),
+        usage: { output_tokens: 3 },
+      });
+      expect(settled).not.toHaveBeenCalled();
+
+      for (const taskId of ["worker-a", "worker-b"]) {
+        await send(query, {
+          type: "system",
+          subtype: "task_notification",
+          task_id: taskId,
+          status,
+          summary: "Worker ended.",
+          output_file: "/tmp/worker-output",
+        });
+        expect(settled).not.toHaveBeenCalled();
+        await send(query, taskNotificationUserMessage(sessionId, taskId));
+        await send(
+          query,
+          assistantMessage(
+            sessionId,
+            taskId,
+            taskId === "worker-b"
+              ? '{"repository":"example/app"}'
+              : "Another worker remains.",
+          ),
+        );
+        await send(query, {
+          ...taskNotificationResult(sessionId, taskId),
+          usage: { output_tokens: 5 },
+        });
+        if (taskId === "worker-a") expect(settled).not.toHaveBeenCalled();
+      }
+      await expect(prompt).resolves.toMatchObject({
+        stopReason: "end_turn",
+        usage: { outputTokens: 13 },
+      });
+      expect(
+        extNotificationCalls(
+          client.extNotification.mock.calls,
+          "_posthog/background_turn_complete",
+        ),
+      ).toHaveLength(0);
+      expect(client.sessionUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          update: expect.objectContaining({
+            content: { type: "text", text: '{"repository":"example/app"}' },
+          }),
+        }),
+      );
+    },
+  );
+
+  it.each(["overlapping", "batched", "late_snapshot", "late_start", "resumed"])(
+    "handles %s notifications without accepting an unrelated wakeup",
+    async (delivery) => {
+      const { agent } = makeAgent();
+      const sessionId = "s-subagent-notification-order";
+      const { query, input } = installFakeSession(agent, sessionId, true);
+      const settled = vi.fn();
+      const prompt = agent
+        .prompt({ sessionId, prompt: [{ type: "text", text: "Research." }] })
+        .then(settled);
+      await tick();
+      await echoUserMessage(query, input);
+      await send(query, {
+        type: "system",
+        subtype: "background_tasks_changed",
+        tasks: ["worker-a", "worker-b"].map((id) => ({
+          task_id: id,
+          task_type: "local_agent",
+          run_id: id,
+        })),
+      });
+      await send(query, {
+        type: "system",
+        subtype: "task_notification",
+        task_id: "worker-a",
+        run_id: "worker-a",
+        status: "completed",
+        summary: "Worker ended.",
+      });
+      await send(
+        query,
+        assistantMessage(sessionId, "waiting", "Research is pending."),
+      );
+      await send(query, resultSuccess(sessionId, "initial"));
+      await send(
+        query,
+        taskNotificationUserMessage(sessionId, "unrelated-wakeup"),
+      );
+      await send(query, taskNotificationResult(sessionId, "unrelated-result"));
+      expect(settled).not.toHaveBeenCalled();
+
+      const workerNotification = (id: string) => ({
+        ...taskNotificationUserMessage(sessionId, id),
+        origin: { kind: "task-notification", runId: id },
+      });
+      if (delivery === "overlapping") {
+        await send(query, workerNotification("worker-a"));
+      }
+      await send(query, {
+        type: "system",
+        subtype: "task_notification",
+        task_id: "worker-b",
+        run_id: "old-run",
+        status: "stopped",
+        summary: "Old worker ended.",
+      });
+      await send(query, {
+        type: "system",
+        subtype: "task_notification",
+        task_id: "worker-b",
+        run_id: "worker-b",
+        status: "completed",
+        summary: "Worker ended.",
+      });
+      if (delivery === "overlapping") {
+        await send(query, workerNotification("worker-b"));
+        await send(query, taskNotificationResult(sessionId, "worker-a"));
+        expect(settled).not.toHaveBeenCalled();
+      } else {
+        await send(query, {
+          ...taskNotificationUserMessage(sessionId, "batch"),
+          message: {
+            role: "user",
+            content: "<task-id>worker-a</task-id>\n<task-id>worker-b</task-id>",
+          },
+        });
+      }
+      await send(
+        query,
+        assistantMessage(sessionId, "final", "Research complete."),
+      );
+      if (delivery === "late_snapshot") {
+        await send(query, {
+          type: "system",
+          subtype: "background_tasks_changed",
+          tasks: [
+            {
+              task_id: "worker-b",
+              task_type: "local_agent",
+              run_id: "worker-b",
+            },
+          ],
+        });
+        await send(query, {
+          type: "system",
+          subtype: "background_tasks_changed",
+          tasks: [],
+        });
+      }
+      if (delivery === "late_start" || delivery === "resumed") {
+        await send(query, {
+          type: "system",
+          subtype: "task_started",
+          task_id: "worker-b",
+          task_type: "local_agent",
+          is_backgrounded: true,
+          run_id: delivery === "resumed" ? "worker-b-2" : "worker-b",
+        });
+      }
+      await send(query, taskNotificationResult(sessionId, "final"));
+      if (delivery === "resumed") {
+        expect(settled).not.toHaveBeenCalled();
+        await send(query, {
+          type: "system",
+          subtype: "task_notification",
+          task_id: "worker-b",
+          run_id: "worker-b-2",
+          status: "completed",
+          summary: "Worker ended.",
+        });
+        await send(query, {
+          ...taskNotificationUserMessage(sessionId, "worker-b"),
+          origin: { kind: "task-notification", runId: "worker-b-2" },
+        });
+        await send(
+          query,
+          assistantMessage(sessionId, "resumed", "Research complete."),
+        );
+        await send(query, taskNotificationResult(sessionId, "resumed"));
+      }
+      expect(settled).toHaveBeenCalledOnce();
+      await prompt;
+    },
+  );
+
+  it.each([
+    ["interactive", false, "local_agent", true, false],
+    ["shell", true, "local_bash", true, false],
+    ["monitor", true, "local_monitor", true, false],
+    ["foreground", true, "local_agent", false, false],
+    ["ambient", true, "local_agent", true, true],
+  ] as const)(
+    "does not wait for %s tasks",
+    async (_name, wait, taskType, backgrounded, ambient) => {
+      const { agent } = makeAgent();
+      const sessionId = "s-independent-task";
+      const { query, input } = installFakeSession(agent, sessionId, wait);
+      const prompt = agent.prompt({
+        sessionId,
+        prompt: [{ type: "text", text: "Proceed." }],
+      });
+      await tick();
+      await echoUserMessage(query, input);
+      await send(query, {
+        type: "system",
+        subtype: "task_started",
+        task_id: "worker",
+        task_type: taskType,
+        is_backgrounded: backgrounded,
+        ambient,
+      });
+      await send(query, assistantMessage(sessionId, "done", "Complete."));
+      await send(query, resultSuccess(sessionId, "result"));
+      await expect(prompt).resolves.toMatchObject({ stopReason: "end_turn" });
+    },
+  );
+
+  it.each(["cancel", "stream_end"])(
+    "ends a held turn on %s",
+    async (ending) => {
+      const { agent } = makeAgent();
+      const sessionId = "s-subagent-interrupted";
+      const { query, input } = installFakeSession(agent, sessionId, true);
+      const prompt = agent.prompt({
+        sessionId,
+        prompt: [{ type: "text", text: "Research." }],
+      });
+      await tick();
+      await echoUserMessage(query, input);
+      await send(query, {
+        type: "system",
+        subtype: "task_started",
+        task_id: "worker",
+        task_type: "local_agent",
+        is_backgrounded: true,
+      });
+      await send(
+        query,
+        assistantMessage(sessionId, "waiting", "Research is pending."),
+      );
+      await send(query, resultSuccess(sessionId, "initial"));
+      if (ending === "cancel") {
+        await agent.cancel({ sessionId });
+        await expect(prompt).resolves.toMatchObject({
+          stopReason: "cancelled",
+        });
+      } else {
+        const rejected = expect(prompt).rejects.toThrow(
+          "Session ended before sub-agents returned",
+        );
+        query._mockHelpers.complete();
+        await rejected;
+      }
+    },
+  );
 
   it("acks a steer sent during a background turn only once the model acts on it", async () => {
     const { agent } = makeAgent();
