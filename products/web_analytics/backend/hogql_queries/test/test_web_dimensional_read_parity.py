@@ -337,7 +337,7 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
     def test_failed_dimensional_read_falls_back_to_live(self, _name, builder_name):
         def run(web_query_modifiers):
             if builder_name == "DimensionalStatsTableQueryBuilder":
-                runner = WebStatsTableQueryRunner(
+                stats_runner = WebStatsTableQueryRunner(
                     team=self.team,
                     query=WebStatsTableQuery(
                         dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
@@ -347,8 +347,8 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
                         webQueryModifiers=web_query_modifiers,
                     ),
                 )
-                return self._sort_results(runner.calculate().results)
-            runner = WebOverviewQueryRunner(
+                return self._sort_results(stats_runner.calculate().results)
+            overview_runner = WebOverviewQueryRunner(
                 team=self.team,
                 query=WebOverviewQuery(
                     dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
@@ -356,7 +356,7 @@ class TestWebDimensionalReadParity(WebAnalyticsPreAggregatedTestBase):
                     webQueryModifiers=web_query_modifiers,
                 ),
             )
-            return [(item.key, item.value) for item in runner.calculate().results]
+            return [(item.key, item.value) for item in overview_runner.calculate().results]
 
         live = run(None)
         with patch(
