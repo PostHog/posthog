@@ -1,6 +1,7 @@
 import json
 import time
 import threading
+from contextlib import nullcontext
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, Optional, cast
 from zoneinfo import ZoneInfo
@@ -110,7 +111,13 @@ from posthog.query_cache.failures import (
     QueryFailureCache,
     WarmingQueryFailureCache,
 )
-from posthog.query_cache.single_flight import QUERY_SINGLE_FLIGHT_FLAG, FlightWait, QuerySingleFlight, SharedFailure
+from posthog.query_cache.single_flight import (
+    QUERY_SINGLE_FLIGHT_FLAG,
+    FlightWait,
+    QuerySingleFlight,
+    SharedFailure,
+    skip_query_single_flight,
+)
 from posthog.query_cache.storage import entry_redis_key
 from posthog.query_scan.flag import QueryScanFlag, QueryScanMode
 from posthog.shared_link_user import SharedLinkUser
@@ -2851,15 +2858,23 @@ class TestQuerySingleFlightRunner(BaseTest):
             response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, cache_age_seconds=0)
         assert response.is_cached is True  # a zero cache age window must not reject the leader's own write
 
-    @parameterized.expand([("flag_off", False, None), ("export", True, LimitContext.EXPORT)])
-    def test_runs_that_cannot_share_a_result_never_touch_the_flight(self, _name, flag_on, limit_context):
+    @parameterized.expand(
+        [
+            ("flag_off", False, None, False),
+            ("export", True, LimitContext.EXPORT, False),
+            ("skipped_by_the_caller", True, None, True),
+        ]
+    )
+    def test_runs_that_cannot_share_a_result_never_touch_the_flight(self, _name, flag_on, limit_context, skipped):
         runner_class = setup_test_query_runner_class()
         runner = runner_class(query={"some_attr": "bla"}, team=self.team, limit_context=limit_context)
         flags = _single_flight_flag if flag_on else (lambda *args, **kwargs: False)
-        with mock.patch.object(QuerySingleFlight, "acquire", autospec=True) as mock_acquire:
+        with mock.patch.object(QuerySingleFlight, "acquire", autospec=True, return_value=False) as mock_acquire:
             with mock.patch("posthoganalytics.feature_enabled", side_effect=flags):
-                runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+                with skip_query_single_flight() if skipped else nullcontext():
+                    response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         mock_acquire.assert_not_called()
+        assert response.is_cached is False
 
 
 class TestRunnersBuildDatabaseOnce(ClickhouseTestMixin, APIBaseTest):

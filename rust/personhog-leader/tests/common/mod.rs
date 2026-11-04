@@ -30,6 +30,9 @@ use personhog_coordination::types::{ChangelogConfig, ChangelogTarget};
 use personhog_leader::coordination::{Capture, ChangelogCaptures};
 use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
 use rdkafka::client::DefaultClientContext;
+use rdkafka::consumer::BaseConsumer;
+use rdkafka::error::KafkaError;
+use rdkafka::message::BorrowedMessage;
 use rdkafka::mocking::MockCluster;
 use rdkafka::producer::{DefaultProducerContext, FutureProducer};
 use rdkafka::types::RDKafkaErrorCode;
@@ -54,11 +57,47 @@ use tokio_util::sync::CancellationToken;
 use tonic::transport::{Channel, Server};
 
 pub const ETCD_ENDPOINT: &str = "http://localhost:2379";
-pub const KAFKA_BOOTSTRAP: &str = "localhost:9092";
+// Not `localhost`: it also resolves to `::1`, where the broker refuses, and readers fail on that.
+pub const KAFKA_BOOTSTRAP: &str = "127.0.0.1:9092";
 pub const PERSONS_DB_URL: &str = "postgres://posthog:posthog@localhost:5432/posthog_persons";
 pub const WAIT_TIMEOUT: Duration = Duration::from_secs(10);
 pub const POLL_INTERVAL: Duration = Duration::from_millis(100);
 pub const NUM_PARTITIONS: u32 = 4;
+
+/// librdkafka reports a refused broker address and then reconnects on
+/// its own, for example when `localhost` resolves to `::1` first. A
+/// reader that treats the report as final fails on a broker about to
+/// answer, or counts a partition as drained that is not.
+pub fn is_transient_broker_error(error: &KafkaError) -> bool {
+    matches!(
+        error,
+        KafkaError::MessageConsumption(
+            RDKafkaErrorCode::BrokerTransportFailure | RDKafkaErrorCode::AllBrokersDown
+        )
+    )
+}
+
+/// One record from `consumer`, riding out transient broker errors until
+/// `wait` has passed. Panics on any other error and at the deadline.
+pub fn poll_record<'a>(
+    consumer: &'a BaseConsumer,
+    wait: Duration,
+    what: &str,
+) -> BorrowedMessage<'a> {
+    let deadline = std::time::Instant::now() + wait;
+    loop {
+        match consumer.poll(Duration::from_millis(200)) {
+            Some(Ok(message)) => return message,
+            Some(Err(error)) if is_transient_broker_error(&error) => {}
+            Some(Err(error)) => panic!("kafka error reading {what}: {error}"),
+            None => {}
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "no message received from {what} within {wait:?}"
+        );
+    }
+}
 
 /// Find a person_id whose key hashes to `partition`, so a test can aim a
 /// request at a specific partition while satisfying the leader's partition

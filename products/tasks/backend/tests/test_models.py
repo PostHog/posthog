@@ -833,6 +833,20 @@ class TestTask(TestCase):
 
         self.assertNotIn("ai_stage", run.state)
 
+    def test_create_run_turns_live_context_off_on_every_knowledge_writer_run(self):
+        task = Task.objects.create(
+            team=self.team,
+            title="Docs for a merged PR",
+            description="Writer",
+            origin_product=Task.OriginProduct.KNOWLEDGE_WRITER,
+        )
+
+        first_run = task.create_run(extra_state={"include_live_context": True})
+        later_run = task.create_run(mode="background")
+
+        self.assertIs(first_run.state["include_live_context"], False)
+        self.assertIs(later_run.state["include_live_context"], False)
+
     def test_create_run_keeps_the_pipeline_stage_over_the_interactive_stamp(self):
         from products.signals.backend.models import SignalReport
 
@@ -868,17 +882,30 @@ class TestTask(TestCase):
 
         self.assertNotIn("ai_stage", run.state)
 
-    def test_create_run_stamps_chat_on_a_signals_chat_task(self):
+    @parameterized.expand(
+        [
+            ("signals_chat", Task.OriginProduct.SIGNALS_CHAT, False, "interactive", "chat"),
+            (
+                "internal_scout_suggestions",
+                Task.OriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
+                True,
+                "background",
+                "scout_suggestions",
+            ),
+        ]
+    )
+    def test_create_run_stamps_the_signals_stage_for_its_origin(self, _name, origin_product, internal, mode, stage):
         task = Task.objects.create(
             team=self.team,
-            title="Suggest a scout",
-            description="Chat",
-            origin_product=Task.OriginProduct.SIGNALS_CHAT,
+            title="Signals task",
+            description="Stageless run",
+            origin_product=origin_product,
+            internal=internal,
         )
 
-        run = task.create_run(mode="interactive")
+        run = task.create_run(mode=mode)
 
-        self.assertEqual(run.state["ai_stage"], "chat")
+        self.assertEqual(run.state["ai_stage"], stage)
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_create_and_run_omits_permission_mode_when_not_provided(self, mock_execute_workflow):

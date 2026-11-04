@@ -1,16 +1,26 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 from datetime import date
 from typing import TYPE_CHECKING, cast
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 from trino.exceptions import Http503Error, TrinoConnectionError, TrinoExternalError, TrinoQueryError, TrinoUserError
 
-from products.managed_warehouse.backend.backfill_trino import ADD_FILES_MAX_FILES, TrinoBackfillCatalog
-from products.managed_warehouse.backend.facade.contracts import DuckLakeDayReplacement, DuckLakeTableReplacement
+from products.managed_warehouse.backend.backfill_trino import (
+    ADD_FILES_MAX_FILES,
+    BACKFILL_TRINO_PRINCIPAL,
+    TrinoBackfillCatalog,
+)
+from products.managed_warehouse.backend.facade.backfill_trino import connect_backfill_catalog
+from products.managed_warehouse.backend.facade.contracts import (
+    DuckLakeDayReplacement,
+    DuckLakeTableLayoutError,
+    DuckLakeTableReplacement,
+)
 
 if TYPE_CHECKING:
     from trino.dbapi import Connection
@@ -60,6 +70,18 @@ def _catalog(
 ) -> tuple[TrinoBackfillCatalog, _FakeTrino]:
     connection = _FakeTrino(columns, failures)
     return TrinoBackfillCatalog(cast("Connection", connection)), connection
+
+
+@pytest.mark.parametrize("canary", [False, True])
+def test_the_backfill_connection_uses_the_canary_host_only_when_asked(canary: bool) -> None:
+    with patch(
+        "products.managed_warehouse.backend.backfill_trino.connect_managed_warehouse_trino",
+        return_value=nullcontext(MagicMock(catalog="example_catalog")),
+    ) as connect:
+        with connect_backfill_catalog("org-1", canary=canary):
+            pass
+
+    connect.assert_called_once_with("org-1", principal=BACKFILL_TRINO_PRINCIPAL, canary=canary)
 
 
 class TestRegisterFiles:
@@ -174,35 +196,73 @@ class TestEnsureTable:
             '("team_id" bigint, "timestamp" timestamp(6) with time zone, "person_version" bigint)',
         ]
 
-    @parameterized.expand([("events",), ("persons",), ("groups",)])
-    def test_refuses_to_drop_a_table_other_teams_share(self, table: str) -> None:
+    def test_rebuilds_the_table_with_the_export_types_and_keeps_other_columns(self) -> None:
+        catalog, connection = _catalog({**COLUMNS, "person_version": "decimal(20,0)", "added_later": "varchar"})
+
+        catalog.replace_table("events_team_7", COLUMNS)
+
+        assert connection.statements[-1] == (
+            'CREATE OR REPLACE TABLE "warehouse"."posthog"."events_team_7" '
+            '("team_id" bigint, "timestamp" timestamp(6) with time zone, "person_version" bigint, '
+            '"added_later" varchar)'
+        )
+
+    @parameterized.expand(
+        [
+            (f"{name}_{table}", table, action)
+            for table in ("events", "persons", "groups")
+            for name, action in (
+                (
+                    "drop",
+                    lambda catalog, table: catalog.ensure_table(
+                        table, COLUMNS, drop_first=True, create_if_missing=True, validate=True
+                    ),
+                ),
+                ("rebuild", lambda catalog, table: catalog.replace_table(table, COLUMNS)),
+            )
+        ]
+    )
+    def test_refuses_to_drop_or_rebuild_a_table_other_teams_share(self, _name: str, table: str, action) -> None:
         catalog, connection = _catalog(COLUMNS)
 
         with pytest.raises(ValueError, match="shared"):
-            catalog.ensure_table(table, COLUMNS, drop_first=True, create_if_missing=True, validate=True)
+            action(catalog, table)
 
         assert connection.statements == []
 
     @parameterized.expand(
         [
-            ("extra_column", {**COLUMNS, "added_later": "varchar"}, None),
-            ("missing_column", {"team_id": "bigint", "timestamp": "timestamp(6) with time zone"}, "person_version"),
-            ("unsigned_column", {**COLUMNS, "person_version": "decimal(20,0)"}, "person_version"),
+            ("extra_column", {**COLUMNS, "added_later": "varchar"}, None, None),
+            (
+                "missing_column",
+                {"team_id": "bigint", "timestamp": "timestamp(6) with time zone"},
+                DuckLakeTableLayoutError,
+                "person_version",
+            ),
+            (
+                "unsigned_column",
+                {**COLUMNS, "person_version": "decimal(20,0)"},
+                DuckLakeTableLayoutError,
+                "person_version",
+            ),
+            ("missing_table", {}, ValueError, "does not exist"),
         ]
     )
     def test_validates_that_exported_files_match_the_table(
-        self, _name: str, actual: dict[str, str], mismatch: str | None
+        self, _name: str, actual: dict[str, str], error: type[Exception] | None, message: str | None
     ) -> None:
         catalog, _ = _catalog(actual)
 
         def ensure() -> None:
             catalog.ensure_table("events_team_7", COLUMNS, drop_first=False, create_if_missing=False, validate=True)
 
-        if mismatch is None:
+        if error is None:
             ensure()
-        else:
-            with pytest.raises(ValueError, match=mismatch):
-                ensure()
+            return
+        with pytest.raises(error, match=message) as raised:
+            ensure()
+        # A rebuild must not create a table that does not exist, so a missing table is not a layout mismatch.
+        assert (raised.type is DuckLakeTableLayoutError) == (error is DuckLakeTableLayoutError)
 
 
 def _query_error(error_class: type[TrinoQueryError], name: str, error_type: str) -> TrinoQueryError:

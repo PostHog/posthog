@@ -66,8 +66,14 @@ FALLBACK_TRUNCATED = "truncated_output"
 FALLBACK_NO_CANDIDATES = "no_candidates"
 FALLBACK_AI_NOT_APPROVED = "ai_not_approved"
 FALLBACK_NO_ACTIVITY_SUMMARY = "no_activity_summary"
+# A later build with the same input hash can rank the list. AI approval is not part of the hash.
+RETRYABLE_FALLBACK_REASONS = frozenset(
+    {FALLBACK_LLM_ERROR, FALLBACK_TIMEOUT, FALLBACK_MALFORMED, FALLBACK_TRUNCATED, FALLBACK_AI_NOT_APPROVED}
+)
 
 BuildStatus = Literal["ok", "fallback", "empty", "disabled"]
+# What started a build, on the build event and the trace, so cost can be split by it.
+BuildTrigger = Literal["on_demand", "tick"]
 
 _MODEL_ORDER_REASON = "Kept in inbox order."
 _NEEDS_YOU_REASONS = {
@@ -181,12 +187,19 @@ def input_hash(candidates: list[Candidate], *, activity_summary_version: int | N
     return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
 
 
-def _client(team: Team, user: User, now: datetime.datetime, config: PersonalRankingConfig) -> OpenAI:
+def _client(
+    team: Team, user: User, now: datetime.datetime, config: PersonalRankingConfig, trigger: BuildTrigger
+) -> OpenAI:
     client = build_openai_client(
         "signals",
         ai_product=AI_PRODUCT,
         trace_id=trace_id_from_seed(f"{AI_PRODUCT}:{team.id}:{user.id}:{now.isoformat()}"),
-        properties={"team_id": str(team.id), "user_id": str(user.id), "prompt_version": str(PROMPT_VERSION)},
+        properties={
+            "team_id": str(team.id),
+            "user_id": str(user.id),
+            "prompt_version": str(PROMPT_VERSION),
+            "trigger": trigger,
+        },
         distinct_id=PIPELINE_DISTINCT_ID,
     )
     # One attempt: a retry would run past the timeout, and the fallback list is always there.
@@ -229,6 +242,7 @@ def _call_model(
     now: datetime.datetime,
     config: PersonalRankingConfig,
     messages: list[ChatCompletionMessageParam],
+    trigger: BuildTrigger,
 ) -> _ModelCall:
     started = time.monotonic()
 
@@ -236,7 +250,7 @@ def _call_model(
         return round((time.monotonic() - started) * 1000)
 
     try:
-        response = _create_completion(_client(team, user, now, config), config, messages)
+        response = _create_completion(_client(team, user, now, config, trigger), config, messages)
     except APITimeoutError:
         return _ModelCall(
             content=None, tokens_in=None, tokens_out=None, latency_ms=elapsed_ms(), fallback_reason=FALLBACK_TIMEOUT
@@ -259,7 +273,13 @@ def _call_model(
 
 
 def _capture(
-    team: Team, user: User, build: PersonalRankingBuild, config: PersonalRankingConfig, *, has_focus: bool
+    team: Team,
+    user: User,
+    build: PersonalRankingBuild,
+    config: PersonalRankingConfig,
+    *,
+    has_focus: bool,
+    trigger: BuildTrigger,
 ) -> None:
     # Ids, counts and accounting only. Report text, reasons and the summary are user content.
     try:
@@ -284,6 +304,7 @@ def _capture(
                     "prompt_version": PROMPT_VERSION,
                     "activity_summary_version": build.activity_summary_version,
                     "has_focus": has_focus,
+                    "trigger": trigger,
                     "limit": build.limit,
                     "rank_top": config.rank_top,
                     "reasoning_effort": config.reasoning_effort,
@@ -340,6 +361,7 @@ def build_personal_ranking(
     dry_run: bool = False,
     limit: int | None = None,
     config: PersonalRankingConfig | None = None,
+    trigger: BuildTrigger = "on_demand",
 ) -> PersonalRankingBuild:
     """Rank the person's candidate reports. `dry_run` calls the model but stores no row and records no event."""
     config = config or read_config()
@@ -393,7 +415,7 @@ def build_personal_ranking(
                 ),
             },
         ]
-        call = _call_model(team, user, now, config, messages)
+        call = _call_model(team, user, now, config, messages, trigger)
         fallback_reason = call.fallback_reason
         if fallback_reason is None:
             try:
@@ -441,5 +463,5 @@ def build_personal_ranking(
         _prune(team, user, config.max_rows_per_person)
     except Exception:
         logger.exception("signals.personal_ranking.prune_failed", team_id=team.id, user_id=user.id)
-    _capture(team, user, build, config, has_focus=focus is not None)
+    _capture(team, user, build, config, has_focus=focus is not None, trigger=trigger)
     return build

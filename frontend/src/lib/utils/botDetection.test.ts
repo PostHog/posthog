@@ -36,6 +36,25 @@ describe('botDetection', () => {
             expect(bot?.category).toBe(expectedCategory)
         })
 
+        it.each(['Lightpanda/1.0', 'Lightpanda/2.3.4', 'Mozilla/5.0 (compatible; Lightpanda/1.0)'])(
+            'classifies %s as headless-browser Automation',
+            (userAgent) => {
+                expect(detectBot(userAgent)).toEqual({
+                    name: 'Lightpanda',
+                    category: 'headless_browser',
+                    trafficType: 'Automation',
+                    operator: 'Lightpanda',
+                })
+            }
+        )
+
+        it.each(['lightpanda/1.0', 'LIGHTPANDA/1.0'])(
+            'preserves existing case-sensitive matching for %s',
+            (userAgent) => {
+                expect(detectBot(userAgent)).toBeNull()
+            }
+        )
+
         it('prefers Applebot-Extended over Applebot/ when the more specific pattern matches first', () => {
             const bot = detectBot('Mozilla/5.0 (compatible; Applebot-Extended/1.0)')
             expect(bot?.name).toBe('Apple AI')
