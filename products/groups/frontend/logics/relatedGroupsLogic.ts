@@ -85,7 +85,7 @@ export const relatedGroupsLogic = kea<relatedGroupsLogicType>([
         relatedActors: [
             [] as ActorType[],
             {
-                loadRelatedActors: async () => {
+                loadRelatedActors: async (): Promise<ActorType[]> => {
                     // Abort on unmount so a slow request that fails later does not toast on the next page.
                     const controller = new AbortController()
                     cache.disposables.add(() => () => controller.abort(), 'relatedActorsRequest', {
