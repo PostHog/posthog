@@ -48,7 +48,11 @@ from products.experiments.backend.logic.result_stats import MetricResultStats
 from products.experiments.backend.metric_resolution import MetricRole, saved_metric_link_role, saved_metric_links
 from products.experiments.backend.metric_utils import get_default_metric_title
 from products.experiments.backend.metric_validation import defined_event_names, event_last_seen, extract_entity_nodes
-from products.experiments.backend.models.experiment import Experiment, ExperimentToSavedMetric
+from products.experiments.backend.models.experiment import (
+    Experiment,
+    ExperimentToSavedMetric,
+    live_experiments_for_flag,
+)
 from products.experiments.backend.running_time_target import RunningTimeTarget
 from products.feature_flags.backend.facade.edits import (
     BucketingChange,
@@ -217,6 +221,25 @@ class PauseHistory:
     team_timezone: str
     # The time of the latest entry when it is a pause. None when it is a resume, or the experiment has no entry.
     paused_at: datetime | None
+
+
+@frozen
+class ExperimentOnFlag:
+    """Another experiment of the project that uses the same feature flag. The API lets several experiments share one
+    flag, so the flag's state can belong to one of them. It has no name or id, because the reader of this experiment
+    may have no access to the other one."""
+
+    launched_at: datetime | None
+    ended_at: datetime | None
+    archived: bool
+
+    @property
+    def is_draft(self) -> bool:
+        return self.launched_at is None
+
+    @property
+    def is_running(self) -> bool:
+        return self.launched_at is not None and self.ended_at is None
 
 
 @frozen
@@ -553,11 +576,15 @@ class HealthContext:
     # answer this. None before launch, when the experiment has no flag, when the flag's latest call came after the
     # end, or when PostHog can't record the calls of this organization's flags.
     flag_called_during_run: bool | None
-    # Whether the flag's latest recorded call came after the end. False only when no call is recorded in the
-    # ENDED_FLAG_QUIET_PERIOD after the end, also for a flag without a recorded call. None before the end, when the
-    # experiment has no flag, before that period is over, or when PostHog can't record the calls of this
-    # organization's flags.
+    # Whether PostHog has recorded a call of the flag after the end and in the last ENDED_FLAG_QUIET_PERIOD, so that
+    # one stray call doesn't count as a flag that is still read. False only once that period after the end is over.
+    # None before the end, when the experiment has no flag, before that period is over without a call, or when
+    # PostHog can't record the calls of this organization's flags.
     flag_called_after_end: bool | None
+    # The flag's latest recorded call. None when the experiment has no flag, or the flag has no recorded call.
+    flag_last_called_at: datetime | None
+    # The other non-deleted experiments on the flag.
+    other_experiments_on_flag: tuple[ExperimentOnFlag, ...]
     # Whether the team has an active flag, which posthog-js needs to request flags on page load. None when not read:
     # it is read only for a draft whose flag has no recorded call.
     team_has_active_flag: bool | None
@@ -745,11 +772,25 @@ def _flag_called_after_end(experiment: Experiment) -> bool | None:
     if not experiment.is_stopped or end_date is None or feature_flag_id is None:
         return None
     last_called_at = experiment.feature_flag.last_called_at
-    if last_called_at is not None and last_called_at > end_date:
+    now = timezone.now()
+    if last_called_at is not None and last_called_at > max(end_date, now - ENDED_FLAG_QUIET_PERIOD):
         return True
-    if timezone.now() - end_date < ENDED_FLAG_QUIET_PERIOD + LAST_CALLED_AT_LAG_DURATION:
+    if now - end_date < ENDED_FLAG_QUIET_PERIOD + LAST_CALLED_AT_LAG_DURATION:
         return None
     return None if _flag_calls_unrecorded(experiment) else False
+
+
+def _other_experiments_on_flag(experiment: Experiment) -> tuple[ExperimentOnFlag, ...]:
+    others = (
+        live_experiments_for_flag(experiment.feature_flag_id)
+        .filter(team_id=experiment.team_id)
+        .exclude(id=experiment.id)
+        .values_list("start_date", "end_date", "archived", named=True)
+    )
+    return tuple(
+        ExperimentOnFlag(launched_at=other.start_date, ended_at=other.end_date, archived=other.archived)
+        for other in others
+    )
 
 
 def _flag_calls_unrecorded(experiment: Experiment) -> bool:
@@ -1046,6 +1087,8 @@ def load_health_context(
         flag_called=flag_called,
         flag_called_during_run=_flag_called_during_run(experiment, flag_called),
         flag_called_after_end=_flag_called_after_end(experiment),
+        flag_last_called_at=experiment.feature_flag.last_called_at if experiment.feature_flag_id else None,
+        other_experiments_on_flag=_other_experiments_on_flag(experiment),
         team_has_active_flag=(
             has_active_flags(experiment.team) if flag_called is False and not experiment.is_launched else None
         ),

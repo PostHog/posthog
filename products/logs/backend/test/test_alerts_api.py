@@ -75,6 +75,7 @@ def _make_log_row(*, team_id: int, service: str, uuid: str, ts: datetime, body: 
 
 # Where a request-side delivery meets Temporal and the transports, which the tests stand in for.
 _WEB_START = "products.alerts_platform.backend.temporal.web_start"
+_ALERTS_API = "products.logs.backend.presentation.views.alerts_api"
 _NATIVE_PAGERDUTY_DELIVER = "products.alerts_platform.backend.delivery.pagerduty.PagerDutyTransport.deliver"
 
 
@@ -2648,22 +2649,26 @@ class TestLogsAlertAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("cut_over", True, "severity_text", status.HTTP_201_CREATED),
-            ("not_cut_over", False, "severity_text", status.HTTP_400_BAD_REQUEST),
-            ("cut_over_unknown_key", True, "host", status.HTTP_400_BAD_REQUEST),
+            ("cut_over", True, True, "severity_text", status.HTTP_201_CREATED),
+            ("cut_over_flag_off", True, False, "severity_text", status.HTTP_400_BAD_REQUEST),
+            ("not_cut_over", False, True, "severity_text", status.HTTP_400_BAD_REQUEST),
+            ("cut_over_unknown_key", True, True, "host", status.HTTP_400_BAD_REQUEST),
         ]
     )
-    def test_creating_a_grouped_alert(self, _name: str, cut_over: bool, key: str, expected_status: int) -> None:
+    def test_creating_a_grouped_alert(
+        self, _name: str, cut_over: bool, flag_on: bool, key: str, expected_status: int
+    ) -> None:
         self._keep_the_team_on_logs()
         if cut_over:
             self._owned_by_the_platform()
         alerts_before = LogsAlertConfiguration.objects.filter(team=self.team).count()
 
-        response = self.client.post(
-            self.base_url,
-            self._valid_payload(name="Grouped", grouping={"mode": "by_result_labels", "keys": [key]}),
-            format="json",
-        )
+        with patch(f"{_ALERTS_API}.posthog_feature_flag_enabled", return_value=flag_on):
+            response = self.client.post(
+                self.base_url,
+                self._valid_payload(name="Grouped", grouping={"mode": "by_result_labels", "keys": [key]}),
+                format="json",
+            )
 
         assert response.status_code == expected_status, response.json()
         if expected_status == status.HTTP_201_CREATED:
@@ -2671,6 +2676,36 @@ class TestLogsAlertAPI(APIBaseTest):
         else:
             assert response.json()["attr"] == "grouping"
             assert LogsAlertConfiguration.objects.filter(team=self.team).count() == alerts_before
+
+    @parameterized.expand(
+        [
+            (
+                "new_limit",
+                {"mode": "by_result_labels", "keys": ["service_name"], "max_instances": 5},
+                status.HTTP_200_OK,
+            ),
+            ("ungrouped", {"mode": "single"}, status.HTTP_200_OK),
+            ("new_keys", {"mode": "by_result_labels", "keys": ["severity_text"]}, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_with_the_grouping_flag_off_a_grouped_alert_keeps_only_its_keys(
+        self, _name: str, grouping: dict, expected_status: int
+    ) -> None:
+        self._keep_the_team_on_logs()
+        created = self._owned_by_the_platform()
+        self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"grouping": {"mode": "by_result_labels", "keys": ["service_name"]}},
+            format="json",
+        )
+
+        with patch(f"{_ALERTS_API}.posthog_feature_flag_enabled", return_value=False):
+            response = self.client.patch(f"{self.base_url}{created['id']}/", {"grouping": grouping}, format="json")
+
+        assert response.status_code == expected_status, response.json()
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            assert response.json()["attr"] == "grouping"
+            assert self._copy_grouping_keys(created["id"]) == ("service_name",)
 
     @parameterized.expand(
         [
@@ -3584,7 +3619,7 @@ class TestPlatformOwnedAlertHistory(ClickhouseTestMixin, APIBaseTest):
 
     def test_falls_back_to_the_logs_row_when_clickhouse_fails(self) -> None:
         with patch(
-            "products.logs.backend.presentation.views.alerts_api.history_by_legacy_id",
+            "products.logs.backend.presentation.views.alerts_api.history_by_public_id",
             side_effect=Exception("ClickHouse is down"),
         ):
             [row] = self._rows("list")

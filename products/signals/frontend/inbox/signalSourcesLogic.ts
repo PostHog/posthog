@@ -15,7 +15,14 @@ import { buildUserScopedPersistenceConfig } from 'lib/logic/persistence'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { productEnablementCreate } from '~/generated/core/api'
-import { ExternalDataSource, ExternalDataSourceSchema, IntegrationType, TeamPublicType, TeamType } from '~/types'
+import {
+    ExternalDataSource,
+    ExternalDataSourceSchema,
+    type ExternalDataSourceType,
+    IntegrationType,
+    TeamPublicType,
+    TeamType,
+} from '~/types'
 
 import { sourcesDataLogic } from 'products/data_warehouse/frontend/shared/logics/sourcesDataLogic'
 import {
@@ -29,7 +36,6 @@ import { visionScannersList, visionScannersPartialUpdate } from 'products/replay
 import type { ReplayScannerApi } from 'products/replay_vision/frontend/generated/api.schemas'
 import { SignalSourceProduct, SignalSourceType } from 'products/signals/frontend/inbox/types'
 import { externalDataSchemasPartialUpdate } from 'products/warehouse_sources/frontend/generated/api'
-import { ExternalDataSourceTypeEnumApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import { signalsOnboardingList, signalsSourceConfigsCreate, signalsSourceConfigsPartialUpdate } from '../generated/api'
 import type {
@@ -48,6 +54,7 @@ import { EXTERNAL_SIGNAL_SOURCES, ExternalSignalSource, isExternalSignalSource }
 import {
     SignalSourceCatalogOrigin,
     SignalSourceToggleFailureReason,
+    captureSignalSourceAlertScopeChanged,
     captureSignalSourceCatalogOpened,
     captureSignalSourceCatalogSourceSelected,
     captureSignalSourceConfigsLoadFailed,
@@ -61,7 +68,15 @@ import {
     SourceRecommendationInput,
     recommendSources,
 } from './sourceRecommendations'
-import { SOURCE_STEERING_KEY, SignalSourceConfig, SignalSourceConfigStatus, ToggleSignalSourceParams } from './types'
+import {
+    SOURCE_ALERT_SCOPE_KEY,
+    SOURCE_STEERING_KEY,
+    SignalAlertScope,
+    SignalSourceConfig,
+    SignalSourceConfigStatus,
+    ToggleSignalSourceParams,
+    alertScopeFromConfig,
+} from './types'
 
 /** product_enablement recipe names for products that back a signal source. */
 export type SourceProductEnablement = 'session_replay' | 'error_tracking' | 'conversations'
@@ -178,7 +193,7 @@ type WarehouseSourceCompletion =
  * once connected. Keyed by signal source, not warehouse product — GitHub backs more than one source.
  */
 interface WarehouseSourceSetup {
-    dwSourceType: ExternalDataSourceTypeEnumApi
+    dwSourceType: ExternalDataSourceType
     requiredTables: string[]
     requiredTableSyncType?: 'full_refresh'
     completion: WarehouseSourceCompletion
@@ -290,6 +305,7 @@ export interface signalSourcesLogicValues {
     dataWarehouseSourcesLoading: boolean // sourcesDataLogic
     sourcesLoadError: boolean // sourcesDataLogic
     currentTeam: TeamPublicType | TeamType | null // teamLogic
+    analyticsAlertScope: SignalAlertScope
     anomalyInvestigationConfig: SignalSourceConfig | null
     ciSignalsConfig: CISignalsConfigApi | null
     ciSignalsConfigLoading: boolean
@@ -335,6 +351,7 @@ export interface signalSourcesLogicValues {
     productStatusBySource: Partial<Record<AgentRosterSource, SourceProductStatus>>
     recommendedSources: SourceRecommendation[]
     rosterGroups: AgentRosterGroup[]
+    savingAnalyticsAlertScope: SignalAlertScope | null
     scannerInventoryKnown: boolean
     sourceCatalog: SourceCatalogGroup[]
     sourceCategory: string
@@ -499,6 +516,12 @@ export interface signalSourcesLogicActions {
         payload?: {
             enabled: boolean
         }
+    }
+    setAnalyticsAlertScope: (alertScope: SignalAlertScope) => {
+        alertScope: SignalAlertScope
+    }
+    setAnalyticsAlertScopeComplete: () => {
+        value: true
     }
     setDataWarehouseSourceEnabled: (
         source: WarehouseBackedSource,
@@ -964,6 +987,10 @@ export interface signalSourcesLogicMeta {
         isEvalReportsToggling: (togglingSourceKeys: Set<string>) => boolean
         anomalyInvestigationConfig: (sourceConfigs: SignalSourceConfig[] | null) => SignalSourceConfig | null
         isAnomalyInvestigationToggling: (togglingSourceKeys: Set<string>) => boolean
+        analyticsAlertScope: (
+            savingAnalyticsAlertScope: SignalAlertScope | null,
+            anomalyInvestigationConfig: SignalSourceConfig | null
+        ) => SignalAlertScope
         productStatusBySource: (
             currentTeam: TeamPublicType | TeamType | null,
             productDataEvents: Set<string> | null,
@@ -1045,6 +1072,8 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         toggleEvalReports: true,
         toggleConversations: true,
         toggleAnomalyInvestigation: true,
+        setAnalyticsAlertScope: (alertScope: SignalAlertScope) => ({ alertScope }),
+        setAnalyticsAlertScopeComplete: true,
         enableSourceProduct: (enablement: SourceProductEnablement) => ({ enablement }),
         enableSourceProductComplete: true,
         setErrorTrackingHasIssues: (hasIssues: boolean | null) => ({ hasIssues }),
@@ -1197,6 +1226,14 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             {
                 enableSourceProduct: (_, { enablement }) => enablement,
                 enableSourceProductComplete: () => null,
+            },
+        ],
+        // The scope being saved, so the control shows the choice and stays disabled until the save settles.
+        savingAnalyticsAlertScope: [
+            null as SignalAlertScope | null,
+            {
+                setAnalyticsAlertScope: (_, { alertScope }) => alertScope,
+                setAnalyticsAlertScopeComplete: () => null,
             },
         ],
         productDataEventsFailed: [
@@ -1654,6 +1691,14 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             (s) => [s.togglingSourceKeys],
             (keys: Set<string>): boolean =>
                 keys.has(`${SignalSourceProduct.Analytics}_${SignalSourceType.AnomalyInvestigation}`),
+        ],
+        analyticsAlertScope: [
+            (s) => [s.savingAnalyticsAlertScope, s.anomalyInvestigationConfig],
+            (
+                savingAnalyticsAlertScope: SignalAlertScope | null,
+                anomalyInvestigationConfig: SignalSourceConfig | null
+            ): SignalAlertScope =>
+                savingAnalyticsAlertScope ?? alertScopeFromConfig(anomalyInvestigationConfig?.config),
         ],
         productStatusBySource: [
             (s) => [
@@ -2291,6 +2336,42 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                     sourceType: SignalSourceType.AnomalyInvestigation,
                     enabled: desiredEnabled,
                 })
+            },
+            setAnalyticsAlertScope: async ({ alertScope }) => {
+                const config = values.anomalyInvestigationConfig
+                const previousAlertScope = alertScopeFromConfig(config?.config)
+                // The write needs a persisted row. The control asks for the source to be turned on first.
+                if (!config || config.id.startsWith('new_') || alertScope === previousAlertScope) {
+                    actions.setAnalyticsAlertScopeComplete()
+                    return
+                }
+                try {
+                    const updated = await signalsSourceConfigsPartialUpdate(
+                        String(ApiConfig.getCurrentProjectId()),
+                        config.id,
+                        { config_set: { [SOURCE_ALERT_SCOPE_KEY]: alertScope } }
+                    )
+                    // Read the row again: an on/off toggle may have changed it while this save ran.
+                    const latest = values.anomalyInvestigationConfig ?? config
+                    actions.replaceSourceConfig({
+                        ...latest,
+                        config: updated.config ?? latest.config,
+                        updated_at: updated.updated_at,
+                    })
+                    captureSignalSourceAlertScopeChanged({ alertScope, previousAlertScope, success: true })
+                    lemonToast.success(
+                        alertScope === SignalAlertScope.AllFiringAlerts
+                            ? 'Product analytics now turns every firing alert into a signal.'
+                            : 'Product analytics now turns only investigated alerts into signals.'
+                    )
+                } catch (error: any) {
+                    captureSignalSourceAlertScopeChanged({ alertScope, previousAlertScope, success: false })
+                    lemonToast.error(
+                        error?.detail || error?.message || "Couldn't change which alerts become signals. Try again."
+                    )
+                } finally {
+                    actions.setAnalyticsAlertScopeComplete()
+                }
             },
             enableSourceProduct: async ({ enablement }) => {
                 try {

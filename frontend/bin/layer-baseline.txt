@@ -5,14 +5,11 @@
 # Fixed one? Run `hogli lint:frontend-layers --prune-baseline` to drop it.
 frontend/src/layout/ErrorProjectUnavailable.tsx -> frontend/src/scenes/organization/CreateOrganizationModal.tsx
 frontend/src/layout/GlobalModals.tsx -> frontend/src/scenes/authentication/two-factor-setup/TwoFactorSetupModal.tsx
-frontend/src/layout/InternalFeedback/InternalFeedbackWidget.tsx -> frontend/src/toolbar/shared/product-tours/ElementHighlight.tsx
-frontend/src/layout/InternalFeedback/internalFeedbackLogic.ts -> frontend/src/toolbar/shared/utils.ts
 frontend/src/layout/navigation-3000/sidepanel/panels/activity/quill/QuillActivitySubscribeMenu.tsx -> frontend/src/scenes/hog-functions/sub-templates/sub-templates.ts
 frontend/src/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic.tsx -> products/notifications/frontend/resourceEditedLogic.ts
 frontend/src/layout/navigation-3000/sidepanel/panels/max/SidePanelMax.tsx -> frontend/src/scenes/max/maxLogic.tsx
 frontend/src/layout/navigation-3000/sidepanel/panels/support/SidePanelSupport.tsx -> products/conversations/frontend/components/SidePanel/SidePanelTickets.tsx
 frontend/src/layout/navigation-3000/sidepanel/panels/support/SidePanelSupport.tsx -> products/conversations/frontend/components/SidePanel/sidepanelTicketsLogic.ts
-frontend/src/layout/navigation-3000/sidepanel/sidePanelTabs.tsx -> products/conversations/frontend/components/SidePanel/SidePanelSupportIcon.tsx
 frontend/src/layout/navigation/projectNoticeLogic.tsx -> frontend/src/scenes/activity/live/liveEventsLogic.tsx
 frontend/src/layout/navigation/projectNoticeLogic.tsx -> frontend/src/scenes/authentication/verify-email/verifyEmailLogic.ts
 frontend/src/layout/navigation/projectNoticeLogic.tsx -> frontend/src/scenes/insights/EmptyStates/sampleDataStateLogic.ts
@@ -93,7 +90,6 @@ frontend/src/layout/today/todayWorkItems.ts -> products/tasks/frontend/spaces/ta
 frontend/src/lib/api.ts -> frontend/src/exporter/exporterViewLogic.ts
 frontend/src/lib/api.ts -> frontend/src/lib/apiRequestTiming.ts
 frontend/src/lib/api.ts -> frontend/src/lib/logic/apiStatusLogic.ts
-frontend/src/lib/api.ts -> frontend/src/scenes/surveys/constants.tsx
 frontend/src/lib/components/Account/ProjectFreshnessIndicator.tsx -> frontend/src/scenes/onboarding/shared/utils.tsx
 frontend/src/lib/components/ActivityLog/ActivityLogSubscribeMenu.tsx -> frontend/src/scenes/hog-functions/sub-templates/sub-templates.ts
 frontend/src/lib/components/AddToDashboard/addToDashboardModalLogic.ts -> frontend/src/scenes/dashboard/liveDashboardIds.ts
@@ -104,7 +100,6 @@ frontend/src/lib/components/Alerting/AlertWizard/alertWizardLogic.ts -> frontend
 frontend/src/lib/components/Alerting/AlertWizard/alertWizardLogic.ts -> frontend/src/scenes/hog-functions/sub-templates/sub-templates.ts
 frontend/src/lib/components/Alerting/AlertWizard/steps/DestinationStep.tsx -> frontend/src/scenes/hog-functions/configuration/HogFunctionIcon.tsx
 frontend/src/lib/components/AnnotationsOverlay/AnnotationsOverlay.tsx -> frontend/src/scenes/insights/insightLogic.tsx
-frontend/src/lib/components/AnnotationsOverlay/AnnotationsOverlay.tsx -> products/annotations/frontend/components/AnnotationModal.tsx
 frontend/src/lib/components/AnnotationsOverlay/AnnotationsOverlay.tsx -> products/annotations/frontend/logics/annotationModalLogic.ts
 frontend/src/lib/components/AnnotationsOverlay/annotationsOverlayLogic.ts -> frontend/src/scenes/insights/insightLogic.tsx
 frontend/src/lib/components/AnnotationsOverlay/annotationsOverlayLogic.ts -> frontend/src/scenes/insights/insightVizDataLogic.ts
@@ -249,9 +244,6 @@ frontend/src/lib/components/SessionTimeline/timeline/items/logs.tsx -> products/
 frontend/src/lib/components/SessionTimeline/timeline/items/page.tsx -> products/error_tracking/frontend/components/RuntimeIcon.tsx
 frontend/src/lib/components/Sharing/SharingModal.tsx -> frontend/src/queries/nodes/InsightQuery/defaults.ts
 frontend/src/lib/components/Sharing/SharingModal.tsx -> frontend/src/scenes/insights/insightVizDataLogic.ts
-frontend/src/lib/components/SmoothingFilter/SmoothingFilter.tsx -> frontend/src/scenes/insights/insightLogic.tsx
-frontend/src/lib/components/SmoothingFilter/SmoothingFilter.tsx -> frontend/src/scenes/insights/insightVizDataLogic.ts
-frontend/src/lib/components/SmoothingFilter/SmoothingFilter.tsx -> products/product_analytics/frontend/insights/trends/trendsDataLogic.ts
 frontend/src/lib/components/SurveyResponseDisplay/SurveyResponseDisplay.tsx -> frontend/src/scenes/surveys/hooks/useSurveyResponseColumns.tsx
 frontend/src/lib/components/SurveyResponseDisplay/SurveyResponseDisplay.tsx -> frontend/src/scenes/surveys/surveyLogic.tsx
 frontend/src/lib/components/SurveyResponseDisplay/SurveyResponseDisplay.tsx -> frontend/src/scenes/surveys/utils.ts
@@ -321,7 +313,6 @@ frontend/src/loadPostHogJS.tsx -> products/webmcp/frontend/webmcpToolError.ts
 frontend/src/models/cohortsModel.ts -> frontend/src/exporter/exporterViewLogic.ts
 frontend/src/models/insightsModel.tsx -> frontend/src/scenes/insights/utils/api.ts
 frontend/src/models/notebooksModel.ts -> frontend/src/scenes/analytics/analyticsBackLink.ts
-frontend/src/models/notebooksModel.ts -> frontend/src/scenes/notebooks/Notebook/notebookLogic.ts
 frontend/src/models/notebooksModel.ts -> frontend/src/scenes/notebooks/NotebookPanel/notebookPanelLogic.ts
 frontend/src/models/notebooksModel.ts -> frontend/src/scenes/notebooks/NotebookTemplates/notebookTemplates.ts
 frontend/src/models/notebooksModel.ts -> frontend/src/scenes/notebooks/types.ts
@@ -457,8 +448,6 @@ frontend/src/queries/nodes/WebVitals/WebVitals.tsx -> frontend/src/scenes/web-an
 frontend/src/queries/nodes/WebVitals/WebVitalsContent.tsx -> frontend/src/scenes/web-analytics/webAnalyticsLogic.tsx
 frontend/src/queries/nodes/WebVitals/WebVitalsPathBreakdown.tsx -> frontend/src/scenes/web-analytics/webAnalyticsLogic.tsx
 frontend/src/queries/query.ts -> frontend/src/exporter/exporterViewLogic.ts
-frontend/src/scenes/AuthenticatedShell.tsx -> frontend/src/scenes/onboarding/shared/wizard-sync/WizardHandoffDialog.tsx
-frontend/src/scenes/AuthenticatedShell.tsx -> frontend/src/scenes/onboarding/shared/wizard-sync/WizardSyncDebugPanel.tsx
 frontend/src/scenes/AuthenticatedShell.tsx -> products/webmcp/frontend/logics/webmcpLogic.ts
 frontend/src/scenes/appScenes.ts -> frontend/src/scenes/project-homepage/importProjectHomepage.ts
 frontend/src/scenes/bootApp.ts -> frontend/src/scenes/notebooks/AddToNotebook/registerNotebookLinkDrag.ts

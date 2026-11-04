@@ -4,6 +4,11 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.db import transaction
+from django.utils import timezone
+
+from parameterized import parameterized
+
+from posthog.models import Integration
 
 from products.signals.backend.agent_runtime import AgentRuntime
 from products.signals.backend.artefact_attribution import ArtefactAttribution
@@ -13,9 +18,10 @@ from products.signals.backend.auto_start import (
     RequestedImplementationUnavailable,
     start_requested_implementation,
 )
-from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportTask
+from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportTask, SignalSpend
 from products.signals.backend.report_generation.research import ActionabilityAssessment, ActionabilityChoice
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.spend import record_task_spend
 from products.signals.backend.task_run_artefacts import record_implementation_task
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.models import Task, TaskRun
@@ -83,7 +89,21 @@ class TestRequestedImplementation(BaseTest):
             after_run_count=1,
         )
 
-    def test_resumes_existing_task_once_with_fresh_research(self) -> None:
+    @parameterized.expand([(False, False), (True, False), (True, True)])
+    def test_resumes_existing_task_once_with_fresh_research(self, monitoring: bool, private_destination: bool) -> None:
+        origin = SignalReport.objects.create(team=self.team, status="closed")
+        Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id="privacy-test",
+            config={"installation_id": "privacy-test"},
+            repository_cache=[
+                {"id": 1, "name": "repo", "full_name": "example/repo", "private": private_destination},
+                {"id": 2, "name": "source", "full_name": "example/source", "private": True},
+            ],
+            repository_cache_updated_at=timezone.now(),
+        )
+
         def fake_run_task(*args: object, **kwargs: object) -> SimpleNamespace:
             new_run = TaskRun.objects.create(
                 team=self.team,
@@ -101,7 +121,25 @@ class TestRequestedImplementation(BaseTest):
                 "products.signals.backend.auto_start.self_driving_free_trial_enabled", return_value=False
             ) as free_trial_flag,
             patch.object(tasks_facade, "run_task", side_effect=fake_run_task) as run_task,
+            patch(
+                "products.signals.backend.report_monitoring_provenance.execute_hogql_query",
+                return_value=SimpleNamespace(
+                    results=[
+                        (str(self.report.id), "signals_check", "monitoring_unresolved", "", str(origin.id)),
+                        (str(origin.id), "github", "issue", "https://github.com/example/source/issues/1", ""),
+                    ]
+                    if monitoring
+                    else []
+                ),
+            ),
         ):
+            if monitoring and not private_destination:
+                with self.assertRaisesMessage(RequestedImplementationUnavailable, "source privacy"):
+                    start_requested_implementation(self.request())
+                run_task.assert_not_called()
+                self.report.refresh_from_db()
+                assert self.report.implemented_at_run_count == 1
+                return
             new_run_id = start_requested_implementation(self.request())
             assert start_requested_implementation(self.request()) == "already_started"
 
@@ -140,7 +178,8 @@ class TestRequestedImplementation(BaseTest):
                 raise AssertionError("Unactionable research started implementation")
         run_task.assert_not_called()
 
-    def test_report_without_prior_implementation_creates_a_linked_task(self) -> None:
+    @parameterized.expand([(False,), (True,)])
+    def test_report_without_prior_implementation_creates_a_linked_task(self, exempt: bool) -> None:
         report = SignalReport.objects.create(
             team=self.team,
             status=SignalReport.Status.READY,
@@ -148,6 +187,7 @@ class TestRequestedImplementation(BaseTest):
             summary="Fix the new issue",
             signal_count=1,
             run_count=1,
+            billing_exempt_reason=SignalReport.BillingExemptReason.POSTHOG_HEALTH_CHECK if exempt else None,
         )
         for content in (
             ActionabilityAssessment(
@@ -203,6 +243,15 @@ class TestRequestedImplementation(BaseTest):
 
         report.refresh_from_db()
         assert report.implemented_at_run_count == 1
+        run = TaskRun.objects.get(task__signal_report=report)
+        record_task_spend(
+            team_id=self.team.id,
+            run_id=str(run.id),
+            report_id=str(report.id),
+            stage="implementation",
+            implementation_kind="reviewer_triggered_implementation",
+        )
+        assert SignalSpend.objects.for_team(self.team.id).get(task_run_id=run.id).billing_exempt is exempt
         assert SignalReportTask.objects.filter(
             team_id=self.team.id, report_id=report.id, relationship="implementation"
         ).exists()

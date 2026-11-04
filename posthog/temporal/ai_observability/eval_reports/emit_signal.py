@@ -30,6 +30,7 @@ import temporalio.workflow
 from pydantic import BaseModel, Field
 from temporalio.common import RetryPolicy
 
+from posthog.llm.gateway_client import GatewayNotConfiguredError, resolve_ai_gateway_config
 from posthog.models import PropertyDefinition
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
@@ -137,10 +138,13 @@ async def summarize_report_for_signal(
 ) -> EvalReportSignalSummary:
     """Use the signals LLM to produce a signal-sized summary of a report run.
 
-    `ai_product` is the Go-gateway opt-in. A call without it routes to the legacy Python
-    gateway under the bare `signals` slug. This tag stays separate from the report agent's
-    `aio_eval_reports`: a budget denial on one must not stop the other.
+    The call runs only on the Go gateway, so it raises when the gateway is not configured rather
+    than reaching the legacy Python gateway under the bare `signals` slug. The `ai_product` tag
+    stays separate from the report agent's `aio_eval_reports`: a budget denial on one must not
+    stop the other.
     """
+    if resolve_ai_gateway_config() is None:
+        raise GatewayNotConfiguredError("AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured")
     user_prompt = _build_eval_report_signal_prompt(inputs, content)
 
     def validate(text: str) -> EvalReportSignalSummary:
@@ -266,5 +270,7 @@ class EmitEvalReportSignalWorkflow(PostHogWorkflow):
             emit_eval_report_signal_activity,
             inputs,
             schedule_to_close_timeout=timedelta(seconds=180),
-            retry_policy=RetryPolicy(maximum_attempts=2),
+            retry_policy=RetryPolicy(
+                maximum_attempts=2, non_retryable_error_types=[GatewayNotConfiguredError.__name__]
+            ),
         )
