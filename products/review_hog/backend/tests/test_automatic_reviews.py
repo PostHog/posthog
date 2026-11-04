@@ -37,7 +37,11 @@ from products.review_hog.backend.models import (
 from products.review_hog.backend.ownership import OwnedRepositoryPrefilter
 from products.review_hog.backend.pull_request_events import accept_pull_request_event
 from products.review_hog.backend.receivers import queue_stamphog_handoff
-from products.review_hog.backend.tasks import process_authored_pr_event, process_stamphog_handoff
+from products.review_hog.backend.tasks import (
+    process_authored_pr_event,
+    process_review_team_request,
+    process_stamphog_handoff,
+)
 from products.review_hog.backend.webhook_consumers import WEBHOOK_CONSUMERS
 from products.stamphog.backend.facade.enums import ReviewRunStatus, ReviewVerdict
 from products.stamphog.backend.facade.finished_review_hooks import FinishedReviewRun
@@ -52,6 +56,12 @@ _HEAD_SHA = "a" * 40
 _DISPATCH_METRIC = "posthog_review_hog_authored_pr_review_total"
 _INSTALLATION_ID = "1234"
 _REPO_ID = 5001
+_REQUESTER_ID = 4242
+_TEAM_REQUEST_QUEUE = "products.review_hog.backend.tasks.process_review_team_request.delay"
+_REQUEST_START = "products.review_hog.backend.requested_reviews.start_review_pr_workflow"
+_REQUEST_BUSY = "products.review_hog.backend.requested_reviews.workflow_running"
+_REQUEST_META = "products.review_hog.backend.requested_reviews.fetch_pr_metadata"
+_REQUEST_ACCESS = "posthog.models.integration.GitHubIntegration.first_for_team_repository"
 
 
 def _dispatch_count(outcome: str) -> float:
@@ -80,6 +90,16 @@ def _payload(
             "head": {"sha": _HEAD_SHA, "ref": "feature", "repo": {"full_name": repository.lower()}},
             "base": {"repo": {"full_name": repository}},
         },
+    }
+
+
+def _review_request_payload(
+    *, team_slug: str = "posthog-review", sender: Mapping[str, object] | None = None
+) -> dict[str, object]:
+    return {
+        **_payload(action="review_requested"),
+        "requested_team": {"id": 1, "slug": team_slug},
+        "sender": sender or {"id": _REQUESTER_ID, "login": "OctoCat", "type": "User"},
     }
 
 
@@ -224,6 +244,34 @@ class TestAuthoredPRWebhook(SimpleTestCase):
         assert self._post(json.dumps(_label_payload(label)).encode()).status_code == 202
 
         enqueue.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("review_team", _review_request_payload(), True),
+            ("another_team", _review_request_payload(team_slug="team-devex"), False),
+            # Reviewer-assignment automation must not start paid runs on its own.
+            ("bot_sender", _review_request_payload(sender={"id": 1, "login": "assigner[bot]", "type": "Bot"}), False),
+        ]
+    )
+    @patch(_TEAM_REQUEST_QUEUE)
+    @patch(_QUEUE)
+    def test_a_review_team_request_queues_a_requested_review(
+        self, _name: str, payload: dict[str, object], expected: bool, enqueue: MagicMock, enqueue_request: MagicMock
+    ) -> None:
+        assert self._post(json.dumps(payload).encode()).status_code == 202
+
+        enqueue.assert_not_called()
+        if expected:
+            enqueue_request.assert_called_once_with(
+                installation_id=_INSTALLATION_ID,
+                repository="PostHog/posthog",
+                github_repo_id=_REPO_ID,
+                pr_number=42,
+                requester_github_id=_REQUESTER_ID,
+                requester_login="OctoCat",
+            )
+        else:
+            enqueue_request.assert_not_called()
 
     @patch(_QUEUE)
     def test_non_post_does_not_enqueue(self, enqueue: MagicMock) -> None:
@@ -543,3 +591,79 @@ class TestStamphogHandoffTask(BaseTest):
         self.start.assert_not_called()
         after = REGISTRY.get_sample_value("posthog_review_hog_stamphog_handoff_total", {"outcome": outcome}) or 0.0
         assert after - before == 1.0
+
+
+class TestReviewTeamRequestTask(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        Integration.objects.create(
+            team=self.team,
+            kind="github",
+            integration_id=_INSTALLATION_ID,
+            config={"installation_id": _INSTALLATION_ID, "account": {"name": "PostHog"}},
+            created_by=self.user,
+        )
+        ReviewInstallationClaim.objects.for_team(self.team.id).create(
+            team=self.team, installation_id=_INSTALLATION_ID, scope=ReviewInstallationClaim.Scope.SELECTED
+        )
+        ReviewRepository.objects.for_team(self.team.id).create(
+            team=self.team, installation_id=_INSTALLATION_ID, full_name="PostHog/posthog", selected=True
+        )
+        self.github_link = UserSocialAuth.objects.create(user=self.user, provider="github", uid=str(_REQUESTER_ID))
+        self.github = MagicMock()
+        self.github.get_collaborator_permission.return_value = "write"
+        self.github.comment_on_pull_request.return_value = {"success": True}
+        self.github.api_request.return_value = MagicMock(status_code=200)
+        self.enterContext(patch(_REQUEST_ACCESS, return_value=self.github))
+        self.enterContext(patch(_REQUEST_META, return_value=MagicMock(is_fork=False, state="open", head_sha=_HEAD_SHA)))
+        self.enterContext(patch(_REQUEST_BUSY, return_value=False))
+        self.enterContext(patch("posthoganalytics.feature_enabled", return_value=True))
+        self.start = self.enterContext(patch(_REQUEST_START, return_value="wf-1"))
+
+    def _run(self) -> None:
+        with patch(_TEAM_REQUEST_QUEUE) as enqueue:
+            accept_pull_request_event(_review_request_payload())
+        process_review_team_request.run(**enqueue.call_args.kwargs)
+
+    def _team_request_removed(self) -> bool:
+        return any(
+            call.args[0] == "DELETE" and call.kwargs["json_body"]["team_reviewers"] == ["posthog-review"]
+            for call in self.github.api_request.call_args_list
+        )
+
+    def test_a_linked_writer_gets_a_review_as_themselves_and_the_request_is_cleared(self) -> None:
+        self._run()
+
+        assert self.start.call_args.kwargs["trigger_source"] == "review_request"
+        assert self.start.call_args.kwargs["user_id"] == self.user.id
+        assert self.start.call_args.kwargs["review_mode"] == "flash"
+        self.github.comment_on_pull_request.assert_not_called()
+        assert self._team_request_removed()
+
+    @parameterized.expand([("no_write_access", None), ("unlinked", "isn't linked to a PostHog account")])
+    def test_a_refused_request_starts_nothing_and_still_clears_the_request(
+        self, change: str, expected_reply: str | None
+    ) -> None:
+        if change == "no_write_access":
+            self.github.get_collaborator_permission.return_value = "read"
+        else:
+            self.github_link.delete()
+
+        self._run()
+
+        self.start.assert_not_called()
+        if expected_reply is None:
+            self.github.comment_on_pull_request.assert_not_called()
+        else:
+            assert expected_reply in self.github.comment_on_pull_request.call_args.args[2]
+        assert self._team_request_removed()
+
+    def test_a_failed_permission_lookup_retries_and_still_clears_the_request(self) -> None:
+        # A request left in place could not be asked again until someone removed it by hand.
+        self.github.get_collaborator_permission.side_effect = ConnectionError("github is down")
+
+        with self.assertRaises(ConnectionError):
+            self._run()
+
+        self.start.assert_not_called()
+        assert self._team_request_removed()

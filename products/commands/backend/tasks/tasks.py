@@ -3,8 +3,7 @@
 from celery import shared_task
 
 from ..channels.github.comments import dispatch_comment_command
-from ..channels.github.intake import CommentCommandRequest, ReviewTeamRequest
-from ..channels.github.review_requests import dispatch_review_team_request
+from ..channels.github.intake import CommentCommandRequest
 from ..channels.slack.mentions import SlackCommandRequest, SlackThread, dispatch_slack_command, post_in_thread
 from ..logic.subjects import subject_from_payload
 
@@ -37,28 +36,6 @@ def run_comment_command(
             verb=verb,
             argument=argument,
             ambiguous=ambiguous,
-        )
-    )
-
-
-@shared_task(ignore_result=True, max_retries=0)
-def run_review_team_request(
-    *,
-    installation_id: str,
-    repository: str,
-    pr_number: int,
-    delivery_id: str,
-    requester_github_id: int,
-    requester_login: str,
-) -> None:
-    dispatch_review_team_request(
-        ReviewTeamRequest(
-            installation_id=installation_id,
-            repository=repository,
-            pr_number=pr_number,
-            delivery_id=delivery_id,
-            requester_github_id=requester_github_id,
-            requester_login=requester_login,
         )
     )
 

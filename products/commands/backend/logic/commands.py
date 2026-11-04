@@ -9,6 +9,7 @@ import re
 from typing import ClassVar, Literal
 
 from posthog.dataclasses import frozen
+from posthog.github.requesters import ProjectMember
 
 # The name goes into GitHub API paths, so it must be exactly `owner/name`.
 REPOSITORY_NAME_RE = re.compile(r"[A-Za-z0-9-]{1,39}/[A-Za-z0-9._-]{1,100}")
@@ -155,18 +156,6 @@ SubjectFacts = PullRequestFacts | ErrorTrackingIssueFacts
 # Where a channel wants the result of work that finishes after the command answered. Only the
 # channel reads it, so the core keeps it as plain data.
 FollowUpAddress = dict[str, str | int]
-
-
-@frozen
-class ProjectMember:
-    """A project the commenter may act in, and the commenter's PostHog account that acts there.
-
-    One GitHub account can be linked to several PostHog accounts, for example a work and a personal
-    one, so the account goes with the project the command picks.
-    """
-
-    team_id: int
-    user_id: int
 
 
 @frozen

@@ -10,19 +10,13 @@ from collections.abc import Mapping
 
 import structlog
 
-from ..channels.github.intake import CommentCommandRequest, Dropped, read_comment_command, read_review_team_request
+from ..channels.github.intake import CommentCommandRequest, Dropped, read_comment_command
 from ..channels.slack.parsing import may_hold_command as _may_hold_command
 from .contracts import SlackMention
 
 logger = structlog.get_logger(__name__)
 
-__all__ = [
-    "SlackMention",
-    "accept_issue_comment",
-    "accept_review_request",
-    "accept_slack_mention",
-    "may_hold_command",
-]
+__all__ = ["SlackMention", "accept_issue_comment", "accept_slack_mention", "may_hold_command"]
 
 
 def accept_issue_comment(payload: Mapping[str, object]) -> None:
@@ -54,27 +48,6 @@ def _enqueue(request: CommentCommandRequest) -> None:
         verb=request.verb,
         argument=request.argument,
         ambiguous=request.ambiguous,
-    )
-
-
-def accept_review_request(payload: Mapping[str, object], delivery_id: str | None) -> None:
-    """Queue a review when a verified ``pull_request`` payload asks the review team to review.
-
-    Every other pull request event stops here without touching the database or the queue.
-    """
-    request = read_review_team_request(payload, delivery_id)
-    if request is None:
-        return
-    # Deferred for the same reason as in `_enqueue`.
-    from ..tasks.tasks import run_review_team_request  # noqa: PLC0415
-
-    run_review_team_request.delay(
-        installation_id=request.installation_id,
-        repository=request.repository,
-        pr_number=request.pr_number,
-        delivery_id=request.delivery_id,
-        requester_github_id=request.requester_github_id,
-        requester_login=request.requester_login,
     )
 
 

@@ -31,8 +31,7 @@ from posthog.token_bucket import BucketDecision
 
 from products.access_control.backend.facade.testing import create_access_control
 from products.commands.backend.channels.github.comments import GitHubCommentChannel, dispatch_comment_command
-from products.commands.backend.channels.github.intake import CommentCommandRequest, ReviewTeamRequest
-from products.commands.backend.channels.github.review_requests import dispatch_review_team_request
+from products.commands.backend.channels.github.intake import CommentCommandRequest
 from products.commands.backend.channels.slack.mentions import read_slack_command
 from products.commands.backend.facade.api import accept_slack_mention
 from products.commands.backend.facade.contracts import SlackMention
@@ -89,10 +88,6 @@ class FakeGitHub:
         self.reactions: list[Reaction] = []
         self.replies: list[str] = []
         self.permission_lookups: list[int] = []
-        self.removed_team_review_requests: list[str] = []
-
-    def remove_team_review_request(self, repository: str, number: int, team_slug: str) -> None:
-        self.removed_team_review_requests.append(team_slug)
 
     def collaborator_permission(self, repository: str, login: str, github_user_id: int) -> str:
         self.permission_lookups.append(github_user_id)
@@ -223,7 +218,7 @@ class TestDispatchCommentCommand(BaseTest):
         github = FakeGitHub()
 
         with (
-            patch("products.commands.backend.logic.identity.access_refused", return_value=True),
+            patch("posthog.github.requesters.access_refused", return_value=True),
             patch(REQUEST_STAMPHOG_REVIEW) as request_review,
         ):
             outcome = dispatch_comment_command(self._request(), github=github)
@@ -269,7 +264,7 @@ class TestDispatchCommentCommand(BaseTest):
 
         with (
             patch(
-                "products.commands.backend.logic.identity.access_refused",
+                "posthog.github.requesters.access_refused",
                 side_effect=lambda subject, *_args, **_kwargs: second_refused and subject.email == second_user.email,
             ),
             patch(OWNING_TEAM_ID, return_value=owner_team.id),
@@ -451,48 +446,6 @@ class TestDispatchCommentCommand(BaseTest):
         else:
             assert request_pr_review.call_args.kwargs["run_mode"] == expected_mode
             assert request_pr_review.call_args.kwargs["team_id"] == self.team.id
-
-    def _review_team_request(self) -> ReviewTeamRequest:
-        return ReviewTeamRequest(
-            installation_id=INSTALLATION_ID,
-            repository=REPOSITORY,
-            pr_number=7,
-            delivery_id="delivery-1",
-            requester_github_id=self.github_id,
-            requester_login="octo",
-        )
-
-    def test_a_review_team_request_reviews_as_the_requester_and_clears_the_request(self) -> None:
-        self._link_github_login()
-        github = FakeGitHub()
-        started = PRReviewRequestOutcome(
-            status=PRReviewRequestStatus.STARTED, workflow_id="wf-1", head_sha="abc123", review_mode="flash"
-        )
-
-        with (
-            patch(OWNING_TEAM_ID, return_value=self.team.id),
-            patch(REQUEST_PR_REVIEW, return_value=started) as request_pr_review,
-        ):
-            outcome = dispatch_review_team_request(self._review_team_request(), github=github)
-
-        assert outcome == "accepted"
-        assert request_pr_review.call_args.kwargs["run_mode"] == RUN_MODE_FLASH
-        assert request_pr_review.call_args.kwargs["requester_id"] == self.user.id
-        assert github.permission_lookups == [self.github_id]
-        assert github.replies[-1].endswith("@octo PostHog Review is reviewing this pull request.")
-        assert github.removed_team_review_requests == ["posthog-review"]
-
-    def test_a_review_team_request_without_write_access_runs_nothing_and_stays_silent(self) -> None:
-        self._link_github_login()
-        github = FakeGitHub(permission="read")
-
-        with patch(REQUEST_PR_REVIEW) as request_pr_review:
-            outcome = dispatch_review_team_request(self._review_team_request(), github=github)
-
-        assert outcome == "no_write_access"
-        request_pr_review.assert_not_called()
-        assert github.replies == []
-        assert github.removed_team_review_requests == ["posthog-review"]
 
     @parameterized.expand(
         [

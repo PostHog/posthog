@@ -38,16 +38,6 @@ Both are generated from `backend/logic/schema.py`, like the `@posthog help` repl
 3. `channels/github/comments.py` runs in the task. It applies the comment's silent checks (listed in its module docstring), then hands the command to `logic/dispatcher.py`, which runs the steps every channel shares and calls the command's handler.
 4. `logic/handlers.py` calls the target product's facade and returns the text of the reply.
 
-## Reviews from a review request
-
-Asking the `posthog-review` team to review a pull request runs `review`, a Standard review.
-The team has no members and read access to the repository, so the request notifies nobody.
-
-- The `commands_review_requests` consumer reads `pull_request` deliveries with the `review_requested` action. `read_review_team_request` in `channels/github/intake.py` drops every other request.
-- `channels/github/review_requests.py` applies the same checks as a comment, with the person who asked as the requester. It claims the webhook delivery id, because a review request has no comment id.
-- Once the request reaches GitHub, the channel removes the team's review request. Asking the team again asks for the next review. GitHub shows its re-request button only next to reviewers who submitted a review, and a team never does.
-- GitHub silently drops a team review request on a private repository of an organization on the Free plan.
-
 ## Commands from Slack
 
 The same commands run from a Slack message that mentions the PostHog app and names the subject by its URL, before or after the command.
