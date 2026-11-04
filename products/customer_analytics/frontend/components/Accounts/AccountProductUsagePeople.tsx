@@ -10,33 +10,40 @@ export function AccountProductUsagePeople({
     firsts,
     total,
     columnKey,
+    showDetails = false,
 }: {
     people: BookActivityPerson[]
     firsts: BookActivityPersonFirstUse[]
     total: number
     columnKey: string
+    showDetails?: boolean
 }): JSX.Element {
     const end = dayjs(columnKey).add(1, 'week').format('YYYY-MM-DD')
+    const period = <div className="mb-2 text-secondary">Week of {dayjs(columnKey).format('MMM D, YYYY')}</div>
     return (
-        <div className="flex flex-wrap items-center gap-x-1 text-xs">
+        <div className={showDetails ? 'flex flex-col gap-3 text-xs' : 'flex flex-wrap items-center gap-x-1 text-xs'}>
+            {showDetails && period}
             {people.map((person, index) => {
                 const firstUse = firsts.find(
                     (first) =>
                         first.row === person.row && first.series === person.series && first.personId === person.personId
                 )
-                return (
+                const details = (
+                    <ProductUsagePersonTooltip
+                        person={person}
+                        firstUse={firstUse}
+                        isNew={!!firstUse && firstUse.date >= columnKey.slice(0, 10) && firstUse.date < end}
+                    />
+                )
+                return showDetails ? (
+                    <div key={person.personId}>{details}</div>
+                ) : (
                     <Tooltip
                         key={person.personId}
                         title={
                             <>
-                                <div className="mb-2 text-secondary">
-                                    Week of {dayjs(columnKey).format('MMM D, YYYY')}
-                                </div>
-                                <ProductUsagePersonTooltip
-                                    person={person}
-                                    firstUse={firstUse}
-                                    isNew={!!firstUse && firstUse.date >= columnKey.slice(0, 10) && firstUse.date < end}
-                                />
+                                {period}
+                                {details}
                             </>
                         }
                     >

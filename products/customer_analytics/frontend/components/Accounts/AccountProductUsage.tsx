@@ -28,7 +28,7 @@ export function AccountProductUsage({
     const { details, detailsLoading, error } = useValues(logic)
     const { loadDetails } = useActions(logic)
     const latestColumn = getLatestProductUsageColumn(result)
-    const renderPeople = (productKey: string, columnKey: string): JSX.Element | null => {
+    const renderPeople = (productKey: string, columnKey: string, showDetails = false): JSX.Element | null => {
         if (detailsLoading && details?.matrix !== result) {
             return <Spinner className="text-xl" />
         }
@@ -48,6 +48,7 @@ export function AccountProductUsage({
                 firsts={includeFirstUse ? (details.firsts?.people ?? []) : []}
                 total={total}
                 columnKey={columnKey}
+                showDetails={showDetails}
             />
         )
     }
@@ -81,7 +82,7 @@ export function AccountProductUsage({
                 onIncludeFirstUseChange={onIncludeFirstUseChange}
                 loading={loading}
                 renderTopUsers={(productKey) => renderPeople(productKey, latestColumn)}
-                renderUserDetails={renderPeople}
+                renderUserDetails={(productKey, columnKey) => renderPeople(productKey, columnKey, true)}
             />
         </div>
     )
