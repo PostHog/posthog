@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 import re
 import sys
+import json
+import shutil
 import hashlib
 import subprocess
 import urllib.parse
@@ -61,6 +63,8 @@ _AUTO_OFF = "off"
 _AUTO_LOG_NAME = "hogli-devbox-worktree.log"
 _AUTO_STARTED_NAME = "hogli-devbox-worktree.auto-started"
 _TEARDOWN_LOG_NAME = "hogli-devbox-teardown.log"
+_HERDR_PLUGIN_ID = "posthog.devbox"
+_HERDR_PLUGIN_DIR = Path("tools") / "herdr-devbox-plugin"
 _SUBAGENT_WORKTREE_PREFIX = "agent-"
 
 
@@ -138,7 +142,68 @@ def _save_auto_sources(value: str) -> None:
     save_worktree_auto_sources(sources)
     click.echo(
         f"New worktrees from {', '.join(sources)} now get their own devbox. "
-        "The husky post-checkout hook starts `hogli devbox:worktree` in the background when one is created."
+        "The husky post-checkout hook or the app's own create hook starts `hogli devbox:worktree` in the background."
+    )
+    if "herdr" in sources:
+        _link_herdr_plugin(_detect_local_posthog_checkout())
+
+
+def _find_herdr_plugin(listing: Any) -> dict[str, Any] | None:
+    if isinstance(listing, dict):
+        if listing.get("plugin_id") == _HERDR_PLUGIN_ID:
+            return listing
+        children: list[Any] = list(listing.values())
+    elif isinstance(listing, list):
+        children = listing
+    else:
+        return None
+    for child in children:
+        found = _find_herdr_plugin(child)
+        if found is not None:
+            return found
+    return None
+
+
+def _main_checkout(root: Path) -> Path:
+    result = subprocess.run(
+        ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return Path(result.stdout.strip()).parent
+
+
+def _link_herdr_plugin(root: Path) -> None:
+    """Link the plugin from the main checkout, which outlives every worktree, unless herdr already has it."""
+    herdr = shutil.which("herdr")
+    if herdr is None:
+        click.echo(
+            f"herdr isn't on your PATH. Once it is, run `herdr plugin link <main checkout>/{_HERDR_PLUGIN_DIR}`."
+        )
+        return
+    listing = subprocess.run([herdr, "plugin", "list", "--json"], capture_output=True, text=True, timeout=30)
+    try:
+        existing = _find_herdr_plugin(json.loads(listing.stdout)) if listing.returncode == 0 else None
+    except ValueError:
+        existing = None
+    if existing is not None:
+        state = "enabled" if existing.get("enabled") else "disabled"
+        click.echo(
+            f"The herdr plugin {_HERDR_PLUGIN_ID} is already linked from {existing.get('plugin_root')} ({state})."
+        )
+        return
+    plugin_dir = _main_checkout(root) / _HERDR_PLUGIN_DIR
+    if not (plugin_dir / "herdr-plugin.toml").is_file():
+        click.echo(f"Your main checkout has no {_HERDR_PLUGIN_DIR} yet. Pull it, then run this command again.")
+        return
+    result = subprocess.run([herdr, "plugin", "link", str(plugin_dir)], capture_output=True, text=True, timeout=60)
+    if result.returncode != 0:
+        click.echo(f"Couldn't link the herdr plugin: {(result.stderr or result.stdout).strip()}")
+        return
+    click.echo(
+        f"Linked the herdr plugin from {plugin_dir}. Turn it off with `herdr plugin disable {_HERDR_PLUGIN_ID}`."
     )
 
 
@@ -397,8 +462,9 @@ def devbox_worktree(
 
     if not _print_plan(root, box_step, sync_step, on_clean, dry_run):
         return
+    _reset_recreated_mirror(target)
     git_dir, worktree_id = _claim_box(root, target, existing, on_clean, "coder")
-    _drop_stale_mirrors(target)
+    _drop_abandoned_mirror(target)
 
     region = region_from_workspace_name(target.workspace_name)
     if existing is None and cloning:
@@ -468,11 +534,16 @@ def _has_reusable_mirror(target: _WorktreeTarget) -> bool:
     return bool(mutagen.sync_list(label_selector=mutagen.workspace_label_selector(target.workspace_name)))
 
 
-def _drop_stale_mirrors(target: _WorktreeTarget) -> None:
-    if target.abandoned_mirror is not None:
-        mutagen.sync_terminate(mutagen.workspace_label_selector(target.abandoned_mirror))
+def _reset_recreated_mirror(target: _WorktreeTarget) -> None:
+    # Runs before `_claim_box` saves the new worktree's ID. A failed terminate then
+    # leaves the old ID in place, so a retry still sees a recreated worktree and resets.
     if target.reset_mirror:
         mutagen.sync_terminate(mutagen.workspace_label_selector(target.workspace_name))
+
+
+def _drop_abandoned_mirror(target: _WorktreeTarget) -> None:
+    if target.abandoned_mirror is not None:
+        mutagen.sync_terminate(mutagen.workspace_label_selector(target.abandoned_mirror))
 
 
 def _hogland_worktree(root: Path, label: str | None, on_clean: str | None, dry_run: bool, verbose: bool) -> None:
@@ -496,8 +567,9 @@ def _hogland_worktree(root: Path, label: str | None, on_clean: str | None, dry_r
     )
     if not _print_plan(root, box_step, sync_step, on_clean, dry_run):
         return
+    _reset_recreated_mirror(target)
     git_dir, worktree_id = _claim_box(root, target, existing, on_clean, "hogland")
-    _drop_stale_mirrors(target)
+    _drop_abandoned_mirror(target)
 
     click.echo(f"Bringing up Hogland devbox '{name}'...")
     endpoint = hogland.up(name, _checked_out_branch(root))

@@ -472,7 +472,7 @@ def prune_boxes_of_removed_worktrees(
     if dry_run:
         click.echo(f"[DRY-RUN] Would {box_action} them.")
     else:
-        _clean_worktree_boxes(boxes, box_action)
+        _clean_worktree_boxes(boxes, box_action, keep_stopped_records=True)
     return boxes
 
 
@@ -499,7 +499,7 @@ def teardown_worktree_box(
         return box
     _stop_worktree_mirrors([box])
     if act_on_box is None:
-        _clean_worktree_boxes([box], box_action)
+        _clean_worktree_boxes([box], box_action, keep_stopped_records=True)
     else:
         act_on_box(worktree_path, box_action)
     return box
@@ -510,7 +510,9 @@ def clean_registered_box(worktree_path: Path, box_action: str) -> bool:
     record = load_worktree_boxes().get(str(worktree_path))
     if record is None:
         return False
-    _clean_worktree_boxes([WorktreeBox(worktree_path=worktree_path, record=record)], box_action)
+    _clean_worktree_boxes(
+        [WorktreeBox(worktree_path=worktree_path, record=record)], box_action, keep_stopped_records=True
+    )
     return True
 
 
@@ -580,16 +582,28 @@ def _box_last_used(workspace: Mapping[str, object]) -> float | None:
         return None
 
 
-def _clean_worktree_boxes(boxes: list[WorktreeBox], box_action: str, idle_before: float = float("inf")) -> None:
+def _clean_worktree_boxes(
+    boxes: list[WorktreeBox],
+    box_action: str,
+    idle_before: float = float("inf"),
+    keep_stopped_records: bool = False,
+) -> None:
+    """Stop or delete *boxes* and forget their records.
+
+    With *keep_stopped_records*, a box that ends up stopped keeps its record, so a
+    worktree recreated at the same path can take it over again.
+    """
     hogland_boxes = [box for box in boxes if box.record.provider == "hogland"]
     coder_boxes = [box for box in boxes if box.record.provider != "hogland"]
     if hogland_boxes:
-        _clean_hogland_boxes(hogland_boxes, box_action, idle_before)
+        _clean_hogland_boxes(hogland_boxes, box_action, idle_before, keep_stopped_records)
     if coder_boxes:
-        _clean_coder_boxes(coder_boxes, box_action, idle_before)
+        _clean_coder_boxes(coder_boxes, box_action, idle_before, keep_stopped_records)
 
 
-def _clean_hogland_boxes(boxes: list[WorktreeBox], box_action: str, idle_before: float) -> None:
+def _clean_hogland_boxes(
+    boxes: list[WorktreeBox], box_action: str, idle_before: float, keep_stopped_records: bool
+) -> None:
     try:
         hogland.ensure_cli()
         devboxes = hogland.fetch_devboxes()
@@ -633,11 +647,14 @@ def _clean_hogland_boxes(boxes: list[WorktreeBox], box_action: str, idle_before:
             command = "delete" if box_action == "delete" else "hibernate"
             click.echo(f"  ⚠️  could not {box_action} {box.workspace}. Run `hogland devbox {command} {box.workspace}`.")
             continue
-        handled.append(box.worktree_path)
+        if box_action == "delete" or not keep_stopped_records:
+            handled.append(box.worktree_path)
     forget_worktree_boxes(handled)
 
 
-def _clean_coder_boxes(boxes: list[WorktreeBox], box_action: str, idle_before: float) -> None:
+def _clean_coder_boxes(
+    boxes: list[WorktreeBox], box_action: str, idle_before: float, keep_stopped_records: bool
+) -> None:
     try:
         ensure_runtime_ready()
     except SystemExit:
@@ -685,7 +702,8 @@ def _clean_coder_boxes(boxes: list[WorktreeBox], box_action: str, idle_before: f
             label = extract_workspace_label(box.workspace) or ""
             click.echo(f"  ⚠️  could not {box_action} {box.workspace}. Run `hogli {command} {label}`.")
             continue
-        handled.append(box.worktree_path)
+        if box_action == "delete" or not keep_stopped_records:
+            handled.append(box.worktree_path)
     forget_worktree_boxes(handled)
 
 

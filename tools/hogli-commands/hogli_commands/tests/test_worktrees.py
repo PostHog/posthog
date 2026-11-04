@@ -444,23 +444,25 @@ class TestWorktreeBoxes:
                 repo / ".herdr-wt" / name,
                 _box(f"devbox-test-user-{name}", git_dir=common / "worktrees" / name, worktree_id=f"id-{name}"),
             )
-        cleaned: list[tuple[list[str], str]] = []
+        cleaned: list[tuple[list[str], str, bool]] = []
         monkeypatch.setattr(
             worktrees,
             "_clean_worktree_boxes",
-            lambda boxes, action: cleaned.append(([b.workspace for b in boxes], action)),
+            lambda boxes, action, keep_stopped_records=False: cleaned.append(
+                ([b.workspace for b in boxes], action, keep_stopped_records)
+            ),
         )
 
         worktrees.prune_boxes_of_removed_worktrees(
             repo, "stop", None if path_arg is None else tmp_path / path_arg, dry_run=False
         )
 
-        assert cleaned == [(expected_workspaces, "stop")]
+        assert cleaned == [(expected_workspaces, "stop", True)]
 
     @pytest.mark.parametrize(
         ("same_worktree", "background", "expected_calls"),
         [
-            (True, False, ["mirror", "stop"]),
+            (True, False, ["mirror", "stop:keeps-record"]),
             (True, True, ["mirror", "background:stop"]),
             (False, False, []),
         ],
@@ -484,7 +486,13 @@ class TestWorktreeBoxes:
         )
         calls: list[str] = []
         monkeypatch.setattr(worktrees.mutagen, "sync_terminate", lambda selector: calls.append("mirror"))
-        monkeypatch.setattr(worktrees, "_clean_worktree_boxes", lambda boxes, action: calls.append(action))
+        monkeypatch.setattr(
+            worktrees,
+            "_clean_worktree_boxes",
+            lambda boxes, action, keep_stopped_records=False: calls.append(
+                f"{action}:keeps-record" if keep_stopped_records else action
+            ),
+        )
 
         act_on_box = (lambda path, action: calls.append(f"background:{action}")) if background else None
 
@@ -494,15 +502,17 @@ class TestWorktreeBoxes:
         assert calls == expected_calls
 
     @pytest.mark.parametrize(
-        ("action", "status", "live_id", "last_used_at", "expected_calls"),
+        ("action", "status", "live_id", "last_used_at", "keep_stopped", "expected_calls"),
         [
-            ("delete", "running", "id-a", None, [("delete", "devbox-test-user-a")]),
-            ("stop", "running", "id-a", None, [("stop", "devbox-test-user-a")]),
-            ("stop", "stopped", "id-a", None, []),
-            ("delete", "running", "id-recreated", None, []),
-            ("delete", "running", "id-a", "2026-01-01T00:00:00.123456789Z", [("delete", "devbox-test-user-a")]),
-            ("delete", "running", "id-a", "2026-03-01T00:00:00Z", []),
-            ("delete", "running", "id-a", "", []),
+            ("delete", "running", "id-a", None, False, [("delete", "devbox-test-user-a")]),
+            ("stop", "running", "id-a", None, False, [("stop", "devbox-test-user-a")]),
+            ("stop", "stopped", "id-a", None, False, []),
+            ("delete", "running", "id-recreated", None, False, []),
+            ("delete", "running", "id-a", "2026-01-01T00:00:00.123456789Z", False, [("delete", "devbox-test-user-a")]),
+            ("delete", "running", "id-a", "2026-03-01T00:00:00Z", False, []),
+            ("delete", "running", "id-a", "", False, []),
+            ("stop", "running", "id-a", None, True, [("stop", "devbox-test-user-a")]),
+            ("delete", "running", "id-a", None, True, [("delete", "devbox-test-user-a")]),
         ],
         ids=[
             "delete",
@@ -512,10 +522,12 @@ class TestWorktreeBoxes:
             "idle-past-cutoff",
             "used-after-cutoff-kept",
             "unknown-last-use-kept",
+            "stopped-box-keeps-its-record-for-a-recreated-worktree",
+            "deleted-box-forgotten-even-when-keeping-stopped",
         ],
     )
     def test_acts_on_existing_box_and_forgets_it(
-        self, tmp_path, monkeypatch, registry_path, action, status, live_id, last_used_at, expected_calls
+        self, tmp_path, monkeypatch, registry_path, action, status, live_id, last_used_at, keep_stopped, expected_calls
     ) -> None:
         calls: list[tuple[str, str]] = []
         terminated: list[str] = []
@@ -539,13 +551,14 @@ class TestWorktreeBoxes:
                 WorktreeBox(worktree_path=tmp_path / "b", record=box_b),
             ],
             action,
+            keep_stopped_records=keep_stopped,
             **({} if last_used_at is None else {"idle_before": datetime(2026, 2, 1, tzinfo=UTC).timestamp()}),
         )
 
         assert calls == expected_calls
         acted = live_id == box_a.workspace_id and (last_used_at is None or bool(expected_calls))
         assert terminated == ([worktrees.mutagen.workspace_label_selector("devbox-test-user-a")] if acted else [])
-        kept = live_id == box_a.workspace_id and not acted
+        kept = live_id == box_a.workspace_id and (not acted or (keep_stopped and action == "stop"))
         assert devbox_config.load_worktree_boxes() == ({str(tmp_path / "a"): box_a} if kept else {})
 
     @pytest.mark.parametrize(

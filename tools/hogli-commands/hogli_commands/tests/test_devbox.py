@@ -969,6 +969,54 @@ class TestWorktreeAutoProvision:
         assert devbox_worktree.should_auto_provision(root, source, frozenset(enabled)) is expected
 
     @pytest.mark.parametrize(
+        "herdr_installed, listed_plugins, expected_link",
+        [
+            pytest.param(True, [], True, id="links-from-the-main-checkout"),
+            pytest.param(
+                True,
+                [{"plugin_id": "posthog.devbox", "plugin_root": "/elsewhere", "enabled": False}],
+                False,
+                id="keeps-an-existing-link-and-its-disabled-state",
+            ),
+            pytest.param(False, [], False, id="herdr-not-installed"),
+        ],
+    )
+    def test_auto_with_herdr_links_the_plugin_once(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        herdr_installed: bool,
+        listed_plugins: list[dict[str, object]],
+        expected_link: bool,
+    ) -> None:
+        main = tmp_path / "main"
+        (main / "tools" / "herdr-devbox-plugin").mkdir(parents=True)
+        (main / "tools" / "herdr-devbox-plugin" / "herdr-plugin.toml").write_text("")
+        monkeypatch.setattr(devbox_config, "get_config_path", lambda: tmp_path / "config.json")
+        monkeypatch.setattr(devbox_worktree, "_detect_local_posthog_checkout", lambda: tmp_path / "wt")
+        monkeypatch.setattr(
+            devbox_worktree.shutil, "which", lambda name: "/bin/herdr" if herdr_installed and name == "herdr" else None
+        )
+        herdr_calls: list[list[str]] = []
+
+        def fake_run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+            if command[0] == "git":
+                return subprocess.CompletedProcess(command, 0, stdout=f"{main / '.git'}\n", stderr="")
+            herdr_calls.append(command)
+            listing = {"id": "cli", "result": {"type": "plugin_list", "plugins": listed_plugins}}
+            return subprocess.CompletedProcess(command, 0, stdout=json.dumps(listing), stderr="")
+
+        monkeypatch.setattr(devbox_worktree.subprocess, "run", fake_run)
+
+        result = runner.invoke(cli, ["devbox:worktree", "--auto", "claude,herdr"])
+
+        assert result.exit_code == 0, result.output
+        links = [call for call in herdr_calls if call[1:3] == ["plugin", "link"]]
+        assert links == (
+            [["/bin/herdr", "plugin", "link", str(main / "tools" / "herdr-devbox-plugin")]] if expected_link else []
+        )
+
+    @pytest.mark.parametrize(
         "source_arg, enabled, expected_starts",
         [
             pytest.param("t3code", "t3code", 1, id="tool-hook-declares-an-enabled-source"),
