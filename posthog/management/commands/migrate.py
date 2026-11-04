@@ -233,7 +233,7 @@ def check_database_version(connection: BaseDatabaseWrapper) -> None:
 # The last master commit before the newest squash. Its migration files are the ones the
 # squash replaced, before the squash tool removed any dependency entries from them, so a
 # database of any age migrates there in the original order. Move it with each new squash.
-MIGRATION_FLOOR_COMMIT = "3ae7a3ca6121e6836d82a6aaf00192f7749ee5d2"
+MIGRATION_FLOOR_COMMIT = "c985c0dd7a7efeecfc9ef838e09303382261a23e"
 
 MigrationKey = tuple[str, str]
 

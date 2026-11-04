@@ -2804,6 +2804,8 @@ class TestGuardedCatchupMigrations:
         'REFERENCES "other_table" ("id") NOT VALID;\nEND IF; END $$;'
     )
     GUARDED_INDEX_SQL = 'CREATE INDEX CONCURRENTLY IF NOT EXISTS "my_idx" ON "my_table" ("col"); -- trailing-marker'
+    VALIDATE_SQL = 'ALTER TABLE "my_table" VALIDATE CONSTRAINT "my_fk";'
+    STORAGE_PARAMETERS_SQL = "SET lock_timeout = '5s';\nALTER TABLE my_table SET (autovacuum_vacuum_scale_factor = 0.02);\nRESET lock_timeout;"
 
     def setup_method(self):
         self.analyzer = RiskAnalyzer()
@@ -2818,8 +2820,10 @@ class TestGuardedCatchupMigrations:
         return [
             AddFieldIfMissing(model_name="mymodel", name="col", field=models.IntegerField(null=False)),
             AddIndexIfMissing(model_name="mymodel", index=models.Index(fields=["col"], name="my_idx")),
-            migrations.RunSQL(sql=self.GUARDED_FK_SQL, reverse_sql=migrations.RunSQL.noop),
+            migrations.RunSQL(sql=self.GUARDED_FK_SQL + "\n" + self.VALIDATE_SQL, reverse_sql=migrations.RunSQL.noop),
             migrations.RunSQL(sql=self.GUARDED_INDEX_SQL, reverse_sql=migrations.RunSQL.noop),
+            migrations.RunSQL(sql=self.VALIDATE_SQL, reverse_sql=migrations.RunSQL.noop),
+            migrations.RunSQL(sql=self.STORAGE_PARAMETERS_SQL, reverse_sql=migrations.RunSQL.noop),
             ValidateConstraint(model_name="mymodel", name="my_fk"),
         ]
 

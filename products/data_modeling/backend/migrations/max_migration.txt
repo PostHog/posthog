@@ -1,1 +1,1 @@
-0057_datamodelingjob_drop_bytes_read_column
+0059_squash_2026_11_02_schema_addons
