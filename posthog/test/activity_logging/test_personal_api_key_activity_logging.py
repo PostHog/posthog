@@ -754,8 +754,15 @@ class TestPersonalAPIKeyOrganizationAdminActionLogging(BaseTest):
         ) == (None, False, False, None, None, None, None, None)
         assert other_row.detail["context"]["acted_by_user_outside_organization"] is True
         serialized_detail = json.dumps(other_row.detail)
-        assert self.admin.email not in serialized_detail
-        assert self.acting_org.name not in serialized_detail
+        assert self.admin.distinct_id
+        for acting_value in (
+            self.admin.email,
+            str(self.admin.uuid),
+            self.admin.distinct_id,
+            self.acting_org.name,
+            str(self.acting_org.id),
+        ):
+            assert acting_value not in serialized_detail
 
     def test_admin_action_skips_orgs_owner_left(self) -> None:
         left_org = Organization.objects.create(name="Left Member Org")
@@ -767,12 +774,27 @@ class TestPersonalAPIKeyOrganizationAdminActionLogging(BaseTest):
 
         assert [row.organization_id for row in self._updated_rows(key)] == [self.acting_org.id]
 
-    def test_without_context_rows_keep_request_user(self) -> None:
+    def test_admin_action_keeps_acting_org_row_after_owner_left_it(self) -> None:
         key = self._create_key([self.acting_org, self.other_org])
+        self.owner.leave(organization=self.acting_org)
+
+        self._roll_as_admin(key)
+
+        assert {(row.organization_id, row.user) for row in self._updated_rows(key)} == {
+            (self.acting_org.id, self.admin),
+            (self.other_org.id, None),
+        }
+
+    def test_without_context_rows_keep_request_user(self) -> None:
+        left_org = Organization.objects.create(name="Left Member Org")
+        self.owner.join(organization=left_org)
+        key = self._create_key([self.acting_org, self.other_org, left_org])
+        self.owner.leave(organization=left_org)
 
         self._roll_as_admin(key, in_admin_action_context=False)
 
         assert {(row.organization_id, row.user) for row in self._updated_rows(key)} == {
             (self.acting_org.id, self.admin),
             (self.other_org.id, self.admin),
+            (left_org.id, self.admin),
         }

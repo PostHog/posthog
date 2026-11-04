@@ -1,6 +1,7 @@
 import uuid
 import dataclasses
 from collections import namedtuple
+from collections.abc import Callable, Collection
 from contextvars import ContextVar, Token
 from types import TracebackType
 from typing import Optional
@@ -57,14 +58,32 @@ def get_acting_organization_id() -> str | None:
     return _acting_organization_id.get()
 
 
-def _owner_organization_ids(api_key: PersonalAPIKey, organization_ids: set[str]) -> set[str]:
-    """The organizations in `organization_ids` that the key owner is still a member of."""
-    if not organization_ids:
-        return set()
-    memberships = OrganizationMembership.objects.filter(
-        user_id=api_key.user_id, organization_id__in=organization_ids
-    ).values_list("organization_id", flat=True)
-    return {str(organization_id) for organization_id in memberships}
+def _skip_organizations_owner_left[T](
+    api_key: PersonalAPIKey,
+    items: Collection[T],
+    organization_id_of: Callable[[T], str],
+    acting_organization_id: str | None,
+) -> list[T]:
+    """Drop the items in organizations that the key owner is not a member of, during an admin action.
+
+    The acting organization keeps its items, so that its audit row with the admin as the actor
+    survives when the owner's membership there ends during the action.
+    """
+    if acting_organization_id is None:
+        return list(items)
+    other_organization_ids = {_canonical_organization_id(organization_id_of(item)) for item in items} - {
+        acting_organization_id
+    }
+    member_organization_ids: set[str] = set()
+    if other_organization_ids:
+        member_organization_ids = {
+            str(organization_id)
+            for organization_id in OrganizationMembership.objects.filter(
+                user_id=api_key.user_id, organization_id__in=other_organization_ids
+            ).values_list("organization_id", flat=True)
+        }
+    kept_organization_ids = member_organization_ids | {acting_organization_id}
+    return [item for item in items if _canonical_organization_id(organization_id_of(item)) in kept_organization_ids]
 
 
 def _acted_from_outside(organization_id: str, acting_organization_id: str | None) -> bool:
@@ -229,17 +248,13 @@ def log_personal_api_key_scope_change(
     before_api_key: PersonalAPIKey, after_api_key: PersonalAPIKey, user, was_impersonated: bool, changes
 ):
     """Log activity for PersonalAPIKey scope changes with proper created/revoked logic."""
-    log_entries = calculate_scope_change_logs(before_api_key, after_api_key, changes)
     acting_organization_id = get_acting_organization_id()
-    if acting_organization_id is not None:
-        owner_organization_ids = _owner_organization_ids(
-            after_api_key, {log_entry["organization_id"] for log_entry in log_entries}
-        )
-        log_entries = [
-            log_entry
-            for log_entry in log_entries
-            if _canonical_organization_id(log_entry["organization_id"]) in owner_organization_ids
-        ]
+    log_entries = _skip_organizations_owner_left(
+        after_api_key,
+        calculate_scope_change_logs(before_api_key, after_api_key, changes),
+        lambda log_entry: log_entry["organization_id"],
+        acting_organization_id,
+    )
 
     bulk_entries: list[LogActivityEntry] = []
     for log_entry in log_entries:
@@ -306,15 +321,13 @@ def get_team_name(team_id: Optional[int]) -> str:
 
 def log_personal_api_key_activity(api_key: PersonalAPIKey, activity: str, user, was_impersonated: bool, changes=None):
     """Create activity logs for PersonalAPIKey operations at appropriate organization/team levels."""
-    access_locations = get_personal_api_key_access_locations(api_key)
     acting_organization_id = get_acting_organization_id()
-    if acting_organization_id is not None:
-        owner_organization_ids = _owner_organization_ids(api_key, {location.org_id for location in access_locations})
-        access_locations = {
-            location
-            for location in access_locations
-            if _canonical_organization_id(location.org_id) in owner_organization_ids
-        }
+    access_locations = _skip_organizations_owner_left(
+        api_key,
+        get_personal_api_key_access_locations(api_key),
+        lambda location: location.org_id,
+        acting_organization_id,
+    )
 
     log_entries: list[LogActivityEntry] = []
     for location in access_locations:

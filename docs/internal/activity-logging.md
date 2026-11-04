@@ -54,6 +54,9 @@ The actor is not passed down this chain.
 `ActivityLoggingMiddleware` (`posthog/middleware.py`) stores the request user and the impersonation flag in a thread-local (`activity_storage`), and the mixin reads them back.
 Outside a request the user is `None`, and the row is stored with `is_system=True`.
 A deferred insert runs after the commit. If the transaction deleted the acting user, for example when users delete their own account, the row is stored with `user=None` and `is_system=False`.
+Pass `external_actor=True` to `log_activity` when the actor is in another organization and the row's organization must not learn who acted.
+The row is then stored with `user=None`, `is_system=False`, and `was_impersonated=False`, and it records no client, IP address, credential, or agent trigger.
+Personal API key rows use it when an admin of one organization changes a key that also works in other organizations.
 
 The receiver is the only part a product writes.
 The mixin, the signal, and `log_activity` are core, and they work the same for every model.
