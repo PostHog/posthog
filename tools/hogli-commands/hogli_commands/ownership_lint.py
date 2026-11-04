@@ -6,6 +6,7 @@ posthog/test/repo_invariants/test_unowned_test_directories.py gates CI on it, an
 
 from __future__ import annotations
 
+import subprocess
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -72,10 +73,22 @@ def _is_ownership_file(path: str) -> bool:
     return name in (OWNERS_FILENAME, *DEFAULT_ALIAS_FILES) or path == str(BASELINE)
 
 
+def _uncommitted_ownership_files() -> list[str]:
+    status = subprocess.run(
+        ["git", "-C", str(REPO_ROOT), "status", "--porcelain", "-z", "--no-renames", "--untracked-files=all"],
+        capture_output=True,
+        text=True,
+    )
+    return sorted(entry[3:] for entry in status.stdout.split("\0") if len(entry) > 3 and _is_ownership_file(entry[3:]))
+
+
 def check_test_owners(scope: Scope) -> Outcome:
     # The trigger globs over-match (`*/test_*.py` also matches `test_utils/foo.py`), so decide here.
     if not any(runner_for_path(path) or _is_ownership_file(path) for path in scope.files):
         return "pass", "no test or ownership file changed"
+    # Ownership resolves from the working tree, so an uncommitted owners.yaml would pass here and fail in CI.
+    if scope.committed_only and (dirty := _uncommitted_ownership_files()):
+        return "fail", f"commit or discard the changes to {', '.join(dirty[:3])}: the push carries only HEAD"
     problems = drift_problems(baseline_drift())
     if not problems:
         return "pass", "no new directory of unowned tests"

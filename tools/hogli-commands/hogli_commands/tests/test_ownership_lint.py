@@ -54,9 +54,9 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return tmp_path
 
 
-def _check(*files: str) -> tuple[str, str]:
+def _check(*files: str, committed_only: bool = False) -> tuple[str, str]:
     return ownership_lint.check_test_owners(
-        Scope(files=list(files), changed=list(files), merge_base="HEAD", committed_only=False)
+        Scope(files=list(files), changed=list(files), merge_base="HEAD", committed_only=committed_only)
     )
 
 
@@ -93,3 +93,21 @@ class TestCheckTestOwners:
         _git(repo, "add", path)
 
         assert _check(path)[0] == status
+
+    @pytest.mark.parametrize(
+        ("committed_only", "status"),
+        [
+            pytest.param(True, "fail", id="strict_checks_what_the_push_carries"),
+            pytest.param(False, "pass", id="local_reads_the_working_tree"),
+        ],
+    )
+    def test_strict_mode_rejects_uncommitted_ownership_files(
+        self, repo: Path, committed_only: bool, status: str
+    ) -> None:
+        (repo / "owners.yaml").write_text(OWNERS_YAML + "  - match: '/nobody/'\n    owners: team-billing\n")
+        (repo / ownership_lint.BASELINE).write_text("person\n")
+
+        result_status, detail = _check("owners.yaml", committed_only=committed_only)
+
+        assert result_status == status
+        assert status == "pass" or "owners.yaml" in detail
