@@ -10872,7 +10872,7 @@
         }
     },
     "mcp-connections-list": {
-        "description": "List the MCP servers connected to this project (the \"connections\"). Each entry returns its `id` (the connection id you pass to mcp-connection-tools-list), `display_name`, `url`, and status fields (`is_enabled`, `needs_reauth`, `pending_oauth`) plus `tool_count`. Use this to discover which connections exist before loading a connection's live tool catalog with mcp-connection-tools-list.",
+        "description": "List the MCP servers connected to this project (the \"connections\"). Each entry returns its `id` (the connection id you pass to mcp-connection-tools-list), `gateway_server_id` (the id of the MCP server the connection belongs to), `display_name`, `url`, and status fields (`is_enabled`, `needs_reauth`, `pending_oauth`) plus `tool_count`. Use this to discover which connections exist before loading a connection's live tool catalog with mcp-connection-tools-list. To link to a server's page with generate-app-url (`mcpGatewayServer`), pass `gateway_server_id`, never the connection `id`.",
         "category": "MCP Store",
         "feature": "mcp_store",
         "summary": "List MCP connections",
