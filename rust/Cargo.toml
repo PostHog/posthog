@@ -129,6 +129,15 @@ debug = "line-tables-only"
 [profile.release.package.neon]
 debug-assertions = true
 
+# Dependency debug info doubles the size of a dev target dir.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+# Cargo strips proc-macro dylibs when debug is off, and dyld rejects them after Apple ld-27106 links them.
+strip = false
+
 # The stateright model checker exhaustively explores millions of protocol
 # states; its hot loop (state hashing, BTreeMap clones) is ~11x slower
 # unoptimized, which would put the exhaustive tests at ~25 minutes in

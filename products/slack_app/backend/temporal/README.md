@@ -4,9 +4,9 @@ The Slack app workflows and activities run on `settings.TASKS_TASK_QUEUE`.
 The worker registers them through `products/slack_app/backend/facade/temporal.py`.
 For general Temporal conventions, read [`posthog/temporal/AGENTS.md`](../../../../posthog/temporal/AGENTS.md).
 
-## Local eval scripts
+## Evals
 
-- [`eval_slack_repo_selection.py`](./eval_slack_repo_selection.py) — exercises the Slack `@PostHog` repo-selection cascade (cascade → Haiku gate → discovery agent) against a real team with a connected GitHub integration. Pass/fail summary, no Slack needed. Run as a file (`python products/slack_app/backend/temporal/eval_slack_repo_selection.py --list-cases`), not via `python -m` — the latter would force `backend/temporal/__init__.py` to load activities before `django.setup()`.
+- Repository selection for `@PostHog` mentions (cascade → needs-repo classifier → discovery agent) is evaluated by the harness suite [`slack_app/eval_repo_selection_routing`](../../evals/eval_repo_selection_routing.py) on a synthetic repository catalog, with no real team or Slack traffic. Run it with `hogli evals slack_app/eval_repo_selection_routing`; see the [eval harness guide](../../../posthog_ai/eval_harness/README.md#repository-selection-evals).
 
 ## Checking the Slack repo discovery agent
 
