@@ -14,6 +14,7 @@ import {
     LemonModal,
     LemonSegmentedButton,
     LemonSelect,
+    LemonTag,
 } from '@posthog/lemon-ui'
 
 import {
@@ -27,6 +28,7 @@ import {
 import { TagSelect } from 'lib/components/TagSelect'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { SANDBOX_EMAIL_SENDER_NOTE } from 'lib/integrations/sandboxEmailSender'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInput } from 'lib/lemon-ui/LemonInput/LemonInput'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
@@ -36,6 +38,7 @@ import { sceneAgentPanelLogic } from 'scenes/max/sceneAgentPanelLogic'
 import { urls } from 'scenes/urls'
 
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
+import { IntegrationType } from '~/types'
 
 import 'products/workflows/frontend/TemplateLibrary/MessageTemplatesGrid.scss'
 import { filterMessageTemplates } from 'products/workflows/frontend/TemplateLibrary/filterMessageTemplates'
@@ -246,6 +249,109 @@ function DestinationEmailTemplaterForm({
     )
 }
 
+function SandboxSenderNote({ shown, children }: { shown: boolean; children: JSX.Element }): JSX.Element {
+    if (!shown) {
+        return children
+    }
+    return (
+        <div className="flex flex-col flex-1 min-w-0">
+            {children}
+            <span className="px-2 pb-1 text-xs text-muted">{SANDBOX_EMAIL_SENDER_NOTE}</span>
+        </div>
+    )
+}
+
+function sandboxSenderLabel(integration: IntegrationType): JSX.Element {
+    return (
+        <>
+            <span translate="no">{integration.display_name}</span>
+            <LemonTag type="highlight" className="ml-2 align-middle">
+                Sandbox
+            </LemonTag>
+        </>
+    )
+}
+
+function SenderRotationHint({ sandboxSelected }: { sandboxSelected: boolean }): JSX.Element {
+    return (
+        <span className="px-2 pb-1 text-xs text-muted">
+            {sandboxSelected ? (
+                SANDBOX_EMAIL_SENDER_NOTE
+            ) : (
+                <>
+                    Choose up to {MAX_WORKFLOW_EMAIL_SENDERS} senders. Each workflow run uses one sender from this list.
+                </>
+            )}
+        </span>
+    )
+}
+
+interface EmailSenderChoice {
+    integrationsOfKind: IntegrationType[] | null | undefined
+    overridesVisible: boolean
+    customSenderAvailable: boolean
+    isSandboxSenderSelected: boolean
+    senderOptionLabel: (integration: IntegrationType, key: 'labelComponent' | 'labelInMenu') => object
+    onChangeIntegration: (integrationId: number) => void
+    onChangeIntegrations: (integrationIds: number[]) => void
+}
+
+/** Holds the sandbox sender branching, so the picker markup matches master when no sandbox sender exists. */
+function useEmailSenderChoice(
+    value: EmailTemplateFrom | undefined,
+    onChange: (value: EmailTemplateFrom) => void
+): EmailSenderChoice {
+    const { integrations, ownEmailIntegrations } = useValues(integrationsLogic)
+    const { sandboxSender, isSandboxSenderSelected } = useValues(emailTemplaterLogic)
+    const { chooseSenders } = useActions(emailTemplaterLogic)
+    const integrationsOfKind =
+        integrations && (sandboxSender ? [...ownEmailIntegrations, sandboxSender] : ownEmailIntegrations)
+
+    // Presence of the override keys is what reveals the inputs, so a saved override is
+    // visible again on reopen without any separate reveal state.
+    const overridesVisible = !isSandboxSenderSelected && (value?.email !== undefined || value?.name !== undefined)
+
+    const onChangeIntegration = (integrationId: number): void => {
+        if (integrationId === -1) {
+            window.open(urls.workflows('channels'), '_blank')
+            return
+        }
+        if (sandboxSender) {
+            chooseSenders([integrationId])
+            return
+        }
+        onChange({ ...value, integrationId, integrationIds: undefined })
+    }
+
+    const onChangeIntegrations = (integrationIds: number[]): void => {
+        if (sandboxSender) {
+            chooseSenders(integrationIds)
+            return
+        }
+        if (integrationIds.length > MAX_WORKFLOW_EMAIL_SENDERS) {
+            return
+        }
+        onChange({
+            ...value,
+            integrationId: integrationIds[0],
+            integrationIds: integrationIds.length > 1 ? integrationIds : undefined,
+        })
+    }
+
+    const senderOptionLabel = (integration: IntegrationType, key: 'labelComponent' | 'labelInMenu'): object =>
+        integration.id === sandboxSender?.id ? { [key]: sandboxSenderLabel(integration) } : {}
+
+    return {
+        integrationsOfKind,
+        overridesVisible,
+        customSenderAvailable: !overridesVisible && !isSandboxSenderSelected,
+        isSandboxSenderSelected,
+        senderOptionLabel,
+        onChangeIntegration,
+        onChangeIntegrations,
+    }
+}
+
 export function NativeEmailIntegrationChoice({
     label,
     onChange,
@@ -256,38 +362,23 @@ export function NativeEmailIntegrationChoice({
     onChange: (value: EmailTemplateFrom) => void
     value?: EmailTemplateFrom
 }): JSX.Element {
-    const { integrationsLoading, integrations } = useValues(integrationsLogic)
+    const { integrationsLoading } = useValues(integrationsLogic)
     const { logicProps } = useValues(emailTemplaterLogic)
     const senderRotationEnabled = useFeatureFlag('WORKFLOWS_EMAIL_SENDER_ROTATION')
-    const integrationsOfKind = integrations?.filter((x) => x.kind === 'email')
+    const {
+        integrationsOfKind,
+        overridesVisible,
+        customSenderAvailable,
+        isSandboxSenderSelected,
+        senderOptionLabel,
+        onChangeIntegration,
+        onChangeIntegrations,
+    } = useEmailSenderChoice(value, onChange)
     const selectedIntegrationIds = value?.integrationIds?.length
         ? value.integrationIds
         : value?.integrationId
           ? [value.integrationId]
           : []
-
-    // Presence of the override keys is what reveals the inputs, so a saved override is
-    // visible again on reopen without any separate reveal state.
-    const overridesVisible = value?.email !== undefined || value?.name !== undefined
-
-    const onChangeIntegration = (integrationId: number): void => {
-        if (integrationId === -1) {
-            window.open(urls.workflows('channels'), '_blank')
-            return
-        }
-        onChange({ ...value, integrationId, integrationIds: undefined })
-    }
-
-    const onChangeIntegrations = (integrationIds: number[]): void => {
-        if (integrationIds.length > MAX_WORKFLOW_EMAIL_SENDERS) {
-            return
-        }
-        onChange({
-            ...value,
-            integrationId: integrationIds[0],
-            integrationIds: integrationIds.length > 1 ? integrationIds : undefined,
-        })
-    }
 
     if (!integrationsLoading && integrationsOfKind?.length === 0) {
         return (
@@ -325,6 +416,7 @@ export function NativeEmailIntegrationChoice({
                                 key: String(integration.id),
                                 label: integration.display_name,
                                 value: integration.id,
+                                ...senderOptionLabel(integration, 'labelComponent'),
                             }))}
                             value={selectedIntegrationIds}
                             size="small"
@@ -338,43 +430,43 @@ export function NativeEmailIntegrationChoice({
                                 onClick: () => window.open(urls.workflows('channels'), '_blank'),
                             }}
                         />
-                        <span className="px-2 pb-1 text-xs text-muted">
-                            Choose up to {MAX_WORKFLOW_EMAIL_SENDERS} senders. Each workflow run uses one sender from
-                            this list.
-                        </span>
+                        <SenderRotationHint sandboxSelected={isSandboxSenderSelected} />
                     </div>
                 ) : (
-                    <LemonSelect
-                        className="m-1 flex-1"
-                        type="tertiary"
-                        placeholder="Choose email sender"
-                        loading={integrationsLoading}
-                        options={[
-                            {
-                                title: 'Email senders',
-                                options: (integrationsOfKind || []).map((integration) => ({
-                                    label: integration.display_name,
-                                    value: integration.id,
-                                })),
-                            },
-                            {
-                                options: [
-                                    {
-                                        label: 'Add new email sender',
-                                        icon: <IconExternal />,
-                                        value: -1,
-                                    },
-                                ],
-                            },
-                        ]}
-                        value={value?.integrationId}
-                        size="small"
-                        fullWidth
-                        onChange={onChangeIntegration}
-                        data-attr="workflow-email-sender-select"
-                    />
+                    <SandboxSenderNote shown={isSandboxSenderSelected}>
+                        <LemonSelect
+                            className="m-1 flex-1"
+                            type="tertiary"
+                            placeholder="Choose email sender"
+                            loading={integrationsLoading}
+                            options={[
+                                {
+                                    title: 'Email senders',
+                                    options: (integrationsOfKind || []).map((integration) => ({
+                                        label: integration.display_name,
+                                        value: integration.id,
+                                        ...senderOptionLabel(integration, 'labelInMenu'),
+                                    })),
+                                },
+                                {
+                                    options: [
+                                        {
+                                            label: 'Add new email sender',
+                                            icon: <IconExternal />,
+                                            value: -1,
+                                        },
+                                    ],
+                                },
+                            ]}
+                            value={value?.integrationId}
+                            size="small"
+                            fullWidth
+                            onChange={onChangeIntegration}
+                            data-attr="workflow-email-sender-select"
+                        />
+                    </SandboxSenderNote>
                 )}
-                {!overridesVisible && (
+                {customSenderAvailable && (
                     <LemonButton
                         size="xsmall"
                         type="secondary"
