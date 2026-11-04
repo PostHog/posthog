@@ -28,6 +28,7 @@ from posthog.api.github_callback.state import (
 )
 from posthog.api.github_callback.types import FlowKind, GitHubAuthorizeState, github_oauth_authorize_url
 from posthog.api.user_integration import _has_unlinked_github_installations
+from posthog.constants import AvailableFeature
 from posthog.credentials_service.callers import CredentialsCaller
 from posthog.egress.limiter.policies import Priority
 from posthog.models import Organization, OrganizationMembership, Team, User
@@ -48,6 +49,8 @@ from posthog.models.user_integration import (
     user_github_integration_from_installation,
 )
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
+
+from products.access_control.backend.models.access_control import AccessControl
 
 
 def _authorization(gh_id: int = 99, gh_login: str = "octocat") -> GitHubUserAuthorization:
@@ -551,7 +554,7 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         [
             (flow, source, policy)
             for flow, source in (("oauth_discover", "posthog_code"), ("app_install", None))
-            for policy in ("none", "target", "selection")
+            for policy in ("none", "target", "selection", "private_target", "private_allowed")
         ]
     )
     @override_settings(GITHUB_APP_CLIENT_ID="gh_client_123")
@@ -569,9 +572,19 @@ class TestUserIntegrationEndpoints(APIBaseTest):
         self.user.current_organization = other_org
         self.user.current_team = other_team
         self.user.save(update_fields=["current_organization", "current_team"])
+        if policy in ("private_target", "private_allowed"):
+            self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+            self.organization.save()
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+            AccessControl.objects.create(
+                team=self.team, resource="project", resource_id=str(self.team.id), access_level="none"
+            )
         if policy != "none":
             OrganizationIPRestrictions.objects.create(
-                organization=self.organization if policy == "target" else other_org,
+                organization=self.organization
+                if policy in ("target", "private_target", "private_allowed")
+                else other_org,
                 ip_restrictions=["203.0.113.0/24"],
             )
 
@@ -580,10 +593,14 @@ class TestUserIntegrationEndpoints(APIBaseTest):
             "/api/users/@me/integrations/github/start/",
             body,
             content_type="application/json",
-            REMOTE_ADDR="198.51.100.7",
+            REMOTE_ADDR="203.0.113.7" if policy == "private_allowed" else "198.51.100.7",
         )
 
-        if policy == "target":
+        if policy == "private_allowed":
+            self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+            self.assertIn("Invalid or inaccessible team_id", response.json()["detail"])
+            return
+        if policy in ("target", "private_target"):
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN, response.content)
             self.assertEqual(response.json()["code"], "ip_not_allowed")
             return

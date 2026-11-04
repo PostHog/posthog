@@ -18,6 +18,7 @@ from posthog.integrations import IntegrationManager
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_integration import OrganizationIntegration
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.organization_provisioning import OrganizationProvisioning
 from posthog.models.team import Team
 
@@ -570,8 +571,21 @@ class TestVercelConnectSessionInfo(VercelConnectTestBase):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["organizations"][0]["already_linked"] is True
 
+    @parameterized.expand(
+        [("target", "198.51.100.7", False), ("target", "203.0.113.7", True), ("selection", "198.51.100.7", True)]
+    )
     @patch("ee.api.vercel.vercel_connect._is_installation_orphaned", return_value=True)
-    def test_orphaned_integration_cleaned_up_in_session(self, _mock_orphaned):
+    def test_orphaned_integration_cleaned_up_in_session(
+        self, policy: str, ip: str, allowed: bool, _mock_orphaned: MagicMock
+    ) -> None:
+        other = Organization.objects.create(name="Other example organization")
+        other_team = Team.objects.create(organization=other)
+        self.user.join(organization=other, level=OrganizationMembership.Level.ADMIN)
+        self.user.current_team = other_team
+        self.user.save()
+        OrganizationIPRestrictions.objects.create(
+            organization=self.organization if policy == "target" else other, ip_restrictions=["203.0.113.0/24"]
+        )
         OrganizationIntegration.objects.create(
             organization=self.organization,
             kind=OrganizationIntegration.OrganizationIntegrationKind.VERCEL,
@@ -587,10 +601,18 @@ class TestVercelConnectSessionInfo(VercelConnectTestBase):
         )
         session_token = self._seed_session()
 
-        response = self.client.get(self.url, {"session": session_token})
+        response = self.client.get(self.url, {"session": session_token}, REMOTE_ADDR=ip)
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["organizations"][0]["already_linked"] is False
+        organizations = {row["id"]: row for row in response.json()["organizations"]}
+        assert (str(self.organization.id) in organizations) is allowed
+        assert (str(other.id) in organizations) is (policy == "target")
+        if not allowed:
+            _mock_orphaned.assert_not_called()
+            assert OrganizationIntegration.objects.filter(integration_id="icfg_orphaned").exists()
+            assert Integration.objects.filter(team=self.team, kind=Integration.IntegrationKind.VERCEL).exists()
+            return
+        assert organizations[str(self.organization.id)]["already_linked"] is False
         assert not OrganizationIntegration.objects.filter(integration_id="icfg_orphaned").exists()
         assert not Integration.objects.filter(team=self.team, kind=Integration.IntegrationKind.VERCEL).exists()
 
@@ -671,9 +693,21 @@ class TestVercelConnectComplete(VercelConnectTestBase):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
 
+    @parameterized.expand([("none", "198.51.100.7"), ("target", "198.51.100.7"), ("selection", "198.51.100.7")])
     @patch("ee.vercel.integration.VercelIntegration")
     @patch("ee.api.vercel.vercel_connect.VercelAPIClient")
-    def test_successful_link_creates_integration_and_resource(self, mock_client_class, mock_vercel_integration):
+    def test_successful_link_creates_integration_and_resource(
+        self, policy: str, ip: str, mock_client_class: MagicMock, mock_vercel_integration: MagicMock
+    ) -> None:
+        other = Organization.objects.create(name="Other example organization")
+        other_team = Team.objects.create(organization=other)
+        self.user.join(organization=other, level=OrganizationMembership.Level.ADMIN)
+        self.user.current_team = other_team
+        self.user.save()
+        if policy != "none":
+            OrganizationIPRestrictions.objects.create(
+                organization=self.organization if policy == "target" else other, ip_restrictions=["203.0.113.0/24"]
+            )
         mock_client = MagicMock()
         mock_client_class.return_value = mock_client
         mock_client.import_resource.return_value = OperationResult(success=True)
@@ -687,9 +721,26 @@ class TestVercelConnectComplete(VercelConnectTestBase):
                 "environment_mapping": {"production": self.team.pk},
             },
             content_type="application/json",
+            REMOTE_ADDR=ip,
         )
 
-        assert response.status_code == status.HTTP_201_CREATED
+        if policy == "target":
+            assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+            assert response.json()["code"] == "ip_not_allowed"
+            assert not OrganizationIntegration.objects.filter(organization=self.organization).exists()
+            assert not Integration.objects.filter(team=self.team, kind=Integration.IntegrationKind.VERCEL).exists()
+            mock_client.import_resource.assert_not_called()
+            response = self.client.post(
+                self.url,
+                {
+                    "session": session_token,
+                    "organization_id": str(self.organization.id),
+                    "environment_mapping": {"production": self.team.pk},
+                },
+                content_type="application/json",
+                REMOTE_ADDR="203.0.113.7",
+            )
+        assert response.status_code == status.HTTP_201_CREATED, response.content
         data = response.json()
         assert data["status"] == "linked"
         assert data["organization_name"] == self.organization.name

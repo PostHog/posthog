@@ -12,7 +12,7 @@ is not controlled here.
 """
 
 import os
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any, cast
 from urllib.parse import urlencode
 
 import structlog
@@ -66,6 +66,7 @@ from posthog.integrations import IntegrationManager
 from posthog.ip_restrictions import enforce_ip_restrictions, get_ip_blocked_organization_ids
 from posthog.models.integration import GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS, GitHubIntegrationError, Integration
 from posthog.models.integration.github_audit import GitHubAudit
+from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import (
     NEEDS_REAUTHORIZATION_Q,
@@ -79,9 +80,6 @@ from posthog.user_permissions import UserPermissions
 
 from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
 from products.slack_app.backend.services.slack_user_oauth import build_invite_url
-
-if TYPE_CHECKING:
-    from posthog.models.team import Team
 
 logger = structlog.get_logger(__name__)
 
@@ -957,13 +955,13 @@ def _resolve_team_for_github_start(user: User, request: Request) -> "Team | None
             tid = int(raw_id)
         except (TypeError, ValueError):
             raise exceptions.ValidationError("team_id must be an integer")
-        team = user.teams.filter(id=tid).first()
-        if team is None:
-            raise exceptions.ValidationError("Invalid or inaccessible team_id for this user.")
+        team = Team.objects.filter(id=tid, organization_id__in=UserPermissions(user).organization_memberships).first()
     if team is not None:
         enforce_ip_restrictions(
             request, user, request.successful_authenticator, organization_id=str(team.organization_id)
         )
+    if raw_id is not None and raw_id != "" and (team is None or not user.teams.filter(id=team.id).exists()):
+        raise exceptions.ValidationError("Invalid or inaccessible team_id for this user.")
     return team
 
 

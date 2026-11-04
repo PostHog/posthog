@@ -20,6 +20,7 @@ from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 
 from posthog.api.wizard.http import WIZARD_EMAIL_UNVERIFIED_DETAIL
+from posthog.constants import AvailableFeature
 from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL
 from posthog.llm.wizard_gateway_token import (
     _TIER_FLOORS,
@@ -36,6 +37,7 @@ from posthog.models.organization_ip_restrictions import OrganizationIPRestrictio
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rate_limit import SetupWizardGatewayTokenRateThrottle, refund_wizard_mint, reserve_wizard_mint
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.security.backend.facade.enums import Surface as SecuritySurface
 
 # Derived, not written out: these cases assert the ceiling binds, not its value.
@@ -161,17 +163,33 @@ class SetupWizardCloudRunTests(APIBaseTest):
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
         mock_create.assert_not_called()
 
-    def test_rejects_project_without_access(self):
+    @parameterized.expand([(False, "198.51.100.7"), (True, "198.51.100.7"), (True, "203.0.113.7")])
+    def test_rejects_project_without_access(self, same_organization: bool, ip: str) -> None:
         other_org = Organization.objects.create(name="Other Cloud Run Org")
         other_user = User.objects.create_and_join(other_org, "other-cloud-run@example.com", None)
+        if same_organization:
+            self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+            self.organization.save()
+            AccessControl.objects.create(
+                team=self.team, resource="project", resource_id=str(self.team.id), access_level="none"
+            )
+            other_user.join(organization=self.organization)
+            OrganizationIPRestrictions.objects.create(
+                organization=self.organization, ip_restrictions=["203.0.113.0/24"]
+            )
         self.client.force_login(other_user)
 
         response = self.client.post(
             self.CLOUD_RUN_URL,
             data={"project_id": self.team.id, "repository": "acme/app"},
             format="json",
+            REMOTE_ADDR=ip,
         )
-        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        if same_organization and ip == "198.51.100.7":
+            assert response.json()["code"] == "ip_not_allowed"
+        else:
+            assert response.json()["detail"] == "You don't have access to this project."
 
     @patch("products.tasks.backend.facade.api.recent_wizard_cloud_run_times")
     @patch("posthog.api.wizard.http.tasks_facade.create_wizard_cloud_run")
