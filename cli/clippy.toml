@@ -1,0 +1,10 @@
+disallowed-methods = [
+    { path = "open::that", reason = "use WebUrl::open_in_browser, which checks the URL and keeps it away from cmd on Windows" },
+    { path = "open::that_detached", reason = "use WebUrl::open_in_browser, which checks the URL and keeps it away from cmd on Windows" },
+    { path = "open::that_in_background", reason = "use WebUrl::open_in_browser, which checks the URL and keeps it away from cmd on Windows" },
+    { path = "open::with", reason = "use WebUrl::open_in_browser, which checks the URL and keeps it away from cmd on Windows" },
+    { path = "open::with_detached", reason = "use WebUrl::open_in_browser, which checks the URL and keeps it away from cmd on Windows" },
+    { path = "open::with_in_background", reason = "use WebUrl::open_in_browser, which checks the URL and keeps it away from cmd on Windows" },
+    { path = "open::commands", reason = "use WebUrl::open_in_browser, which checks the URL and keeps it away from cmd on Windows" },
+    { path = "open::with_command", reason = "use WebUrl::open_in_browser, which checks the URL and keeps it away from cmd on Windows" },
+]

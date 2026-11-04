@@ -83,9 +83,9 @@ pub fn login_with_use_cases(host_override: Option<String>, use_cases: Vec<&str>)
     // Step 1: Request device code
     let device_data = request_device_code(&host)?;
 
-    // Add use_cases parameter to the verification URL
-    let mut verification_url = device_data.verification_uri_complete;
-    verification_url.append_query_pair("use_cases", &use_cases.join(","));
+    let verification_url = device_data
+        .verification_uri_complete
+        .with_query_pair("use_cases", &use_cases.join(","))?;
 
     crate::safe_println!();
     crate::safe_println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
@@ -414,6 +414,7 @@ mod tests {
             "javascript:void(0)",
             "custom-app://open",
             "not a url",
+            "https://us.posthog.com/cli/authorize?code=ABCD$1234",
         ] {
             assert!(parse(url).is_err(), "{url} should be rejected");
         }
