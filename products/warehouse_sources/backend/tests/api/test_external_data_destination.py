@@ -512,21 +512,75 @@ class TestExternalDataDestinationAPI(DestinationAPITestBase):
         assert "fake-secret" not in response.content.decode()
         assert not ExternalDataDestination.objects.for_team(self.team.pk).filter(name="broken redshift").exists()
 
-    def test_a_redshift_destination_keeps_the_host_it_was_created_with(self) -> None:
+    @parameterized.expand(
+        [
+            ("another_host", {"host": "other.abc123.us-east-1.redshift.amazonaws.com"}, "keeps the host"),
+            ("port_negative", {"port": -1}, "Port must be"),
+            ("port_too_large", {"port": 70000}, "Port must be"),
+            ("port_as_text", {"port": "5440"}, "Port must be"),
+            ("port_as_bool", {"port": True}, "Port must be"),
+            ("valid_port", {"port": 5440}, None),
+        ]
+    )
+    def test_a_redshift_destination_update_keeps_the_host_and_checks_the_port(
+        self, _name: str, patch: dict, error: str | None
+    ) -> None:
+        created = {"database": "dev", "schema": "public", "host": REDSHIFT_CLUSTER_HOST, "port": 5439}
         destination = self._create_destination(
             type=ExternalDataDestination.Type.REDSHIFT,
             integration=self._redshift_integration("access_key").pk,
-            config={"database": "dev", "schema": "public", "host": REDSHIFT_CLUSTER_HOST},
+            config=created,
         )
 
-        response = self.client.patch(
-            f"{self.base}/{destination.id}",
-            {"config": {"host": "other.abc123.us-east-1.redshift.amazonaws.com"}},
-            format="json",
-        )
+        response = self.client.patch(f"{self.base}/{destination.id}", {"config": patch}, format="json")
+
+        destination.refresh_from_db()
+        if error is None:
+            assert response.status_code == status.HTTP_200_OK, response.json()
+            assert destination.config == {**created, **patch}
+        else:
+            assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+            assert response.json()["attr"] == "config"
+            assert error in response.json()["detail"]
+            assert destination.config == created
+
+    @parameterized.expand(
+        [
+            ("list_on_create", "create", ["invalid"]),
+            ("text_on_create", "create", "invalid"),
+            ("number_on_create", "create", 5439),
+            ("list_on_update", "update", ["invalid"]),
+            ("text_on_update", "update", "invalid"),
+        ]
+    )
+    def test_a_destination_config_must_be_an_object(self, _name: str, action: str, config: object) -> None:
+        integration = self._redshift_integration("role")
+        if action == "create":
+            response = self.client.post(
+                self.base,
+                {
+                    "type": ExternalDataDestination.Type.REDSHIFT,
+                    "name": "malformed redshift",
+                    "integration": integration.pk,
+                    "config": config,
+                },
+                format="json",
+            )
+        else:
+            destination = self._create_destination(
+                type=ExternalDataDestination.Type.REDSHIFT,
+                name="malformed redshift",
+                integration=integration.pk,
+                config={"database": "dev", "schema": "public", "host": REDSHIFT_CLUSTER_HOST},
+            )
+            response = self.client.patch(f"{self.base}/{destination.id}", {"config": config}, format="json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == "config"
+        assert "Config must be an object" in response.json()["detail"]
+        if action == "update":
+            destination.refresh_from_db()
+            assert destination.config == {"database": "dev", "schema": "public", "host": REDSHIFT_CLUSTER_HOST}
 
     def test_updating_a_destination_does_not_run_the_connection_test(self) -> None:
         destination = self._create_destination()

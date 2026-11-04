@@ -328,6 +328,12 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
             "latest_error_at",
         ]
 
+    # A JSONField takes any JSON value, and every check and `update()` read config as an object.
+    def validate_config(self, value: Any) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            raise ValidationError('Config must be an object of settings, such as {"database": "analytics"}.')
+        return value
+
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         destination_type = attrs.get("type", getattr(self.instance, "type", None))
 
@@ -357,6 +363,9 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
 
         if self.instance is not None:
             self._reject_retargeting(attrs)
+            if destination_type == ExternalDataDestination.Type.REDSHIFT and "config" in attrs:
+                # `update()` merges the PATCH onto the saved config, so check the port the next sync uses.
+                self._check_redshift_port({**(self.instance.config or {}), **attrs["config"]})
         elif destination_type == ExternalDataDestination.Type.POSTGRES:
             self._check_postgres_connection(integration, attrs.get("config"))
         elif destination_type == ExternalDataDestination.Type.REDSHIFT:
@@ -401,6 +410,9 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
         except IntegrationError as error:
             raise ValidationError({"config": str(error)})
 
+        self._check_redshift_port(config)
+
+    def _check_redshift_port(self, config: dict[str, Any]) -> None:
         port = config.get("port")
         if port is not None and (isinstance(port, bool) or not isinstance(port, int) or not 0 < port <= 65535):
             raise ValidationError({"config": "Port must be a number from 1 to 65535."})
