@@ -18,10 +18,18 @@ for (const entry of Object.values(MANIFEST)) {
     SCOPE_BY_TEMPLATE.set(entry.template, entry.scope)
 }
 
-// Full catalog of canonical path templates, embedded in the `url` description so an agent inspecting
-// the tool (exec `info`) sees every linkable path up front — the `{placeholders}` are the params to
-// fill. Generated from the manifest (itself generated from the frontend's `urls`) so it never drifts.
+// Full catalog of canonical path templates, embedded in the `url` description so an agent sees every
+// linkable path before it picks one; the `{placeholders}` are the params to fill. Generated from the
+// manifest (itself generated from the frontend's `urls`) so it never drifts. Exec `info` shows a short
+// description instead, because the catalog is most of the tool's size, and `schema` serves it in full.
 const URL_CATALOG = [...SCOPE_BY_TEMPLATE.keys()].sort().join('\n')
+
+const URL_DESCRIPTION =
+    'A path template copied verbatim from the catalog of canonical routes (e.g. `/persons/{uuid}`). Its ' +
+    "`{placeholders}` are filled from `params`. These slugs come from PostHog's canonical route table, so " +
+    'they are always correct. Never pass a path that is not in the catalog.'
+
+const CATALOG_COMMAND = 'schema generate-app-url url'
 
 const PLACEHOLDER = /\{([^}]+)\}/g
 
@@ -36,14 +44,7 @@ function placeholdersOf(template: string): string[] {
 }
 
 const schema = z.object({
-    url: z
-        .string()
-        .describe(
-            'A path template copied verbatim from the catalog below (e.g. `/persons/{uuid}`). Its ' +
-                "`{placeholders}` are filled from `params`. These slugs come from PostHog's canonical route " +
-                'table, so they are always correct — never pass a path that is not in this list.\n\n' +
-                URL_CATALOG
-        ),
+    url: z.string().describe(`${URL_DESCRIPTION}\n\nCatalog:\n${URL_CATALOG}`),
     params: z
         .record(z.string(), z.string())
         .default({})
@@ -73,7 +74,7 @@ export const generateAppUrlHandler: ToolBase<typeof schema, AppUrlResult>['handl
     const scope = SCOPE_BY_TEMPLATE.get(template)
     if (!scope) {
         throw new Error(
-            `Unknown url "${params.url}". Pick a path template from this tool's catalog (run \`info generate-app-url\`).`
+            `Unknown url "${params.url}". Pick a path template from the catalog in the \`url\` field's description (in exec, run \`${CATALOG_COMMAND}\`).`
         )
     }
 
@@ -109,5 +110,8 @@ export const generateAppUrlHandler: ToolBase<typeof schema, AppUrlResult>['handl
 export default (): ToolBase<typeof schema, AppUrlResult> => ({
     name: 'generate-app-url',
     schema,
+    infoFieldDescriptions: {
+        url: `${URL_DESCRIPTION} Run \`${CATALOG_COMMAND}\` to read the catalog before you pick one.`,
+    },
     handler: generateAppUrlHandler,
 })
