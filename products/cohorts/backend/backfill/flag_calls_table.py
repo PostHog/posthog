@@ -13,8 +13,6 @@ from posthog.models.team.team import Team
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.parity.eligibility import resolve_behavioral_window
 from products.cohorts.backend.parity.tzdates import day_of_instant
-from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
-from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
 
 from common.hogvm.python.utils import HogVMException
 
@@ -50,13 +48,15 @@ def _scan_window(condition: dict[str, Any], team: Team) -> tuple[bool, float]:
 
 
 def _can_seed_from_flag_evaluations(cohort: Cohort, conditions: list[dict[str, Any]], team: Team) -> bool:
-    if get_flag_evaluations_read_mode(team.organization_id) == FlagEvaluationsMode.EVENTS:
-        return False
     # hogql_cohort_query imports posthog.tasks.calculate_cohort, which imports this module through runs.
     from posthog.hogql_queries.hogql_cohort_query import (  # noqa: PLC0415
         FLAG_CALL_READS_COMPILE_ERRORS,
         batch_flag_call_reads,
+        batch_reads_flag_calls_from_events_only,
     )
+
+    if batch_reads_flag_calls_from_events_only(team):
+        return False
 
     # A malformed filter value can also fail an assert in the HogQL printer or fail in the HogQL VM. These errors
     # repeat on every try, so the run is refused. Any other error, such as a database timeout, reaches the trigger
