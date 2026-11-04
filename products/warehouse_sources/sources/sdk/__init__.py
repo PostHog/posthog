@@ -22,6 +22,7 @@ from posthog.models.integration import (
 )
 from posthog.models.integration.databricks import NOT_A_DATABRICKS_HOST_MESSAGE, is_databricks_workspace_host
 from posthog.schema_enums import ProductKey
+from posthog.security.postgres_hosts import SUPABASE_DIRECT_HOST_IPV4_HINT, SUPABASE_DIRECT_HOST_RE
 from posthog.security.url_validation import is_url_allowed
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.shutdown import WorkerShuttingDownError
@@ -40,6 +41,7 @@ from products.warehouse_sources.backend.facade.source_config import (
     SourceFieldOauthConfig,
     SourceFieldSelectConfig,
     SourceFieldSelectConfigOption,
+    SourceFieldSSHTunnelConfig,
     SourceFieldSwitchGroupConfig,
     SuggestedTable,
 )
@@ -53,7 +55,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
     update_sync_type_config_keys,
 )
-from products.warehouse_sources.backend.models.ssh_tunnel import from_private_key
+from products.warehouse_sources.backend.models.ssh_tunnel import SSHTunnelConfig, from_private_key
 from products.warehouse_sources.backend.temporal.data_imports.sources.common import (
     config,
     credentials_service,
@@ -114,6 +116,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
     request_deadline,
     retry_with_deadline,
     stop_at_request_deadline,
+    suspend_adapter_retries,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.observer import redact_request_urls
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import (
@@ -390,6 +393,9 @@ __all__ = [
     "RowFilterColumn",
     "SQLSource",
     "SQLSourceImplementation",
+    "SSHTunnelConfig",
+    "SUPABASE_DIRECT_HOST_IPV4_HINT",
+    "SUPABASE_DIRECT_HOST_RE",
     "SafeSQL",
     "SelectQueryBuilder",
     "SimpleSource",
@@ -403,6 +409,7 @@ __all__ = [
     "SourceFieldInputConfigType",
     "SourceFieldOauthAccountSelectConfig",
     "SourceFieldOauthConfig",
+    "SourceFieldSSHTunnelConfig",
     "SourceFieldSelectConfig",
     "SourceFieldSelectConfigOption",
     "SourceFieldSwitchGroupConfig",
@@ -498,6 +505,7 @@ __all__ = [
     "str_to_optional_list",
     "strip_oauth2_permanent_marker",
     "submit_with_context",
+    "suspend_adapter_retries",
     "unreachable_vendor_message",
     "update_sync_type_config_keys",
     "uses_brotli_compression",

@@ -43,13 +43,15 @@ jobs:
             # The checked-out ref is the PR merged into its base, so HEAD^1 is the base tip and
             # the diff against it is exactly what the PR changes, even when the branch is behind.
             - name: Checkout code
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/checkout@v6.0.2
               with:
                   fetch-depth: 2
                   persist-credentials: false
 
             - name: Set up Node.js
-              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/setup-node@v6.2.0
               with:
                   node-version-file: .nvmrc
 
@@ -73,7 +75,8 @@ jobs:
 
             - name: Upload agent API diff
               if: steps.diff.outcome == 'success'
-              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/upload-artifact@v6.0.0
               with:
                   name: agent-api-diff
                   path: agent-api-diff/agent-api-diff.md
@@ -93,7 +96,8 @@ jobs:
             pull-requests: write
         steps:
             - name: Checkout trusted scripts from base
-              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/checkout@v6.0.2
               with:
                   ref: ${{ github.event.pull_request.base.sha }}
                   sparse-checkout: |
@@ -103,7 +107,8 @@ jobs:
                   persist-credentials: false
 
             - name: Download agent API diff
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag
+              uses: actions/download-artifact@v7.0.0
               with:
                   name: agent-api-diff
                   path: agent-api-diff

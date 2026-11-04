@@ -848,6 +848,12 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             "and PostHog can no longer mint tokens for it; `connected` otherwise."
         )
     )
+    needs_webhook_reconnect = serializers.SerializerMethodField(
+        help_text=(
+            "Linear only, null otherwise. True when the workspace last authorized PostHog before the Linear app "
+            "had webhooks, so linked error tracking issues may not follow their tickets until someone reconnects it."
+        )
+    )
 
     class Meta:
         model = Integration
@@ -863,6 +869,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             "files_write_requestable",
             "installation_shared",
             "installation_status",
+            "needs_webhook_reconnect",
         ]
         read_only_fields = [
             "id",
@@ -874,6 +881,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             "files_write_requestable",
             "installation_shared",
             "installation_status",
+            "needs_webhook_reconnect",
         ]
 
     @extend_schema_field(serializers.BooleanField())
@@ -905,6 +913,13 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
             if GitHubIntegration(obj, source="integrations_api", priority=Priority.NORMAL).installation_unavailable()
             else "connected"
         )
+
+    @extend_schema_field(serializers.BooleanField(allow_null=True))
+    def get_needs_webhook_reconnect(self, obj: Integration) -> bool | None:
+        # A self-hosted instance may never set up the Linear app, and then no reconnect brings webhooks.
+        if obj.kind != "linear" or obj.auth_type != IntegrationAuthType.OAUTH or not settings.LINEAR_APP_WEBHOOK_SECRET:
+            return None
+        return LinearIntegration(obj).authorized_before_webhooks()
 
     def validate_kind(self, value: str) -> str:
         if value == Integration.IntegrationKind.SLACK_POSTHOG_CODE.value:

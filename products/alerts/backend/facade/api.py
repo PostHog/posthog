@@ -32,12 +32,14 @@ from products.alerts.backend.activity_logging import AlertConfigurationContext
 from products.alerts.backend.facade import contracts
 from products.alerts.backend.insight_alert_state_machine import apply_snooze
 from products.alerts.backend.judge.contract import (
+    LLM_DETECTOR_PAUSED_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_MESSAGE,
     MAX_CONCURRENT_MODEL_CALLS,
     MAX_PROMPT_POINTS,
     LLMDetectorError,
     LLMDetectorMisconfiguredError,
+    LLMDetectorPausedError,
     LLMDetectorUnavailableError,
 )
 from products.alerts.backend.judge.executor import LLM_EVALUATE_EXECUTOR
@@ -287,6 +289,7 @@ def assign_alert_owner(*, team_id: int, alert_id: uuid.UUID, user: User, was_imp
 
 
 __all__ = [
+    "LLM_DETECTOR_PAUSED_ERROR_CODE",
     "LLM_DETECTOR_UNAVAILABLE_ERROR_CODE",
     "LLM_DETECTOR_UNAVAILABLE_MESSAGE",
     "LLM_EVALUATE_EXECUTOR",
@@ -296,6 +299,7 @@ __all__ = [
     "LLMAlertWrite",
     "LLMDetectorError",
     "LLMDetectorMisconfiguredError",
+    "LLMDetectorPausedError",
     "LLMDetectorUnavailableError",
     "admit_llm_alert_write",
     "assign_alert_owner",

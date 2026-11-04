@@ -189,11 +189,12 @@ jobs:
                         - '.github/actions/setup-uv/**'
 
             # Affected-crate detection is the only step below that reads the tree, and only a
-            # rust/ or proto/ change reaches it. The resolver supplies the merge base and
+            # rust/ or proto/ change that does not already require Node.js checks reaches it.
+            # The resolver supplies the merge base and
             # complete change set, so this checkout needs no history.
             # The cone is a superset of the tree ci-rust.yml's affected job gives the same binary.
             - name: Check out the Rust tree for affected-crate detection
-              if: github.event_name != 'push' && github.event_name != 'schedule' && steps.filter.outputs.rust == 'true'
+              if: github.event_name != 'push' && github.event_name != 'schedule' && steps.filter.outputs.rust == 'true' && steps.filter.outputs.nodejs != 'true'
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   clean: false
@@ -207,7 +208,7 @@ jobs:
 
             - name: Resolve the Rust changed files
               id: rust-changed-files
-              if: github.event_name != 'push' && github.event_name != 'schedule' && steps.filter.outputs.rust == 'true'
+              if: github.event_name != 'push' && github.event_name != 'schedule' && steps.filter.outputs.rust == 'true' && steps.filter.outputs.nodejs != 'true'
               continue-on-error: true
               env:
                   GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
@@ -223,7 +224,7 @@ jobs:
             - name: Install rust for affected-crate detection
               # Not needed on schedule either: the decision step below already returns
               # nodejs=true there without consulting the affected-crate set.
-              if: github.event_name != 'push' && github.event_name != 'schedule' && steps.filter.outputs.rust == 'true'
+              if: github.event_name != 'push' && github.event_name != 'schedule' && steps.filter.outputs.rust == 'true' && steps.filter.outputs.nodejs != 'true'
               uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
                   toolchain: 1.91.1
@@ -232,7 +233,7 @@ jobs:
               id: rust-affected
               # Not needed on schedule either: the decision step below already returns
               # nodejs=true there without consulting the affected-crate set.
-              if: github.event_name != 'push' && github.event_name != 'schedule' && steps.filter.outputs.rust == 'true'
+              if: github.event_name != 'push' && github.event_name != 'schedule' && steps.filter.outputs.rust == 'true' && steps.filter.outputs.nodejs != 'true'
               uses: ./.github/actions/rust-compute-affected
               with:
                   event-name: ${{ github.event_name }}
