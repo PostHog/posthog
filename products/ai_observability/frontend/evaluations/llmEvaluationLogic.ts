@@ -335,7 +335,6 @@ export interface llmEvaluationLogicValues {
     canEnable: boolean
     canEnableReason: string | null
     checkPastTraffic: boolean
-    enabledChosen: boolean
     enabledSaving: boolean
     evaluation: EvaluationConfig | null
     evaluationBackTarget: EvaluationBackTarget
@@ -526,9 +525,6 @@ export interface llmEvaluationLogicActions {
     }
     setEvaluationDirectory: (directoryId: string | null) => {
         directoryId: string | null
-    }
-    setEvaluationEnabled: (enabled: boolean) => {
-        enabled: boolean
     }
     setEvaluationName: (name: string) => {
         name: string
@@ -722,7 +718,6 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         setEvaluationDescription: (description: string) => ({ description }),
         setEvaluationDirectory: (directoryId: string | null) => ({ directoryId }),
         setEvaluationPrompt: (prompt: string) => ({ prompt }),
-        setEvaluationEnabled: (enabled: boolean) => ({ enabled }),
         setDefaultEnabled: (enabled: boolean) => ({ enabled }),
         setOutputType: (outputType: 'boolean' | 'numeric' | 'categorical') => ({
             outputType,
@@ -994,7 +989,6 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     state && isLLMJudgeEvaluation(state)
                         ? { ...state, evaluation_config: { ...state.evaluation_config, prompt } }
                         : state,
-                setEvaluationEnabled: (state, { enabled }) => (state ? { ...state, enabled } : null),
                 setDefaultEnabled: (state, { enabled }) => (state ? { ...state, enabled } : null),
                 setOutputType: (state, { outputType, outputConfig }) => {
                     if (
@@ -1266,15 +1260,6 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 saveEnabledFailure: () => false,
             },
         ],
-        // Whether someone switched "enabled" by hand. Until then a new evaluation follows whether it can run.
-        enabledChosen: [
-            false,
-            {
-                setEvaluationEnabled: () => true,
-                loadEvaluationSuccess: () => false,
-                resetEvaluation: () => false,
-            },
-        ],
         hasUnsavedChanges: [
             false,
             {
@@ -1282,7 +1267,6 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 setEvaluationDescription: () => true,
                 setEvaluationDirectory: () => true,
                 setEvaluationPrompt: () => true,
-                setEvaluationEnabled: () => true,
                 setOutputType: () => true,
                 patchOutputConfig: () => true,
                 setAllowsNA: () => true,
@@ -2198,12 +2182,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
     subscriptions(({ actions, values, props }) => ({
         // A new evaluation starts running when it can: code and sentiment need no key, a judge needs a working one.
         canEnable: (canEnable: boolean) => {
-            if (
-                props.evaluationId === 'new' &&
-                !values.enabledChosen &&
-                values.evaluation &&
-                values.evaluation.enabled !== canEnable
-            ) {
+            if (props.evaluationId === 'new' && values.evaluation && values.evaluation.enabled !== canEnable) {
                 actions.setDefaultEnabled(canEnable)
             }
         },

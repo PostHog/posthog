@@ -287,16 +287,6 @@ describe('llmEvaluationLogic', () => {
             expect(logic.values.evaluation?.enabled).toBe(expected)
         })
 
-        it('keeps a new evaluation paused once someone turned it off by hand', async () => {
-            await expectLogic(keysLogic).toFinishAllListeners()
-            logic.actions.setEvaluationType('hog')
-            logic.actions.setEvaluationEnabled(false)
-            // Through a judge and back, so canEnable changes and the default would turn it on again.
-            logic.actions.setEvaluationType('llm_judge')
-            logic.actions.setEvaluationType('hog')
-            expect(logic.values.evaluation?.enabled).toBe(false)
-        })
-
         it.each([
             [DEFAULT_HOG_SOURCE, 'return 0;'],
             ['return 42;', 'return 42;'],
@@ -2307,12 +2297,13 @@ return result`,
 
     describe('saveEvaluation past traffic', () => {
         it.each([
-            { enabled: true, expectedBackfills: 1, expectedTab: 'backfills' },
-            { enabled: false, expectedBackfills: 0, expectedTab: undefined },
+            { enabled: true, expectedBackfills: 1, expectedTab: 'backfills', offersPastData: false },
+            { enabled: false, expectedBackfills: 0, expectedTab: undefined, offersPastData: true },
         ])(
             'a new evaluation created enabled=$enabled starts $expectedBackfills backfills',
-            async ({ enabled, expectedBackfills, expectedTab }) => {
+            async ({ enabled, expectedBackfills, expectedTab, offersPastData }) => {
                 const pushSpy = jest.spyOn(router.actions, 'push').mockImplementation(() => {})
+                const infoSpy = jest.spyOn(lemonToast, 'info')
                 const backfillPayloads: { window_start: string; window_end: string }[] = []
                 useMocks({
                     post: {
@@ -2345,8 +2336,14 @@ return result`,
                     expect(new URL(pushedUrl, 'http://x').searchParams.get('evaluation_tab') ?? undefined).toBe(
                         expectedTab
                     )
+                    expect(
+                        infoSpy.mock.calls.some(
+                            ([message]) => message === 'This evaluation grades new data from now on.'
+                        )
+                    ).toBe(offersPastData)
                 } finally {
                     pushSpy.mockRestore()
+                    infoSpy.mockRestore()
                 }
             }
         )
@@ -2355,8 +2352,6 @@ return result`,
     describe('saveEvaluation updates', () => {
         it.each([
             { change: 'name', expected: { name: 'Renamed decision evaluation' }, rejected: false },
-            { change: 'disable', expected: { enabled: false }, rejected: false },
-            { change: 'enable', expected: { enabled: true }, rejected: true },
             {
                 change: 'output_config',
                 expected: { output_config: { allows_na: true } },
@@ -2385,7 +2380,7 @@ return result`,
             async ({ change, expected, rejected }) => {
                 const evaluation: EvaluationConfig = {
                     ...mockEvaluation,
-                    enabled: change !== 'enable',
+                    enabled: true,
                     evaluation_type: 'llm_judge',
                     evaluation_config: { prompt: 'Is this response helpful?', judge_method: 'decision' },
                     output_type: 'boolean',
@@ -2423,10 +2418,6 @@ return result`,
                     switch (change) {
                         case 'name':
                             logic.actions.setEvaluationName(expected.name)
-                            break
-                        case 'disable':
-                        case 'enable':
-                            logic.actions.setEvaluationEnabled(expected.enabled)
                             break
                         case 'output_config':
                             logic.actions.setAllowsNA(true)
