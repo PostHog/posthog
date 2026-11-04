@@ -3,11 +3,11 @@
 ## Choosing the chat version
 
 General chats use the same PostHog AI rollout decision as the web. The mobile app reads
-`GET ai_chat_configuration/` for the selected project when opening a new chat. An allowed
-AI 2.0 user gets the Tasks chat; everyone else gets classic AI through `conversations/`.
-The server also checks Desktop eligibility so a Startup/YC organization keeps a usable
-classic chat instead of reaching the Desktop refusal. An unavailable configuration lookup
-falls back to classic. No flag changes happen in the app.
+`posthog_ai_access` from the organization refresh it already performs for AI consent.
+A true value selects the Tasks chat; false or a missing field selects classic AI through
+`conversations/`. The server calculates the value from the existing web access rules.
+An unavailable organization lookup selects classic, with sending blocked until organization
+consent can be verified. No flag changes happen in the app.
 
 The decision is held for the open chat. **New chat** checks again, so a rollout change takes
 effect without switching an in-flight conversation. A saved classic conversation retains
