@@ -1,4 +1,5 @@
 import { HogFlowAction } from '~/cdp/schema/hogflow'
+import { acceptedSendEmailFields } from '~/cdp/services/hogflows/transactional-email'
 import { RedisV2 } from '~/common/redis/redis-v2'
 import { logger } from '~/common/utils/logger'
 
@@ -155,7 +156,10 @@ export class RecipientPreferencesService {
 
         // Skip only when `to` is suppressed and no cc address can take its place. EmailService
         // removes the other suppressed addresses at send time, and the email still goes to the rest.
-        const emailInputs = invocation.state.globals.inputs?.email
+        const emailInputs = {
+            ...invocation.state.globals.inputs?.email,
+            ...acceptedSendEmailFields(invocation.state.send),
+        }
         try {
             const result = await removeSuppressedRecipients(
                 {
