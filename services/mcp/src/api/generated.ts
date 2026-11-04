@@ -116970,8 +116970,15 @@ export namespace Schemas {
     export interface _MetricAttributeKey {
       /** Attribute key as it appears on the team's metrics (e.g. 'env', 'k8s.pod.name'). */
       name: string;
-      /** Number of distinct values for this attribute in recent data. */
+      /** Number of distinct values for this attribute in recent data. For a value match, only the matching values are counted. */
       value_count: number;
+      /** How the search matched this key: "key" if the key name matched, "value" if one of its values matched.
+       *
+       * * `key` - key
+       * * `value` - value */
+      matchedOn: MatchedOnEnum;
+      /** The most frequent matching value. Only set when matchedOn is "value". */
+      matchedValue?: string;
     }
 
     export interface _MetricAttributeKeysResponse {
@@ -130063,6 +130070,10 @@ export namespace Schemas {
      * @maxLength 255
      */
     search?: string;
+    /**
+     * When true and `search` has 4 or more characters, also return keys whose values match `search`. They follow the keys whose names match. Each result says whether it matched on key or value.
+     */
+    searchValues?: boolean;
     };
 
     export type MetricsDashboardTemplatesListParams = {
