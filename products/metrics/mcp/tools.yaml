@@ -57,8 +57,8 @@ tools:
             List the attribute keys (labels) of the project's metrics, from the key on the most series to the key on the
             fewest. Pass metricName to list the keys of one metric. Pass a search term with search_values to also find
             keys by one of their values, for example the key that carries a service or deployment name. Use a key as a
-            filter or a group-by key in query-metrics, or as a PromQL label name. In PromQL, service.name is service_name
-            and other names with dots need quotes.
+            filter or a group-by key in query-metrics, or as a PromQL label name. In PromQL, service.name is
+            service_name and other names with dots need quotes.
         system_prompt_hint: Find the labels of a metric before you filter or group it
         search_keywords:
             - prometheus
