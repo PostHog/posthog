@@ -3,7 +3,7 @@ import { ReactNode } from 'react'
 import { LemonSkeleton, LemonTabs } from '@posthog/lemon-ui'
 
 import type { TraceNodeApi } from '../../../generated/api.schemas'
-import { EvalsState, NodeContent, NodeDetailTab, NodeProperties } from '../types'
+import { EvalsState, MessagesOpening, NodeContent, NodeDetailTab, NodeProperties } from '../types'
 import { ErrorCallout } from './ErrorCallout'
 import { EvalResultList } from './EvalResultList'
 import { NodeDetailHeader } from './NodeDetailHeader'
@@ -11,6 +11,7 @@ import { NodeMessagesTab } from './NodeMessagesTab'
 import { NodePropertyList } from './NodePropertyList'
 import { NodeRawTab } from './NodeRawTab'
 import { StepFeedbackChipsProps } from './StepFeedbackChips'
+import { useSearchHighlight } from './useSearchHighlight'
 
 export interface NodeDetailProps {
     node: TraceNodeApi
@@ -22,14 +23,19 @@ export interface NodeDetailProps {
     evals: EvalsState
     raw: Record<string, unknown> | null
     onViewInThread: (() => void) | null
+    messagesOpening: MessagesOpening
+    onMessagesOpeningChange: (opening: MessagesOpening) => void
     onSelectNode: (nodeId: string) => void
     actions?: ReactNode
     stepFeedback?: StepFeedbackChipsProps | null
+    highlightQuery?: string | null
+    matchStepCount?: number
 }
 
 export function NodeDetail(props: NodeDetailProps): JSX.Element {
+    const highlightRef = useSearchHighlight(props.highlightQuery ?? null, props.matchStepCount)
     return (
-        <div className="flex min-w-0 flex-col gap-2">
+        <div className="flex min-w-0 flex-col gap-2" ref={highlightRef}>
             <NodeDetailHeader node={props.node} actions={props.actions} stepFeedback={props.stepFeedback} />
             <LemonTabs<NodeDetailTab>
                 size="small"
@@ -43,9 +49,13 @@ export function NodeDetail(props: NodeDetailProps): JSX.Element {
                         'data-attr': 'trace-view-detail-tab-messages',
                         content: (
                             <NodeMessagesTab
+                                stepId={props.node.id}
                                 content={props.content}
                                 error={props.error}
                                 onViewInThread={props.onViewInThread}
+                                opening={props.messagesOpening}
+                                onOpeningChange={props.onMessagesOpeningChange}
+                                highlightQuery={props.highlightQuery}
                             />
                         ),
                     },

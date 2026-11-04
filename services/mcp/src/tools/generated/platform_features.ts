@@ -81,6 +81,7 @@ const advancedActivityLogsList = (): ToolBase<
             query: {
                 activities: params.activities,
                 clients: params.clients,
+                cursor: params.cursor,
                 detail_filters: params.detail_filters,
                 end_date: params.end_date,
                 follow: params.follow,

@@ -33,7 +33,8 @@ const emptyLocal = (): LocalLists => ({
     'data-management': [],
     people: [],
     health: [],
-    misc: [],
+    actions: [],
+    shortcuts: [],
     settings: [],
     create: [],
     recents: [],
@@ -53,7 +54,8 @@ const input = (mode: CommandKMode, overrides: Partial<SectionsInput>): SectionsI
     viewAll: null,
     stale: false,
     personsFirst: false,
-    settingsInResults: false,
+    unifiedRanking: false,
+    searchCorrection: null,
     ...overrides,
 })
 
@@ -76,6 +78,14 @@ const remoteResults = (items: SearchItem[]): Partial<SectionsInput> => {
 }
 
 describe('buildSections', () => {
+    it('shows every shortcut last when the input is empty', () => {
+        const shortcuts = [dashboard('shortcut-1', '1'), dashboard('shortcut-2', '2')]
+        const sections = buildSections(input('empty', { local: { ...emptyLocal(), shortcuts } }))
+
+        expect(sections.at(-1)?.key).toBe('shortcuts')
+        expect(sections.at(-1)?.rows).toHaveLength(2)
+    })
+
     test.each<[string, SectionsInput, string, number]>([
         ['remote results', input('search', remoteResults(itemsWithRepeats(RESULTS_LIMIT))), 'results', RESULTS_LIMIT],
         [
@@ -197,16 +207,16 @@ describe('buildSections', () => {
             ['results', 'loading-more'],
         ],
         [
-            'PostHog AI without waiting for slow person searches',
+            'no PostHog AI row while other rows match',
             { events: [dashboard('e', '8')] },
             false,
-            ['results', 'events', 'ask-ai', 'loading-more'],
+            ['results', 'events', 'loading-more'],
         ],
         [
-            'persons last, below PostHog AI, once they load',
+            'persons last, once they load',
             { events: [dashboard('e', '8')], persons: [dashboard('p', '9')] },
             false,
-            ['results', 'events', 'ask-ai', 'persons'],
+            ['results', 'events', 'persons'],
         ],
         [
             'only result skeletons while persons that go first load',
@@ -235,6 +245,35 @@ describe('buildSections', () => {
             })
         )
         expect(sections.map((section) => section.key)).toEqual(expectedKeys)
+    })
+
+    test.each([
+        [
+            'while persons load',
+            undefined,
+            [
+                ['ask-ai', ['ask-ai']],
+                ['loading-more', ['loading-more']],
+            ],
+        ],
+        ['when nothing else matches', [], [['ask-ai', ['ask-ai']]]],
+        ['unless persons match', [dashboard('p', '9')], [['persons', ['item']]]],
+    ])('offers PostHog AI %s', (_, persons, expected) => {
+        const remote = emptyRemoteSlots()
+        remote.results = { cache: { xyzzy: [] } }
+        remote.events = { cache: { xyzzy: [] } }
+        if (persons) {
+            remote.persons = { cache: { xyzzy: persons } }
+        }
+        const sections = buildSections(
+            input('search', {
+                remote,
+                remoteQueries: { results: 'xyzzy', events: 'xyzzy', persons: 'xyzzy' },
+                localQuery: 'xyzzy',
+                askAiQuestion: 'xyzzy',
+            })
+        )
+        expect(sectionKinds(sections)).toEqual(expected)
     })
 
     it('ranks a person who matches every word of an email search above results that match fewer', () => {
@@ -293,6 +332,56 @@ describe('buildSections', () => {
         expect(sections[0].rows).toMatchObject([{ kind: 'item', section: 'accounts', item: account }])
     })
 
+    test.each([
+        [
+            'results',
+            [{ ...dashboard('a', '1'), name: 'API usage', rankKey: [-1, 0, 0, 0, -1, 0, 1, 0, 0] }],
+            ['notice', 'best-matches'],
+        ],
+        ['no results', [], []],
+    ])('a search correction with %s shows the notice only above results', (_, results, keys) => {
+        const remote = emptyRemoteSlots()
+        remote.results.cache['api keys'] = results
+        const sections = buildSections(
+            input('search', {
+                remote,
+                remoteQueries: { results: 'api keys' },
+                localQuery: 'api keys',
+                searchCorrection: { from: 'api_keys', to: 'api keys' },
+            })
+        )
+
+        expect(sections.map((section) => section.key)).toEqual(keys)
+        if (keys.length) {
+            expect(sections[0].rows).toEqual([
+                expect.objectContaining({ reason: 'corrected', missing: ['api_keys'], shown: ['api keys'] }),
+            ])
+        }
+    })
+
+    it('with unified ranking, a domain search through the sections puts the account that owns the domain first', () => {
+        const account: SearchItem = {
+            id: 'account-1',
+            name: 'Acme',
+            category: 'accounts',
+            itemType: 'account',
+            identityFields: ['example.org'],
+        }
+        const remote = emptyRemoteSlots()
+        remote.results.cache['example.org'] = [
+            { ...dashboard('a', '1'), name: 'Example org signups', rankKey: [-2, 0, 0, 0, -2, 0, 1, 0, -1] },
+        ]
+        remote.accounts.cache['example.org'] = [account]
+        const current = query({
+            remoteQueries: { results: 'example.org', accounts: 'example.org' },
+            localQuery: 'example.org',
+        })
+
+        const sections = buildSections(input('search', { remote, ...current, unifiedRanking: true }))
+
+        expect(sections[0].rows[0]).toMatchObject({ kind: 'item', item: account })
+    })
+
     it('shows saved objects when the Accounts request settles empty', () => {
         const remote = emptyRemoteSlots()
         remote.results.cache.billing = [{ ...dashboard('a', '1'), rankKey: [-1, 0, 0, 0, -1, 0, 2, 0, 0] }]
@@ -306,10 +395,9 @@ describe('buildSections', () => {
     })
 
     test.each([
-        ['off', false, 'Personal API keys', ['best-matches', 'settings'], 'Ada board'],
-        ['on', true, 'Personal API keys', ['best-matches'], 'Personal API keys'],
-        ['on, but a product has its name', true, 'API keys', ['best-matches', 'settings'], 'API keys'],
-    ])('ranks an exact-match setting with the results: flag %s', (_, settingsInResults, settingName, keys, first) => {
+        ['no product shares its name', 'Personal API keys', ['best-matches'], 'Personal API keys'],
+        ['a product has its name', 'API keys', ['best-matches', 'settings'], 'API keys'],
+    ])('ranks an exact-match setting with the results when %s', (_, settingName, keys, first) => {
         const setting: SearchItem = {
             id: 'settings-api-keys',
             name: `User: ${settingName} (api keys)`,
@@ -330,13 +418,37 @@ describe('buildSections', () => {
                 remote,
                 remoteQueries: { results: 'api keys' },
                 localQuery: 'api keys',
-                settingsInResults,
             })
         )
 
         expect(sections.map((section) => section.key)).toEqual(keys)
         const firstItem = sections[0].rows[0]
         expect(firstItem.kind === 'item' ? String(firstItem.item.displayName || firstItem.item.name) : null).toBe(first)
+    })
+
+    it('with unified ranking, a pasted snake_case name ranks its matching setting first', () => {
+        const setting: SearchItem = {
+            id: 'settings-api-keys',
+            name: 'User: Personal API keys (api keys)',
+            displayName: 'Personal API keys',
+            category: 'settings',
+        }
+        const products: SearchItem[] = [
+            { id: 'product-endpoints', name: 'Endpoints', category: 'products', searchKeywords: ['api'] },
+        ]
+        const remote = emptyRemoteSlots()
+        remote.results.cache.personal_api_keys = []
+        const sections = buildSections(
+            input('search', {
+                local: { ...emptyLocal(), settings: [setting], products },
+                remote,
+                remoteQueries: { results: 'personal_api_keys' },
+                localQuery: 'personal_api_keys',
+                unifiedRanking: true,
+            })
+        )
+
+        expect(sections[0].rows[0]).toMatchObject({ kind: 'item', item: setting })
     })
 
     it('says which words were dropped when a filter is active', () => {

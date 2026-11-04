@@ -244,7 +244,7 @@ export interface todayLogicActions {
         currentTeam: TeamPublicType | null
         payload?: any
     } // teamLogic
-    loadHighlights: () => any // todayHighlightsLogic
+    loadHighlights: (refresh?: boolean | undefined) => boolean // todayHighlightsLogic
     askAi: (
         prompt: string,
         source: TodayAskSource,
@@ -899,6 +899,12 @@ export const todayLogic = kea<todayLogicType>([
                         capturePreview(reportId, reportList, index + 1)
                         return
                     }
+                }
+            },
+            // A verdict that failed without an answer can still have saved, so the list reloads from the server.
+            [todayVerdictLogic.actionTypes.setReportVerdictFailure]: () => {
+                if (!values.useSampleData) {
+                    actions.loadTopReports()
                 }
             },
             showMoreForYou: () => {

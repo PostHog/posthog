@@ -231,6 +231,20 @@ def conversion_window_to_seconds(conversion_window: int, conversion_window_unit:
     return conversion_window * multipliers[conversion_window_unit]
 
 
+def winsorization_bound_expr(level: float, value: str, *, ignore_zeros: bool = False) -> ast.Expr:
+    """The outlier bound at the percentile `level` of `value` across the entities. `value` is an internal column name,
+    never user input, because it is interpolated into the expression. `quantile_exact_position` mirrors the value that
+    this function picks, so a change of the aggregate here must change that function too."""
+    over = f"if({value} != 0, {value}, null)" if ignore_zeros else value
+    return parse_expr(f"quantileExact({{level}})({over})", placeholders={"level": ast.Constant(value=level)})
+
+
+def quantile_exact_position(level: float, count: int) -> int:
+    """The position, among `count` values in ascending order, of the value that `quantileExact(level)` returns."""
+    # ClickHouse truncates `level * count` computed in double precision, which Python's float multiplication matches.
+    return int(level * count) if level < 1 else count - 1
+
+
 def analysis_window_end(end_date: Optional[datetime], as_of: datetime) -> datetime:
     """Upper edge of an experiment's analysis window, evaluated at ``as_of``.
 

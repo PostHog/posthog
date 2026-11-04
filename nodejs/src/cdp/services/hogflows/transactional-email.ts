@@ -1,9 +1,56 @@
 import { Counter, Histogram } from 'prom-client'
 import { z } from 'zod'
 
+import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
+
+export const AcceptedSendSchema = z
+    .object({
+        content: z
+            .object({
+                subject: z.string().min(1),
+                html: z.string().optional(),
+                text: z.string().optional(),
+            })
+            .strict()
+            .readonly()
+            .refine((content) => !!content.html || !!content.text, { message: 'content needs html or text' })
+            .optional(),
+        from: z
+            .object({
+                integrationId: z.number().int(),
+                email: z.string().optional(),
+                name: z.string().optional(),
+            })
+            .strict()
+            .readonly()
+            .optional(),
+        replyTo: z.array(z.string()).readonly().optional(),
+        tracking: z.object({ captureEngagement: z.boolean() }).strict().readonly(),
+    })
+    .strict()
+    .readonly()
+
+export type AcceptedSend = z.infer<typeof AcceptedSendSchema>
+
+export const acceptedSendEmailFields = (
+    send: AcceptedSend | undefined
+): Partial<CyclotronInvocationQueueParametersEmailType> => ({
+    ...(send?.content && {
+        subject: send.content.subject,
+        html: send.content.html ?? '',
+        text: send.content.text ?? '',
+        preheader: '',
+    }),
+    ...(send?.from && { from: { ...send.from } }),
+    ...(send?.replyTo && { replyTo: send.replyTo.join(', ') }),
+})
+
+export const RECIPIENT_ADDRESS_PATTERN =
+    /^[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[a-zA-Z0-9!#$%&'*+/=?^_`{|}~-]+)*@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)+$/
+
 // What Django sends to run a transactional email's workflow once.
 export const TransactionalEmailRequestSchema = z.object({
-    to: z.string().email(),
+    to: z.string().email({ pattern: RECIPIENT_ADDRESS_PATTERN }),
     // The person the send is tracked against. Django falls back to the recipient's address.
     distinct_id: z.string().min(1),
     // The caller's `message_data`, available to the template as `variables`.
@@ -11,6 +58,13 @@ export const TransactionalEmailRequestSchema = z.object({
     // The caller's `Idempotency-Key`. A repeat with the same key and request returns the first send.
     idempotency_key: z.string().min(1).max(255).optional(),
 })
+
+export const TEMPLATE_SEND_TOKEN_CLAIMS = { kind: undefined }
+export const CODE_SEND_TOKEN_CLAIMS = { kind: 'code_send' }
+
+export const AcceptedSendRequestSchema = TransactionalEmailRequestSchema.extend({ send: AcceptedSendSchema })
+
+export type TransactionalEmailRequest = z.infer<typeof TransactionalEmailRequestSchema> & { send?: AcceptedSend }
 
 export type TransactionalEmailOutcome =
     | 'queued'
@@ -50,7 +104,7 @@ export type TransactionalEmailStage = (typeof TRANSACTIONAL_EMAIL_STAGES)[number
 
 export const transactionalEmailStageDurationMs = new Histogram({
     name: 'cdp_transactional_email_stage_duration_ms',
-    help: 'Milliseconds one transactional email request spends in each stage: auth (the JWT), validate (the body), load (the team and the workflow), build (the run and its idempotency fingerprint), idempotency (every Idempotency-Key call to Valkey), checks (suspension, pause, suppression, quota and MX), queue_insert (the email queue insert), metrics_flush (the result, status and app metric writes), and total. A request records only the stages it reached, so a refusal shows in the stage that refused it.',
+    help: 'Milliseconds one transactional email request spends in each stage: auth (the JWT), validate (the body), load (the team and the workflow), build (the run and its idempotency fingerprint), idempotency (every Idempotency-Key call to Valkey), checks (suspension, pause, suppression, quota and MX), queue_insert (the email queue insert), metrics_flush (the hand-off of the result and status rows to the Kafka producer, without the wait for the broker), and total. A request records only the stages it reached, so a refusal shows in the stage that refused it.',
     labelNames: ['stage'],
     buckets: [1, 2.5, 5, 10, 25, 50, 100, 250, 500, 1_000, 2_500, 5_000, 10_000],
 })

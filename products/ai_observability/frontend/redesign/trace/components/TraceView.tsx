@@ -6,6 +6,7 @@ import { Thread } from './Thread'
 import { TraceFeedbackView } from './TraceFeedbackView'
 import { TraceHeader, TraceHeaderProps } from './TraceHeader'
 import { TraceModeTabs } from './TraceModeTabs'
+import { TraceSearchBoxProps } from './TraceSearchBox'
 import { TraceSplitView } from './TraceSplitView'
 import { TraceSummaryBar, TraceSummaryBarProps } from './TraceSummaryBar'
 import { TraceTimeline } from './TraceTimeline'
@@ -13,7 +14,7 @@ import { TraceViewError } from './TraceViewError'
 import { TraceViewLoading } from './TraceViewLoading'
 
 export interface TraceViewReadyProps {
-    header: TraceHeaderProps
+    header: Omit<TraceHeaderProps, 'search'>
     summary: TraceSummaryBarProps
     mode: TraceMode
     onModeChange: (mode: TraceMode) => void
@@ -22,10 +23,16 @@ export interface TraceViewReadyProps {
     onSelectNode: (id: string) => void
     onPrefetchNode: (id: string) => void
     onSelectFromView: (id: string) => void
-    detail: Omit<NodeDetailProps, 'onSelectNode'> | null
+    detail: Omit<NodeDetailProps, 'onSelectNode' | 'highlightQuery' | 'matchStepCount'> | null
     thread: ConversationState
     timeline: { rows: TraceTimelineRowApi[]; totalMs: number }
+    search?: TraceSearchBoxProps | null
     evalOutcomes: Record<string, EvalRollupOutcome>
+    /** The steps that contain the search query, or null when nothing is searched. */
+    matchingNodeIds?: ReadonlySet<string> | null
+    highlightQuery?: string | null
+    /** Changes on each step to a match, which scrolls the selected step and its first highlight into view. */
+    matchStepCount?: number
     summaryMode: SummaryModeViewProps
     feedbackMode?: FeedbackModeState
     onRetryFeedback?: () => void
@@ -39,7 +46,7 @@ const FEEDBACK_LOADING: FeedbackModeState = { status: 'loading' }
 
 export type TraceViewProps =
     | { status: 'loading' }
-    | { status: 'error'; errorMessage: string; backLink: LabeledLink }
+    | { status: 'error'; errorMessage: string; backLink: LabeledLink | null }
     | ({ status: 'ready' } & TraceViewReadyProps)
 
 export function TraceView(props: TraceViewProps): JSX.Element {
@@ -50,39 +57,50 @@ export function TraceView(props: TraceViewProps): JSX.Element {
         return <TraceViewError message={props.errorMessage} backLink={props.backLink} />
     }
     return (
-        <div className="flex flex-col gap-3">
-            <TraceHeader {...props.header} />
+        <div className="flex min-h-0 flex-1 flex-col gap-3">
+            <TraceHeader {...props.header} search={props.search} />
             <TraceSummaryBar {...props.summary} />
             <TraceModeTabs mode={props.mode} onModeChange={props.onModeChange} feedbackCount={props.feedbackCount} />
-            {props.mode === 'spans' ? (
-                <TraceSplitView
-                    tree={props.tree}
-                    selectedNodeId={props.selectedNodeId}
-                    onSelectNode={props.onSelectNode}
-                    onPrefetchNode={props.onPrefetchNode}
-                    detail={props.detail}
-                    evalOutcomes={props.evalOutcomes}
-                    feedbackCountByNodeId={props.feedbackCountByNodeId}
-                />
-            ) : props.mode === 'thread' ? (
-                <Thread conversation={props.thread} onSelectMessage={props.onSelectFromView} />
-            ) : props.mode === 'summary' ? (
-                <SummaryModeView {...props.summaryMode} />
-            ) : props.mode === 'feedback' ? (
-                <TraceFeedbackView
-                    state={props.feedbackMode ?? FEEDBACK_LOADING}
-                    onSelectStep={props.onSelectFromView}
-                    onRetry={props.onRetryFeedback}
-                />
-            ) : (
-                <TraceTimeline
-                    rows={props.timeline.rows}
-                    totalMs={props.timeline.totalMs}
-                    selectedNodeId={props.selectedNodeId}
-                    onSelectNode={props.onSelectFromView}
-                    onPrefetchNode={props.onPrefetchNode}
-                />
-            )}
+            <div className="min-h-0 flex-1 overflow-y-auto">
+                {props.mode === 'spans' ? (
+                    <TraceSplitView
+                        tree={props.tree}
+                        selectedNodeId={props.selectedNodeId}
+                        onSelectNode={props.onSelectNode}
+                        onPrefetchNode={props.onPrefetchNode}
+                        detail={props.detail}
+                        evalOutcomes={props.evalOutcomes}
+                        feedbackCountByNodeId={props.feedbackCountByNodeId}
+                        matchingNodeIds={props.matchingNodeIds}
+                        highlightQuery={props.highlightQuery}
+                        matchStepCount={props.matchStepCount}
+                    />
+                ) : props.mode === 'thread' ? (
+                    <Thread
+                        conversation={props.thread}
+                        onSelectMessage={props.onSelectFromView}
+                        highlightQuery={props.highlightQuery}
+                        matchingNodeIds={props.matchingNodeIds}
+                    />
+                ) : props.mode === 'summary' ? (
+                    <SummaryModeView {...props.summaryMode} />
+                ) : props.mode === 'feedback' ? (
+                    <TraceFeedbackView
+                        state={props.feedbackMode ?? FEEDBACK_LOADING}
+                        onSelectStep={props.onSelectFromView}
+                        onRetry={props.onRetryFeedback}
+                    />
+                ) : (
+                    <TraceTimeline
+                        rows={props.timeline.rows}
+                        totalMs={props.timeline.totalMs}
+                        selectedNodeId={props.selectedNodeId}
+                        onSelectNode={props.onSelectFromView}
+                        onPrefetchNode={props.onPrefetchNode}
+                        matchingNodeIds={props.matchingNodeIds}
+                    />
+                )}
+            </div>
         </div>
     )
 }

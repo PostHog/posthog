@@ -11,10 +11,10 @@ Field names stay camelCase because they cross the wire to the frontend unchanged
 from enum import StrEnum
 from typing import Annotated, Any, Literal, Union
 
-from pydantic import BaseModel, ConfigDict, Field, RootModel
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, RootModel
 from pydantic.json_schema import SkipJsonSchema, WithJsonSchema
 
-from products.warehouse_sources.backend.facade.types import CDCEngine, ExternalDataSourceType
+from products.warehouse_sources.backend.facade.types import CDCEngine, SourceKey, source_key
 
 __all__ = [
     "DataWarehouseSourceCategory",
@@ -327,13 +327,13 @@ SourceFieldSelectConfig.model_rebuild()
 SourceFieldSwitchGroupConfig.model_rebuild()
 
 
-# Pydantic publishes an enum as its own schema component, which would put a second copy
-# of the source type list next to the one the DRF serializers already publish. Emitting
-# the values inline instead lets drf-spectacular's enum post-processing match them by
-# hash and point both at the single `ExternalDataSourceTypeEnum` component.
-InlinedExternalDataSourceType = Annotated[
-    ExternalDataSourceType,
-    WithJsonSchema({"type": "string", "enum": ExternalDataSourceType.values}),
+# A plain string in the schema, not an enum: a plugin source names itself with a key that has no
+# `ExternalDataSourceType` member, and the generated API clients must not change when a vendor is added.
+# The validator still hands core keys back as their enum member.
+SourceConfigName = Annotated[
+    SourceKey,
+    AfterValidator(source_key),
+    WithJsonSchema({"type": "string"}),
 ]
 
 
@@ -374,7 +374,7 @@ class SourceConfig(BaseModel):
         ),
     )
     label: str | None = None
-    name: InlinedExternalDataSourceType
+    name: SourceConfigName
     permissionsCaption: str | None = None
     releaseStatus: ReleaseStatus | None = None
     suggestedTables: list[SuggestedTable] | None = Field(

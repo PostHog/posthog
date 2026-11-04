@@ -10,11 +10,12 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from json import JSONDecodeError
 from typing import Any, Literal, cast
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 
 from django.conf import settings
 from django.contrib.auth.models import AnonymousUser
 from django.core.cache import cache
+from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
 from django.utils import timezone
 
@@ -22,7 +23,7 @@ import requests
 import structlog
 import posthoganalytics
 from clickhouse_driver.errors import ServerException
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_serializer
 from openai.types.chat import (
     ChatCompletionAssistantMessageParam,
     ChatCompletionMessageParam,
@@ -109,6 +110,11 @@ from posthog.session_recordings.queries.session_replay_events import (
 )
 from posthog.session_recordings.recordings.errors import BlockFetchError, RecordingDeletedError
 from posthog.session_recordings.recordings.recording_api_client import RecordingApiClient, recording_api_client
+from posthog.session_recordings.recordings.replay_blocks_jwt import (
+    ReplayBlocksToken,
+    is_direct_blocks_enabled,
+    mint_replay_blocks_token,
+)
 from posthog.session_recordings.recordings.replay_proxy_jwt import mint_replay_proxy_token
 from posthog.session_recordings.session_recording_v2_service import list_blocks, list_blocks_async
 from posthog.session_recordings.utils import (
@@ -227,6 +233,36 @@ def _replay_proxy_token_for_player(request, team_id: int) -> str | None:
     return mint_replay_proxy_token(team_id)
 
 
+def _replay_blocks_viewer(request) -> str | None:
+    """Who the player is watching as, for the block URLs and the per-viewer rate limit. An export renders as the user
+    who created it. None for any caller that is not the player, which keeps reading blocks through Django. Share links
+    also stay on Django, because a block token cannot see a share being disabled or its password revoked."""
+    authenticator = getattr(request, "successful_authenticator", None)
+    if isinstance(authenticator, (SessionAuthentication, ExportRendererAuthentication)) and isinstance(
+        request.user, User
+    ):
+        return f"u{request.user.pk}"
+    return None
+
+
+@frozen
+class ReplayBlocksAccess:
+    path_prefix: str
+    token: ReplayBlocksToken
+
+
+def _replay_blocks_access_for_player(request, team_id: int, session_id: str) -> ReplayBlocksAccess | None:
+    viewer = _replay_blocks_viewer(request)
+    if viewer is None or not is_direct_blocks_enabled(team_id):
+        return None
+    token = mint_replay_blocks_token(team_id, session_id, viewer, "browser")
+    if token is None:
+        return None
+    return ReplayBlocksAccess(
+        path_prefix=f"/replay-blocks/{team_id}/{quote(session_id, safe='')}/{viewer}/", token=token
+    )
+
+
 # Type alias to avoid shadowing by SessionRecordingViewSet.list method
 BlockList = list[Any]
 
@@ -242,18 +278,15 @@ def _get_session_ids_from_comment_search(
     if not comment_filter:
         return None
 
-    base_query = Comment.objects.filter(
-        team=team,
-        # TODO: discussions created `Replay` and comments create `recording`
-        # TODO: that's an unnecessary distinction but we'll ignore it for now
-        scope__in=["recording"],
-    ).exclude(deleted=True)
+    base_query = Comment.objects.filter(team=team, scope="Replay").exclude(deleted=True)
 
     operator = comment_filter.operator
     value = comment_filter.value
 
     if operator == PropertyOperator.IS_SET:
-        base_query = base_query.filter(content__isnull=False).exclude(content="")
+        # some replay comments keep their text only in rich_content
+        has_text = Q(content__isnull=False) & ~Q(content="")
+        base_query = base_query.filter(has_text | Q(rich_content__isnull=False))
     elif operator == PropertyOperator.EXACT:
         # do the check here to help mypy
         if value is None or value == "":
@@ -467,6 +500,10 @@ class SessionRecordingSnapshotsSourceSerializer(serializers.Serializer):
     start_timestamp = serializers.DateTimeField(allow_null=True)
     end_timestamp = serializers.DateTimeField(allow_null=True)
     blob_key = serializers.CharField(allow_null=True)
+    url = serializers.CharField(
+        required=False,
+        help_text="Where the player fetches this block directly, sending block_token as a Bearer token. Absent when the block must be read through this endpoint.",
+    )
 
 
 class SessionRecordingSourcesSerializer(serializers.Serializer):
@@ -476,6 +513,16 @@ class SessionRecordingSourcesSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         help_text="Short-lived token that the player sends to the replay asset proxy with each font or script request. Null when this install has no proxy signing key.",
+    )
+    block_token = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Short-lived token for the source urls, scoped to this recording. Null when no source has a url.",
+    )
+    block_token_expires_at = serializers.DateTimeField(
+        required=False,
+        allow_null=True,
+        help_text="When block_token expires. List the sources again for a new one.",
     )
 
 
@@ -622,6 +669,18 @@ class SessionRecordingConsoleLogsResponseSerializer(serializers.Serializer):
         help_text="True when the recording started longer ago than the console log retention period. "
         "The recording can still exist after its console log entries are deleted. Entries expire one at a time, "
         "so a recording close to the retention period can already miss its earliest entries while this is false."
+    )
+
+
+@extend_schema_serializer(many=False)
+class SessionRecordingListResponseSerializer(serializers.Serializer):
+    results = SessionRecordingSerializer(many=True, help_text="Recordings on this page.")
+    has_next = serializers.BooleanField(help_text="Whether more recordings match the query after this page.")
+    version = serializers.IntegerField(help_text="Version of the listing response format.")
+    next_cursor = serializers.CharField(
+        required=False,
+        help_text="Cursor for the next page. Send it back as `after` to load the next page. "
+        "Absent when the query does not page by cursor or there is no next page.",
     )
 
 
@@ -891,6 +950,68 @@ class SharingTokenReplayThrottle(SimpleRateThrottle):
         return False
 
 
+class _SnapshotUserRateThrottle(SimpleRateThrottle):
+    """Per-user cap on blob fetches from a browser session or an OAuth token.
+
+    The view checks it only for blob fetches, not through throttle_classes, so listing sources never uses quota.
+    It does not reuse the shared user-bucket throttle, because that one counts every refusal in the global
+    rate_limit_exceeded metrics, which log-only mode would fill with requests it never blocked.
+    """
+
+    scope: str
+    rate_setting: str
+
+    def __init__(self) -> None:
+        # Read at instantiation so override_settings takes effect.
+        self.rate = getattr(settings, self.rate_setting)
+        super().__init__()
+
+    def get_cache_key(self, request, view) -> str | None:
+        if not request.user or not request.user.is_authenticated:
+            return None
+        return self.cache_format % {"scope": self.scope, "ident": request.user.pk}
+
+    def allow_request(self, request, view) -> bool:
+        try:
+            return self._allow_request(request, view)
+        except Exception as e:
+            # The quota protects storage, not access, so a cache outage must not stop playback.
+            capture_exception(e, {"location": "snapshot_user_rate_throttle", "scope": self.scope})
+            return True
+
+    def _allow_request(self, request, view) -> bool:
+        if not is_rate_limit_enabled(round(time.time() / 60)):
+            return True
+        team_id = PersonalApiKeyRateThrottle.safely_get_team_id_from_view(view)
+        if team_id is not None and team_is_allowed_to_bypass_throttle(team_id):
+            return True
+        if super().allow_request(request, view):
+            return True
+        enforced = settings.SNAPSHOT_USER_RATE_LIMIT_ENFORCED
+        location = self.scope if enforced else f"{self.scope}_log_only"
+        _count_session_recording_throttled(location=location, auth_type=_request_auth_type(request))
+        # A client over the limit stays over it for every later request, so log once a minute per user, not per request.
+        if cache.add(f"{self.scope}_logged:{request.user.pk}", 1, timeout=60):
+            logger.info(
+                "snapshot_user_rate_limit_exceeded",
+                scope=self.scope,
+                enforced=enforced,
+                user_id=request.user.pk,
+                team_id=team_id,
+            )
+        return not enforced
+
+
+class SnapshotsUserBurstRateThrottle(_SnapshotUserRateThrottle):
+    scope = "snapshots_user_burst"
+    rate_setting = "SNAPSHOT_USER_RATE_BURST"
+
+
+class SnapshotsUserSustainedRateThrottle(_SnapshotUserRateThrottle):
+    scope = "snapshots_user_sustained"
+    rate_setting = "SNAPSHOT_USER_RATE_SUSTAINED"
+
+
 def _length_prefix_blocks(blocks: list[bytes]) -> bytes:
     chunks = []
     for block in blocks:
@@ -986,6 +1107,7 @@ class SessionRecordingViewSet(
             return [*super().get_throttles(), ListingBurstRateThrottle(), ListingSustainedRateThrottle()]
         return super().get_throttles()
 
+    @extend_schema(responses={200: SessionRecordingListResponseSerializer(many=False)})
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         tag_queries(product=Product.REPLAY, feature=Feature.QUERY)
         user_distinct_id = cast(User, request.user).distinct_id
@@ -1558,6 +1680,12 @@ class SessionRecordingViewSet(
         try:
             response: Response | HttpResponse
             if source == "blob_v2" and "min_blob_key" in validated_data:
+                # The tier limits cover only personal API keys, so cap browser sessions and OAuth agents here. Exports and
+                # ID-JAG tokens also resolve to a real user, but they must not share that user's quota.
+                if isinstance(request.successful_authenticator, SessionAuthentication | OAuthAccessTokenAuthentication):
+                    for throttle in (SnapshotsUserBurstRateThrottle(), SnapshotsUserSustainedRateThrottle()):
+                        if not throttle.allow_request(request, self):
+                            raise Throttled(wait=throttle.wait())
                 response = self._stream_blob_v2_to_client(
                     recording,
                     timer,
@@ -1570,7 +1698,7 @@ class SessionRecordingViewSet(
 
             response.headers["Server-Timing"] = timer.to_header_string()
             return response
-        except NotFound:
+        except (NotFound, Throttled):
             raise
         except RecordingDeletedError as e:
             logger.info(
@@ -1667,23 +1795,34 @@ class SessionRecordingViewSet(
 
         with _OTEL_PLAYBACK.timed_histogram_twin(GATHER_RECORDING_SOURCES_HISTOGRAM, {"blob_version": "v2"}):
             with timer("list_blocks__gather_session_recording_sources"):
-                blocks = list_blocks(recording)
+                # Uncached, so a recording deleted a moment ago fails here before the player asks for any block.
+                blocks = list_blocks(recording, use_cache=False)
+
+            # Only encrypted recordings get refs, so a recording from before encryption has no urls.
+            access = (
+                _replay_blocks_access_for_player(self.request, self.team_id, str(recording.session_id))
+                if any(block.ref for block in blocks)
+                else None
+            )
 
             for i, block in enumerate(blocks):
-                sources.append(
-                    {
-                        "source": "blob_v2",
-                        "start_timestamp": block.start_timestamp,
-                        "end_timestamp": block.end_timestamp,
-                        "blob_key": str(i),
-                    }
-                )
+                source = {
+                    "source": "blob_v2",
+                    "start_timestamp": block.start_timestamp,
+                    "end_timestamp": block.end_timestamp,
+                    "blob_key": str(i),
+                }
+                if access and block.ref:
+                    source["url"] = self.request.build_absolute_uri(access.path_prefix + block.ref)
+                sources.append(source)
 
             with timer("serialize_data__gather_session_recording_sources"):
                 serializer = SessionRecordingSourcesSerializer(
                     {
                         "sources": sorted(sources, key=lambda x: x.get("start_timestamp", -1)),
                         "replay_proxy_token": _replay_proxy_token_for_player(self.request, self.team_id),
+                        "block_token": access.token.token if access else None,
+                        "block_token_expires_at": access.token.expires_at if access else None,
                     }
                 )
 

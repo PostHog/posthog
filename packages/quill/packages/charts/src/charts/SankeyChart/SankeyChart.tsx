@@ -7,7 +7,8 @@ import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
 import { resolveCssColor } from '../../core/color-utils'
 import { useChartCanvas } from '../../core/hooks/useChartCanvas'
 import { useChartDraw } from '../../core/hooks/useChartDraw'
-import { applyMarginOverride } from '../../core/hooks/useChartMargins'
+import { applyMarginOverride, useStableMargins } from '../../core/hooks/useChartMargins'
+import { DEFAULT_CHART_COLORS, useResolvedChartTheme } from '../../core/theme'
 import type { ChartDrawArgs, ChartMargins, ChartScales } from '../../core/types'
 import { defaultResolveValue } from '../../core/types'
 import { Tooltip } from '../../overlays/Tooltip'
@@ -52,9 +53,6 @@ function graphKey(
     ])
 }
 
-/** Used when `theme.colors` is empty, as `Heatmap` does for its accent. */
-const FALLBACK_NODE_COLOR = '#1d4aff'
-
 export function SankeyChart<NodeMeta = unknown, LinkMeta = NodeMeta>({
     onError,
     ...rest
@@ -69,7 +67,7 @@ export function SankeyChart<NodeMeta = unknown, LinkMeta = NodeMeta>({
 function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
     nodes,
     links,
-    theme,
+    theme: themeProp,
     config,
     tooltip,
     onNodeClick,
@@ -80,6 +78,7 @@ function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
     dataAttr,
     children,
 }: Omit<SankeyChartProps<NodeMeta, LinkMeta>, 'onError'>): React.ReactElement {
+    const theme = useResolvedChartTheme(themeProp)
     const {
         nodeWidth = DEFAULT_NODE_WIDTH,
         nodePadding = DEFAULT_NODE_PADDING,
@@ -108,11 +107,12 @@ function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
         [showNodeLabels, lastColumnLabels, nodes, links, nodeAlign, showNodeValues, valueFormatter]
     )
 
+    const stableMarginsOverride = useStableMargins(marginsOverride)
     const margins = useMemo<ChartMargins>(() => {
-        const applied = marginsOverride ? applyMarginOverride(BASE_MARGINS, marginsOverride) : BASE_MARGINS
+        const applied = applyMarginOverride(BASE_MARGINS, stableMarginsOverride)
         // Column headers are sized for their room, so an override cannot take it away.
         return { ...applied, top: applied.top + (hasColumnLabels ? COLUMN_LABEL_HEIGHT : 0) }
-    }, [hasColumnLabels, marginsOverride])
+    }, [hasColumnLabels, stableMarginsOverride])
 
     const { canvasRef, overlayCanvasRef, wrapperRef, dimensions, ctx, overlayCtx } = useChartCanvas({ margins })
 
@@ -147,10 +147,10 @@ function SankeyChartInner<NodeMeta = unknown, LinkMeta = NodeMeta>({
             }
             const label = node.label ?? node.id
             if (!slots.has(label)) {
-                slots.set(label, palette[slots.size % palette.length] || FALLBACK_NODE_COLOR)
+                slots.set(label, palette[slots.size % palette.length] || DEFAULT_CHART_COLORS[0])
             }
         }
-        return (label: string): string => slots.get(label) ?? (palette[0] || FALLBACK_NODE_COLOR)
+        return (label: string): string => slots.get(label) ?? (palette[0] || DEFAULT_CHART_COLORS[0])
     }, [nodes, paletteKey])
 
     const layout = useMemo<SankeyChartLayout<NodeMeta, LinkMeta>>(

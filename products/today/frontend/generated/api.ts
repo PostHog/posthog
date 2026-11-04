@@ -16,6 +16,7 @@ import type {
     PulsePinsApi,
     ReportKeyClausesApi,
     ReportPageApi,
+    TodayHighlightsRetrieveParams,
     TodayReportsKeyClausesRetrieveParams,
 } from './api.schemas'
 
@@ -40,16 +41,32 @@ export const todayExcerptChoiceCreate = async (
     })
 }
 
-export const getTodayHighlightsRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/today/highlights/`
+export const getTodayHighlightsRetrieveUrl = (projectId: string, params?: TodayHighlightsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/today/highlights/?${stringifiedParams}`
+        : `/api/projects/${projectId}/today/highlights/`
 }
 
 /**
  * The project's key metrics and up to 6 ranked items, each labeled risk or opportunity. Queries, rules and copy templates make every item; no AI is used. The highlights are computed in the background and stay fresh for 15 minutes per person, or 1 minute when a source failed. The call never waits: while they are computed, it returns `computing` with the last ready highlights of the day, so poll every 2 seconds until the status is `ready` or `failed`. 404 when the person does not have the new navigation. A scoped key needs query:read as well, because every highlight runs a query.
  * @summary Get today's highlights
  */
-export const todayHighlightsRetrieve = async (projectId: string, options?: RequestInit): Promise<HighlightsApi> => {
-    return apiMutator<HighlightsApi>(getTodayHighlightsRetrieveUrl(projectId), {
+export const todayHighlightsRetrieve = async (
+    projectId: string,
+    params?: TodayHighlightsRetrieveParams,
+    options?: RequestInit
+): Promise<HighlightsApi> => {
+    return apiMutator<HighlightsApi>(getTodayHighlightsRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

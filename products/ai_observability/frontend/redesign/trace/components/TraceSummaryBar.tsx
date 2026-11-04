@@ -9,6 +9,8 @@ import { FeedbackChip, FeedbackChipProps } from './FeedbackChip'
 import { GitBranchChip, GitBranchChipProps } from './GitBranchChip'
 import { NodeStatsLine } from './NodeStatsLine'
 import { PersonChip } from './PersonChip'
+import { ReviewChip, ReviewChipProps } from './ReviewChip'
+import { TraceClustersChip, TraceClustersChipProps } from './TraceClustersChip'
 import { TraceIdChip } from './TraceIdChip'
 
 export interface TraceSummaryBarProps {
@@ -16,9 +18,11 @@ export interface TraceSummaryBarProps {
     timestamp: string
     person: LabeledLink | null
     totals: TraceNodeStatsApi
+    clusters?: TraceClustersChipProps | null
     evals?: EvalsChipProps | null
     feedback?: FeedbackChipProps | null
     git?: GitBranchChipProps | null
+    review?: ReviewChipProps | null
 }
 
 export function TraceSummaryBar({
@@ -26,9 +30,11 @@ export function TraceSummaryBar({
     timestamp,
     person,
     totals,
+    clusters = null,
     evals = null,
     feedback = null,
     git = null,
+    review = null,
 }: TraceSummaryBarProps): JSX.Element {
     return (
         <div className="@container">
@@ -44,8 +50,10 @@ export function TraceSummaryBar({
                         />
                     </LemonTag>
                     {person ? <PersonChip person={person} /> : null}
+                    {clusters ? <TraceClustersChip {...clusters} /> : null}
                     {evals ? <EvalsChip {...evals} /> : null}
                     {feedback ? <FeedbackChip {...feedback} /> : null}
+                    {review ? <ReviewChip {...review} /> : null}
                     {git ? <GitBranchChip {...git} /> : null}
                 </div>
                 <NodeStatsLine stats={totals} className="@2xl:ml-auto" />
