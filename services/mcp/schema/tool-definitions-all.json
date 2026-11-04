@@ -17780,22 +17780,6 @@
         },
         "feature_flag": "workflows-destination-suggestion"
     },
-    "workflows-email-sending-suspension": {
-        "description": "Read whether workflow email sending is suspended for the current project, with the suspension time and reason. A false suspension flag only means the project is not suspended; it does not establish sender verification, workflow readiness, reputation, or available quota. Use workflows-reputation-get for sending health and allowance, integrations-list (kind=email) to inspect senders, and workflows-get to inspect a workflow's email_sending_paused_at and email_sending_paused_reason. Missing data or an unavailable tool means unknown. This tool changes nothing.",
-        "category": "Workflows",
-        "feature": "workflows",
-        "summary": "Get project email sending suspension",
-        "title": "Get project email sending suspension",
-        "required_scopes": ["hog_flow:read"],
-        "api_operations": ["GET /api/projects/{project_id}/hog_flows/email_sending_suspension/"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        },
-        "feature_flag": "workflows-email-from-code"
-    },
     "workflows-enable": {
         "description": "Enable / activate a draft workflow and start processing events. From then on it runs on real people: test it first with workflows-test-run and get the user's explicit approval before invoking - don't enable on your own initiative. Once live, content edits stage as a draft you publish with workflows-publish.",
         "category": "Workflows",

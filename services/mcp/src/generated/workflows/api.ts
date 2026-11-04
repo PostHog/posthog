@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 34 enabled ops
+ * PostHog API - MCP 33 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -1360,19 +1360,6 @@ export const HogFlowsSchedulesPartialUpdateBody = () => zod.object({
         .unknown()
         .optional()
         .describe('Variable value overrides merged with the workflow defaults on each run.'),
-})
-
-/**
- * Cheap read for the scene-wide suspension banner: single-row `TeamWorkflowsConfig` lookup
- * with no reputation computation. Every project member sees this — a suspension stops
- * everyone's email, so hiding it would leave silent send failures unexplained.
- */
-export const HogFlowsEmailSendingSuspensionRetrieveParams = () => zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
 })
 
 export const HogFlowsMetricsGlobalRetrieveParams = () => zod.object({

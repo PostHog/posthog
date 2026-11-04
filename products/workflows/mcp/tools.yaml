@@ -258,18 +258,6 @@ tools:
             approved AI data processing or uses privacy mode: point the user to create a workflow in the Workflows
             editor instead.
         feature_flag: workflows-destination-suggestion
-    workflows-email-sending-suspension:
-        operation: hog_flows_email_sending_suspension_retrieve
-        enabled: true
-        title: Get project email sending suspension
-        description: >
-            Read whether workflow email sending is suspended for the current project, with the suspension time and
-            reason. A false suspension flag only means the project is not suspended; it does not establish sender
-            verification, workflow readiness, reputation, or available quota. Use workflows-reputation-get for sending
-            health and allowance, integrations-list (kind=email) to inspect senders, and workflows-get to inspect a
-            workflow's email_sending_paused_at and email_sending_paused_reason. Missing data or an unavailable tool
-            means unknown. This tool changes nothing.
-        feature_flag: workflows-email-from-code
     workflows-get:
         operation: hog_flows_retrieve
         enabled: true

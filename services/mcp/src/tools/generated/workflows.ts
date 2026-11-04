@@ -323,24 +323,6 @@ const workflowsEmailDraftsCreate = (): ToolBase<
     },
 })
 
-const WorkflowsEmailSendingSuspensionSchema = () => z.object({})
-
-const workflowsEmailSendingSuspension = (): ToolBase<
-    ReturnType<typeof WorkflowsEmailSendingSuspensionSchema>,
-    Schemas.EmailSendingSuspensionStatus
-> => ({
-    name: 'workflows-email-sending-suspension',
-    schema: WorkflowsEmailSendingSuspensionSchema(),
-    handler: async (context: Context, _params: z.infer<ReturnType<typeof WorkflowsEmailSendingSuspensionSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.EmailSendingSuspensionStatus>({
-            method: 'GET',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/hog_flows/email_sending_suspension/`,
-        })
-        return result
-    },
-})
-
 const WorkflowsGetSchema = () => {
     const HogFlowsRetrieveParams = orvalSchemas.HogFlowsRetrieveParams()
     return HogFlowsRetrieveParams.omit({ project_id: true })
@@ -1186,7 +1168,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'workflows-data-suggestions-list': workflowsDataSuggestionsList,
     'workflows-discard-draft': workflowsDiscardDraft,
     'workflows-email-drafts-create': workflowsEmailDraftsCreate,
-    'workflows-email-sending-suspension': workflowsEmailSendingSuspension,
     'workflows-get': workflowsGet,
     'workflows-get-invocation': workflowsGetInvocation,
     'workflows-get-revision': workflowsGetRevision,
