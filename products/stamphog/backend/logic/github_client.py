@@ -1330,7 +1330,7 @@ class StamphogGitHubClient:
         except (binascii.Error, UnicodeDecodeError) as exc:
             raise StamphogGitHubError(f"Failed to decode base64 contents for {repo}:{path}") from exc
 
-    def get_default_branch_file(self, repo: str, path: str) -> str | None:
+    def get_default_branch_file(self, repo: str, path: str, *, priority: Priority = Priority.CRITICAL) -> str | None:
         """Fetch a file's text from the repo's DEFAULT branch, or ``None`` if it doesn't exist.
 
         Policy files are always read from the default branch (never PR head), so a PR can't rewrite the
@@ -1342,6 +1342,7 @@ class StamphogGitHubClient:
             f"/repos/{repo}/contents/{path}",
             endpoint="/repos/{owner}/{repo}/contents/{path}",
             headers={"Accept": "application/vnd.github.raw+json"},
+            priority=priority,
         )
         if response.status_code == 404:
             return None

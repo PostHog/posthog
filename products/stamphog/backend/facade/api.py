@@ -262,7 +262,7 @@ def check_owners_file(config: contracts.RepoConfigDTO) -> OwnersFileStatus:
 
     Makes one GitHub call with the repo's installation token, so callers ask only on demand.
     """
-    return owners_file_status(config.repository, config.installation_id)
+    return owners_file_status(config.id, config.repository, config.installation_id)
 
 
 def has_reviewable_repo_config(team_id: int) -> bool:
@@ -364,6 +364,7 @@ def create_repo_config(
     digest_enabled: bool = False,
     review_mode: str | None = None,
     trigger_label: str | None = None,
+    routing_mode: str | None = None,
 ) -> contracts.RepoConfigDTO:
     """Create a repo config, refusing a repository another team already owns.
 
@@ -378,6 +379,8 @@ def create_repo_config(
         fields["review_mode"] = review_mode
     if trigger_label is not None:
         fields["trigger_label"] = trigger_label
+    if routing_mode is not None:
+        fields["routing_mode"] = routing_mode
     # unique_stamphog_installation_repo backs this at the DB level, so a race that slips past the
     # read still fails closed on the create below and surfaces as the same domain error.
     try:
