@@ -152,10 +152,10 @@ export class Session {
 
     getClient(): Promise<SymbolSetClient> {
         this.client ??= this.ctx
-            .credentials()
+            .session()
             .then(
-                ({ key }) =>
-                    new SymbolSetClient(this.ctx.runtime, key, () =>
+                (session) =>
+                    new SymbolSetClient(this.ctx.runtime, session, () =>
                         this.ctx.telemetry.capture('error_tracking_cli_sourcemaps_upload_endpoint_fallback')
                     )
             )
