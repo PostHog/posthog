@@ -608,7 +608,8 @@ impl ActiveState {
             .iter()
             .map(|candidate| self.assigner.requests_on(&candidate.worker))
             .sum();
-        self.governor.set_pool(workers.len(), in_flight);
+        self.governor
+            .set_pool(workers.len(), self.assigner.slots(workers), in_flight);
         self.reconnecting
             .retain(|worker, _| workers.iter().any(|candidate| candidate.worker == *worker));
     }
@@ -1108,6 +1109,29 @@ mod tests {
 
         let (_, effects) = batcher.on_groups(now, &only_a, 0, vec![run("k9", &[9])]);
         assert_eq!(shape(&effects.sends[0]), vec![("k9", vec![9])]);
+    }
+
+    #[test]
+    fn a_backlog_fills_each_worker_to_its_weighted_slots() {
+        let now = Instant::now();
+        let quarters = |w: &str, n: u64| {
+            Candidate::new(
+                WorkerId::from(w),
+                std::num::NonZeroU64::new(n).unwrap(),
+                std::num::NonZeroU64::new(4).unwrap(),
+            )
+        };
+        let workers = vec![quarters("whole", 4), quarters("half", 2)];
+        let runs = (1..=10).map(|n| run(&format!("k{n}"), &[n])).collect();
+        let (_, effects) = batcher(4, now).on_groups(now, &workers, 0, runs);
+        let mut sent: HashMap<WorkerId, usize> = HashMap::new();
+        for send in &effects.sends {
+            *sent.entry(send.worker.clone()).or_insert(0) += 1;
+        }
+        assert_eq!(
+            sent,
+            HashMap::from([(WorkerId::from("whole"), 4), (WorkerId::from("half"), 2)])
+        );
     }
 
     #[test]

@@ -52,9 +52,19 @@ impl WorkerAssigner {
             .collect()
     }
 
+    pub fn slots(&self, pool: &[Candidate]) -> usize {
+        pool.iter()
+            .map(|candidate| candidate.slots(self.max_requests_per_worker))
+            .sum()
+    }
+
     pub fn free_slots(&self, pool: &[Candidate]) -> usize {
         pool.iter()
-            .map(|candidate| self.max_requests_per_worker - self.requests_on(&candidate.worker))
+            .map(|candidate| {
+                candidate
+                    .slots(self.max_requests_per_worker)
+                    .saturating_sub(self.requests_on(&candidate.worker))
+            })
             .sum()
     }
 
@@ -63,7 +73,9 @@ impl WorkerAssigner {
         // every send slot.
         let open: Vec<Candidate> = pool
             .iter()
-            .filter(|candidate| self.requests_on(&candidate.worker) < self.max_requests_per_worker)
+            .filter(|candidate| {
+                self.requests_on(&candidate.worker) < candidate.slots(self.max_requests_per_worker)
+            })
             .cloned()
             .collect();
         let worker = self.router.select(&open, &self.message_load)?;
@@ -98,6 +110,8 @@ impl WorkerAssigner {
 
 #[cfg(test)]
 mod tests {
+    use std::num::NonZeroU64;
+
     use super::*;
     use crate::routing::RoutingStrategy;
 
@@ -128,6 +142,28 @@ mod tests {
 
         assert!(assigner.release(&first, 10));
         assert_eq!(assigner.assign(&pool, 10), Some(first));
+    }
+
+    #[test]
+    fn a_candidate_covering_part_of_a_worker_gets_that_part_of_its_slots() {
+        let quarters = |w: &str, n: u64| {
+            Candidate::new(
+                wid(w),
+                NonZeroU64::new(n).unwrap(),
+                NonZeroU64::new(4).unwrap(),
+            )
+        };
+        let pool = vec![quarters("whole", 4), quarters("half", 2)];
+        let mut assigner =
+            WorkerAssigner::new(Router::with_seed(RoutingStrategy::P2c, 0), 4).unwrap();
+        assert_eq!((assigner.slots(&pool), assigner.free_slots(&pool)), (6, 6));
+
+        let mut sent = HashMap::new();
+        while let Some(worker) = assigner.assign(&pool, 1) {
+            *sent.entry(worker).or_insert(0) += 1;
+        }
+        assert_eq!(sent, HashMap::from([(wid("whole"), 4), (wid("half"), 2)]));
+        assert_eq!(assigner.free_slots(&pool), 0);
     }
 
     #[test]

@@ -63,15 +63,31 @@ impl RoutingStrategy {
 pub struct Candidate {
     pub worker: WorkerId,
     pub weight: NonZeroU64,
+    /// The weight of a worker that the candidate set covers whole.
+    pub full_weight: NonZeroU64,
 }
 
 impl Candidate {
-    pub fn new(worker: WorkerId, weight: NonZeroU64) -> Self {
-        Self { worker, weight }
+    /// `weight` above `full_weight` is clamped to `full_weight`.
+    pub fn new(worker: WorkerId, weight: NonZeroU64, full_weight: NonZeroU64) -> Self {
+        Self {
+            worker,
+            weight: weight.min(full_weight),
+            full_weight,
+        }
     }
 
     pub fn uniform(worker: WorkerId) -> Self {
-        Self::new(worker, NonZeroU64::MIN)
+        Self::new(worker, NonZeroU64::MIN, NonZeroU64::MIN)
+    }
+
+    /// The requests this consumer may keep in flight on the worker:
+    /// `max_per_worker` scaled by `weight / full_weight` and rounded up, so a
+    /// candidate keeps at least one slot when `max_per_worker` is not zero.
+    pub fn slots(&self, max_per_worker: usize) -> usize {
+        let full = u128::from(self.full_weight.get());
+        let scaled = (max_per_worker as u128 * u128::from(self.weight.get())).div_ceil(full);
+        scaled as usize
     }
 }
 
@@ -210,8 +226,66 @@ mod tests {
     fn weighted(workers: &[(&str, u64)]) -> Vec<Candidate> {
         workers
             .iter()
-            .map(|(w, weight)| Candidate::new(wid(w), NonZeroU64::new(*weight).unwrap()))
+            .map(|(w, weight)| {
+                Candidate::new(wid(w), NonZeroU64::new(*weight).unwrap(), NonZeroU64::MAX)
+            })
             .collect()
+    }
+
+    #[test]
+    fn test_slots_scale_the_per_worker_cap_by_the_covered_part_rounded_up() {
+        struct Case {
+            weight: u64,
+            full_weight: u64,
+            max_per_worker: usize,
+            slots: usize,
+        }
+        let cases = [
+            Case {
+                weight: 1,
+                full_weight: 1,
+                max_per_worker: 8,
+                slots: 8,
+            },
+            Case {
+                weight: 2,
+                full_weight: 4,
+                max_per_worker: 8,
+                slots: 4,
+            },
+            Case {
+                weight: 1,
+                full_weight: 3,
+                max_per_worker: 8,
+                slots: 3,
+            },
+            Case {
+                weight: 1,
+                full_weight: 100,
+                max_per_worker: 4,
+                slots: 1,
+            },
+            Case {
+                weight: 9,
+                full_weight: 4,
+                max_per_worker: 8,
+                slots: 8,
+            },
+        ];
+        for case in cases {
+            let candidate = Candidate::new(
+                wid(A),
+                NonZeroU64::new(case.weight).unwrap(),
+                NonZeroU64::new(case.full_weight).unwrap(),
+            );
+            assert_eq!(
+                candidate.slots(case.max_per_worker),
+                case.slots,
+                "{} of {}",
+                case.weight,
+                case.full_weight
+            );
+        }
     }
 
     #[test]

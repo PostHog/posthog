@@ -1,9 +1,8 @@
 //! Governs how many requests the batcher keeps in flight from request
 //! round-trip time.
 //!
-//! The permit bounds follow the routable workers: the ceiling is the
-//! per-worker cap times the pool, so at the ceiling the permits are the free
-//! worker slots. Permits move by one at most once per step interval, because
+//! The permit bounds follow the routable workers: the ceiling is the slots of
+//! the pool, so at the ceiling the permits are the free worker slots. Permits move by one at most once per step interval, because
 //! a step per settlement walks the pool to the floor in one round trip and
 //! then sawtooths against the average. With adaptation off the pool is a
 //! shadow: it moves by the law and reports what it would have done, while the
@@ -212,11 +211,12 @@ impl Governor {
         }
     }
 
-    /// `in_flight` counts the requests on those workers only: a request on a
-    /// worker that left the pool holds none of the pool's permits.
-    pub fn set_pool(&mut self, workers: usize, in_flight: usize) {
-        self.ceiling = self.max_permits_per_worker * workers;
-        self.floor = self.settings.min_permits_per_worker * workers;
+    /// `slots` caps the ceiling, and the floor never passes the ceiling.
+    /// `in_flight` counts the requests on those workers only: a
+    /// request on a worker that left the pool holds none of the pool's permits.
+    pub fn set_pool(&mut self, workers: usize, slots: usize, in_flight: usize) {
+        self.ceiling = slots.min(self.max_permits_per_worker * workers);
+        self.floor = (self.settings.min_permits_per_worker * workers).min(self.ceiling);
         self.in_flight = in_flight;
     }
 
@@ -284,7 +284,7 @@ mod tests {
     /// Two workers: a ceiling of 8 and a floor of 2.
     fn governor(adaptation: Adaptation) -> Governor {
         let mut governor = Governor::new(settings(adaptation), MAX_PER_WORKER).expect("valid");
-        governor.set_pool(2, 0);
+        governor.set_pool(2, 2 * MAX_PER_WORKER, 0);
         governor
     }
 
@@ -388,11 +388,11 @@ mod tests {
         assert_eq!(governor.observe(SLOW, now), applied(Direction::Shrink));
         assert_eq!(governor.permits(), 7);
 
-        governor.set_pool(1, 0);
+        governor.set_pool(1, MAX_PER_WORKER, 0);
         assert_eq!(governor.ceiling(), 4);
         assert_eq!(governor.permits(), 3, "the ceiling dropped by one worker");
 
-        governor.set_pool(3, 0);
+        governor.set_pool(3, 3 * MAX_PER_WORKER, 0);
         assert_eq!(governor.ceiling(), 12);
         assert_eq!(
             governor.permits(),
@@ -404,8 +404,28 @@ mod tests {
             governor.observe(SLOW, now + STEP * step);
         }
         assert_eq!(governor.permits(), 3, "at the floor of one per worker");
-        governor.set_pool(1, 0);
+        governor.set_pool(1, MAX_PER_WORKER, 0);
         assert_eq!(governor.permits(), 1, "the floor dropped with the pool");
+    }
+
+    #[test]
+    fn the_ceiling_is_the_slots_of_the_pool_and_the_floor_stays_below_it() {
+        let settings = GovernorSettings {
+            min_permits_per_worker: 2,
+            ..settings(Adaptation::On)
+        };
+        let mut governor = Governor::new(settings, MAX_PER_WORKER).expect("valid");
+        governor.set_pool(3, 6, 0);
+        assert_eq!((governor.ceiling(), governor.permits()), (6, 6));
+
+        let now = Instant::now();
+        for step in 0..4 {
+            governor.observe(SLOW, now + STEP * step);
+        }
+        assert_eq!(governor.permits(), 6, "the floor of 2 x 3 is the ceiling");
+
+        governor.set_pool(3, 20, 0);
+        assert_eq!(governor.ceiling(), 12, "at most the per-worker cap");
     }
 
     #[test]
@@ -419,7 +439,7 @@ mod tests {
         );
         assert_eq!(governor.permits(), 6);
 
-        governor.set_pool(0, 0);
+        governor.set_pool(0, 0, 0);
         assert_eq!((governor.permits(), governor.free()), (0, 0));
         assert_eq!(
             governor.observe(SLOW, now + STEP * 2),
@@ -427,7 +447,7 @@ mod tests {
             "nothing to govern"
         );
 
-        governor.set_pool(2, 0);
+        governor.set_pool(2, 2 * MAX_PER_WORKER, 0);
         assert_eq!(governor.permits(), 6);
     }
 
@@ -435,12 +455,12 @@ mod tests {
     fn with_adaptation_off_steps_are_unapplied_and_the_shadow_pool_still_moves() {
         let now = Instant::now();
         let mut shadow = governor(Adaptation::Off);
-        shadow.set_pool(2, 8);
+        shadow.set_pool(2, 2 * MAX_PER_WORKER, 8);
         assert_eq!(shadow.free(), 0);
 
         assert_eq!(shadow.observe(SLOW, now), unapplied(Direction::Shrink));
         assert_eq!(shadow.permits(), 7);
-        shadow.set_pool(2, 7);
+        shadow.set_pool(2, 2 * MAX_PER_WORKER, 7);
         assert_eq!(
             shadow.free(),
             0,

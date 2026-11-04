@@ -58,6 +58,7 @@ pub fn ring_slice(
     let first = (start / peers) as usize;
     let mut remaining = multiple * ring_len;
 
+    let full_weight = NonZeroU64::new(peers)?;
     let healthy_set: HashSet<&WorkerId> = healthy.iter().collect();
     let mut candidates: Vec<Candidate> = Vec::new();
     // One step past a full turn: an arc that ends in its first worker covers
@@ -85,7 +86,7 @@ pub fn ring_slice(
             Some(head) if offset == ring.len() && head.worker == *worker => {
                 head.weight = head.weight.saturating_add(weight.get());
             }
-            _ => candidates.push(Candidate::new(worker.clone(), weight)),
+            _ => candidates.push(Candidate::new(worker.clone(), weight, full_weight)),
         }
     }
 
@@ -205,6 +206,19 @@ mod tests {
                 case.min_width
             );
         }
+    }
+
+    #[test]
+    fn test_every_worker_gets_the_same_fleet_slots_when_arcs_end_inside_workers() {
+        let ring = ring(6);
+        let mut slots: HashMap<WorkerId, usize> = HashMap::new();
+        for index in 0..4 {
+            for candidate in ring_slice(&ring, &ring, Some(index), 4, 3).unwrap() {
+                *slots.entry(candidate.worker.clone()).or_insert(0) += candidate.slots(8);
+            }
+        }
+        assert_eq!(slots.len(), 6);
+        assert!(slots.values().all(|n| *n == 16), "{slots:?}");
     }
 
     #[test]
