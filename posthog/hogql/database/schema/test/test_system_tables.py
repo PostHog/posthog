@@ -54,7 +54,7 @@ from products.ai_observability.backend.models.review_queues import ReviewQueue, 
 from products.ai_observability.backend.models.score_definitions import ScoreDefinition
 from products.ai_observability.backend.models.trace_reviews import TraceReview, TraceReviewScore
 from products.alerts.backend.models.alert import AlertConfiguration
-from products.annotations.backend.models.annotation import Annotation
+from products.annotations.backend.facade import testing as annotations_testing
 from products.autoresearch.backend.facade import testing as autoresearch_testing
 from products.batch_exports.backend.facade import testing as batch_exports_testing
 from products.batch_exports.backend.facade.enums import (
@@ -404,8 +404,8 @@ def _create_cohort(team: Team, label: str) -> Cohort:
     return Cohort.objects.create(team=team, name=f"cohort_{label}")
 
 
-def _create_annotation(team: Team, label: str) -> Annotation:
-    return Annotation.objects.create(team=team, content=f"annotation_{label}")
+def _create_annotation(team: Team, label: str) -> SimpleNamespace:
+    return SimpleNamespace(pk=annotations_testing.create_annotation(team_id=team.pk, content=f"annotation_{label}"))
 
 
 def _create_autoresearch_pipeline(team: Team, label: str) -> SimpleNamespace:

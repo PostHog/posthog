@@ -16,7 +16,7 @@ from posthog.storage import object_storage
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 
-from products.annotations.backend.api.annotation_context import build_annotations_block, resolve_snapshot_date_range
+from products.annotations.backend.facade.api import build_annotations_block, resolve_snapshot_date_range
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.posthog_ai.backend.models.assistant import CoreMemory
 from products.product_analytics.backend.facade.models import Insight
