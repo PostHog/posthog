@@ -53,8 +53,8 @@ from products.customer_analytics.backend.logic.posthog_product_usage import (
 from products.customer_analytics.backend.models import Account, AccountRelationship
 
 DEFAULT_ROW_LIMIT = 50
-MAX_ROW_LIMIT = 100
-MAX_ACCOUNT_IDS = 100
+MAX_ROW_LIMIT = 200
+MAX_ACCOUNT_IDS = 200
 MAX_DAILY_RANGE = timedelta(days=93)
 MAX_COMBINATION_ROWS = 50000
 FIRST_USE_FLOOR = datetime(2020, 1, 1, tzinfo=UTC)
@@ -102,7 +102,7 @@ class BookActivityMatrixQueryRunner(AnalyticsQueryRunner[BookActivityMatrixQuery
             raise UserAccessControlError("account", "viewer")
         columns = self._columns()
         accounts = self._book_accounts[: self._row_limit]
-        truncated = len(self._book_accounts) > self._row_limit
+        truncated = len(self._book_accounts) > self._row_limit or len(self.query.accountIds or []) > MAX_ACCOUNT_IDS
         group_type_index = self.team.customer_analytics_config.account_group_type_index
         rows = [
             BookActivityMatrixRow(key=str(account.id), label=account.name, externalId=account.external_id or "")

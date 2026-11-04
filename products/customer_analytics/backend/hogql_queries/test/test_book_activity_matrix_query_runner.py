@@ -1,4 +1,5 @@
 from typing import Any
+from uuid import uuid4
 
 import pytest
 import time_machine
@@ -167,6 +168,27 @@ class TestBookActivityMatrixQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert [row.key for row in results.rows] == [str(gamma.id)]
         assert [grouping.key for grouping in results.groupings] == ["role", "usecase"]
+
+    def test_returns_up_to_200_accounts_and_flags_the_rest(self) -> None:
+        accounts = [
+            create_account(team_id=self.team.id, name=f"Book {index:03d}", external_id=f"book-{index}")
+            for index in range(201)
+        ]
+        ids = [str(account.id) for account in accounts]
+
+        within = self._run(relationshipDefinitionId=None, userId=None, accountIds=ids[:200], rowLimit=200)
+        over = self._run(relationshipDefinitionId=None, userId=None, accountIds=ids, rowLimit=500)
+
+        assert (len(within.rows), within.truncated) == (200, False)
+        assert (len(over.rows), over.truncated) == (200, True)
+
+    def test_flags_dropped_account_ids_even_when_the_found_accounts_fit(self) -> None:
+        ids = [str(self.alpha.id), str(self.beta.id), *(str(uuid4()) for _ in range(199))]
+
+        results = self._run(relationshipDefinitionId=None, userId=None, accountIds=ids)
+
+        assert [row.key for row in results.rows] == [str(self.alpha.id), str(self.beta.id)]
+        assert results.truncated is True
 
     def test_flag_is_off_returns_no_data_even_with_a_cached_run(self) -> None:
         self._event(ANA, "insight created", "2026-10-26T10:00:00Z", self.alpha)
