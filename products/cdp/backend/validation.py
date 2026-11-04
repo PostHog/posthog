@@ -19,7 +19,7 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 
-from posthog.integrations import IntegrationManager, IntegrationRecord
+from posthog.integrations import IntegrationManager
 from posthog.models.integration import POSTHOG_CONNECT_KIND, SANDBOX_EMAIL_PROVIDER, WAREHOUSE_SOURCE_TYPE_CONFIG_KEY
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -116,15 +116,16 @@ def _sandbox_sender_configured() -> bool:
     )
 
 
-def _sandbox_email_integrations(
-    integration_ids: set[int], context: dict[str, Any]
-) -> dict[int, IntegrationRecord | None]:
-    cache: dict[int, IntegrationRecord | None] = context.setdefault("sandbox_email_integration_cache", {})
-    missing_ids = integration_ids - cache.keys()
-    if missing_ids:
-        integrations = IntegrationManager.email.credentials.get_many(context["get_team"]().id, missing_ids)
-        cache.update({integration_id: integrations.get(integration_id) for integration_id in missing_ids})
-    return cache
+def _sandbox_email_sender_ids(context: dict[str, Any]) -> frozenset[int]:
+    # One query per save, whatever the number of senders. A workflow validates each step with its own
+    # context, and every step shares this holder.
+    holder: dict[str, frozenset[int]] = context.setdefault("sandbox_email_integration_cache", {})
+    if "sandbox_ids" not in holder:
+        sandbox_senders = IntegrationManager.email.credentials.list(
+            context["get_team"]().id, where={"provider": SANDBOX_EMAIL_PROVIDER}
+        )
+        holder["sandbox_ids"] = frozenset(integration.id for integration in sandbox_senders)
+    return holder["sandbox_ids"]
 
 
 def _stored_email_values(context: dict[str, Any]) -> list[object]:
@@ -149,15 +150,10 @@ def validate_sandbox_email_sender(email_value: object, context: dict[str, Any]) 
     get_team = context.get("get_team")
     if not integration_ids or get_team is None:
         return
-    # Bounds the lookup below. InputsItemSerializer applies the same limit to every save.
+    # Rejects an oversized rotation before any query. InputsItemSerializer applies the same limit to every save.
     if len(integration_ids) > MAX_WORKFLOW_EMAIL_SENDERS:
         raise serializers.ValidationError({"input": f"At most {MAX_WORKFLOW_EMAIL_SENDERS} email senders are allowed."})
-    integrations = _sandbox_email_integrations(integration_ids, context)
-    if not any(
-        (integration := integrations[integration_id]) is not None
-        and (integration.config or {}).get("provider") == SANDBOX_EMAIL_PROVIDER
-        for integration_id in integration_ids
-    ):
+    if not integration_ids & _sandbox_email_sender_ids(context):
         return
     if context.get("workflow_origin_product") == "broadcasts":
         raise serializers.ValidationError(
