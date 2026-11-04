@@ -8,7 +8,6 @@ import { LemonButton, LemonInput, LemonSelect, Tooltip } from '@posthog/lemon-ui
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { lazyWithRetry } from 'lib/utils/retryImport'
-import { DashboardModalLoading } from 'scenes/dashboard/DashboardModalLoading'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { isSharedView } from '~/exporter/exporterViewLogic'
@@ -29,6 +28,7 @@ import { useMarketingAnalyticsPrecompute } from '~/scenes/marketing-analytics/us
 import { webAnalyticsDataTableQueryContext } from '~/scenes/web-analytics/tiles/WebAnalyticsTile'
 import { InsightLogicProps } from '~/types'
 
+import { DashboardModalLoading } from 'products/dashboards/frontend/DashboardModalLoading'
 import {
     conversionRecordingsTableQuery,
     restoreConversionRecordingsColumns,

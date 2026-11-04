@@ -24,8 +24,6 @@ import { UNFILED_DASHBOARDS_FOLDER } from 'scenes/dashboard/dashboardConstants'
 import { DASHBOARD_CANNOT_EDIT_MESSAGE } from 'scenes/dashboard/DashboardHeader'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
-import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
-import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { emptySceneParams } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
@@ -35,6 +33,8 @@ import { urls } from 'scenes/urls'
 import { dashboardsModel, nameCompareFunction } from '~/models/dashboardsModel'
 import { AccessControlLevel, AccessControlResourceType, DashboardBasicType, DashboardType } from '~/types'
 
+import { deleteDashboardLogic } from '../deleteDashboardLogic'
+import { duplicateDashboardLogic } from '../duplicateDashboardLogic'
 import { DashboardsFiltersBar } from './DashboardsFiltersBar'
 
 function BulkMoveToFolderButton({

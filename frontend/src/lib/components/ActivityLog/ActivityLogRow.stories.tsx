@@ -1,9 +1,10 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
 import { dayjs } from 'lib/dayjs'
-import { dashboardActivityDescriber } from 'scenes/dashboard/dashboardActivityDescriber'
 
 import { ActivityScope, InsightShortId } from '~/types'
+
+import { dashboardActivityDescriber } from 'products/dashboards/frontend/dashboardActivityDescriber'
 
 import { describerFor, ensureActivityDescribersLoaded } from './activityLogLogic'
 import { ActivityLogRow } from './ActivityLogRow'
