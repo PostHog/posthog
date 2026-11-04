@@ -28,6 +28,16 @@ class TeamBusinessKnowledgeConfig(models.Model):
             "lookback window. Null when no backfill is in progress."
         ),
     )
+    learning_backfill_started_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When someone last started learning from past tickets. Null when no backfill ran since learning was turned on.",
+    )
+    learning_backfill_finished_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the last backfill read every past ticket. Null while it runs or when none ran.",
+    )
     learning_backfill_cursor = models.JSONField(
         default=dict,
         db_default={},

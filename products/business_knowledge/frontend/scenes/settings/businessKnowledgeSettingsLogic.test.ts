@@ -147,4 +147,35 @@ describe('businessKnowledgeSettingsLogic', () => {
         expect(logic.values.learningBackfillStarting).toBe(false)
         expect(lemonToast.error).toHaveBeenCalledWith('Turn on Learn from support to learn from past tickets.')
     })
+
+    it.each([
+        { status: 'running', expectedLoads: 2 },
+        { status: 'completed', expectedLoads: 1 },
+    ])('reloads progress only while past tickets are being read ($status)', async ({ status, expectedLoads }) => {
+        jest.useFakeTimers()
+        try {
+            ;(businessKnowledgeSettingsRetrieve as jest.Mock).mockResolvedValue({
+                learn_from_support_enabled: true,
+                support_enabled: true,
+                learning_backfill: {
+                    status,
+                    started_at: '2026-11-01T00:00:00Z',
+                    finished_at: status === 'completed' ? '2026-11-02T00:00:00Z' : null,
+                    tickets_read: 1,
+                    tickets_in_progress: 0,
+                    knowledge_created: 0,
+                },
+            })
+            initKeaTests()
+            logic = businessKnowledgeSettingsLogic()
+            logic.mount()
+            await jest.advanceTimersByTimeAsync(0)
+
+            await jest.advanceTimersByTimeAsync(30_000)
+
+            expect(businessKnowledgeSettingsRetrieve).toHaveBeenCalledTimes(expectedLoads)
+        } finally {
+            jest.useRealTimers()
+        }
+    })
 })

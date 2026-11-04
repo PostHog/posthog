@@ -255,6 +255,11 @@ class TestCollectLearningEvidence(BaseTest):
         collect_learning_evidence(LearningCoordinatorInput())
 
         assert self._backfill_state() == (None, {})
+        progress = learning_settings.get_learning_backfill_progress(
+            learning_settings.get_team_business_knowledge_config(self.team)
+        )
+        assert progress is not None
+        assert (progress.status, progress.tickets_read) == ("completed", 1)
 
     @patch(f"{COLLECT_MODULE}.logic.has_feature_flag", return_value=True)
     def test_backfill_survives_a_collection_failure(self, _feature_flag) -> None:
@@ -300,6 +305,28 @@ class TestCollectLearningEvidence(BaseTest):
         resumed = collect_learning_evidence(LearningCoordinatorInput())
 
         assert [item.evidence for item in resumed.items] == [unread_ref]
+
+    @patch(f"{COLLECT_MODULE}.logic.has_feature_flag", return_value=True)
+    def test_backfill_defers_other_environments_when_the_team_budget_is_full(self, _feature_flag) -> None:
+        child = Team.objects.create(
+            organization=self.organization,
+            project=self.project,
+            parent_team=self.team,
+            name="Child environment",
+            conversations_enabled=True,
+        )
+        self.provider.refs_by_team[self.team.id] = [
+            self._old_evidence(seed) for seed in range(20, 20 + LEARNING_MAX_ITEMS_PER_TEAM)
+        ]
+        self.provider.refs_by_team[child.id] = [
+            _evidence(child.id, 40, revision_at=datetime.now(UTC) - timedelta(days=30))
+        ]
+        backfill_since = learning_settings.start_learning_backfill(self.team).learning_backfill_since
+
+        collect_learning_evidence(LearningCoordinatorInput())
+
+        assert child.id not in {call[0] for call in self.provider.calls if call[1] == backfill_since}
+        assert self._backfill_state()[0] is not None
 
     @patch(f"{COLLECT_MODULE}.timezone.now", return_value=datetime(2026, 9, 12, tzinfo=UTC))
     @patch(f"{COLLECT_MODULE}.logic.has_feature_flag", return_value=True)

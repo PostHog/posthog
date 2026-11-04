@@ -81,12 +81,12 @@ class BusinessKnowledgeSettingsViewSet(TeamAndOrgViewSetMixin, ViewSet):
             return ["business_knowledge:write"]
         return ["business_knowledge:read"]
 
-    def _serialize(self, config: TeamBusinessKnowledgeConfig) -> dict[str, bool]:
+    def _serialize(self, config: TeamBusinessKnowledgeConfig) -> dict[str, Any]:
         return BusinessKnowledgeSettingsSerializer(
             {
                 "learn_from_support_enabled": config.learn_from_support_enabled,
                 "support_enabled": bool(self.team.conversations_enabled),
-                "learning_backfill_in_progress": config.learning_backfill_since is not None,
+                "learning_backfill": learning_settings.get_learning_backfill_progress(config),
             }
         ).data
 

@@ -388,6 +388,11 @@ def _collect_backfill_refs(
         for provider in get_learning_providers():
             key = f"{source_team_id}:{provider.name}"
             offset = stored_cursor.get(key, 0)
+            if len(refs) >= limit:
+                # The team's work budget is full, so this scan waits for the next tick.
+                cursor[key] = offset if isinstance(offset, int) else 0
+                finished = False
+                continue
             # Offsets shift when a ticket ahead of the cursor leaves the resolved list, for example when
             # it is reopened. Settled rows are cheap to read again, so start one margin early.
             offset = max(offset - LEARNING_BACKFILL_REWIND_ROWS, 0) if isinstance(offset, int) else 0
@@ -399,7 +404,7 @@ def _collect_backfill_refs(
                 settle_cutoff=settle_cutoff,
                 now=now,
                 selected=selected,
-                limit=max(limit - len(refs), 0),
+                limit=limit - len(refs),
                 offset=offset,
             )
             refs.extend(scan.refs)
@@ -408,13 +413,13 @@ def _collect_backfill_refs(
     return _BackfillProgress(refs=refs, cursor=cursor, finished=finished)
 
 
-def _save_backfill_progress(config: TeamBusinessKnowledgeConfig, progress: _BackfillProgress) -> None:
+def _save_backfill_progress(config: TeamBusinessKnowledgeConfig, progress: _BackfillProgress, *, now: datetime) -> None:
     # Match the stored start so a backfill restarted during this tick keeps its fresh state.
     match = TeamBusinessKnowledgeConfig.objects.filter(
         team_id=config.team_id, learning_backfill_since=config.learning_backfill_since
     )
     if progress.finished:
-        match.update(learning_backfill_since=None, learning_backfill_cursor={})
+        match.update(learning_backfill_since=None, learning_backfill_cursor={}, learning_backfill_finished_at=now)
         logger.info("business_knowledge.learning.backfill_completed", team_id=config.team_id)
     elif progress.cursor != config.learning_backfill_cursor:
         match.update(learning_backfill_cursor=progress.cursor)
@@ -455,7 +460,7 @@ def collect_learning_evidence(input: LearningCoordinatorInput) -> CollectLearnin
                 limit=LEARNING_MAX_ITEMS_PER_TEAM - len(refs),
             )
             refs.extend(backfill.refs)
-            _save_backfill_progress(config, backfill)
+            _save_backfill_progress(config, backfill, now=now)
         existing = _existing_runs(canonical_team.id, refs)
         selected_for_team = 0
         for ref in refs:
