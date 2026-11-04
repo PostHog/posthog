@@ -5000,6 +5000,11 @@ class HogFlowVersionMetricsRequestSerializer(AppMetricsRequestSerializer):
                 description="Only workflows someone turned suggestions on for.",
             ),
             OpenApiParameter(
+                "name",
+                OpenApiTypes.STR,
+                description="Only workflows whose name contains this text, ignoring case. Unlike `search`, it never reads descriptions, tags or step content.",
+            ),
+            OpenApiParameter(
                 "search",
                 OpenApiTypes.STR,
                 description="Case-insensitive search. Matches workflow name, description and tag names first; only when nothing matches those, it matches step names and the subject line, preheader and body text of email steps, in both the live workflow and its pending draft.",
