@@ -17,6 +17,7 @@ import type {
     AiObservabilityOfflineExperimentsScorerSummariesListParams,
     AiObservabilityOfflineScorersHistoryListParams,
     AiObservabilityTracesClustersRetrieveParams,
+    AiObservabilityTracesExportsContentRetrieveParams,
     AiObservabilityTracesFeedbackRetrieveParams,
     AiObservabilityTracesNodesRetrieveParams,
     AiObservabilityTracesPullRequestRetrieveParams,
@@ -790,8 +791,25 @@ export const aiObservabilityTracesExportsRetrieve = async (
     })
 }
 
-export const getAiObservabilityTracesExportsContentRetrieveUrl = (projectId: string, id: string, exportId: number) => {
-    return `/api/projects/${projectId}/ai_observability/traces/${id}/exports/${exportId}/content/`
+export const getAiObservabilityTracesExportsContentRetrieveUrl = (
+    projectId: string,
+    id: string,
+    exportId: number,
+    params?: AiObservabilityTracesExportsContentRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/ai_observability/traces/${id}/exports/${exportId}/content/?${stringifiedParams}`
+        : `/api/projects/${projectId}/ai_observability/traces/${id}/exports/${exportId}/content/`
 }
 
 /**
@@ -801,12 +819,16 @@ export const aiObservabilityTracesExportsContentRetrieve = async (
     projectId: string,
     id: string,
     exportId: number,
+    params?: AiObservabilityTracesExportsContentRetrieveParams,
     options?: RequestInit
 ): Promise<TraceExportFileApi> => {
-    return apiMutator<TraceExportFileApi>(getAiObservabilityTracesExportsContentRetrieveUrl(projectId, id, exportId), {
-        ...options,
-        method: 'GET',
-    })
+    return apiMutator<TraceExportFileApi>(
+        getAiObservabilityTracesExportsContentRetrieveUrl(projectId, id, exportId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getAiObservabilityTracesFeedbackRetrieveUrl = (

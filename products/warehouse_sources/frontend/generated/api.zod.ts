@@ -137,6 +137,21 @@ export const ExternalDataDestinationsAddSourcesCreateBody = /* @__PURE__ */ zod.
         .describe('Start a full resync for each enabled table newly attached.'),
 })
 
+/**
+ * Report the integration the user saved on the connect page, so the agent that sent them can read it.
+ *
+ * The connect page calls this. Repeating the call with the same integration is safe.
+ */
+export const externalDataDestinationsConnectLinkCompleteCreateBodyConnectTokenMax = 128
+
+export const ExternalDataDestinationsConnectLinkCompleteCreateBody = /* @__PURE__ */ zod.object({
+    connect_token: zod
+        .string()
+        .max(externalDataDestinationsConnectLinkCompleteCreateBodyConnectTokenMax)
+        .describe('The connect token from the connect link URL.'),
+    integration_id: zod.number().min(1).describe('Id of the integration the user saved on the connect page.'),
+})
+
 export const externalDataSchemasUpdateBodyIncrementalFieldLookbackSecondsMin = 0
 export const externalDataSchemasUpdateBodyIncrementalFieldLookbackSecondsMax = 5184000
 
