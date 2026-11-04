@@ -597,7 +597,7 @@ class SendTransactionalEmailResponseSerializer(serializers.Serializer):
     )
 
 
-class TransactionalEmailRejected(exceptions.APIException):
+class TransactionalEmailRejected(exceptions.ValidationError):
     STATUS_BY_CODE = {
         "quota_limited": 429,
         "idempotency_key_in_flight": 409,
@@ -607,12 +607,12 @@ class TransactionalEmailRejected(exceptions.APIException):
         "recipient_suppressed": 422,
         "recipient_unreachable": 422,
     }
-    # The caller has to change the request. Without this the error handler reports a server error.
+    # The caller has to change the request. Without this the error handler types it `validation_error`.
     default_type = "invalid_request"
 
     def __init__(self, error: TransactionalEmailError) -> None:
         self.status_code = self.STATUS_BY_CODE.get(error.code, status.HTTP_400_BAD_REQUEST)
-        super().__init__(detail=str(error), code=error.code)
+        super().__init__(detail={error.attr: [str(error)]} if error.attr else str(error), code=error.code)
 
 
 class TransactionalEmailUnavailable(exceptions.APIException):

@@ -32,6 +32,7 @@ from products.messaging.backend.facade.contracts import (
     InvalidRecipient,
     InvalidRequest,
     MarketingTemplate,
+    NamedSenderNotVerified,
     QueuedEmail,
     QuotaLimited,
     RecipientSuppressed,
@@ -557,7 +558,7 @@ def _code_send_sender(team_id: int, address: str | None) -> dict[str, Any]:
         ) from e
     except TransactionalEmailSenderUnavailable as e:
         if address:
-            raise SenderNotVerified(f"No verified sender in this project can send from `{email}`.") from e
+            raise NamedSenderNotVerified(f"No verified sender in this project can send from `{email}`.") from e
         raise SenderNotVerified("This project has no verified email sender. Verify a sender domain first.") from e
     return {"integrationId": sender_id, "email": email, "name": name}
 
