@@ -157,7 +157,7 @@ export type BroadcastScheduleMode = 'now' | 'later' | 'recurring'
 // `template-email` hog function template's default input shape.
 export interface BroadcastEmailValue {
     to: { email: string; name?: string }
-    from: { integrationId?: number | null; integrationIds?: number[] }
+    from: { integrationId?: number | null; integrationIds?: number[]; email?: string; name?: string }
     replyTo?: string
     cc?: string
     bcc?: string
@@ -2934,7 +2934,10 @@ export function keepSandboxSenderOnEdit(
     ) {
         return edited
     }
-    return { ...edited, from: stored.from }
+    return {
+        ...edited,
+        from: { ...edited.from, integrationId: stored.from.integrationId, integrationIds: stored.from.integrationIds },
+    }
 }
 
 export function getSandboxSenderIds(
