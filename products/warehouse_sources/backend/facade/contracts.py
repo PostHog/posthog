@@ -423,7 +423,6 @@ class WarehouseMigration:
     latest_error: str
     created_at: datetime
     item_counts: WarehouseMigrationItemCounts
-    # False when an agent uploaded the vendor account, so a refresh means uploading again.
     has_vendor_key: bool
 
 
@@ -454,7 +453,6 @@ class MigrationConnectionUpload:
 
 @dataclass(frozen=True)
 class WarehouseMigrationUpload:
-    # The items for the uploaded connections, with their new plans.
     items: list[WarehouseMigrationItem]
     # One message per uploaded destination or connection that could not be read. Each names it.
     errors: list[str]
