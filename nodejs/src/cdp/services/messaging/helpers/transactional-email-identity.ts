@@ -9,12 +9,8 @@ export type TransactionalEmailIdentity = {
  * so a missing name is left out, never sent as null.
  */
 export const transactionalEmailIdentity = (
-    config: Record<string, unknown> | null | undefined
+    config: { template_uuid?: string; template_key?: string } | undefined
 ): TransactionalEmailIdentity => ({
-    ...(typeof config?.template_uuid === 'string' && config.template_uuid
-        ? { $email_template_id: config.template_uuid }
-        : {}),
-    ...(typeof config?.template_key === 'string' && config.template_key
-        ? { $email_template_key: config.template_key }
-        : {}),
+    ...(config?.template_uuid ? { $email_template_id: config.template_uuid } : {}),
+    ...(config?.template_key ? { $email_template_key: config.template_key } : {}),
 })
