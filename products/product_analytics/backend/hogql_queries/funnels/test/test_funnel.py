@@ -65,7 +65,8 @@ from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
-from products.event_definitions.backend.models.property_definition import PropertyDefinition
+from products.event_definitions.backend.facade.enums import PropertyDefinitionType, PropertyType
+from products.event_definitions.backend.facade.testing import create_property_definition
 from products.product_analytics.backend.hogql_queries.funnels.funnels_query_runner import FunnelsQueryRunner
 from products.product_analytics.backend.hogql_queries.funnels.test.breakdown_cases import (
     assert_funnel_results_equal,
@@ -3867,11 +3868,11 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         # A Numeric property used as the HogQL aggregation key is coerced to Float64
         # by the property-types transform; the aggregation-target non-empty filter
         # must not compare it directly to an empty string.
-        PropertyDefinition.objects.get_or_create(
-            team=self.team,
-            type=PropertyDefinition.Type.EVENT,
+        create_property_definition(
+            team_id=self.team.id,
+            type=PropertyDefinitionType.EVENT,
             name="bid_id",
-            defaults={"property_type": "Numeric"},
+            property_type=PropertyType.Numeric,
         )
         _create_person(distinct_ids=["user"], team_id=self.team.pk)
         self._signup_event(distinct_id="user", properties={"bid_id": 5})
@@ -3900,11 +3901,11 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         _create_person(distinct_ids=["user"], team_id=self.team.pk)
         self._signup_event(distinct_id="user")
         self._add_to_cart_event(distinct_id="user", properties={"is_saved": True})
-        PropertyDefinition.objects.get_or_create(
-            team=self.team,
-            type=PropertyDefinition.Type.EVENT,
+        create_property_definition(
+            team_id=self.team.id,
+            type=PropertyDefinitionType.EVENT,
             name="is_saved",
-            defaults={"property_type": "Boolean"},
+            property_type=PropertyType.Boolean,
         )
 
         query = FunnelsQuery(

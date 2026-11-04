@@ -23,8 +23,7 @@ class PropertyAccessControl(UUIDModel):
     property_definition = models.ForeignKey(
         "event_definitions.PropertyDefinition",
         on_delete=models.CASCADE,
-        related_name="property_access_controls",
-        related_query_name="property_access_controls",
+        related_name="+",
         null=True,
     )
 
