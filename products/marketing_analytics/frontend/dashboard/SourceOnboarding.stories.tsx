@@ -6,7 +6,6 @@ import { useEffect } from 'react'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { MarketingAnalyticsScene } from 'scenes/marketing-analytics/MarketingAnalyticsScene'
 import { marketingOnboardingLogic } from 'scenes/marketing-analytics/Onboarding/marketingOnboardingLogic'
-import { Onboarding } from 'scenes/marketing-analytics/Onboarding/Onboarding'
 import { urls } from 'scenes/urls'
 import { marketingAnalyticsLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 
@@ -18,6 +17,7 @@ import { expect, userEvent } from 'storybook/test'
 import type { SuggestionApi } from '../generated/api.schemas'
 import { SearchConsoleSource } from './SearchConsoleSource'
 import { SourceCatalog } from './SourceCatalog'
+import { SourceOnboarding } from './SourceOnboarding'
 import { SourceOnboardingScan } from './SourceOnboardingScan'
 
 const suggestion = (kind: string, integration: string, label: string): SuggestionApi => ({
@@ -53,7 +53,7 @@ const meta: Meta = {
     component: SourceOnboardingScan,
     parameters: {
         layout: 'padded',
-        featureFlags: [FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING, FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP],
+        featureFlags: [FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP],
     },
     decorators: [
         mswDecorator({
@@ -83,7 +83,7 @@ export function SkipDuringScan(): JSX.Element {
     useStorybookMocks({
         get: { '/api/projects/:team_id/marketing_analytics/setup_plan/': () => new Promise(() => {}) },
     })
-    return <Onboarding completeOnboarding={() => {}} />
+    return <SourceOnboarding completeOnboarding={() => {}} />
 }
 SkipDuringScan.parameters = { testOptions: { waitForLoadersToDisappear: false } }
 SkipDuringScan.play = async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
@@ -316,11 +316,7 @@ export function AdPerformanceWithoutSources(): JSX.Element {
 }
 AdPerformanceWithoutSources.parameters = {
     pageUrl: urls.marketingAnalyticsApp(),
-    featureFlags: [
-        FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING,
-        FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
-        FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP,
-    ],
+    featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_MARKETING, FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP],
 }
 AdPerformanceWithoutSources.play = async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
     const canvas = within(canvasElement)
@@ -373,11 +369,7 @@ export function ManualSelectionWithSearchConsole(): JSX.Element {
     )
 }
 ManualSelectionWithSearchConsole.parameters = {
-    featureFlags: [
-        FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING,
-        FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS,
-        FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP,
-    ],
+    featureFlags: [FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS, FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP],
 }
 ManualSelectionWithSearchConsole.play = async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
     const canvas = within(canvasElement)
@@ -400,7 +392,6 @@ export const DashboardWithSearchConsoleOnly = dashboardStory(plan.suggestions, f
 DashboardWithSearchConsoleOnly.parameters = {
     pageUrl: urls.marketingAnalyticsApp(),
     featureFlags: [
-        FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING,
         FEATURE_FLAGS.WEB_ANALYTICS_MARKETING,
         FEATURE_FLAGS.MARKETING_ANALYTICS_SETUP,
         FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS,
@@ -491,64 +482,4 @@ DashboardNoDetectionsWithSearch.play = async ({ canvasElement }: { canvasElement
     const canvas = within(canvasElement)
     await expect(canvas.findByText('Choose an ad platform')).resolves.toBeVisible()
     await expect(canvas.findByText('Connect your search sources')).resolves.toBeVisible()
-}
-
-export function SourceOnboardingDisabledWithSearch(): JSX.Element {
-    return <InitialOnboardingDisabledWithSearch />
-}
-SourceOnboardingDisabledWithSearch.parameters = {
-    ...AdPerformanceWithoutSources.parameters,
-    featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_MARKETING, FEATURE_FLAGS.MARKETING_ANALYTICS_ORGANIC_KEYWORDS],
-}
-SourceOnboardingDisabledWithSearch.play = async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
-    const canvas = within(canvasElement)
-    await expect(canvas.findByText('Welcome to Marketing analytics')).resolves.toBeVisible()
-    expect(canvas.getByRole('navigation', { name: 'Marketing analytics onboarding progress' })).toBeVisible()
-    await expect(canvas.findByText('Connect your search sources')).resolves.toBeVisible()
-    expect(canvas.queryByPlaceholderText('Search integrations')).not.toBeInTheDocument()
-    expect(canvas.queryByText('Choose an ad platform')).not.toBeInTheDocument()
-    expect(canvas.queryByText('Scan again')).not.toBeInTheDocument()
-    expect(canvas.queryByText('Could not check your events')).not.toBeInTheDocument()
-}
-
-export function SourceOnboardingAndSearchDisabled(): JSX.Element {
-    return <InitialOnboardingDisabledWithSearch />
-}
-SourceOnboardingAndSearchDisabled.parameters = {
-    ...AdPerformanceWithoutSources.parameters,
-    featureFlags: [FEATURE_FLAGS.WEB_ANALYTICS_MARKETING],
-}
-SourceOnboardingAndSearchDisabled.play = async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
-    const canvas = within(canvasElement)
-    await expect(canvas.findByText('Welcome to Marketing analytics')).resolves.toBeVisible()
-    expect(canvas.getByRole('navigation', { name: 'Marketing analytics onboarding progress' })).toBeVisible()
-    expect(canvas.queryByPlaceholderText('Search integrations')).not.toBeInTheDocument()
-    expect(canvas.queryByRole('heading', { name: 'Search performance' })).not.toBeInTheDocument()
-    expect(canvas.queryByText('Scan again')).not.toBeInTheDocument()
-}
-
-function InitialOnboardingDisabledWithSearch(): JSX.Element {
-    useDashboardWithoutSourcesMocks()
-    const { resetOnboarding } = useActions(marketingOnboardingLogic)
-    useEffect(() => resetOnboarding(), [resetOnboarding])
-    return <MarketingAnalyticsScene />
-}
-
-export function LegacySourceConnectionStep(): JSX.Element {
-    useDashboardWithoutSourcesMocks()
-    const { resetOnboarding, setStep } = useActions(marketingOnboardingLogic)
-    useEffect(() => {
-        resetOnboarding()
-        setStep('add-source')
-    }, [resetOnboarding, setStep])
-    return <MarketingAnalyticsScene />
-}
-LegacySourceConnectionStep.parameters = SourceOnboardingAndSearchDisabled.parameters
-LegacySourceConnectionStep.play = async ({ canvasElement }: { canvasElement: HTMLElement }): Promise<void> => {
-    const canvas = within(canvasElement)
-    await expect(canvas.findByText('Connect your marketing sources')).resolves.toBeVisible()
-    expect(canvas.getByRole('navigation', { name: 'Marketing analytics onboarding progress' })).toBeVisible()
-    expect(canvas.queryByPlaceholderText('Search integrations')).not.toBeInTheDocument()
-    await userEvent.click(canvas.getByRole('button', { name: /Conversion goals/ }))
-    await expect(canvas.findByText('Configure conversion goals')).resolves.toBeVisible()
 }

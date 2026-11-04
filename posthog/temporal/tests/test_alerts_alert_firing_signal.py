@@ -1,3 +1,6 @@
+import asyncio
+import contextlib
+
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
 
@@ -32,6 +35,11 @@ async def _validated_emit(**kwargs) -> bool:
         extra=kwargs["extra"],
         remediation=None,
     )
+    return True
+
+
+async def _hang(**_kwargs) -> bool:
+    await asyncio.Event().wait()
     return True
 
 
@@ -140,14 +148,20 @@ class TestEmitAlertFiringSignal(BaseTest):
             ("dispatched_spends_the_cap", {"return_value": True}, False),
             ("not_dispatched_refunds_it", {"return_value": False}, True),
             ("emission_error_is_swallowed_and_refunds_it", {"side_effect": RuntimeError("temporal down")}, True),
+            ("hung_emission_times_out_and_refunds_it", {"side_effect": _hang}, True),
+            ("cancelled_attempt_refunds_it", {"side_effect": asyncio.CancelledError()}, True),
         ]
     )
     def test_cap_counts_only_dispatched_signals(self, _name: str, first_emit: dict, second_expected: bool) -> None:
         first = self._alert_and_check()
         second = self._alert_and_check()
 
-        with patch(f"{_MODULE}.CAP_BUDGET", Budget(burst=1, per_hour=1)):
-            self._emit(*first, emit=AsyncMock(**first_emit))
+        with (
+            patch(f"{_MODULE}.CAP_BUDGET", Budget(burst=1, per_hour=1)),
+            patch(f"{_MODULE}.EMISSION_TIMEOUT_SECONDS", 0.05),
+        ):
+            with contextlib.suppress(asyncio.CancelledError):
+                self._emit(*first, emit=AsyncMock(**first_emit))
             emitted, _ = self._emit(*second)
 
         assert emitted is second_expected
