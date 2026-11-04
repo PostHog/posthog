@@ -52688,12 +52688,12 @@ export namespace Schemas {
        * * `transactional_email` - Transactional Email */
       readonly type: HogFlowTypeEnum;
       /**
-         * How many suggested changes are waiting for a person on this workflow. Counted on the list only.
+         * How many suggested changes are waiting for a person on this workflow. Counted on list and summary pages, null on a single-workflow read.
          * @nullable
          */
       readonly pending_suggestions: number | null;
       /**
-         * Whether someone turned suggestions on for this workflow. Read on the list only.
+         * Whether someone turned suggestions on for this workflow. Read on list and summary pages, null on a single-workflow read.
          * @nullable
          */
       readonly suggestions_enabled: boolean | null;
@@ -52736,12 +52736,12 @@ export namespace Schemas {
       /** Newest task this loop workflow created, as its last run. Null when the workflow is not a loop or has not run. */
       readonly last_run: HogFlowLastRun | null;
       /**
-         * How many suggested changes are waiting for a person on this workflow. Counted on the list only.
+         * How many suggested changes are waiting for a person on this workflow. Counted on list and summary pages, null on a single-workflow read.
          * @nullable
          */
       readonly pending_suggestions: number | null;
       /**
-         * Whether someone turned suggestions on for this workflow. Read on the list only.
+         * Whether someone turned suggestions on for this workflow. Read on list and summary pages, null on a single-workflow read.
          * @nullable
          */
       readonly suggestions_enabled: boolean | null;

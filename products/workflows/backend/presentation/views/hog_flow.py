@@ -3245,10 +3245,10 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Ser
         ),
     )
     pending_suggestions = serializers.SerializerMethodField(
-        help_text="How many suggested changes are waiting for a person on this workflow. Counted on the list only."
+        help_text="How many suggested changes are waiting for a person on this workflow. Counted on list and summary pages, null on a single-workflow read."
     )
     suggestions_enabled = serializers.SerializerMethodField(
-        help_text="Whether someone turned suggestions on for this workflow. Read on the list only."
+        help_text="Whether someone turned suggestions on for this workflow. Read on list and summary pages, null on a single-workflow read."
     )
     tags = serializers.ListField(
         child=serializers.CharField(),
