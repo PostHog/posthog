@@ -8,7 +8,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from posthoganalytics.types import FeatureFlagResult
-from temporalio.client import ScheduleAlreadyRunningError, ScheduleListActionStartWorkflow
+from temporalio.client import ScheduleActionStartWorkflow, ScheduleAlreadyRunningError, ScheduleListActionStartWorkflow
 from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.temporal.common.search_attributes import POSTHOG_SCHEDULE_TYPE_KEY
@@ -26,6 +26,7 @@ from products.data_modeling.backend.logic.node_frequency import (
 from products.data_modeling.backend.logic.saved_query_dag_sync import promote_dag_view_nodes_to_matview
 from products.data_modeling.backend.logic.schedule_reconcile import (
     DagScheduleTeardown,
+    PlanFloorUnavailableError,
     TeamScheduleTeardownError,
     apply_saved_query_frequency_anchor,
     apply_saved_query_frequency_target,
@@ -455,6 +456,18 @@ class TestMaybeReconcileDag(BaseTest):
         temporal.list_schedules = fake_list_schedules
         return temporal
 
+    def _temporal_with_tier(self, *schedule_ids_and_node_ids):
+        tiers = dict(zip(schedule_ids_and_node_ids[::2], schedule_ids_and_node_ids[1::2]))
+        temporal = self._temporal_listing(list(tiers))
+
+        def handle_for(schedule_id):
+            action = mock.Mock(spec=ScheduleActionStartWorkflow, args=[{"node_ids": tiers[schedule_id]}])
+            description = mock.Mock(schedule=mock.Mock(action=action))
+            return mock.Mock(describe=mock.AsyncMock(return_value=description))
+
+        temporal.get_schedule_handle = handle_for
+        return temporal
+
     def test_dag_with_no_schedule_regains_a_tier(self):
         dag = self._dag_with_target()
         with (
@@ -587,17 +600,92 @@ class TestMaybeReconcileDag(BaseTest):
         self.organization.has_active_subscription = False
         self.organization.save(update_fields=["has_active_subscription"])
         dag = self._dag_with_target()
+        endpoint = Node.objects.get(dag=dag, type=NodeType.ENDPOINT)
+        temporal = self._temporal_with_tier(tier_schedule_id(str(dag.id), H6), [str(endpoint.id)])
 
         with (
             mock.patch(FLAG_RESULT, side_effect=flag),
-            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock()) as connect,
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=temporal)),
+            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
+            mock.patch(f"{RECONCILE}.a_update_schedule", new=mock.AsyncMock()) as update,
+            mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock()) as delete,
             mock.patch(f"{RECONCILE}.capture_exception") as capture,
         ):
             with self.captureOnCommitCallbacks(execute=True):
                 maybe_reconcile_dag(dag)
 
-        connect.assert_not_called()
+        create.assert_not_called()
+        update.assert_not_called()
+        delete.assert_not_called()
         capture.assert_called_once()
+
+    def test_unreadable_plan_floor_still_takes_a_cleared_node_off_its_schedule(self):
+        dag = self._dag_with_target()
+        endpoint = Node.objects.get(dag=dag, type=NodeType.ENDPOINT)
+        cleared = _saved_query_node(self.team, dag, "cleared", NodeType.MAT_VIEW)
+        kept_tier = tier_schedule_id(str(dag.id), H6)
+        emptied_tier = tier_schedule_id(str(dag.id), DAY)
+        temporal = self._temporal_with_tier(
+            kept_tier, [str(endpoint.id), str(cleared.id)], emptied_tier, [str(cleared.id)]
+        )
+
+        with (
+            mock.patch(FLAG_RESULT, side_effect=RuntimeError("flags down")),
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock(return_value=temporal)),
+            mock.patch(f"{RECONCILE}.a_create_schedule", new=mock.AsyncMock()) as create,
+            mock.patch(f"{RECONCILE}.a_update_schedule", new=mock.AsyncMock()) as update,
+            mock.patch(f"{RECONCILE}.a_delete_schedule", new=mock.AsyncMock()) as delete,
+            self.assertRaises(PlanFloorUnavailableError),
+        ):
+            reconcile_dag_schedules(dag)
+
+        create.assert_not_called()
+        delete.assert_awaited_once_with(temporal, schedule_id=emptied_tier)
+        update.assert_awaited_once()
+        self.assertEqual(update.call_args.kwargs["id"], kept_tier)
+        self.assertEqual(update.call_args.kwargs["schedule"].action.args[0]["node_ids"], [str(endpoint.id)])
+
+    @parameterized.expand(
+        [
+            ("first_cadence_is_refused", None, H6, False),
+            ("speed_up_is_refused", DAY, H6, False),
+            ("slowing_down_is_allowed", H6, DAY, True),
+            ("re_saving_is_allowed", H6, H6, True),
+        ]
+    )
+    def test_unreadable_plan_floor_only_refuses_a_speed_up(self, _name, stored, target, allowed):
+        node = _saved_query_node(self.team, DAG.get_or_create_default(self.team), "mv", NodeType.MAT_VIEW)
+        if stored is not None:
+            set_declared_target(node, stored)
+        assert node.saved_query is not None
+
+        with (
+            mock.patch(FLAG_RESULT, side_effect=RuntimeError("flags down")),
+            mock.patch(f"{RECONCILE}.maybe_reconcile_dag"),
+        ):
+            if allowed:
+                apply_saved_query_frequency_target(node.saved_query, target)
+            else:
+                with self.assertRaisesMessage(UnsatisfiableFrequencyError, "Couldn't check your plan"):
+                    apply_saved_query_frequency_target(node.saved_query, target)
+
+        node.refresh_from_db()
+        self.assertEqual(get_declared_target(node), target if allowed else stored)
+
+    def test_unreadable_plan_floor_refuses_a_bootstrap_before_seeding_targets(self):
+        node = _saved_query_node(self.team, DAG.get_or_create_default(self.team), "mv", NodeType.MAT_VIEW)
+        assert node.saved_query is not None
+        node.saved_query.sync_frequency_interval = M15
+        node.saved_query.save(update_fields=["sync_frequency_interval"])
+
+        with (
+            mock.patch(FLAG_RESULT, side_effect=RuntimeError("flags down")),
+            self.assertRaises(PlanFloorUnavailableError),
+        ):
+            bootstrap_dag_to_tiers(node.dag)
+
+        node.refresh_from_db()
+        self.assertIsNone(get_declared_target(node))
 
     def test_a_pin_is_refused_when_a_consumer_saved_a_finer_cadence_than_the_enforced_plan_floor(self):
         self.organization.has_active_subscription = False

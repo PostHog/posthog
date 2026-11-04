@@ -51,9 +51,11 @@ from products.data_modeling.backend.logic.freshness import (
     SCHEDULABLE_BUCKETS,
     ClampedCadence,
     InvalidTarget,
+    UnsatisfiableFrequencyError,
     UnsupportedFrequencyTargetError,
     find_invalid_targets,
     format_cadence,
+    is_finer_than,
     validate_declared_target,
     validate_pin,
 )
@@ -69,6 +71,8 @@ from products.data_modeling.backend.logic.node_frequency import (
     set_declared_pin,
     set_declared_target,
 )
+from products.data_modeling.backend.logic.refresh_floor import read_plan_refresh_floor
+from products.data_modeling.backend.logic.tier_membership import read_live_tiers
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.node import Node
 from products.data_modeling.backend.schedule import (
@@ -115,8 +119,11 @@ def bootstrap_dag_to_tiers(dag: DAG, *, requested_by: "DataWarehouseSavedQuery |
     caller does, never before.
 
     `requested_by` is the saved query whose enable triggered this, and is marked not materialized
-    if the reconcile fails.
+    if the reconcile fails. An unreadable plan floor raises here, before the commit, so the caller
+    can report the failure instead of retracting the enable after it has answered the request.
     """
+    if not read_plan_refresh_floor(dag.team_id).evaluated:
+        raise PlanFloorUnavailableError(f"Plan refresh floor unavailable for team {dag.team_id}")
     persist_seed_targets(dag)
     transaction.on_commit(lambda: _bootstrap_dag_best_effort(dag, requested_by))
 
@@ -153,6 +160,37 @@ def _warn_on_invalid_targets(dag: DAG, graph: FrequencyGraph | None = None) -> N
             source_floor=str(invalid.source_floor),
             consumer_ceiling=str(invalid.consumer_ceiling),
         )
+
+
+def _validate_saved_query_target(
+    *,
+    node_id: str,
+    target: timedelta,
+    graph: FrequencyGraph,
+    names: Mapping[str, str],
+    pinned: set[str] | frozenset[str],
+) -> None:
+    """Raise if `target` cannot be saved on this node, including a speed-up while the plan floor is unreadable.
+
+    A cadence saved in that window would later count as saved before the floor, so it would outlive
+    the floor. Slowing a view down or re-saving its cadence cannot exceed any floor, so both stay allowed.
+    """
+    stored = graph.declared_targets.get(node_id)
+    if not graph.plan_floor_evaluated and (stored is None or is_finer_than(target, stored)):
+        raise UnsatisfiableFrequencyError(
+            "Couldn't check your plan, so this refresh frequency can't be saved right now. Try again in a few minutes."
+        )
+    validate_declared_target(
+        node_id=node_id,
+        target=target,
+        edges=graph.edges,
+        declared_targets=graph.declared_targets,
+        source_intervals=graph.source_intervals,
+        names=names,
+        pinned=pinned,
+        plan_floor=graph.plan_floor,
+        schedule_plan_floor=graph.schedule_plan_floor,
+    )
 
 
 def apply_saved_query_frequency_target(
@@ -218,16 +256,12 @@ def apply_saved_query_frequency_target(
                 pin = get_declared_pin(node) if pinned is None else pinned
                 if pinned is not False or node_target != get_declared_target(node):
                     graph = build_frequency_graph(node.dag)
-                    validate_declared_target(
+                    _validate_saved_query_target(
                         node_id=node_id,
                         target=node_target,
-                        edges=graph.edges,
-                        declared_targets=graph.declared_targets,
-                        source_intervals=graph.source_intervals,
+                        graph=graph,
                         names=visible_names or {},
                         pinned=(graph.pinned - {node_id}) | ({node_id} if pin else set()),
-                        plan_floor=graph.plan_floor,
-                        schedule_plan_floor=graph.schedule_plan_floor,
                     )
                     if pin:
                         validate_pin(
@@ -271,16 +305,12 @@ def check_saved_query_frequency_target(
     """
     for node in Node.objects.filter(team=saved_query.team, saved_query=saved_query).select_related("dag", "dag__team"):
         graph = build_frequency_graph(node.dag)
-        validate_declared_target(
+        _validate_saved_query_target(
             node_id=str(node.id),
             target=target,
-            edges=graph.edges,
-            declared_targets=graph.declared_targets,
-            source_intervals=graph.source_intervals,
+            graph=graph,
             names=visible_names or {},
             pinned=graph.pinned,
-            plan_floor=graph.plan_floor,
-            schedule_plan_floor=graph.schedule_plan_floor,
         )
 
 
@@ -316,13 +346,23 @@ def reconcile_dag_schedules(dag: DAG, *, graph: FrequencyGraph | None = None) ->
 
     An empty tier set is a deliberate wind-down (last target reverted/cleared), so the DAG's
     schedules are torn down.
+
+    While the plan floor is unreadable this only takes nodes with no cadence off their schedules, and
+    then raises, because any other change could speed up a schedule the floor holds back.
     """
     team = dag.team
     if graph is None:
         graph = build_frequency_graph(dag)
-    if not graph.plan_floor_evaluated:
-        raise PlanFloorUnavailableError(f"Plan refresh floor unavailable for team {team.pk}")
     effective, _clamped = scheduled_cadences(graph)
+    if not graph.plan_floor_evaluated:
+        _withdraw_unscheduled_nodes(
+            dag_id=str(dag.id),
+            team_id=team.pk,
+            organization_id=str(team.organization_id),
+            team_timezone=team.timezone,
+            scheduled={node_id for node_id, cadence in effective.items() if cadence is not None},
+        )
+        raise PlanFloorUnavailableError(f"Plan refresh floor unavailable for team {team.pk}")
     desired_tiers = bucket_into_cadence_tiers(effective, graph.declared_anchors)
     _apply_reconciliation(
         dag_id=str(dag.id),
@@ -532,6 +572,32 @@ async def _apply_reconciliation(
         except Exception as error:
             logger.exception("Failed to delete stale schedule", schedule_id=schedule_id, dag_id=dag_id)
             capture_exception(error)
+
+
+@async_to_sync
+async def _withdraw_unscheduled_nodes(
+    *,
+    dag_id: str,
+    team_id: int,
+    organization_id: str,
+    team_timezone: str,
+    scheduled: set[str],
+) -> None:
+    """Remove nodes outside `scheduled` from the DAG's live schedules, keeping every schedule's cadence."""
+    temporal = await async_connect()
+    search_attributes = dag_schedule_search_attributes(team_id=team_id, organization_id=organization_id, dag_id=dag_id)
+    for tier in await read_live_tiers(temporal, dag_id):
+        kept = scheduled if tier.node_ids is None else tier.node_ids & scheduled
+        if not kept:
+            await a_delete_schedule(temporal, schedule_id=tier.schedule_id)
+        elif tier.node_ids is not None and kept != tier.node_ids and tier.interval_seconds is not None:
+            cohort = Tier(interval=timedelta(seconds=tier.interval_seconds), anchor_minutes=tier.anchor_minutes)
+            await a_update_schedule(
+                temporal,
+                id=tier.schedule_id,
+                schedule=_build_tier_schedule(dag_id, team_id, team_timezone, cohort, kept),
+                search_attributes=search_attributes,
+            )
 
 
 async def _list_execute_dag_schedule_ids(temporal: Client, dag_id: str) -> set[str]:
