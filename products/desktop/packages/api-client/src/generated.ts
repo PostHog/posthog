@@ -11554,11 +11554,13 @@ export namespace Schemas {
      * * `loops` - Loops
      * * `broadcasts` - Broadcasts
      * * `transactional_emails` - Transactional emails
+     * * `transactional_email_keys` - Transactional email keys
      */
     export type HogFlowOriginProductEnum =
         | "loops"
         | "broadcasts"
-        | "transactional_emails";
+        | "transactional_emails"
+        | "transactional_email_keys";
     export type HogFlowMasking = {
         ttl?: (number | null) | undefined;
         threshold?: (number | null) | undefined;
@@ -11998,6 +12000,7 @@ export namespace Schemas {
          * * `loops` - Loops
          * * `broadcasts` - Broadcasts
          * * `transactional_emails` - Transactional emails
+         * * `transactional_email_keys` - Transactional email keys
          */
         origin_product: HogFlowOriginProductEnum | NullEnum;
         created_at: string;
