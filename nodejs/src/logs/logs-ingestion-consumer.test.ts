@@ -564,9 +564,6 @@ describe('LogsIngestionConsumer', () => {
                 'updateTeamLogsSettings'
             )
 
-            // Clear team cache to ensure fresh data
-            hub.teamManager['lazyLoader'].markForRefresh(String(team.id))
-
             const logData = createLogMessage()
             const messages = await createKafkaMessages([logData], {
                 token: team.api_token,
@@ -2024,7 +2021,6 @@ describe('LogsIngestionConsumer', () => {
                 [JSON.stringify({ pii_scrub_logs: true, json_parse_logs: false }), team.id],
                 'updateTeamLogsPiiScrub'
             )
-            hub.teamManager['lazyLoader'].markForRefresh(String(team.id))
 
             const logData = createLogMessage({ message: 'email me at foo@bar.com' })
             const messages = await createKafkaMessages([logData], {
