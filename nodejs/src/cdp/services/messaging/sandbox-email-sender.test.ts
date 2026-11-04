@@ -245,6 +245,12 @@ describe('sandbox email content', () => {
             '<!--[if !mso]><!--><p>Hello</p><!--<![endif]-->',
             null,
         ],
+        ['<body><p title="&lt;!--[if mso]&gt;">Hello</p></body>', '<p title="<!--[if mso]>">Hello</p>', null],
+        [
+            '<body><style>/* <![if !mso]> */ p {color:blue}</style><p>Hello</p></body>',
+            '<style>/* <![if !mso]> */ p {color:blue}</style>',
+            null,
+        ],
     ])('retains the footer outside template content: %s', async (html, expectedContent, preheader) => {
         const result = await sender.withIdentificationFooter(
             params(html, undefined, preheader ?? undefined),
@@ -275,6 +281,8 @@ describe('sandbox email content', () => {
         ['<body><p>Hello</p><template><script><!--<script>', null, null],
         ['<body><p>Hello</p><!--[if !mso]><!-->', null, null],
         ['<body><!--[if mso]><p>Outlook</p><![endif]--><p>Hello</p><!--[if gte mso 9]><p>Old Outlook</p>', null, null],
+        ['<body><![if !mso]><p>Hello</p>', null, null],
+        ['<body><p>Hello</p><template><!--[if !mso]><p>Example</p>', null, null],
         ['', '', 'The sandbox email template must include HTML or text content. Update the template and try again.'],
     ])('rejects content that cannot retain the footer: %s', async (html, text, error) => {
         await expect(
