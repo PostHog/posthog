@@ -5,6 +5,7 @@ import { IconEllipsis } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { ChartFilter } from 'lib/components/ChartFilter'
+import { useDisplayOptions } from 'lib/components/ChartOptions/useDisplayOptions'
 import { CompareFilter } from 'lib/components/CompareFilter/CompareFilter'
 import { IntervalFilter } from 'lib/components/IntervalFilter'
 import { NON_TIME_SERIES_DISPLAY_TYPES } from 'lib/constants'
@@ -26,7 +27,7 @@ import { RetentionBreakdownFilter } from 'products/product_analytics/frontend/in
 import { RetentionChartPicker } from 'products/product_analytics/frontend/insights/retention/filters/RetentionChartPicker'
 import { RetentionDatePicker } from 'products/product_analytics/frontend/insights/retention/filters/RetentionDatePicker'
 
-import { useInsightDisplayOptions } from './insightDisplayOptions'
+import { insightDisplayOptions } from './insightDisplayOptions'
 import { InsightDisplayOptionsPanel } from './InsightDisplayOptionsPanel'
 
 export function InsightDisplayConfig({ chartTypeControl }: { chartTypeControl?: ReactNode }): JSX.Element {
@@ -71,7 +72,7 @@ export function InsightDisplayConfig({ chartTypeControl }: { chartTypeControl?: 
         isLifecycle ||
         ((isTrends || isStickiness) && !(display && NON_TIME_SERIES_DISPLAY_TYPES.includes(display)))
 
-    const { tabs: displayOptionTabs, count: advancedOptionsCount } = useInsightDisplayOptions()
+    const { tabs: displayOptionTabs, count: advancedOptionsCount } = useDisplayOptions(insightDisplayOptions)
 
     return (
         <div

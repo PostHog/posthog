@@ -28,10 +28,36 @@ class TestTextFromHtml(SimpleTestCase):
             ("entities_are_decoded", "<p>Tom &amp; Jerry&nbsp;&lt;3</p>", "Tom & Jerry <3"),
             ("source_whitespace_collapses", "<p>Hi\n      Jane</p>\n\n\n<p>Bye</p>", "Hi Jane\n\nBye"),
             ("list_items_are_lines", "<ul><li>One</li><li>Two</li></ul>", "One\nTwo"),
+            ("text_after_a_line_block_starts_a_new_line", "<div>Order 123</div>shipped", "Order 123\nshipped"),
         ]
     )
     def test_derives_readable_text(self, _name, html, expected):
         assert text_from_html(html) == expected
 
-    def test_deeply_nested_html_still_gives_its_text(self):
-        assert text_from_html("<div>" * 5000 + "Hi" + "</div>" * 5000) == "Hi"
+    @parameterized.expand(
+        [
+            ("divs", "<div>" * 5000 + "Hi" + "</div>" * 5000, "Hi"),
+            (
+                "links_that_show_their_address",
+                '<a href="https://example.com">' * 5000 + "https://example.com" + "</a>" * 5000,
+                "https://example.com",
+            ),
+            (
+                "links_with_a_label",
+                '<a href="https://example.com">' * 5000 + "Go" + "</a>" * 5000,
+                "Go" + " (https://example.com)" * 5000,
+            ),
+            (
+                "link_inside_a_link",
+                '<a href="https://example.com/a">Outer <a href="https://example.com/b">https://example.com/b</a></a>',
+                "Outer https://example.com/b (https://example.com/a)",
+            ),
+            (
+                "address_split_over_elements",
+                '<a href="https://example.com/ab">https://example.com/<b>ab</b></a>',
+                "https://example.com/ab",
+            ),
+        ]
+    )
+    def test_deeply_nested_html_still_gives_its_text(self, _name, html, expected):
+        assert text_from_html(html) == expected

@@ -97,11 +97,13 @@ from products.batch_exports.backend.facade.enums import (
     BatchExportModel,
     BatchExportRunStatus,
 )
+from products.business_knowledge.backend.models import KnowledgeUsageKey, KnowledgeUsageRecord
 from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
+from products.signals.backend.facade.billing import TeamSignalsCredits
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseTable,
     ExternalDataJob,
@@ -330,6 +332,20 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
             )
 
             ErrorTrackingIssue.objects.create(team=self.org_1_team_1)
+
+            # Different amounts per meter and team, so a swapped or misattributed counter fails the expectations.
+            for team, usage_key, quantity in [
+                (self.org_1_team_1, KnowledgeUsageKey.CHUNKS, 120),
+                (self.org_1_team_1, KnowledgeUsageKey.QUERIES, 7),
+                (self.org_1_team_2, KnowledgeUsageKey.CHUNKS, 30),
+                (self.org_2_team_3, KnowledgeUsageKey.QUERIES, 4),
+            ]:
+                row = KnowledgeUsageRecord.objects.unscoped().create(
+                    team_id=team.id, usage_key=usage_key, quantity=quantity, surface="text"
+                )
+                KnowledgeUsageRecord.objects.unscoped().filter(id=row.id).update(
+                    created_at=now() - relativedelta(hours=12)
+                )
 
             uuids = [uuid4() for _ in range(0, 10)]
             for uuid in uuids:
@@ -797,6 +813,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "exceptions_captured_in_period": 0,
                     "ai_event_count_in_period": 7,
                     "mcp_event_count_in_period": 0,
+                    "business_knowledge_chunks_in_period": 150,
+                    "business_knowledge_queries_in_period": 7,
                     "hog_function_calls_in_period": 0,
                     "hog_function_fetch_calls_in_period": 0,
                     "cdp_billable_invocations_in_period": 0,
@@ -904,6 +922,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "rows_exported_in_period": 0,
                             "ai_event_count_in_period": 7,
                             "mcp_event_count_in_period": 0,
+                            "business_knowledge_chunks_in_period": 120,
+                            "business_knowledge_queries_in_period": 7,
                         },
                         str(self.org_1_team_2.id): {
                             "event_count_in_period": 11,
@@ -1001,6 +1021,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "rows_exported_in_period": 0,
                             "ai_event_count_in_period": 0,
                             "mcp_event_count_in_period": 0,
+                            "business_knowledge_chunks_in_period": 30,
+                            "business_knowledge_queries_in_period": 0,
                         },
                     },
                 },
@@ -1121,6 +1143,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                     "rows_exported_in_period": 0,
                     "ai_event_count_in_period": 0,
                     "mcp_event_count_in_period": 0,
+                    "business_knowledge_chunks_in_period": 0,
+                    "business_knowledge_queries_in_period": 4,
                     "date": "2022-01-09",
                     "organization_id": str(self.org_2.id),
                     "organization_name": "Org 2",
@@ -1226,6 +1250,8 @@ class TestUsageReport(APIBaseTest, ClickhouseTestMixin, ClickhouseDestroyTablesM
                             "rows_exported_in_period": 0,
                             "ai_event_count_in_period": 0,
                             "mcp_event_count_in_period": 0,
+                            "business_knowledge_chunks_in_period": 0,
+                            "business_knowledge_queries_in_period": 4,
                         }
                     },
                 },
@@ -2487,6 +2513,8 @@ class TestHasNonZeroUsage(SimpleTestCase):
             ("empty", None),
             ("events", "event_count_in_period"),
             ("mcp_events", "mcp_event_count_in_period"),
+            ("business_knowledge_chunks", "business_knowledge_chunks_in_period"),
+            ("business_knowledge_queries", "business_knowledge_queries_in_period"),
             ("logs_bytes", "logs_bytes_in_period"),
             ("logs_retention_mb_days", "logs_retention_mb_days_in_period"),
             ("signals_credits", "signals_credits_used_in_period"),
@@ -5200,8 +5228,12 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         org_ids = [str(org_a.id), str(org_b.id)]
 
         with patch(
-            "posthog.tasks.usage_report.get_signals_billing_credits_by_team",
-            return_value=[(team_a1.id, 1500), (team_a2.id, 1500), (team_b.id, 1500)],
+            "posthog.tasks.usage_report.signals_billing_credits_by_team",
+            return_value=[
+                TeamSignalsCredits(team_id=team_a1.id, credits=1500),
+                TeamSignalsCredits(team_id=team_a2.id, credits=1500),
+                TeamSignalsCredits(team_id=team_b.id, credits=1500),
+            ],
         ) as signals_credits:
             totals = get_self_driving_credits_used_in_period_for_orgs(org_ids, period.start, period.end)
 

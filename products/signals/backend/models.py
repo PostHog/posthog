@@ -4265,6 +4265,8 @@ class UserActivitySummaryQueueState(TeamScopedRootMixin, UUIDModel):
     pending_view_score = models.FloatField(default=0.0)
     # Distinct days with an opened object or scene in the window, for the first summary of a view-only pair.
     view_active_days = models.IntegerField(default=0)
+    # The MCP part of `pending_score`. The MCP feed computes it again from the buffer, so a record counts once.
+    pending_mcp_score = models.FloatField(default=0.0)
     last_activity_at = models.DateTimeField(null=True, blank=True)
     # The pair is due when this is empty or past. A copy of `UserActivitySummary.next_eligible_at`.
     due_at = models.DateTimeField(null=True, blank=True)
@@ -4345,6 +4347,8 @@ class PersonalInboxRanking(TeamScopedRootMixin, UUIDModel):
     status = models.CharField(max_length=20, choices=Status)
     # One of the fixed strings of `personal_ranking/logic.py`, never model output.
     fallback_reason = models.CharField(max_length=100, null=True, blank=True)
+    # The last time the scheduled tick found the inputs unchanged, so the list is current as of then.
+    checked_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         default_manager_name = "all_teams"

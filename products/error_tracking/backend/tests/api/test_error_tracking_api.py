@@ -1,5 +1,6 @@
 import os
 import json
+import hashlib
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -9,6 +10,8 @@ import time_machine
 from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, Mock, patch
 
+from django.core.files.uploadedfile import SimpleUploadedFile, UploadedFile
+from django.core.files.uploadhandler import MemoryFileUploadHandler
 from django.db import OperationalError, connection
 from django.test import SimpleTestCase
 from django.test.utils import CaptureQueriesContext
@@ -19,6 +22,7 @@ from boto3 import resource
 from botocore.config import Config
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.parsers import FileUploadParser
 
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
@@ -56,6 +60,14 @@ from products.error_tracking.backend.presentation.views.symbol_sets import (
 )
 
 TEST_BUCKET = "test_storage_bucket-TestErrorTracking"
+
+
+class OversizedReportingUploadHandler(MemoryFileUploadHandler):
+    def file_complete(self, file_size: int) -> UploadedFile | None:
+        uploaded = super().file_complete(file_size)
+        if uploaded is not None:
+            uploaded.size = symbol_sets_logic.ONE_HUNDRED_MEGABYTES + 1
+        return uploaded
 
 
 def get_path_to(fixture_file: str) -> str:
@@ -600,6 +612,31 @@ class TestErrorTracking(APIBaseTest):
         )
 
         assert response.status_code == expected_status
+
+    def test_fingerprint_list_pages_one_issue_in_sql(self) -> None:
+        issue = self.create_issue(fingerprints=["first", "second", "third"])
+        self.create_issue(fingerprints=["other_issue"])
+        for day, fingerprint in enumerate(["first", "second", "third"], start=1):
+            ErrorTrackingIssueFingerprintV2.objects.filter(team=self.team, fingerprint=fingerprint).update(
+                created_at=datetime(2025, 1, day, tzinfo=UTC)
+            )
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/error_tracking/fingerprints",
+                data={"issue_id": str(issue.id), "limit": "1", "offset": "1"},
+            )
+
+        assert response.status_code == 200, response.json()
+        body = response.json()
+        assert body["count"] == 3
+        assert [row["fingerprint"] for row in body["results"]] == ["second"]
+        assert body["next"] is not None
+        fingerprint_table = ErrorTrackingIssueFingerprintV2._meta.db_table
+        assert any(
+            fingerprint_table in query["sql"] and "LIMIT 1" in query["sql"].upper()
+            for query in queries.captured_queries
+        )
 
     def test_fingerprint_resolve_is_scoped_to_team(self):
         other_team = Team.objects.create(organization=self.organization)
@@ -1219,6 +1256,58 @@ class TestErrorTracking(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["code"] == "file_too_large"
 
+    def _post_deprecated_upload(self, body: str, content: bytes, **extra: Any) -> Any:
+        url = f"/api/environments/{self.team.id}/error_tracking/symbol_sets?chunk_id={uuid7()}"
+        if body == "multipart":
+            return self.client.post(
+                f"{url}&multipart=true", data={"file": SimpleUploadedFile("a.map", content)}, format="multipart"
+            )
+        return self.client.post(
+            url,
+            data=content,
+            content_type="application/octet-stream",
+            HTTP_CONTENT_DISPOSITION="attachment; filename=a.map",
+            **extra,
+        )
+
+    @parameterized.expand([("multipart",), ("raw",)])
+    def test_deprecated_create_rejects_oversized_file(self, body: str) -> None:
+        with self.settings(FILE_UPLOAD_HANDLERS=[f"{__name__}.{OversizedReportingUploadHandler.__name__}"]):
+            response = self._post_deprecated_upload(body, b"{}")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["code"] == "file_too_large"
+        assert not ErrorTrackingSymbolSet.objects.filter(team=self.team).exists()
+
+    def test_deprecated_create_rejects_oversized_declared_length_without_parsing(self) -> None:
+        with patch.object(FileUploadParser, "parse") as parse:
+            response = self._post_deprecated_upload(
+                "raw", b"{}", CONTENT_LENGTH=str(symbol_sets_logic.ONE_HUNDRED_MEGABYTES * 2)
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["code"] == "file_too_large"
+        parse.assert_not_called()
+
+    def test_deprecated_create_requires_file(self) -> None:
+        url = f"/api/environments/{self.team.id}/error_tracking/symbol_sets?chunk_id={uuid7()}&multipart=true"
+        response = self.client.post(url, data={}, format="multipart")
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["detail"] == "file is required"
+
+    @parameterized.expand([("multipart",), ("raw",)])
+    @patch("posthog.storage.object_storage._client")
+    def test_deprecated_create_stores_valid_upload(self, body: str, patched_s3_client: Mock) -> None:
+        content = b'{"version":3,"sources":["a.js"]}'
+        with self.settings(OBJECT_STORAGE_ENABLED=True):
+            response = self._post_deprecated_upload(body, content)
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        symbol_set = ErrorTrackingSymbolSet.objects.get(team=self.team)
+        assert symbol_set.content_hash == hashlib.sha512(content).hexdigest()
+        assert patched_s3_client.write.call_args.kwargs["content"] == content
+
     @patch("posthog.storage.object_storage._client")
     def test_finish_upload_updates_the_content_hash(self, patched_s3_client):
         patched_s3_client.head_object.return_value = {"ContentLength": 1048576}  # 1MB
@@ -1465,6 +1554,16 @@ class TestErrorTracking(APIBaseTest):
         )
 
         self.assertEqual(ErrorTrackingStackFrame.objects.count(), 3)
+
+        # one-row pages walk the team's frames without skipping or repeating one
+        pages = [
+            self.client.get(
+                f"/api/environments/{self.team.id}/error_tracking/stack_frames", data={"limit": 1, "offset": offset}
+            ).json()
+            for offset in range(2)
+        ]
+        self.assertEqual([page["count"] for page in pages], [2, 2])
+        self.assertEqual({page["results"][0]["raw_id"] for page in pages}, {"raw_id/0", "other_raw_id/0"})
 
         # it only fetches stack traces for the specified team
         response = self.client.post(f"/api/environments/{self.team.id}/error_tracking/stack_frames/batch_get")
