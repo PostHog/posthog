@@ -12,6 +12,7 @@ import temporalio.activity
 from structlog import get_logger
 from temporalio.exceptions import ApplicationError
 
+from posthog.dataclasses import frozen
 from posthog.sync import database_sync_to_async
 
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
@@ -84,6 +85,15 @@ class ResolvedExportableInsights:
     available_insight_count: int
     selected_insight_count: int
     no_exportable_reason: str | None
+
+
+@frozen
+class _InsightSelection:
+    """Insights to export, their snapshots in the same order, and the ones the criteria left out."""
+
+    export_pairs: list[tuple[DashboardTile | None, Insight]]
+    snapshots: list[dict[str, typing.Any]]
+    excluded: list[dict[str, typing.Any]]
 
 
 async def _resolve_exportable_insights(subscription: Subscription) -> ResolvedExportableInsights:
@@ -336,14 +346,10 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
     # Snapshots run each insight's query, so the criteria check reads them instead of querying
     # again. With criteria set, walk past insights that fail until the export limit is filled.
     @database_sync_to_async(thread_sensitive=False)
-    def select_and_snapshot() -> tuple[
-        list[tuple[DashboardTile | None, Insight]], list[dict[str, typing.Any]], list[dict[str, typing.Any]]
-    ]:
-        kept_pairs: list[tuple[DashboardTile | None, Insight]] = []
-        kept_snapshots: list[dict[str, typing.Any]] = []
-        excluded: list[dict[str, typing.Any]] = []
+    def select_and_snapshot() -> _InsightSelection:
+        selection = _InsightSelection(export_pairs=[], snapshots=[], excluded=[])
         for tile, insight in tile_insight_pairs:
-            if len(kept_pairs) >= max_asset_count:
+            if len(selection.export_pairs) >= max_asset_count:
                 break
             snapshot = build_insight_delivery_snapshot(
                 insight=insight,
@@ -353,13 +359,18 @@ async def create_export_assets(inputs: CreateExportAssetsInputs) -> CreateExport
                 user=subscription.created_by,
             )
             if not insight_matches_criteria(insight_criteria, snapshot):
-                excluded.append({"id": insight.id, "short_id": snapshot["short_id"], "name": snapshot["name"]})
+                selection.excluded.append(
+                    {"id": insight.id, "short_id": snapshot["short_id"], "name": snapshot["name"]}
+                )
                 continue
-            kept_pairs.append((tile, insight))
-            kept_snapshots.append(snapshot)
-        return kept_pairs, kept_snapshots, excluded
+            selection.export_pairs.append((tile, insight))
+            selection.snapshots.append(snapshot)
+        return selection
 
-    export_pairs, insight_snapshots, excluded_by_criteria = await select_and_snapshot()
+    selection = await select_and_snapshot()
+    export_pairs = selection.export_pairs
+    insight_snapshots = selection.snapshots
+    excluded_by_criteria = selection.excluded
     total_insight_count -= len(excluded_by_criteria)
     # Lets delivery history explain a skip or a short delivery. Insights past the export limit
     # are never checked, so checked_count can be below the dashboard's insight count.
