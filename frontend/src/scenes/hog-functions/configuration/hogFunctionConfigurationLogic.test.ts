@@ -357,11 +357,25 @@ describe('hogFunctionConfigurationLogic', () => {
             ['drops a masked string secret', { api_key: { value: undefined, secret: true } }, null, NOTHING_KEPT, true],
             ['drops a dictionary secret with masked entries', MASKED_HEADERS, null, NOTHING_KEPT, true],
             [
-                'drops the masked rows of a secret dictionary the user added a row to',
+                'drops a secret dictionary the user typed a new row into',
                 MASKED_HEADERS,
                 { secret: false, value: { Authorization: '********', 'x-new': 'typed' } },
-                { ...NOTHING_KEPT, secret_headers: { 'x-new': 'typed' } },
+                NOTHING_KEPT,
                 true,
+            ],
+            [
+                'drops a secret the user typed and did not save',
+                { api_key: { value: 'typed-key' } },
+                null,
+                NOTHING_KEPT,
+                true,
+            ],
+            [
+                'keeps the copy enabled when a secret was never set',
+                { api_key: { value: '' } },
+                null,
+                NOTHING_KEPT,
+                false,
             ],
             [
                 'drops an edited secret dictionary that has only masked rows left',
