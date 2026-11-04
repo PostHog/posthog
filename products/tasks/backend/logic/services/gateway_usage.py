@@ -70,6 +70,7 @@ def _save_accounting_state(run: TaskRun) -> None:
         run_id=run.id,
         team_id=run.team_id,
         cost_delta_microusd=delta,
+        accounting_failed=_run_spend(run).accounting_failed,
         origin_product=previous.task.origin_product,
     )
 

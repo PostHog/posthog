@@ -1170,7 +1170,7 @@ class TestSignalSpend(BaseTest):
         run = self._run(report=report)
         self._set_task_cost(run, 100_000)
         run.refresh_from_db()
-        run.status = TaskRun.Status.COMPLETED
+        run.status = TaskRun.Status.IN_PROGRESS if failure == "subscription" else TaskRun.Status.COMPLETED
         run.state["unprocessed_request_ids"] = ["missing-request"]
         if failure == "subscription":
             run.state["token_cost_incomplete"] = True
@@ -1181,7 +1181,10 @@ class TestSignalSpend(BaseTest):
             if failure == "gateway_error"
             else AsyncMock(return_value=None),
         ):
-            complete_task_spend(team_id=self.team.id, run_id=str(run.id), final_attempt=failure != "subscription")
+            if failure == "subscription":
+                process_pending_gateway_usage(team_id=self.team.id, run_id=run.id)
+            else:
+                complete_task_spend(team_id=self.team.id, run_id=str(run.id), final_attempt=True)
         spend = SignalSpend.objects.for_team(self.team.id).get(task_run_id=run.id)
         assert spend.accounting_failed
         assert spend.finalized_at is None

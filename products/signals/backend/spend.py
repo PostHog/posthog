@@ -284,14 +284,17 @@ def record_task_spend(
         _save_scout_total(spend)
 
 
-def record_task_cost_delta(*, team_id: int, run_id: UUID, cost_delta_microusd: int) -> None:
+def record_task_cost_delta(
+    *, team_id: int, run_id: UUID, cost_delta_microusd: int, accounting_failed: bool = False
+) -> None:
     # The sender holds the run lock and commits this delta together with gateway request deduplication.
     with transaction.atomic():
         spend = SignalSpend.objects.for_team(team_id).select_for_update().filter(task_run_id=run_id).first()
         if spend is None or spend.finalized_at is not None:
             return
         spend.spend += cost_to_spend(cost_delta_microusd)
-        spend.save(update_fields=["spend", "updated_at"])
+        spend.accounting_failed = spend.accounting_failed or accounting_failed
+        spend.save(update_fields=["spend", "accounting_failed", "updated_at"])
         _save_scout_total(spend)
 
 
@@ -397,10 +400,6 @@ def complete_task_spend(
         except Exception:
             if not final_attempt:
                 raise
-            SignalSpend.objects.for_team(team_id).filter(id=spend.id, finalized_at__isnull=True).update(
-                accounting_failed=True
-            )
-            return
         with locked_task_run_spend(team_id=team_id, run_id=UUID(run_id)) as run:
             spend = SignalSpend.objects.for_team(team_id).select_for_update().get(id=spend.id)
             if spend.finalized_at is None and not spend.accounting_failed:
