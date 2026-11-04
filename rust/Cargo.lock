@@ -9428,10 +9428,12 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "bytes",
+ "chrono",
  "envconfig",
  "futures",
  "metrics",
  "personhog-common",
+ "rstest",
  "slatedb",
  "slatedb-common",
  "tempfile",

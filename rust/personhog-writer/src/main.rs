@@ -45,6 +45,8 @@ struct Cli {
 enum Command {
     /// A one-off run, while the writer group is empty.
     Backfill(BackfillArgs),
+    /// Copies missing SSTs into each directory bucket and removes copies Standard no longer has.
+    ExpressRepair(ExpressRepairArgs),
 }
 
 #[derive(clap::Args)]
@@ -57,6 +59,17 @@ struct BackfillArgs {
     run_id: String,
     #[arg(long, default_value_t = 1000)]
     page_size: i64,
+}
+
+#[derive(clap::Args)]
+struct ExpressRepairArgs {
+    #[arg(long, default_value_t = 3600)]
+    orphan_min_age_secs: u64,
+    /// Each in-flight copy holds one whole SST in memory.
+    #[arg(long, default_value_t = 4)]
+    concurrency: usize,
+    #[arg(long)]
+    dry_run: bool,
 }
 
 fn init_tracing() {
@@ -78,8 +91,10 @@ fn init_tracing() {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     init_tracing();
-    if let Some(Command::Backfill(args)) = Cli::parse().command {
-        return backfill(args).await;
+    match Cli::parse().command {
+        Some(Command::Backfill(args)) => return backfill(args).await,
+        Some(Command::ExpressRepair(args)) => return express_repair(args).await,
+        None => {}
     }
     let config = Config::init_from_env().expect("Invalid configuration");
     let mode = config.property_storage_mode;
@@ -258,7 +273,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let upsert_permits = Arc::new(tokio::sync::Semaphore::new(upsert_concurrency));
 
     let property_writer = if mode.writes_slatedb() {
-        let object_store = personhog_property_store::object_store(&config.property_store)?;
+        let object_store = personhog_property_store::writer_object_store(&config.property_store)?;
         let writer =
             personhog_property_store::PropertyWriter::new(&config.property_store, object_store);
         // A topic still draining is consumed too, so its partitions must fit as well.
@@ -380,6 +395,41 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+async fn express_repair(args: ExpressRepairArgs) -> Result<(), Box<dyn std::error::Error>> {
+    let config = personhog_property_store::PropertyStoreConfig::init_from_env()?;
+    let primary = personhog_property_store::object_store(&config)?;
+    let buckets = personhog_property_store::express_buckets(&config)?;
+    if buckets.is_empty() {
+        return Err("PROPERTY_STORE_EXPRESS_BUCKETS names no buckets to repair".into());
+    }
+    let prefix = personhog_property_store::object_store::path::Path::from(config.prefix.as_str());
+    let options = personhog_property_store::repair::RepairOptions {
+        orphan_min_age: Duration::from_secs(args.orphan_min_age_secs),
+        concurrency: args.concurrency,
+        dry_run: args.dry_run,
+    };
+    let mut failed = 0;
+    for bucket in &buckets {
+        let report =
+            personhog_property_store::repair::repair_bucket(&primary, bucket, &prefix, &options)
+                .await?;
+        tracing::info!(
+            bucket = bucket.name(),
+            checked = report.checked,
+            copied = report.copied,
+            removed = report.removed,
+            failed = report.failed,
+            dry_run = args.dry_run,
+            "express bucket repaired"
+        );
+        failed += report.failed;
+    }
+    if failed > 0 {
+        return Err(format!("{failed} sst copies could not be repaired").into());
+    }
+    Ok(())
+}
+
 async fn backfill(args: BackfillArgs) -> Result<(), Box<dyn std::error::Error>> {
     let config = Config::init_from_env().expect("Invalid configuration");
     let store = EtcdStore::connect_with_member_failover(StoreConfig {
@@ -431,7 +481,7 @@ async fn backfill(args: BackfillArgs) -> Result<(), Box<dyn std::error::Error>> 
         },
     )?;
     let scan = backfill::Scan::new(pool, &config.pg_target_table, args.team_id, args.page_size)?;
-    let object_store = personhog_property_store::object_store(&config.property_store)?;
+    let object_store = personhog_property_store::writer_object_store(&config.property_store)?;
     let writer = personhog_property_store::PropertyWriter::new(
         &config.property_store,
         Arc::clone(&object_store),

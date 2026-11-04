@@ -1,7 +1,9 @@
 pub mod config;
 pub mod encoding;
 mod engine;
+pub mod express;
 pub mod reader;
+pub mod repair;
 pub mod writer;
 
 pub use config::{Compression, PropertyStoreConfig};
@@ -55,6 +57,7 @@ fn shard_path(prefix: &str, shard: u32) -> String {
     format!("{prefix}/shard-{shard:05}")
 }
 
+/// The S3 Standard store of record.
 pub fn object_store(
     config: &PropertyStoreConfig,
 ) -> Result<Arc<dyn ObjectStore>, PropertyStoreError> {
@@ -62,7 +65,72 @@ pub fn object_store(
     if !url.starts_with("s3://") {
         return Ok(slatedb::Db::resolve_object_store(url)?);
     }
-    let mut builder = object_store::aws::AmazonS3Builder::from_env().with_url(url);
+    build_s3(s3_builder(config).with_url(url))
+}
+
+/// The writer's store: Standard, with every SST also copied into each configured directory bucket.
+pub fn writer_object_store(
+    config: &PropertyStoreConfig,
+) -> Result<Arc<dyn ObjectStore>, PropertyStoreError> {
+    let primary = object_store(config)?;
+    let copies = express_buckets(config)?;
+    if copies.is_empty() {
+        return Ok(primary);
+    }
+    Ok(Arc::new(express::TeeStore::new(
+        primary,
+        copies,
+        config.express_copy_timeout(),
+    )))
+}
+
+/// The directory buckets the writer copies SSTs into, in configuration order.
+pub fn express_buckets(
+    config: &PropertyStoreConfig,
+) -> Result<Vec<express::Bucket>, PropertyStoreError> {
+    config
+        .express_bucket_list()
+        .into_iter()
+        .map(|bucket| Ok(express::Bucket::new(bucket, bucket_store(config, bucket)?)))
+        .collect()
+}
+
+/// The leader's store: SST reads try the configured directory bucket before Standard.
+pub fn reader_object_store(
+    config: &PropertyStoreConfig,
+) -> Result<Arc<dyn ObjectStore>, PropertyStoreError> {
+    let primary = object_store(config)?;
+    let bucket = config.express_read_bucket.trim();
+    if bucket.is_empty() {
+        return Ok(primary);
+    }
+    Ok(Arc::new(express::ReadThroughStore::new(
+        primary,
+        express::Bucket::new(bucket, bucket_store(config, bucket)?),
+        config.express_read_timeout(),
+    )))
+}
+
+/// A directory bucket name ends in `--x-s3` (AWS naming rule), so any other name is a plain
+/// bucket on the configured endpoint, which is how the local stack stands one in.
+fn bucket_store(
+    config: &PropertyStoreConfig,
+    bucket: &str,
+) -> Result<Arc<dyn ObjectStore>, PropertyStoreError> {
+    let builder = if bucket.ends_with("--x-s3") {
+        let mut builder = object_store::aws::AmazonS3Builder::from_env().with_s3_express(true);
+        if let Some(region) = &config.s3_region {
+            builder = builder.with_region(region);
+        }
+        builder
+    } else {
+        s3_builder(config)
+    };
+    build_s3(builder.with_bucket_name(bucket))
+}
+
+fn s3_builder(config: &PropertyStoreConfig) -> object_store::aws::AmazonS3Builder {
+    let mut builder = object_store::aws::AmazonS3Builder::from_env();
     if let Some(endpoint) = &config.s3_endpoint {
         builder = builder
             .with_endpoint(endpoint)
@@ -77,6 +145,12 @@ pub fn object_store(
     if let Some(region) = &config.s3_region {
         builder = builder.with_region(region);
     }
+    builder
+}
+
+fn build_s3(
+    builder: object_store::aws::AmazonS3Builder,
+) -> Result<Arc<dyn ObjectStore>, PropertyStoreError> {
     let store = builder
         .build()
         .map_err(|e| PropertyStoreError::Config(format!("s3 object store: {e}")))?;

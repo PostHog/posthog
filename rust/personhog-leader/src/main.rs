@@ -277,6 +277,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 Matcher::Full("personhog_property_store_fresh_read_ms".into()),
                 personhog_property_store::READ_LATENCY_BUCKETS_MS,
             ),
+            (
+                Matcher::Full("personhog_property_store_express_read_ms".into()),
+                personhog_property_store::READ_LATENCY_BUCKETS_MS,
+            ),
         ],
     );
     preregister_metrics();
@@ -586,7 +590,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 location: config.property_store.location()?,
             })
             .await?;
-        let object_store = personhog_property_store::object_store(&config.property_store)?;
+        let object_store = personhog_property_store::reader_object_store(&config.property_store)?;
         tracing::info!(
             location = %config.property_store.location()?,
             shards = config.property_store.shards,
