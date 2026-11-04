@@ -72,7 +72,7 @@ class Migration(migrations.Migration):
         ("replay_vision", "0001_squash_2026_11_02_initial"),
         ("review_hog", "0001_squash_2026_11_02_initial"),
         ("signals", "0001_squash_2026_11_02_initial"),
-        ("signals", "0227_personalinboxranking_checked_at"),
+        ("signals", "0230_monitoring_research_delivery_indexes"),
         ("skills", "0001_squash_2026_11_02_initial"),
         ("slack_app", "0001_squash_2026_11_02_initial"),
         ("streamlit_apps", "0006_squash_2026_11_02_finalize_fks"),

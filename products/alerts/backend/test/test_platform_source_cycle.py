@@ -29,18 +29,27 @@ from posthog.tasks.alerts.utils import AlertEvaluationResult, RenderedInsightCha
 from posthog.temporal.alerts.admission import admit_evaluation_slots, inflight_alert_ids, release_evaluation_slot
 from posthog.temporal.alerts.retry_policy import ALERT_EVALUATE_RETRY_POLICY
 
-from products.alerts.backend.evaluation.contract import AlertExtractionError
+from products.alerts.backend.evaluation.contract import (
+    CREATOR_LEFT_DISABLE_REASON,
+    AlertExtractionError,
+    AlertOwnerAccessError,
+)
 from products.alerts.backend.evaluation.dispatcher import PerSeriesEvaluation, SeriesEvaluation
 from products.alerts.backend.judge.contract import (
+    LLM_DETECTOR_PAUSED_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_ERROR_CODE,
     LLM_DETECTOR_UNAVAILABLE_MESSAGE,
     LLMDetectorMisconfiguredError,
+    LLMDetectorPausedError,
     LLMDetectorUnavailableError,
 )
 from products.alerts.backend.logic.alert_email import INSIGHT_ALERT_ERRORED_EVENT_ID
-from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
+from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, InvestigationStatus
+from products.alerts.backend.models.investigation import InsightAlertInvestigation
 from products.alerts.backend.platform_alert_wording import insight_alert_url
 from products.alerts.backend.platform_chart_detail import CHART_PENDING_KEY, RenderedChart
+from products.alerts.backend.platform_investigation import claim_requested_investigations
+from products.alerts.backend.platform_investigation_detail import SUPPRESSED_BY_AGENT_KEY, requested_investigation
 from products.alerts.backend.platform_source_cycle import (
     CAPACITY_REJECTED,
     CHART_RENDER_INFLIGHT_KEY,
@@ -61,7 +70,9 @@ from products.alerts.backend.platform_source_cycle import (
 from products.alerts.backend.temporal.platform_evaluate import (
     AdmittedInsightCheck,
     InsightBatchPlanInputs,
+    MetricsInvestigationsInputs,
     plan_platform_insight_checks_activity,
+    run_platform_metrics_investigations_activity,
 )
 from products.alerts.backend.test.insight_alerts import create_insight_alert
 from products.alerts_platform.backend.facade import testing as platform_testing
@@ -98,7 +109,10 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         self.organization.save()
 
     def _alert(self, **overrides: Any) -> AlertConfiguration:
-        return create_insight_alert(self.team, **{"next_check_at": CUTOFF - timedelta(minutes=1), **overrides})
+        # Production always writes an owner, and an alert with none counts as one whose owner was deleted.
+        return create_insight_alert(
+            self.team, **{"next_check_at": CUTOFF - timedelta(minutes=1), "created_by": self.user, **overrides}
+        )
 
     def _copy(self, alert: AlertConfiguration | None, **overrides: Any) -> PlatformConfigurationSnapshot:
         with team_scope(self.team.id):
@@ -710,7 +724,8 @@ class TestPlatformInsightEvaluation(APIBaseTest):
     @parameterized.expand(
         [
             ("bad_query_shape", AlertExtractionError("bad query shape")),
-            ("ai_consent_withdrawn", LLMDetectorMisconfiguredError("consent withdrawn")),
+            ("ai_detector_without_a_creator", LLMDetectorMisconfiguredError("no creator")),
+            ("owner_left_or_lost_access", AlertOwnerAccessError(CREATOR_LEFT_DISABLE_REASON)),
         ]
     )
     def test_an_alert_production_cannot_evaluate_as_configured_errors_and_is_disabled(
@@ -727,6 +742,21 @@ class TestPlatformInsightEvaluation(APIBaseTest):
         )
         # The error message names and links the insight, as a firing's does.
         assert set(outcome.failure.source_detail) == {"insight_name", "insight_short_id"}
+
+    def test_a_paused_ai_detector_errors_and_stays_enabled(self) -> None:
+        outcome, _ = self._evaluate(
+            self._copy(self._alert(detector_config={"type": "llm"})),
+            result=LLMDetectorPausedError("consent withdrawn"),
+            uses_llm_detector=True,
+        )
+
+        assert outcome is not None and outcome.failure is not None
+        assert (outcome.failure.kind, outcome.error_message, outcome.disable) == (
+            AlertEventKind.ERRORED,
+            "consent withdrawn",
+            False,
+        )
+        assert outcome.failure.source_detail["error_code"] == LLM_DETECTOR_PAUSED_ERROR_CODE
 
     @parameterized.expand([("retried", False), ("last_attempt", True)])
     def test_an_ai_detector_without_a_verdict_is_retried_and_only_its_last_attempt_records_an_error(
@@ -883,3 +913,179 @@ class TestPlatformInsightEvaluation(APIBaseTest):
             )
         )
         assert replanned == [AdmittedInsightCheck(configuration_id=str(second.id), real_time=True)]
+
+    def _investigated_alert(self, **overrides: Any) -> tuple[AlertConfiguration, PlatformConfigurationSnapshot]:
+        alert = self._alert(
+            detector_config={"type": "zscore", "threshold": 0.95, "window": 30},
+            investigation_agent_enabled=True,
+            **overrides,
+        )
+        return alert, self._copy(alert, owner=PlatformAlertOwner.PLATFORM)
+
+    def _fire(self, configuration: PlatformConfigurationSnapshot) -> PlatformAlertOutcome:
+        with patch(f"{_MODULE}.render_alert_insight_chart"):
+            outcome, _ = self._evaluate(
+                configuration,
+                result=AlertEvaluationResult(
+                    value=150.0, breaches=["above 100"], triggered_dates=["2026-09-16"], triggered_points=[29]
+                ),
+            )
+        assert outcome is not None
+        return outcome
+
+    @parameterized.expand(
+        [
+            ("a gated alert holds its firing", True, PlatformAlertOwner.PLATFORM, True, True),
+            ("an ungated alert sends its firing", False, PlatformAlertOwner.PLATFORM, True, False),
+            ("a parallel run never investigates", True, PlatformAlertOwner.SOURCE, False, False),
+        ]
+    )
+    def test_an_owned_firing_asks_for_an_investigation(
+        self, _name: str, gates: bool, owner: str, investigates: bool, held: bool
+    ) -> None:
+        alert = self._alert(
+            detector_config={"type": "zscore", "threshold": 0.95, "window": 30},
+            investigation_agent_enabled=True,
+            investigation_gates_notifications=gates,
+        )
+        configuration = self._copy(alert, owner=owner)
+
+        outcome = self._fire(configuration)
+
+        assert (requested_investigation(outcome) is not None) is investigates
+        assert (outcome.held_delivery is not None) is held
+        if owner == PlatformAlertOwner.PLATFORM:
+            assert len(self.deliveries) == (0 if held else 1)
+
+    def test_a_firing_past_its_budget_is_muted_by_the_firing_last_verdict(self) -> None:
+        alert, configuration = self._investigated_alert(investigation_gates_notifications=True)
+        for index, verdict in enumerate(["true_positive", "true_positive", "false_positive"]):
+            InsightAlertInvestigation.objects.for_team(self.team.id).create(
+                team=self.team,
+                alert_configuration=alert,
+                configuration_id=configuration.id,
+                evaluation_key=f"slot:earlier-{index}",
+                episode_started_at=CUTOFF,
+                kind=InsightAlertInvestigation.Kind.AGENT,
+                status=InvestigationStatus.DONE,
+                verdict=verdict,
+            )
+
+        outcome = self._fire(configuration)
+
+        assert requested_investigation(outcome) is None
+        assert (outcome.groups[0].kind, outcome.groups[0].muted_notification) == (AlertEventKind.CHECK, "fire")
+        assert outcome.groups[0].source_detail.get(SUPPRESSED_BY_AGENT_KEY) is True
+        assert self.deliveries == ()
+
+    @parameterized.expand(
+        [
+            ("claimed", None, None, True),
+            ("refused with no verdict yet", InvestigationStatus.RUNNING, None, False),
+            ("refused after a false positive", InvestigationStatus.DONE, "false_positive", False),
+        ]
+    )
+    def test_a_recorded_firing_claims_its_investigation_or_releases_its_hold(
+        self, _name: str, earlier: str | None, verdict: str | None, claimed: bool
+    ) -> None:
+        alert, configuration = self._investigated_alert(investigation_gates_notifications=True)
+        if earlier is not None:
+            InsightAlertInvestigation.objects.for_team(self.team.id).create(
+                team=self.team,
+                alert_configuration=alert,
+                configuration_id=configuration.id,
+                evaluation_key="slot:earlier",
+                episode_started_at=CUTOFF,
+                kind=InsightAlertInvestigation.Kind.AGENT,
+                status=earlier,
+                verdict=verdict,
+            )
+        outcome = self._fire(configuration)
+        record_outcomes(self.team.id, (outcome,), CUTOFF)
+
+        claims = claim_requested_investigations(self.team.id, (outcome,))
+
+        assert claims == claim_requested_investigations(self.team.id, (outcome,))
+        assert len(claims.starts) == (1 if claimed else 0)
+        if claimed:
+            investigation = InsightAlertInvestigation.objects.for_team(self.team.id).get(
+                id=claims.starts[0].investigation_id
+            )
+            assert investigation.evaluated["value"] == 150.0
+            assert investigation.evaluated["triggered_dates"] == ["2026-09-16"]
+        assert len(claims.deliveries) == (1 if not claimed and verdict is None else 0)
+
+    def test_a_firing_whose_investigation_cannot_be_decided_still_goes_out(self) -> None:
+        _alert, configuration = self._investigated_alert(investigation_gates_notifications=True)
+
+        with patch(f"{_MODULE}.with_investigation", side_effect=RuntimeError("database went away")):
+            outcome = self._fire(configuration)
+
+        assert outcome.held_delivery is None
+        assert len(self.deliveries) == 1
+
+    @parameterized.expand([("found", None, InvestigationStatus.DONE), ("failed", RuntimeError("no data"), "failed")])
+    def test_a_metrics_firing_is_held_until_its_investigation_ends(
+        self, _name: str, error: Exception | None, status: str
+    ) -> None:
+        alert = self._alert(investigation_agent_enabled=True, investigation_gates_notifications=True)
+        alert.insight.query = {"kind": "MetricsQuery", "clauses": [{"name": "a", "metricName": "queue.depth"}]}
+        alert.insight.save()
+        configuration = self._copy(alert, owner=PlatformAlertOwner.PLATFORM)
+        outcome = self._fire(configuration)
+        record_outcomes(self.team.id, (outcome,), CUTOFF)
+
+        claims = claim_requested_investigations(self.team.id, (outcome,))
+        with patch(
+            "products.alerts.backend.platform_investigation.investigate_metrics_alert",
+            side_effect=error,
+            return_value="queue.depth moved up.",
+        ) as investigate:
+            released = [
+                run_platform_metrics_investigations_activity(MetricsInvestigationsInputs(runs=claims.metrics))
+                for _ in range(2)
+            ]
+
+        assert outcome.held_delivery is not None
+        assert self.deliveries == ()
+        assert (claims.starts, len(claims.metrics)) == ((), 1)
+        # Released once the run ends, whatever it found, and a retry gets the same request back.
+        assert released == [[outcome.held_delivery.request]] * 2
+        investigate.assert_called_once()
+        assert investigate.call_args.kwargs["fired_at"] == CUTOFF
+        investigation = InsightAlertInvestigation.objects.for_team(self.team.id).get()
+        assert (investigation.kind, investigation.status) == (InsightAlertInvestigation.Kind.METRICS, status)
+        assert investigation.summary == ("queue.depth moved up." if error is None else None)
+
+    def test_a_skipped_check_of_a_firing_alert_asks_for_no_investigation(self) -> None:
+        _alert, configuration = self._investigated_alert(investigation_gates_notifications=True)
+        record_outcomes(self.team.id, (self._fire(configuration),), CUTOFF)
+        with team_scope(self.team.id):
+            platform_testing.set_due_at(configuration.id, CUTOFF - timedelta(minutes=1))
+
+        outcome, _ = self._evaluate(
+            configuration, result=AlertEvaluationResult(value=None, breaches=[], skipped_reason="not enough data")
+        )
+
+        assert outcome is not None
+        assert outcome.skipped
+        assert requested_investigation(outcome) is None
+
+    def test_a_metrics_run_past_its_activity_deadline_is_recorded_as_failed(self) -> None:
+        alert = self._alert(investigation_agent_enabled=True)
+        alert.insight.query = {"kind": "MetricsQuery", "clauses": [{"name": "a", "metricName": "queue.depth"}]}
+        alert.insight.save()
+        configuration = self._copy(alert, owner=PlatformAlertOwner.PLATFORM)
+        outcome = self._fire(configuration)
+        record_outcomes(self.team.id, (outcome,), CUTOFF)
+        claims = claim_requested_investigations(self.team.id, (outcome,))
+
+        with (
+            patch("products.alerts.backend.temporal.platform_evaluate.time.monotonic", side_effect=[0.0, 10_000.0]),
+            patch("products.alerts.backend.platform_investigation.investigate_metrics_alert") as investigate,
+        ):
+            run_platform_metrics_investigations_activity(MetricsInvestigationsInputs(runs=claims.metrics))
+
+        investigate.assert_not_called()
+        investigation = InsightAlertInvestigation.objects.for_team(self.team.id).get()
+        assert investigation.status == InvestigationStatus.FAILED

@@ -10,7 +10,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("experiments", "0001_squash_2026_11_02_initial"),
-        ("experiments", "0048_experiment_running_start_date_index"),
+        ("experiments", "0051_canceled_timeseries_recalculation"),
     ]
 
     operations = [

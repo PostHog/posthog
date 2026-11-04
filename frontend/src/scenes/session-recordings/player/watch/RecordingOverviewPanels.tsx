@@ -22,7 +22,13 @@ export function RecordingOverviewPanels(): JSX.Element {
     const { ref, size } = useResizeBreakpoints({ 0: 'narrow', [WIDE_OVERVIEW_PX]: 'wide' })
     return (
         <div ref={ref} data-attr="watch-panel-overview">
-            {size === 'wide' ? <WideOverview /> : <PlayerSidebarOverviewTab />}
+            {size === 'wide' ? (
+                <WideOverview />
+            ) : (
+                <div data-not-quill>
+                    <PlayerSidebarOverviewTab />
+                </div>
+            )}
         </div>
     )
 }
@@ -32,7 +38,9 @@ function WideOverview(): JSX.Element {
     const { snapshotAt } = useValues(playerMetaLogic(logicProps))
     return (
         <div data-quill className="flex flex-col gap-2 bg-background text-foreground px-2 py-2">
-            <TTLWarning />
+            <div data-not-quill className="contents">
+                <TTLWarning />
+            </div>
             <div className="grid grid-cols-3 gap-x-2 gap-y-1">
                 <OverviewColumn title="Session" dataAttr="watch-overview-session">
                     <PlayerSidebarOverviewSessionTab />
@@ -50,11 +58,15 @@ function WideOverview(): JSX.Element {
                     <span className="grow" />
                 </CollapsibleTrigger>
                 <CollapsibleContent>
-                    <SettingsSnapshot at={snapshotAt} scope={OVERVIEW_SNAPSHOT_SCOPE} title="" layout="grid" />
+                    <div data-not-quill className="contents">
+                        <SettingsSnapshot at={snapshotAt} scope={OVERVIEW_SNAPSHOT_SCOPE} title="" layout="grid" />
+                    </div>
                 </CollapsibleContent>
             </Collapsible>
-            <PlayerSidebarExperimentsSection />
-            <PlayerSidebarOverviewOtherWatchers />
+            <div data-not-quill className="contents">
+                <PlayerSidebarExperimentsSection />
+                <PlayerSidebarOverviewOtherWatchers />
+            </div>
         </div>
     )
 }
@@ -70,7 +82,11 @@ function OverviewColumn({
 }): JSX.Element {
     // subgrid keeps the headings, top cards and row tables level across columns
     return (
-        <div className="grid grid-cols-1 grid-rows-subgrid row-span-3 gap-1 min-w-0" data-attr={dataAttr}>
+        <div
+            data-not-quill
+            className="grid grid-cols-1 grid-rows-subgrid row-span-3 gap-1 min-w-0"
+            data-attr={dataAttr}
+        >
             <span className="text-xxs font-semibold uppercase tracking-wide text-muted-foreground px-0.5">{title}</span>
             {children}
         </div>

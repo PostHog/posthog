@@ -11,7 +11,7 @@ class Migration(migrations.Migration):
 
     dependencies = [
         ("alerts", "0001_squash_2026_11_02_initial"),
-        ("alerts", "0015_insight_alert_investigation"),
+        ("alerts", "0016_insight_alert_investigation_age_index"),
     ]
 
     operations = [

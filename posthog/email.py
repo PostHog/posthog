@@ -170,6 +170,7 @@ CUSTOMER_IO_TEMPLATE_ID_MAP = {
     "posthog_ai_access_requested": "72",
     "wizard_pr_ready": "74",
     "loop_run_summary": "77",
+    "workload_trust_policy_changed": "80",
 }
 
 # Message template ids in the US project, for templates that can send through Workflows instead of Customer.io.
@@ -211,6 +212,7 @@ WORKFLOWS_TEMPLATE_ID_MAP: dict[str, str] = {
     "posthog_ai_access_requested": "01a16471-350d-0000-75a6-3ebb077c03a1",
     "wizard_pr_ready": "01a16471-c17b-0000-8ee5-eb254065b7a1",
     "loop_run_summary": "01a16473-9c4d-0000-99d8-958c03b0f1a0",
+    "workload_trust_policy_changed": "01a19e4f-595d-0000-bb58-5b9ae018bceb",
 }
 
 # Release conditions match the `email`, `transactional_email_template` and `region` person properties passed at

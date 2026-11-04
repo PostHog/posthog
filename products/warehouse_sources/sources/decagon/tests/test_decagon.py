@@ -338,6 +338,39 @@ class TestArticleTables:
         assert "honors the page param" in str(result.raised)
         assert result.params("page") == [str(n) for n in range(1, max_pages + 1)]
 
+    @parameterized.expand(
+        [
+            ("zero_based_one_page", 0, [1, 2], 2, ["1", "0"], [1, 2], None),
+            ("zero_based_three_pages", 0, [1, 2, 3, 4, 5], 5, ["1", "2", "3", "0"], [3, 4, 5, 1, 2], None),
+            ("one_based_with_a_stale_total", 1, [1, 2, 3], 4, ["1", "2", "3", "0"], [1, 2, 3], None),
+            ("total_but_no_rows", 0, [], 3, ["1", "0"], [], DecagonContractError),
+        ]
+    )
+    def test_a_walk_that_ends_short_of_the_total_reads_page_zero_once(
+        self,
+        _name: str,
+        first_page: int,
+        catalog: list[int],
+        total: int,
+        pages: list[str],
+        ids: list[int],
+        expected_error: type[Exception] | None,
+    ) -> None:
+        cfg = dataclasses.replace(DECAGON_ENDPOINTS["articles"], page_size=2)
+
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            page = int(request.param("page") or 0)
+            index = max(page, first_page) - first_page
+            rows = [{"id": row_id} for row_id in catalog[index * 2 : index * 2 + 2]]
+            return _page({"articles": rows, "page": page, "page_size": 2, "total": total})
+
+        with patch.dict(DECAGON_ENDPOINTS, {"articles": cfg}):
+            result = _driver().run("articles", respond)
+
+        assert result.params("page") == pages
+        assert [row["id"] for row in result.rows] == ids
+        assert (None if result.raised is None else type(result.raised)) is expected_error
+
     @parameterized.expand([("negative", -1), ("boolean", True), ("string", "3"), ("null", None)])
     def test_malformed_total_falls_back_to_short_page_termination(self, _name: str, total: Any) -> None:
         # A total that cannot bound the walk must not end it early: a negative or boolean

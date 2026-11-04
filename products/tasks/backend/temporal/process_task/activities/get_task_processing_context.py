@@ -1073,7 +1073,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     # sandbox needs no extra request on its boot path, and best-effort: a store failure must not
     # stop the run, it only leaves the sandbox without store skills for this session.
     try:
-        if not include_live_context:
+        if not include_live_context or state.get("disable_skills") is True:
             store_skills: list[dict[str, Any]] | None = []
             state[STORE_SKILLS_STATE_KEY] = []
         else:

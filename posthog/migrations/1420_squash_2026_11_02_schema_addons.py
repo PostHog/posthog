@@ -63,7 +63,7 @@ class Migration(migrations.Migration):
         ("metrics", "0001_squash_2026_11_02_initial"),
         ("notebooks", "0028_squash_2026_11_02_finalize_fks"),
         ("notifications", "0001_squash_2026_11_02_initial"),
-        ("posthog", "1418_alter_team_timezone"),
+        ("posthog", "1424_workload_trust_policy"),
         ("posthog", "1419_squash_2026_11_02_finalize_fks"),
         ("posthog_ai", "0001_squash_2026_11_02_initial"),
         ("product_analytics", "0001_squash_2026_11_02_initial"),
