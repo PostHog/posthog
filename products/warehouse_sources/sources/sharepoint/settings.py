@@ -44,6 +44,8 @@ class SharePointEndpoint(StrEnum):
     SITE_ACTIVITY_STATS = "site_activity_stats"
     DRIVE_ITEM_VERSIONS = "drive_item_versions"
     LIST_ITEM_VERSIONS = "list_item_versions"
+    DRIVE_ITEM_PERMISSIONS = "drive_item_permissions"
+    SITE_PAGES = "site_pages"
 
 
 @dataclass(frozen=True)
@@ -122,6 +124,22 @@ SHAREPOINT_ENDPOINTS: dict[str, SharePointEndpointConfig] = {
             "`fields`. Each sync makes one request per item"
         ),
         should_sync_default=False,
+    ),
+    SharePointEndpoint.DRIVE_ITEM_PERMISSIONS: SharePointEndpointConfig(
+        name=SharePointEndpoint.DRIVE_ITEM_PERMISSIONS,
+        # Inherited permissions keep the id of the ancestor's permission on every item below it.
+        primary_keys=[DRIVE_ID_COLUMN, ITEM_ID_COLUMN, "id"],
+        description=(
+            "Sharing permissions and sharing links of every file and folder in every document library. "
+            "Each sync makes one request per file or folder"
+        ),
+        should_sync_default=False,
+    ),
+    SharePointEndpoint.SITE_PAGES: SharePointEndpointConfig(
+        name=SharePointEndpoint.SITE_PAGES,
+        primary_keys=[SITE_ID_COLUMN, "id"],
+        description="Modern site pages and news posts in each site, with their publishing state",
+        partition_key="createdDateTime",
     ),
 }
 
