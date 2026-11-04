@@ -501,7 +501,9 @@ class TestTransactionalEmail(APIBaseTest):
             listed = self.client.get(f"/api/projects/{self.team.id}/hog_flows/").json()["results"]
             assert hog_flow_id not in {workflow["id"] for workflow in listed}
         email_step = HogFlow.objects.get(team=self.team, id=hog_flow_id).actions[1]["config"]
-        assert email_step["sensitive"] is (key == "welcome")
+        assert (email_step["sensitive"], email_step.get("template_key")) == (
+            (True, "welcome") if key == "welcome" else (False, None)
+        )
         assert json.loads(mock_post.call_args_list[0].kwargs["data"]) == {
             "to": "user@example.com",
             "distinct_id": "user-1",

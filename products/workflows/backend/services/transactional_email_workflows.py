@@ -61,7 +61,7 @@ def transactional_email_actions(content: TransactionalEmailContent, from_integra
 def code_email_actions(key: str) -> list[dict]:
     return _actions(
         name=key,
-        step_config={"message_category_id": None, "sensitive": True},
+        step_config={"template_key": key, "message_category_id": None, "sensitive": True},
         email={
             "from": {"integrationId": None},
             "replyTo": "",
