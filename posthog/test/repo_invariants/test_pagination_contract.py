@@ -36,6 +36,8 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.apm.backend.presentation.views.ServiceMapViewSet",
     # Returns the team's 20 most recent import runs, not a page of rows.
     "products.messaging.backend.presentation.views.provider_imports.ProviderImportViewSet",
+    # Pages through select_page over (created_at, id); test_workflow_views.py covers the page boundary.
+    "products.workflows.backend.presentation.views.workflow_views.WorkflowViewViewSet",
     "ee.api.billing.BillingViewset",
     "ee.api.quota_limits.QuotaLimitsViewSet",
     "products.subscriptions.backend.presentation.views.SubscriptionDeliveryViewSet",

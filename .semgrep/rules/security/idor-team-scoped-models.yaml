@@ -518,6 +518,7 @@ rules:
                               |WorkflowIdea
                               |WorkflowImport
                               |WorkflowProposal
+                              |WorkflowView
                           )$
                 - focus-metavariable: $SINK
       pattern-sanitizers:
@@ -1020,6 +1021,7 @@ rules:
                         |WorkflowIdea
                         |WorkflowImport
                         |WorkflowProposal
+                        |WorkflowView
                     )$
           # Exclude when team filter is present
           - pattern-not: $M.objects. ... .$METHOD2(..., team__project_id=$T, ...)

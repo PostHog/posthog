@@ -21,6 +21,7 @@ from products.workflows.backend.presentation.views import (
     workflow_setup,
     workflow_static_cohort_members,
     workflow_tasks,
+    workflow_views,
     workflow_vision_requests,
 )
 
@@ -35,6 +36,9 @@ webhook_urlpatterns: list[URLPattern] = [
 
 
 def register_routes(routers: RouterRegistry) -> None:
+    routers.projects.register(
+        r"workflow_views", workflow_views.WorkflowViewViewSet, "project_workflow_views", ["team_id"]
+    )
     routers.projects.register(r"hog_flows", hog_flow.HogFlowViewSet, "project_hog_flows", ["team_id"])
     routers.projects.register(
         r"workflow_tasks", workflow_tasks.WorkflowTaskViewSet, "project_workflow_tasks", ["team_id"]
