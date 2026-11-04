@@ -1326,6 +1326,24 @@ Live text: a highlight sweeping a line to say work is still in flight. Put it on
 - **Retune** with `--quill-shimmer-base` / `--quill-shimmer-highlight`; defaults read as muted brightening to full.
 - Reduced motion hands the color back rather than just stopping — otherwise the text would stay invisible.
 
+### Inverted surface — `data-quill-inverted`
+
+A container in the opposite theme: a dark floating selection bar in light mode, a light one in dark mode.
+Put `data-quill-inverted` on the container and paint it with `bg-background text-foreground`.
+
+```tsx
+<div data-quill-inverted className="flex items-center gap-2 rounded-lg bg-background px-3 py-2 text-foreground">
+  <Text size="sm">3 tables selected</Text>
+  <Button variant="outline">Export</Button>
+  <Button variant="primary">Certify</Button>
+</div>
+```
+
+- **Every token in the subtree takes the other mode's value**, including on elements that set `data-quill` themselves, such as Button. So Button variants, `Text variant="muted"`, Checkbox and focus rings stay legible with no per-component overrides.
+- The rule ships in the token CSS (`color-system.css` and the scoped variant), not in `primitives.css`.
+- Portaled popups (menus, tooltips) open outside the subtree, so they keep the page theme.
+- The `dark:` variant and `.dark` component rules still follow the page theme. Keep them out of an inverted subtree.
+
 ---
 
 ## Icons
