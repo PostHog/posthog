@@ -478,6 +478,64 @@ const featureFlagRulesUpdate = (): ToolBase<ReturnType<typeof FeatureFlagRulesUp
     },
 })
 
+const FeatureFlagRolloutPlanAdvanceSchema = () => {
+    const FeatureFlagRolloutPlansAdvanceCreateBody = orvalSchemas.FeatureFlagRolloutPlansAdvanceCreateBody()
+    const FeatureFlagRolloutPlansAdvanceCreateParams = orvalSchemas.FeatureFlagRolloutPlansAdvanceCreateParams()
+    return FeatureFlagRolloutPlansAdvanceCreateParams.omit({ project_id: true }).extend(
+        FeatureFlagRolloutPlansAdvanceCreateBody.shape
+    )
+}
+
+const featureFlagRolloutPlanAdvance = (): ToolBase<
+    ReturnType<typeof FeatureFlagRolloutPlanAdvanceSchema>,
+    Schemas.FeatureFlagRolloutPlan
+> => ({
+    name: 'feature-flag-rollout-plan-advance',
+    schema: FeatureFlagRolloutPlanAdvanceSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof FeatureFlagRolloutPlanAdvanceSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.summary !== undefined) {
+            body['summary'] = params.summary
+        }
+        const result = await context.api.request<Schemas.FeatureFlagRolloutPlan>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flag_rollout_plans/${encodeURIComponent(String(params.id))}/advance/`,
+            body,
+        })
+        return result
+    },
+})
+
+const FeatureFlagRolloutPlanFailSchema = () => {
+    const FeatureFlagRolloutPlansFailCreateBody = orvalSchemas.FeatureFlagRolloutPlansFailCreateBody()
+    const FeatureFlagRolloutPlansFailCreateParams = orvalSchemas.FeatureFlagRolloutPlansFailCreateParams()
+    return FeatureFlagRolloutPlansFailCreateParams.omit({ project_id: true }).extend(
+        FeatureFlagRolloutPlansFailCreateBody.shape
+    )
+}
+
+const featureFlagRolloutPlanFail = (): ToolBase<
+    ReturnType<typeof FeatureFlagRolloutPlanFailSchema>,
+    Schemas.FeatureFlagRolloutPlan
+> => ({
+    name: 'feature-flag-rollout-plan-fail',
+    schema: FeatureFlagRolloutPlanFailSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof FeatureFlagRolloutPlanFailSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.reason !== undefined) {
+            body['reason'] = params.reason
+        }
+        const result = await context.api.request<Schemas.FeatureFlagRolloutPlan>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/feature_flag_rollout_plans/${encodeURIComponent(String(params.id))}/fail/`,
+            body,
+        })
+        return result
+    },
+})
+
 const FeatureFlagSetReleaseConditionRolloutSchema = () => {
     const FeatureFlagsSetReleaseConditionRolloutCreateBody =
         orvalSchemas.FeatureFlagsSetReleaseConditionRolloutCreateBody()
@@ -1212,6 +1270,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'feature-flag-restore': featureFlagRestore,
     'feature-flag-roll-out-to-everyone': featureFlagRollOutToEveryone,
     'feature-flag-rules-update': featureFlagRulesUpdate,
+    'feature-flag-rollout-plan-advance': featureFlagRolloutPlanAdvance,
+    'feature-flag-rollout-plan-fail': featureFlagRolloutPlanFail,
     'feature-flag-set-release-condition-rollout': featureFlagSetReleaseConditionRollout,
     'feature-flag-unarchive': featureFlagUnarchive,
     'feature-flags-activity-retrieve': featureFlagsActivityRetrieve,

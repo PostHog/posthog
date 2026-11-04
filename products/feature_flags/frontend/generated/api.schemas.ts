@@ -503,6 +503,108 @@ export interface FeatureFlagRequestUsageResponseApi {
 }
 
 /**
+ * * `active` - Active
+ * * `completed` - Completed
+ * * `stopped` - Stopped
+ */
+export type FeatureFlagRolloutPlanStatusEnumApi =
+    (typeof FeatureFlagRolloutPlanStatusEnumApi)[keyof typeof FeatureFlagRolloutPlanStatusEnumApi]
+
+export const FeatureFlagRolloutPlanStatusEnumApi = {
+    Active: 'active',
+    Completed: 'completed',
+    Stopped: 'stopped',
+} as const
+
+export interface FeatureFlagRolloutPlanApi {
+    /** The rollout plan ID. */
+    readonly id: string
+    /** The ID of the feature flag this plan rolls out. */
+    readonly feature_flag: number
+    /** The index of the release condition this plan changes. */
+    readonly condition_index: number
+    /**
+     * The approved rollout percentages, in the order they apply.
+     * @items.minimum 0
+     * @items.maximum 32767
+     */
+    readonly percentages: readonly number[]
+    /** The minimum number of hours between two steps. */
+    readonly soak_hours: number
+    /** What the agent checks before each step, as the person wrote it. */
+    readonly health_checks: string
+    /** Whether the plan is active, completed, or stopped.
+     *
+     * * `active` - Active
+     * * `completed` - Completed
+     * * `stopped` - Stopped */
+    readonly status: FeatureFlagRolloutPlanStatusEnumApi
+    /** How many of the approved percentages are already applied. */
+    readonly steps_applied: number
+    /**
+     * The earliest time the next step can run. Null before the first step.
+     * @nullable
+     */
+    readonly next_check_at: string | null
+    /**
+     * The ID of the task that runs the health checks.
+     * @nullable
+     */
+    readonly task_id: string | null
+    /** What the agent reported after its last passing check. */
+    readonly last_summary: string
+    /** Why the plan stopped. Empty unless the status is stopped. */
+    readonly stop_reason: string
+    /** When the person approved the plan. */
+    readonly created_at: string
+}
+
+export interface FeatureFlagRolloutPlanCreateApi {
+    /** The ID of the feature flag to roll out. */
+    feature_flag: number
+    /**
+     * The index of the release condition to change.
+     * @minimum 0
+     */
+    condition_index?: number
+    /**
+     * The approved rollout percentages in increasing order, such as [5, 25, 50, 100].
+     * @minItems 1
+     * @maxItems 10
+     * @items.minimum 1
+     * @items.maximum 100
+     */
+    percentages: number[]
+    /**
+     * The minimum number of hours between two steps.
+     * @minimum 1
+     * @maximum 336
+     */
+    soak_hours: number
+    /**
+     * Which insights or dashboards show that the feature is healthy, and what result stops the rollout.
+     * @maxLength 4000
+     */
+    health_checks: string
+}
+
+export interface FeatureFlagRolloutPlanAdvanceApi {
+    /**
+     * A short summary of the health check results, with the numbers you read.
+     * @maxLength 4000
+     */
+    summary: string
+}
+
+export interface FeatureFlagRolloutPlanStopApi {
+    /**
+     * Why the rollout stops. The person who approved it reads this.
+     * @maxLength 4000
+     */
+    reason: string
+}
+
+/**
  * * `engineering` - Engineering
  * * `data` - Data
  * * `product` - Product Management
@@ -2460,6 +2562,13 @@ export const FeatureFlagRequestUsageListTimeInterval = {
     Hour: 'hour',
     Day: 'day',
 } as const
+
+export type FeatureFlagRolloutPlansListParams = {
+    /**
+     * The ID of the feature flag to list rollout plans for.
+     */
+    feature_flag: number
+}
 
 export type FeatureFlagsListParams = {
     /**

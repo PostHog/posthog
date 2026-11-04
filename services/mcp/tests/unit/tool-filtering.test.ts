@@ -578,6 +578,7 @@ describe('OAUTH_SCOPES_SUPPORTED completeness', () => {
     // they are intentionally absent from OAUTH_SCOPES_SUPPORTED, so exclude them here.
     const SERVER_MINT_ONLY_SCOPES = new Set([
         'context_layer_internal:write',
+        'feature_flag_rollout_plan:write',
         'hog_flow_proposal:write',
         'internal_run:read',
         'signal_scout_internal:read',

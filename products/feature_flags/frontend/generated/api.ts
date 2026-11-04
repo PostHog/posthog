@@ -29,6 +29,11 @@ import type {
     FeatureFlagRequestUsageListParams,
     FeatureFlagRequestUsageResponseApi,
     FeatureFlagRollOutToEveryoneRequestApi,
+    FeatureFlagRolloutPlanAdvanceApi,
+    FeatureFlagRolloutPlanApi,
+    FeatureFlagRolloutPlanCreateApi,
+    FeatureFlagRolloutPlanStopApi,
+    FeatureFlagRolloutPlansListParams,
     FeatureFlagSetActiveRequestApi,
     FeatureFlagSetReleaseConditionRolloutRequestApi,
     FeatureFlagStatusResponseApi,
@@ -575,6 +580,126 @@ export const featureFlagRequestUsageList = async (
     return apiMutator<FeatureFlagRequestUsageResponseApi>(getFeatureFlagRequestUsageListUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getFeatureFlagRolloutPlansListUrl = (projectId: string, params: FeatureFlagRolloutPlansListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/feature_flag_rollout_plans/?${stringifiedParams}`
+        : `/api/projects/${projectId}/feature_flag_rollout_plans/`
+}
+
+/**
+ * List the rollout plans of one feature flag, newest first.
+ */
+export const featureFlagRolloutPlansList = async (
+    projectId: string,
+    params: FeatureFlagRolloutPlansListParams,
+    options?: RequestInit
+): Promise<FeatureFlagRolloutPlanApi[]> => {
+    return apiMutator<FeatureFlagRolloutPlanApi[]>(getFeatureFlagRolloutPlansListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getFeatureFlagRolloutPlansCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/feature_flag_rollout_plans/`
+}
+
+/**
+ * Approve a rollout plan and start the agent that runs it.
+ *
+ * Only a person signed in to the app can do this, so an agent cannot approve its own plan.
+ */
+export const featureFlagRolloutPlansCreate = async (
+    projectId: string,
+    featureFlagRolloutPlanCreateApi: FeatureFlagRolloutPlanCreateApi,
+    options?: RequestInit
+): Promise<FeatureFlagRolloutPlanApi> => {
+    return apiMutator<FeatureFlagRolloutPlanApi>(getFeatureFlagRolloutPlansCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureFlagRolloutPlanCreateApi),
+    })
+}
+
+export const getFeatureFlagRolloutPlansAdvanceCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/feature_flag_rollout_plans/${id}/advance/`
+}
+
+/**
+ * Report that the health checks passed, so PostHog applies the next approved percentage.
+ *
+ * Only the run of this plan can call this. The caller sends no percentage and no flag, because the plan holds
+ * both. PostHog refuses a call before the time between steps has passed, and it schedules the next check.
+ */
+export const featureFlagRolloutPlansAdvanceCreate = async (
+    projectId: string,
+    id: string,
+    featureFlagRolloutPlanAdvanceApi: FeatureFlagRolloutPlanAdvanceApi,
+    options?: RequestInit
+): Promise<FeatureFlagRolloutPlanApi> => {
+    return apiMutator<FeatureFlagRolloutPlanApi>(getFeatureFlagRolloutPlansAdvanceCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureFlagRolloutPlanAdvanceApi),
+    })
+}
+
+export const getFeatureFlagRolloutPlansFailCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/feature_flag_rollout_plans/${id}/fail/`
+}
+
+/**
+ * Report that a health check failed, so PostHog stops the rollout and notifies the person who approved it.
+ *
+ * Only the run of this plan can call this. The flag stays at its current percentage.
+ */
+export const featureFlagRolloutPlansFailCreate = async (
+    projectId: string,
+    id: string,
+    featureFlagRolloutPlanStopApi: FeatureFlagRolloutPlanStopApi,
+    options?: RequestInit
+): Promise<FeatureFlagRolloutPlanApi> => {
+    return apiMutator<FeatureFlagRolloutPlanApi>(getFeatureFlagRolloutPlansFailCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureFlagRolloutPlanStopApi),
+    })
+}
+
+export const getFeatureFlagRolloutPlansStopCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/feature_flag_rollout_plans/${id}/stop/`
+}
+
+/**
+ * Stop the rollout, cancel the next health check, and leave the flag at its current percentage.
+ */
+export const featureFlagRolloutPlansStopCreate = async (
+    projectId: string,
+    id: string,
+    featureFlagRolloutPlanStopApi: FeatureFlagRolloutPlanStopApi,
+    options?: RequestInit
+): Promise<FeatureFlagRolloutPlanApi> => {
+    return apiMutator<FeatureFlagRolloutPlanApi>(getFeatureFlagRolloutPlansStopCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(featureFlagRolloutPlanStopApi),
     })
 }
 

@@ -220,6 +220,86 @@ export const OrganizationsProjectsEvaluationContextSuggestionsCreateBody = /* @_
 })
 
 /**
+ * Approve a rollout plan and start the agent that runs it.
+ *
+ * Only a person signed in to the app can do this, so an agent cannot approve its own plan.
+ */
+export const featureFlagRolloutPlansCreateBodyConditionIndexDefault = 0
+export const featureFlagRolloutPlansCreateBodyConditionIndexMin = 0
+
+export const featureFlagRolloutPlansCreateBodyPercentagesItemMax = 100
+
+export const featureFlagRolloutPlansCreateBodyPercentagesMax = 10
+
+export const featureFlagRolloutPlansCreateBodySoakHoursMax = 336
+
+export const featureFlagRolloutPlansCreateBodyHealthChecksMax = 4000
+
+export const FeatureFlagRolloutPlansCreateBody = /* @__PURE__ */ zod.object({
+    feature_flag: zod.number().describe('The ID of the feature flag to roll out.'),
+    condition_index: zod
+        .number()
+        .min(featureFlagRolloutPlansCreateBodyConditionIndexMin)
+        .default(featureFlagRolloutPlansCreateBodyConditionIndexDefault)
+        .describe('The index of the release condition to change.'),
+    percentages: zod
+        .array(zod.number().min(1).max(featureFlagRolloutPlansCreateBodyPercentagesItemMax))
+        .min(1)
+        .max(featureFlagRolloutPlansCreateBodyPercentagesMax)
+        .describe('The approved rollout percentages in increasing order, such as [5, 25, 50, 100].'),
+    soak_hours: zod
+        .number()
+        .min(1)
+        .max(featureFlagRolloutPlansCreateBodySoakHoursMax)
+        .describe('The minimum number of hours between two steps.'),
+    health_checks: zod
+        .string()
+        .max(featureFlagRolloutPlansCreateBodyHealthChecksMax)
+        .describe('Which insights or dashboards show that the feature is healthy, and what result stops the rollout.'),
+})
+
+/**
+ * Report that the health checks passed, so PostHog applies the next approved percentage.
+ *
+ * Only the run of this plan can call this. The caller sends no percentage and no flag, because the plan holds
+ * both. PostHog refuses a call before the time between steps has passed, and it schedules the next check.
+ */
+export const featureFlagRolloutPlansAdvanceCreateBodySummaryMax = 4000
+
+export const FeatureFlagRolloutPlansAdvanceCreateBody = /* @__PURE__ */ zod.object({
+    summary: zod
+        .string()
+        .max(featureFlagRolloutPlansAdvanceCreateBodySummaryMax)
+        .describe('A short summary of the health check results, with the numbers you read.'),
+})
+
+/**
+ * Report that a health check failed, so PostHog stops the rollout and notifies the person who approved it.
+ *
+ * Only the run of this plan can call this. The flag stays at its current percentage.
+ */
+export const featureFlagRolloutPlansFailCreateBodyReasonMax = 4000
+
+export const FeatureFlagRolloutPlansFailCreateBody = /* @__PURE__ */ zod.object({
+    reason: zod
+        .string()
+        .max(featureFlagRolloutPlansFailCreateBodyReasonMax)
+        .describe('Why the rollout stops. The person who approved it reads this.'),
+})
+
+/**
+ * Stop the rollout, cancel the next health check, and leave the flag at its current percentage.
+ */
+export const featureFlagRolloutPlansStopCreateBodyReasonMax = 4000
+
+export const FeatureFlagRolloutPlansStopCreateBody = /* @__PURE__ */ zod.object({
+    reason: zod
+        .string()
+        .max(featureFlagRolloutPlansStopCreateBodyReasonMax)
+        .describe('Why the rollout stops. The person who approved it reads this.'),
+})
+
+/**
  * Create, read, update and delete feature flags. [See docs](https://posthog.com/docs/feature-flags) for more information on feature flags.
  *
  * If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.

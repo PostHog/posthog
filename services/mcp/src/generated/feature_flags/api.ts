@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 27 enabled ops
+ * PostHog API - MCP 29 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -64,6 +64,53 @@ export const FeatureFlagsCopyFlagsDependencyRequirementsCreateBody = () => zod.o
         .min(1)
         .max(featureFlagsCopyFlagsDependencyRequirementsCreateBodyTargetProjectIdsMax)
         .describe('List of target project IDs to check dependency copy eligibility for'),
+})
+
+/**
+ * Report that the health checks passed, so PostHog applies the next approved percentage.
+ *
+ * Only the run of this plan can call this. The caller sends no percentage and no flag, because the plan holds
+ * both. PostHog refuses a call before the time between steps has passed, and it schedules the next check.
+ */
+export const FeatureFlagRolloutPlansAdvanceCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this feature flag rollout plan.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const featureFlagRolloutPlansAdvanceCreateBodySummaryMax = 4000
+
+export const FeatureFlagRolloutPlansAdvanceCreateBody = () => zod.object({
+    summary: zod
+        .string()
+        .max(featureFlagRolloutPlansAdvanceCreateBodySummaryMax)
+        .describe('A short summary of the health check results, with the numbers you read.'),
+})
+
+/**
+ * Report that a health check failed, so PostHog stops the rollout and notifies the person who approved it.
+ *
+ * Only the run of this plan can call this. The flag stays at its current percentage.
+ */
+export const FeatureFlagRolloutPlansFailCreateParams = () => zod.object({
+    id: zod.string().describe('A UUID string identifying this feature flag rollout plan.'),
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const featureFlagRolloutPlansFailCreateBodyReasonMax = 4000
+
+export const FeatureFlagRolloutPlansFailCreateBody = () => zod.object({
+    reason: zod
+        .string()
+        .max(featureFlagRolloutPlansFailCreateBodyReasonMax)
+        .describe('Why the rollout stops. The person who approved it reads this.'),
 })
 
 /**
