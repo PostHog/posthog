@@ -279,6 +279,20 @@ const scopeSeeAll = (
           ]
         : []
 
+const nestingDepth = (item: SearchItem): number => (item.parentName ? item.parentName.split(' › ').length : 0)
+
+const shallowestFirst = <T extends RankedItem>(entries: T[]): T[] =>
+    entries
+        .map((entry, index) => ({ entry, index }))
+        .sort(
+            (a, b) =>
+                a.entry.rank[0] - b.entry.rank[0] ||
+                a.entry.rank[1] - b.entry.rank[1] ||
+                nestingDepth(a.entry.item) - nestingDepth(b.entry.item) ||
+                a.index - b.index
+        )
+        .map(({ entry }) => entry)
+
 interface RankedResultsInput {
     query: string
     highlightWords: string[]
@@ -444,8 +458,9 @@ export function buildRankedResults({
         groupKey !== 'products' &&
         searchWords(groupLabel(groupKey)).some((word) => tokenTypos(queryWords[0], word) !== null)
     const orderedGroups = [...groups].sort(([a], [b]) => Number(typeIntent(b)) - Number(typeIntent(a)))
-    for (const [groupKey, entries] of orderedGroups) {
+    for (const [groupKey, groupEntries] of orderedGroups) {
         const expandable = groupKey === 'settings'
+        const entries = expandable ? shallowestFirst(groupEntries) : groupEntries
         const expanded = expandable && expandedGroups.includes(groupKey)
         const shown = expanded ? entries : entries.slice(0, GROUP_LIMIT)
         const inBest = best.filter((entry) => entry.groupKey === groupKey)

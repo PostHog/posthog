@@ -555,6 +555,53 @@ describe('buildSections', () => {
         }
     )
 
+    test.each([false, true])(
+        'lists the level landing rows before a nested setting named Settings, unified ranking %s',
+        (unifiedRanking) => {
+            const setting = (id: string, name: string, parentName?: string): SearchItem => ({
+                id,
+                name,
+                displayName: name,
+                category: 'settings',
+                ...(parentName ? { parentName } : {}),
+            })
+            const settings: SearchItem[] = [
+                setting('settings', 'Settings'),
+                setting('settings-activity', 'Settings', 'Project settings › Activity logs'),
+                setting('settings-level-user', 'User settings'),
+                setting('settings-level-project', 'Project settings'),
+                setting('settings-level-organization', 'Organization settings'),
+                ...['Alpha', 'Beta', 'Gamma', 'Delta'].map((name) =>
+                    setting(`settings-${name}`, `${name} settings`, 'Project settings')
+                ),
+            ]
+            const remote = emptyRemoteSlots()
+            remote.results = {
+                cache: {
+                    settings: [
+                        { ...dashboard('a', '1'), name: 'Settings board', rankKey: [-1, 0, 0, 0, -1, 0, 1, 0, 0] },
+                    ],
+                },
+            }
+            const sections = buildSections(
+                input('search', {
+                    local: { ...emptyLocal(), settings },
+                    remote,
+                    remoteQueries: { results: 'settings' },
+                    localQuery: 'settings',
+                    unifiedRanking,
+                })
+            )
+
+            const group = sections.find((section) => section.key === 'group-settings')
+            expect(group?.rows.slice(0, 3).map((row) => (row.kind === 'item' ? row.item.id : row.kind))).toEqual([
+                'settings-level-user',
+                'settings-level-project',
+                'settings-level-organization',
+            ])
+        }
+    )
+
     it('with unified ranking, a pasted snake_case name ranks its matching setting first', () => {
         const setting: SearchItem = {
             id: 'settings-api-keys',
