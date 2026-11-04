@@ -7,6 +7,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
+import type { UserType } from '~/types'
 
 import {
     dataCatalogMetricsApproveCreate,
@@ -276,6 +277,76 @@ describe('metricsLogic', () => {
 
         logic.actions.setFilters({ owner: 'former.member@posthog.com' })
         expect(logic.values.metrics.map((metric) => metric.name)).toEqual(['b'])
+    })
+
+    it('filters to drifted metrics of any status from the stage strip, reports one event per click, and resets on a second click', async () => {
+        const proposed = buildMetric({ id: 'metric-1', name: 'proposed' })
+        const approvedDrifted = buildMetric({
+            id: 'metric-2',
+            name: 'approved_drifted',
+            status: 'approved',
+            is_drifted: true,
+        })
+        const approved = buildMetric({ id: 'metric-3', name: 'approved', status: 'approved' })
+        logic.actions.loadMetricsSuccess([proposed, approvedDrifted, approved])
+
+        expect(logic.values.stageCounts).toEqual({ proposed: 1, approved: 2, drifted: 1 })
+
+        const capture = jest.spyOn(posthog, 'capture').mockImplementation()
+        jest.useFakeTimers({ doNotFake: ['queueMicrotask', 'nextTick'] })
+        try {
+            logic.actions.toggleStage('drifted')
+            expect(logic.values.metrics).toEqual([approvedDrifted])
+
+            await jest.advanceTimersByTimeAsync(500)
+            expect(capture.mock.calls.map(([event]) => event)).toEqual(['data catalog stage card clicked'])
+        } finally {
+            jest.useRealTimers()
+            capture.mockRestore()
+        }
+
+        logic.actions.toggleStage('drifted')
+        expect(logic.values.filters.status).toEqual('all')
+        expect(logic.values.metrics).toEqual([proposed, approvedDrifted, approved])
+    })
+
+    it('orders the review queue by drift, ownership, then AI confidence, and keeps clean approved metrics out', async () => {
+        const me = userLogic.values.user as UserType
+        const mine = { id: 1, uuid: me.uuid, email: me.email, hedgehog_config: null }
+        const theirs = { id: 2, uuid: 'someone-else', email: 'them@example.com', hedgehog_config: null }
+        const metric = (name: string, overrides: Partial<DataCatalogMetricApi>): DataCatalogMetricApi =>
+            buildMetric({ id: name, name, created_by: theirs, created_at: '2026-10-01T00:00:00Z', ...overrides })
+        logic.actions.loadMetricsSuccess([
+            metric('their_proposal', {}),
+            metric('ai_low', { created_source: 'ai_generated', confidence: 0.6 }),
+            metric('approved_clean', { status: 'approved' }),
+            metric('my_newer_proposal', { created_by: mine, created_at: '2026-10-02T00:00:00Z' }),
+            metric('ai_high', { created_source: 'ai_generated', confidence: 0.9 }),
+            metric('their_drifted_approved', { status: 'approved', is_drifted: true }),
+            metric('my_older_proposal', { created_by: mine }),
+            metric('owned_drifted', { is_drifted: true, owner: me.email }),
+        ])
+
+        expect(logic.values.reviewQueue.map((m) => m.name)).toEqual([
+            'owned_drifted',
+            'their_drifted_approved',
+            'my_newer_proposal',
+            'my_older_proposal',
+            'ai_high',
+            'ai_low',
+            'their_proposal',
+        ])
+        expect(logic.values.approvedMetrics.map((m) => m.name)).toEqual(['approved_clean'])
+
+        logic.actions.toggleStage('approved')
+        expect(logic.values.reviewQueue.map((m) => m.name)).toEqual(['their_drifted_approved'])
+        expect(logic.values).toMatchObject({ showReviewQueue: true, showApproved: true })
+
+        logic.actions.loadMetricsSuccess([metric('approved_clean', { status: 'approved' })])
+        expect(logic.values).toMatchObject({ showReviewQueue: false, showApproved: true })
+
+        logic.actions.toggleStage('proposed')
+        expect(logic.values).toMatchObject({ showReviewQueue: true, showApproved: false })
     })
 
     it('patches approved rows and reloads to reconcile skipped ones', async () => {

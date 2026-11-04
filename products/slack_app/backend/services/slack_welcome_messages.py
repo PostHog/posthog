@@ -18,7 +18,7 @@ from typing import Any
 
 from django.conf import settings
 
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.integration import SlackIntegration
 from posthog.slack.formatting import channel_id_from_target
 from posthog.utils import absolute_uri
 
@@ -31,6 +31,7 @@ from products.slack_app.backend.inbox_channel import (
 )
 from products.slack_app.backend.services.followup_invite import BOT_SETUP_DOCS_URL
 from products.slack_app.backend.services.slack_messages import app_home_url, context_block, section_block
+from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration
 
 # Block Kit action ids for the onboarding DM, kept in sync with the interactivity router.
 INBOX_CREATE_ACTION_ID = "slack_inbox_create"
@@ -74,7 +75,7 @@ def _feedback_block() -> dict[str, Any]:
     )
 
 
-def _home_tab(integration: Integration, label: str = "my Home tab") -> str:
+def _home_tab(integration: WorkspaceIntegration, label: str = "my Home tab") -> str:
     """``label``, linked to this install's Home tab where there is one to link to.
 
     An install that predates the app id on its config has no deep link, and the tab is
@@ -104,7 +105,7 @@ def build_assistant_pane_welcome() -> str:
     )
 
 
-def build_channel_welcome(integration: Integration) -> tuple[str, list[dict[str, Any]]]:
+def build_channel_welcome(integration: WorkspaceIntegration) -> tuple[str, list[dict[str, Any]]]:
     """Posted in a channel the moment the app is added to it.
 
     Written for everyone in the channel rather than for whoever did the adding.
@@ -146,7 +147,7 @@ def build_channel_welcome(integration: Integration) -> tuple[str, list[dict[str,
     return "Hey, I'm PostHog. Tag me with @PostHog to get started.", blocks
 
 
-def build_team_join_welcome(integration: Integration) -> tuple[str, list[dict[str, Any]]]:
+def build_team_join_welcome(integration: WorkspaceIntegration) -> tuple[str, list[dict[str, Any]]]:
     """DM'd to someone who just joined a workspace that already has the app.
 
     They inherited a tool nobody introduced them to, so this says what it is before it
@@ -214,7 +215,7 @@ def _github_connect_url(team_id: int) -> str:
     return _public_url(f"/integrations/connect/github/?project_id={team_id}&connect_from=slack")
 
 
-def _github_blocks(integration: Integration, *, done: bool) -> list[dict]:
+def _github_blocks(integration: WorkspaceIntegration, *, done: bool) -> list[dict]:
     blocks: list[dict] = [
         section_block(
             "*1. Connect your codebase* :wrench:\nConnect GitHub so I can fix things, not just flag them - "
@@ -236,7 +237,7 @@ def _github_blocks(integration: Integration, *, done: bool) -> list[dict]:
     return blocks
 
 
-def _sources_blocks(integration: Integration) -> list[dict]:
+def _sources_blocks(integration: WorkspaceIntegration) -> list[dict]:
     """Inline checkboxes (current state pre-checked) — ticking sets a source up immediately, unticking turns it off."""
     from products.signals.backend.facade.api import (
         onboarding_sources,  # noqa: PLC0415 — keeps the signals stack off the slack import path
@@ -267,7 +268,7 @@ def _sources_blocks(integration: Integration) -> list[dict]:
     return blocks
 
 
-def _channel_blocks(integration: Integration, slack: SlackIntegration, *, done: bool) -> list[dict]:
+def _channel_blocks(integration: WorkspaceIntegration, slack: SlackIntegration, *, done: bool) -> list[dict]:
     blocks: list[dict] = [
         section_block(
             "*3. Where I report* :inbox_tray:\nEverything I find lands in one shared channel so the team stays in the loop."
@@ -296,7 +297,7 @@ def _channel_blocks(integration: Integration, slack: SlackIntegration, *, done: 
     return blocks
 
 
-def _ai_approval_blocks(integration: Integration, *, is_admin: bool) -> list[dict]:
+def _ai_approval_blocks(integration: WorkspaceIntegration, *, is_admin: bool) -> list[dict]:
     """The approval prompt — only rendered when not yet approved. Admins tick a checkbox to approve;
     non-admins get an 'ask an admin' note, since only ADMIN+ can toggle org settings."""
     blocks: list[dict] = [
@@ -329,7 +330,7 @@ def _ai_approval_blocks(integration: Integration, *, is_admin: bool) -> list[dic
 
 
 def build_onboarding_dm(
-    integration: Integration,
+    integration: WorkspaceIntegration,
     slack: SlackIntegration,
     *,
     needs_ai_approval: bool = False,

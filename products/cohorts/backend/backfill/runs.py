@@ -14,10 +14,11 @@ import structlog
 from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 
+from products.cohorts.backend.backfill.flag_calls_table import FlagCallsTableUnresolved
 from products.cohorts.backend.backfill.pinning import (
     PersonPinningCapExceeded,
     leaf_unpinnable_reason,
-    pin_conditions_for_cohorts,
+    pin_behavioral_run,
     pin_person_conditions_for_cohorts,
 )
 from products.cohorts.backend.backfill.readiness import ensure_filters_shape_hash
@@ -39,7 +40,7 @@ from products.cohorts.backend.models.backfill import (
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.leaf_shape import walk_filter_leaves
 from products.cohorts.backend.parity.eligibility import structural_exclusion
-from products.cohorts.backend.realtime_teams import is_realtime_cohort_team
+from products.cohorts.backend.realtime_teams import is_processing_team
 
 logger = structlog.get_logger(__name__)
 
@@ -185,11 +186,6 @@ def _run_status(preconditions_missing: list[str]) -> tuple[str, str]:
     return CohortBackfillRunStatus.AWAITING_BOUNDARY, ""
 
 
-def _pinned_payload(cohorts: Iterable[Cohort]) -> dict[str, Any]:
-    pinned, event_names = pin_conditions_for_cohorts(cohorts)
-    return {**pinned, "event_names": event_names}
-
-
 def _active_participation_cohort_ids(team_id: int, cohort_ids: Iterable[int], *, kind: CohortBackfillKind) -> set[int]:
     return set(
         CohortBackfillRunCohort.objects.for_team(team_id)
@@ -262,6 +258,7 @@ class BackfillRefusalReason(StrEnum):
     OVER_BUDGET = "over_budget"
     SIZING_SCAN_CAP_EXCEEDED = "sizing_scan_cap_exceeded"
     DEFINITION_CHANGED = "definition_changed"
+    FLAG_CALLS_TABLE_UNRESOLVED = "flag_calls_table_unresolved"
 
 
 @frozen
@@ -292,7 +289,7 @@ def attempt_backfill_run_for_cohort(team_id: int, cohort_id: int, trigger_kind: 
     static in the meantime refuses instead of creating a second run for the same slot. The reason
     comes back on the attempt so the signal path can label its metric with it.
     """
-    if not is_realtime_cohort_team(team_id):
+    if not is_processing_team(team_id, fresh=True):
         return BackfillRunAttempt.refused(BackfillRefusalReason.TEAM_NOT_REALTIME)
 
     try:
@@ -319,6 +316,17 @@ def attempt_backfill_run_for_cohort(team_id: int, cohort_id: int, trigger_kind: 
             if _has_active_cohort_run(team_id, cohort_id, kind=CohortBackfillKind.BEHAVIORAL):
                 return BackfillRunAttempt.refused(BackfillRefusalReason.RUN_SLOT_OCCUPIED)
 
+            try:
+                pinned = pin_behavioral_run([cohort], cohort.team)
+            except FlagCallsTableUnresolved as error:
+                logger.warning(
+                    "cohort_behavioral_backfill_flag_calls_table_unresolved",
+                    team_id=team_id,
+                    cohort_id=cohort_id,
+                    error=str(error),
+                )
+                return BackfillRunAttempt.refused(BackfillRefusalReason.FLAG_CALLS_TABLE_UNRESOLVED)
+
             filters_shape_hash = ensure_filters_shape_hash(cohort)
             behavioral_filters_shape_hash = cohort.behavioral_filters_shape_hash or ""
             preconditions, missing = check_run_preconditions()
@@ -331,7 +339,7 @@ def attempt_backfill_run_for_cohort(team_id: int, cohort_id: int, trigger_kind: 
                 scope=CohortBackfillScope.COHORT,
                 status=status,
                 timezone=cohort.team.timezone,
-                pinned=_pinned_payload([cohort]),
+                pinned=pinned,
                 preconditions=preconditions,
                 blocked_reason=blocked_reason,
             )
@@ -377,19 +385,23 @@ def create_team_backfill_run(
     boundary_at: datetime | None = None,
     scan_estimate: BehavioralScanEstimate | None = None,
 ) -> CohortBackfillRun:
-    if not is_realtime_cohort_team(team_id):
-        raise ValueError(f"Team {team_id} is not in the realtime cohort allowlist")
+    if not is_processing_team(team_id, fresh=True):
+        raise ValueError(f"Team {team_id} is not processed by the realtime cohort pipeline")
 
     boundary_at = _validate_boundary_at(trigger_kind, boundary_at)
 
     requested_ids = set(cohort_ids) if cohort_ids is not None else None
     with transaction.atomic():
         team = Team.objects.get(id=team_id)
-        queryset = Cohort.objects.select_for_update(of=("self",)).filter(
-            team_id=team_id,
-            cohort_type=CohortType.REALTIME,
-            is_static=False,
-            deleted=False,
+        queryset = (
+            Cohort.objects.select_for_update(of=("self",))
+            .select_related("team")
+            .filter(
+                team_id=team_id,
+                cohort_type=CohortType.REALTIME,
+                is_static=False,
+                deleted=False,
+            )
         )
         if requested_ids is not None:
             queryset = queryset.filter(id__in=requested_ids)
@@ -409,6 +421,7 @@ def create_team_backfill_run(
         if _has_active_team_run(team_id, kind=CohortBackfillKind.BEHAVIORAL):
             raise ValueError(f"Team {team_id} already has an active team backfill run (behavioral)")
 
+        pinned = pin_behavioral_run(cohorts, team)
         hashes: dict[int, str] = {}
         behavioral_hashes: dict[int, str] = {}
         for cohort in cohorts:
@@ -427,7 +440,7 @@ def create_team_backfill_run(
             status=status,
             boundary_at=boundary_at,
             timezone=team.timezone,
-            pinned=_pinned_payload(cohorts),
+            pinned=pinned,
             preconditions=preconditions,
             blocked_reason=blocked_reason,
         )
@@ -480,7 +493,7 @@ def attempt_person_backfill_run_for_cohort(
     The reason for a refusal comes back on the attempt, so the signal path can label its metric
     with it.
     """
-    if not is_realtime_cohort_team(team_id):
+    if not is_processing_team(team_id, fresh=True):
         return BackfillRunAttempt.refused(BackfillRefusalReason.TEAM_NOT_REALTIME)
 
     horizon_days = (
@@ -677,8 +690,8 @@ def create_person_team_backfill_run(
     created_by_id: int | None = None,
     boundary_at: datetime | None = None,
 ) -> CohortBackfillRun:
-    if not is_realtime_cohort_team(team_id):
-        raise ValueError(f"Team {team_id} is not in the realtime cohort allowlist")
+    if not is_processing_team(team_id, fresh=True):
+        raise ValueError(f"Team {team_id} is not processed by the realtime cohort pipeline")
     if person_horizon_days < 1:
         raise ValueError("person_horizon_days must be at least 1")
 

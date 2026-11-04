@@ -112,6 +112,7 @@ const ATTENTION_ROWS = [
     attentionRow('worse-12', 'worse', PASS_RATE, -12),
     attentionRow('worse-8', 'worse', PASS_RATE, -8),
     attentionRow('errored', 'errored', PASS_RATE, null),
+    { ...attentionRow('paused', null, PASS_RATE, 1), enabled: false },
 ]
 
 const HISTOGRAM = { scale: SCALE, buckets: [{ label: '7', count: 10 }] }
@@ -471,6 +472,28 @@ describe('evaluationsOverviewLogic', () => {
         expect(drawerLogic.values.openDetails).toMatchObject({ status: 'ready' })
     })
 
+    it('opens paused evaluations in Explore only when they have results in the period', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:teamId/evaluations/': {
+                    count: 2,
+                    next: null,
+                    results: [
+                        { ...evaluation('eval-a', null), enabled: false },
+                        { ...evaluation('eval-z', null), enabled: false },
+                    ],
+                },
+            },
+        })
+        llmEvaluationsLogic.actions.loadEvaluations()
+        await expectLogic(llmEvaluationsLogic).toFinishAllListeners()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const url = decodeURIComponent(logic.values.exploreUrl ?? '')
+        expect(url).toContain('eval-a')
+        expect(url).not.toContain('eval-z')
+    })
+
     test.each([
         { dateFrom: '-14d', dateTo: null, expected: '"date_from":"2026-10-09","date_to":"2026-10-22"' },
         // Hourly buckets read a date-only end as midnight, which would drop the whole day.
@@ -575,9 +598,13 @@ describe('evaluationsOverviewLogic', () => {
     test.each([
         {
             selector: 'tableRows' as const,
-            expected: ['errored', 'worse-sentiment', 'worse-12', 'worse-8', 'worse-5', 'silent', 'healthy'],
+            expected: ['errored', 'worse-sentiment', 'worse-12', 'worse-8', 'worse-5', 'silent', 'healthy', 'paused'],
         },
         { selector: 'chartedIds' as const, expected: ['worse-sentiment', 'worse-12', 'worse-8'] },
+        {
+            selector: 'compareListRows' as const,
+            expected: ['worse-sentiment', 'worse-12', 'worse-8', 'worse-5', 'healthy', 'paused', 'errored', 'silent'],
+        },
     ])('puts the worst regression first in $selector', async ({ selector, expected }) => {
         useMocks({
             get: {

@@ -7,7 +7,7 @@ import { LemonInput, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 
-import { isHogQLQuery } from '~/queries/utils'
+import { isHogQLQuery } from '~/queries/schema/node-guards'
 
 import { NotebookNodeType } from '../../types'
 import { notebookNodeLogic } from '../notebookNodeLogic'

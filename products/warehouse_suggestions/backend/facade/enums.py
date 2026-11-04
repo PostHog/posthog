@@ -40,6 +40,12 @@ class WarehouseSuggestionRefreshMode(LabeledStrEnum):
     INCREMENTAL = "incremental"
 
 
+class WarehouseSuggestionMainSaving(LabeledStrEnum):
+    WAITING = "waiting"
+    BACKGROUND = "background"
+    SCANNED = "scanned"
+
+
 class WarehouseSuggestionRefreshIntervalBasis(LabeledStrEnum):
     SOURCE_SYNC = ("source_sync", "Source sync")
     FASTEST_SCHEDULE = ("fastest_schedule", "Fastest schedule")

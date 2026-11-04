@@ -4,15 +4,16 @@ import { subscriptions } from 'kea-subscriptions'
 import api from 'lib/api'
 import type { DataColorTheme } from 'lib/colors'
 import { consumePersonsModalClick } from 'lib/components/ResultMenu/personsModalCapture'
+import { keyForInsightLogicProps } from 'lib/insights/sharedUtils'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { cohortSavedToast } from 'scenes/cohorts/cohortSavedToast'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
-import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { urls } from 'scenes/urls'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { Noun, groupsModel } from '~/models/groupsModel'
+import { isLifecycleQuery, isRetentionQuery, isStickinessQuery } from '~/queries/schema/node-guards'
 import {
     ActorsQuery,
     DataTableNode,
@@ -31,7 +32,7 @@ import type {
     WebStatsTableQuery,
 } from '~/queries/schema/schema-general'
 import type { PathsV2Query } from '~/queries/schema/schema-general'
-import { isInsightActorsQuery, isLifecycleQuery, isRetentionQuery, isStickinessQuery } from '~/queries/utils'
+import { isInsightActorsQuery } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
 import { AGGREGATION_LABEL_FOR_CUSTOM_DATA_WAREHOUSE } from 'products/product_analytics/frontend/insights/shared/aggregationTargetUtils'

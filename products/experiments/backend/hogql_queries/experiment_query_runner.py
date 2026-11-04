@@ -22,7 +22,6 @@ from posthog.schema import (
     HogQLQueryModifiers,
     IntervalType,
     MultipleVariantHandling,
-    PrecomputationMode,
 )
 
 from posthog.hogql import ast
@@ -41,7 +40,7 @@ from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.ai_observability.backend.facade.api import mentions_evaluation_pass_markers
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
-from products.experiments.backend.facade.enums import PrecomputeSkipReason
+from products.experiments.backend.facade.enums import ExposuresPath, PrecomputeSkipReason
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY, get_baseline_variant_key
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window, experiment_window_end
 from products.experiments.backend.hogql_queries.cuped_config import get_cuped_config
@@ -56,14 +55,10 @@ from products.experiments.backend.hogql_queries.exposure_query_logic import (
     get_entity_key,
     get_multiple_variant_handling_from_experiment,
 )
+from products.experiments.backend.hogql_queries.exposures_precompute import ExposuresPrecompute
 from products.experiments.backend.hogql_queries.metric_events_precompute import (
     MetricEventsPrecompute,
     RatioPrecomputeResults,
-)
-from products.experiments.backend.hogql_queries.precompute_policy import (
-    BLOCKING_PRECOMPUTE_SKIP_REASONS,
-    ensure_exposures_precomputed,
-    team_precompute_skip_reason,
 )
 from products.experiments.backend.hogql_queries.utils import (
     aggregate_variants_across_breakdowns,
@@ -73,6 +68,10 @@ from products.experiments.backend.hogql_queries.utils import (
     get_frequentist_experiment_result,
     get_variant_results,
     split_baseline_and_test_variants,
+)
+from products.experiments.backend.metric_calculation.config import (
+    ExperimentCalculationSettings,
+    MetricCalculationConfig,
 )
 from products.experiments.backend.metric_resolution import (
     metric_reads_data_warehouse,
@@ -196,6 +195,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         self.clickhouse_sql: str | None = None
         self.hogql: str | None = None
         self._is_precomputed: bool = False  # exposures precompute
+        self.exposures_path: ExposuresPath | None = None
         self._metric_events_precomputed: bool = False
 
     def _get_breakdowns_for_builder(self) -> list | None:
@@ -219,16 +219,23 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
 
         return breakdowns
 
-    def _ensure_exposures_precomputed(self, builder: ExperimentQueryBuilder) -> LazyComputationResult:
-        if not self.experiment.start_date:
-            raise ValidationError("Experiment must have a start date for lazy computation")
-
-        return ensure_exposures_precomputed(
-            self.team,
-            builder,
-            self.experiment.start_date,
-            experiment_window_end(self.experiment, self.as_of),
+    @cached_property
+    def _exposures_precompute(self) -> ExposuresPrecompute:
+        return ExposuresPrecompute(
+            team=self.team,
+            team_experiments_config=self._team_experiments_config,
+            experiment=self.experiment,
+            window_start=self.experiment.start_date,
+            window_end=experiment_window_end(self.experiment, self.as_of),
+            exposure_criteria=self.experiment.exposure_criteria,
+            cohort_filter_sources=(self.metric,),
+            precomputation_mode=self.query.precomputation_mode,
+            is_data_warehouse_query=self.is_data_warehouse_query,
+            group_type_index=self.group_type_index,
         )
+
+    def _ensure_exposures_precomputed(self, builder: ExperimentQueryBuilder) -> LazyComputationResult:
+        return self._exposures_precompute.ensure_precomputed(builder)
 
     @cached_property
     def _metric_events_precompute(self) -> MetricEventsPrecompute:
@@ -253,31 +260,12 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
     def _team_experiments_config(self) -> TeamExperimentsConfig:
         return get_or_create_team_extension(self.team, TeamExperimentsConfig)
 
-    def _should_precompute(self) -> bool:
-        return self._precompute_skip_reason() not in BLOCKING_PRECOMPUTE_SKIP_REASONS
+    def _exposures_precompute_applicable(self) -> bool:
+        return self._exposures_precompute.applicable
 
     def _precompute_skip_reason(self) -> Optional[PrecomputeSkipReason]:
         """Why precompute was not used, for the query-performance UI. None when it was attempted."""
-        if self.query.precomputation_mode == PrecomputationMode.PRECOMPUTED:
-            return None
-        if self.query.precomputation_mode == PrecomputationMode.DIRECT:
-            return PrecomputeSkipReason.OVERRIDE_DIRECT
-
-        blocked = team_precompute_skip_reason(
-            self.team,
-            self._team_experiments_config,
-            self.experiment,
-            self.experiment.exposure_criteria,
-            self.metric,
-        )
-        if blocked is not None:
-            return blocked
-
-        if self.is_data_warehouse_query:
-            return PrecomputeSkipReason.DATA_WAREHOUSE
-        if self.group_type_index is not None:
-            return PrecomputeSkipReason.GROUP_AGGREGATION
-        return None  # precompute was attempted; a direct path means the build failed / wasn't ready
+        return self._exposures_precompute.ineligibility_reason()
 
     def _metric_events_precompute_applicable(self) -> bool:
         return self._metric_events_precompute.applicable
@@ -325,25 +313,18 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
     def _get_experiment_query(self) -> ast.SelectQuery:
         builder = self._query_builder()
 
-        should_precompute = self._should_precompute()
-
         exposure_job_ids: list[str] | None = None
         metric_events_job_ids: list[str] | None = None
         numerator_job_ids: list[str] | None = None
         denominator_job_ids: list[str] | None = None
 
-        # Skip precomputation for data warehouse metrics because the precomputed table
-        # doesn't include the join keys needed to link exposures to data warehouse tables.
-        # Group-aggregated experiments are excluded too: their build INSERT references
-        # $group_N, which the INSERT ... SELECT analysis path can't resolve (MATERIALIZED
-        # on sharded_events), so every build fails with UNKNOWN_IDENTIFIER.
-        if should_precompute and not self.is_data_warehouse_query and self.group_type_index is None:
+        if self._exposures_precompute_applicable():
             try:
                 with tags_context(experiment_query_surface="precompute_build", experiment_precompute_table="exposures"):
                     result = self._ensure_exposures_precomputed(builder)
                 if result.ready:
                     exposure_job_ids = [str(job_id) for job_id in result.job_ids]
-                    self._is_precomputed = True
+                    self._is_precomputed = builder.reads_precomputed_exposures(exposure_job_ids)
                 elif result.capacity_rejected:
                     # ClickHouse refused the build because the pool is full. The direct scan
                     # below would hold a slot for minutes and starve the next builds too, so
@@ -510,14 +491,14 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         experiment_query_ast = self._get_experiment_query()
 
         # Tag after _get_experiment_query() which sets the precompute flags
-        exposures_path = "precomputed" if self._is_precomputed else "direct_scan"
+        self.exposures_path = ExposuresPath.PRECOMPUTED if self._is_precomputed else ExposuresPath.DIRECT_SCAN
         metric_events_path = self.metric_events_path
         skip_reason = self._precompute_skip_reason()
         tag_queries(
-            experiment_exposures_path=exposures_path,
+            experiment_exposures_path=self.exposures_path.value,
             experiment_metric_events_path=metric_events_path,
             experiment_metric_events_skip_reason=self._metric_events_ineligibility_reason(),
-            experiment_execution_path=exposures_path,
+            experiment_execution_path=self.exposures_path.value,
             experiment_precompute_skip_reason=skip_reason.value if skip_reason is not None else None,
             experiment_scan_date_from=self.date_range.date_from,
             experiment_scan_date_to=self.date_range.date_to,
@@ -733,6 +714,18 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             f"{super().single_flight_variant()}:as_of={as_of}"
             f":bypass_warehouse_access_control={self.bypass_warehouse_access_control}"
             f":max_execution_time={self.max_execution_time}"
+        )
+
+    @cached_property
+    def calculation_config(self) -> MetricCalculationConfig:
+        self.experiment.team = self.team
+        settings = ExperimentCalculationSettings.from_experiment(
+            self.experiment, team_config=self._team_experiments_config
+        )
+        return settings.build_metric_config(
+            metric_id=self.query.metric.uuid or "",
+            role="primary",
+            definition=self.query.metric.model_dump(mode="json", exclude_none=True),
         )
 
     def get_cache_payload(self) -> dict:

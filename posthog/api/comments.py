@@ -11,7 +11,7 @@ from django.utils import timezone
 import structlog
 import posthoganalytics
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
-from rest_framework import exceptions, pagination, serializers, status, viewsets
+from rest_framework import exceptions, serializers, status, viewsets
 from rest_framework.exceptions import ErrorDetail
 from rest_framework.generics import get_object_or_404
 from rest_framework.request import Request
@@ -19,6 +19,7 @@ from rest_framework.response import Response
 from slack_sdk.errors import SlackApiError
 
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
+from posthog.api.pagination import StableCursorPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
@@ -26,6 +27,7 @@ from posthog.comment.access import task_comment_target_is_accessible
 from posthog.event_usage import groups
 from posthog.exceptions import Conflict
 from posthog.helpers.slack_thread_mirror import post_comment_to_slack_thread, slack_author_from_user
+from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import get_was_impersonated
@@ -46,7 +48,7 @@ from posthog.models.comment.utils import (
     produce_discussion_mention_events,
     send_mention_notifications,
 )
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.models.integration import SlackIntegration
 from posthog.oauth_provenance import get_oauth_access_token, is_sandbox_oauth_request
 from posthog.permissions import is_scout_sandbox_request
 from posthog.tasks.comment_slack_sync import backfill_comment_slack_thread
@@ -647,12 +649,31 @@ class CommentErrorSerializer(serializers.Serializer):
     error_type = serializers.CharField(required=False, help_text="Stable machine-readable identifier for the failure.")
 
 
-class CommentPagination(pagination.CursorPagination):
+class CommentPagination(StableCursorPagination):
     # `created_at` is not unique, and DRF encodes only the first ordering field in the cursor,
     # resolving ties with an offset. That offset is reproducible only when rows sharing a
     # timestamp come back in a stable order, which Postgres does not otherwise guarantee.
     ordering = ("-created_at", "-id")
     page_size = 100
+
+    def paginate_queryset(self, queryset: Any, request: Request, view: Any = None) -> list[Any] | None:
+        self.is_first_page = self.cursor_query_param not in request.query_params
+        return super().paginate_queryset(queryset, request, view)
+
+    def get_paginated_response(self, data: Any) -> Response:
+        # A short first page holds every row, so the total needs no query over the whole set.
+        if self.is_first_page and len(data) < self.page_size:
+            count = len(data)
+        else:
+            count = self.count_rows()
+        return Response(
+            {
+                "count": count,
+                "next": self.get_next_link(),
+                "previous": self.get_previous_link(),
+                "results": data,
+            }
+        )
 
 
 class CommentListQueryParamsSerializer(serializers.Serializer):
@@ -1191,7 +1212,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         serializer = CommentSerializer(comment, context=self.get_serializer_context())
         return Response(serializer.data)
 
-    def _resolve_slack_channel_name(self, integration: Integration, channel_id: str, user: User) -> str:
+    def _resolve_slack_channel_name(self, integration: IntegrationRecord, channel_id: str, user: User) -> str:
         """Resolve the target channel server-side — the caller-supplied id is never paired with a
         caller-supplied label. Private channels are restricted to the workspace connector (matching
         the channel picker, which hides them from everyone else) and their names are never persisted,
@@ -1247,8 +1268,9 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         integration_id = params.validated_data["integration_id"]
         channel_id = params.validated_data["channel_id"]
 
-        integration = Integration.objects.filter(team=team, id=integration_id, kind="slack").first()
-        if integration is None:
+        try:
+            integration = IntegrationManager.slack.oauth.get(team.id, integration_id)
+        except IntegrationNotFound:
             raise exceptions.ValidationError("Slack integration not found")
 
         channel_name = self._resolve_slack_channel_name(integration, channel_id, cast(User, request.user))
@@ -1262,7 +1284,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             defaults={
                 "scope": comment.scope,
                 "item_id": comment.item_id,
-                "integration": integration,
+                "integration_id": integration.id,
                 "slack_channel_id": channel_id,
                 "slack_channel_name": channel_name,
                 "slack_team_id": integration.integration_id,
@@ -1284,7 +1306,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             # A reservation this old with no root message is a crashed send that would otherwise
             # block the discussion forever. Adopt it and retry the post; resetting created_at
             # re-bounds the reply backfill to this attempt.
-            slack_thread.integration = integration
+            slack_thread.integration_id = integration.id
             slack_thread.slack_channel_id = channel_id
             slack_thread.slack_channel_name = channel_name
             slack_thread.slack_team_id = integration.integration_id

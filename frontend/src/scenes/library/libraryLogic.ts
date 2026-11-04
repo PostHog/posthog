@@ -5,7 +5,7 @@ import { router, urlToAction } from 'kea-router'
 import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { isFileSystemImportFlagEnabled } from 'lib/utils/fileSystemImportFlags'
+import { isFileSystemImportShown } from 'lib/utils/fileSystemImportFlags'
 import { isAnalyticsType } from 'scenes/analytics/analyticsUtils'
 import { urls } from 'scenes/urls'
 
@@ -213,7 +213,7 @@ export const libraryLogic = kea<libraryLogicType>([
                 const byType: Record<string, FileSystemImport[]> = {}
                 for (const item of getTreeItemsNew()) {
                     const type = baseObjectType(item.type)
-                    if (!item.href || !isFileSystemImportFlagEnabled(item, featureFlags)) {
+                    if (!item.href || !isFileSystemImportShown(item, featureFlags)) {
                         continue
                     }
                     byType[type] = [...(byType[type] ?? []), item]

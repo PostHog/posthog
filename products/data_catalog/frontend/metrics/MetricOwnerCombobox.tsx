@@ -13,7 +13,8 @@ import {
 } from '@posthog/quill'
 
 import { fullNameOrEmail } from 'lib/utils/strings'
-import { membersLogic } from 'scenes/organization/membersLogic'
+
+import { membersLogic } from '~/models/membersLogic'
 
 const UNASSIGNED = 'unassigned'
 

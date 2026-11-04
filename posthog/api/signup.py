@@ -37,6 +37,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.helpers.email_utils import (
     EmailLookupHandler,
     EmailValidationHelper,
+    reject_lookalike_email_characters,
     reject_plus_addressed_email,
     validate_display_name,
 )
@@ -227,6 +228,7 @@ class SignupSerializer(serializers.Serializer):
 
             value = session_email
 
+        reject_lookalike_email_characters(value)
         if not settings.DEMO:
             if not self.is_social_signup:
                 reject_plus_addressed_email(value)
@@ -465,6 +467,7 @@ class SignupEmailPrecheckViewset(generics.GenericAPIView):
             # Mirror SignupSerializer.validate_email. Without this the form clears the email step,
             # the user fills in the rest, and only then hits the rejection on submit.
             reject_plus_addressed_email(email)
+            reject_lookalike_email_characters(email)
             email_exists = (
                 EmailValidationHelper.user_exists_with_stripped_alias(email)
                 or EmailValidationHelper.user_exists_with_gmail_canonical(email)
@@ -607,7 +610,7 @@ class InviteSignupSerializer(serializers.Serializer):
         try:
             # nosemgrep: idor-lookup-without-org, idor-taint-user-input-to-org-model (invite UUID serves as auth token)
             invite: OrganizationInvite = OrganizationInvite.objects.select_related("organization").get(id=invite_id)
-        except OrganizationInvite.DoesNotExist:
+        except (OrganizationInvite.DoesNotExist, ValidationError):
             raise serializers.ValidationError("The provided invite ID is not valid.")
 
         if not user and invite.target_email:

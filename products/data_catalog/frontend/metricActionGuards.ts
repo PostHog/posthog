@@ -84,7 +84,7 @@ export function deleteDisabledReason(
 
 export function resolveMetricSelection(
     allMetrics: DataCatalogMetricApi[],
-    selectedIds: readonly string[]
+    selectedIds: readonly (string | number)[]
 ): MetricSelection {
     const selected = new Set(selectedIds)
     const selectedMetrics = allMetrics.filter((metric) => selected.has(metric.id))

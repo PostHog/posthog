@@ -21,12 +21,23 @@ import { updatedAtColumn } from '~/lib/lemon-ui/LemonTable/columnUtils'
 import { urls } from '~/scenes/urls'
 import { AccessControlLevel, AccessControlResourceType, ExporterFormat } from '~/types'
 
+import { TraceDrawerHost } from '../redesign/trace/TraceDrawerHost'
+import { useTraceDrawerTable } from '../redesign/trace/TraceDrawerRowsHost'
+import { TraceListRow } from '../redesign/trace/traceListRows'
 import { aiObservabilityReviewsLogic, TRACE_REVIEWS_PER_PAGE } from './aiObservabilityReviewsLogic'
 import { TraceReviewValue } from './TraceReviewValue'
 import type { TraceReview } from './types'
 
+const TRACE_DRAWER_LIST_ID = 'reviews'
+const TRACE_LINK = '[data-attr="llma-trace-review-trace-link"]'
+
 function formatTraceId(traceId: string): string {
     return traceId.length > 12 ? `${traceId.slice(0, 4)}...${traceId.slice(-4)}` : traceId
+}
+
+// `created_at` is when the review happened, which says nothing about when the trace did, so no timestamp.
+function toTraceDrawerRow(review: TraceReview): TraceListRow | null {
+    return review.trace_id ? { traceId: review.trace_id, timestamp: null, stepId: null } : null
 }
 
 export function AIObservabilityReviews(): JSX.Element {
@@ -44,6 +55,7 @@ export function AIObservabilityReviews(): JSX.Element {
         scoreDefinitionOptions,
         scoreDefinitionOptionsLoading,
     } = useValues(logic)
+    const drawerTableProps = useTraceDrawerTable(TRACE_DRAWER_LIST_ID, TRACE_LINK, toTraceDrawerRow)
 
     const triggerFileExport = (format: ExporterFormat, extension: 'csv' | 'xlsx'): void => {
         startExport({
@@ -136,107 +148,111 @@ export function AIObservabilityReviews(): JSX.Element {
     ]
 
     return (
-        <div className="space-y-4">
-            <div className="flex gap-x-4 gap-y-2 items-center flex-wrap py-4 -mt-4 mb-4 border-b justify-between">
-                <div className="flex gap-2 items-center flex-wrap">
-                    <LemonInput
-                        type="search"
-                        placeholder="Search reviews..."
-                        value={filters.search}
-                        onChange={(value) => setFilters({ search: value })}
-                        className="max-w-md"
-                        data-attr="llma-trace-reviews-search-input"
-                    />
-                    <LemonSelect
-                        value={filters.definition_id || undefined}
-                        onChange={(value) => setFilters({ definition_id: value ? String(value) : '' })}
-                        options={[
-                            { label: 'All scorers', value: '' },
-                            ...scoreDefinitionOptions.map((definition) => ({
-                                label: definition.name,
-                                value: definition.id,
-                            })),
-                        ]}
-                        placeholder="Filter by scorer"
-                        loading={scoreDefinitionOptionsLoading}
-                        className="min-w-60"
-                        data-attr="llma-trace-reviews-definition-filter"
-                    />
-                </div>
-                <div className="flex gap-2 items-center">
-                    <span className="text-muted-alt">{reviewCountLabel}</span>
-                    <LemonMenu
-                        items={[
-                            {
-                                label: 'Export current columns',
-                                items: [
-                                    {
-                                        label: 'CSV',
-                                        onClick: () => triggerFileExport(ExporterFormat.CSV, 'csv'),
-                                        disabledReason: fileExportDisabledReason,
-                                    },
-                                    {
-                                        label: 'XLSX',
-                                        onClick: () => triggerFileExport(ExporterFormat.XLSX, 'xlsx'),
-                                        disabledReason: fileExportDisabledReason,
-                                    },
-                                ],
-                            },
-                            {
-                                label: 'Copy to clipboard',
-                                items: [
-                                    {
-                                        label: 'CSV',
-                                        onClick: () => copyReviewsToClipboard('csv'),
-                                        'data-attr': 'copy-csv-to-clipboard',
-                                    },
-                                    {
-                                        label: 'JSON',
-                                        onClick: () => copyReviewsToClipboard('json'),
-                                        'data-attr': 'copy-json-to-clipboard',
-                                    },
-                                    {
-                                        label: 'Excel',
-                                        onClick: () => copyReviewsToClipboard('tsv'),
-                                        'data-attr': 'copy-excel-to-clipboard',
-                                    },
-                                ],
-                            },
-                        ]}
-                    >
-                        <LemonButton
-                            type="secondary"
-                            icon={<IconDownload />}
-                            size="small"
-                            disabledReason={exportDisabledReason}
-                            data-attr="llma-trace-reviews-export-menu"
+        <>
+            <div className="space-y-4">
+                <div className="flex gap-x-4 gap-y-2 items-center flex-wrap py-4 -mt-4 mb-4 border-b justify-between">
+                    <div className="flex gap-2 items-center flex-wrap">
+                        <LemonInput
+                            type="search"
+                            placeholder="Search reviews..."
+                            value={filters.search}
+                            onChange={(value) => setFilters({ search: value })}
+                            className="max-w-md"
+                            data-attr="llma-trace-reviews-search-input"
+                        />
+                        <LemonSelect
+                            value={filters.definition_id || undefined}
+                            onChange={(value) => setFilters({ definition_id: value ? String(value) : '' })}
+                            options={[
+                                { label: 'All scorers', value: '' },
+                                ...scoreDefinitionOptions.map((definition) => ({
+                                    label: definition.name,
+                                    value: definition.id,
+                                })),
+                            ]}
+                            placeholder="Filter by scorer"
+                            loading={scoreDefinitionOptionsLoading}
+                            className="min-w-60"
+                            data-attr="llma-trace-reviews-definition-filter"
+                        />
+                    </div>
+                    <div className="flex gap-2 items-center">
+                        <span className="text-muted-alt">{reviewCountLabel}</span>
+                        <LemonMenu
+                            items={[
+                                {
+                                    label: 'Export current columns',
+                                    items: [
+                                        {
+                                            label: 'CSV',
+                                            onClick: () => triggerFileExport(ExporterFormat.CSV, 'csv'),
+                                            disabledReason: fileExportDisabledReason,
+                                        },
+                                        {
+                                            label: 'XLSX',
+                                            onClick: () => triggerFileExport(ExporterFormat.XLSX, 'xlsx'),
+                                            disabledReason: fileExportDisabledReason,
+                                        },
+                                    ],
+                                },
+                                {
+                                    label: 'Copy to clipboard',
+                                    items: [
+                                        {
+                                            label: 'CSV',
+                                            onClick: () => copyReviewsToClipboard('csv'),
+                                            'data-attr': 'copy-csv-to-clipboard',
+                                        },
+                                        {
+                                            label: 'JSON',
+                                            onClick: () => copyReviewsToClipboard('json'),
+                                            'data-attr': 'copy-json-to-clipboard',
+                                        },
+                                        {
+                                            label: 'Excel',
+                                            onClick: () => copyReviewsToClipboard('tsv'),
+                                            'data-attr': 'copy-excel-to-clipboard',
+                                        },
+                                    ],
+                                },
+                            ]}
                         >
-                            Export
-                        </LemonButton>
-                    </LemonMenu>
+                            <LemonButton
+                                type="secondary"
+                                icon={<IconDownload />}
+                                size="small"
+                                disabledReason={exportDisabledReason}
+                                data-attr="llma-trace-reviews-export-menu"
+                            >
+                                Export
+                            </LemonButton>
+                        </LemonMenu>
+                    </div>
                 </div>
-            </div>
 
-            <LemonTable
-                id="review"
-                loading={reviewsLoading}
-                columns={columns}
-                dataSource={reviews.results}
-                pagination={pagination}
-                noSortingCancellation
-                sorting={sorting}
-                useURLForSorting={false}
-                onSort={(newSorting) =>
-                    setFilters({
-                        order_by: newSorting
-                            ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
-                            : undefined,
-                    })
-                }
-                rowKey="id"
-                loadingSkeletonRows={TRACE_REVIEWS_PER_PAGE}
-                nouns={['review', 'reviews']}
-            />
-        </div>
+                <LemonTable
+                    id="review"
+                    loading={reviewsLoading}
+                    columns={columns}
+                    dataSource={reviews.results}
+                    pagination={pagination}
+                    noSortingCancellation
+                    sorting={sorting}
+                    useURLForSorting={false}
+                    onSort={(newSorting) =>
+                        setFilters({
+                            order_by: newSorting
+                                ? `${newSorting.order === -1 ? '-' : ''}${newSorting.columnKey}`
+                                : undefined,
+                        })
+                    }
+                    rowKey="id"
+                    loadingSkeletonRows={TRACE_REVIEWS_PER_PAGE}
+                    nouns={['review', 'reviews']}
+                    {...drawerTableProps}
+                />
+            </div>
+            <TraceDrawerHost listId={TRACE_DRAWER_LIST_ID} />
+        </>
     )
 }

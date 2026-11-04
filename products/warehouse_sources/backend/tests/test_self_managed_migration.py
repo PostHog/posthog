@@ -1,3 +1,5 @@
+import json
+import uuid
 from datetime import UTC, datetime
 from io import StringIO
 from typing import Any
@@ -18,6 +20,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_destination import ExternalDataSourceDestination
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
@@ -35,6 +38,7 @@ from products.warehouse_sources.backend.self_managed_migration import (
     TableMigrationState,
     abandon_tables,
     evaluate_tables,
+    merge_duplicate_sources,
     migrate_self_managed_tables,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store import source_base
@@ -83,8 +87,10 @@ class _MigrationTest(BaseTest):
         self.flag_missing, self.delete_schedule, _ = mocks
         self.credential = self._credential("AKIAFIRST")
 
-    def _credential(self, access_key: str) -> DataWarehouseCredential:
-        return DataWarehouseCredential.objects.create(access_key=access_key, access_secret="c2VjcmV0", team=self.team)
+    def _credential(self, access_key: str, access_secret: str = "c2VjcmV0") -> DataWarehouseCredential:
+        return DataWarehouseCredential.objects.create(
+            access_key=access_key, access_secret=access_secret, team=self.team
+        )
 
     def _table(
         self,
@@ -165,10 +171,67 @@ class TestSelfManagedMigration(_MigrationTest):
         assert set(prefixes) - {""} <= {"exports", "archive"}
         assert source_of(other_bucket).job_inputs["url_pattern"] == "https://s3.eu-west-1.amazonaws.com/archive/"
         assert source_of(other_key).job_inputs["access_key_id"] == "AKIASECOND"
-        assert (source_of(virtual_hosted).connection_metadata or {})[MIGRATION_MARKER_KEY] == {
-            "group_key": "s3/eu-west-1/exports",
-            "credential_id": str(self.credential.pk),
+        marker = (source_of(virtual_hosted).connection_metadata or {})[MIGRATION_MARKER_KEY]
+        assert marker["group_key"] == "s3/eu-west-1/exports"
+        assert marker["credential_id"] == str(self.credential.pk)
+        assert len(marker["credential_fingerprint"]) == 64
+        assert "AKIAFIRST" not in json.dumps(marker) and "c2VjcmV0" not in json.dumps(marker)
+
+    @parameterized.expand(
+        [
+            ("same_credential_row", None, True),
+            ("equal_valued_credential_row", ("AKIAFIRST", "c2VjcmV0"), True),
+            ("equal_after_trimming_whitespace", (" AKIAFIRST", "c2VjcmV0 "), True),
+            ("different_secret", ("AKIAFIRST", "b3RoZXI="), False),
+            ("different_key", ("AKIASECOND", "c2VjcmV0"), False),
+        ]
+    )
+    def test_tables_in_one_bucket_share_a_source_when_their_credentials_hold_the_same_key(
+        self, _name: str, second_credential: tuple[str, str] | None, shared: bool
+    ) -> None:
+        first = self._table("orders")
+        second = self._table(
+            "refunds",
+            url="https://exports.s3.eu-west-1.amazonaws.com/refunds/*.csv",
+            credential=self._credential(*second_credential) if second_credential else None,
+        )
+
+        outcomes = self._migrate()
+
+        assert [o.action for o in outcomes] == ["linked", "linked"]
+        assert (_schema_for(first).source_id == _schema_for(second).source_id) is shared
+        assert ExternalDataSource.objects.filter(team=self.team).count() == (1 if shared else 2)
+
+    @parameterized.expand(
+        [
+            ("same_value", "c2VjcmV0", False, True),
+            ("different_value", "b3RoZXI=", False, False),
+            ("credential_row_gone", "c2VjcmV0", True, False),
+        ]
+    )
+    def test_a_source_with_a_credential_id_marker_takes_tables_whose_credential_holds_its_key(
+        self, _name: str, secret: str, credential_row_gone: bool, shared: bool
+    ) -> None:
+        first = self._table("orders")
+        self._migrate()
+        old_source = _schema_for(first).source
+        old_source.connection_metadata = {
+            MIGRATION_MARKER_KEY: {
+                "group_key": "s3/eu-west-1/exports",
+                "credential_id": str(uuid.uuid4()) if credential_row_gone else str(self.credential.pk),
+            }
         }
+        old_source.save()
+        second = self._table(
+            "refunds",
+            url="https://exports.s3.eu-west-1.amazonaws.com/refunds/*.csv",
+            credential=self._credential("AKIAFIRST", secret),
+        )
+
+        [outcome] = self._migrate(table_ids=(str(second.id),))
+
+        assert outcome.action == "linked"
+        assert (_schema_for(second).source_id == old_source.pk) is shared
 
     def test_a_live_run_creates_a_turned_off_schema_and_changes_nothing_else(self) -> None:
         created_at = datetime(2024, 3, 1, tzinfo=UTC)
@@ -454,12 +517,22 @@ class TestSelfManagedMigration(_MigrationTest):
         assert [(o.status.name, o.action) for o in outcomes][1:] == [("dupe", "link_failed"), ("fine", "linked")]
         assert "already uses the name 'dupe'" in (outcomes[1].error or "")
 
-    @parameterized.expand([("named_region", "eu-west-1", "linked"), ("unknown_region", None, "none")])
+    @parameterized.expand(
+        [
+            ("named_region", "eu-west-1", "linked", False),
+            ("unknown_region", None, "none", False),
+            ("named_region_equal_valued_credential_rows", "eu-west-1", "linked", True),
+        ]
+    )
     def test_a_bucket_url_without_a_region_asks_s3_once_per_bucket(
-        self, _name: str, region: str | None, expected_action: str
+        self, _name: str, region: str | None, expected_action: str, second_row: bool
     ) -> None:
         self._table("a", url="https://exports.s3.amazonaws.com/a/*.csv")
-        self._table("b", url="https://s3.amazonaws.com/exports/b/*.csv")
+        self._table(
+            "b",
+            url="https://s3.amazonaws.com/exports/b/*.csv",
+            credential=self._credential("AKIAFIRST") if second_row else None,
+        )
         resolver = MagicMock(return_value=region)
 
         outcomes = self._migrate(resolve_region=resolver)
@@ -591,11 +664,139 @@ class TestAbandon(_MigrationTest):
         self.delete_schedule.assert_not_called()
 
 
+class TestMergeDuplicateSources(_MigrationTest):
+    def _duplicates(self, count: int = 3) -> list[DataWarehouseTable]:
+        tables = [
+            self._table(
+                f"table_{i}",
+                url=f"https://exports.s3.eu-west-1.amazonaws.com/t{i}/*.csv",
+                credential=self._credential(f"AKIATEMP{i}"),
+            )
+            for i in range(count)
+        ]
+        self._migrate()
+        # Earlier runs keyed each source by its credential row, so equal keys in separate rows made a source each.
+        for i, table in enumerate(tables):
+            credential = table.credential
+            assert credential is not None
+            credential.access_key = "AKIAFIRST"
+            credential.save()
+            source = _schema_for(table).source
+            inputs = SourceInputsStore.load(source)
+            SourceInputsStore.save(
+                source, {key: "AKIAFIRST" if value == f"AKIATEMP{i}" else value for key, value in inputs.items()}
+            )
+            ExternalDataSource.objects.filter(pk=source.pk).update(
+                created_at=datetime(2024, 1, 1 + i, tzinfo=UTC),
+                connection_metadata={
+                    MIGRATION_MARKER_KEY: {"group_key": "s3/eu-west-1/exports", "credential_id": str(credential.pk)}
+                },
+            )
+        assert len({_schema_for(table).source_id for table in tables}) == count
+        return tables
+
+    def test_duplicates_move_into_the_oldest_source_and_are_deleted(self) -> None:
+        tables = self._duplicates()
+        kept = _schema_for(tables[0]).source
+        duplicates = [_schema_for(table).source for table in tables[1:]]
+        moved_schema_ids = [str(_schema_for(table).id) for table in tables[1:]]
+
+        outcomes = merge_duplicate_sources(team_id=self.team.pk, live_run=True)
+
+        assert [(o.source_id, o.kept_source_id, o.action, o.moved_schemas) for o in outcomes] == [
+            (str(source.pk), str(kept.pk), "merged", 1) for source in duplicates
+        ]
+        assert {_schema_for(table).source_id for table in tables} == {kept.pk}
+        for source in duplicates:
+            source.refresh_from_db()
+            assert source.deleted is True
+            assert not ExternalDataSourceDestination.objects.for_team(self.team.pk).filter(source=source).exists()
+        assert ExternalDataSourceDestination.objects.for_team(self.team.pk).filter(source=kept).exists()
+        assert sorted(call.args[0] for call in self.delete_schedule.call_args_list) == sorted(moved_schema_ids)
+        assert {self._status(table).source_id for table in tables} == {str(kept.pk)}
+        assert {self._status(table).state for table in tables} == {TableMigrationState.AWAITING_SYNC}
+        assert merge_duplicate_sources(team_id=self.team.pk, live_run=True) == []
+        added = self._table("late", url="https://exports.s3.eu-west-1.amazonaws.com/late/*.csv")
+        self._migrate(table_ids=(str(added.id),))
+        assert _schema_for(added).source_id == kept.pk
+
+    def test_a_dry_run_reports_the_merge_and_changes_nothing(self) -> None:
+        tables = self._duplicates(count=2)
+        before = {table.pk: _schema_for(table).source_id for table in tables}
+        out = StringIO()
+
+        call_command("migrate_self_managed_tables", team_id=self.team.pk, merge_sources=True, stdout=out)
+
+        duplicate_id = before[tables[1].pk]
+        lines = out.getvalue().splitlines()
+        assert lines[0] == (
+            f"source={duplicate_id} team={self.team.pk} kept={before[tables[0].pk]} would_merge schemas=1"
+        )
+        assert "1 duplicate source(s), 1 schema(s): 1 would_merge" in out.getvalue()
+        assert {table.pk: _schema_for(table).source_id for table in tables} == before
+        assert ExternalDataSource.objects.get(pk=duplicate_id).deleted is False
+        self.delete_schedule.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("syncing_on", "syncing is on for 'table_1'"),
+            ("job_ran", "a sync already ran for the source"),
+            ("table_adopted", "the table 'table_1' is already adopted by a source"),
+            ("name_taken_in_kept_source", "the kept source already has a table named 'table_1'"),
+            ("source_has_rules", "the kept or the duplicate source has its own access rules"),
+            ("other_destinations", "the kept and the duplicate source send data to different destinations"),
+            ("inputs_edited", "the kept and the duplicate source connect with different settings"),
+        ]
+    )
+    def test_a_duplicate_that_is_not_safe_to_move_is_skipped(self, case: str, reason: str) -> None:
+        tables = self._duplicates()
+        kept = _schema_for(tables[0]).source
+        unsafe = _schema_for(tables[1])
+        safe_source_id = _schema_for(tables[2]).source_id
+        if case == "syncing_on":
+            ExternalDataSchema.objects.filter(pk=unsafe.pk).update(should_sync=True)
+        elif case == "job_ran":
+            self._job(tables[1], ExternalDataJobStatus.FAILED)
+        elif case == "table_adopted":
+            DataWarehouseTable.raw_objects.filter(pk=tables[1].pk).update(external_data_source=unsafe.source)
+        elif case == "name_taken_in_kept_source":
+            ExternalDataSchema.objects.create(name="table_1", team=self.team, source=kept)
+        elif case == "source_has_rules":
+            AccessControl.objects.create(
+                team=self.team, resource="external_data_source", resource_id=str(unsafe.source_id), access_level="none"
+            )
+        elif case == "other_destinations":
+            ExternalDataSourceDestination.objects.for_team(self.team.pk).filter(source_id=unsafe.source_id).delete()
+        else:
+            source = unsafe.source
+            SourceInputsStore.save(source, {**SourceInputsStore.load(source), "file_format": "csv"})
+
+        outcomes = {o.source_id: o for o in merge_duplicate_sources(team_id=self.team.pk, live_run=True)}
+
+        skipped = outcomes[str(unsafe.source_id)]
+        assert (skipped.action, skipped.reason, skipped.moved_schemas) == ("skipped", reason, 0)
+        assert ExternalDataSchema.objects.get(pk=unsafe.pk).source_id == unsafe.source_id
+        assert ExternalDataSource.objects.get(pk=unsafe.source_id).deleted is False
+        assert outcomes[str(safe_source_id)].action == "merged"
+        assert _schema_for(tables[2]).source_id == kept.pk
+
+    def test_sources_with_another_key_or_bucket_stay_apart(self) -> None:
+        self._duplicates(count=1)
+        self._table("other_key", credential=self._credential("AKIAFIRST", "b3RoZXI="))
+        self._table("other_bucket", url="https://archive.s3.eu-west-1.amazonaws.com/a.csv")
+        self._migrate()
+
+        assert merge_duplicate_sources(team_id=self.team.pk, live_run=True) == []
+        assert ExternalDataSource.objects.filter(team=self.team, deleted=False).count() == 3
+
+
 class TestMigrateSelfManagedTablesCommand(BaseTest):
     @parameterized.expand(
         [
             ("zero_limit", {"limit": 0}, "--limit"),
             ("status_and_abandon", {"status": True, "abandon": "x"}, "only one"),
+            ("status_and_merge", {"status": True, "merge_sources": True}, "only one"),
+            ("abandon_and_merge", {"abandon": "x", "merge_sources": True}, "only one"),
             ("empty_abandon", {"abandon": " , "}, "at least one table id"),
         ]
     )
@@ -742,16 +943,10 @@ class TestUploadedTableMigration(_MigrationTest):
             ("csv_without_a_header", DataWarehouseTableFormat.CSV, None, "has no import equivalent"),
             ("delta", DataWarehouseTableFormat.Delta, None, "has no import equivalent"),
             (
-                "nested_columns",
-                DataWarehouseTableFormat.Parquet,
-                {"tags": {"clickhouse": "Array(Nullable(String))", "hogql": "StringArrayDatabaseField"}},
-                "'tags' is a Array",
-            ),
-            (
-                "json_dates",
+                "json_unknown_time_zone",
                 DataWarehouseTableFormat.JSON,
-                {"day": {"clickhouse": "Nullable(Date)", "hogql": "DateDatabaseField"}},
-                "'day' is a Date",
+                {"at": {"clickhouse": "DateTime('Nowhere/Land')", "hogql": "DateTimeDatabaseField"}},
+                "time zone 'Nowhere/Land'",
             ),
             (
                 "padded_csv_header",
@@ -779,6 +974,63 @@ class TestUploadedTableMigration(_MigrationTest):
         assert outcome.status.state == TableMigrationState.SKIPPED
         assert reason in (outcome.status.reason or "")
         assert not ExternalDataSource.objects.filter(team=self.team).exists()
+
+    def test_an_uploaded_table_with_nested_columns_is_linked_and_reports_the_type(self) -> None:
+        table = self._uploaded("orders", "managed/team_{team}/orders.parquet", DataWarehouseTableFormat.Parquet)
+        DataWarehouseTable.raw_objects.filter(pk=table.pk).update(
+            columns={"tags": {"clickhouse": "Array(Nullable(String))", "hogql": "StringArrayDatabaseField"}}
+        )
+
+        dry_run = StringIO()
+        call_command("migrate_self_managed_tables", team_id=self.team.pk, stdout=dry_run)
+
+        note = "note=(after the first sync these columns are stored as JSON text: tags (Array(Nullable(String))))"
+        dry_run_line = dry_run.getvalue().splitlines()[0]
+        assert "state=pending (not linked yet)" in dry_run_line
+        assert note in dry_run_line
+        assert "action=would_link" in dry_run_line
+
+        [outcome] = self._migrate()
+
+        assert (outcome.action, outcome.status.state) == ("linked", TableMigrationState.AWAITING_SYNC)
+        assert _schema_for(table).should_sync is False
+
+        linked_status = StringIO()
+        call_command("migrate_self_managed_tables", team_id=self.team.pk, stdout=linked_status)
+        linked_line = linked_status.getvalue().splitlines()[0]
+        assert "state=awaiting_sync" in linked_line
+        assert "action=none" in linked_line
+        assert note in linked_line
+
+    @parameterized.expand(
+        [
+            ("date", "Nullable(Date)", "date"),
+            ("datetime", "DateTime64(3)", "datetime"),
+            ("datetime_with_time_zone", "DateTime('Europe/London')", {"kind": "datetime", "timezone": "Europe/London"}),
+        ]
+    )
+    def test_an_uploaded_json_table_with_a_date_column_keeps_the_date_type(
+        self, _name: str, clickhouse_type: str, stored: Any
+    ) -> None:
+        table = self._uploaded("events", "managed/team_{team}/events.jsonl", DataWarehouseTableFormat.JSON)
+        DataWarehouseTable.raw_objects.filter(pk=table.pk).update(
+            columns={"day": {"clickhouse": clickhouse_type, "hogql": "DateDatabaseField"}}
+        )
+
+        [outcome] = self._migrate()
+
+        assert outcome.status.state == TableMigrationState.AWAITING_SYNC
+        schema_metadata = _schema_for(table).schema_metadata
+        assert schema_metadata is not None
+        assert schema_metadata["csv"]["column_types"] == {"day": stored}
+
+    def test_uploaded_tables_sources_never_merge(self) -> None:
+        self._uploaded("orders", "managed/team_{team}/orders.csv")
+        self._uploaded("refunds", "managed/team_{team}/refunds.csv")
+        self._migrate()
+
+        assert merge_duplicate_sources(team_id=self.team.pk, live_run=True) == []
+        assert ExternalDataSource.objects.filter(team=self.team, deleted=False).count() == 2
 
     def test_teams_without_the_flag_keep_their_uploaded_tables(self) -> None:
         self.flag_missing.return_value = True

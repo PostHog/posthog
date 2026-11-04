@@ -1,8 +1,8 @@
 import { MakeLogicType, actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
 
 import { fullNameOrEmail } from 'lib/utils/strings'
-import { membersLogic } from 'scenes/organization/membersLogic'
 
+import { membersLogic } from '~/models/membersLogic'
 import { OrganizationMemberType } from '~/types'
 
 import {

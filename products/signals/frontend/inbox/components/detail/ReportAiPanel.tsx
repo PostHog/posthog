@@ -15,9 +15,9 @@ export function ReportAiPanel({ panelId }: { panelId: string }): JSX.Element {
         report
             ? [
                   {
-                      type: 'signal_report',
+                      type: 'inbox_report',
                       key: report.id,
-                      label: `Report: ${report.title || 'Untitled report'}`,
+                      label: 'Self-driving Inbox Report',
                       dismissible: false,
                   },
               ]

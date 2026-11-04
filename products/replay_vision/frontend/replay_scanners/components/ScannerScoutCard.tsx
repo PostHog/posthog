@@ -9,6 +9,7 @@ import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
 import { getReplayVisionEditDisabledReason, getScoutCreateDisabledReason } from '../../utils/accessControl'
@@ -16,12 +17,13 @@ import { replayScannerLogic } from '../replayScannerLogic'
 import { ReplayScannerTab } from '../replayScannerSceneLogic'
 import { scannerScoutLogic } from '../scannerScoutLogic'
 import { ClippedPreview } from './ClippedPreview'
+import { HERO_CARD_HEADER, HERO_CARD_HEIGHT } from './scannerHeroCard'
 import { ScannerScoutReportModal } from './ScannerScoutReportModal'
 
 function CardShell({ children }: { children: React.ReactNode }): JSX.Element {
     return (
         <div
-            className="border rounded bg-surface-primary p-4 flex flex-col gap-2 min-h-38"
+            className={cn('border rounded bg-surface-primary p-4 flex flex-col gap-2', HERO_CARD_HEIGHT)}
             data-attr="vision-scanner-scout-card"
         >
             {children}
@@ -31,7 +33,7 @@ function CardShell({ children }: { children: React.ReactNode }): JSX.Element {
 
 function CardHeader({ meta, actions }: { meta?: React.ReactNode; actions?: React.ReactNode }): JSX.Element {
     return (
-        <div className="flex items-center justify-between gap-2 border-b border-primary pb-2">
+        <div className={HERO_CARD_HEADER}>
             {/* The title stays on one line, so in a narrow column the meta drops below it rather than
                 splitting the title across lines out of line with the meta. */}
             <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">

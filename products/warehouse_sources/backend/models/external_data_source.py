@@ -5,7 +5,9 @@ from django.db import models, transaction
 from django.utils import timezone
 
 import structlog
+from prometheus_client import Counter
 
+from posthog.exceptions_capture import capture_exception
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
@@ -23,6 +25,11 @@ from products.warehouse_sources.backend.types import (
 )
 
 logger = structlog.get_logger(__name__)
+
+SOURCE_CREDENTIALS_RELEASE_FAILED_COUNTER = Counter(
+    "warehouse_source_credentials_release_failed_total",
+    "Credentials row releases that failed while soft deleting a warehouse source",
+)
 
 MANAGED_WAREHOUSE_SOURCE_PREFIX = "managed_warehouse"
 MANAGED_WAREHOUSE_PROJECT_READER_CREDENTIAL_KIND = "project_reader"
@@ -64,6 +71,9 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     # encrypted at rest.
     api_version = models.CharField(max_length=128, null=True, blank=True)
     job_inputs = EncryptedJSONField(null=True, blank=True)
+    # The integration row with the source's credentials: a legacy int id or a UUID, in the string form of
+    # `IntegrationReference`. No foreign key, because the rows move to a separate credentials service.
+    credentials_integration_id = models.CharField(max_length=64, null=True, blank=True)
     connection_metadata = models.JSONField(default=dict, blank=True, null=True)
     are_tables_created = models.BooleanField(default=False)
     prefix = models.CharField(max_length=100, null=True, blank=True)
@@ -92,6 +102,13 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
 
     class Meta:
         db_table = "posthog_externaldatasource"
+        indexes = [
+            models.Index(
+                fields=["team", "credentials_integration_id"],
+                name="eds_team_credentials_int_idx",
+                condition=models.Q(credentials_integration_id__isnull=False),
+            ),
+        ]
 
     def merge_connection_metadata(self, metadata: dict[str, Any]) -> None:
         """Merge ``metadata`` into ``connection_metadata`` under a lock on this row.
@@ -337,9 +354,32 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
         # Lazy import to avoid circular: SourceRegistry → helpers.py → this module.
         from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 
-        source = SourceRegistry.get_source(ExternalDataSourceType(self.source_type))
-        source.cleanup_cdc_resources_on_deletion(self)
-        source.on_source_deleted(self)
+        # A plugin vendor that no longer imports has no hooks to run, and its row must still delete.
+        try:
+            source = SourceRegistry.get_source(self.source_type)
+        except ValueError as e:
+            capture_exception(e, {"source_id": str(self.id), "team_id": self.team_id})
+        else:
+            source.cleanup_cdc_resources_on_deletion(self)
+            source.on_source_deleted(self)
+        self._release_credentials()
+
+    def _release_credentials(self) -> None:
+        # The credentials row is a separate store, so a failure here must not undo the soft delete.
+        # The store never deletes the row: a row that nothing uses stays in the integrations list.
+        from products.warehouse_sources.backend.logic.source_credentials import (  # noqa: PLC0415 — the store imports this model
+            WarehouseSourceCredentialsStore,
+        )
+
+        if self.credentials_integration_id is None:
+            return
+        # The savepoint keeps a database error here from poisoning a caller's enclosing transaction.
+        try:
+            with transaction.atomic():
+                WarehouseSourceCredentialsStore.release(self)
+        except Exception as e:
+            capture_exception(e, {"source_id": str(self.id), "team_id": self.team_id})
+            SOURCE_CREDENTIALS_RELEASE_FAILED_COUNTER.inc()
 
     def reload_schemas(self):
         # temporalio at module scope would put the Temporal client on the django.setup() path —

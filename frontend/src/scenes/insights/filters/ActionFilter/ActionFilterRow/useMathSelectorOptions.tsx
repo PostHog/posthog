@@ -6,14 +6,9 @@ import { LemonSelect, LemonSelectOption, LemonSelectOptions } from '@posthog/lem
 
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
+import { isInsightVizNode, isStickinessQuery, isTrendsQuery } from '~/queries/schema/node-guards'
 import { MathType } from '~/queries/schema/schema-general'
-import {
-    TRAILING_MATH_TYPES,
-    getMathTypeWarning,
-    isInsightVizNode,
-    isStickinessQuery,
-    isTrendsQuery,
-} from '~/queries/utils'
+import { TRAILING_MATH_TYPES, getMathTypeWarning } from '~/queries/utils'
 import { BaseMathType, ChartDisplayType, CountPerActorMathType, HogQLMathType, PropertyMathType } from '~/types'
 
 import { GroupIntroductionFooter } from 'products/groups/frontend/components/GroupsIntroduction'

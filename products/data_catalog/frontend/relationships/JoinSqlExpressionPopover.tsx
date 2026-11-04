@@ -4,9 +4,9 @@ import { Button, Popover, PopoverContent, PopoverTrigger, Text } from '@posthog/
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { CodeEditorInline } from 'lib/monaco/CodeEditorInline'
+import { escapeDottedHogQLIdentifier } from 'lib/utils/hogql'
 
 import { NodeKind } from '~/queries/schema/schema-general'
-import { escapeDottedHogQLIdentifier } from '~/queries/utils'
 
 interface JoinSqlExpressionPopoverProps {
     value: string

@@ -12,10 +12,10 @@ interface CatalogBulkBarProps {
 export function CatalogBulkBar({ selectedLabel, onClear, children, dataAttr }: CatalogBulkBarProps): JSX.Element {
     return (
         <div
-            className="sticky bottom-4 z-10 flex flex-wrap items-center gap-2 self-center rounded-md border border-border bg-background px-2 py-1 shadow-md"
+            className="sticky bottom-4 z-10 flex flex-wrap items-center gap-2 self-center rounded-md border border-border bg-surface-tertiary px-2 py-1 shadow-lg"
             data-attr={dataAttr}
         >
-            <Text size="xs" variant="muted" className="tabular-nums">
+            <Text size="xs" className="tabular-nums">
                 {selectedLabel}
             </Text>
             {children}

@@ -16,6 +16,8 @@ import structlog
 import posthoganalytics
 
 from posthog.models import Team
+from posthog.paging import CursorPageRequest, Page
+from posthog.queryset_paging import select_cursor_page
 from posthog.temporal.common.client import sync_connect
 
 from products.batch_exports.backend.facade import contracts
@@ -25,7 +27,7 @@ from products.batch_exports.backend.hogql_source import (
     find_interval_placeholders,
     parse_hogql_select_for_batch_export,
 )
-from products.batch_exports.backend.logic.pagination import select_page
+from products.batch_exports.backend.logic.exports import load_batch_export
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportBackfill
 from products.batch_exports.backend.service import (
     BatchExportWithNoEndNotAllowedError,
@@ -162,15 +164,12 @@ def _get_backfill(team_id: int, export_id: UUID, backfill_id: UUID) -> BatchExpo
         raise contracts.BatchExportBackfillNotFoundError() from e
 
 
-def list_backfills(
-    team_id: int, export_id: UUID, page: contracts.ListPage
-) -> list[contracts.BatchExportBackfillDetail]:
-    backfills = select_page(
+def list_backfills(team_id: int, export_id: UUID, page: CursorPageRequest) -> Page[contracts.BatchExportBackfillDetail]:
+    return select_cursor_page(
         _query_export_backfills(team_id, export_id),
         page,
         ordering_fields=contracts.BATCH_EXPORT_BACKFILL_ORDERING_FIELDS,
-    )
-    return [_to_backfill_detail(backfill) for backfill in backfills]
+    ).map(_to_backfill_detail)
 
 
 def get_backfill(team_id: int, export_id: UUID, backfill_id: UUID) -> contracts.BatchExportBackfillDetail:
@@ -222,10 +221,7 @@ def create_backfill(
         start_at_input: ISO formatted datetime string for backfill start
         end_at_input: ISO formatted datetime string for backfill end
     """
-    try:
-        batch_export = BatchExport.objects.select_related("destination").get(id=export_id, team_id=team_id)
-    except BatchExport.DoesNotExist as e:
-        raise contracts.BatchExportNotFoundError() from e
+    batch_export = load_batch_export(team_id, export_id, "destination")
 
     if start_at_input is None:
         _check_earliest_backfill_allowed(team_id, batch_export)

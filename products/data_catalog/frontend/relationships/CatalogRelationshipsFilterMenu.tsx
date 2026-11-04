@@ -1,8 +1,13 @@
 import { useActions, useValues } from 'kea'
 
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator } from '@posthog/quill'
+import {
+    DropdownMenu,
+    DropdownMenuContent,
+    DropdownMenuItem,
+    DropdownMenuSeparator,
+    FilterMenuTrigger,
+} from '@posthog/quill'
 
-import { TodayFilterMenuTrigger } from '~/layout/today/TodayFilterMenuTrigger'
 import { TodayRecentRadioSubmenu } from '~/layout/today/TodayRecentRadioSubmenu'
 
 import { DEFAULT_RELATIONSHIPS_FILTERS, RelationshipStatusFilter, relationshipsLogic } from '../relationshipsLogic'
@@ -21,7 +26,7 @@ export function CatalogRelationshipsFilterMenu(): JSX.Element {
 
     return (
         <DropdownMenu>
-            <TodayFilterMenuTrigger active={filtersActive} dataAttr="data-catalog-relationships-filter" />
+            <FilterMenuTrigger active={filtersActive} dataAttr="data-catalog-relationships-filter" />
             <DropdownMenuContent align="start" className="min-w-56">
                 <TodayRecentRadioSubmenu
                     label="Status"

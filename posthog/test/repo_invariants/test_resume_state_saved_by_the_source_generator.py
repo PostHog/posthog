@@ -12,9 +12,14 @@ import warnings
 from pathlib import Path
 
 from parameterized import parameterized
+from repo_invariant_scan_scope import ScanScope
 
 REPO_ROOT = Path(__file__).parents[3]
-SOURCES_ROOT = REPO_ROOT / "products/warehouse_sources/backend/temporal/data_imports/sources"
+# Vendor directories live in the product and in the `products/warehouse_sources/sources/` tree.
+SOURCE_ROOTS = (
+    REPO_ROOT / "products/warehouse_sources/backend/temporal/data_imports/sources",
+    REPO_ROOT / "products/warehouse_sources/sources",
+)
 SKIPPED_DIRS = {"common", "tests", "test", "__pycache__"}
 
 FUNCTIONS = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda)
@@ -28,6 +33,10 @@ OFF_THREAD_CALLS = {
     "create_task",
     "run_coroutine_threadsafe",
 }
+
+
+def _source_files(pattern: str) -> list[tuple[Path, Path]]:
+    return ScanScope.from_environment().walk(REPO_ROOT, SOURCE_ROOTS, pattern)
 
 
 def _own_nodes(function: ast.AST) -> list[ast.AST]:
@@ -93,8 +102,8 @@ def _functions_in_source(source: str) -> list[str]:
 
 def collect_functions() -> list[str]:
     found: list[str] = []
-    for path in SOURCES_ROOT.rglob("*.py"):
-        relative = path.relative_to(SOURCES_ROOT)
+    for root, path in _source_files("*.py"):
+        relative = path.relative_to(root)
         if SKIPPED_DIRS.intersection(relative.parts) or path.name.startswith("test_"):
             continue
         source = path.read_text(encoding="utf-8", errors="ignore")
