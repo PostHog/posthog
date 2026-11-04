@@ -1,7 +1,8 @@
 // Weekly CI digest for #alerts-devex. It compares the last 7 complete UTC days with the 7 days before.
 // Spend covers every repository in the organization. Runner and container build minutes come from
 // Depot's usage API. Depot CI comes from the depot_ci_usage endpoint, which counts only repositories
-// with a synced Depot source. Cache storage is not counted.
+// with a synced Depot source. Cache storage is not counted. PR workflow p95 durations come from the
+// workflow_health endpoint, which computes them over successful pull request runs only.
 
 import { pathToFileURL } from 'node:url'
 
@@ -31,6 +32,12 @@ const BUILD_USD_PER_MINUTE = 0.04
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const WEEK_MS = 7 * DAY_MS
+
+const PR_DURATION_BUDGET_SECONDS = 20 * 60
+// One slow run can move the p95 of a workflow with few runs in the week by minutes.
+const MIN_PERCENTILE_RUNS = 100
+// Slack rejects a message with a section text over 3,000 characters.
+const SLACK_SECTION_MAX_CHARS = 3000
 
 function billedMinutes(entry) {
     // Protobuf JSON omits a field at its zero default.
@@ -151,6 +158,78 @@ async function readSpend(weekStart, weekEnd) {
     }
     const [lastWeek, priorWeek] = weeks
     return { lastWeek, priorWeek, contract: used == null ? null : { ...contract, used } }
+}
+
+function prWorkflowHealth(dateFrom, dateTo) {
+    return withRetry(() =>
+        api('workflow_health', {
+            date_from: dateFrom.toISOString(),
+            date_to: dateTo.toISOString(),
+            run_scope: 'pull_request',
+            source_id: SOURCE_ID,
+            repo: GITHUB_REPOSITORY,
+        })
+    )
+}
+
+// PR workflows whose p95 is over the budget, slowest first. Null when either week cannot be read.
+async function readSlowWorkflows(weekStart, weekEnd) {
+    return Promise.all([
+        prWorkflowHealth(weekStart, weekEnd),
+        prWorkflowHealth(new Date(weekStart.getTime() - WEEK_MS), weekStart),
+    ])
+        .then(([lastWeek, priorWeek]) => {
+            const priorP95 = new Map(priorWeek.results.map((w) => [w.workflow_name, w.p95_seconds]))
+            return lastWeek.results
+                .filter(
+                    (w) => w.percentile_run_count >= MIN_PERCENTILE_RUNS && w.p95_seconds > PR_DURATION_BUDGET_SECONDS
+                )
+                .sort((a, b) => b.p95_seconds - a.p95_seconds)
+                .map((w) => ({
+                    name: w.workflow_name,
+                    url: workflowRunsUrl(w.repo, w.workflow_name),
+                    p95: w.p95_seconds,
+                    priorP95: priorP95.get(w.workflow_name),
+                }))
+        })
+        .catch(unavailable('PR workflow durations'))
+}
+
+function workflowRunsUrl(repo, workflowName) {
+    const path = [repo.owner, repo.name, 'actions', 'workflows', workflowName].map(encodeURIComponent).join('/')
+    return `${HOST}/project/${PROJECT_ID}/engineering-analytics/repos/${path}`
+}
+
+function slackEscape(text) {
+    return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+function splitIntoSections(lines) {
+    const notes = []
+    for (const line of lines) {
+        const last = notes.at(-1)
+        if (last != null && last.length + 1 + line.length <= SLACK_SECTION_MAX_CHARS) {
+            notes[notes.length - 1] = `${last}\n${line}`
+        } else {
+            notes.push(line)
+        }
+    }
+    return notes
+}
+
+function slowWorkflowNotes(slow) {
+    if (slow == null) {
+        return []
+    }
+    const budget = fmtLongDuration(PR_DURATION_BUDGET_SECONDS)
+    if (slow.length === 0) {
+        return [`Every PR workflow had a p95 under ${budget}.`]
+    }
+    const lines = slow.map(({ name, url, p95, priorP95 }) => {
+        const prior = priorP95 ? ` (${fmtLongDuration(priorP95)} the week before)` : ''
+        return `• <${url}|${slackEscape(name)}>: ${fmtLongDuration(p95)}${prior}`
+    })
+    return splitIntoSections([`*PR workflows with a p95 over ${budget}*`, ...lines])
 }
 
 function isoDay(date) {
@@ -379,7 +458,7 @@ export async function main() {
     const weekEnd = new Date()
     weekEnd.setUTCHours(0, 0, 0, 0)
     const weekStart = new Date(weekEnd.getTime() - WEEK_MS)
-    const [overview, weeks] = await Promise.all([
+    const [overview, weeks, slowWorkflows] = await Promise.all([
         // Every figure carries its value for the 7 days before date_from, so one call covers both weeks.
         withRetry(() =>
             api('repo_overview', {
@@ -391,12 +470,14 @@ export async function main() {
             })
         ),
         readSpend(weekStart, weekEnd),
+        readSlowWorkflows(weekStart, weekEnd),
     ])
     const rows = tableRows(overview, weeks)
     if (rows.length === 0) {
         throw new Error('No figures to post. Check the GitHub and Depot sources and DEPOT_TOKEN.')
     }
-    const blocks = buildBlocks(weekStart, weekEnd, rows, spendNotes(weeks, weekEnd))
+    const notes = [...spendNotes(weeks, weekEnd), ...slowWorkflowNotes(slowWorkflows)]
+    const blocks = buildBlocks(weekStart, weekEnd, rows, notes)
     if (DRY_RUN) {
         console.info(JSON.stringify(blocks, null, 2))
         return
