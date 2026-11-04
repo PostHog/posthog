@@ -8,12 +8,14 @@ from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
+from posthoganalytics.types import FeatureFlagResult
 from prometheus_client import REGISTRY
 from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
+from products.endpoints.backend.logic.materialization import build_materialization_info
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.presentation.throttles import (
     EndpointBurstThrottle,
@@ -516,6 +518,44 @@ class TestEndpointThrottles(APIBaseTest):
         with self.assertNumQueries(0):
             throttle.allow_request(request, view)
         self.assertEqual(throttle.scope, expected_scope)
+
+    @parameterized.expand(
+        [
+            ("clamped_view_serves_until_its_next_run", "6hour", True, timedelta(hours=2), True),
+            ("clamped_view_goes_stale_past_the_floor", "6hour", True, timedelta(hours=7), False),
+            ("unclamped_view_keeps_its_declared_window", "6hour", False, timedelta(hours=2), False),
+            ("finer_floor_keeps_the_declared_window", "15min", True, timedelta(hours=2), False),
+        ]
+    )
+    def test_plan_floor_sets_the_serving_window_only_when_the_scheduler_applies_it(
+        self, name, min_interval, clamp_existing, materialized_age, expected_serving
+    ):
+        _create_ready_materialized_endpoint(self.team, self.user, name, timezone.now() - materialized_age)
+        request = MagicMock()
+        request.data = {}
+        request.query_params = {}
+        view = MagicMock()
+        view.team_id = self.team.id
+        view.kwargs = {"name": name}
+        throttle = EndpointBurstThrottle()
+
+        with patch(
+            "products.data_modeling.backend.logic.refresh_floor.posthoganalytics.get_feature_flag_result",
+            return_value=FeatureFlagResult(
+                key="data-modeling-refresh-floor",
+                enabled=True,
+                variant=None,
+                payload={"min_interval": min_interval, "clamp_existing": clamp_existing},
+                reason=None,
+            ),
+        ):
+            throttle.allow_request(request, view)
+            info = build_materialization_info(
+                EndpointVersion.objects.get(endpoint__name=name, endpoint__team=self.team)
+            )
+
+        self.assertEqual(throttle.scope, "materialized_endpoint_burst" if expected_serving else "api_queries_burst")
+        self.assertEqual(info["ready"], expected_serving)
 
     @parameterized.expand(
         [

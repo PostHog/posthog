@@ -3,8 +3,9 @@
 The payload names the floor in the same terms as a view's `sync_frequency`, for example
 `{"min_interval": "6hour", "clamp_existing": false}`. With `clamp_existing` false only new and
 changed cadences are held to the floor, and views already set faster keep running at their setting.
-With it true the scheduler also runs those views at the floor. A view's saved cadence is never
-rewritten in either case, so turning the flag off restores every schedule.
+With it true the scheduler also runs those views at the floor, and an endpoint keeps serving such a
+view's table for the floor's interval, because the table cannot refresh sooner. A view's saved cadence
+is never rewritten in either case, so turning the flag off restores every schedule.
 """
 
 import json
@@ -55,9 +56,9 @@ def read_plan_refresh_floor(team_id: int) -> PlanRefreshFloorReading:
     return read_organization_plan_refresh_floor(organization)
 
 
-def plan_refresh_floor_for_team(team_id: int) -> PlanRefreshFloor | None:
-    """The plan floor of the team's organization, or None when it sets none or cannot be read."""
-    return read_plan_refresh_floor(team_id).floor
+def schedule_floor_for_organization(organization: Organization) -> timedelta | None:
+    floor = read_organization_plan_refresh_floor(organization).floor
+    return floor.schedule_floor if floor is not None else None
 
 
 def read_organization_plan_refresh_floor(organization: Organization) -> PlanRefreshFloorReading:

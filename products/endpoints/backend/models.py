@@ -22,7 +22,11 @@ from posthog.models.user import User
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel
 from posthog.schema_enums import ProductKey
 
-from products.data_modeling.backend.facade.api import declared_targets_by_saved_query, get_declared_target
+from products.data_modeling.backend.facade.api import (
+    declared_targets_by_saved_query,
+    get_declared_target,
+    schedule_floor_for_organization,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -321,6 +325,15 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
         if target is not None:
             return int(target.total_seconds())
         return self.cache_ttl_seconds
+
+    @property
+    def serving_freshness_seconds(self) -> int:
+        declared = self.data_freshness_seconds
+        if self.saved_query_id is None:
+            return declared
+        team = self.team if self.team_id else self.endpoint.team
+        floor = schedule_floor_for_organization(team.organization)
+        return declared if floor is None else max(declared, int(floor.total_seconds()))
 
     def disable_materialization(self, *, cache_ttl_seconds: int | None = None) -> None:
         """Disable materialization: revert and soft-delete the saved query, clear version fields."""

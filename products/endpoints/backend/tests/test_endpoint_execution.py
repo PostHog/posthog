@@ -10,6 +10,7 @@ from django.utils import timezone
 import psycopg
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
+from posthoganalytics.types import FeatureFlagResult
 from prometheus_client import REGISTRY
 from rest_framework import status
 from rest_framework.response import Response
@@ -2701,6 +2702,49 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         cache_ttl = mock_exec.call_args.kwargs["cache_age_seconds"]
         # data_freshness_seconds=86400, materialized ~5 min ago -> ~86100s remaining
         self.assertGreater(cache_ttl, 80000, f"cache TTL clamped ({cache_ttl}s): freshness read from frozen timestamp")
+
+    def test_clamped_view_serves_its_table_with_the_ttl_of_the_plan_floor(self):
+        endpoint = self._make_fresh_materialized_endpoint(
+            "clamped-cache-ttl", {"kind": "HogQLQuery", "query": "SELECT count() FROM events"}
+        )
+        version = endpoint.versions.first()
+        version.cache_ttl_seconds = 900
+        version.save()
+        DataModelingJob.objects.filter(saved_query=version.saved_query).delete()
+        version.saved_query.last_run_at = None
+        version.saved_query.save()
+        DataModelingJob.objects.create(
+            team=self.team,
+            saved_query=version.saved_query,
+            status=DataModelingJob.Status.COMPLETED,
+            engine=DataModelingJob.Engine.CLICKHOUSE,
+            last_run_at=timezone.now() - timedelta(hours=2),
+        )
+
+        with (
+            mock.patch(
+                "products.data_modeling.backend.logic.refresh_floor.posthoganalytics.get_feature_flag_result",
+                return_value=FeatureFlagResult(
+                    key="data-modeling-refresh-floor",
+                    enabled=True,
+                    variant=None,
+                    payload={"min_interval": "6hour", "clamp_existing": True},
+                    reason=None,
+                ),
+            ),
+            mock.patch.object(
+                EndpointExecutionService,
+                "_execute_query_and_respond",
+                return_value=Response({"results": [[1]], "columns": ["count()"]}),
+            ) as mock_exec,
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(mock_exec.call_args.kwargs["extra_result_fields"]["endpoint_materialized"])
+        self.assertAlmostEqual(mock_exec.call_args.kwargs["cache_age_seconds"], 4 * 3600, delta=60)
 
     def test_materialized_response_transform_receives_the_job_materialization_time(self):
         from products.endpoints.backend.logic.strategies import HogQLEndpointStrategy

@@ -97,7 +97,7 @@ _LAZY = {
     "saved_query_target_bounds": "logic.node_frequency",
     "SavedQueryFrequencyBounds": "logic.node_frequency",
     "saved_query_pin_preview": "logic.node_frequency",
-    "plan_refresh_floor_for_team": "logic.refresh_floor",
+    "schedule_floor_for_organization": "logic.refresh_floor",
     "cadence_changes": "logic.cadence_changes",
     "clear_legacy_sync_interval": "logic.cadence_changes",
     "clear_node_suspension": "logic.node_suspension",

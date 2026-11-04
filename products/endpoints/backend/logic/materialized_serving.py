@@ -114,6 +114,6 @@ def serving_state_for_version(
     return MaterializedServingState(
         ready=ready,
         materialized_at=materialized_at,
-        freshness_seconds=version.data_freshness_seconds,
+        freshness_seconds=version.serving_freshness_seconds,
         servable_variables=frozenset(strategy.materialized_variable_names()) if ready else frozenset(),
     )
