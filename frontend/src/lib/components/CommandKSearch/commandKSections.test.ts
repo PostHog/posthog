@@ -492,7 +492,7 @@ describe('buildSections', () => {
     )
 
     test.each([false, true])(
-        'shows one Settings section that leads to the rest when unified ranking is %s',
+        'shows one Settings section that counts every match when unified ranking is %s',
         (unifiedRanking) => {
             const settings: SearchItem[] = [
                 ...Array.from({ length: 10 }, (_, index) => ({
@@ -524,10 +524,12 @@ describe('buildSections', () => {
 
             const settingsSections = sections.filter((section) => section.label === 'Settings')
             expect(settingsSections).toHaveLength(1)
-            expect(settingsSections[0].rows.at(-1)).toMatchObject({
-                kind: 'item',
-                item: { name: 'See all 11 settings', href: '/settings/project?search=settings' },
-            })
+            expect(settingsSections[0].count).toBe(11)
+            expect(
+                sections
+                    .flatMap((section) => section.rows)
+                    .some((row) => row.kind === 'item' && row.item.name.startsWith('See all'))
+            ).toBe(false)
         }
     )
 

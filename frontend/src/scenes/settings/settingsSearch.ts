@@ -1,13 +1,14 @@
 import FuseClass from 'fuse.js'
 import { type ReactNode, isValidElement } from 'react'
 
-import { settingsContextText, settingsSearchText } from 'lib/components/Search/settingsContext'
-import { FUSE_DEFAULT_THRESHOLD, createFuse } from 'lib/utils/fuseSearch'
+import { createFuse } from 'lib/utils/fuseSearch'
 
 import { Setting, SettingId, SettingLevelId, SettingSection, SettingSectionId } from './types'
 
 // Explicitly avoid "heat" matching "feature flags", but still allowing "heature" to match it
 export const FUSE_THRESHOLD = 0.2
+
+const RESULT_LIMIT = 30
 
 export interface SearchIndexEntry {
     settingId: SettingId
@@ -15,8 +16,6 @@ export interface SearchIndexEntry {
     sectionId: SettingSectionId
     sectionTitle: string
     level: SettingLevelId
-    context: string
-    searchText: string
     keywords: string
     sectionKeywords: string
     description: string
@@ -75,7 +74,6 @@ export function buildSettingsSearchIndex(
             sectionId: section.id,
             sectionTitle,
             level: section.level,
-            context: settingsContextText(section.level, sectionTitle),
             sectionKeywords: keywordText(section.keywords),
         }
 
@@ -84,7 +82,6 @@ export function buildSettingsSearchIndex(
         if (section.settings.length === 0) {
             entries.push({
                 ...shared,
-                searchText: settingsSearchText(section.level, sectionTitle, section.keywords, []),
                 settingId: section.id as SettingId,
                 settingTitle: sectionTitle,
                 keywords: '',
@@ -100,14 +97,6 @@ export function buildSettingsSearchIndex(
 
             entries.push({
                 ...shared,
-                searchText: settingsSearchText(section.level, sectionTitle, section.keywords, [
-                    {
-                        id: setting.id,
-                        title: getTitleText(setting.title) || null,
-                        keywords: setting.keywords,
-                        description: settingDescription(setting),
-                    },
-                ]),
                 settingId: setting.id,
                 settingTitle: indexedTitle(setting.title, setting.id),
                 keywords: keywordText(setting.keywords),
@@ -126,12 +115,10 @@ export function createSettingsSearchFuse(entries: SearchIndexEntry[]): GlobalSea
             { name: 'keywords', weight: 1.5 },
             { name: 'sectionTitle', weight: 1 },
             { name: 'sectionKeywords', weight: 0.75 },
-            { name: 'context', weight: 0.75 },
             { name: 'description', weight: 0.5 },
             { name: 'settingId', weight: 0.5 },
-            { name: 'searchText', weight: 0.5 },
         ],
-        threshold: FUSE_DEFAULT_THRESHOLD,
+        threshold: FUSE_THRESHOLD,
         // Fuse defaults to scoring a match by how close it sits to the start of the field. A
         // keyword list is one joined string, so without this an exact keyword late in the list
         // (such as "max" on "Internal AI training") scores below the threshold and never matches.
@@ -176,11 +163,6 @@ function matchWords(index: GlobalSearchFuse, words: string[]): WordMatch[] {
  * match every word, and fall back to the entries that match any word when none match all,
  * which is what rescues a query with a verb the index does not carry.
  */
-const searchTerms = (term: string): string[] =>
-    [...term.matchAll(/"([^"]*)"|(\S+)/g)]
-        .map(([, phrase, word]) => (phrase ?? word.replace(/"/g, '')).trim())
-        .filter(Boolean)
-
 export function searchSettingsIndex(index: GlobalSearchFuse, term: string): SearchIndexEntry[] {
     // Trim before searching: leading/trailing whitespace changes the pattern length and
     // inflates Fuse's effective edit budget (threshold × length), so an untrimmed term either
@@ -190,12 +172,9 @@ export function searchSettingsIndex(index: GlobalSearchFuse, term: string): Sear
         return []
     }
 
-    const words = searchTerms(trimmed)
-    if (words.length === 0) {
-        return []
-    }
+    const words = trimmed.split(/\s+/)
     if (words.length === 1) {
-        return index.search(words[0]).map((result) => result.item)
+        return index.search(trimmed, { limit: RESULT_LIMIT }).map((result) => result.item)
     }
 
     const matches = matchWords(index, words)
@@ -204,5 +183,5 @@ export function searchSettingsIndex(index: GlobalSearchFuse, term: string): Sear
 
     ranked.sort((a, b) => b.matchedWords - a.matchedWords || a.score - b.score)
 
-    return ranked.map((match) => match.entry)
+    return ranked.slice(0, RESULT_LIMIT).map((match) => match.entry)
 }

@@ -1,14 +1,10 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 
-import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { initKeaTests } from '~/test/init'
 
-import { settingsLogic } from './settingsLogic'
 import { settingsSceneLogic } from './settingsSceneLogic'
 
 // Mock the survey preview functions
@@ -47,47 +43,6 @@ describe('settingsSceneLogic', () => {
         })
 
         expect(router.values.hashParams).toEqual({ 'person-display-name': true })
-    })
-
-    it('prefills the settings search from the search param of a level link', async () => {
-        router.actions.push('/settings/project', { search: 'timezone' })
-
-        await expectLogic(logic).toMatchValues({ searchTerm: 'timezone' })
-    })
-
-    it('keeps the search param in step with the settings search', async () => {
-        router.actions.push('/settings/project-details', { search: 'timezone' })
-        await expectLogic(logic).toMatchValues({ searchTerm: 'timezone' })
-
-        settingsLogic({ logicKey: 'settingsScene' }).actions.setSearchTerm('currency')
-        expect(router.values.searchParams.search).toBe('currency')
-
-        settingsLogic({ logicKey: 'settingsScene' }).actions.setSearchTerm('')
-        expect(router.values.searchParams).not.toHaveProperty('search')
-
-        logic.actions.selectSection('project-replay', 'project')
-        await expectLogic(logic).toMatchValues({ selectedSectionId: 'project-replay', searchTerm: '' })
-        expect(router.values.searchParams).not.toHaveProperty('search')
-    })
-
-    it.each([
-        ['from another page', '/insights'],
-        ['with the same search from a settings section', '/settings/project-details?search=currency'],
-    ])('keeps the unpinned today settings sidebar open when a link brings a search %s', async (_, startUrl) => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true })
-        router.actions.push(startUrl)
-        await expectLogic(logic).delay(0)
-        const shell = todayShellLogic()
-        shell.mount()
-        if (shell.values.sidebarPinned) {
-            shell.actions.toggleSidebarPinned()
-        }
-        shell.actions.setSidebarOpen(true)
-
-        router.actions.push('/settings/project', { search: 'currency' })
-
-        await expectLogic(shell).delay(0).toMatchValues({ sidebarVisible: true })
-        shell.unmount()
     })
 
     it('redirects environment URLs to project', async () => {

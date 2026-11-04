@@ -218,7 +218,7 @@ describe('searchLogic', () => {
         expect(settings[0]?.id).toBe('settings')
     })
 
-    it('shows the best settings matches first and links to the rest', async () => {
+    it('lists every matching setting with name matches first', async () => {
         const component = {} as JSX.Element
         searchListsLogic({ commandPalette: false }).actions.setSettingsSections([
             {
@@ -243,9 +243,9 @@ describe('searchLogic', () => {
             'Zebra three',
             'Zebra four',
             'Zebra five',
-            'See all 7 settings',
+            'Zebra six',
+            'Theme',
         ])
-        expect(settings[5].href).toBe('/settings/project?search=zebra')
     })
 
     it.each([

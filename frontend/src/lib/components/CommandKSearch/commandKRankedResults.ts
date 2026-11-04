@@ -1,6 +1,5 @@
 import { getItemTypeDisplayName } from 'lib/components/Search/searchItemDisplay'
 import { SearchItem } from 'lib/components/Search/searchItems'
-import { seeAllSettingsItem } from 'lib/components/Search/searchListItems'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 
 import { pluralTypeName } from './commandKFilterOptions'
@@ -280,9 +279,6 @@ const scopeSeeAll = (
           ]
         : []
 
-const settingsSeeAll = (total: number, shown: number, query: string, section: string): CommandKRow[] =>
-    shown > 0 && total > shown ? [itemRow(section, seeAllSettingsItem(total, query), [])] : []
-
 interface RankedResultsInput {
     query: string
     highlightWords: string[]
@@ -371,7 +367,7 @@ export function buildRankedResults({
     const pool = collapseSameName(matching)
     const groupCount = new Set(pool.map((entry) => entry.groupKey)).size
     if (pool.length <= FLAT_LIST_LIMIT || groupCount === 1) {
-        const hasContinuation = pool[0].groupKey === 'settings' || !LOCAL_GROUPS.includes(pool[0].groupKey)
+        const hasContinuation = !LOCAL_GROUPS.includes(pool[0].groupKey)
         const shownPool = groupCount === 1 && !hasContinuation ? pool : pool.slice(0, RESULTS_LIMIT)
         return [
             ...notices,
@@ -388,12 +384,6 @@ export function buildRankedResults({
                             entry.duplicates > 0,
                             groupCount > 1
                         )
-                    ),
-                    ...settingsSeeAll(
-                        pool.filter((entry) => entry.groupKey === 'settings').length + unrankedSettingsCount,
-                        shownPool.filter((entry) => entry.groupKey === 'settings').length,
-                        query,
-                        'flat'
                     ),
                     ...(groupCount === 1
                         ? scopeSeeAll(
@@ -461,9 +451,6 @@ export function buildRankedResults({
             itemRow(`group-${groupKey}`, entry.item, highlightWords, entry.duplicates, entry.duplicates > 0)
         )
         const covered = inBest.length + shown.reduce((sum, entry) => sum + 1 + entry.duplicates, 0)
-        if (groupKey === 'settings') {
-            rows.push(...settingsSeeAll(total + unrankedSettingsCount, covered, query, `group-${groupKey}`))
-        }
         rows.push(...scopeSeeAll(groupKey, total, covered, capped, `group-${groupKey}`))
         if (!rows.length) {
             continue

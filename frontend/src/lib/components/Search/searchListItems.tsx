@@ -1,4 +1,4 @@
-import { combineUrl, router } from 'kea-router'
+import { router } from 'kea-router'
 
 import { IconClock, IconDownload, IconLeave, IconNotification, IconSupport, IconTerminal } from '@posthog/icons'
 
@@ -9,6 +9,7 @@ import { isFileSystemImportFlagEnabled } from 'lib/utils/fileSystemImportFlags'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { PLACEHOLDER_HREF } from 'lib/utils/navigateToHref'
 import { newInternalTab } from 'lib/utils/newInternalTab'
+import { toSentenceCase } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
@@ -20,13 +21,6 @@ import type { SettingId, SettingLevelId, SettingSectionId } from '~/scenes/setti
 import { ActivityTab } from '~/types'
 
 import { SearchItem, fileSystemEntryToSearchItem } from './searchItems'
-import {
-    SettingSearchTextSetting,
-    sentenceCaseId,
-    settingsContextText,
-    settingsLevelName,
-    settingsSearchText,
-} from './settingsContext'
 import { SEARCH_TAB_CATEGORY } from './utils'
 
 /** Max starred shortcuts shown in quick search (folders excluded). */
@@ -386,6 +380,40 @@ const settingsItem = (
     ...fields,
 })
 
+const settingsLevelName = (level: SettingLevelId): string =>
+    `${toSentenceCase(level === 'environment' ? 'project' : level)} settings`
+
+const settingsContextText = (level: SettingLevelId, sectionTitle: string): string =>
+    `${settingsLevelName(level)} ${sectionTitle}`
+
+const sentenceCaseId = (id: string): string => toSentenceCase(id.replace(/-/g, ' '))
+
+interface SettingSearchTextSetting {
+    id: string
+    title: string | null
+    keywords?: string[]
+    description?: string | null
+}
+
+const settingsSearchText = (
+    level: SettingLevelId,
+    sectionTitle: string,
+    sectionKeywords: string[] | undefined,
+    settings: SettingSearchTextSetting[]
+): string =>
+    [
+        settingsContextText(level, sectionTitle),
+        ...(sectionKeywords ?? []),
+        ...settings.flatMap((setting) => [
+            setting.title ?? sentenceCaseId(setting.id),
+            sentenceCaseId(setting.id),
+            ...(setting.keywords ?? []),
+            setting.description ?? '',
+        ]),
+    ]
+        .filter(Boolean)
+        .join(' ')
+
 type SettingSummary = SettingsSectionSummary['settings'][number]
 
 const textSetting = (setting: SettingSummary): SettingSearchTextSetting => ({
@@ -477,11 +505,3 @@ export const bestSettingsFirst = (items: SearchItem[], query: string): SearchIte
         .sort((a, b) => a.tier - b.tier || compareRanks(a.rank, b.rank) || a.depth - b.depth || a.index - b.index)
         .map((entry) => entry.item)
 }
-
-export const seeAllSettingsItem = (count: number, query: string): SearchItem =>
-    settingsItem(
-        'settings-see-all',
-        `See all ${count} settings`,
-        combineUrl(urls.settings(), { search: query }).url,
-        {}
-    )

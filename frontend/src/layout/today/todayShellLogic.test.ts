@@ -223,10 +223,6 @@ describe('todayShellLogic', () => {
             expect(logic.values.sidebarOpen).toBe(false)
             expect(logic.values.leftNavWidth).toBe(TODAY_RAIL_WIDTH)
 
-            logic.actions.setMobileSidebarOpen(true)
-            router.actions.replace('/project/1/settings/project', { search: 'time' })
-            expect(logic.values.mobileSidebarOpen).toBe(true)
-
             router.actions.push('/project/1/insights/abc')
             expect(logic.values.sidebarVisible).toBe(false)
         } finally {

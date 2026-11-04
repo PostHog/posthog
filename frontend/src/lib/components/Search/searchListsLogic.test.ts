@@ -5,18 +5,10 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { terminalDockLogic } from 'scenes/terminal/terminalDockLogic'
 import { urls } from 'scenes/urls'
 
-import { matchesFlagDefinition } from '~/scenes/settings/flagGating'
-import { SETTINGS_MAP } from '~/scenes/settings/SettingsMap'
-import {
-    buildSettingsSearchIndex,
-    createSettingsSearchFuse,
-    searchSettingsIndex,
-} from '~/scenes/settings/settingsSearch'
 import type { Setting } from '~/scenes/settings/types'
 import { initKeaTests } from '~/test/init'
 import { ActivityTab } from '~/types'
 
-import { bestSettingsFirst } from './searchListItems'
 import { searchListsLogic, searchListsLogicValues } from './searchListsLogic'
 import { filterSearchItems } from './utils'
 
@@ -177,28 +169,6 @@ describe('searchListsLogic', () => {
             [...fuzzy, ...rankedRows.flatMap((row) => (row.kind === 'item' ? [row.item] : []))]
                 .map((item) => item.matchedSearchKeyword ?? null)
                 .filter(Boolean)
-        ).toEqual([])
-    })
-
-    it('lists every settings row the classic search hides on the settings page search', () => {
-        const visible = (definition: Pick<Setting, 'flag'>): boolean => matchesFlagDefinition(definition.flag, {})
-        logic.actions.setSettingsSections(SETTINGS_MAP)
-        const query = 'sessoin'
-        const hidden = bestSettingsFirst(filterSearchItems(logic.values.settingsItems, query), query).slice(5)
-        const destination = searchSettingsIndex(
-            createSettingsSearchFuse(buildSettingsSearchIndex(SETTINGS_MAP.filter(visible), visible)),
-            query
-        )
-        const destinationIds = new Set(
-            destination.flatMap((entry) => [entry.settingId, entry.sectionId.replace(/^environment-/, 'project-')])
-        )
-
-        expect(hidden.map((item) => item.record?.settingId)).toContain('replay-retention')
-        expect(
-            hidden
-                .filter((item) => item.record?.sectionId)
-                .filter((item) => !destinationIds.has(String(item.record?.settingId ?? item.record?.sectionId)))
-                .map((item) => item.displayName)
         ).toEqual([])
     })
 

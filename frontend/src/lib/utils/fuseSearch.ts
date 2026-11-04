@@ -3,10 +3,8 @@ import FuseClass, { FuseResultMatch, IFuseOptions } from 'fuse.js'
 export type Fuse<T> = FuseClass<T>
 export type { FuseResultMatch, IFuseOptions }
 
-export const FUSE_DEFAULT_THRESHOLD = 0.3
-
 const FUSE_DEFAULTS = {
-    threshold: FUSE_DEFAULT_THRESHOLD,
+    threshold: 0.3,
     ignoreDiacritics: true,
 }
 

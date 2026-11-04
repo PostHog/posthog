@@ -334,7 +334,7 @@ export const todayShellLogic = kea<todayShellLogicType>([
             false,
             {
                 setMobileSidebarOpen: (_, { open }) => open,
-                locationChanged: (state, { method }) => (method === 'REPLACE' ? state : false),
+                locationChanged: () => false,
             },
         ],
         phonePages: [

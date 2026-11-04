@@ -411,7 +411,7 @@ describe('buildRankedResults', () => {
             expected: [`Results: ${Array.from({ length: RESULTS_LIMIT + 2 }, (_, n) => `Pricing ${n}`).join(', ')}`],
         },
         {
-            name: 'a broad query that matches one type only renders a bounded flat list',
+            name: 'a broad query that matches only settings lists every match with no see-all row',
             query: 'project settings',
             results: [],
             products: [],
@@ -421,7 +421,7 @@ describe('buildRankedResults', () => {
                 category: 'settings',
             })),
             expected: [
-                `Results: ${Array.from({ length: RESULTS_LIMIT }, (_, n) => `Project settings ${n}`).join(', ')}, See all ${RESULTS_LIMIT + 5} settings`,
+                `Results: ${Array.from({ length: RESULTS_LIMIT + 5 }, (_, n) => `Project settings ${n}`).join(', ')}`,
             ],
         },
     ])(
