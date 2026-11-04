@@ -64,3 +64,10 @@ def add_manual_suppression(team_id: int, identifier: str, created_by_id: int | N
 def remove_suppression(team_id: int, identifier: str) -> bool:
     """Un-suppress `identifier`. Returns False when the team has no row for it."""
     return suppression_service.remove_suppression(team_id, identifier)
+
+
+def add_global_hard_bounces(emails: Sequence[str]) -> None:
+    """Add addresses to the global hard-bounce list that every team's sends skip. Keeps existing entries as they are."""
+    identifiers = sorted({email.strip().lower() for email in emails if email.strip()})
+    if identifiers:
+        suppression_service.add_global_hard_bounces(identifiers)
