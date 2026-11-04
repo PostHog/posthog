@@ -22,7 +22,7 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceConfigSpec,
     SourceKind,
 )
-from products.alerts_platform.backend.logic import appearance_alerts, occurrences
+from products.alerts_platform.backend.logic import occurrences
 
 # An appearance check reads a window that the store has finished, so a shorter cadence only adds checks.
 APPEARANCE_CHECK_INTERVAL_MINUTES: Final = 1
@@ -138,6 +138,9 @@ def create_appearance_alert(
     created_by_id: int | None = None,
 ) -> PlatformAlertConfigurationView:
     """Creates an appearance alert and its destinations in one transaction."""
+    # Imported here, because sources import this module from `ready()` and the write path reaches Temporal.
+    from products.alerts_platform.backend.logic import appearance_alerts  # noqa: PLC0415
+
     return appearance_alerts.create_appearance_alert(
         team_id=team_id,
         source=source,
@@ -150,4 +153,6 @@ def create_appearance_alert(
 
 def appearance_create_warning(team_id: int, source: SourceKind) -> str | None:
     """Why a new appearance alert on this source may surprise the project, or None."""
+    from products.alerts_platform.backend.logic import appearance_alerts  # noqa: PLC0415
+
     return appearance_alerts.create_warning(team_id, source)
