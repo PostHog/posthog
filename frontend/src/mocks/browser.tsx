@@ -1,5 +1,4 @@
 import type { Decorator } from '@storybook/react'
-import { http, passthrough } from 'msw'
 import { setupWorker } from 'msw/browser'
 
 import { handlers, toPaginatedResponse } from '~/mocks/handlers'
@@ -20,18 +19,12 @@ const storybookDefaultMocks: Mocks = {
     },
 }
 
-// Matching assets against every API mock is slow, so this stays first, also before story mocks.
-const STATIC_ASSET_URL =
-    /^https?:\/\/[^/]+\/(?!api\/)(?:(?:assets|static|sb-[\w-]+|@fs|@id|@vite|node_modules)\/.*|[^?#]*\.(?:m?js|jsx|tsx?|css|scss|less|woff2?|ttf|otf|png|jpe?g|gif|svg|webp|ico|map|wasm))$/
-const staticAssetPassthrough = http.get(STATIC_ASSET_URL, () => passthrough())
-
 // Default handlers ensure no request is unhandled by msw. Handlers listed first take precedence.
 export const worker: ReturnType<typeof setupWorker> = setupWorker(
-    staticAssetPassthrough,
     routeHandlers([...mocksToHandlers(storybookDefaultMocks), ...handlers])
 )
 
-export const useStorybookMocks = (mocks: Mocks): void => worker.use(staticAssetPassthrough, ...mocksToHandlers(mocks))
+export const useStorybookMocks = (mocks: Mocks): void => worker.use(...mocksToHandlers(mocks))
 
 export const mswDecorator = (mocks: Mocks): Decorator<any> => {
     return function StoryMock(Story, { parameters }): JSX.Element {
