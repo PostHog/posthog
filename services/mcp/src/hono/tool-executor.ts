@@ -465,8 +465,9 @@ export class ToolExecutor {
     }
 
     // execute-sql is the one tool whose advertised description is formatted per
-    // request (the schema-discovery splice is assembled at render time) instead of served
-    // from the catalog, on both the native tools/list path and exec's `info` output.
+    // request (the schema-discovery splice and the client's HogQL reference variant are
+    // assembled at render time) instead of served from the catalog, on both the native
+    // tools/list path and exec's `info` output.
     // trackToolCall stamps the catalog text by default, so it needs the served text
     // for this tool or $mcp_tool_description records words the agent never saw.
     private servedToolDescription(toolName: string, state: ResolvedState): string | undefined {
@@ -1035,8 +1036,9 @@ export class ToolExecutor {
         const clientContext = getEffectiveMCPClientContext(state.requestContext, state.sessionContext)
 
         // CLI `info execute-sql` returns the tool's static description from the catalog.
-        // Override it with the same prompt tools-mode advertises, so the
-        // information_schema schema-discovery steering matches across both modes.
+        // Override it with the formatted prompt, so the information_schema schema-discovery
+        // steering matches tools mode. A client that can load the full HogQL reference on
+        // demand gets the compact variant; see formatExecuteSqlDescription.
         const execTools = state.allTools.map((tool) =>
             tool.name === EXECUTE_SQL_TOOL_NAME
                 ? {

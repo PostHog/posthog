@@ -4,15 +4,17 @@ import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js'
 import { hasScope } from '@/lib/api'
 import { isPostHogCodeConsumer } from '@/lib/client-detection'
 import { nameExecRead, type QueryToolInfo } from '@/lib/instructions'
-import { type InstructionsContext, InstructionsFormatter } from '@/lib/instructions-formatter'
+import { HOGQL_GUIDE_ID, type InstructionsContext, InstructionsFormatter } from '@/lib/instructions-formatter'
 import { isChatGptAppConnection } from '@/lib/oauth-constants'
 import { formatPrompt } from '@/lib/utils'
 import { RENDER_UI_RESOURCE_URI } from '@/resources/ui-apps.generated'
 import { ProjectSkillCatalog } from '@/skills/project-skill-catalog'
 import type { SkillCatalog } from '@/skills/skill-catalog'
 import EXECUTE_SQL_PROMPT from '@/templates/execute-sql-prompt.md'
+import EXECUTE_SQL_REFERENCE from '@/templates/execute-sql-reference.md'
 import CATALOG_TRUST_DISCOVERY from '@/templates/sections/catalog-trust-discovery.md'
 import EXEC_READ_ONLY_LEAD from '@/templates/sections/exec-read-only-lead.md'
+import HOGQL_ESSENTIALS from '@/templates/sections/hogql-essentials.md'
 import EXEC_WRITE_TOOL from '@/templates/sections/exec-write-tool.md'
 import SCHEMA_DISCOVERY from '@/templates/sections/schema-discovery.md'
 import { EXEC_TOOL_ANNOTATIONS } from '@/tools/exec'
@@ -43,6 +45,7 @@ export type ExecToolState = Pick<
     | 'requestContext'
     | 'sessionContext'
     | 'toolFeatureFlags'
+    | 'useSingleExec'
 > & { allTools: readonly { name: string }[] }
 
 /** Tool availability accounts for the client's scopes and selected features. */
@@ -296,6 +299,10 @@ export class InstructionsBuilder {
         return this.guidelines
     }
 
+    /**
+     * Tools mode, which has no `learn`, gets the full HogQL guidelines and reference. An exec
+     * client that can load that reference on demand gets only the essentials and a pointer to it.
+     */
     formatExecuteSqlDescription(state?: ExecToolState): string {
         // Metric discovery leads the splice so catalog-first routing still precedes
         // raw schema discovery, without displacing the tool's own intro line.
@@ -304,10 +311,32 @@ export class InstructionsBuilder {
             metricCatalog: state?.metricCatalog,
         })
         const schemaDiscovery = `${metricDiscovery}\n\n${SCHEMA_DISCOVERY.trim()}\n\n${CATALOG_TRUST_DISCOVERY.trim()}`
+        const referencePointer = state?.useSingleExec ? this.hogqlReferencePointer(state) : undefined
         return formatPrompt(EXECUTE_SQL_PROMPT, {
-            guidelines: this.guidelines.trim(),
+            hogql: referencePointer
+                ? formatPrompt(HOGQL_ESSENTIALS, { reference_pointer: referencePointer })
+                : this.guidelines.trim(),
             schema_discovery: schemaDiscovery,
+            reference: referencePointer ? '' : EXECUTE_SQL_REFERENCE.trim(),
         })
+    }
+
+    /** Where this client loads the full HogQL reference, or undefined when it has no on-demand path. */
+    private hogqlReferencePointer(state: ExecToolState): string | undefined {
+        const { mcpConsumer } = getEffectiveMCPClientContext(state.requestContext, state.sessionContext)
+        // PostHog Code is left out: a run launched with skills disabled has neither bundled
+        // skills nor `learn`, and the server cannot tell those runs apart.
+        if (mcpConsumer === 'plugin') {
+            return 'The full HogQL reference is in your bundled `querying-posthog-data` skill: read its `references/guidelines.md`, and its `models-*.md` references for `posthog.ai_events`, `logs`, `posthog.trace_spans`, and `posthog.metrics`.'
+        }
+        const { guidesEnabled, skillsEnabled } = this.getExecLearnCapabilities(state)
+        if (guidesEnabled) {
+            return `Run \`learn ${HOGQL_GUIDE_ID}\` for the full HogQL reference, with examples and the observability and LLM tables.`
+        }
+        if (skillsEnabled) {
+            return "Run `learn posthog:querying-posthog-data references/guidelines.md` for the full HogQL reference. The skill's `models-*.md` references cover `posthog.ai_events`, `logs`, `posthog.trace_spans`, and `posthog.metrics`."
+        }
+        return undefined
     }
 
     private getExecLearnCapabilities(state: ExecToolState): { guidesEnabled: boolean; skillsEnabled: boolean } {
