@@ -5,6 +5,7 @@ from django.core.management.base import BaseCommand, CommandError, CommandParser
 from products.batch_exports.backend.logic.credentials_backfill import (
     DESTINATION_TYPES,
     NEEDS_WORK,
+    UNRESOLVED_SKIPS,
     backfill_batch_export_credentials,
     verify_batch_export_credentials,
 )
@@ -67,5 +68,5 @@ class Command(BaseCommand):
         for key, count in sorted(counts.items(), key=lambda item: (item[0].destination_type, item[0].outcome)):
             self.stdout.write(f"{key.destination_type} {key.outcome}: {count}")
         self.stdout.write(f"Total outcomes: {sum(counts.values())}")
-        if verify and any(count for key, count in counts.items() if key.outcome in NEEDS_WORK):
+        if verify and any(count for key, count in counts.items() if key.outcome in NEEDS_WORK | UNRESOLVED_SKIPS):
             raise CommandError("Batch export credentials still need work.")

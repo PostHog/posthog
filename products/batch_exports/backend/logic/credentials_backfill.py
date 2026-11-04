@@ -11,6 +11,7 @@ from django.db import transaction
 import structlog
 
 from posthog.dataclasses import frozen
+from posthog.helpers.encrypted_fields import FERNET_TOKEN_PREFIX
 from posthog.integrations import IntegrationConflict, IntegrationManager
 from posthog.models.integration.google_cloud import InvalidGoogleTokenUriError, require_google_token_uri
 from posthog.models.integration.snowflake import SnowflakeIntegration, SnowflakeIntegrationError
@@ -34,6 +35,9 @@ DESTINATION_TYPES = (
     BatchExportDestinationType.SNOWFLAKE,
 )
 NEEDS_WORK = frozenset({"needs_integration", "needs_copy_move", "needs_stale_strip"})
+UNRESOLVED_SKIPS = frozenset(
+    {"skipped_incomplete", "skipped_unreadable", "skipped_conflict", "copy_skipped_incomplete"}
+)
 
 
 @frozen
@@ -75,6 +79,17 @@ def _required(config: Mapping[str, object], *keys: str) -> dict[str, str] | None
             return None
         values[key] = value
     return values
+
+
+def _has_undecryptable_value(value: object) -> bool:
+    # The config field ignores decrypt errors and returns ciphertext for values it cannot read.
+    if isinstance(value, str):
+        return value.startswith(FERNET_TOKEN_PREFIX)
+    if isinstance(value, dict):
+        return any(_has_undecryptable_value(item) for item in value.values())
+    if isinstance(value, list):
+        return any(_has_undecryptable_value(item) for item in value)
+    return False
 
 
 def _aws_credentials(config: Mapping[str, object], name: str) -> _Credentials | None:
@@ -168,7 +183,7 @@ def _connection_credentials(
 
 
 def _plan(destination: BatchExportDestination, export: BatchExport) -> _DestinationPlan:
-    if not isinstance(destination.config, dict):
+    if not isinstance(destination.config, dict) or _has_undecryptable_value(destination.config):
         return _DestinationPlan(outcomes=("skipped_unreadable",))
     config: dict[str, object] = dict(destination.config)
     credentials: list[_Credentials] = []
@@ -288,6 +303,8 @@ def _export_for_destination(destination: BatchExportDestination, team_ids: Seque
 
 def _sync_schedule(export: BatchExport, counts: Counter[CredentialBackfillOutcome]) -> None:
     try:
+        # Reload so a concurrent change such as pausing is not overwritten by a stale copy.
+        export.refresh_from_db()
         sync_batch_export(export, created=False)
     except Exception as error:
         counts[CredentialBackfillOutcome(destination_type=export.destination.type, outcome="schedule_sync_failed")] += 1
@@ -369,9 +386,14 @@ def backfill_batch_export_credentials(
                     counts[CredentialBackfillOutcome(destination_type=destination.type, outcome=outcome)] += 1
             except IntegrationConflict:
                 counts[CredentialBackfillOutcome(destination_type=destination.type, outcome="skipped_conflict")] += 1
-            except Exception:
-                # Database exceptions can contain credentials, so only report a count.
+            except Exception as error:
+                # Database exceptions can contain credentials, so never log the exception text.
                 counts[CredentialBackfillOutcome(destination_type=destination.type, outcome="failed")] += 1
+                logger.warning(
+                    "batch_export_credentials.destination_failed",
+                    destination_id=str(destination.id),
+                    exception_type=type(error).__name__,
+                )
         if on_batch is not None:
             on_batch(len(batch))
     return counts
@@ -390,6 +412,6 @@ def verify_batch_export_credentials(
             for outcome in plan.needs:
                 counts[CredentialBackfillOutcome(destination_type=destination.type, outcome=outcome)] += 1
             for outcome in plan.outcomes:
-                if outcome.startswith("skipped_") or outcome == "copy_skipped_incomplete":
+                if outcome in UNRESOLVED_SKIPS:
                     counts[CredentialBackfillOutcome(destination_type=destination.type, outcome=outcome)] += 1
     return counts

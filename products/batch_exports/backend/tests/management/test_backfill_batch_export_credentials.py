@@ -691,3 +691,64 @@ class TestBackfillBatchExportCredentials(BaseTest):
             self.assertEqual(
                 counts[CredentialBackfillOutcome(destination_type="Redshift", outcome="copy_skipped_incomplete")], 1
             )
+
+    @parameterized.expand([("connection",), ("copy",)])
+    def test_undecryptable_values_are_not_migrated(self, variant: str) -> None:
+        ciphertext = "gAAAAAfake-undecryptable-ciphertext"
+        if variant == "copy":
+            config = {
+                **INLINE["Redshift"],
+                "copy_inputs": {"authorization": {**AWS_PAIR, "aws_secret_access_key": ciphertext}},
+            }
+        else:
+            config = {**INLINE["Redshift"], "password": ciphertext}
+        export = self._create("Redshift", config=config)
+        original = deepcopy(export.destination.config)
+
+        self.assertEqual(
+            self._run(), {CredentialBackfillOutcome(destination_type="Redshift", outcome="skipped_unreadable"): 1}
+        )
+
+        export.destination.refresh_from_db()
+        self.assertIsNone(export.destination.integration_id)
+        self.assertEqual(export.destination.config, original)
+        self.assertEqual(IntegrationManager.aws_redshift.credentials.list(self.team.id), [])
+        self.assertEqual(IntegrationManager.aws_s3.credentials.list(self.team.id), [])
+        self.sync.assert_not_called()
+
+    def test_verify_fails_while_skipped_rows_remain(self) -> None:
+        self._create(config={**INLINE["Postgres"], "password": ""})
+        stdout = StringIO()
+
+        with self.assertRaises(CommandError):
+            call_command("backfill_batch_export_credentials", "--verify", stdout=stdout)
+
+        self.assertIn("Postgres skipped_incomplete: 1", stdout.getvalue())
+
+    def test_schedule_sync_uses_current_export_state(self) -> None:
+        export = self._create()
+        observed: list[bool] = []
+        self.sync.side_effect = lambda batch_export, created: observed.append(batch_export.paused)
+
+        with self.captureOnCommitCallbacks(execute=False) as callbacks:
+            backfill_batch_export_credentials(execute=True)
+        BatchExport.objects.filter(id=export.id).update(paused=True)
+        for callback in callbacks:
+            callback()
+
+        self.assertEqual(observed, [True])
+
+    def test_failed_destination_logs_identifier_and_exception_type(self) -> None:
+        export = self._create()
+        with (
+            patch("products.batch_exports.backend.logic.credentials_backfill._plan", side_effect=RuntimeError(SECRET)),
+            patch("products.batch_exports.backend.logic.credentials_backfill.logger") as logger,
+        ):
+            counts = self._run()
+
+        self.assertEqual(counts, {CredentialBackfillOutcome(destination_type="Postgres", outcome="failed"): 1})
+        logger.warning.assert_called_once_with(
+            "batch_export_credentials.destination_failed",
+            destination_id=str(export.destination.id),
+            exception_type="RuntimeError",
+        )
