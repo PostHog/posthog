@@ -407,6 +407,7 @@ def worktrees_clean(
     if not stale:
         click.echo("Nothing left to remove.")
         return
+    registered_boxes = _match_worktree_boxes(stale, load_worktree_boxes()) if mode == "full" else []
 
     _stop_worktree_mirrors(registered_boxes)
     reclaimed, removed, failed = _execute(stale, mode, repo_root)
