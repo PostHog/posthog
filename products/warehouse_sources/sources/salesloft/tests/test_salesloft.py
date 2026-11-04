@@ -15,7 +15,13 @@ from products.warehouse_sources.sources.salesloft.salesloft import (
 )
 from products.warehouse_sources.sources.salesloft.settings import SALESLOFT_ENDPOINTS
 from products.warehouse_sources.sources.salesloft.source import SalesLoftSource
-from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+from products.warehouse_sources.sources.sdk.testing import (
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    route,
+    scripted_network,
+)
 
 
 def _response(items: list[dict[str, Any]] | None, next_page: int | None, status: int = 200) -> ScriptedResponse:
@@ -53,6 +59,95 @@ class TestBuildParams:
             incremental_field=None,
         )
         assert "updated_at[gte]" in params
+
+
+class TestIncrementalRequestShaping:
+    @pytest.mark.parametrize(
+        "endpoint, expected_sort_by",
+        [
+            # Their default sort keys (due_date, occurred_at) would break the ascending watermark.
+            ("tasks", "updated_at"),
+            ("activity_histories", "updated_at"),
+            ("opportunities", "updated_at"),
+            # Endpoints whose default sort key is already updated_at send no sort_by.
+            ("people", None),
+        ],
+    )
+    def test_incremental_run_sorts_and_filters_on_updated_at(self, endpoint: str, expected_sort_by: str | None) -> None:
+        result = _driver().run(
+            endpoint,
+            [_response([{"id": 1}], next_page=None)],
+            should_use_incremental_field=True,
+            incremental_field="updated_at",
+            db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
+        )
+
+        assert result.raised is None
+        assert result.requests[0].param("sort_by") == expected_sort_by
+        assert result.requests[0].param("sort_direction") == "ASC"
+        assert result.requests[0].param("updated_at[gte]") == "2026-03-04T02:58:14.000Z"
+
+
+def _stats(sent: int) -> ScriptedResponse:
+    return ScriptedResponse(json={"data": {"sent_emails_count": sent, "replied_rate": "40.0%"}})
+
+
+class TestCadenceStatsFanout:
+    def test_walks_every_cadence_page_and_tags_stats_with_the_cadence_id(self) -> None:
+        script = route(
+            {
+                "/cadences": [
+                    _response([{"id": 1}, {"id": 2}], next_page=2),
+                    _response([{"id": 3}], next_page=None),
+                ],
+                "/cadence_stats/1": [_stats(10)],
+                # Cadence deleted between the listing and the stats fetch.
+                "/cadence_stats/2": [ScriptedResponse(status=404, json={"error": "Not Found"})],
+                "/cadence_stats/3": [_stats(30)],
+            }
+        )
+
+        result = _driver().run("cadence_stats", script)
+
+        assert result.raised is None
+        assert [(row["cadence_id"], row["sent_emails_count"]) for row in result.rows] == [(1, 10), (3, 30)]
+        assert all("_cadences_id" not in row for row in result.rows)
+        assert result.paths == [
+            "/v2/cadences",
+            "/v2/cadence_stats/1",
+            "/v2/cadence_stats/2",
+            "/v2/cadences",
+            "/v2/cadence_stats/3",
+        ]
+        parent_requests = [r for r in result.requests if r.path == "/v2/cadences"]
+        assert [r.param("page") for r in parent_requests] == [None, "2"]
+        assert all(r.param("sort_by") == "created_at" and r.param("per_page") == "100" for r in parent_requests)
+        assert all(r.param("per_page") is None for r in result.requests if r.path.startswith("/v2/cadence_stats/"))
+
+    def test_resume_skips_cadences_already_synced(self) -> None:
+        cadences = _response([{"id": 1}, {"id": 2}], next_page=None)
+        first = _driver().run(
+            "cadence_stats",
+            route(
+                {
+                    "/cadences": [cadences],
+                    "/cadence_stats/1": [_stats(10)],
+                    "/cadence_stats/2": [ScriptedResponse(status=401, json={"error": "Unauthorized"})],
+                }
+            ),
+        )
+        assert isinstance(first.raised, requests.HTTPError)
+        assert first.final_state is not None
+
+        resumed = _driver().run(
+            "cadence_stats",
+            route({"/cadences": [cadences], "/cadence_stats/2": [_stats(20)]}),
+            resume_state=first.final_state,
+        )
+
+        assert resumed.raised is None
+        assert [(row["cadence_id"], row["sent_emails_count"]) for row in resumed.rows] == [(2, 20)]
+        assert "/v2/cadence_stats/1" not in resumed.paths
 
 
 class TestValidateCredentials:
