@@ -32,6 +32,7 @@ from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.cdp.backend.facade.models import HogFunction
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.facade.api import DIRECT_POSTGRES_URL_PATTERN, DIRECT_TRINO_URL_PATTERN
 from products.data_warehouse.backend.facade.models import ExternalDataSourceRevenueAnalyticsConfig
@@ -454,6 +455,7 @@ class TestExternalDataSource(APIBaseTest):
         latest_error: str | None = None,
         should_sync: bool = True,
         row_count: int = 0,
+        sync_type: str | None = None,
     ) -> ExternalDataSchema:
         table = DataWarehouseTable.objects.create(
             name=name, team=self.team, external_data_source=source, row_count=row_count
@@ -466,7 +468,59 @@ class TestExternalDataSource(APIBaseTest):
             status=status,
             latest_error=latest_error,
             should_sync=should_sync,
+            sync_type=sync_type,
         )
+
+    def _make_webhook_function(
+        self, source: ExternalDataSource, *, enabled: bool = True, deleted: bool = False
+    ) -> None:
+        HogFunction.objects.create(
+            team=self.team,
+            type="warehouse_source_webhook",
+            hog="return event",
+            enabled=enabled,
+            deleted=deleted,
+            inputs_schema=[{"key": "source_id", "type": "string"}],
+            inputs={"source_id": {"value": str(source.pk)}},
+        )
+
+    @parameterized.expand(
+        [
+            ("no_webhook", "webhook", True, None, True),
+            ("disabled_webhook", "webhook", True, "disabled", True),
+            ("deleted_webhook", "webhook", True, "deleted", True),
+            ("webhook_for_other_source", "webhook", True, "other_source", True),
+            ("enabled_webhook", "webhook", True, "enabled", False),
+            ("webhook_table_not_syncing", "webhook", False, None, False),
+            ("no_webhook_table", "incremental", True, None, False),
+        ]
+    )
+    def test_webhook_not_registered(
+        self, _name: str, sync_type: str, should_sync: bool, webhook: str | None, expected: bool
+    ) -> None:
+        source = self._make_source("webhooked")
+        other_source = self._make_source("other")
+        self._make_schema_with_table(source, "Customer", sync_type=sync_type, should_sync=should_sync)
+        self._make_schema_with_table(source, "Invoice", sync_type="full_refresh")
+        if webhook is not None:
+            self._make_webhook_function(
+                other_source if webhook == "other_source" else source,
+                enabled=webhook != "disabled",
+                deleted=webhook == "deleted",
+            )
+
+        listed = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/").json()["results"]
+        detail = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/").json()
+
+        assert {row["prefix"]: row["webhook_not_registered"] for row in listed} == {
+            "webhooked": expected,
+            "other": False,
+        }
+        assert detail["webhook_not_registered"] is expected
+        assert {row["name"]: row["webhook_not_registered"] for row in detail["schemas"]} == {
+            "Customer": expected,
+            "Invoice": False,
+        }
 
     def test_exists_ignores_deleted_and_other_project_sources_without_loading_schemas(self) -> None:
         source = self._make_source("exists")
@@ -596,7 +650,7 @@ class TestExternalDataSource(APIBaseTest):
         # A regression to per-source credential/source lookups or the duplicate schema prefetch shows up
         # here as a rising query count.
         first = self._make_source("one")
-        self._make_schema_with_table(first, "A")
+        self._make_schema_with_table(first, "A", sync_type="webhook")
 
         # warm any per-request caches so the two measurements compare like with like
         self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
@@ -606,7 +660,9 @@ class TestExternalDataSource(APIBaseTest):
 
         for index in range(4):
             extra = self._make_source(f"many-{index}")
-            self._make_schema_with_table(extra, f"S{index}")
+            self._make_schema_with_table(extra, f"S{index}", sync_type="webhook")
+            if index % 2:
+                self._make_webhook_function(extra)
 
         with CaptureQueriesContext(connection) as many_source_queries:
             self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
@@ -3802,6 +3858,7 @@ class TestExternalDataSource(APIBaseTest):
                 "revenue_analytics_config",
                 "user_access_level",
                 "supports_webhooks",
+                "webhook_not_registered",
                 "supports_column_selection",
                 "file_name",
                 "api_version",
@@ -3838,7 +3895,9 @@ class TestExternalDataSource(APIBaseTest):
                     "primary_key_columns": None,
                     "cdc_table_mode": "consolidated",
                     "incremental_sync_blocked": None,
+                    "webhook_not_registered": False,
                     "enabled_columns": None,
+                    "masked_columns": None,
                     "row_filters": None,
                     "row_filter_columns": None,
                     "available_columns": [],
@@ -5194,7 +5253,12 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(analytics_schema.sync_type_config["schema_metadata"]["source_schema"], "analytics")
 
     def _post_postgres_cdc_source_with_one_table(
-        self, mock_get_source, mock_cdc_pg_connection, mock_get_primary_key_columns, mock_setup_cdc_resources
+        self,
+        mock_get_source,
+        mock_cdc_pg_connection,
+        mock_get_primary_key_columns,
+        mock_setup_cdc_resources,
+        schema_extra: dict[str, t.Any] | None = None,
     ):
         _configure_source_mock_versioning(mock_get_source)
         source_mock = mock_get_source.return_value
@@ -5255,7 +5319,7 @@ class TestExternalDataSource(APIBaseTest):
                     "schema": "",
                     "cdc_enabled": True,
                     "schemas": [
-                        {"name": "analytics.events", "should_sync": True, "sync_type": "cdc"},
+                        {"name": "analytics.events", "should_sync": True, "sync_type": "cdc", **(schema_extra or {})},
                     ],
                 },
             },
@@ -5299,6 +5363,50 @@ class TestExternalDataSource(APIBaseTest):
         # (source, schema, table). The first arg is the source model.
         mock_add_table.assert_called_once()
         assert mock_add_table.call_args.args[1:] == ("analytics", "events")
+
+    @parameterized.expand(
+        [
+            ("masked_primary_key", {"masked_columns": ["id"]}),
+            ("malformed_mask", {"masked_columns": "id"}),
+            ("incremental_table_without_a_cursor", {"sync_type": "incremental", "incremental_field": None}),
+        ]
+    )
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_source.base.is_cdc_enabled_for_team",
+        return_value=True,
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter.PostgresCDCAdapter.cleanup_resources"
+    )
+    @patch(
+        "products.warehouse_sources.backend.presentation.views.external_data_source.viewset.ExternalDataSourceViewSet._setup_cdc_resources"
+    )
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.get_primary_key_columns")
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.cdc_pg_connection")
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
+    def test_create_postgres_cdc_refused_table_drops_the_replication_slot(
+        self,
+        _name,
+        schema_extra,
+        mock_get_source,
+        mock_cdc_pg_connection,
+        mock_get_primary_key_columns,
+        mock_setup_cdc_resources,
+        mock_cleanup_resources,
+        _mock_is_cdc_enabled_for_team,
+    ):
+        mock_get_source.return_value.has_managed_hogql_schema = False
+        response = self._post_postgres_cdc_source_with_one_table(
+            mock_get_source,
+            mock_cdc_pg_connection,
+            mock_get_primary_key_columns,
+            mock_setup_cdc_resources,
+            schema_extra=schema_extra,
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
+        mock_cleanup_resources.assert_called_once()
+        assert not ExternalDataSource.objects.filter(team_id=self.team.pk).exists()
 
     @patch(
         "products.warehouse_sources.backend.presentation.views.external_data_source.base.is_cdc_enabled_for_team",
@@ -5974,6 +6082,73 @@ class TestExternalDataSource(APIBaseTest):
             assert "primary_key_columns" not in schema.sync_type_config
         else:
             assert schema.sync_type_config["primary_key_columns"] == expected_persisted
+
+    @parameterized.expand(
+        [
+            ("mask_is_saved", ["email"], status.HTTP_201_CREATED, ["email"]),
+            ("empty_list_masks_nothing", [], status.HTTP_201_CREATED, None),
+            ("mask_on_the_detected_primary_key", ["id"], status.HTTP_400_BAD_REQUEST, "can't be masked"),
+            ("mask_on_an_unknown_column", ["nope"], status.HTTP_400_BAD_REQUEST, "Unknown columns"),
+            ("mask_that_is_not_a_list", "email", status.HTTP_400_BAD_REQUEST, "must be a list"),
+        ]
+    )
+    @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
+    def test_create_postgres_validates_and_persists_masked_columns(
+        self,
+        _name: str,
+        masked_columns: list[str] | str,
+        expected_status: int,
+        expected: list[str] | str | None,
+        mock_get_source,
+    ):
+        _configure_source_mock_versioning(mock_get_source)
+        source_mock = mock_get_source.return_value
+        source_mock.validate_config.return_value = (True, [])
+        source_mock.has_managed_hogql_schema = False
+        parsed_config = Mock()
+        parsed_config.schema = "public"
+        payload = {
+            "host": "localhost",
+            "port": 5432,
+            "database": "app",
+            "user": "user",
+            "password": "pass",
+            "schema": "public",
+        }
+        parsed_config.to_dict.return_value = payload
+        source_mock.parse_config.return_value = parsed_config
+        source_mock.validate_credentials.return_value = (True, None)
+        source_mock.get_schemas.return_value = [
+            SourceSchema(
+                name="events",
+                supports_incremental=False,
+                supports_append=False,
+                columns=[("id", "integer", False), ("email", "text", True)],
+                foreign_keys=[],
+                detected_primary_keys=["id"],
+            ),
+        ]
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Postgres",
+                "payload": {
+                    **payload,
+                    "schemas": [
+                        {"name": "events", "should_sync": True, "sync_type": None, "masked_columns": masked_columns}
+                    ],
+                },
+            },
+        )
+
+        assert response.status_code == expected_status, response.content
+        schemas = ExternalDataSchema.objects.filter(team_id=self.team.pk, name="events")
+        if expected_status == status.HTTP_201_CREATED:
+            assert schemas.get().masked_columns == expected
+        else:
+            assert isinstance(expected, str) and expected in response.json()["message"]
+            assert not schemas.exists()
 
     @parameterized.expand(
         [

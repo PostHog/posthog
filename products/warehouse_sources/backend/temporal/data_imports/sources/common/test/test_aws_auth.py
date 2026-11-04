@@ -28,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.aws
     AwsAuthError,
     aws_auth_endpoint_reasons,
     resolve_aws_credentials,
+    session_policy,
     sign_aws_request,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
@@ -249,6 +250,20 @@ def test_endpoint_reasons_block_tables_only_for_errors_the_user_must_fix(
     assert aws_auth_endpoint_reasons(error, ["a", "b"]) == {"a": reason, "b": reason}
 
 
+def test_kms_actions_apply_only_through_the_services_the_source_calls() -> None:
+    policy = json.loads(session_policy(("states:GetExecutionHistory", "states:ListExecutions", "kms:Decrypt")))
+
+    assert policy["Statement"] == [
+        {"Effect": "Allow", "Action": ["states:GetExecutionHistory", "states:ListExecutions"], "Resource": "*"},
+        {
+            "Effect": "Allow",
+            "Action": ["kms:Decrypt"],
+            "Resource": "*",
+            "Condition": {"StringLike": {"kms:ViaService": ["states.*.amazonaws.com"]}},
+        },
+    ]
+
+
 def test_every_source_with_the_aws_auth_field_lifts_it_and_reads_only_with_its_own_kind_and_actions() -> None:
     problems = []
     for source_type, source in SourceRegistry.get_all_sources().items():
@@ -261,6 +276,9 @@ def test_every_source_with_the_aws_auth_field_lifts_it_and_reads_only_with_its_o
         actions = getattr(source, "aws_session_actions", ())
         if not actions:
             problems.append(f"{source_type} declares no aws_session_actions")
+        # STS rejects an inline session policy over 2,048 characters.
+        elif len(session_policy(actions)) > 2048:
+            problems.append(f"{source_type} has a session policy over the STS size limit")
         for action in actions:
             service, _, name = action.partition(":")
             if not service or not name or "*" in name:

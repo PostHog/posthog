@@ -17,9 +17,14 @@ from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.hogql.database.database import Database
 
-from posthog.models.organization import OrganizationMembership
+from posthog.constants import AvailableFeature
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team import Team
+from posthog.models.user import User
 
+from products.access_control.backend.facade.subject_access_control import SubjectAccessControl
+from products.access_control.backend.facade.testing import add_role_member, create_access_control, create_role
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
 from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
@@ -33,11 +38,18 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.self_managed_access import (
+    ADOPTION_ACCESS_ERROR,
+    AdoptionAccessError,
+    TeamAccessRules,
+    assert_adoption_keeps_access,
+)
 from products.warehouse_sources.backend.self_managed_migration import (
     MIGRATION_MARKER_KEY,
     MigrationOptions,
     TableMigrationState,
     abandon_tables,
+    backdate_migration_sources,
     evaluate_tables,
     merge_duplicate_sources,
     migrate_self_managed_tables,
@@ -51,6 +63,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     SelfManagedCredential,
     parse_self_managed_url,
     table_definition_for,
+)
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
+    self_managed_adoption_error,
 )
 from products.warehouse_sources.backend.types import DataWarehouseTableFormat, ExternalDataJobStatus
 
@@ -252,6 +267,41 @@ class TestSelfManagedMigration(_MigrationTest):
         assert (_schema_for(first).source_id == _schema_for(second).source_id) is shared
         assert ExternalDataSource.objects.filter(team=self.team).count() == (1 if shared else 2)
 
+    @parameterized.expand([("older_first", False), ("newer_first", True)])
+    def test_shared_source_uses_its_oldest_table_date_in_either_link_order(self, _name: str, newer_first: bool) -> None:
+        older_date = datetime(2024, 1, 1, tzinfo=UTC)
+        newer_date = datetime(2024, 2, 1, tzinfo=UTC)
+        older = self._table("orders", created_at=older_date)
+        newer = self._table(
+            "refunds", url="https://exports.s3.eu-west-1.amazonaws.com/refunds/*.csv", created_at=newer_date
+        )
+
+        for table in (newer, older) if newer_first else (older, newer):
+            [outcome] = self._migrate(table_ids=(str(table.pk),))
+            assert outcome.action == "linked"
+
+        older_schema = _schema_for(older)
+        newer_schema = _schema_for(newer)
+        assert older_schema.source_id == newer_schema.source_id
+        assert ExternalDataSource.objects.get(pk=older_schema.source_id).created_at == older_date
+        assert older_schema.created_at == older_date
+        assert newer_schema.created_at == newer_date
+
+    def test_a_newer_table_does_not_move_its_source_date_forward(self) -> None:
+        older_date = datetime(2024, 1, 1, tzinfo=UTC)
+        newer_date = datetime(2025, 1, 1, tzinfo=UTC)
+        older = self._table("orders", created_at=older_date)
+        self._migrate()
+        source_id = _schema_for(older).source_id
+        newer = self._table(
+            "refunds", url="https://exports.s3.eu-west-1.amazonaws.com/refunds/*.csv", created_at=newer_date
+        )
+
+        self._migrate(table_ids=(str(newer.pk),))
+
+        assert ExternalDataSource.objects.get(pk=source_id).created_at == older_date
+        assert _schema_for(newer).created_at == newer_date
+
     @parameterized.expand(
         [
             ("same_value", "c2VjcmV0", False, True),
@@ -314,8 +364,8 @@ class TestSelfManagedMigration(_MigrationTest):
         }
         assert expected_contract["preserve_column_names"] is True
         assert schema.source.source_type == "AmazonS3"
-        # A normal new source: its date is not moved to the table's.
-        assert schema.source.created_at > created_at
+        assert schema.created_at == created_at
+        assert schema.source.created_at == created_at
         assert schema.source.job_inputs["url_pattern"] == "https://s3.eu-west-1.amazonaws.com/exports/"
         assert ExternalDataSourceDestination.objects.for_team(self.team.pk).filter(source=schema.source).exists()
         assert not ExternalDataJob.objects.filter(team=self.team).exists()
@@ -446,64 +496,6 @@ class TestSelfManagedMigration(_MigrationTest):
         assert outcome.status.state == TableMigrationState.SKIPPED
         assert "dwh-object-storage-sources" in (outcome.status.reason or "")
         assert not ExternalDataSchema.objects.filter(team=self.team).exists()
-
-    @parameterized.expand(
-        [
-            ("object_rule_restricts", True, "none", TableMigrationState.SKIPPED),
-            ("object_rule_grants", True, "editor", TableMigrationState.SKIPPED),
-            ("rule_on_another_table", False, "none", TableMigrationState.AWAITING_SYNC),
-        ]
-    )
-    def test_a_table_with_its_own_access_rules_is_skipped(
-        self, _name: str, on_this_table: bool, access_level: str, expected: TableMigrationState
-    ) -> None:
-        table = self._table()
-        other = self._table("other", url="https://exports.s3.eu-west-1.amazonaws.com/o/*.csv")
-        AccessControl.objects.create(
-            team=self.team,
-            resource="warehouse_table",
-            resource_id=str(table.id if on_this_table else other.id),
-            access_level=access_level,
-            organization_member=OrganizationMembership.objects.get(user=self.user, organization=self.organization),
-        )
-
-        outcome = next(o for o in self._migrate() if o.status.table_id == str(table.id))
-
-        assert outcome.status.state == expected
-        if expected == TableMigrationState.SKIPPED:
-            assert "own access rules" in (outcome.status.reason or "")
-            assert _schemas_for(table) == []
-
-    @parameterized.expand(
-        [
-            ("member_rule_on_sources", "external_data_source", True),
-            ("default_rule_on_sources", "external_data_source", False),
-            ("member_rule_on_the_warehouse", "warehouse_objects", True),
-            ("default_rule_on_the_warehouse", "warehouse_objects", False),
-        ]
-    )
-    def test_a_project_with_access_rules_for_sources_is_skipped(
-        self, _name: str, resource: str, for_member: bool
-    ) -> None:
-        table = self._table()
-        AccessControl.objects.create(
-            team=self.team,
-            resource=resource,
-            resource_id=None,
-            access_level="none",
-            organization_member=(
-                OrganizationMembership.objects.get(user=self.user, organization=self.organization)
-                if for_member
-                else None
-            ),
-        )
-
-        [outcome] = self._migrate()
-
-        assert outcome.status.table_id == str(table.id)
-        assert outcome.status.state == TableMigrationState.SKIPPED
-        assert "access rules for sources" in (outcome.status.reason or "")
-        assert _schemas_for(table) == []
 
     def test_status_reports_every_state(self) -> None:
         pending = self._table("pending_table")
@@ -797,7 +789,7 @@ class TestMergeDuplicateSources(_MigrationTest):
             ("job_ran", "a sync already ran for the source"),
             ("table_adopted", "the table 'table_1' is already adopted by a source"),
             ("name_taken_in_kept_source", "the kept source already has a table named 'table_1'"),
-            ("source_has_rules", "the kept or the duplicate source has its own access rules"),
+            ("source_has_rules", "the kept and the duplicate source have different access rules"),
             ("other_destinations", "the kept and the duplicate source send data to different destinations"),
             ("inputs_edited", "the kept and the duplicate source connect with different settings"),
         ]
@@ -844,6 +836,142 @@ class TestMergeDuplicateSources(_MigrationTest):
         assert ExternalDataSource.objects.filter(team=self.team, deleted=False).count() == 3
 
 
+class TestBackdateMigrationSources(_MigrationTest):
+    def _legacy_tables(self) -> list[DataWarehouseTable]:
+        tables = [
+            self._table("orders", created_at=datetime(2024, 1, 1, tzinfo=UTC)),
+            self._table(
+                "refunds",
+                url="https://exports.s3.eu-west-1.amazonaws.com/refunds/*.csv",
+                created_at=datetime(2024, 2, 1, tzinfo=UTC),
+            ),
+        ]
+        self._migrate()
+        source_id = _schema_for(tables[0]).source_id
+        legacy_date = datetime(2030, 1, 1, tzinfo=UTC)
+        ExternalDataSource.objects.filter(pk=source_id).update(created_at=legacy_date)
+        ExternalDataSchema.objects.filter(source_id=source_id).update(created_at=legacy_date)
+        return tables
+
+    def test_dry_run_reports_the_date_without_changing_rows(self) -> None:
+        tables = self._legacy_tables()
+        source = _schema_for(tables[0]).source
+        schemas = [_schema_for(table) for table in tables]
+        source_updated_at = source.updated_at
+        schema_updated_at = [schema.updated_at for schema in schemas]
+
+        [outcome] = backdate_migration_sources(team_id=self.team.pk, live_run=False)
+
+        assert (outcome.source_id, outcome.team_id, outcome.action) == (str(source.pk), self.team.pk, "would_backdate")
+        assert (outcome.old_created_at, outcome.new_created_at) == (source.created_at, tables[0].created_at)
+        source.refresh_from_db()
+        assert source.created_at == datetime(2030, 1, 1, tzinfo=UTC)
+        assert source.updated_at == source_updated_at
+        for schema, updated_at in zip(schemas, schema_updated_at):
+            schema.refresh_from_db()
+            assert schema.created_at == datetime(2030, 1, 1, tzinfo=UTC)
+            assert schema.updated_at == updated_at
+
+    def test_live_run_backdates_source_and_each_schema_using_deleted_tables(self) -> None:
+        tables = self._legacy_tables()
+        DataWarehouseTable.raw_objects.filter(pk=tables[0].pk).update(deleted=True)
+        source = _schema_for(tables[0]).source
+        source_updated_at = source.updated_at
+        schema_updated_at = {table.pk: _schema_for(table).updated_at for table in tables}
+
+        [outcome] = backdate_migration_sources(team_id=self.team.pk, live_run=True)
+
+        assert (outcome.action, outcome.old_created_at, outcome.new_created_at) == (
+            "backdated",
+            datetime(2030, 1, 1, tzinfo=UTC),
+            tables[0].created_at,
+        )
+        source.refresh_from_db()
+        assert source.created_at == tables[0].created_at
+        assert source.updated_at == source_updated_at
+        for table in tables:
+            schema = _schema_for(table)
+            assert schema.created_at == table.created_at
+            assert schema.updated_at == schema_updated_at[table.pk]
+
+    def test_live_run_backdates_a_deleted_source_and_its_deleted_schemas(self) -> None:
+        tables = self._legacy_tables()
+        source = _schema_for(tables[0]).source
+        ExternalDataSchema.objects.filter(source_id=source.pk).update(deleted=True)
+        ExternalDataSource.objects.filter(pk=source.pk).update(deleted=True)
+
+        [outcome] = backdate_migration_sources(team_id=self.team.pk, live_run=True)
+
+        assert (outcome.source_id, outcome.action) == (str(source.pk), "backdated")
+        assert ExternalDataSource.objects.get(pk=source.pk).created_at == tables[0].created_at
+        assert {schema.created_at for schema in ExternalDataSchema.objects.filter(source_id=source.pk)} == {
+            table.created_at for table in tables
+        }
+
+    def test_source_at_its_oldest_table_date_is_unchanged(self) -> None:
+        table = self._table(created_at=datetime(2024, 1, 1, tzinfo=UTC))
+        self._migrate()
+        source = _schema_for(table).source
+
+        [outcome] = backdate_migration_sources(team_id=self.team.pk, live_run=True)
+
+        assert (outcome.source_id, outcome.action, outcome.new_created_at) == (str(source.pk), "unchanged", None)
+        assert ExternalDataSource.objects.get(pk=source.pk).created_at == table.created_at
+
+    def test_non_migration_source_is_not_touched(self) -> None:
+        table = self._table(created_at=datetime(2024, 1, 1, tzinfo=UTC))
+        self._migrate()
+        migration_schema = _schema_for(table)
+        regular_source = ExternalDataSource.objects.create(team=self.team, source_type="Postgres", job_inputs={})
+        regular_schema = ExternalDataSchema.objects.create(
+            team=self.team,
+            source=regular_source,
+            name="regular",
+            sync_type_config=migration_schema.sync_type_config,
+        )
+        later = datetime(2030, 1, 1, tzinfo=UTC)
+        ExternalDataSource.objects.filter(pk=regular_source.pk).update(created_at=later)
+        ExternalDataSchema.objects.filter(pk=regular_schema.pk).update(created_at=later)
+
+        outcomes = backdate_migration_sources(team_id=self.team.pk, live_run=True)
+
+        assert len(outcomes) == 1
+        assert outcomes[0].source_id == str(migration_schema.source_id)
+        regular_source.refresh_from_db()
+        regular_schema.refresh_from_db()
+        assert regular_source.created_at == later
+        assert regular_schema.created_at == later
+
+    @parameterized.expand([("dry_run", False, "would_backdate"), ("live_run", True, "backdated")])
+    def test_command_reports_changed_sources_and_counts(self, _name: str, live_run: bool, action: str) -> None:
+        tables = self._legacy_tables()
+        source = _schema_for(tables[0]).source
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        ExternalDataSource.objects.create(
+            team=other_team,
+            source_type="Postgres",
+            job_inputs={},
+            connection_metadata={MIGRATION_MARKER_KEY: {}},
+        )
+        out = StringIO()
+
+        call_command(
+            "migrate_self_managed_tables",
+            team_id=self.team.pk,
+            backfill_created_at=True,
+            live_run=live_run,
+            stdout=out,
+        )
+
+        assert out.getvalue().splitlines()[0] == (
+            f"source={source.pk} team={self.team.pk} {source.created_at.isoformat()} "
+            f"-> {tables[0].created_at.isoformat()} {action}"
+        )
+        assert f"1 source(s): 1 {action}" in out.getvalue()
+        source.refresh_from_db()
+        assert source.created_at == (tables[0].created_at if live_run else datetime(2030, 1, 1, tzinfo=UTC))
+
+
 class TestMigrateSelfManagedTablesCommand(BaseTest):
     @parameterized.expand(
         [
@@ -851,6 +979,7 @@ class TestMigrateSelfManagedTablesCommand(BaseTest):
             ("status_and_abandon", {"status": True, "abandon": "x"}, "only one"),
             ("status_and_merge", {"status": True, "merge_sources": True}, "only one"),
             ("abandon_and_merge", {"abandon": "x", "merge_sources": True}, "only one"),
+            ("status_and_backfill", {"status": True, "backfill_created_at": True}, "only one"),
             ("empty_abandon", {"abandon": " , "}, "at least one table id"),
         ]
     )
@@ -941,6 +1070,19 @@ class TestUploadedTableMigration(_MigrationTest):
         )
         table.refresh_from_db()
         return table
+
+    def test_an_uploaded_table_sets_its_source_and_schema_dates(self) -> None:
+        created_at = datetime(2024, 3, 1, tzinfo=UTC)
+        table = self._uploaded("orders", "managed/team_{team}/orders.csv")
+        DataWarehouseTable.raw_objects.filter(pk=table.pk).update(created_at=created_at)
+        table.refresh_from_db()
+
+        [outcome] = self._migrate()
+
+        schema = _schema_for(table)
+        assert outcome.action == "linked"
+        assert schema.created_at == created_at
+        assert schema.source.created_at == created_at
 
     @parameterized.expand(
         [
@@ -1115,3 +1257,573 @@ class TestUploadedTableMigration(_MigrationTest):
             # Inside the team folder but not one upload, so it is listed and never planned.
             "nested_key": TableMigrationState.SKIPPED,
         }
+
+
+_LEVELS = ("none", "viewer", "editor", "manager")
+_ROLE_NAMES = ("A", "B")
+# Each member stands for one way a member can relate to the rules.
+_MEMBERS: dict[str, tuple[tuple[str, ...], OrganizationMembership.Level]] = {
+    "plain": ((), OrganizationMembership.Level.MEMBER),
+    "named": ((), OrganizationMembership.Level.MEMBER),
+    "in_role": (("A",), OrganizationMembership.Level.MEMBER),
+    "named_in_roles": (("A", "B"), OrganizationMembership.Level.MEMBER),
+    "in_both_roles": (("A", "B"), OrganizationMembership.Level.MEMBER),
+    "admin": ((), OrganizationMembership.Level.ADMIN),
+    "project_admin": ((), OrganizationMembership.Level.MEMBER),
+    "creator": ((), OrganizationMembership.Level.MEMBER),
+}
+# Where a rule can be: "<scope>" is the scope's default rule, "<scope>:<member or role>" names a subject.
+_SCOPES = {
+    "table": ("warehouse_table", True),
+    "warehouse": ("warehouse_objects", False),
+    "sources": ("external_data_source", False),
+    # Resolution reads the rules for all warehouse tables from warehouse_objects, so this rule never applies.
+    "all_tables": ("warehouse_table", False),
+}
+
+
+class _AccessRulesTest(_MigrationTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": feature, "name": feature}
+            for feature in (AvailableFeature.ACCESS_CONTROL, AvailableFeature.ROLE_BASED_ACCESS)
+        ]
+        self.organization.save()
+        self.roles = {
+            name: create_role(organization_id=self.organization.id, name=f"Role {name}") for name in _ROLE_NAMES
+        }
+        self.users: dict[str, User] = {}
+        self.memberships: dict[str, OrganizationMembership] = {}
+        for name, (roles, level) in _MEMBERS.items():
+            user = User.objects.create_and_join(self.organization, f"{name}@example.com", None, level=level)
+            self.users[name] = user
+            self.memberships[name] = OrganizationMembership.objects.get(user=user, organization=self.organization)
+            for role in roles:
+                add_role_member(role_id=self.roles[role], user_id=user.id)
+        create_access_control(
+            team_id=self.team.pk,
+            resource="project",
+            resource_id=str(self.team.pk),
+            access_level="admin",
+            organization_member_id=self.memberships["project_admin"].id,
+        )
+
+    def _rule(self, slot: str, level: str, table: DataWarehouseTable | None = None) -> None:
+        scope, _, subject = slot.partition(":")
+        resource, on_table = _SCOPES[scope]
+        create_access_control(
+            team_id=self.team.pk,
+            resource=resource,
+            resource_id=str(table.id) if on_table and table is not None else None,
+            access_level=level,
+            organization_member_id=self.memberships[subject].id if subject in self.memberships else None,
+            role_id=self.roles[subject] if subject in self.roles else None,
+        )
+
+    def _apply(self, rules: dict[str, str], table: DataWarehouseTable) -> None:
+        for slot, level in rules.items():
+            self._rule(slot, level, table)
+
+    def _access(self, obj: Any) -> dict[str, str | None]:
+        """Each subject's access to the object, from the access checks that serve requests."""
+        result: dict[str, str | None] = {
+            name: UserAccessControl(user, self.team).get_user_access_level(obj) for name, user in self.users.items()
+        }
+        asker = UserAccessControl(self.users["admin"], self.team)
+        for name, role_id in self.roles.items():
+            result[f"role {name}"] = SubjectAccessControl.for_role(
+                asker, self.team, str(role_id)
+            ).get_user_access_level(obj)
+        result["everyone"] = SubjectAccessControl.for_default(asker, self.team).get_user_access_level(obj)
+        return result
+
+    def _in_both_orders(self, obj: Any) -> dict[bool, dict[str, str | None]]:
+        by_order = {}
+        for most_specific in (False, True):
+            self.organization.uses_most_specific_access_resolution = most_specific
+            self.organization.save()
+            by_order[most_specific] = self._access(obj)
+        return by_order
+
+    def _source_rules(self, source: ExternalDataSource) -> set[tuple[str, str]]:
+        names = {str(m.id): name for name, m in self.memberships.items()} | {str(r): n for n, r in self.roles.items()}
+        return {
+            (names.get(str(rule.organization_member_id or rule.role_id or ""), ""), rule.access_level)
+            for rule in AccessControl.objects.filter(
+                team=self.team, resource="external_data_source", resource_id=str(source.pk)
+            )
+        }
+
+    def _assert_move_keeps_access(self, table: DataWarehouseTable) -> ExternalDataSource:
+        """Adopt the linked table, and check every subject's access to it and to its source under both orders."""
+        before = self._in_both_orders(table)
+        source = _schema_for(table).source
+        self._adopt(table)
+        table.refresh_from_db()
+        assert table.external_data_source_id == source.pk
+        after = self._in_both_orders(table)
+        on_source = self._in_both_orders(source)
+        assert after == before
+        for most_specific, levels in on_source.items():
+            for subject, level in levels.items():
+                table_level = after[most_specific][subject]
+                assert level is not None and table_level is not None
+                assert _LEVELS.index(level) <= _LEVELS.index(table_level), (most_specific, subject, level, table_level)
+        return source
+
+
+class TestAccessRulesMoveWithTheTable(_AccessRulesTest):
+    @parameterized.expand(
+        [
+            ("no_rules", {}, set()),
+            ("table_private", {"table": "none"}, {("", "none")}),
+            ("table_read_only", {"table": "viewer"}, {("", "viewer")}),
+            ("table_hidden_from_a_member", {"table:named": "none"}, {("named", "none")}),
+            (
+                "table_private_but_shared_with_a_member",
+                {"table": "none", "table:named": "editor"},
+                {("named", "editor"), ("", "none")},
+            ),
+            ("table_rule_for_a_role", {"table:A": "viewer"}, {("A", "viewer")}),
+            (
+                "member_rule_and_role_rule_for_one_member",
+                {"table:named_in_roles": "viewer", "table:A": "editor", "table:B": "none"},
+                {("named_in_roles", "viewer"), ("A", "editor"), ("B", "none")},
+            ),
+            ("warehouse_read_only", {"warehouse": "viewer"}, {("", "viewer")}),
+            ("warehouse_hidden", {"warehouse": "none"}, {("", "none")}),
+            ("warehouse_managers", {"warehouse": "manager"}, set()),
+            # The table gives more than the default for sources, so the source must grant it.
+            ("sources_read_only", {"sources": "viewer"}, {("", "editor")}),
+            # The table gives less than the default for sources, so the source must be restricted.
+            ("private_table_and_sources_open", {"table": "none", "sources": "editor"}, {("", "none")}),
+            ("private_table_and_warehouse_read_only", {"table": "none", "warehouse": "viewer"}, {("", "none")}),
+            ("rule_for_all_tables_never_applies", {"all_tables": "none"}, set()),
+            ("rule_for_the_project_admin", {"table:project_admin": "none"}, {("project_admin", "none")}),
+            ("rule_for_the_creator", {"table:creator": "none"}, {("creator", "none")}),
+        ]
+    )
+    def test_a_migrated_table_keeps_every_subjects_access(
+        self, _name: str, rules: dict[str, str], source_rules: set[tuple[str, str]]
+    ) -> None:
+        table = self._table(created_by=self.users["creator"])
+        self._apply(rules, table)
+        before = self._in_both_orders(table)
+
+        [outcome] = self._migrate()
+
+        assert outcome.action == "linked", outcome.error or outcome.status.reason
+        assert self._source_rules(_schema_for(table).source) == source_rules
+        # Until the first sync the table has no source, so the source's rules don't reach it.
+        assert self._in_both_orders(table) == before
+        self._assert_move_keeps_access(table)
+
+    @parameterized.expand(
+        [
+            # A grant on a source can't widen "none" for all sources under most-specific resolution.
+            ("sources_hidden", {"sources": "none"}, "access rules for sources"),
+            ("sources_hidden_from_a_member", {"sources:named": "none"}, "access rules for sources"),
+            ("table_read_only_and_sources_hidden", {"table": "viewer", "sources": "none"}, "access rules for sources"),
+            # Everyone could manage the source, and through its rules change the table's access.
+            ("sources_managed_by_everyone", {"sources": "manager"}, "access rules for sources"),
+            # Members of one role see more of the warehouse than the others, and one default can't say that.
+            ("warehouse_open_to_a_role", {"warehouse": "viewer", "warehouse:A": "editor"}, "access rules for sources"),
+            ("warehouse_hidden_from_a_member", {"warehouse:named": "none"}, "access rules for sources"),
+            (
+                "table_rule_and_sources_hidden_from_a_role",
+                {"table:named": "viewer", "sources:A": "none"},
+                "access rules for sources",
+            ),
+        ]
+    )
+    def test_a_table_whose_access_no_source_rules_can_keep_stays_self_managed(
+        self, _name: str, rules: dict[str, str], reason: str
+    ) -> None:
+        table = self._table()
+        self._apply(rules, table)
+
+        [outcome] = self._migrate()
+
+        assert outcome.status.state == TableMigrationState.SKIPPED
+        assert reason in (outcome.status.reason or "")
+        assert _schemas_for(table) == []
+        assert not ExternalDataSource.objects.filter(team=self.team).exists()
+
+    @parameterized.expand(
+        [
+            (f"table_{table}_warehouse_{warehouse}_sources_{sources}", table, warehouse, sources)
+            for table in (None, *_LEVELS[:3])
+            for warehouse in (None, *_LEVELS[:3])
+            for sources in (None, *_LEVELS[:3])
+        ]
+    )
+    def test_every_move_of_a_table_with_explicit_rules_keeps_access(
+        self, _name: str, table_default: str | None, warehouse: str | None, sources: str | None
+    ) -> None:
+        table = self._table(created_by=self.users["creator"])
+        rules = {"table:named": "viewer", "table:B": "none"}
+        for slot, level in (("table", table_default), ("warehouse", warehouse), ("sources", sources)):
+            if level is not None:
+                rules[slot] = level
+        self._apply(rules, table)
+
+        [outcome] = self._migrate()
+
+        if outcome.action != "linked":
+            assert outcome.status.state == TableMigrationState.SKIPPED
+            assert outcome.status.reason in (
+                "the table has its own access rules, which the source PostHog would create can't carry",
+                "the project has access rules for sources or for the warehouse, which the move would change",
+            )
+            return
+        self._assert_move_keeps_access(table)
+
+    def test_tables_of_one_bucket_share_a_source_only_when_they_need_the_same_rules(self) -> None:
+        open_table = self._table("open", url="https://exports.s3.eu-west-1.amazonaws.com/open/*.csv")
+        private = self._table("private", url="https://exports.s3.eu-west-1.amazonaws.com/private/*.csv")
+        also_private = self._table("also_private", url="https://exports.s3.eu-west-1.amazonaws.com/also/*.csv")
+        read_only = self._table("read_only", url="https://exports.s3.eu-west-1.amazonaws.com/read/*.csv")
+        self._rule("table", "none", private)
+        self._rule("table", "none", also_private)
+        self._rule("table", "viewer", read_only)
+
+        self._migrate()
+
+        sources = {table.name: _schema_for(table).source for table in (open_table, private, also_private, read_only)}
+        assert sources["private"].pk == sources["also_private"].pk
+        assert len({source.pk for source in sources.values()}) == 3
+        assert self._source_rules(sources["open"]) == set()
+        assert self._source_rules(sources["private"]) == {("", "none")}
+        assert self._source_rules(sources["read_only"]) == {("", "viewer")}
+        assert "access_signature" not in (sources["open"].connection_metadata or {})[MIGRATION_MARKER_KEY]
+        for table in (private, also_private, read_only):
+            self._assert_move_keeps_access(table)
+
+    def test_rules_that_never_apply_are_not_copied(self) -> None:
+        other_organization = Organization.objects.create(name="Elsewhere")
+        foreign_role = create_role(organization_id=other_organization.id, name="Foreign")
+        table = self._table()
+        create_access_control(
+            team_id=self.team.pk,
+            resource="warehouse_table",
+            resource_id=str(table.id),
+            access_level="none",
+            role_id=foreign_role,
+        )
+        before = self._in_both_orders(table)
+
+        [outcome] = self._migrate()
+
+        assert outcome.action == "linked"
+        assert self._source_rules(_schema_for(table).source) == set()
+        assert self._in_both_orders(table) == before
+        self._assert_move_keeps_access(table)
+
+    def test_a_rule_for_an_inactive_member_is_copied(self) -> None:
+        User.objects.filter(pk=self.users["named"].pk).update(is_active=False)
+        table = self._table()
+        self._rule("table:named", "manager", table)
+
+        [outcome] = self._migrate()
+
+        assert outcome.action == "linked"
+        assert self._source_rules(_schema_for(table).source) == {("named", "manager")}
+
+    def test_rules_of_an_organization_without_access_control_are_copied_for_when_it_comes_back(self) -> None:
+        table = self._table()
+        self._apply({"table": "none", "table:named": "viewer"}, table)
+        with_access_control = self._in_both_orders(table)
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        [outcome] = self._migrate()
+
+        assert outcome.action == "linked"
+        assert self._source_rules(_schema_for(table).source) == {("named", "viewer"), ("", "none")}
+        self._assert_move_keeps_access(table)
+        self.organization.available_product_features = [
+            {"key": feature, "name": feature}
+            for feature in (AvailableFeature.ACCESS_CONTROL, AvailableFeature.ROLE_BASED_ACCESS)
+        ]
+        self.organization.save()
+        assert self._in_both_orders(table) == with_access_control
+
+    @parameterized.expand(
+        [
+            ("unknown_level", {"table": "superuser"}, "the level 'superuser'"),
+        ]
+    )
+    def test_rules_the_planner_cant_read_keep_the_table_self_managed(
+        self, _name: str, rules: dict[str, str], reason: str
+    ) -> None:
+        table = self._table()
+        self._apply(rules, table)
+
+        [outcome] = self._migrate()
+
+        assert outcome.status.state == TableMigrationState.SKIPPED
+        assert reason in (outcome.status.reason or "")
+
+    def test_rules_that_name_too_many_roles_keep_the_table_self_managed(self) -> None:
+        table = self._table()
+        for i in range(11):
+            role = create_role(organization_id=self.organization.id, name=f"Extra {i}")
+            create_access_control(
+                team_id=self.team.pk,
+                resource="warehouse_table",
+                resource_id=str(table.id),
+                access_level=_LEVELS[i % 4],
+                role_id=role,
+            )
+            create_access_control(
+                team_id=self.team.pk, resource="warehouse_objects", access_level=_LEVELS[i // 4], role_id=role
+            )
+
+        [outcome] = self._migrate()
+
+        assert outcome.status.state == TableMigrationState.SKIPPED
+        assert outcome.status.reason == "the access rules name too many roles to check"
+
+    def test_status_and_dry_run_report_the_rules_the_source_gets_and_write_nothing(self) -> None:
+        table = self._table()
+        self._apply({"table": "none", "table:named": "editor"}, table)
+        member_id = self.memberships["named"].id
+        note = f"note=(the source gets these access rules: member {member_id}=editor, everyone=none)"
+
+        for options in ({"status": True}, {}):
+            out = StringIO()
+            call_command("migrate_self_managed_tables", team_id=self.team.pk, stdout=out, **options)
+            assert note in out.getvalue()
+
+        assert not ExternalDataSource.objects.filter(team=self.team).exists()
+        assert not AccessControl.objects.filter(resource="external_data_source").exists()
+
+    def test_an_uploaded_table_gets_the_same_rules_on_its_own_source(self) -> None:
+        with override_settings(DATAWAREHOUSE_BUCKET=UPLOAD_BUCKET, DATAWAREHOUSE_BUCKET_DOMAIN=UPLOAD_DOMAIN):
+            table = self._table(
+                "uploaded",
+                url=f"https://{UPLOAD_DOMAIN}/file_uploads/team_{self.team.pk}/{UPLOAD_ID}/orders.csv",
+                created_by=self.users["creator"],
+            )
+            DataWarehouseTable.raw_objects.filter(pk=table.pk).update(
+                credential=None, options={"csv_allow_double_quotes": False}
+            )
+            table.refresh_from_db()
+            self._apply({"table": "none", "table:A": "viewer"}, table)
+
+            [outcome] = self._migrate()
+
+        assert outcome.action == "linked", outcome.error or outcome.status.reason
+        source = _schema_for(table).source
+        assert source.source_type == "FileUpload"
+        assert self._source_rules(source) == {("A", "viewer"), ("", "none")}
+        assert (source.connection_metadata or {})[MIGRATION_MARKER_KEY]["access_signature"]
+        self._assert_move_keeps_access(table)
+
+
+class TestAccessRulesAfterLinking(_AccessRulesTest):
+    def _linked(self, rules: dict[str, str], name: str = "orders") -> DataWarehouseTable:
+        table = self._table(name, url=f"https://exports.s3.eu-west-1.amazonaws.com/{name}/*.csv")
+        self._apply(rules, table)
+        [outcome] = self._migrate(table_ids=(str(table.id),))
+        assert outcome.action == "linked"
+        return table
+
+    @parameterized.expand(
+        [
+            ("no_change", None, None),
+            ("table_rule_added", "table:named", "the access rules of the table or of its source changed"),
+            ("table_rule_widened", "table", "the access rules of the table or of its source changed"),
+            ("source_rule_edited", "source", "the access rules of the table or of its source changed"),
+            ("sources_hidden", "sources", "now the project has access rules for sources"),
+        ]
+    )
+    def test_the_first_sync_refuses_to_adopt_a_table_whose_rules_changed(
+        self, _name: str, change: str | None, refusal: str | None
+    ) -> None:
+        table = self._linked({"table": "viewer"})
+        source = _schema_for(table).source
+        if change == "table:named":
+            self._rule("table:named", "viewer", table)
+        elif change == "table":
+            AccessControl.objects.filter(resource="warehouse_table", resource_id=str(table.id)).update(
+                access_level="editor"
+            )
+        elif change == "source":
+            AccessControl.objects.filter(resource="external_data_source", resource_id=str(source.pk)).update(
+                access_level="none"
+            )
+        elif change == "sources":
+            self._rule("sources", "none")
+
+        status = self._status(table)
+        if refusal is None:
+            assert_adoption_keeps_access(table, source)
+            assert status.reason == "syncing is off"
+            return
+        with self.assertRaisesRegex(AdoptionAccessError, refusal):
+            assert_adoption_keeps_access(table, source)
+        assert status.state == TableMigrationState.AWAITING_SYNC
+        assert refusal in (status.reason or "")
+        assert "the first sync will fail and leave the table as it is" in (status.reason or "")
+
+    @parameterized.expand([("unchanged", False, False), ("rule_added", True, False), ("already_adopted", True, True)])
+    def test_the_import_stops_before_extraction_only_when_the_rules_no_longer_fit(
+        self, _name: str, rule_added: bool, adopted: bool
+    ) -> None:
+        table = self._linked({"table": "viewer"})
+        if rule_added:
+            self._rule("table:named", "viewer", table)
+        if adopted:
+            self._adopt(table)
+
+        error = self_managed_adoption_error(_schema_for(table) if not adopted else self._unlinked_schema(table))
+
+        if not rule_added or adopted:
+            assert error is None
+            return
+        assert error is not None
+        assert error.startswith(f"{ADOPTION_ACCESS_ERROR} 'orders', because the access rules of the table")
+        assert "an organization admin must make the access rules of this source the same" in error
+
+    def _unlinked_schema(self, table: DataWarehouseTable) -> ExternalDataSchema:
+        schema = _schema_for(table)
+        ExternalDataSchema.objects.filter(pk=schema.pk).update(table=None)
+        schema.refresh_from_db()
+        return schema
+
+    def test_a_source_made_before_access_signatures_takes_only_tables_without_rules(self) -> None:
+        old = self._linked({})
+        source = _schema_for(old).source
+        assert MIGRATION_MARKER_KEY in (source.connection_metadata or {})
+        assert "access_signature" not in (source.connection_metadata or {})[MIGRATION_MARKER_KEY]
+        plain = self._linked({}, name="plain")
+        private = self._linked({"table": "none"}, name="private")
+
+        assert _schema_for(plain).source_id == source.pk
+        assert _schema_for(private).source_id != source.pk
+        assert self._source_rules(source) == set()
+
+    def test_a_table_does_not_join_a_source_whose_rules_someone_changed(self) -> None:
+        first = self._linked({"table": "none"}, name="first")
+        source = _schema_for(first).source
+        AccessControl.objects.filter(resource="external_data_source", resource_id=str(source.pk)).update(
+            access_level="viewer"
+        )
+        second = self._table("second", url="https://exports.s3.eu-west-1.amazonaws.com/second/*.csv")
+        self._rule("table", "none", second)
+
+        [outcome] = self._migrate(table_ids=(str(second.id),))
+
+        assert outcome.action == "link_failed"
+        assert "the access rules on the source for this bucket changed" in (outcome.error or "")
+        assert ExternalDataSource.objects.filter(team=self.team, deleted=False).count() == 1
+
+    @parameterized.expand([("last_table", False), ("other_tables_stay", True)])
+    def test_abandon_removes_the_rules_only_with_the_source(self, _name: str, keep_another: bool) -> None:
+        table = self._linked({"table": "none"})
+        source = _schema_for(table).source
+        if keep_another:
+            other = self._linked({"table": "none"}, name="other")
+            assert _schema_for(other).source_id == source.pk
+
+        assert self._abandon(table).action == "abandoned"
+
+        source.refresh_from_db()
+        assert source.deleted is not keep_another
+        assert self._source_rules(source) == (({("", "none")}) if keep_another else set())
+
+    def test_abandon_of_a_table_never_linked_leaves_no_rules(self) -> None:
+        table = self._table()
+        self._rule("table", "none", table)
+
+        assert self._abandon(table).action == "abandoned"
+
+        assert not AccessControl.objects.filter(resource="external_data_source").exists()
+
+    def test_a_rule_written_while_the_run_plans_fails_the_link(self) -> None:
+        table = self._table()
+        planned_reads: list[TeamAccessRules] = []
+
+        def rules_read_then_changed(team_id: int) -> TeamAccessRules:
+            rules = TeamAccessRules(team_id)
+            if not planned_reads:
+                self._rule("table", "none", table)
+            planned_reads.append(rules)
+            return rules
+
+        with patch(f"{MODULE}.TeamAccessRules", side_effect=rules_read_then_changed):
+            [outcome] = self._migrate()
+
+        assert (outcome.action, outcome.error) == ("link_failed", "the access rules changed during the run")
+        assert not ExternalDataSource.objects.filter(team=self.team).exists()
+
+
+class TestMergeKeepsAccessRules(_AccessRulesTest):
+    def _duplicate_pair(self, rules: dict[str, str]) -> tuple[DataWarehouseTable, DataWarehouseTable]:
+        """Two sources of one group with the same rules, as earlier runs could leave them."""
+        tables = []
+        for i in range(2):
+            table = self._table(
+                f"table_{i}",
+                url=f"https://exports.s3.eu-west-1.amazonaws.com/t{i}/*.csv",
+                credential=self._credential(f"AKIATEMP{i}"),
+            )
+            self._apply(rules, table)
+            tables.append(table)
+        self._migrate()
+        for i, table in enumerate(tables):
+            credential = table.credential
+            assert credential is not None
+            credential.access_key = "AKIAFIRST"
+            credential.save()
+            source = _schema_for(table).source
+            SourceInputsStore.save(source, _replace_values(SourceInputsStore.load(source), f"AKIATEMP{i}", "AKIAFIRST"))
+            signature = (source.connection_metadata or {})[MIGRATION_MARKER_KEY].get("access_signature")
+            ExternalDataSource.objects.filter(pk=source.pk).update(
+                created_at=datetime(2024, 1, 1 + i, tzinfo=UTC),
+                connection_metadata={
+                    MIGRATION_MARKER_KEY: {
+                        "group_key": "s3/eu-west-1/exports",
+                        "credential_id": str(credential.pk),
+                        **({"access_signature": signature} if signature else {}),
+                    }
+                },
+            )
+        assert _schema_for(tables[0]).source_id != _schema_for(tables[1]).source_id
+        return tables[0], tables[1]
+
+    def test_sources_with_the_same_rules_merge_and_the_duplicates_rules_go(self) -> None:
+        first, second = self._duplicate_pair({"table": "none"})
+        kept, duplicate = _schema_for(first).source, _schema_for(second).source
+
+        [outcome] = merge_duplicate_sources(team_id=self.team.pk, live_run=True)
+
+        assert (outcome.action, outcome.source_id) == ("merged", str(duplicate.pk))
+        assert _schema_for(second).source_id == kept.pk
+        assert self._source_rules(kept) == {("", "none")}
+        assert self._source_rules(duplicate) == set()
+        self._assert_move_keeps_access(second)
+
+    @parameterized.expand([("rules_differ", "the kept and the duplicate source have different access rules")])
+    def test_sources_whose_rules_differ_never_merge(self, _name: str, reason: str) -> None:
+        first, second = self._duplicate_pair({"table": "none"})
+        duplicate = _schema_for(second).source
+        AccessControl.objects.filter(resource="external_data_source", resource_id=str(duplicate.pk)).update(
+            access_level="viewer"
+        )
+
+        [outcome] = merge_duplicate_sources(team_id=self.team.pk, live_run=True)
+
+        assert (outcome.action, outcome.reason) == ("skipped", reason)
+        assert _schema_for(second).source_id == duplicate.pk
+
+    def test_sources_with_other_access_signatures_are_never_grouped(self) -> None:
+        open_table = self._table("open", url="https://exports.s3.eu-west-1.amazonaws.com/open/*.csv")
+        private = self._table("private", url="https://exports.s3.eu-west-1.amazonaws.com/private/*.csv")
+        self._rule("table", "none", private)
+        self._migrate()
+        assert _schema_for(open_table).source_id != _schema_for(private).source_id
+
+        assert merge_duplicate_sources(team_id=self.team.pk, live_run=True) == []

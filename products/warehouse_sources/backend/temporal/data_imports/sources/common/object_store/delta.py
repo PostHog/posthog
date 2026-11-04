@@ -289,3 +289,9 @@ def iter_delta_tables(
     yield from plan_delta_read(
         uri, storage_options, table_name, logger=logger, data_filesystem=data_filesystem
     ).iter_tables(batch_rows)
+
+
+def check_delta_table(uri: str, storage_options: dict[str, str], table_name: str) -> None:
+    """Load the table's `_delta_log`, which needs the same read access as a sync, without reading data."""
+    with _delta_errors(table_name):
+        DeltaTable(uri, storage_options=storage_options, without_files=True)

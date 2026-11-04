@@ -204,6 +204,28 @@ def resolve_aws_credentials(auth: AwsAuth, team_id: int, session_actions: Sequen
     return _integration_credentials(auth.aws_integration_id, team_id, session_actions)
 
 
+def session_policy(session_actions: Sequence[str]) -> str:
+    """The session policy that limits a role session to `session_actions`.
+
+    KMS actions apply only through the other services the source calls, so the session cannot decrypt
+    data directly with KMS.
+    """
+    kms = [action for action in session_actions if action.startswith("kms:")]
+    others = [action for action in session_actions if not action.startswith("kms:")]
+    statements: list[dict[str, Any]] = [{"Effect": "Allow", "Action": others, "Resource": "*"}]
+    if kms:
+        services = sorted({action.split(":")[0] for action in others})
+        statements.append(
+            {
+                "Effect": "Allow",
+                "Action": kms,
+                "Resource": "*",
+                "Condition": {"StringLike": {"kms:ViaService": [f"{service}.*.amazonaws.com" for service in services]}},
+            }
+        )
+    return json.dumps({"Version": "2012-10-17", "Statement": statements})
+
+
 def _integration_credentials(integration_id: int, team_id: int, session_actions: Sequence[str]) -> Credentials:
     try:
         integration = IntegrationManager.any.get(team_id, integration_id)
@@ -218,9 +240,7 @@ def _integration_credentials(integration_id: int, team_id: int, session_actions:
     organization_id = Team.objects.only("organization_id").get(id=team_id).organization_id
     external_id = f"posthog-{organization_id}"
     session_name = f"PostHog-warehouse-source-{team_id}"
-    session_policy = json.dumps(
-        {"Version": "2012-10-17", "Statement": [{"Effect": "Allow", "Action": list(session_actions), "Resource": "*"}]}
-    )
+    policy = session_policy(session_actions)
 
     def assume_customer_role() -> dict[str, Any]:
         import boto3  # noqa: PLC0415 — keeps boto3 off the source registry's import path
@@ -270,7 +290,7 @@ def _integration_credentials(integration_id: int, team_id: int, session_actions:
 
         try:
             return sts.assume_role(
-                RoleArn=aws_role_arn, RoleSessionName=session_name, ExternalId=external_id, Policy=session_policy
+                RoleArn=aws_role_arn, RoleSessionName=session_name, ExternalId=external_id, Policy=policy
             )["Credentials"]
         except ClientError as e:
             if e.response.get("Error", {}).get("Code") != "AccessDenied":
