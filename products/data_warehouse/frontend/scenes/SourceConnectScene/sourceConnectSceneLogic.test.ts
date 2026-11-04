@@ -186,11 +186,22 @@ describe('sourceConnectSceneLogic', () => {
         errorToast.mockRestore()
     })
 
-    it('drops the previous item values when switching items', async () => {
-        await expectLogic(sourceConnectSceneLogic, () =>
-            sourceConnectSceneLogic.actions.loadMigrationPrefill(MIGRATION_ID, ITEM_ID)
-        ).toFinishAllListeners()
-        sourceConnectSceneLogic.actions.setCredentialsFormValue(['payload', 'password'], 'typed-for-item-a')
+    it.each([
+        ['another item', true],
+        ['the plain connect page', false],
+    ])('drops values typed for %s when a migration item opens', async (_name, fromItem) => {
+        if (fromItem) {
+            await expectLogic(sourceConnectSceneLogic, () =>
+                sourceConnectSceneLogic.actions.loadMigrationPrefill(MIGRATION_ID, ITEM_ID)
+            ).toFinishAllListeners()
+        }
+        sourceConnectSceneLogic.actions.setCredentialsFormValue(['payload', 'password'], 'typed-elsewhere')
+        sourceConnectSceneLogic.actions.setStoredCredential({
+            credential_id: 'ba07775f-8eaf-4d09-aa6f-50e37f17f243',
+            source_type: 'Postgres',
+            created_at: '2026-06-10T00:00:00Z',
+            expires_at: '2026-06-11T00:00:00Z',
+        })
         useMocks({
             get: {
                 '/api/projects/:team_id/warehouse_migrations/:id/items/:item_id/': {
@@ -205,6 +216,7 @@ describe('sourceConnectSceneLogic', () => {
         ).toFinishAllListeners()
 
         expect(sourceConnectSceneLogic.values.credentialsForm.payload).toEqual({ host: 'other.example.com' })
+        expect(sourceConnectSceneLogic.values.storedCredential).toBeNull()
     })
 
     it('keeps the prefill of the latest item when an earlier request finishes last', async () => {
