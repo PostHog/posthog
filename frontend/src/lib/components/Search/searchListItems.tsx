@@ -4,7 +4,7 @@ import { IconClock, IconDownload, IconLeave, IconNotification, IconSupport, Icon
 
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
-import { isFileSystemImportFlagEnabled } from 'lib/utils/fileSystemImportFlags'
+import { isFileSystemImportFlagEnabled, isFileSystemImportShown } from 'lib/utils/fileSystemImportFlags'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { PLACEHOLDER_HREF } from 'lib/utils/navigateToHref'
 import { newInternalTab } from 'lib/utils/newInternalTab'
@@ -13,7 +13,11 @@ import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
 import { isDefinitionsTabHref } from '~/layout/panel-layout/navbar/tabs/navProductItems'
-import { getDefaultTreePersons } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import {
+    getDefaultTreePersons,
+    hiddenProductHrefs,
+    isHiddenProductShortcut,
+} from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { getTreeItemsMetadata, getTreeItemsNew, getTreeItemsProducts } from '~/products'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 import type { SettingSection, SettingSectionId } from '~/scenes/settings/types'
@@ -68,8 +72,7 @@ const visibleImports = (
     showUnreleased: boolean
 ): FileSystemImport[] =>
     items.filter(
-        (item) =>
-            (showUnreleased || item.category !== 'Unreleased') && isFileSystemImportFlagEnabled(item, featureFlags)
+        (item) => (showUnreleased || item.category !== 'Unreleased') && isFileSystemImportShown(item, featureFlags)
     )
 
 const withUniqueHref = (items: FileSystemImport[]): FileSystemImport[] => {
@@ -252,9 +255,10 @@ const ACTION_ITEMS = [
     }),
 ]
 
-export const starredSearchItems = (entries: FileSystemEntry[]): SearchItem[] =>
-    entries
-        .filter((entry) => entry.type !== 'folder')
+export const starredSearchItems = (entries: FileSystemEntry[], featureFlags: FeatureFlagsSet): SearchItem[] => {
+    const hiddenHrefs = hiddenProductHrefs(featureFlags)
+    return entries
+        .filter((entry) => entry.type !== 'folder' && !isHiddenProductShortcut(entry, hiddenHrefs))
         .slice(0, STARRED_LIMIT)
         .map((entry) =>
             fileSystemEntryToSearchItem(entry, {
@@ -263,6 +267,7 @@ export const starredSearchItems = (entries: FileSystemEntry[]): SearchItem[] =>
                 searchKeywords: ['starred', 'favorite', 'favourite', 'shortcut'],
             })
         )
+}
 
 export const productSearchItems = (
     featureFlags: FeatureFlagsSet,

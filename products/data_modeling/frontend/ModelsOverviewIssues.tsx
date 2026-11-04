@@ -267,6 +267,7 @@ export function ModelsOverviewIssues(): JSX.Element {
         modelsFirstLoading,
         checksFirstLoading,
         refreshSummary,
+        catalogRestructureEnabled,
     } = useValues(modelsOverviewLogic)
     const { loadNodes, loadDataWarehouseSavedQueries, loadOverview } = useActions(modelsOverviewLogic)
 
@@ -300,22 +301,24 @@ export function ModelsOverviewIssues(): JSX.Element {
                             </span>
                         )}
                     </Heading>
-                    <div className="flex gap-2">
-                        <Button
-                            variant="link"
-                            render={<LinkPrimitive to={urls.models('models')} />}
-                            data-attr="models-overview-all-models"
-                        >
-                            All models
-                        </Button>
-                        <Button
-                            variant="link"
-                            render={<LinkPrimitive to={urls.models('data-quality')} />}
-                            data-attr="models-overview-all-checks"
-                        >
-                            All checks
-                        </Button>
-                    </div>
+                    {!catalogRestructureEnabled && (
+                        <div className="flex gap-2">
+                            <Button
+                                variant="link"
+                                render={<LinkPrimitive to={urls.models('models')} />}
+                                data-attr="models-overview-all-models"
+                            >
+                                All models
+                            </Button>
+                            <Button
+                                variant="link"
+                                render={<LinkPrimitive to={urls.models('data-quality')} />}
+                                data-attr="models-overview-all-checks"
+                            >
+                                All checks
+                            </Button>
+                        </div>
+                    )}
                 </div>
                 <Text size="xs" variant="muted" render={<p id={DESCRIPTION_ID} className="m-0" />}>
                     These failed to refresh or have failing checks, so anything that reads them may show stale or wrong

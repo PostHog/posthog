@@ -1,10 +1,10 @@
 import { BindLogic, useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useMemo } from 'react'
+import { Suspense, lazy, useMemo } from 'react'
 
 import { IconPlus, IconPlusSmall } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
-import { Button } from '@posthog/quill'
+import { Button, Spinner } from '@posthog/quill'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge'
@@ -27,6 +27,10 @@ import { CertificationsTab } from './tabs/CertificationsTab'
 import { MetricsTab } from './tabs/MetricsTab'
 import { RelationshipsTab } from './tabs/RelationshipsTab'
 
+const DataCatalogSections = lazy(() =>
+    import('./DataCatalogSections').then((module) => ({ default: module.DataCatalogSections }))
+)
+
 export const scene: SceneExport = {
     component: DataCatalogScene,
     logic: dataCatalogSceneLogic,
@@ -44,7 +48,7 @@ function TabLabel({ label, count }: { label: string; count: number }): JSX.Eleme
 }
 
 export function DataCatalogScene(): JSX.Element {
-    const { activeTab } = useValues(dataCatalogSceneLogic)
+    const { activeTab, restructureEnabled } = useValues(dataCatalogSceneLogic)
     const { setActiveTab } = useActions(dataCatalogSceneLogic)
     const { proposedCount: metricsPending } = useValues(metricsLogic)
     const { pendingCount: relationshipsPending } = useValues(relationshipsLogic)
@@ -57,6 +61,16 @@ export function DataCatalogScene(): JSX.Element {
         contextItems,
         headlines: DATA_CATALOG_AGENT_HEADLINES,
     })
+
+    if (restructureEnabled) {
+        return (
+            <BindLogic logic={metricsLogic} props={{}}>
+                <Suspense fallback={<Spinner />}>
+                    <DataCatalogSections />
+                </Suspense>
+            </BindLogic>
+        )
+    }
 
     const tabs: LemonTab<DataCatalogTab>[] = [
         {

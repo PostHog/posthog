@@ -1,5 +1,5 @@
-import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
-import { urlToAction } from 'kea-router'
+import { MakeLogicType, actions, afterMount, connect, kea, path, reducers, selectors } from 'kea'
+import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -10,6 +10,7 @@ import { urls } from 'scenes/urls'
 
 import { DataModelingEdge, DataModelingNode, DataModelingNodeType } from '~/types'
 
+import { catalogRestructureEnabled } from './catalogRestructure'
 import { BehindScheduleModel, modelsBehindSchedule } from './freshness'
 import { NodeSuspensionApi } from './generated/api.schemas'
 import { lineageDataLogic } from './lineage/lineageDataLogic'
@@ -24,6 +25,14 @@ const MODELS_SCENE_TABS: ModelsSceneTab[] = ['overview', 'models', 'lineage', 'd
 
 function isModelsSceneTab(tab: unknown): tab is ModelsSceneTab {
     return typeof tab === 'string' && (MODELS_SCENE_TABS as string[]).includes(tab)
+}
+
+const DATA_CATALOG_TAB_FOR: Record<ModelsSceneTab, string | undefined> = {
+    overview: undefined,
+    models: 'tables',
+    'data-quality': 'tables',
+    lineage: 'lineage',
+    usage: 'usage',
 }
 
 /** One row of the overview's attention table: a broken model, why, and what it holds up. */
@@ -59,6 +68,7 @@ export interface modelsSceneLogicValues {
     modelsFailed: boolean
     noModelsYet: boolean
     usageEnabled: boolean
+    catalogRestructureEnabled: boolean
 }
 
 export interface modelsSceneLogicActions {
@@ -90,6 +100,7 @@ export interface modelsSceneLogicMeta {
         modelsFailed: (nodesFailed: boolean, dataWarehouseSavedQueriesFailed: boolean) => boolean
         noModelsYet: (nodes: DataModelingNode[], savedQueries: DataWarehouseSavedQuerySummary[]) => boolean
         usageEnabled: (featureFlags: FeatureFlagsSet) => boolean
+        catalogRestructureEnabled: (featureFlags: FeatureFlagsSet) => boolean
     }
 }
 
@@ -254,23 +265,31 @@ export const modelsSceneLogic = kea<modelsSceneLogicType>([
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.DATA_MODELING_USAGE],
         ],
+        catalogRestructureEnabled: [
+            (s) => [s.featureFlags],
+            (featureFlags: FeatureFlagsSet): boolean => catalogRestructureEnabled(featureFlags),
+        ],
     }),
-    listeners(() => ({
-        setActiveTab: ({ tab }) => {
-            posthog.capture('models tab viewed', { tab })
-        },
-    })),
     urlToAction(({ actions, values }) => ({
         [urls.models()]: (_, searchParams) => {
             const requestedTab: ModelsSceneTab = isModelsSceneTab(searchParams.tab) ? searchParams.tab : 'overview'
+            if (values.catalogRestructureEnabled) {
+                const { tab: _tab, ...otherParams } = searchParams
+                const catalogTab = DATA_CATALOG_TAB_FOR[requestedTab]
+                router.actions.replace(
+                    urls.dataCatalog(),
+                    catalogTab ? { ...otherParams, tab: catalogTab } : otherParams
+                )
+                return
+            }
             const tab: ModelsSceneTab = requestedTab === 'usage' && !values.usageEnabled ? 'overview' : requestedTab
+            posthog.capture('models tab viewed', { tab })
             if (tab !== values.activeTab) {
                 actions.setActiveTab(tab)
             }
         },
     })),
     afterMount(({ actions, cache, values }) => {
-        posthog.capture('models tab viewed', { tab: values.activeTab })
         // Mounting dataWarehouseViewsLogic already starts this load, so only refresh when it was mounted earlier
         if (!values.dataWarehouseSavedQueriesLoading) {
             actions.loadDataWarehouseSavedQueries()
