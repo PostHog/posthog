@@ -1,5 +1,6 @@
 import { buildRankedResults } from 'lib/components/CommandKSearch/commandKRankedResults'
 import { strictLocalMatches } from 'lib/components/CommandKSearch/commandKRanking'
+import { buildSections, emptyRemoteSlots } from 'lib/components/CommandKSearch/commandKSections'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { terminalDockLogic } from 'scenes/terminal/terminalDockLogic'
@@ -151,6 +152,72 @@ describe('searchListsLogic', () => {
         terminalDockLogic.actions.toggleTerminal()
         expect(terminalDockLogic.values.dockOpen).toBe(false)
     })
+
+    it.each([false, true])(
+        'finds a setting through its section keyword next to a dashboard named like the search, unified ranking %s',
+        (unifiedRanking) => {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TODAY_RAIL_NAV]: true })
+            const component = {} as JSX.Element
+            logic.actions.setSettingsMap([
+                {
+                    id: 'environment-ai-cloud-environments',
+                    level: 'environment',
+                    title: 'Cloud environments',
+                    flag: 'TODAY_RAIL_NAV',
+                    keywords: ['desktop'],
+                    settings: [
+                        { id: 'ai-cloud-environments', title: 'Environments', component },
+                        { id: 'ai-cloud-custom-images', title: 'Custom images', keywords: ['dependencies'], component },
+                    ],
+                },
+            ])
+            const remote = emptyRemoteSlots()
+            remote.results = {
+                cache: {
+                    'desktop images': [
+                        {
+                            id: 'dashboard-1',
+                            name: 'Desktop images board',
+                            category: 'results',
+                            record: { type: 'dashboard', ref: '1' },
+                            rankKey: [-2, 0, 0, 0, -2, 0, 1, 0, 0],
+                        },
+                    ],
+                },
+            }
+            const sections = buildSections({
+                mode: 'search',
+                context: { kind: 'text', token: null },
+                suggestions: null,
+                local: {
+                    products: [],
+                    'data-management': [],
+                    people: [],
+                    health: [],
+                    actions: [],
+                    shortcuts: [],
+                    settings: logic.values.commandKSettingsItems,
+                    create: [],
+                    recents: [],
+                    starred: [],
+                },
+                remote,
+                remoteQueries: { results: 'desktop images' },
+                localQuery: 'desktop images',
+                themeItem: null,
+                askAiQuestion: null,
+                viewAll: null,
+                stale: false,
+                personsFirst: false,
+                unifiedRanking,
+                searchCorrection: null,
+            })
+
+            expect(
+                sections.flatMap((section) => section.rows.flatMap((row) => (row.kind === 'item' ? [row.item.id] : [])))
+            ).toContain('settings-project-ai-cloud-environments-ai-cloud-custom-images')
+        }
+    )
 
     it.each([
         ['off', false, 'Model preferences', false],

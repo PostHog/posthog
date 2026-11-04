@@ -281,7 +281,7 @@ function settingsMatches(items: SearchItem[], query: string): SearchItem[] {
         const own = matchesWord(
             [String(item.displayName || item.name), ...(item.searchKeywords ?? [])].flatMap(searchWords)
         )
-        const context = matchesWord(searchWords(item.parentName ?? ''))
+        const context = matchesWord([item.parentName ?? '', ...(item.contextKeywords ?? [])].flatMap(searchWords))
         return tokens.some(own) && tokens.every((token) => own(token) || context(token))
     })
     return [...byNameOrAlias, ...acrossFields]

@@ -537,6 +537,7 @@ const commandKSectionSearchItems = (section: CommandKSettingsSection, billingEnt
                 { level: section.level, sectionId: section.id, settingId: setting.id },
                 {
                     parentName: `${levelName} › ${title}`,
+                    contextKeywords: section.keywords,
                     searchKeywords: [sentenceCaseId(setting.id), ...(setting.keywords ?? [])],
                     hiddenSearchText: settingsSearchText(section.level, title, section.keywords, [
                         textSetting(setting),

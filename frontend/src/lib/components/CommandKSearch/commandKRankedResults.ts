@@ -69,7 +69,12 @@ function rankItems(items: SearchItem[], query: string, groupKey: string): Ranked
         const name = String(item.displayName || item.name)
         const aliases =
             groupKey === 'settings' && item.parentName
-                ? [...(item.searchKeywords ?? []), [name, ...(item.searchKeywords ?? []), item.parentName].join(' ')]
+                ? [
+                      ...(item.searchKeywords ?? []),
+                      [name, ...(item.searchKeywords ?? []), item.parentName, ...(item.contextKeywords ?? [])].join(
+                          ' '
+                      ),
+                  ]
                 : item.searchKeywords
         const ranked = rankLocalItem(query, name, aliases, !!item.parentName, groupKey === 'settings')
         return ranked
@@ -131,7 +136,7 @@ function candidateFor(item: SearchItem, groupKey: string, query: string): RankCa
         return {
             ...common,
             aliases: item.searchKeywords,
-            context: item.parentName ? [item.parentName] : [],
+            context: [...(item.parentName ? [item.parentName] : []), ...(item.contextKeywords ?? [])],
             indirect: !!item.parentName,
             tierBoost: productTab ? 0 : tierBoostFor(item, groupKey, query),
             matchesQuery: IDENTITY_GROUPS.includes(groupKey),
