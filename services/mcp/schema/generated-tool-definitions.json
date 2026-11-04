@@ -14150,6 +14150,22 @@
         },
         "feature_flag": "stamphog"
     },
+    "stamphog-routing-runs-list": {
+        "description": "List stamphog's reviewer routing runs, newest first. Each run is one round of review requests on a pull request, with the run's decision for every owner of the changed code from owners.yaml: an `outcome` and the `reason` behind it, plus the model's one-line `model_reason` when it proposed a cut. To answer \"why was my team not asked to review\", filter by `owner` (a team slug such as `team-devex`, or `@` and a GitHub login), optionally with `repository` and `pr_number`.",
+        "category": "Stamphog",
+        "feature": "stamphog",
+        "summary": "List stamphog reviewer routing runs",
+        "title": "List stamphog reviewer routing runs",
+        "required_scopes": ["stamphog:read"],
+        "api_operations": ["GET /api/projects/{project_id}/stamphog/routing_runs/"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "stamphog"
+    },
     "streamlit-apps-create": {
         "description": "Create a new Streamlit app (metadata only — it has no code until you call streamlit-apps-set-source). Typical flow: create the app, set its source, then start it. cpu_cores (0.25–8) and memory_gb (0.5–16) control the sandbox size and default to 0.5 / 1.",
         "category": "Streamlit apps",

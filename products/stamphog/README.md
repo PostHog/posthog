@@ -203,6 +203,10 @@ The latest result is stored on `PullRequest.routing` with its mode, trigger (`op
 `full_routed_head`, `pinned_routed_head` (with their `_at` times) and `requested_owners` carry over to every later record, so the PR-level rules hold across pushes.
 Routing never writes `payload_updated_at` or the descriptive fields of the row, so it cannot make the review path drop a delivery as stale.
 
+Each run that makes its requests is also recorded, append-only, in `RoutingRun` with one `RoutingRunOwner` row per owner: what the run did with the owner (`outcome`), why (`reason`), and the model's one-line reason when it proposed a cut, also when a guard kept the owner.
+The plan decides each owner's outcome and reason. The rows are written after the `requested` record is saved, so a failed log write only logs and never makes the task request again.
+Read them with `GET routing_runs/` (filters `repository`, `pr_number`, `owner`) or the `stamphog-routing-runs-list` MCP tool. The model call carries `stamphog_routing_run_id`, `stamphog_repo` and `stamphog_pr_number`, which link a run to its LLM trace.
+
 Every routing run (event, verdict or safety net) takes the same steps:
 
 1. A compare-and-swap claim sets `routing` with `claimed_by` (the Celery task id) and `claimed_at`.

@@ -57,6 +57,7 @@ from .serializers import (
     ReviewRequestResponseSerializer,
     ReviewRequestSerializer,
     ReviewRunSerializer,
+    RoutingRunSerializer,
     StamphogAddRepositorySerializer,
     StamphogAvailableRepositoriesQuerySerializer,
     StamphogAvailableRepositoriesSerializer,
@@ -64,6 +65,7 @@ from .serializers import (
     StamphogOwnersFileSerializer,
     StamphogRepoConfigSerializer,
     StamphogRepoConfigWriteSerializer,
+    StamphogRoutingRunsQuerySerializer,
     StamphogSyncInstallationRequestSerializer,
     StamphogSyncInstallationResponseSerializer,
 )
@@ -756,3 +758,26 @@ class DigestRunViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
         slack_channel_id = request.query_params.get("slack_channel_id") or None
         runs = facade_api.list_digest_runs(self.canonical_team_id, slack_channel_id=slack_channel_id)
         return self.get_paginated_response(self.get_serializer(self.paginate_queryset(runs), many=True).data)
+
+
+class RoutingRunViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
+    """Reviewer routing runs: which owners each run requested, cut or left out, and why."""
+
+    scope_object = "stamphog"
+    serializer_class = RoutingRunSerializer
+
+    @extend_schema(
+        description=(
+            "List reviewer routing runs, newest first. Each run holds its decision for every owner of the "
+            "changed code: requested, cut, or not asked, with the reason. Filter by owner to answer why a "
+            "team or person was or was not asked to review."
+        ),
+        parameters=[StamphogRoutingRunsQuerySerializer],
+        responses={200: RoutingRunSerializer(many=True)},
+    )
+    def list(self, request: Request, **kwargs) -> Response:
+        query = StamphogRoutingRunsQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        runs = facade_api.list_routing_runs(self.canonical_team_id, **query.validated_data)
+        page = self.paginate_queryset(runs)
+        return self.get_paginated_response(self.get_serializer(page, many=True).data)

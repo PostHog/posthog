@@ -191,6 +191,34 @@ const stamphogReviewRunsGet = (): ToolBase<ReturnType<typeof StamphogReviewRunsG
     },
 })
 
+const StamphogRoutingRunsListSchema = () => {
+    const StamphogRoutingRunsListQueryParams = orvalSchemas.StamphogRoutingRunsListQueryParams()
+    return StamphogRoutingRunsListQueryParams
+}
+
+const stamphogRoutingRunsList = (): ToolBase<
+    ReturnType<typeof StamphogRoutingRunsListSchema>,
+    WithPostHogUrl<Schemas.PaginatedStamphogRoutingRunList>
+> => ({
+    name: 'stamphog-routing-runs-list',
+    schema: StamphogRoutingRunsListSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof StamphogRoutingRunsListSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PaginatedStamphogRoutingRunList>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/stamphog/routing_runs/`,
+            query: {
+                limit: params.limit,
+                offset: params.offset,
+                owner: params.owner,
+                pr_number: params.pr_number,
+                repository: params.repository,
+            },
+        })
+        return await withPostHogUrl(context, result, '/stamphog')
+    },
+})
+
 const StamphogReviewRunsListSchema = () => {
     const StamphogReviewRunsListQueryParams = orvalSchemas.StamphogReviewRunsListQueryParams()
     return StamphogReviewRunsListQueryParams
@@ -233,5 +261,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'stamphog-repo-configs-list': stamphogRepoConfigsList,
     'stamphog-review-runs-create': stamphogReviewRunsCreate,
     'stamphog-review-runs-get': stamphogReviewRunsGet,
+    'stamphog-routing-runs-list': stamphogRoutingRunsList,
     'stamphog-review-runs-list': stamphogReviewRunsList,
 }

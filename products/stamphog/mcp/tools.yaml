@@ -146,6 +146,24 @@ tools:
             run. Poll this after `stamphog-review-runs-create` until `status` is completed, gated, failed, or
             superseded. The raw reviewer transcript, PR payload, patches, and policy contents are not exposed.
         feature_flag: stamphog
+    stamphog-routing-runs-list:
+        operation: stamphog_routing_runs_list
+        enabled: true
+        scopes:
+            - stamphog:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List stamphog reviewer routing runs
+        description: >
+            List stamphog's reviewer routing runs, newest first. Each run is one round of review requests on a pull
+            request, with the run's decision for every owner of the changed code from owners.yaml: an `outcome` and the
+            `reason` behind it, plus the model's one-line `model_reason` when it proposed a cut. To answer "why was my
+            team not asked to review", filter by `owner` (a team slug such as `team-devex`, or `@` and a GitHub login),
+            optionally with `repository` and `pr_number`.
+        feature_flag: stamphog
     stamphog-review-runs-list:
         operation: stamphog_review_runs_list
         enabled: true

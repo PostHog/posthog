@@ -31,7 +31,15 @@ from products.stamphog.backend.facade.enums import (
     RoutingMode,
 )
 from products.stamphog.backend.facade.github import StamphogGitHubError
-from products.stamphog.backend.models import DigestRun, PullRequest, ReviewRun, StamphogInstallation, StamphogRepoConfig
+from products.stamphog.backend.models import (
+    DigestRun,
+    PullRequest,
+    ReviewRun,
+    RoutingRun,
+    RoutingRunOwner,
+    StamphogInstallation,
+    StamphogRepoConfig,
+)
 from products.stamphog.backend.presentation.serializers import StamphogRepoConfigWriteSerializer
 from products.stamphog.backend.presentation.views import _INSTALL_STATE_SALT
 from products.stamphog.backend.tests import fakes
@@ -1231,6 +1239,99 @@ class TestSyncInstallationAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         assert body["skipped"] == []
         mock_list.assert_not_called()
         assert not StamphogRepoConfig.objects.unscoped().filter(team_id=self.team.id).exists()
+
+
+class TestRoutingRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
+    databases = PRODUCT_DATABASES
+
+    _PIN = {"reason": "new_path", "path": "products/alpha/new/"}
+
+    def setUp(self) -> None:
+        super().setUp()
+        self.url = f"/api/projects/{self.team.id}/stamphog/routing_runs/"
+        repo_config = StamphogRepoConfig.objects.unscoped().create(
+            team_id=self.team.id, repository="PostHog/posthog", installation_id="1"
+        )
+        self._make_run(
+            self.team.id,
+            repo_config,
+            1,
+            [
+                {
+                    "owner": "team-alpha",
+                    "kind": "team",
+                    "outcome": "requested",
+                    "reason": "new_path",
+                    "pins": [self._PIN],
+                },
+                {
+                    "owner": "team-beta",
+                    "kind": "team",
+                    "outcome": "cut",
+                    "reason": "model_cut",
+                    "model_reason": "Only renames an import.",
+                },
+            ],
+        )
+        self._make_run(
+            self.team.id,
+            repo_config,
+            2,
+            [{"owner": "team-gamma", "kind": "team", "outcome": "requested", "reason": "model_kept"}],
+        )
+        # Another team's run about the same owner must never show up.
+        other_team = Team.objects.create_with_data(organization=self.organization, initiating_user=self.user)
+        other_config = StamphogRepoConfig.objects.unscoped().create(
+            team_id=other_team.id, repository="PostHog/other", installation_id="2"
+        )
+        self._make_run(
+            other_team.id,
+            other_config,
+            3,
+            [{"owner": "team-beta", "kind": "team", "outcome": "requested", "reason": "model_kept"}],
+        )
+
+    def _make_run(self, team_id: int, repo_config: StamphogRepoConfig, pr_number: int, owners: list[dict]) -> None:
+        pull_request = PullRequest.objects.unscoped().create(
+            team_id=team_id, repo_config=repo_config, pr_number=pr_number
+        )
+        run = RoutingRun.objects.unscoped().create(
+            team_id=team_id,
+            pull_request=pull_request,
+            head_sha="head-1",
+            mode=RoutingMode.ALWAYS,
+            trigger="opened",
+            scope="full",
+            model="claude-haiku-5-5",
+        )
+        for owner in owners:
+            RoutingRunOwner.objects.unscoped().create(team_id=team_id, run=run, **owner)
+
+    @parameterized.expand(
+        [
+            ("everything_in_the_team", {}, [2, 1]),
+            ("by_owner", {"owner": "team-beta"}, [1]),
+            ("by_pull_request", {"pr_number": 2}, [2]),
+        ]
+    )
+    def test_list_filters_the_teams_runs(self, _name: str, query: dict, expected_pr_numbers: list[int]) -> None:
+        response = self.client.get(self.url, query)
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert [run["pr_number"] for run in response.json()["results"]] == expected_pr_numbers
+
+    def test_a_run_says_why_each_owner_was_or_was_not_asked(self) -> None:
+        response = self.client.get(self.url, {"pr_number": 1})
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        owners = {owner["owner"]: owner for owner in response.json()["results"][0]["owners"]}
+        assert owners["team-alpha"]["pins"] == [self._PIN]
+        beta = owners["team-beta"]
+        assert (beta["outcome"], beta["reason"], beta["model_reason"]) == (
+            "cut",
+            "model_cut",
+            "Only renames an import.",
+        )
 
 
 class TestDigestRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):

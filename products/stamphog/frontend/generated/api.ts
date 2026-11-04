@@ -14,6 +14,7 @@ import type {
     PaginatedReviewRunListApi,
     PaginatedStamphogPullRequestListApi,
     PaginatedStamphogRepoConfigListApi,
+    PaginatedStamphogRoutingRunListApi,
     PatchedStamphogRepoConfigWriteApi,
     ReviewRequestApi,
     ReviewRequestResponseApi,
@@ -30,6 +31,7 @@ import type {
     StamphogRepoConfigsAvailableRepositoriesRetrieveParams,
     StamphogRepoConfigsListParams,
     StamphogReviewRunsListParams,
+    StamphogRoutingRunsListParams,
     StamphogSyncInstallationRequestApi,
     StamphogSyncInstallationResponseApi,
 } from './api.schemas'
@@ -432,6 +434,36 @@ export const stamphogReviewRunsRetrieve = async (
     options?: RequestInit
 ): Promise<ReviewRunApi> => {
     return apiMutator<ReviewRunApi>(getStamphogReviewRunsRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getStamphogRoutingRunsListUrl = (projectId: string, params?: StamphogRoutingRunsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/stamphog/routing_runs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/stamphog/routing_runs/`
+}
+
+/**
+ * List reviewer routing runs, newest first. Each run holds its decision for every owner of the changed code: requested, cut, or not asked, with the reason. Filter by owner to answer why a team or person was or was not asked to review.
+ */
+export const stamphogRoutingRunsList = async (
+    projectId: string,
+    params?: StamphogRoutingRunsListParams,
+    options?: RequestInit
+): Promise<PaginatedStamphogRoutingRunListApi> => {
+    return apiMutator<PaginatedStamphogRoutingRunListApi>(getStamphogRoutingRunsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
