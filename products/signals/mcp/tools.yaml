@@ -479,9 +479,9 @@ tools:
             idempotent: true
         title: Get your personal ranked inbox
         description: >
-            Get the current user's own open inbox reports, ranked for them. One language model call ranks the reports
-            that need them (suggested reviewer, claimed, waiting on their input) and the reports the ranking model rates
-            highest, using their activity summary. Use it for "what should I work on" and "my top N" questions in place
+            Get the current user's own open inbox reports, ranked for them. One language model call ranks only the reports
+            tied to them (suggested reviewer, claimed, waiting on their input), using their activity summary and the
+            ranking model's scores. Use it for "what should I work on" and "my top N" questions in place
             of paging inbox-reports-list. Each entry has a rank, a tier, a short reason, a next step for the top entries
             and a compact report. Read the full report with inbox-reports-retrieve before you act on it. The list is
             personal: only the user it describes can read it. The call never waits on the model. A current stored list

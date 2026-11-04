@@ -287,7 +287,7 @@ class TestInputParts(SimpleTestCase):
 
         assert (
             input_hash(candidates, activity_summary_version=7, focus="checkout")
-            == "8b3bc5b28875163b6769d657f08d4351f846fbd0293ca46563bd930743ed5958"
+            == "f942040677219aed0d042d2e28ac23bb82ae2e26e40fe21eb10d7d2b17466fdd"
         )
 
     @parameterized.expand(
@@ -421,23 +421,16 @@ class TestConfig(SimpleTestCase):
                 "pools_in_order_with_default_names_and_large_values_capped",
                 {
                     "pools": [
-                        {"source": "priority", "size": 5, "lowest_priority": "P0", "window_days": 1000},
+                        {"source": "for_you_updated", "size": 5},
                         {"source": "assigned", "size": 0},
-                        {"source": "scored", "size": 500, "head": "fixed", "has_pr": True, "actionable_only": True},
+                        {"source": "for_you_recommended", "size": 500},
                     ]
                 },
                 PersonalRankingConfig(
                     pools=(
-                        CandidatePool(name="priority", source="priority", size=5, lowest_priority="P0", window_days=90),
+                        CandidatePool(name="for_you_updated", source="for_you_updated", size=5),
                         CandidatePool(name="assigned", source="assigned", size=0),
-                        CandidatePool(
-                            name="scored_fixed",
-                            source="scored",
-                            size=100,
-                            head="fixed",
-                            has_pr=True,
-                            actionable_only=True,
-                        ),
+                        CandidatePool(name="for_you_recommended", source="for_you_recommended", size=100),
                     )
                 ),
             ),
@@ -448,18 +441,22 @@ class TestConfig(SimpleTestCase):
                         {"source": "assigned", "size": 5, "name": "mine"},
                         {"source": "for_you_updated", "size": 5, "name": "mine"},
                         {"source": "everything", "size": 5},
-                        {"source": "scored", "size": 5},
+                        {"source": "scored", "size": 5, "head": "action"},
+                        {"source": "priority", "size": 5, "lowest_priority": "P1"},
                         {"source": "assigned", "size": 5, "head": "open"},
+                        {"source": "assigned", "size": 5, "window_days": 30},
                         {"source": "assigned", "size": True},
                         {"source": "assigned", "size": -1},
-                        {"source": "priority", "size": 5, "lowest_priority": "urgent"},
-                        {"source": "priority", "size": 5, "has_pr": "yes"},
                         {"source": "assigned", "size": 5, "name": "Has Spaces"},
                     ]
                 },
                 PersonalRankingConfig(pools=(CandidatePool(name="mine", source="assigned", size=5),)),
             ),
-            ("no_valid_pool_keeps_the_defaults", {"pools": [{"source": "scored", "size": 5}]}, PersonalRankingConfig()),
+            (
+                "no_valid_pool_keeps_the_defaults",
+                {"pools": [{"source": "scored", "size": 5, "head": "action"}]},
+                PersonalRankingConfig(),
+            ),
             ("pools_not_a_list", {"pools": {"source": "assigned", "size": 5}}, PersonalRankingConfig()),
             (
                 "pools_past_the_maximum_drop",
@@ -724,60 +721,50 @@ class TestBuildPersonalRanking(BaseTest):
 
     @parameterized.expand(
         [
-            ("can_see_scores", True, True, True),
-            ("cannot_see_ranking", False, True, False),
-            ("no_scores_as_in_eu", True, False, False),
+            ("can_see_scores", True, True),
+            ("cannot_see_ranking", False, True),
+            ("nothing_tied_to_them", True, False),
         ]
     )
-    def test_ranking_pools_join_only_with_access_and_scores(
-        self, _name: str, staff: bool, scored: bool, expect_pool: bool
-    ) -> None:
+    def test_only_reports_tied_to_the_person_are_candidates(self, _name: str, staff: bool, has_own: bool) -> None:
         self.user.is_staff = staff
         self.user.save(update_fields=["is_staff"])
-        unowned = self._report("Unowned actionable")
-        if scored:
-            self._score(unowned, action=0.8)
+        unowned = self._prioritize(self._report("Unowned actionable"), "P0")
+        self._score(unowned, action=0.9)
+        own = self._names_me(self._report("Routed to me")) if has_own else None
+        if own is not None:
+            self._score(own, action=0.2)
         self.create.return_value = _response(_answer([_entry("c1", 1)]))
 
         with patch("products.signals.backend.ranking.access.feature_enabled_or_false", return_value=False):
             build = self._build(dry_run=True)
 
-        pools = {candidate.report_id: candidate.pools for candidate in build.candidates}
-        if expect_pool:
-            assert pools == {str(unowned.id): ("actionable", "new")}
-            assert build.candidates[0].predictions is not None
-        else:
-            assert pools == {}
-            assert build.status == "empty"
+        assert str(unowned.id) not in {candidate.report_id for candidate in build.candidates}
+        if own is None:
+            assert (build.status, build.fallback_reason, build.model_called) == ("empty", "no_candidates", False)
             self.create.assert_not_called()
+        else:
+            assert [candidate.report_id for candidate in build.candidates] == [str(own.id)]
+            assert (build.candidates[0].predictions is not None) is staff
 
-    @parameterized.expand([("can_see_scores", True), ("cannot_see_ranking", False)])
-    def test_configured_pools_keep_their_order_and_names(self, _name: str, staff: bool) -> None:
-        self.user.is_staff = staff
-        self.user.save(update_fields=["is_staff"])
-        urgent = self._prioritize(self._report("Urgent and unscored"), "P1")
-        self._prioritize(self._report("Not urgent"), "P3")
-        scored = self._report("Scored")
-        self._score(scored, action=0.8)
+    def test_configured_pools_keep_their_order_and_names(self) -> None:
         claimed = self._report("Claimed", status=SignalReport.Status.IN_PROGRESS)
         SignalReportAssignment.all_teams.create(team=self.team, report=claimed, actor_kind="user", actor_user=self.user)
+        routed = self._names_me(self._report("Routed"))
+        self._report("Unrelated")
         self.create.return_value = _response(_answer([_entry("c1", 1)]))
         config = PersonalRankingConfig(
             pools=(
                 CandidatePool(name="assigned", source="assigned", size=0),
-                CandidatePool(name="scored_action", source="scored", size=5, head="action"),
-                CandidatePool(name="urgent", source="priority", size=5),
+                CandidatePool(name="mine", source="assigned", size=5),
+                CandidatePool(name="routed", source="for_you_updated", size=5),
             )
         )
 
-        with patch("products.signals.backend.ranking.access.feature_enabled_or_false", return_value=False):
-            build = build_personal_ranking(self.team, self.user, config=config, dry_run=True)
+        build = build_personal_ranking(self.team, self.user, config=config, dry_run=True)
 
         pools = [(candidate.report_id, candidate.pools) for candidate in build.candidates]
-        expected = [(str(urgent.id), ("urgent",))]
-        if staff:
-            expected = [(str(scored.id), ("scored_action",)), *expected]
-        assert pools == expected
+        assert pools == [(str(claimed.id), ("mine",)), (str(routed.id), ("routed",))]
 
     @parameterized.expand([("dry_run", True, 0), ("stored", False, 1)])
     def test_command(self, _name: str, dry_run: bool, expected_rows: int) -> None:

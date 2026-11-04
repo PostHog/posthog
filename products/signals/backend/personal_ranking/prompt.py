@@ -12,7 +12,7 @@ from products.signals.backend.activity_summary.read import ActivitySummaryView
 from products.signals.backend.personal_ranking.candidates import Candidate, NeedsYouKind
 from products.signals.backend.personal_ranking.config import PersonalRankingConfig
 
-PROMPT_VERSION = 6
+PROMPT_VERSION = 7
 
 Tier = Literal["top", "worth_a_look", "later"]
 TIERS: tuple[Tier, ...] = get_args(Tier)
