@@ -3,6 +3,7 @@ from copy import deepcopy
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
+from uuid import UUID
 
 import time_machine
 from posthog.test.base import APIBaseTest
@@ -34,6 +35,7 @@ from products.skills.backend.models.skills import LLMSkill
 from products.workflows.backend.facade.sandbox_email import SANDBOX_SENDER_ADOPTION_FLAG
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_optimization import HogFlowOptimization
+from products.workflows.backend.models.hog_flow_revision import HogFlowRevision
 from products.workflows.backend.models.workflow_proposal import WorkflowProposal
 from products.workflows.backend.presentation.views.hog_flow import DRAFT_CONTENT_FIELDS
 from products.workflows.backend.services.workflow_proposals import proposal_outcome, runs_settled_before
@@ -95,10 +97,10 @@ def _email_action() -> dict:
 class TestRunsSettledBefore(SimpleTestCase):
     @parameterized.expand(
         [
-            ("floors_to_the_hour_so_conversions_and_starts_cut_together", {"window": "5m"}, "2026-12-10T10:00:00Z"),
-            ("steps_back_one_window", {"window": "7d"}, "2026-12-03T10:00:00Z"),
-            ("a_workflow_with_no_window_gets_the_worker_default", {"events": []}, "2026-09-11T10:00:00Z"),
-            ("no_goal_gets_the_worker_default", None, "2026-09-11T10:00:00Z"),
+            ("floors_to_the_hour_after_the_queue_allowance", {"window": "5m"}, "2026-12-10T09:00:00Z"),
+            ("steps_back_one_window", {"window": "7d"}, "2026-12-03T09:00:00Z"),
+            ("a_workflow_with_no_window_gets_the_worker_default", {"events": []}, "2026-09-11T09:00:00Z"),
+            ("no_goal_gets_the_worker_default", None, "2026-09-11T09:00:00Z"),
         ]
     )
     def test_runs_settled_before(self, _name: str, conversion: dict | None, expected: str) -> None:
@@ -1504,19 +1506,22 @@ class TestWorkflowProposals(APIBaseTest):
         self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/approve/", {})
         self._publish(flow_id)
 
-        def totals(**kwargs: Any) -> AppMetricsTotalsResponse:
-            if "conversion_by_start" in kwargs["name"]:
-                return AppMetricsTotalsResponse(totals={"conversion_by_start": 5, "triggered": 25})
-            return AppMetricsTotalsResponse(totals={"email_sent": 40, "email_opened": 10})
+        def run_totals(**kwargs: Any) -> dict[str, dict[str, int]]:
+            return {source: {"conversion_by_start": 5, "triggered": 25} for source in kwargs["app_source_ids"]}
 
         with (
             time_machine.travel("2026-12-10T10:30:00Z", tick=False),
             patch(
-                "products.workflows.backend.services.workflow_proposals.fetch_app_metric_totals", side_effect=totals
+                "products.workflows.backend.services.workflow_proposals.fetch_app_metric_totals",
+                return_value=AppMetricsTotalsResponse(totals={"email_sent": 40, "email_opened": 10}),
             ) as mock_totals,
+            patch(
+                "products.workflows.backend.services.workflow_proposals.fetch_app_metric_totals_by_source",
+                side_effect=run_totals,
+            ) as mock_run_totals,
         ):
             with team_scope(self.team.id):
-                outcome = proposal_outcome(team_id=self.team.id, hog_flow_id=flow_id, proposal_id=proposal["id"])
+                outcome = proposal_outcome(team_id=self.team.id, hog_flow_id=UUID(flow_id), proposal_id=proposal["id"])
 
         assert outcome["before"]["target"] == {
             "metric": "conversion rate",
@@ -1525,11 +1530,44 @@ class TestWorkflowProposals(APIBaseTest):
             "below_minimum_sample": False,
         }
         assert outcome["before"]["secondary"]["value"] == 0.25
-        run_reads = [call.kwargs for call in mock_totals.call_args_list if "triggered" in call.kwargs["name"]]
-        step_reads = [call.kwargs for call in mock_totals.call_args_list if "email_sent" in call.kwargs["name"]]
-        assert {read.get("instance_id") for read in run_reads} == {None}
-        assert {read["instance_id"] for read in step_reads} == {"email_1"}
-        assert {read["before"] for read in run_reads} == {datetime(2026, 12, 3, 10, tzinfo=UTC)}
+        assert {call.kwargs["instance_id"] for call in mock_totals.call_args_list} == {"email_1"}
+        assert {call.kwargs["before"] for call in mock_run_totals.call_args_list} == {
+            datetime(2026, 12, 3, 9, tzinfo=UTC)
+        }
+
+    def test_a_conversion_outcome_cuts_each_version_at_the_window_it_ran_with(self):
+        flow_id = self._create_active_flow(conversion=CONVERSION_GOAL)
+        proposal = self._propose(flow_id, step_id="email_1", evidence=CONVERSION_EVIDENCE)
+        self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/proposals/{proposal['id']}/approve/", {})
+        self._publish(flow_id)
+        with team_scope(self.team.id):
+            assert (
+                HogFlowRevision.objects.filter(hog_flow_id=flow_id, version=1).update(
+                    content={"conversion": {**CONVERSION_GOAL, "window": "5m"}}
+                )
+                == 1
+            )
+
+        with (
+            time_machine.travel("2026-12-10T10:30:00Z", tick=False),
+            patch(
+                "products.workflows.backend.services.workflow_proposals.fetch_app_metric_totals",
+                return_value=AppMetricsTotalsResponse(totals={}),
+            ),
+            patch(
+                "products.workflows.backend.services.workflow_proposals.fetch_app_metric_totals_by_source",
+                return_value={},
+            ) as mock_run_totals,
+        ):
+            with team_scope(self.team.id):
+                proposal_outcome(team_id=self.team.id, hog_flow_id=UUID(flow_id), proposal_id=proposal["id"])
+
+        assert {
+            tuple(call.kwargs["app_source_ids"]): call.kwargs["before"] for call in mock_run_totals.call_args_list
+        } == {
+            (f"{flow_id}/1",): datetime(2026, 12, 10, 9, tzinfo=UTC),
+            (f"{flow_id}/2",): datetime(2026, 12, 3, 9, tzinfo=UTC),
+        }
 
     def test_a_suggestion_cannot_aim_at_conversion_on_a_workflow_with_no_goal(self):
         flow_id = self._create_active_flow()

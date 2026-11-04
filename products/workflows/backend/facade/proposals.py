@@ -8,6 +8,7 @@ from products.workflows.backend.services.workflow_proposals import (
     absolute_window,
     aims_at_conversion_without_goal,
     as_the_serializer_stores_it,
+    conversions_by_version,
     create_proposal,
     get_proposal,
     get_proposal_by_source_id,
@@ -28,6 +29,7 @@ from products.workflows.backend.services.workflow_proposals import (
 __all__ = [
     "absolute_window",
     "aims_at_conversion_without_goal",
+    "conversions_by_version",
     "approve_proposal",
     "HOG_FLOW_VERSION_APP_SOURCE",
     "PROPOSAL_MERGE_BY_ID_FIELDS",
