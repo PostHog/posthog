@@ -232,7 +232,9 @@ class TestFinalAuthoredAgentChecks(FinalAuthoredAgentChecksSetup, BaseTest):
         with self.assertNumQueries(expected_queries):
             data = SignalReportCheckSerializer([self.check, self.check], many=True, context=context).data
 
-        assert [row["monitoring_timing"]["state"] for row in data] == [state, state]
+        final_state = state if state in {"verifying", "assessment_required"} else None
+        assert [row["monitoring_timing"]["state"] for row in data] == ["paused" if final_state else state] * 2
+        assert [row["monitoring_timing"]["final_verification_state"] for row in data] == [final_state] * 2
         assert self.check.dispatched_at is None
 
     @parameterized.expand(
@@ -270,7 +272,9 @@ class TestFinalAuthoredAgentChecks(FinalAuthoredAgentChecksSetup, BaseTest):
             context={"report_monitoring_enabled_by_team": {self.team.id: True}, "report_check_timing_now": self.now},
         ).data
 
-        assert data["monitoring_timing"]["state"] == state
+        final_state = state if state in {"assessment_required", "verification_complete"} else None
+        assert data["monitoring_timing"]["state"] == ("paused" if final_state else state)
+        assert data["monitoring_timing"]["final_verification_state"] == final_state
 
     def test_due_selection_uses_original_membership_soak_and_version(self) -> None:
         assert self.binding.window_start == self.start

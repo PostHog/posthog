@@ -57115,6 +57115,22 @@ export namespace Schemas {
     }
 
     /**
+     * * `monitoring` - Monitoring
+     * * `verifying` - Verifying
+     * * `assessment_required` - Assessment required
+     * * `verification_complete` - Verification complete
+     */
+    export type FinalVerificationStateEnum = typeof FinalVerificationStateEnum[keyof typeof FinalVerificationStateEnum];
+
+
+    export const FinalVerificationStateEnum = {
+      Monitoring: 'monitoring',
+      Verifying: 'verifying',
+      AssessmentRequired: 'assessment_required',
+      VerificationComplete: 'verification_complete',
+    } as const;
+
+    /**
      * * `review` - review
      * * `observe` - observe
      */
@@ -74429,10 +74445,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `monitoring` - Monitoring
-     * * `verifying` - Verifying
-     * * `assessment_required` - Assessment required
-     * * `verification_complete` - Verification complete
      * * `scheduled` - Scheduled
      * * `due` - Due
      * * `window_ended` - Window ended
@@ -74447,10 +74459,6 @@ export namespace Schemas {
 
 
     export const MonitoringCheckTimingStateEnum = {
-      Monitoring: 'monitoring',
-      Verifying: 'verifying',
-      AssessmentRequired: 'assessment_required',
-      VerificationComplete: 'verification_complete',
       Scheduled: 'scheduled',
       Due: 'due',
       WindowEnded: 'window_ended',
@@ -74463,12 +74471,8 @@ export namespace Schemas {
     } as const;
 
     export interface MonitoringCheckTiming {
-      /** Server-derived Monitoring phase, including interim measurements, final verification, and assessment. Read the check outcome for its verdict.
+      /** Monitoring timing state. Final verification phases use paused for compatibility; read final_verification_state for their phase.
        *
-       * * `monitoring` - Monitoring
-       * * `verifying` - Verifying
-       * * `assessment_required` - Assessment required
-       * * `verification_complete` - Verification complete
        * * `scheduled` - Scheduled
        * * `due` - Due
        * * `window_ended` - Window ended
@@ -74479,6 +74483,13 @@ export namespace Schemas {
        * * `unavailable` - Timing unavailable
        * * `expiry_reached` - Expiry reached */
       state: MonitoringCheckTimingStateEnum;
+      /** Final verification phase when state is paused. Null for other timing states. Read the check outcome for its verdict.
+       *
+       * * `monitoring` - Monitoring
+       * * `verifying` - Verifying
+       * * `assessment_required` - Assessment required
+       * * `verification_complete` - Verification complete */
+      readonly final_verification_state?: FinalVerificationStateEnum | null;
       /**
          * Original Monitoring start for this check's report.
          * @nullable

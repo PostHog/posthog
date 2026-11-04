@@ -9,7 +9,7 @@ from posthog.models import Team
 from products.signals.backend.models import SignalReport, SignalReportCheck, SignalReportMonitoringAttempt
 from products.signals.backend.report_check_monitoring_timing import MonitoringCheckTiming
 from products.signals.backend.report_monitoring_attempts import check_definition_version
-from products.signals.backend.serializers import SignalReportCheckSerializer
+from products.signals.backend.serializers import MonitoringCheckTimingSerializer, SignalReportCheckSerializer
 
 
 class TestMonitoringCheckTiming(SimpleTestCase):
@@ -45,6 +45,7 @@ class TestMonitoringCheckTiming(SimpleTestCase):
         if enabled:
             assert data["monitoring_timing"] == {
                 "state": "scheduled",
+                "final_verification_state": None,
                 "started_at": "2026-10-20T00:00:00Z",
                 "ends_at": "2026-10-21T00:00:00Z",
                 "next_measurement_at": "2026-10-20T06:00:00Z",
@@ -82,6 +83,9 @@ class TestMonitoringCheckTiming(SimpleTestCase):
 
         assert timing is not None
         assert timing.state == state
+        data = MonitoringCheckTimingSerializer(timing).data
+        assert data["state"] == state
+        assert data["final_verification_state"] is None
         assert timing.ends_at == start + timedelta(days=1)
         assert timing.next_measurement_at == (check.next_run_at if has_next else None)
 
@@ -141,6 +145,10 @@ class TestMonitoringCheckTiming(SimpleTestCase):
 
         assert (timing.state if timing else None) == state
         assert timing is None or timing.next_measurement_at is None
+        if timing is not None:
+            data = MonitoringCheckTimingSerializer(timing).data
+            assert data["state"] == ("paused" if state == "monitoring" else state)
+            assert data["final_verification_state"] == ("monitoring" if state == "monitoring" else None)
 
     @parameterized.expand(
         [

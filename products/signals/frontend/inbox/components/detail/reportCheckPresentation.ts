@@ -123,7 +123,8 @@ function joinDetail(parts: (string | null | undefined)[]): string {
 }
 
 const MONITORING_CHECK_ROWS: Record<
-    NonNullable<SignalReportCheckApi['monitoring_timing']>['state'],
+    | NonNullable<SignalReportCheckApi['monitoring_timing']>['state']
+    | NonNullable<NonNullable<SignalReportCheckApi['monitoring_timing']>['final_verification_state']>,
     Pick<ReportCheckRowData, 'tag' | 'detail'>
 > = {
     monitoring: {
@@ -191,7 +192,7 @@ function openCheckRow(
         }
     }
     if (check.monitoring_timing) {
-        return MONITORING_CHECK_ROWS[check.monitoring_timing.state]
+        return MONITORING_CHECK_ROWS[check.monitoring_timing.final_verification_state ?? check.monitoring_timing.state]
     }
     const lane = laneLabel(check)
 

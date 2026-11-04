@@ -14,6 +14,7 @@ export function ReportCheckTiming({
     detail: string
 }): JSX.Element {
     const timing = reportStatus === 'monitoring' ? check.monitoring_timing : null
+    const state = timing?.final_verification_state ?? timing?.state ?? ''
     return (
         <span className="flex min-w-0 flex-col gap-1">
             <span>{detail}</span>
@@ -22,17 +23,17 @@ export function ReportCheckTiming({
             )}
             {timing?.next_measurement_at && (
                 <span>
-                    <span>{timing.state === 'due' ? 'Measurement due since: ' : 'Next measurement: '}</span>
+                    <span>{state === 'due' ? 'Measurement due since: ' : 'Next measurement: '}</span>
                     <TZLabel time={timing.next_measurement_at} timestampStyle="absolute" formatDate="MMM D" />
                 </span>
             )}
             {timing?.ends_at && (
                 <span>
                     <span>
-                        {timing.state === 'monitoring'
+                        {state === 'monitoring'
                             ? 'Final verification scheduled for: '
                             : ['window_ended', 'verifying', 'assessment_required', 'verification_complete'].includes(
-                                    timing.state
+                                    state
                                 )
                               ? 'Window ended: '
                               : 'Window end: '}

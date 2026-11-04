@@ -179,7 +179,8 @@ export const Monitoring: Story = {
                 soak_minutes: 1440,
                 next_run_at: '2026-09-22T00:00:00Z',
                 monitoring_timing: {
-                    state: 'monitoring',
+                    state: 'paused',
+                    final_verification_state: 'monitoring',
                     started_at: '2026-09-21T00:00:00Z',
                     ends_at: '2026-09-22T00:00:00Z',
                     next_measurement_at: null,
@@ -191,7 +192,8 @@ export const Monitoring: Story = {
                 soak_minutes: 1440,
                 next_run_at: '2026-09-21T00:00:00Z',
                 monitoring_timing: {
-                    state: 'verifying',
+                    state: 'paused',
+                    final_verification_state: 'verifying',
                     started_at: '2026-09-20T00:00:00Z',
                     ends_at: '2026-09-21T00:00:00Z',
                     next_measurement_at: null,
