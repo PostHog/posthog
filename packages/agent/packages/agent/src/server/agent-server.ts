@@ -2374,6 +2374,10 @@ export class AgentServer {
         runtimeAdapter !== "codex" && claudeSubscriptionToken !== null
           ? { oauthToken: claudeSubscriptionToken }
           : undefined,
+      claudeModelsGatewayUrl:
+        runtimeAdapter !== "codex" && claudeSubscriptionToken !== null
+          ? gatewayEnv.anthropicBaseUrl
+          : undefined,
       codexOptions:
         runtimeAdapter === "codex"
           ? {
@@ -2481,6 +2485,7 @@ export class AgentServer {
         taskOriginProduct: launch.originProduct,
       }),
       ...(launch.endRunWhenDone && { endRunWhenDone: true }),
+      ...(launch.callerEndsRun && { callerEndsRun: true }),
       ...(launch.disableRepoHooks && { disableRepoHooks: true }),
       ...(this.config.baseBranch && { baseBranch: this.config.baseBranch }),
       ...(runtimeAdapter === "claude" &&
@@ -2491,7 +2496,7 @@ export class AgentServer {
         this.config.fastMode !== undefined && {
           fastMode: this.config.fastMode,
         }),
-      ...this.buildClaudeCodeSessionMeta(runtimeAdapter),
+      ...this.buildClaudeCodeSessionMeta(runtimeAdapter, launch.disableSkills),
     };
 
     await this.measureInitialization("repository_ready", () =>
@@ -4565,12 +4570,13 @@ export class AgentServer {
    */
   private buildClaudeCodeSessionMeta(
     runtimeAdapter: Adapter,
+    disableSkills = false,
   ): { claudeCode: { options: Record<string, unknown> } } | undefined {
     const plugins = this.config.claudeCode?.plugins;
     const effort =
       runtimeAdapter === "claude" ? this.config.reasoningEffort : undefined;
 
-    if (!plugins?.length && !effort) {
+    if (!plugins?.length && !effort && !disableSkills) {
       return undefined;
     }
 
@@ -4580,6 +4586,9 @@ export class AgentServer {
     }
     if (effort) {
       options.effort = effort;
+    }
+    if (disableSkills) {
+      options.skills = [];
     }
     return { claudeCode: { options } };
   }

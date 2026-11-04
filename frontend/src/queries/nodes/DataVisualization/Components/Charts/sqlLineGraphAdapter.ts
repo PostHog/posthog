@@ -18,12 +18,12 @@ import {
     type YAxisConfig,
 } from '@posthog/quill-charts'
 
+import { chartStyleCurve } from 'lib/charts/chartStyleAdapter'
 import { dayjs } from 'lib/dayjs'
 
 import { ChartSettings, GoalLine, YAxisSettings } from '~/queries/schema/schema-general'
 import { ChartDisplayType } from '~/types'
 
-import { chartStyleCurve } from 'products/product_analytics/frontend/insights/shared/chartStyleAdapter'
 import {
     goalLinesToReferenceLines,
     schemaGoalLinesToConfigs,

@@ -1478,7 +1478,7 @@ class TestEventsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                 "flag_evaluations_only_with_action_steps",
                 FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
                 {"event": "$feature_flag_called", "actionSteps": [EventsQueryActionStep(event="$feature_flag_called")]},
-                EVENTS_FLAG_KEY,
+                FLAG_EVALUATIONS_FLAG_KEY,
             ),
         ]
     )

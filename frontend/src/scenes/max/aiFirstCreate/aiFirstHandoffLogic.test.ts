@@ -6,12 +6,13 @@ import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { maxMocks } from 'scenes/max/testUtils'
 
 import { MAX_SIDE_PANEL_ID } from '~/layout/ai/aiPanelIds'
+import { runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { SidePanelTab } from '~/types'
 
-import { composerSeedLogic, runnerPanelLogic, toolStreamEventsLogic } from 'products/posthog_ai/frontend/api/logics'
+import { composerSeedLogic, toolStreamEventsLogic } from 'products/posthog_ai/frontend/api/logics'
 import type { ToolStreamEvent } from 'products/posthog_ai/frontend/api/types'
 
 import { AiFirstHandoffLogicProps, aiFirstHandoffLogic } from './aiFirstHandoffLogic'

@@ -3,6 +3,8 @@ from typing import Any
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
+from posthog.api.pagination import PageLinksSerializer
+
 from products.notebooks.backend.facade.widgets import (
     DEFAULT_WIDGET_MODEL,
     MAX_WIDGET_EFFECTIVE_PROMPT_LENGTH,
@@ -228,7 +230,7 @@ class WidgetVersionSerializer(serializers.Serializer):
     )
 
 
-class WidgetVersionPageSerializer(serializers.Serializer):
+class WidgetVersionPageSerializer(PageLinksSerializer):
     results = WidgetVersionSerializer(many=True, help_text="Versions ordered newest first.")
     count = serializers.IntegerField(min_value=0, help_text="Total versions.")
     next_offset = serializers.IntegerField(allow_null=True, help_text="Offset for the next page.")

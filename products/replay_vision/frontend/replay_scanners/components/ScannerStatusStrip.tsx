@@ -6,10 +6,12 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
+import { cn } from 'lib/utils/css-classes'
 import { percentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
+import { RECORDINGS_BLOCK_CAUSE, replayRecordingsLogic } from '../../logics/replayRecordingsLogic'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { getReplayVisionEditDisabledReason } from '../../utils/accessControl'
 import { formatCreditsRange } from '../../utils/credits'
@@ -17,9 +19,10 @@ import { quotaBannerState } from '../../utils/quotaProjection'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { ReplayScannerTab } from '../replayScannerSceneLogic'
 import { scanDrought } from '../scanDrought'
-import { limitReachedTooltip, stoppedByFreeCredits } from '../scannerCopy'
+import { UNRUNNABLE_DETAIL, limitReachedTooltip, stoppedByFreeCredits } from '../scannerCopy'
 import { scannerEditUrl } from '../scannerEditorSceneLogic'
 import { ScannerStatus, SWEEP_INTERVAL_MINUTES, scannerStatus, spendAgainstLimit } from '../scannerStatus'
+import { HERO_CARD_HEADER, HERO_CARD_HEIGHT } from './scannerHeroCard'
 import { ScannerStatusLabel } from './ScannerStatusLabel'
 
 function formatInterval(minutes: number): string {
@@ -32,16 +35,26 @@ function formatInterval(minutes: number): string {
 
 function statusDetail(status: ScannerStatus, resetsOn: string | null, periodEndsOn: string | null): React.ReactNode {
     switch (status.kind) {
+        case 'no_ai_consent':
+            return UNRUNNABLE_DETAIL.no_ai_consent
+        case 'creator_lost_access':
+            return `${UNRUNNABLE_DETAIL.creator_lost_access} Turn it on to take it over.`
         case 'off':
             return status.reason === 'no_sampling'
                 ? 'Sampling is set to 0%, so no recordings are scanned.'
                 : "This scanner doesn't scan new recordings."
+        case 'replay_off':
+            return `${RECORDINGS_BLOCK_CAUSE['replay-off']}, so there are no recordings to scan.`
+        case 'no_recordings':
+            return `${RECORDINGS_BLOCK_CAUSE['no-recordings']}, so there is nothing to scan.`
         case 'limit_reached':
             return stoppedByFreeCredits(status)
                 ? `Paused until your free credits reset${periodEndsOn ? ` on ${periodEndsOn}` : ''}. Recordings until then are skipped.`
                 : limitReachedTooltip(status)
         case 'quota_exhausted':
             return `Your organization's Replay Vision credits are used up${resetsOn ? ` until ${resetsOn}` : ''}.`
+        case 'filter_error':
+            return `The filters can't run, so no new recordings are scanned. ${status.message}`
         case 'starting':
             return 'The first scan is running. Results usually appear within 15 minutes.'
         case 'delayed':
@@ -85,6 +98,7 @@ export function ScannerStatusStrip({ scannerId }: { scannerId: string }): JSX.El
     )
     const { toggleEnabled, turnOffFreeOnly } = useActions(replayScannerLogic({ id: scannerId }))
     const { quota } = useValues(visionQuotaLogic)
+    const { recordingsBlock } = useValues(replayRecordingsLogic)
     if (!scanner) {
         return null
     }
@@ -92,6 +106,7 @@ export function ScannerStatusStrip({ scannerId }: { scannerId: string }): JSX.El
     const status = scannerStatus(scanner, {
         quotaExhausted: quotaState.kind === 'exhausted',
         drought: scanDrought(scanner, observationStatsApi?.labels.version_markers ?? null, new Date()),
+        recordingsBlock,
     })
     const periodEndsOn = quota ? dayjs.utc(quota.period_end).format('MMMM D') : null
     const detail = statusDetail(status, quotaState.kind ? quotaState.resetsOn : null, periodEndsOn)
@@ -100,13 +115,12 @@ export function ScannerStatusStrip({ scannerId }: { scannerId: string }): JSX.El
     const spend = spendAgainstLimit(scanner, quota)
 
     return (
-        // min-h-38 matches the empty scout card beside it, so the two line up when there is no report yet.
         <div
-            className="@container border rounded bg-surface-primary p-4 flex flex-col gap-3 min-h-38"
+            className={cn('@container border rounded bg-surface-primary p-4 flex flex-col gap-3', HERO_CARD_HEIGHT)}
             data-attr="vision-scanner-status-strip"
             data-status={status.kind}
         >
-            <div className="flex items-center justify-between gap-2 border-b border-primary pb-2">
+            <div className={HERO_CARD_HEADER}>
                 <span className="text-sm font-medium">Scanner status</span>
                 <LemonSwitch
                     checked={scanner.enabled}
@@ -114,13 +128,15 @@ export function ScannerStatusStrip({ scannerId }: { scannerId: string }): JSX.El
                     loading={togglingEnabled}
                     disabledReason={editDisabledReason}
                     label="Enabled"
-                    size="small"
+                    bordered
+                    // An off scanner is the state people miss, so the toggle picks up the accent color then.
+                    className={cn(!scanner.enabled && '!border-accent !bg-accent-highlight')}
                     data-attr="vision-scanner-toggle-enabled"
                     data-ph-capture-attribute-scanner-type={scanner.scanner_type}
                     data-ph-capture-attribute-will-be-enabled={!scanner.enabled}
                 />
             </div>
-            <div className="grid grid-cols-1 @2xl:grid-cols-2 gap-x-8 gap-y-4 items-start">
+            <div className="grid grid-cols-1 @lg:grid-cols-2 gap-x-8 gap-y-4 items-start">
                 <div className="min-w-0 flex flex-col gap-1">
                     <div className="flex items-center gap-2">
                         <ScannerStatusLabel status={status} className="text-sm font-semibold" />
@@ -133,46 +149,18 @@ export function ScannerStatusStrip({ scannerId }: { scannerId: string }): JSX.El
                                 Your organization's spend limit is used up too, so raise it in billing as well.
                             </span>
                         )}
-                        {status.kind === 'no_matches' && (
+                        {(status.kind === 'no_matches' || status.kind === 'filter_error') && (
                             <>
                                 {' '}
                                 <Link
                                     to={urls.replayVisionScannerTriggers(scannerId)}
                                     data-attr="vision-scanner-status-review-filters"
                                 >
-                                    Review filters
+                                    {status.kind === 'filter_error' ? 'Edit filters' : 'Review filters'}
                                 </Link>
                             </>
                         )}
                     </div>
-                    {pausedByFreeCredits && (
-                        <div className="pl-4 pt-1 flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                            <span className="text-xs text-muted">
-                                Turn it off to keep scanning now. Scans past your free credits are billed.
-                            </span>
-                            <LemonSwitch
-                                checked
-                                onChange={() =>
-                                    LemonDialog.open({
-                                        title: 'Turn off free credits only?',
-                                        description:
-                                            scanner.credit_limit != null
-                                                ? `This scanner will keep scanning after your free credits run out. Scans past them are billed, up to its limit of ${scanner.credit_limit.toLocaleString('en-US')} credits a month.`
-                                                : "This scanner will keep scanning after your free credits run out. Scans past them are billed, up to your organization's spend limit.",
-                                        primaryButton: { children: 'Turn off', onClick: () => turnOffFreeOnly() },
-                                        secondaryButton: { children: 'Cancel' },
-                                    })
-                                }
-                                loading={turningOffFreeOnly}
-                                disabledReason={editDisabledReason}
-                                label="Free credits only"
-                                size="small"
-                                bordered
-                                data-attr="vision-scanner-status-turn-off-free-only"
-                                data-ph-capture-attribute-scanner-type={scanner.scanner_type}
-                            />
-                        </div>
-                    )}
                 </div>
                 <div className="min-w-0 flex flex-col gap-1">
                     <div className="flex items-center justify-between gap-2 text-sm">
@@ -205,6 +193,35 @@ export function ScannerStatusStrip({ scannerId }: { scannerId: string }): JSX.El
                                 </Link>
                             )}
                         </span>
+                    )}
+                    {pausedByFreeCredits && (
+                        <div className="pt-1">
+                            <LemonSwitch
+                                checked
+                                onChange={() =>
+                                    LemonDialog.open({
+                                        title: 'Turn off free credits only?',
+                                        description:
+                                            scanner.credit_limit != null
+                                                ? `This scanner will keep scanning after your free credits run out. Scans past them are billed, up to its limit of ${scanner.credit_limit.toLocaleString('en-US')} credits a month.`
+                                                : "This scanner will keep scanning after your free credits run out. Scans past them are billed, up to your organization's spend limit.",
+                                        primaryButton: {
+                                            children: 'Turn off',
+                                            onClick: () => turnOffFreeOnly(),
+                                        },
+                                        secondaryButton: { children: 'Cancel' },
+                                    })
+                                }
+                                loading={turningOffFreeOnly}
+                                disabledReason={editDisabledReason}
+                                label="Free credits only"
+                                tooltip="Turn it off to keep scanning now. Scans past your free credits are billed."
+                                size="small"
+                                bordered
+                                data-attr="vision-scanner-status-turn-off-free-only"
+                                data-ph-capture-attribute-scanner-type={scanner.scanner_type}
+                            />
+                        </div>
                     )}
                 </div>
             </div>

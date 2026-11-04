@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef } from 'react'
 import { LemonDivider } from '@posthog/lemon-ui'
 
 import { TZLabelProps } from 'lib/components/TZLabel'
+import { traceDialogOpenLogic } from 'lib/components/ViewTraceButton/traceDialogOpenLogic'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 
 import { UniversalFiltersGroup } from '~/types'
@@ -22,7 +23,6 @@ import { logsExportLogic } from 'products/logs/frontend/components/LogsViewer/lo
 import { QueryFailedOverlay } from 'products/logs/frontend/components/QueryFailedOverlay'
 import { VirtualizedLogsList } from 'products/logs/frontend/components/VirtualizedLogsList/VirtualizedLogsList'
 import { virtualizedLogsListLogic } from 'products/logs/frontend/components/VirtualizedLogsList/virtualizedLogsListLogic'
-import { traceDialogOpenLogic } from 'products/tracing/frontend/components/TraceDialog/traceDialogOpenLogic'
 
 import { LogDetailsModal } from './LogDetailsModal'
 import { logDetailsModalLogic } from './LogDetailsModal/logDetailsModalLogic'

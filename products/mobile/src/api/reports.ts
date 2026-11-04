@@ -1,3 +1,4 @@
+import { isRecord } from '@/lib/records'
 import type { ReportPriority } from '@/model/types'
 import { type DismissReason, type ResolveReason, VERDICT_NOTE_MAX_LENGTH } from '@/model/verdictReasons'
 import type {
@@ -186,11 +187,68 @@ export interface InboxPageApi {
 
 export const INBOX_PAGE_SIZE = 20
 
-export function fetchInboxPage(offset: number, signal?: AbortSignal): Promise<InboxPageApi> {
-    return apiJson<InboxPageApi>(projectPath('signals/reports/'), {
+function isOptionalString(value: unknown): boolean {
+    return value === undefined || value === null || typeof value === 'string'
+}
+
+function isReportDate(value: unknown): boolean {
+    return typeof value === 'string' && Number.isFinite(Date.parse(value))
+}
+
+function isInboxPullRequest(value: unknown): boolean {
+    return (
+        isRecord(value) &&
+        typeof value.url === 'string' &&
+        typeof value.state === 'string' &&
+        typeof value.merged === 'boolean' &&
+        isOptionalString(value.id) &&
+        isOptionalString(value.review_decision)
+    )
+}
+
+const INBOX_REPORT_FIELDS = {
+    id: (value) => typeof value === 'string' && value.trim() !== '',
+    title: isOptionalString,
+    status: (value) => typeof value === 'string',
+    source_products: (value) => Array.isArray(value) && value.every((source) => typeof source === 'string'),
+    created_at: isReportDate,
+    updated_at: isReportDate,
+    signal_count: (value) => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0,
+    is_suggested_reviewer: (value) => value === undefined || typeof value === 'boolean',
+    implementation_pr_url: isOptionalString,
+    pull_requests: (value) => Array.isArray(value) && value.every(isInboxPullRequest),
+    assignee: (value) => value == null || (isRecord(value) && typeof value.kind === 'string'),
+    ranking: (value) => {
+        if (value == null) return true
+        if (!isRecord(value)) return false
+        const scores = value.scores
+        if (scores == null) return true
+        if (!isRecord(scores)) return false
+        const score = scores.pr_merged
+        return score == null || (typeof score === 'number' && Number.isFinite(score))
+    },
+} satisfies Partial<Record<keyof SignalReportApi, (value: unknown) => boolean>>
+
+function isInboxReport(value: unknown): boolean {
+    return isRecord(value) && Object.entries(INBOX_REPORT_FIELDS).every(([field, validate]) => validate(value[field]))
+}
+
+export async function fetchInboxPage(offset: number, signal?: AbortSignal): Promise<InboxPageApi> {
+    const page = await apiJson<InboxPageApi>(projectPath('signals/reports/'), {
         query: { view: 'for_you', sort: 'priority', limit: INBOX_PAGE_SIZE, offset } satisfies SignalsReportsListParams,
         signal,
     })
+    if (
+        !isRecord(page) ||
+        !Array.isArray(page.results) ||
+        !page.results.every(isInboxReport) ||
+        !Number.isSafeInteger(page.count) ||
+        page.count < 0 ||
+        (page.next !== undefined && page.next !== null && typeof page.next !== 'string')
+    ) {
+        throw new Error("Couldn't load your inbox. Try again.")
+    }
+    return page
 }
 
 export function fetchReport(reportId: string, signal?: AbortSignal): Promise<SignalReportApi> {

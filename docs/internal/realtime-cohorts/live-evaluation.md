@@ -89,7 +89,8 @@ For one event the steps are:
    The event's changes join the sub-batch's output buffer.
    Each behavioral row with a finite deadline is placed in the worker's eviction queue at its new deadline.
 10. **Produce at the end of the sub-batch.**
-    The worker produces the buffered changes and, with cascades enabled, one cascade message per change, then marks the offsets.
+    The worker hands the buffered changes and, with cascades enabled, one cascade message per change to the producer.
+    It then marks the offsets without waiting for the acknowledgments.
     [Processor runtime](processor-runtime.md#the-worker-loop) describes this step.
 
 ## Behavioral leaves
@@ -223,7 +224,7 @@ Each change is a small JSON message on the membership output topic, keyed by `pe
 
 Live output is at most once.
 State commits before the change is produced.
-If the produce fails, the next successful batch commits past it, and a replay finds nothing left to emit.
+If the produce fails, the batch's mark has already passed it, and a replay finds nothing left to emit.
 The pipeline accepts this and relies on reconcile to repair the downstream table.
 [Processor runtime](processor-runtime.md#delivery-semantics) lists every path's guarantee.
 

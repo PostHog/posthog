@@ -16,7 +16,11 @@ from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty, CohortType
-from products.cohorts.backend.models.util import get_all_cohort_dependencies, sort_cohorts_topologically
+from products.cohorts.backend.models.util import (
+    get_all_cohort_dependencies,
+    legacy_groups_to_filters,
+    sort_cohorts_topologically,
+)
 from products.cohorts.backend.realtime_teams import (
     backfill_triggers_suppressed,
     is_processing_team,
@@ -385,6 +389,16 @@ class Command(BaseCommand):
     ) -> CohortResaveStats:
         """Process all cohorts for a single team."""
         all_cohorts = self._load_team_cohorts(team, batch_size)
+        # Convert groups-only cohorts up front so the dependency map, the sort, and the recompute
+        # all read their filters. Static cohorts never evaluate filters, so they stay as they are.
+        # A cohort whose groups can't be converted stays unfixed, so it counts as an error.
+        unconvertible = 0
+        for loaded in all_cohorts:
+            if not loaded.filters and loaded.groups and not loaded.is_static:
+                loaded.filters = legacy_groups_to_filters(loaded.groups)
+                if not loaded.filters:
+                    unconvertible += 1
+                    logger.error("cohort_resave_groups_unconvertible", cohort_id=loaded.id, team_id=team.id)
         seen_cohorts_cache: dict[int, CohortOrEmpty] = {c.id: c for c in all_cohorts}
         cohort_dependencies, unreadable_ids = self._build_dependency_map(team, all_cohorts, seen_cohorts_cache)
 
@@ -396,7 +410,7 @@ class Command(BaseCommand):
 
         total = len(unreadable_ids)
         changed = 0
-        errors = len(unreadable_ids)
+        errors = len(unreadable_ids) + unconvertible
         validation_errors = 0
         prospective_realtime = 0
 

@@ -198,6 +198,22 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    rate drops materially (toward ≤50%) on frozen-PR evals with the valid-finding set intact (item 5's
    coverage matrix as the guard); kill if valid findings drop with the noise.
 
+### ✅ BUILT 2026-11-02 — push gate: the four shadow rules are gone
+
+- **What.** `docs_only`, `small_change`, `system_one_below_threshold`, and `next_push_likely` are removed, with their `SKIP_*` switches, the small-change Redis counter, the next-push table, and the System One call.
+  A push that no remaining rule matches reviews with the reason `no_rule_matched`.
+  The gate event drops `system_one_probability`, `system_one_model`, `system_one_skip_below`, `net_code_lines`, `small_change_deferrals`, and `next_push_probability`.
+- **Why.** Each rule logged a shadow decision while the review still ran, so every match is a measured review (review-eval `experiments/2026-11-02-shadow-rules`, Oct 17 to Nov 2).
+  None of them earned a live switch:
+  - `next_push_likely` matched the most productive follow-ups: about 1.7 times the must-fix labels per review of other follow-ups. About 30% of its matches were the PR's last automatic review. Live, it also needed a fix first, because a skip does not advance `run_index`, so it would match every later push.
+  - `small_change` held must-fix labels at close to the rate of other follow-ups, and almost half of its matches were the PR's last automatic review. The preconditions in the 2026-10-15 entry (a review on Stamphog's request, a "latest push not reviewed" state) were never built. `quiet_small_push` already skips small pushes after a review that kept nothing.
+  - `system_one_below_threshold` matched few pushes, and about 15% of System One calls came back unavailable. The earlier replays already found its below-threshold pushes carried must-fix labels at the same rate as the rest.
+  - `docs_only` saved the least, and the Markdown it treats as docs includes agent skill files, which this repo treats as instructions.
+- **Behavior change.** A System One outage was a gate failure, so it kept those pushes out of rules 5 to 7, `zero_change`, and the delta split. Those pushes now meet every rule like any other push.
+  A push GitHub cannot show in full (a left-out patch, or more than `MAX_OWN_PATCH_CHARS` of patch text) still fails open as `interdiff_too_large`.
+- **Replay.** The gate activity returns `PushGateDecision`, and Temporal's converter rejects a literal it does not know.
+  `RetiredReason` keeps the old reason strings so a `review-pr` history recorded before the removal still decodes. Remove it once no such history is open.
+
 ### ✅ BUILT 2026-10-29 — no label starts a review; Stamphog hands off through the finished-review hook (#124327)
 
 - **What.** The `reviewhog` label no longer starts a review, and a `labeled` delivery starts nothing.
@@ -236,7 +252,7 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
   - System One below 0.7: it saves less per must-fix label held back than the push-size rule.
   - A cap from review 5: it saves about half as much and holds back almost as many must-fix labels.
 
-### ✅ BUILT 2026-10-15 — push gate: small-change deferral (shadow)
+### ✅ BUILT 2026-10-15 — push gate: small-change deferral (shadow; removed 2026-11-02)
 
 - **What.** A new push gate rule, `small_change`, sits after `docs_only` and before `system_one_below_threshold`. It
   matches a push that changes 1 to `SMALL_CHANGE_MAX_NET_CODE_LINES` (10) code lines net: the additions plus deletions

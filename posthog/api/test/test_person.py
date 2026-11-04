@@ -27,7 +27,7 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 
-from posthog.api.person import tag_client_query_id
+from posthog.api.person import PersonLimitOffsetPagination, tag_client_query_id
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import get_query_tag_value, reset_query_tags
 from posthog.constants import AvailableFeature
@@ -45,7 +45,7 @@ from posthog.models.person.util import (
 )
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
-from posthog.personhog_client.fake_client import fake_personhog_client
+from posthog.personhog_client.fake_client import fake_personhog_client, get_active_fake
 from posthog.test.persons import add_distinct_id, create_person, delete_person
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
@@ -758,6 +758,21 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             data = response.json()
             self.assertEqual(data["code"], "person_deletion_failed")
             self.assertIn("tombstone_postgres", data["detail"])
+
+    @parameterized.expand([("deleted", False, status.HTTP_202_ACCEPTED), ("held_by_another_op", True, 503)])
+    def test_delete_person_through_the_lifecycle_saga_with_the_request_deadline(self, _name, held, expected):
+        person = _create_person(team=self.team, distinct_ids=["person_1"], immediate=True)
+        fake = get_active_fake()
+        if held:
+            fake.hold_lifecycle_mark(team_id=self.team.pk, person_id=person.pk)
+
+        with self.settings(PERSONHOG_WRITE_PATH="leader", PERSON_DELETE_LIFECYCLE_REQUEST_TIMEOUT_MS=4_000):
+            response = self.client.delete(f"/api/person/{person.uuid}/")
+
+        self.assertEqual(response.status_code, expected)
+        [call] = [call for call in fake.calls if call.method == "lifecycle.delete_persons"]
+        self.assertEqual((list(call.request.person_ids), call.timeout), ([person.pk], 4.0))
+        self.assertEqual(get_person_by_uuid(self.team.pk, str(person.uuid)) is None, not held)
 
     @parameterized.expand(
         [
@@ -2249,10 +2264,10 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # The property-access-control feature check reuses the request's already-loaded team,
         # so listing persons no longer pays a per-request Team lookup (was 16). +1 for the
         # saved-expressions fetch in the HogQL database build. +1 each for the shared-database
-        # kill-switch and flag-cache TTL instance settings, cold-cache here but TTL-cached per
-        # worker in production. +1 for the organization's flag_evaluations mode lookup in the HogQL
-        # database build.
-        with self.assertNumQueries(17):
+        # kill-switch, projection kill-switch, properties-narrowing and flag-cache TTL instance
+        # settings, cold-cache here but TTL-cached per worker in production. +1 for the organization's flag_evaluations mode
+        # lookup in the HogQL database build.
+        with self.assertNumQueries(19):
             response = self.client.get("/api/person/?limit=10").json()
         self.assertEqual(len(response["results"]), 9)
         returned_ids += [x["distinct_ids"][0] for x in response["results"]]
@@ -2295,6 +2310,11 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             url = page["next"]
         self.assertEqual(len(paged), len(uuids))  # no person lost or repeated at a page boundary
         self.assertEqual(set(paged), expected)  # union of pages == full set, gapless and dup-free
+
+        with mock.patch.object(PersonLimitOffsetPagination, "max_limit", 3):
+            capped = self.client.get("/api/person/?limit=100").json()
+        self.assertEqual(len(capped["results"]), 3)
+        self.assertIsNotNone(capped["next"])
 
     def test_retrieve_person(self):
         person = create_person(  # creating without _create_person to guarentee created_at ordering

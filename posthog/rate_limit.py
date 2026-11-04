@@ -451,12 +451,6 @@ class CodexConnectUserThrottle(UserRateThrottle):
     rate = "10/hour"
 
 
-# Each internal feedback post lands in a shared Slack channel, so cap it per user.
-class InternalFeedbackUserThrottle(UserRateThrottle):
-    scope = "internal_feedback_user"
-    rate = "60/hour"
-
-
 class BurstRateThrottle(PersonalApiKeyRateThrottle):
     # Throttle class that's applied on all endpoints (except for capture + decide)
     # Intended to block quick bursts of requests, per project
@@ -791,6 +785,18 @@ class ReplayVisionHighlightFeedSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "600/hour"
 
 
+# Theme and group summaries aggregate a window of observation history per call, and scouts call them on a
+# schedule, so they get their own team bucket and never use up the highlight feed's.
+class ReplayVisionClustersBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "replay_vision_clusters_burst"
+    rate = "60/minute"
+
+
+class ReplayVisionClustersSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "replay_vision_clusters_sustained"
+    rate = "600/hour"
+
+
 # Impression reports arrive while a reader scrolls, so they get their own per-user bucket and never use up the
 # team's feed bucket.
 class ReplayVisionHighlightFeedImpressionsRateThrottle(_UserBucketRateThrottle):
@@ -990,17 +996,6 @@ class AIObservabilitySummarizationDailyThrottle(PersonalApiKeyOrUserRateThrottle
     # Hard limit to prevent runaway costs
     scope = "llm_analytics_summarization_daily"
     rate = "500/day"
-
-
-class InsightExplainBurstThrottle(PersonalApiKeyOrUserRateThrottle):
-    # A decision model call costs a small fraction of a summarization call, so it gets its own, higher limits.
-    scope = "insight_explain_burst"
-    rate = "120/minute"
-
-
-class InsightExplainDailyThrottle(PersonalApiKeyOrUserRateThrottle):
-    scope = "insight_explain_daily"
-    rate = "5000/day"
 
 
 class AIObservabilityBackfillEstimateThrottle(_UserBucketRateThrottle):

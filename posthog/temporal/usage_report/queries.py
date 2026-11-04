@@ -60,6 +60,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_billable_enhanced_persons_event_count_in_period,
     get_teams_with_billable_event_count_in_period,
     get_teams_with_billable_sandbox_compute_usage_in_period,
+    get_teams_with_business_knowledge_usage_in_period,
     get_teams_with_dwh_mat_views_storage_in_s3,
     get_teams_with_dwh_tables_storage_in_s3,
     get_teams_with_dwh_total_storage_in_s3,
@@ -239,6 +240,14 @@ def _replay_vision_spend_projection(begin: datetime, end: datetime) -> dict[str,
     }
 
 
+def _business_knowledge_usage(begin: datetime, end: datetime) -> dict[str, TeamUsageRows]:
+    usage = get_teams_with_business_knowledge_usage_in_period(begin, end)
+    return {
+        "chunks": usage.chunks,
+        "queries": usage.queries,
+    }
+
+
 def _sandbox_compute_usage(begin: datetime, end: datetime) -> dict[str, list[tuple[int, int]]]:
     usage = get_teams_with_billable_sandbox_compute_usage_in_period(begin, end)
     return {
@@ -337,6 +346,7 @@ QUERIES: list[QuerySpec] = [
             "ruby_events": "teams_with_ruby_events_count_in_period",
             "python_events": "teams_with_python_events_count_in_period",
             "php_events": "teams_with_php_events_count_in_period",
+            "laravel_events": "teams_with_laravel_events_count_in_period",
             "dotnet_events": "teams_with_dotnet_events_count_in_period",
             "elixir_events": "teams_with_elixir_events_count_in_period",
             "unity_events": "teams_with_unity_events_count_in_period",
@@ -553,6 +563,16 @@ QUERIES: list[QuerySpec] = [
             "credits": "teams_with_sandbox_compute_credits_used_in_period",
             "cpu_millicore_seconds": "teams_with_sandbox_compute_cpu_millicore_seconds_in_period",
             "memory_mib_seconds": "teams_with_sandbox_compute_memory_mib_seconds_in_period",
+        },
+    ),
+    # ---- Postgres: business knowledge usage ledger --------------------------
+    QuerySpec(
+        name="business_knowledge_usage",
+        fn=_business_knowledge_usage,
+        output="multi",
+        multi_keys_mapping={
+            "chunks": "teams_with_business_knowledge_chunks_in_period",
+            "queries": "teams_with_business_knowledge_queries_in_period",
         },
     ),
     # ---- ClickHouse: workflows / messaging ----------------------------------

@@ -8,7 +8,7 @@ Most moves take three steps: install hog, rename the environment variables, and 
 
 ## What stays the same
 
-- **Your login.** Both CLIs read and write `~/.posthog/credentials.json`, so `posthog-cli login` works for hog, and `hog auth login` works for posthog-cli.
+- **Your login.** Run `hog auth migrate` once. It moves the key `posthog-cli login` saved in `~/.posthog/credentials.json` into hog's store, so you don't have to log in again. It checks the key with PostHog first, and a key PostHog rejects stays out of hog's store. hog doesn't read that file otherwise and never changes it.
 - **Uploads.** hog sends the same bytes and content hashes, so either CLI can re-upload what the other uploaded. Chunk IDs and releases don't change.
 - **posthog.json.** hog reads the `languages` entries `posthog-cli exp schema` writes, and the endpoint YAML files `posthog-cli exp endpoints` writes.
 - **Global flags.** `--host`, `--dotenv-file`, `--no-fail`, `--skip-ssl-verification` and `--rate-limit` work as before, before or after the command.
@@ -19,7 +19,7 @@ hog reads only `HOG_` variables. Rename these:
 
 | posthog-cli                                    | hog                      |
 | ---------------------------------------------- | ------------------------ |
-| `POSTHOG_CLI_API_KEY`, `POSTHOG_CLI_TOKEN`     | `HOG_API_KEY`            |
+| `POSTHOG_CLI_API_KEY`, `POSTHOG_CLI_TOKEN`     | `HOG_PERSONAL_API_KEY`   |
 | `POSTHOG_CLI_PROJECT_ID`, `POSTHOG_CLI_ENV_ID` | `HOG_PROJECT_ID`         |
 | `POSTHOG_CLI_HOST`                             | `HOG_HOST`               |
 | `POSTHOG_CLI_DOTENV_FILE`                      | `HOG_DOTENV_FILE`        |

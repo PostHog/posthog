@@ -105,6 +105,7 @@ The service extracts the SDK type from the request's user-agent header and incre
 | `posthog-node`         | Server-side Node.js     |
 | `posthog-python`       | Python SDK              |
 | `posthog-php`          | PHP SDK                 |
+| `posthog-laravel`      | Laravel SDK             |
 | `posthog-ruby`         | Ruby SDK                |
 | `posthog-go`           | Go SDK                  |
 | `posthog-java`         | Java SDK                |
@@ -185,7 +186,13 @@ sender.add_periodic_task(
 
 ### Aggregation process
 
-For each team (excluding internal metrics and demo teams):
+The task reads the teams 1,000 at a time, excluding internal metrics and demo teams.
+For each batch, one pipelined `EXISTS` call finds the teams that have a team key for any request type.
+The task skips the teams with no team key.
+Those teams also have no SDK keys, because the service writes the SDK key in the same pipeline as the team key.
+When the `EXISTS` call fails, the task reports the error and exports every team in that batch.
+
+For each team with a team key:
 
 1. **Acquire distributed lock**: `posthog:decide_analytics:lock:{team_id}` with 60-second timeout
 2. **Extract counters**: Read all time buckets except the current one (still being filled)

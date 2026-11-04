@@ -7,12 +7,12 @@ import { lemonToast } from '@posthog/lemon-ui'
 import { type SetupTaskId } from 'lib/components/ProductSetup'
 import { globalSetupLogic } from 'lib/components/ProductSetup/globalSetupLogic'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { isKeyOf } from 'lib/utils/guards'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { getRelativeNextPath } from 'lib/utils/url'
-import { billingLogic } from 'scenes/billing/billingLogic'
 import {
     reportOnboardingCompleted,
     reportOnboardingStarted,
@@ -243,7 +243,8 @@ export interface onboardingLogicMeta {
         installStepReturnUrl: (
             flowVariant: OnboardingFlowVariant,
             flowUrl: string,
-            currentStepProductKey: ProductKey | null
+            currentStepProductKey: ProductKey | null,
+            secondaryProductKeys: ProductKey[]
         ) => string
         onCompleteOnboardingRedirectUrl: (
             flowVariant: OnboardingFlowVariant,
@@ -692,17 +693,24 @@ export const onboardingLogic = kea<onboardingLogicType>([
         // Where an OAuth round trip started from the install step returns to, so the user lands back in
         // the same flow instead of the default per-product one.
         installStepReturnUrl: [
-            (s) => [s.flowVariant, s.flowUrl, s.currentStepProductKey],
-            (flowVariant: OnboardingFlowVariant, flowUrl: string, currentStepProductKey: ProductKey | null): string => {
+            (s) => [s.flowVariant, s.flowUrl, s.currentStepProductKey, s.secondaryProductKeys],
+            (
+                flowVariant: OnboardingFlowVariant,
+                flowUrl: string,
+                currentStepProductKey: ProductKey | null,
+                secondaryProductKeys: ProductKey[]
+            ): string => {
                 if (flowVariant === 'simple') {
                     return combineUrl(flowUrl, {
                         step: `${OnboardingStepKey.INSTALL}:${SIMPLE_ONBOARDING_PRODUCT_KEY}`,
                     }).url
                 }
-                return urls.onboarding({
-                    productKey: currentStepProductKey ?? undefined,
-                    stepKey: OnboardingStepKey.INSTALL,
-                })
+                return combineUrl(flowUrl, {
+                    step: currentStepProductKey
+                        ? `${OnboardingStepKey.INSTALL}:${currentStepProductKey}`
+                        : OnboardingStepKey.INSTALL,
+                    ...(secondaryProductKeys.length ? { with: secondaryProductKeys.join(',') } : {}),
+                }).url
             },
         ],
         onCompleteOnboardingRedirectUrl: [

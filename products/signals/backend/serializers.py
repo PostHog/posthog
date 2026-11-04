@@ -22,6 +22,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.integrations import IntegrationKind, IntegrationRecord
 from posthog.integrations.fields import IntegrationReferenceField
 from posthog.models import Team, User
+from posthog.models.integer_field_bounds import INTEGER_FIELD_MAX
 from posthog.models.integration import SUPPORTED_EXTERNAL_ISSUE_PROVIDERS
 
 from products.signals.backend import contracts
@@ -29,10 +30,13 @@ from products.signals.backend.agent_instructions import AGENT_STEERING_MAX_LENGT
 from products.signals.backend.anomaly_scores.config import covers_team, parse_config, read_payload
 from products.signals.backend.billing import REFUND_INELIGIBILITY_REASONS, refund_ineligibility_reason
 from products.signals.backend.contracts import (
+    ALERT_SCOPE_KEY,
+    ALERT_SCOPE_SOURCE,
     DEFAULT_NOT_ACTIONABLE_KEY,
     SCOPE_CONFIG_KEYS,
     STEERING_KEY,
     STEERING_MAX_LENGTH,
+    AlertScope,
     scope_ids_problem,
 )
 from products.signals.backend.enums import (
@@ -44,7 +48,11 @@ from products.signals.backend.enums import (
     SignalSourceType,
     SuggestedSourceProduct,
 )
-from products.signals.backend.report_check_monitoring_timing import MonitoringCheckTiming, MonitoringCheckTimingState
+from products.signals.backend.report_check_monitoring_timing import (
+    MonitoringCheckTiming,
+    MonitoringCheckTimingState as MonitoringCheckTimingPhase,
+    MonitoringCheckVerification,
+)
 from products.signals.backend.report_checks import (
     CHECK_CONFIG_SCHEMAS,
     DEFAULT_CHECK_EXPIRY_AFTER_LAST_RUN,
@@ -60,6 +68,7 @@ from products.signals.backend.report_checks import (
     parse_check_config,
 )
 from products.signals.backend.report_content_gates import team_report_monitoring_enabled
+from products.signals.backend.report_monitoring_attempts import current_monitoring_attempt
 from products.signals.backend.reviewer_rules import ReviewerRules
 from products.signals.backend.scout_harness.tools.report import is_self_improvement_title
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema
@@ -92,6 +101,7 @@ from .models import (
     SignalReportArtefact,
     SignalReportAssignment,
     SignalReportCheck,
+    SignalReportMonitoringAttempt,
     SignalReportPullRequest,
     SignalReportRefund,
     SignalReportSuppressionSource,
@@ -198,7 +208,11 @@ _SOURCE_CONFIG_HELP_TEXT = (
     "The Linear issue source (`source_product=linear`, `source_type=issue`) reads "
     "`linear_team_ids` (list of Linear team id strings, max 100): the warehouse still syncs the "
     "whole Linear workspace, but only issues from those teams become signals. Omit the key or "
-    "pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint."
+    "pass an empty list to use every team. Get the ids from the Linear integration's teams endpoint. "
+    "The product analytics source (`source_product=analytics`, `source_type=anomaly_investigation`) "
+    "accepts `alert_scope`: `investigated_only` (default) turns only insight alerts that the "
+    "investigation agent confirmed into signals, and `all_firing_alerts` also includes alerts "
+    "without the investigation agent. Other sources reject this key."
 )
 
 
@@ -337,6 +351,16 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
                     )
             if DEFAULT_NOT_ACTIONABLE_KEY in config and not isinstance(config[DEFAULT_NOT_ACTIONABLE_KEY], bool):
                 raise serializers.ValidationError({"config": "default_not_actionable must be a boolean"})
+            if ALERT_SCOPE_KEY in config:
+                if (source_product, source_type) != ALERT_SCOPE_SOURCE:
+                    raise serializers.ValidationError(
+                        {"config": "alert_scope is only supported on the analytics anomaly_investigation source"}
+                    )
+                # Compared against the members, not a set of values, so an unhashable value is rejected too.
+                if config[ALERT_SCOPE_KEY] not in tuple(AlertScope):
+                    raise serializers.ValidationError(
+                        {"config": f"alert_scope must be one of: {', '.join(AlertScope)}"}
+                    )
             scope_key = SCOPE_CONFIG_KEYS.get((source_product, source_type)) if source_product and source_type else None
             if scope_key is not None and scope_key in config:
                 problem = scope_ids_problem(config[scope_key])
@@ -471,7 +495,7 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
         allow_null=True,
         min_value=1,
         # Ceiling at the int4 column max so an out-of-range value returns 400, not a DB write error.
-        max_value=2147483647,
+        max_value=INTEGER_FIELD_MAX,
         help_text=(
             "Daily cap on new reports surfacing to the inbox, counted per calendar day in the "
             "project's timezone. Once reached, signal ingestion, scout runs, and report research "
@@ -1479,7 +1503,10 @@ class PersonalRankingQuerySerializer(serializers.Serializer):
     )
     refresh = serializers.BooleanField(
         default=False,
-        help_text="Build a new list even when the stored one is current. A build calls a model and can take 30 seconds or more.",
+        help_text=(
+            "Start a new build even when the stored one is current. The build runs in the background, so the "
+            "response has `building: true`. Pass `wait_seconds` to wait for it."
+        ),
     )
     focus = serializers.CharField(
         required=False,
@@ -1487,7 +1514,17 @@ class PersonalRankingQuerySerializer(serializers.Serializer):
         max_length=2000,
         help_text=(
             "Free text about what to put first, such as `error tracking` or `billing reports`. A request with "
-            "focus always builds a new list, and an unfocused request never reuses it."
+            "focus always starts a new build, and an unfocused request never reuses it. Pass `wait_seconds` to "
+            "wait for it."
+        ),
+    )
+    wait_seconds = serializers.IntegerField(
+        default=0,
+        min_value=0,
+        max_value=30,
+        help_text=(
+            "When the request starts a build or one is running, wait for its list until this many seconds after "
+            "the request started. Defaults to 0, which does not wait. A build usually takes 10 to 60 seconds."
         ),
     )
 
@@ -1550,19 +1587,33 @@ class PersonalRankingSerializer(serializers.Serializer):
         )
     )
     cached = serializers.BooleanField(
-        help_text="True when the list comes from storage, false when this request built it."
+        help_text=(
+            "True when the list is a stored one. False when it is the inbox order fallback or the new list "
+            "that `wait_seconds` waited for."
+        )
     )
     stale = serializers.BooleanField(
         help_text=(
-            "True when the list does not match your current inbox, because you reached the build limit. "
-            "Try `refresh` again later."
+            "True when the list does not match your current inbox or focus. When `building` is true, a newer "
+            "list is on the way. Otherwise a build limit was reached, so try again later."
+        )
+    )
+    building = serializers.BooleanField(
+        help_text=(
+            "True when a new list is being built in the background. Call again in a few seconds, or pass "
+            "`wait_seconds`, to get it."
         )
     )
     fallback_reason = serializers.CharField(
         allow_null=True,
         help_text=(
-            "Why the list is in inbox order and not ranked by the language model: llm_error, timeout, "
-            "malformed_output, truncated_output, no_candidates or ai_not_approved. Null when the model ranked it."
+            "Why the list is in inbox order and not ranked by the language model. building: no list is stored "
+            "yet and one is being built. rate_limited: no list is stored yet and a build limit was reached, "
+            "either yours or the shared daily one. build_failed: no list is stored yet and the build could not "
+            "start. no_activity_summary: you have no activity summary yet, so the model did not rank the list. "
+            "llm_error, timeout, malformed_output, truncated_output, no_candidates or ai_not_approved: the stored "
+            "build fell back. "
+            "Null when the model ranked it."
         ),
     )
     generated_at = serializers.DateTimeField(allow_null=True, help_text="When the list was built.")
@@ -1604,7 +1655,7 @@ def personal_ranking_payload(served: "ServedRanking") -> dict[str, Any]:
         **{
             field.name: getattr(served, field.name)
             for field in dataclasses.fields(served)
-            if field.name not in {"results", "folded"}
+            if field.name not in {"results", "folded", "timings"}
         },
         "results": [
             {
@@ -2529,10 +2580,11 @@ class SignalReportListSerializer(SignalReportSerializer):
     )
     inbox_merge_key = serializers.SerializerMethodField(
         help_text=(
-            "Coarse sort key from the ranker named by the list response's ranker field, for sort=recommended "
-            "only. Lower keys rank first. It is the score decile of the ranker's outcome (open, action or fix), "
-            "then the priority as a tiebreak. The priority ranker uses the priority only. "
-            "Reports without a usable score sort after scored ones. Null for every other sort."
+            "Sort key from the ranker named by the list response's ranker field, for sort=recommended only. "
+            "Lower keys rank first, so rows from several requests merge in the order of one request. "
+            "For an outcome ranker (open, action or fix), a scored report gets 1 minus its score, from 0 to 1, "
+            "and a report without a usable score gets 2 plus its priority rank. The priority ranker uses the "
+            "priority rank only, from 0 (P0) to 5 (no priority). Null for every other sort."
         ),
     )
 
@@ -2540,12 +2592,12 @@ class SignalReportListSerializer(SignalReportSerializer):
         fields = [*SignalReportSerializer.Meta.fields, "inbox_merge_key"]
         read_only_fields = fields
 
-    def get_inbox_merge_key(self, obj: SignalReport) -> int | None:
+    def get_inbox_merge_key(self, obj: SignalReport) -> float | None:
         ranker = self.context.get("inbox_ranker")
         if ranker is None:
             return None
-        decile = None if ranker == "priority" else getattr(obj, f"ranking_{ranker}_score_decile", None)
-        return inbox_merge_key(decile, getattr(obj, "priority_sort_rank", None))
+        score = None if ranker == "priority" else getattr(obj, f"ranking_{ranker}_score", None)
+        return inbox_merge_key(ranker, score, getattr(obj, "priority_sort_rank", None))
 
 
 class SignalReportSectionCountsSerializer(serializers.Serializer):
@@ -2827,10 +2879,35 @@ def redact_check_config(config: Mapping[str, object], policy: ReportMetricAccess
     return redacted
 
 
+class MonitoringCheckTimingState(TextChoices):
+    SCHEDULED = "scheduled", "Scheduled"
+    DUE = "due", "Due"
+    WINDOW_ENDED = "window_ended", "Window ended"
+    NO_INTERIM_MEASUREMENTS = "no_interim_measurements", "No interim measurements"
+    WAITING = "waiting", "Waiting for scheduling"
+    PAUSED = "paused", "Paused during Monitoring"
+    ARCHIVED = "archived", "Archived"
+    UNAVAILABLE = "unavailable", "Timing unavailable"
+    EXPIRY_REACHED = "expiry_reached", "Expiry reached"
+
+
+class FinalVerificationState(TextChoices):
+    MONITORING = "monitoring", "Monitoring"
+    VERIFYING = "verifying", "Verifying"
+    ASSESSMENT_REQUIRED = "assessment_required", "Assessment required"
+    VERIFICATION_COMPLETE = "verification_complete", "Verification complete"
+
+
 class MonitoringCheckTimingSerializer(serializers.Serializer):
     state = serializers.ChoiceField(
         choices=MonitoringCheckTimingState.choices,
-        help_text="Whether this check has an interim measurement due, is paused, or has finished its observation window. No state implies a final verdict.",
+        help_text="Monitoring timing state. Final verification phases use paused for compatibility; read final_verification_state for their phase.",
+    )
+    final_verification_state = serializers.ChoiceField(
+        choices=FinalVerificationState.choices,
+        allow_null=True,
+        read_only=True,
+        help_text="Final verification phase when state is paused. Null for other timing states. Read the check outcome for its verdict.",
     )
     started_at = serializers.DateTimeField(
         allow_null=True, help_text="Original Monitoring start for this check's report."
@@ -2843,6 +2920,24 @@ class MonitoringCheckTimingSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Stored next interim attempt, only when it falls before the soak deadline and expiry. Null when no interim measurement is scheduled.",
     )
+
+    def to_representation(self, instance: MonitoringCheckTiming) -> dict[str, object]:
+        data = super().to_representation(instance)
+        final_state = instance.state if instance.state in FinalVerificationState.values else None
+        data["state"] = MonitoringCheckTimingState.PAUSED if final_state else instance.state
+        data["final_verification_state"] = final_state
+        return data
+
+
+class MonitoringCheckTimingSerializerExtension(OpenApiSerializerExtension):
+    target_class = "products.signals.backend.serializers.MonitoringCheckTimingSerializer"
+
+    def map_serializer(self, auto_schema: "AutoSchema", direction: "Direction") -> dict[str, object]:
+        schema: dict[str, object] = auto_schema._map_serializer(self.target, direction, bypass_extensions=True)
+        required = schema.get("required")
+        if isinstance(required, list):
+            schema["required"] = [name for name in required if name != "final_verification_state"]
+        return schema
 
 
 class SignalReportCheckSerializerExtension(OpenApiSerializerExtension):
@@ -2873,12 +2968,40 @@ class SignalReportCheckSerializer(serializers.ModelSerializer):
             enabled_by_team[instance.team_id] = team_report_monitoring_enabled(instance.team_id)
         return enabled_by_team[instance.team_id]
 
+    def _agent_timing(self, instance: SignalReportCheck, *, now: datetime) -> MonitoringCheckTiming | None:
+        attempts = cast(
+            dict[uuid.UUID, SignalReportMonitoringAttempt | None],
+            self.context.setdefault("report_check_monitoring_attempts", {}),
+        )
+        if instance.report_id not in attempts:
+            attempts[instance.report_id] = current_monitoring_attempt(instance.report)
+        attempt = attempts[instance.report_id]
+        timing = MonitoringCheckTiming.for_check(instance, now=now, attempt=attempt)
+        if timing is None or timing.state != MonitoringCheckTimingPhase.WINDOW_ENDED or attempt is None:
+            return timing
+        verifications_by_report = cast(
+            dict[uuid.UUID, dict[uuid.UUID, MonitoringCheckVerification]],
+            self.context.setdefault("report_check_final_verifications", {}),
+        )
+        if instance.report_id not in verifications_by_report:
+            verifications_by_report[instance.report_id] = MonitoringCheckTiming.final_verifications(
+                instance.report, now=now, attempt=attempt
+            )
+        return MonitoringCheckTiming.for_check(
+            instance,
+            now=now,
+            attempt=attempt,
+            verification=verifications_by_report[instance.report_id].get(instance.id),
+        )
+
     @extend_schema_field(MonitoringCheckTimingSerializer(allow_null=True))
     def get_monitoring_timing(self, instance: SignalReportCheck) -> dict[str, object] | None:
         now = cast(datetime, self.context.setdefault("report_check_timing_now", timezone.now()))
         timing = MonitoringCheckTiming.for_check(instance, now=now)
         if timing is None or not self._monitoring_enabled(instance):
             return None
+        if instance.kind == SignalReportCheck.Kind.AGENT and timing.state == MonitoringCheckTimingPhase.PAUSED:
+            timing = self._agent_timing(instance, now=now)
         return dict(MonitoringCheckTimingSerializer(timing).data)
 
     def to_representation(self, instance: SignalReportCheck) -> dict[str, object]:
@@ -3189,6 +3312,12 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
     def get_actor_kind(self, obj: SignalReportArtefact) -> str:
         return obj.actor_kind or SignalActorKind.SYSTEM
 
+    def _report_is_user_authored(self, obj: SignalReportArtefact) -> bool:
+        user_authored = self.context.get("signals_report_user_authored")
+        if isinstance(user_authored, bool):
+            return user_authored
+        return SignalReport.objects.filter(id=obj.report_id, team_id=obj.team_id, user_authored=True).exists()
+
     def get_content(self, obj: SignalReportArtefact) -> dict | list:
         try:
             parsed = json.loads(obj.content)
@@ -3216,6 +3345,7 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
                 uuid_to_user=reviewer_uuid_map,
                 scout_display_names=scout_display_names,
                 manual_adders=trusted_manual_reviewer_adders(obj, parsed, self.context.get("signals_reviewer_history")),
+                user_authored=self._report_is_user_authored(obj),
             )
 
         if obj.type in {
@@ -3223,6 +3353,27 @@ class SignalReportArtefactSerializer(serializers.ModelSerializer):
             SignalReportArtefact.ArtefactType.CHECK_OBSERVATION,
         } and isinstance(parsed, dict):
             return self._redact_check_result(obj, parsed)
+
+        if (
+            obj.type == SignalReportArtefact.ArtefactType.NOTE
+            and isinstance(parsed, dict)
+            and "analytics_query_context" in parsed
+        ):
+            queries = parsed.pop("analytics_query_context")
+            acting_user_id = parsed.pop("restricted_to_user_id", None)
+            request = self.context.get("request")
+            viewer_id = getattr(getattr(request, "user", None), "id", None)
+            policy = report_metric_access_policy(self.context)
+            if (
+                viewer_id is None
+                or acting_user_id != viewer_id
+                or not isinstance(queries, list)
+                or not all(
+                    isinstance(query, Mapping) and policy.may_read_snapshot({"query": query}) for query in queries
+                )
+            ):
+                parsed["note"] = "You don't have access to this assessment's evidence."
+            return parsed
 
         if (
             obj.type == SignalReportArtefact.ArtefactType.RANKING_SCORE
