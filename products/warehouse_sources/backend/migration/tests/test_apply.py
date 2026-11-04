@@ -1,3 +1,4 @@
+import dataclasses
 from typing import Any
 
 from django.test import SimpleTestCase
@@ -109,6 +110,23 @@ class TestBuildPlannedSchemas(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("every_column_excluded", ("id", "card_number", "updated_at")),
+            # `id` is the detected key, which the reader reads whatever the column selection says.
+            ("key_column_excluded", ("id",)),
+        ]
+    )
+    def test_a_table_whose_exclusions_cannot_hold_stays_off(self, _name: str, disabled: tuple[str, ...]) -> None:
+        proposal = _proposal(
+            ProposedSchema(name="public.orders", should_sync=True, sync_type=None, disabled_columns=disabled)
+        )
+
+        planned = build_planned_schemas(proposal, [_table("public.orders")], {})
+
+        assert planned.schemas == [{"name": "public.orders", "should_sync": False}]
+        assert (planned.kept_off, planned.planned) == (("public.orders",), ())
+
+    @parameterized.expand(
+        [
             ("no_table_list_uses_posthog_defaults", _proposal(schemas=None), True),
             ("nothing_moves", _proposal(), False),
             (
@@ -144,7 +162,7 @@ class TestBuildPlannedSchemas(SimpleTestCase):
         orders, users, events = planned.schemas
         assert (orders["name"], orders["should_sync"], orders["sync_time_of_day"]) == ("orders", True, "03:30:00")
         assert users == {"name": "users", "should_sync": False}
-        assert events == {"name": "events", "should_sync": False}
+        assert events == {"name": "events", "should_sync": False, "sync_time_of_day": "03:30:00"}
         assert (planned.unavailable, planned.webhook_only, planned.planned) == (
             ("sales.users", "sales.orders"),
             ("events",),
@@ -223,6 +241,15 @@ class TestUnmatchedTableRestrictions(SimpleTestCase):
                 None,
             ),
             ("untranslatable_filter_is_reported", _vendor_table(("status", "LIKE", ("s%",))), (), "row filter"),
+            (
+                "hashing_loss_is_reported",
+                dataclasses.replace(
+                    _vendor_table(("status", "EQUALS", ("sent",))),
+                    columns=(_CARD_COLUMN, VendorColumn(name="email", enabled=True, hashed=True, is_primary_key=False)),
+                ),
+                (ProposedRowFilter(column="status", operator="=", values=("sent",)),),
+                "hashes some columns",
+            ),
         ]
     )
     def test_mapping_an_unmatched_table_keeps_its_restrictions(

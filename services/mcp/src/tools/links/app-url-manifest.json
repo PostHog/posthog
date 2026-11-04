@@ -1324,6 +1324,11 @@
         "params": [],
         "scope": "global"
     },
+    "oauthDeviceAuthorize": {
+        "template": "/device",
+        "params": [],
+        "scope": "global"
+    },
     "onboarding": {
         "template": "/onboarding",
         "params": [],

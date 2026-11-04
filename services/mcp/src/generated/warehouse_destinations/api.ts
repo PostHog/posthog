@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 6 enabled ops
+ * PostHog API - MCP 7 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -131,7 +131,8 @@ export const ExternalDataDestinationsTestConnectionCreateParams = () => zod.obje
  * Return a secure browser link where the user connects the credentials for a destination.
  *
  * The page saves an integration and does not create the destination, so secrets never pass
- * through the agent. The agent then creates the destination with the new integration's id.
+ * through the agent. The link carries a connect token. The agent reads the saved integration's id
+ * with the token from the connect link status endpoint, then creates the destination with it.
  */
 export const ExternalDataDestinationsConnectLinkRetrieveParams = () => zod.object({
     project_id: zod
@@ -160,4 +161,27 @@ export const ExternalDataDestinationsConnectLinkRetrieveQueryParams = () => zod.
         .describe(
             "Optional warehouse migration item whose planned destination this link sets up. The page then shows the destination's non-secret settings from the vendor, so the user only enters the secret, and the instructions give the target config to create the destination with."
         ),
+})
+
+/**
+ * Return whether the user saved a connection through a connect link, and which integration it is.
+ *
+ * Never returns credentials or integration config.
+ */
+export const ExternalDataDestinationsConnectLinkStatusRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const externalDataDestinationsConnectLinkStatusRetrieveQueryConnectTokenMax = 128
+
+export const ExternalDataDestinationsConnectLinkStatusRetrieveQueryParams = () => zod.object({
+    connect_token: zod
+        .string()
+        .min(1)
+        .max(externalDataDestinationsConnectLinkStatusRetrieveQueryConnectTokenMax)
+        .describe('The connect_token that the connect link returned.'),
 })

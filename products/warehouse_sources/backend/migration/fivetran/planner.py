@@ -317,8 +317,7 @@ def _plan_tables(
             caveats.append(
                 f"`{table.name}` keeps history in Fivetran. PostHog keeps only the latest version of each row."
             )
-        if any(column.hashed for column in table.columns):
-            caveats.append(f"`{table.name}` hashes some columns in Fivetran. PostHog syncs them unhashed.")
+        _plan_hashing(table, caveats)
         planned_names.add(name)
         schemas.append(
             ProposedSchema(
@@ -387,7 +386,13 @@ def plan_table_restrictions(
     table: VendorTable, posthog_name: str, caps: SourceCapabilities, caveats: list[str]
 ) -> tuple[tuple[str, ...], tuple[ProposedRowFilter, ...]]:
     """The column exclusions and row filters PostHog keeps when it syncs `table` as `posthog_name`."""
+    _plan_hashing(table, caveats)
     return _plan_disabled_columns(table, caps, caveats), _plan_row_filters(table, posthog_name, caps, caveats)
+
+
+def _plan_hashing(table: VendorTable, caveats: list[str]) -> None:
+    if any(column.hashed for column in table.columns):
+        caveats.append(f"`{table.name}` hashes some columns in Fivetran. PostHog syncs them unhashed.")
 
 
 def _plan_row_filters(

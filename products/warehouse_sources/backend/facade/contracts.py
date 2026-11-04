@@ -266,6 +266,18 @@ class TableNames:
     queryable_key: str
 
 
+@dataclass(frozen=True)
+class TableAwaitingFirstSync:
+    """A table that a synced schema will create, but whose first sync has not created yet.
+
+    ``names`` holds the names a query can write for it once it exists.
+    ``first_sync_failed`` is true when the latest sync attempt failed.
+    """
+
+    names: TableNames
+    first_sync_failed: bool
+
+
 WAREHOUSE_OBJECT_TABLE = "table"
 WAREHOUSE_OBJECT_VIEW = "view"
 
@@ -502,6 +514,8 @@ class PlannedMigrationSchemas:
     webhook_only: list[str]
     # Discovered tables the plan covers.
     planned: list[str]
+    # Planned tables that skip columns PostHog would still read, so they stay off.
+    kept_off: list[str]
 
 
 @dataclass(frozen=True)

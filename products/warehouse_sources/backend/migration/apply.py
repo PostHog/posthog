@@ -99,6 +99,8 @@ class PlannedSchemas:
     webhook_only: tuple[str, ...]
     # Discovered tables the plan covers, so a webhook may turn on these and no others.
     planned: tuple[str, ...]
+    # Planned tables that skip columns PostHog would still read, so they stay off.
+    kept_off: tuple[str, ...] = ()
 
 
 def build_planned_schemas(
@@ -129,12 +131,16 @@ def build_planned_schemas(
 
     payload: list[dict[str, Any]] = []
     webhook_only: list[str] = []
+    kept_off: list[str] = []
     for source_schema in source_schemas:
         table_plan = plans.get(source_schema.name)
         if table_plan is None or source_schema.webhook_only:
-            payload.append({"name": source_schema.name, "should_sync": False})
+            off: dict[str, Any] = {"name": source_schema.name, "should_sync": False}
             if table_plan is not None:
                 webhook_only.append(source_schema.name)
+                # A registered webhook turns the table on later, at the planned time.
+                off = _with_time_of_day(off, proposal)
+            payload.append(off)
             continue
 
         column_names = [str(column[0]) for column in source_schema.columns or []]
@@ -152,6 +158,12 @@ def build_planned_schemas(
         }
         if disabled:
             entry["enabled_columns"] = [name for name in column_names if name not in disabled]
+            # A reader reads every column for an empty list, and always reads key columns, even inferred ones.
+            if not entry["enabled_columns"] or disabled & set(source_schema.detected_primary_keys or ()):
+                payload.append({"name": source_schema.name, "should_sync": False})
+                kept_off.append(source_schema.name)
+                del plans[source_schema.name]
+                continue
         if table_plan.row_filters:
             entry["row_filters"] = [_row_filter_payload(row_filter) for row_filter in table_plan.row_filters]
         payload.append(_with_time_of_day(entry, proposal))
@@ -161,6 +173,7 @@ def build_planned_schemas(
         unavailable=tuple(unavailable),
         webhook_only=tuple(webhook_only),
         planned=tuple(plans) if not proposal.start_paused else (),
+        kept_off=tuple(kept_off),
     )
 
 

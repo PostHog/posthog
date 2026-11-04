@@ -165,6 +165,7 @@ export const ResolvedAccessSourceSubjectEnumApi = {
  * * `webhook` - webhook
  * * `wizard_session` - wizard_session
  * * `wizard_run` - wizard_run
+ * * `workload_trust_policy` - workload_trust_policy
  */
 export type ScopeObjectEnumApi = (typeof ScopeObjectEnumApi)[keyof typeof ScopeObjectEnumApi]
 
@@ -289,6 +290,7 @@ export const ScopeObjectEnumApi = {
     Webhook: 'webhook',
     WizardSession: 'wizard_session',
     WizardRun: 'wizard_run',
+    WorkloadTrustPolicy: 'workload_trust_policy',
 } as const
 
 /**
@@ -435,7 +437,8 @@ export interface ProjectAccessSourceApi {
      * * `web_analytics` - web_analytics
      * * `webhook` - webhook
      * * `wizard_session` - wizard_session
-     * * `wizard_run` - wizard_run */
+     * * `wizard_run` - wizard_run
+     * * `workload_trust_policy` - workload_trust_policy */
     source_resource: ScopeObjectEnumApi
     /**
      * The deciding rule's object id, when it is an object-level rule (e.g. the source a table inherits from).
@@ -602,7 +605,8 @@ export interface AccessControlObjectRuleApi {
      * * `web_analytics` - web_analytics
      * * `webhook` - webhook
      * * `wizard_session` - wizard_session
-     * * `wizard_run` - wizard_run */
+     * * `wizard_run` - wizard_run
+     * * `workload_trust_policy` - workload_trust_policy */
     resource: ScopeObjectEnumApi
     /** The object's primary key. */
     resource_id: string
@@ -997,7 +1001,8 @@ export interface AccessControlObjectRuleResourceApi {
      * * `web_analytics` - web_analytics
      * * `webhook` - webhook
      * * `wizard_session` - wizard_session
-     * * `wizard_run` - wizard_run */
+     * * `wizard_run` - wizard_run
+     * * `workload_trust_policy` - workload_trust_policy */
     resource: ScopeObjectEnumApi
     /** The levels an object rule on this resource type accepts, lowest first. */
     available_access_levels: string[]
@@ -1287,7 +1292,8 @@ export interface ResolvedAccessApi {
      * * `web_analytics` - web_analytics
      * * `webhook` - webhook
      * * `wizard_session` - wizard_session
-     * * `wizard_run` - wizard_run */
+     * * `wizard_run` - wizard_run
+     * * `workload_trust_policy` - workload_trust_policy */
     source_resource: ScopeObjectEnumApi
     /**
      * The deciding rule's object id, when it is an object-level rule (e.g. the source a table inherits from).

@@ -1,5 +1,3 @@
-from collections.abc import Collection, Iterable, Mapping
-from typing import Any
 from uuid import UUID
 
 from django.db import transaction
@@ -8,12 +6,12 @@ from django.utils import timezone
 from posthog.models import Team
 from posthog.ph_client import feature_enabled_or_false
 
+from products.warehouse_sources.backend.migration import catalog as migration_catalog
 from products.warehouse_sources.backend.migration.capabilities import source_capabilities
 from products.warehouse_sources.backend.migration.fivetran.client import FivetranClient, FivetranCredentials
 from products.warehouse_sources.backend.migration.fivetran.planner import (
     CatalogLookup,
     PlannedItem,
-    TableMatchLike,
     plan_items,
     with_unique_prefixes,
 )
@@ -34,52 +32,29 @@ _AUTH_FAILED_MESSAGE = (
 _CRAWL_FAILED_MESSAGE = "Reading the Fivetran account failed. Try again."
 
 
-class _NoCatalog:
-    """Matches nothing, so every connection reports as unsupported until the Fivetran catalog lands."""
-
-    def match_source(self, provider: str, vendor_service: str) -> None:
-        return None
-
-    def match_destination(self, provider: str, vendor_service: str) -> None:
-        return None
-
-    def posthog_tables(self, source_type: ExternalDataSourceType) -> None:
-        return None
-
-    def match_tables(
-        self, provider: str, vendor_tables: Iterable[str], posthog_table_names: Collection[str]
-    ) -> tuple[TableMatchLike, ...]:
-        return ()
-
-    def prefill_config(
-        self, provider: str, source_type: ExternalDataSourceType, vendor_config: Mapping[str, Any]
-    ) -> dict[str, Any]:
-        return {}
-
-
-PENDING_CATALOG: CatalogLookup = _NoCatalog()
-
-
-def crawl_migration(*, team_id: int, migration_id: UUID, catalog: CatalogLookup = PENDING_CATALOG) -> int:
+def crawl_migration(
+    *, team_id: int, migration_id: UUID, workflow_id: str, catalog: CatalogLookup = migration_catalog
+) -> int:
     """Read the vendor account, plan every connection, and store the result. Returns the item count.
 
+    Writes only while the migration still names `workflow_id` as its crawl, so a replaced crawl changes nothing.
     A failure leaves the migration `crawling`: the workflow retries, then calls `mark_migration_failed`.
     """
-    migration = WarehouseMigration.objects.for_team(team_id).filter(id=migration_id).first()
-    if migration is None:
-        # Deleted while the crawl waited to start.
+    own = WarehouseMigration.objects.for_team(team_id).filter(id=migration_id, workflow_id=workflow_id)
+    if not own.update(status=WarehouseMigration.Status.CRAWLING, latest_error="", updated_at=timezone.now()):
+        # Deleted, or a newer crawl replaced this one.
         return 0
-    migration.status = WarehouseMigration.Status.CRAWLING
-    migration.latest_error = ""
-    migration.save(update_fields=["status", "latest_error", "updated_at"])
+    migration = own.first()
+    if migration is None:
+        return 0
 
     snapshot = fetch_snapshot(FivetranClient(FivetranCredentials(**migration.credentials)))
     team = Team.objects.only("organization_id").get(id=team_id)
     planned = plan_items(snapshot, catalog, source_capabilities, flag_enabled=lambda flag: _team_has_flag(team, flag))
     with transaction.atomic():
-        locked = WarehouseMigration.objects.for_team(team_id).select_for_update().filter(id=migration_id).first()
+        locked = own.select_for_update().first()
         if locked is None or locked.status != WarehouseMigration.Status.CRAWLING:
-            # Deleted, or a newer crawl or a failure mark already won.
+            # Deleted, replaced by a newer crawl, or already marked failed.
             return 0
         _save_items(locked, planned)
         locked.snapshot = snapshot.to_json()
@@ -100,9 +75,12 @@ def _team_has_flag(team: Team, flag: str) -> bool:
     )
 
 
-def mark_migration_failed(*, team_id: int, migration_id: UUID, auth_failed: bool) -> None:
+def mark_migration_failed(*, team_id: int, migration_id: UUID, workflow_id: str, auth_failed: bool) -> None:
+    """Mark the crawl `workflow_id` failed, unless a newer crawl replaced it."""
     WarehouseMigration.objects.for_team(team_id).filter(
-        id=migration_id, status__in=(WarehouseMigration.Status.PENDING, WarehouseMigration.Status.CRAWLING)
+        id=migration_id,
+        workflow_id=workflow_id,
+        status__in=(WarehouseMigration.Status.PENDING, WarehouseMigration.Status.CRAWLING),
     ).update(
         status=WarehouseMigration.Status.FAILED,
         latest_error=_AUTH_FAILED_MESSAGE if auth_failed else _CRAWL_FAILED_MESSAGE,

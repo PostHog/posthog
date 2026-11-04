@@ -154,4 +154,31 @@ describe('destinationConnectSceneLogic', () => {
         destinationConnectSceneLogic.actions.completeSetup(43, 'item-2')
         expect(destinationConnectSceneLogic.values.integrationId).toEqual(43)
     })
+
+    it.each([
+        { search: '?kind=snowflake&token=abc_123', status: 200, expected: 'sent', requested: true },
+        { search: '?kind=snowflake&token=abc_123', status: 404, expected: 'failed', requested: true },
+        { search: '?kind=snowflake', status: 200, expected: null, requested: false },
+    ])(
+        'hands the saved connection back for $search when the API returns $status',
+        async ({ search, status, expected, requested }) => {
+            const requests: unknown[] = []
+            useMocks({
+                post: {
+                    '/api/projects/:team_id/external_data_destinations/connect_link_complete/': async ({ request }) => {
+                        requests.push(await request.json())
+                        return [status, {}]
+                    },
+                },
+            })
+            router.actions.push(`/data-warehouse/connect-destination${search}`)
+
+            await expectLogic(destinationConnectSceneLogic, () => {
+                destinationConnectSceneLogic.actions.setIntegrationId(42)
+            }).toFinishAllListeners()
+
+            expect(destinationConnectSceneLogic.values.handBackStatus).toEqual(expected)
+            expect(requests).toEqual(requested ? [{ connect_token: 'abc_123', integration_id: 42 }] : [])
+        }
+    )
 })

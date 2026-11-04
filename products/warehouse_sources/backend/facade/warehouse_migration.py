@@ -308,6 +308,7 @@ def plan_migration_schemas(
         unavailable=list(planned.unavailable),
         webhook_only=list(planned.webhook_only),
         planned=list(planned.planned),
+        kept_off=list(planned.kept_off),
     )
 
 
