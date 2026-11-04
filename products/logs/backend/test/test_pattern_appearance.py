@@ -35,7 +35,8 @@ class TestLogsPatternFeed(ClickhouseTestMixin, BaseTest):
         ]
         sync_execute("INSERT INTO logs_pattern_buckets FORMAT JSONEachRow\n" + "\n".join(json.dumps(r) for r in rows))
 
-        seen = LOGS_PATTERN_FEED.seen(self.team.id, T0, T0 + dt.timedelta(minutes=30), 10)
+        # The bounds are sighting times, which are bucket ends, so this covers the buckets from T0 to T0+30.
+        seen = LOGS_PATTERN_FEED.seen(self.team.id, T0 + dt.timedelta(minutes=5), T0 + dt.timedelta(minutes=35), 10)
 
         # Dated at the end of each bucket: the first and the last one the identity appeared in.
         assert [(s.labels["pattern"], s.labels["severity_text"], s.seen_at, s.last_seen_at) for s in seen] == [
