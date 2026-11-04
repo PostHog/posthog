@@ -6,15 +6,20 @@ import time_machine
 from posthog.test.base import APIBaseTest, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import OperationalError
 from django.test import SimpleTestCase
 from django.utils import timezone
 
 from parameterized import parameterized
+from rest_framework import status
 
 from posthog.api.capture import CaptureInternalResult
+from posthog.models import PersonalAPIKey
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
+from posthog.models.team import Team
+from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.workflows.backend.facade.contracts import PushTokenImportInvalid, PushTokenImportRecord
 from products.workflows.backend.facade.enums import PushTokenImportRowFailureReason, PushTokenImportStatus
@@ -329,4 +334,106 @@ class TestPushTokenImportJob(_PushTokenImportTestCase):
         job = PushTokenImport.objects.for_team(self.team.id).get(id=import_id)
         assert job.status == PushTokenImportStatus.FAILED
         assert "stopped after 0 of 1 devices" in job.error
+        assert self.storage.objects == {}
+
+
+class TestPushTokenImportApi(_PushTokenImportTestCase):
+    def _post_file(self, lines: list[str], integration_id: int | None = None, **data: Any):
+        content = "\n".join(["distinct_id,device_token", *lines]).encode()
+        return self.client.post(
+            f"/api/projects/{self.team.pk}/push_token_imports/",
+            {
+                "integration_id": integration_id or self.apns.id,
+                "device_token_file": SimpleUploadedFile("devices.csv", content, content_type="text/csv"),
+                **data,
+            },
+            format="multipart",
+        )
+
+    def test_uploads_a_file_and_reads_its_result(self) -> None:
+        _create_person(team=self.team, distinct_ids=["user-1"])
+        flush_persons_and_events()
+
+        response = self._post_file([f"user-1,{APNS_TOKEN}", f"nobody,{'b2' * 32}"])
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["status"] == "running"
+        self._run_to_end(UUID(response.json()["id"]))
+        url = f"/api/projects/{self.team.pk}/push_token_imports"
+        result = self.client.get(f"{url}/{response.json()['id']}/").json()
+        assert result["status"] == "completed"
+        assert [(failure["line"], failure["reason"]) for failure in result["failures"]] == [(3, "unknown_person")]
+        assert result["can_import_unknown_persons"] is True
+        latest = self.client.get(f"{url}/latest/", {"integration_id": self.apns.id}).json()
+        assert latest["latest"]["id"] == response.json()["id"]
+
+    def test_a_second_import_while_one_runs_is_a_bad_request(self) -> None:
+        first = self._post_file([f"user-1,{APNS_TOKEN}"]).json()
+
+        second = self._post_file([f"user-2,{APNS_TOKEN}"])
+
+        assert second.status_code == status.HTTP_400_BAD_REQUEST
+        assert "already running" in second.json()["detail"]
+        cancelled = self.client.post(f"/api/projects/{self.team.pk}/push_token_imports/{first['id']}/cancel/")
+        assert (cancelled.json()["status"], cancelled.json()["finished_at"]) == ("cancelled", None)
+
+    def test_importing_unknown_people_twice_is_a_bad_request(self) -> None:
+        first = self._post_file([f"new-1,{APNS_TOKEN}"]).json()
+        self._run_to_end(UUID(first["id"]))
+        url = f"/api/projects/{self.team.pk}/push_token_imports/{first['id']}/import_unknown_persons/"
+
+        retry = self.client.post(url)
+        again = self.client.post(url)
+
+        assert retry.status_code == status.HTTP_201_CREATED, retry.json()
+        assert again.status_code == status.HTTP_400_BAD_REQUEST
+
+    @parameterized.expand(
+        [
+            (["integration:write"], status.HTTP_403_FORBIDDEN),
+            (["integration:write", "person:write"], status.HTTP_201_CREATED),
+        ]
+    )
+    def test_an_api_key_needs_person_access_to_import(self, scopes: list[str], expected: int) -> None:
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="t", user=self.user, secure_value=hash_key_value(token), scopes=scopes)
+        self.client.logout()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.pk}/push_token_imports/",
+            {
+                "integration_id": self.apns.id,
+                "device_token_file": SimpleUploadedFile("d.csv", f"distinct_id,device_token\na,{APNS_TOKEN}".encode()),
+            },
+            format="multipart",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+        assert response.status_code == expected, response.json()
+
+    @parameterized.expand(
+        [
+            ("member", OrganizationMembership.Level.MEMBER, None, status.HTTP_403_FORBIDDEN),
+            ("not_a_push_channel", OrganizationMembership.Level.ADMIN, "slack", status.HTTP_400_BAD_REQUEST),
+            ("another_team", OrganizationMembership.Level.ADMIN, "other_team", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_refuses_an_upload_into_a_channel_the_user_cannot_change(
+        self, _name: str, level: int, channel: str | None, expected: int
+    ) -> None:
+        self.organization_membership.level = level
+        self.organization_membership.save()
+        integration_id = self.apns.id
+        if channel == "slack":
+            integration_id = Integration.objects.create(team=self.team, kind="slack", config={}).id
+        if channel == "other_team":
+            other_team = Team.objects.create(organization=self.organization)
+            integration_id = Integration.objects.create(
+                team=other_team, kind="apns", integration_id="x", config={"bundle_id": "com.example.other"}
+            ).id
+
+        response = self._post_file([f"user-1,{APNS_TOKEN}"], integration_id=integration_id)
+
+        assert response.status_code == expected, response.json()
+        assert PushTokenImport.objects.for_team(self.team.id).count() == 0
         assert self.storage.objects == {}

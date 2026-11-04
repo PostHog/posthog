@@ -1,8 +1,11 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner } from '@posthog/lemon-ui'
+import { IconUpload } from '@posthog/icons'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { SetupTaskId } from 'lib/components/ProductSetup'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { EmailIntegrationsList } from 'lib/integrations/EmailIntegrationsList'
 import { IntegrationsList } from 'lib/integrations/IntegrationsList'
@@ -12,6 +15,9 @@ import { SupabaseAuthEmails } from '../SupabaseAuthEmails/SupabaseAuthEmails'
 import { ChannelCatalog } from './ChannelCatalog'
 import { channelCatalogLogic } from './channelCatalogLogic'
 import { ChannelSetupModal } from './ChannelSetupModal'
+import { PUSH_CHANNELS } from './channelSummary'
+import { pushTokenImportLogic } from './PushTokenImport/pushTokenImportLogic'
+import { PushTokenImportModal } from './PushTokenImport/PushTokenImportModal'
 import { SandboxEmailSenderRow } from './SandboxEmailSenderRow'
 
 const MESSAGING_CHANNEL_TYPES = ['email', 'slack', 'twilio', 'firebase', 'apns'] as const
@@ -23,7 +29,12 @@ export function MessageChannels(): JSX.Element {
     const { closeSetupModal, markTaskAsCompleted } = useActions(integrationsLogic)
     const { sandboxSetupError, sandboxSetupLoading } = useValues(channelCatalogLogic)
     const { retrySandboxSenderSetup } = useActions(channelCatalogLogic)
+    const { openImport } = useActions(pushTokenImportLogic)
     const supabaseAuthEmailsEnabled = useFeatureFlag('WORKFLOWS_SUPABASE_AUTH_EMAILS')
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     const ownWorkflowIntegrations =
         userManagedIntegrations?.filter((integration) =>
@@ -42,6 +53,7 @@ export function MessageChannels(): JSX.Element {
                     closeSetupModal()
                 }}
             />
+            <PushTokenImportModal />
 
             <div className="flex flex-col gap-4" data-attr="message-channels">
                 <ChannelCatalog />
@@ -63,7 +75,23 @@ export function MessageChannels(): JSX.Element {
                     <h3 className="mb-0 text-base font-semibold">Your connections</h3>
                 )}
                 <EmailIntegrationsList />
-                <IntegrationsList titleText="" onlyKinds={MESSAGING_CHANNEL_TYPES.filter((type) => type !== 'email')} />
+                <IntegrationsList
+                    titleText=""
+                    onlyKinds={MESSAGING_CHANNEL_TYPES.filter((type) => type !== 'email')}
+                    renderActions={(integration) =>
+                        PUSH_CHANNELS.includes(integration.kind as ChannelType) ? (
+                            <LemonButton
+                                type="secondary"
+                                icon={<IconUpload />}
+                                onClick={() => openImport(integration)}
+                                disabledReason={restrictedReason}
+                                data-attr="push-token-import-open"
+                            >
+                                Import devices
+                            </LemonButton>
+                        ) : null
+                    }
+                />
             </div>
         </>
     )
