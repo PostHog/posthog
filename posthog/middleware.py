@@ -1700,8 +1700,8 @@ def organization_block_page(organization: Organization) -> Optional[str]:
 class IPRestrictionsMiddleware(MiddlewareMixin):
     """Block requests from an IP that the caller's organization does not allow.
 
-    Runs after `AuthenticationMiddleware` for session requests, checking every organization the user
-    belongs to. Bearer credentials authenticate inside DRF, so `IPRestrictionsPermission` applies the
+    Runs after `AuthenticationMiddleware` for session requests, checking the target organization.
+    Bearer credentials authenticate inside DRF, so `IPRestrictionsPermission` applies the
     same check after their principal is resolved. Both use the cached organization restrictions and
     `get_restriction_client_ip`, which rejects a spoofed X-Forwarded-For and fails closed when no
     verified IP is available.

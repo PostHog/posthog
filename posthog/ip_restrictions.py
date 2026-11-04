@@ -1,7 +1,7 @@
 from collections.abc import Callable, Iterable
 from ipaddress import ip_address, ip_network
 from typing import Any, ParamSpec, TypeVar
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from django.core.cache import caches
 from django.db import DEFAULT_DB_ALIAS
@@ -14,6 +14,7 @@ from rest_framework.permissions import BasePermission
 
 from posthog.models.activity_logging.utils import DeclaredCredentialType
 from posthog.models.organization_ip_restrictions import MAX_IP_RESTRICTIONS, OrganizationIPRestrictions
+from posthog.models.team import Team
 
 __all__ = [
     "IPRestrictionsPermission",
@@ -205,15 +206,20 @@ def get_ip_restrictions_for_principal(user: Any) -> list[tuple[str, list[str]]]:
     return restrictions
 
 
-def get_ip_restriction_denial(user: Any, ip: str | None) -> str | None:
-    """Return the error detail when any organization this principal belongs to blocks `ip`."""
-    restrictions = get_ip_restrictions_for_principal(user)
+def get_ip_restriction_denial(user: Any, ip: str | None, organization_id: str | None = None) -> str | None:
+    """Return the error detail when the target organization blocks `ip`."""
+    if organization_id is None:
+        team = getattr(user, "team", None)
+        organization_id = str(team.organization_id) if team is not None else str(user.current_organization_id)
+    restrictions = [
+        rules for org_id, rules in get_ip_restrictions_for_principal(user) if org_id == str(organization_id)
+    ]
     if not restrictions:
         return None
-    if ip is not None and all(is_ip_allowed(ip, rules) for _, rules in restrictions):
+    if ip is not None and all(is_ip_allowed(ip, rules) for rules in restrictions):
         return None
     return (
-        f"Your IP address ({ip or 'unknown'}) is not allowed to access PostHog for one of your organizations. "
+        f"Your IP address ({ip or 'unknown'}) is not allowed to access this organization. "
         "Ask an organization admin to add it to the IP restrictions list."
     )
 
@@ -271,13 +277,69 @@ def get_restriction_client_ip(request: Any) -> str | None:
     return get_trusted_client_ip(request)
 
 
+def _team_organization_id(team_id: int | str | None) -> str | None:
+    if team_id is None:
+        return None
+    try:
+        organization_id = (
+            Team.objects.using(DEFAULT_DB_ALIAS)
+            .filter(id=int(team_id))
+            .values_list("organization_id", flat=True)
+            .first()
+        )
+    except (TypeError, ValueError):
+        return None
+    return str(organization_id) if organization_id else None
+
+
+def _is_account_recovery_request(request: HttpRequest, user: Any, basename: str | None, kwargs: dict[str, Any]) -> bool:
+    if basename == "users":
+        return True
+    if basename == "organization_members" and request.method == "DELETE":
+        member = kwargs.get("user__uuid")
+        return member in ("@me", str(getattr(user, "uuid", "")))
+    # Listing and creating organizations must stay available for account recovery.
+    return basename == "organizations" and "id" not in kwargs
+
+
+def _request_organization_id(request: HttpRequest, user: Any) -> str | None:
+    match = request.resolver_match
+    kwargs = match.kwargs if match else {}
+    view_class = getattr(match.func, "cls", None) if match else None
+    basename = getattr(match.func, "initkwargs", {}).get("basename") if match else None
+    if _is_account_recovery_request(request, user, basename, kwargs):
+        return None
+
+    organization_id = kwargs.get("parent_lookup_organization_id", kwargs.get("organization_id"))
+    team_id = kwargs.get(
+        "parent_lookup_team_id", kwargs.get("parent_lookup_project_id", kwargs.get("team_id", kwargs.get("project_id")))
+    )
+    if basename == "organizations":
+        organization_id = kwargs.get("id")
+    if basename in ("projects", "organization_projects"):
+        team_id = kwargs.get("id")
+    if team_id is None and getattr(view_class, "param_derived_from_user_current_team", None):
+        team_id = getattr(user, "current_team_id", None)
+    if team_id is not None:
+        if team_id == "@current":
+            team_id = getattr(user, "current_team_id", None)
+        return _team_organization_id(team_id)
+    if organization_id is None or organization_id == "@current":
+        organization_id = getattr(user, "current_organization_id", None)
+        if organization_id is None:
+            organization_id = getattr(getattr(user, "team", None), "organization_id", None)
+    try:
+        return str(UUID(str(organization_id))) if organization_id else None
+    except ValueError:
+        return None
+
+
 def enforce_ip_restrictions(request: Any, user: Any, authenticator: Any = None) -> None:
-    """Raise `PermissionDenied` when the request's IP is not in one of the user's allowlists.
+    """Raise `PermissionDenied` when the target organization's allowlist blocks the request.
 
     Session requests are checked by `IPRestrictionsMiddleware`. Bearer credentials authenticate
     inside DRF, and a view that overrides `permission_classes` may omit `IPRestrictionsPermission`,
-    so bearer authenticators call this after resolving the principal. It applies to every
-    organization the principal belongs to, not only the current one.
+    so bearer authenticators call this after resolving the principal.
     """
     django_request = getattr(request, "_request", request)
     credential_type = getattr(authenticator, "activity_credential_type", None)
@@ -300,14 +362,21 @@ def enforce_ip_restrictions(request: Any, user: Any, authenticator: Any = None) 
     if checked_principal is user:
         return
 
-    denial = get_ip_restriction_denial(user, get_restriction_client_ip(django_request))
+    if not get_ip_restrictions_for_principal(user):
+        django_request._ip_restrictions_checked_principal = user
+        return
+
+    organization_id = _request_organization_id(django_request, user)
+    if organization_id is None:
+        return
+    denial = get_ip_restriction_denial(user, get_restriction_client_ip(django_request), organization_id)
     if denial is not None:
         raise PermissionDenied(detail=denial, code="ip_not_allowed")
     django_request._ip_restrictions_checked_principal = user
 
 
 class IPRestrictionsPermission(BasePermission):
-    """Deny token-authenticated requests when any organization the principal belongs to blocks its IP.
+    """Deny token-authenticated requests when the target organization blocks their IP.
 
     Session-auth requests are handled by `IPRestrictionsMiddleware` before the view runs. Bearer
     credentials authenticate inside DRF, so this permission checks them after the principal is
