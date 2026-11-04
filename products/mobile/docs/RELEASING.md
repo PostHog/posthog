@@ -218,7 +218,7 @@ The names, id suffixes and schemes are in `src/lib/appVariants.json`.
   A Metro bundle always counts as development.
 - Development and preview builds show an environment ribbon on the sign-in screen and in Settings, and a Settings Environment group.
   They accept HTTP on `localhost`, `127.0.0.1` and `[::1]`, and prefill the local dev OAuth client id. Store builds do none of this.
-  Android's release network policy allows those exact loopback hosts only in development and preview variants; production release binaries deny cleartext. Local debug builds retain Expo's cleartext allowance for Metro on the local network, including with the store identity. A native rebuild is needed to change either policy. See [Auth](AUTH.md#redirect-uris) for port forwarding.
+  Android's release network policy allows those exact loopback hosts only in development and preview variants; production release binaries deny cleartext. Local debug builds retain Expo's cleartext allowance for Metro on the local network, including with the store identity. A native rebuild is needed to change either policy.
   A store build shows a red ribbon only when the session's host is not PostHog Cloud.
 
 ## One-time setup
@@ -272,7 +272,7 @@ Someone with these accounts does each step once. An agent cannot do them.
 
    Do not add `APP_VARIANT` or `EXPO_PUBLIC_SIGNUP_LINK` here. `eas.json` and the hosted publisher set them.
 
-9. Create separate non-first-party public OAuth applications in US and EU for `posthog-dev://callback` and `posthog-preview://callback`. Set their IDs as `EXPO_PUBLIC_OAUTH_US_CLIENT_ID` and `EXPO_PUBLIC_OAUTH_EU_CLIENT_ID` in both EAS internal environments. Production first-party applications must keep only `posthog://callback`; remove internal callback URIs if already added. See [AUTH.md](AUTH.md#redirect-uris).
+9. Create separate non-first-party public OAuth applications in US and EU for `posthog-dev://callback` and `posthog-preview://callback`. Set their IDs as `EXPO_PUBLIC_OAUTH_US_CLIENT_ID` and `EXPO_PUBLIC_OAUTH_EU_CLIENT_ID` in both EAS internal environments. Production first-party applications must keep only `posthog://callback`; remove internal callback URIs if already added.
 10. Complete the protected environments and separate token setup in [One-time hosted release setup](#one-time-hosted-release-setup). The desktop mobile workflows' shared `EXPO_TOKEN` is not used by these workflows.
 
 ## Install a development build on an iPhone
