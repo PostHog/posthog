@@ -49,7 +49,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.dataclasses import frozen
-from posthog.models.event.new_events_schema import use_new_events_schema
+from posthog.models.event.new_events_schema import events_read_settings, use_new_events_schema
 from posthog.models.team import Team
 from posthog.settings import DEBUG, HOGQL_INCREASED_MAX_EXECUTION_TIME, TEST
 from posthog.utils import relative_date_parse_with_delta_mapping
@@ -195,6 +195,7 @@ def _get_insert_settings(
     spill_to_disk: bool = False,
     read_after_write: bool = True,
     overrides: Mapping[str, int | str] | None = None,
+    modifiers: HogQLQueryModifiers | None = None,
 ) -> dict:
     """Build ClickHouse settings for preaggregation INSERT queries.
 
@@ -215,6 +216,9 @@ def _get_insert_settings(
 
     `load_balancing` comes from the HogQL table that reads `table`, so the INSERT and the
     later SELECT choose replicas the same way. A table that sets none uses the profile default.
+
+    `modifiers` are the ones the INSERT's SELECT was printed with. The native read settings follow the
+    events table that SELECT reads, which a per-query modifier can switch away from the team's default.
     """
     settings = get_default_hogql_global_settings(team_id=team_id).model_dump(exclude_none=True)
     settings.pop("readonly", None)  # INSERTs need write access
@@ -233,6 +237,7 @@ def _get_insert_settings(
             **_read_table_load_balancing(table),
         }
     )
+    settings.update(events_read_settings(use_new_events_schema(team_id, modifiers)))
     if spill_to_disk:
         # Spill heavy GROUP BYs to disk instead of OOMing. This is a spill
         # *threshold*, not a memory reservation — it lowers peak RAM (vs. holding
@@ -761,6 +766,13 @@ def get_daily_windows(start: datetime, end: datetime) -> list[tuple[datetime, da
     """
     windows = []
 
+    # Windows are UTC days, so a team-local bound must become UTC before its date is taken. Otherwise the
+    # edge hours of a local day fall into UTC windows that are never built or served.
+    if start.tzinfo is not None:
+        start = start.astimezone(UTC)
+    if end.tzinfo is not None:
+        end = end.astimezone(UTC)
+
     # Normalize to start of day in UTC
     current = datetime(start.year, start.month, start.day, tzinfo=UTC)
     end_normalized = datetime(end.year, end.month, end.day, tzinfo=UTC)
@@ -1138,7 +1150,7 @@ def run_lazy_computation_insert(
             sync_execute(
                 insert_sql,
                 values,
-                settings=_get_insert_settings(team.id, query_info.table),
+                settings=_get_insert_settings(team.id, query_info.table, modifiers=query_info.modifiers),
             )
         )
 
@@ -1939,6 +1951,7 @@ def ensure_precomputed(
                         spill_to_disk=spill_to_disk,
                         read_after_write=read_after_write,
                         overrides=insert_settings,
+                        modifiers=modifiers,
                     ),
                 )
             )

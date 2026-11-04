@@ -446,6 +446,7 @@ export interface integrationsLogicActions {
                 | 'twitter-ads'
                 | 'vercel'
                 | 'youtube-analytics'
+            needs_webhook_reconnect?: boolean | null | undefined
         }[],
         payload?: {
             callback: ((integration: IntegrationType) => void) | undefined
@@ -511,6 +512,7 @@ export interface integrationsLogicActions {
                 | 'twitter-ads'
                 | 'vercel'
                 | 'youtube-analytics'
+            needs_webhook_reconnect?: boolean | null | undefined
         }[]
         payload?: {
             callback: ((integration: IntegrationType) => void) | undefined

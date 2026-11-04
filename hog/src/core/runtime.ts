@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { access, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { dirname } from 'node:path'
+import { basename, dirname } from 'node:path'
 
 import type { ApiToolLibrary } from '@posthog/mcp/src/cli/library-types'
 
@@ -18,10 +18,24 @@ export type RuntimeFetch = (
     init?: RequestInit & { timeoutMs?: number; skipRateLimit?: boolean }
 ) => Promise<Response>
 
+// The operating system's secret store: Keychain on macOS, Credential Manager on Windows and Secret
+// Service on Linux. Every item belongs to hog's own service, so `name` only has to be unique within hog.
+export interface Secrets {
+    // Resolves to null when there is no item with this name.
+    get: (name: string) => Promise<string | null>
+    set: (name: string, value: string) => Promise<void>
+    // Resolves to false when there was no item to delete.
+    delete: (name: string) => Promise<boolean>
+}
+
 // Everything a command touches outside its own arguments. Tests build one by hand,
 // so no command reads `process` or the network directly.
 export interface Runtime {
     env: Env
+    platform: NodeJS.Platform
+    // True for `bun src/index.ts`, false for a compiled hog. A run from source keeps its credentials
+    // and settings apart, so it never reads or replaces those of an installed hog.
+    isDevelopment: boolean
     stdinIsTTY: boolean
     stdoutIsTTY: boolean
     stdoutHasColors: boolean
@@ -30,7 +44,8 @@ export interface Runtime {
     writeStderr: (text: string) => void
     fetch: RuntimeFetch
     now: () => number
-    sleep: (ms: number) => Promise<void>
+    // Resolves early when `signal` aborts, so a timer that lost a race doesn't keep hog running.
+    sleep: (ms: number, signal?: AbortSignal) => Promise<void>
     homeDir: () => string | undefined
     cwd: () => string
     exists: (path: string) => Promise<boolean>
@@ -48,6 +63,7 @@ export interface Runtime {
     // Resolves to false when no browser could be started, for example on a server without one.
     openUrl: (url: string) => Promise<boolean>
     prompts: Prompts
+    secrets: Secrets
     // The project token for anonymous usage events. Undefined turns them off, as in tests.
     telemetryToken: string | undefined
     // Accepts any TLS certificate from here on, for every request, including the API tools' own.
@@ -70,9 +86,57 @@ function browserCommand(url: string): string[] {
     }
 }
 
+// `bun src/index.ts` runs as the bun executable, a compiled hog as itself.
+const FROM_SOURCE = basename(process.execPath).replace(/\.exe$/i, '') === 'bun'
+
+// Keychain calls that haven't settled. A call hog stopped waiting for, such as one behind a dialog
+// nobody answers, keeps the process alive, so the entry point ends the process when this is not zero.
+let pendingSecretCalls = 0
+
+export function hasPendingSecretCalls(): boolean {
+    return pendingSecretCalls > 0
+}
+
+async function tracked<T>(call: () => Promise<T>): Promise<T> {
+    pendingSecretCalls += 1
+    try {
+        return await call()
+    } finally {
+        pendingSecretCalls -= 1
+    }
+}
+
+function bunSecrets(service: string): Secrets {
+    return {
+        get: (name) => tracked(() => Bun.secrets.get({ service, name })),
+        set: (name, value) => tracked(() => Bun.secrets.set({ service, name, value })),
+        delete: (name) => tracked(() => Bun.secrets.delete({ service, name })),
+    }
+}
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+    return new Promise((resolve) => {
+        if (signal?.aborted) {
+            resolve()
+            return
+        }
+        const timer = setTimeout(resolve, ms)
+        signal?.addEventListener(
+            'abort',
+            () => {
+                clearTimeout(timer)
+                resolve()
+            },
+            { once: true }
+        )
+    })
+}
+
 export function processRuntime(): Runtime {
     return {
         env: process.env,
+        platform: process.platform,
+        isDevelopment: FROM_SOURCE,
         stdinIsTTY: process.stdin.isTTY === true,
         stdoutIsTTY: process.stdout.isTTY === true,
         stdoutHasColors: process.stdout.isTTY === true && process.stdout.hasColors(),
@@ -89,7 +153,7 @@ export function processRuntime(): Runtime {
                 timeoutMs === undefined ? init : { ...init, signal: AbortSignal.timeout(timeoutMs) }
             ),
         now: () => Date.now(),
-        sleep: (ms) => Bun.sleep(ms),
+        sleep,
         homeDir: () => {
             try {
                 const home = homedir()
@@ -156,6 +220,7 @@ export function processRuntime(): Runtime {
             }
         },
         prompts: clackPrompts(),
+        secrets: bunSecrets(FROM_SOURCE ? 'com.posthog.hog.dev' : 'com.posthog.hog'),
         telemetryToken: DEFAULT_TELEMETRY_TOKEN,
         skipTlsVerification: () => {
             // Runs only for --skip-ssl-verification, posthog-cli's opt-in flag for self-hosted certificates.

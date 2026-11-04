@@ -35,6 +35,12 @@ jobs:
               uses: actions/checkout@v6.0.2
               with:
                   persist-credentials: false
+                  sparse-checkout: |
+                      /packages/agent/
+                      /.github/actions/desktop-build-agent-release/
+                      /.nvmrc
+                      /products/desktop/pnpm-lock.yaml
+                  sparse-checkout-cone-mode: false
 
             - name: Setup pnpm
               # nosemgrep: yaml.github-actions.security.github-actions-mutable-action-tag.github-actions-mutable-action-tag

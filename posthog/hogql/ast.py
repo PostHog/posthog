@@ -1200,7 +1200,7 @@ class PivotExpr(Expr):
     group_by: Optional[list[Expr]] = None
 
 
-@dataclass(kw_only=True, slots=True)
+@dataclass(kw_only=True, slots=True, frozen=False)
 class JoinExpr(Expr):
     # :TRICKY: When adding new fields, make sure they're handled in visitor.py and resolver.py
     type: Optional[TableOrSelectType] = None
@@ -1218,6 +1218,8 @@ class JoinExpr(Expr):
             "Field",
         ]
     ] = None
+    table_schema: Optional[Table] = None
+    cte_name: Optional[str] = None
     table_args: Optional[list[Expr]] = None
     alias: Optional[str] = None
     column_aliases: Optional[list[str]] = None
