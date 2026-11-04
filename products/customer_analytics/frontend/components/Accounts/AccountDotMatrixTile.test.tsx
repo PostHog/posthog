@@ -3,12 +3,14 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import type { DotMatrixProps } from 'lib/components/DotMatrix/types'
 
 import { performQuery } from '~/queries/query'
+import { NodeKind } from '~/queries/schema/schema-general'
 import type { AccountActivityMatrixResult } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import type { AccountActivityMatrixDatum } from './accountActivityMatrix'
 import { EMPTY_ACCOUNT_ACTIVITY_MATRIX } from './accountActivityMatrix'
 import { AccountDotMatrixTile } from './AccountDotMatrixTile'
+import { BOOK_ACTIVITY_MATRIX_MOCK } from './bookActivityMatrixMock'
 
 jest.mock('~/queries/query', () => ({ performQuery: jest.fn() }))
 const mockPerformQuery = performQuery as jest.Mock
@@ -45,6 +47,38 @@ describe('AccountDotMatrixTile', () => {
         mockPerformQuery.mockResolvedValue({ results: WITH_SERIES })
     })
     afterEach(cleanup)
+
+    it('renders the product-by-week view and scans first-use history only after opt in', async () => {
+        mockPerformQuery.mockImplementation((query) =>
+            Promise.resolve({
+                results:
+                    query.kind === NodeKind.BookActivityMatrixQuery
+                        ? BOOK_ACTIVITY_MATRIX_MOCK
+                        : { rows: [], columns: [], people: [], accounts: [], truncated: false },
+            })
+        )
+        render(
+            <AccountDotMatrixTile
+                accountId={BOOK_ACTIVITY_MATRIX_MOCK.rows[0].key}
+                initialConfig={{ source: { kind: 'product_usage' } }}
+            />
+        )
+        expect(await screen.findByTestId('account-product-usage-table')).toBeTruthy()
+        expect(mockPerformQuery.mock.calls.some(([query]) => query.kind === NodeKind.BookActivityFirstsQuery)).toBe(
+            false
+        )
+        fireEvent.click(screen.getByLabelText('Show first use'))
+        await waitFor(() =>
+            expect(mockPerformQuery.mock.calls.some(([query]) => query.kind === NodeKind.BookActivityFirstsQuery)).toBe(
+                true
+            )
+        )
+        expect(
+            mockPerformQuery.mock.calls.some(
+                ([query]) => query.kind === NodeKind.BookActivityMatrixQuery && query.includeFirstUse
+            )
+        ).toBe(true)
+    })
 
     it('keeps the single SQL series legend static', async () => {
         mockPerformQuery.mockResolvedValue({ columns: ['r', 'c'], results: [['one', 'week']] })

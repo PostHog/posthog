@@ -3,6 +3,11 @@ import { dayjs } from 'lib/dayjs'
 
 import type { BookActivityMatrixResult } from '~/queries/schema/schema-general'
 
+import {
+    getProductUsageGrouping,
+    getProductUsageCountLabel,
+    getProductUsageCountScale,
+} from '../ProductUsageGrid/productUsagePresentation'
 import type { AccountActivityMatrixDatum, AccountActivityMatrixProps } from './accountActivityMatrix'
 
 export function getBookActivityMatrixProps(
@@ -29,10 +34,11 @@ export function getBookActivityMatrixProps(
         fields: { row: 'row', column: 'column', series: 'series', value: 'value' },
         rows: result.rows,
         columns: result.columns.map((column) => ({ ...column, label: dayjs(column.key).format('MMM D') })),
-        series: result.series.map((series, index) => ({ ...series, color: `var(--data-color-${(index % 15) + 1})` })),
+        ...getProductUsageGrouping(result.series, result.groupings, 'role'),
+        countScale: getProductUsageCountScale(selectedSeries.length > 0),
         aggregateSelection,
         rowHeader: { title: 'Account' },
-        sizeThresholds: [1, 5, 20],
+        sizeThresholds: [1, 5, 10],
         legend: {
             itemLabel: 'product',
             selectionLabel: (count, mode) =>
@@ -40,7 +46,7 @@ export function getBookActivityMatrixProps(
                     ? `Users of ${count} selected ${count === 1 ? 'product' : 'products'}`
                     : `Showing ${count} ${count === 1 ? 'product' : 'products'}`,
             valueLabel: 'Users',
-            countLabel: selectedSeries.length ? 'Users of selected products' : 'Products used',
+            countLabel: getProductUsageCountLabel(result.series, selectedSeries),
         },
     }
 }

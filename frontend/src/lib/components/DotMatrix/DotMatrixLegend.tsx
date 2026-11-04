@@ -3,6 +3,7 @@ import clsx from 'clsx'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 import { toggleDotMatrixSeries } from './dotMatrixData'
+import { getDotMatrixGroups } from './dotMatrixPresentation'
 import { DotMatrixScaleKey } from './DotMatrixScaleKey'
 import type { DotMatrixCountBin, DotMatrixGroup, DotMatrixLegendLabels, DotMatrixSeries } from './types'
 
@@ -28,10 +29,7 @@ export function DotMatrixLegend({
     labels,
 }: DotMatrixLegendProps): JSX.Element {
     const itemLabel = labels?.itemLabel ?? 'series'
-    const legendGroups = [
-        ...groups.map((group) => ({ ...group, items: series.filter((item) => item.group === group.key) })),
-        { key: '', label: '', items: series.filter((item) => !groups.some((group) => group.key === item.group)) },
-    ].filter((group) => group.items.length > 0)
+    const legendGroups = getDotMatrixGroups(series, groups)
     const filtering = selectedSeries.length > 0
 
     return (
@@ -40,7 +38,7 @@ export function DotMatrixLegend({
                 <div key={group.key} className="DotMatrix__legend-row">
                     {group.label && <span className="DotMatrix__legend-group">{group.label}</span>}
                     <div className="DotMatrix__legend-items">
-                        {group.items.map((item) => {
+                        {group.series.map((item) => {
                             const itemClassName = clsx(
                                 'DotMatrix__legend-item',
                                 filtering && !selectedSeries.includes(item.key) && 'DotMatrix__legend-item--muted',

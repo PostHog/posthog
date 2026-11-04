@@ -22,6 +22,9 @@ export type AccountActivityMatrixProps = Pick<
     | 'rowHeader'
     | 'legend'
     | 'sizeThresholds'
+    | 'countScale'
+    | 'groups'
+    | 'columnsPerGroup'
 >
 
 const SERIES_COLOR_COUNT = 15

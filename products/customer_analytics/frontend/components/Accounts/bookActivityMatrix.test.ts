@@ -4,6 +4,10 @@ import { getBookActivityMatrixProps } from './bookActivityMatrix'
 import { BOOK_ACTIVITY_MATRIX_MOCK } from './bookActivityMatrixMock'
 
 describe('bookActivityMatrix', () => {
+    it('uses the five and ten user ring thresholds for product usage', () => {
+        expect(getBookActivityMatrixProps(BOOK_ACTIVITY_MATRIX_MOCK, []).sizeThresholds).toEqual([1, 5, 10])
+    })
+
     it('uses plural product labels for multi-selection', () => {
         const props = getBookActivityMatrixProps(BOOK_ACTIVITY_MATRIX_MOCK, ['pa', 'replay'])
         expect(props.legend && props.legend.selectionLabel?.(2, 'dots')).toBe('Showing 2 products')
@@ -35,6 +39,6 @@ describe('bookActivityMatrix', () => {
         expect(getDotMatrixCellCount(cell, { ...props, selectedSeries: ['pa', 'replay'] })).toBe(10)
         expect(getDotMatrixCellCount(cell, { ...props, selectedSeries: ['pa'] })).toBe(8)
         expect(getDotMatrixCellCount(cell, props)).toBe(2)
-        expect(props.legend).toMatchObject({ countLabel: 'Users of selected products' })
+        expect(props.legend).toMatchObject({ countLabel: 'Users of any of these 2 products' })
     })
 })

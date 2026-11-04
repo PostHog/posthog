@@ -16,6 +16,8 @@ import type {
 export interface DotMatrixCellProps<D extends Record<string, unknown>> extends Pick<
     DotMatrixProps<D>,
     | 'groups'
+    | 'columnsPerGroup'
+    | 'firstUseSeries'
     | 'sizeThresholds'
     | 'countScale'
     | 'countOf'
@@ -39,6 +41,8 @@ export function DotMatrixCell<D extends Record<string, unknown>>({
     mode,
     series,
     groups,
+    columnsPerGroup,
+    firstUseSeries,
     sizeThresholds,
     countScale,
     countOf,
@@ -61,7 +65,15 @@ export function DotMatrixCell<D extends Record<string, unknown>>({
     const content = renderCell ? (
         renderCell(cell)
     ) : mode === 'dots' ? (
-        <DotGlyph series={series} groups={groups} values={cell.values} sizeThresholds={sizeThresholds} label={label} />
+        <DotGlyph
+            series={series}
+            groups={groups}
+            columnsPerGroup={columnsPerGroup}
+            firstUseSeries={firstUseSeries?.(cell)}
+            values={cell.values}
+            sizeThresholds={sizeThresholds}
+            label={label}
+        />
     ) : (
         <CountCell value={count} scale={countScale} label={label} />
     )
