@@ -2,7 +2,7 @@ import './Today.scss'
 
 import { useState } from 'react'
 
-import { IconArrowRight, IconHide, IconInfo } from '@posthog/icons'
+import { IconArrowRight, IconHide, IconInfo, IconPin, IconPinFilled } from '@posthog/icons'
 import {
     Button,
     Collapsible,
@@ -36,16 +36,22 @@ export function TodayPulseCard({
     tone,
     formatValue,
     onOpen,
+    pinned,
+    pinDisabledReason,
+    onTogglePin,
     onHide,
 }: {
     metric: HighlightMetricApi
     tone: TodayTone
     formatValue: (value: number) => string
     onOpen: () => void
+    pinned: boolean
+    pinDisabledReason?: string
+    onTogglePin: () => void
     onHide: () => void
 }): JSX.Element {
     const [whyOpen, setWhyOpen] = useState(false)
-    const why = pulseWhy(metric)
+    const why = pinned ? 'You keep this number on your home. Change it with Edit.' : pulseWhy(metric)
     const change = pulseChange(metric)
     return (
         <div className="TodayPulseCard flex flex-col" data-attr="today-pulse-card">
@@ -106,14 +112,28 @@ export function TodayPulseCard({
                     <div className="-me-1.5 flex items-center">
                         <Button
                             size="icon-xs"
-                            aria-label="Hide from Today"
-                            tooltip="Hide from Today"
-                            onClick={onHide}
-                            className="text-muted-foreground"
-                            data-attr="today-pulse-card-hide"
+                            aria-label={pinned ? 'Unpin from your home' : 'Pin to your home'}
+                            tooltip={pinned ? 'Unpin from your home' : 'Pin to your home'}
+                            aria-pressed={pinned}
+                            disabledReason={pinDisabledReason}
+                            onClick={onTogglePin}
+                            className={pinned ? undefined : 'text-muted-foreground'}
+                            data-attr="today-pulse-card-pin"
                         >
-                            <IconHide />
+                            {pinned ? <IconPinFilled /> : <IconPin />}
                         </Button>
+                        {!pinned && (
+                            <Button
+                                size="icon-xs"
+                                aria-label="Hide from Today"
+                                tooltip="Hide from Today"
+                                onClick={onHide}
+                                className="text-muted-foreground"
+                                data-attr="today-pulse-card-hide"
+                            >
+                                <IconHide />
+                            </Button>
+                        )}
                         {why && (
                             <Tooltip>
                                 <TooltipTrigger

@@ -110,6 +110,59 @@ describe('todayHighlightsLogic', () => {
         expect(shown()).toEqual(['insight:c', 'insight:e', 'insight:a'])
     })
 
+    it('waits for pins, puts pinned numbers first, keeps a hidden number the person pins, and marks a pin without a number', async () => {
+        let releasePins: () => void = () => undefined
+        useMocks({
+            get: {
+                '/api/projects/:team_id/today/pulse_pins/': () =>
+                    new Promise((resolve) => {
+                        releasePins = () =>
+                            resolve([
+                                200,
+                                {
+                                    pins: [
+                                        { key: 'insight:e', name: 'E', dashboard_id: null },
+                                        { key: 'insight:z', name: 'Z', dashboard_id: null },
+                                    ],
+                                },
+                            ])
+                    }),
+            },
+        })
+        const pulse = ['a', 'b', 'c', 'd', 'e'].map((key) => makePulseMetric({ key: `insight:${key}` }))
+        highlightResponses = [[200, makeHighlights({ pulse, pins: [{ key: 'insight:z', status: 'unavailable' }] })]]
+        const logic = todayHighlightsLogic()
+        logic.mount()
+        const projectId = logic.values.currentProjectId
+        logic.actions.setHiddenPulseMetrics({ [`${projectId}:insight:e`]: true, [`${projectId}:insight:a`]: true })
+
+        await expectLogic(logic)
+            .toDispatchActions(['loadHighlightsSuccess'])
+            .toMatchValues({ pulseSlots: [], pulsePending: true })
+
+        releasePins()
+        await expectLogic(logic).toDispatchActions(['loadPulsePinsSuccess'])
+
+        expect(logic.values.pulseSlots.map((slot) => [slot.key, slot.status])).toEqual([
+            ['insight:e', 'ready'],
+            ['insight:z', 'error'],
+            ['insight:b', 'ready'],
+            ['insight:c', 'ready'],
+        ])
+
+        const [, b, c, d, e] = pulse
+        logic.actions.loadHighlightsSuccess(makeHighlights({ status: 'computing', pulse: [d, c, b, e], pins: [] }))
+        expect(logic.values.pulseSlots.map((slot) => [slot.key, slot.status])).toEqual([
+            ['insight:e', 'ready'],
+            ['insight:z', 'pending'],
+            ['insight:b', 'ready'],
+            ['insight:c', 'ready'],
+        ])
+
+        logic.actions.loadHighlightsSuccess(makeHighlights({ status: 'failed', pulse: [d, c, b, e], pins: [] }))
+        expect(logic.values.pulseSlots.map((slot) => slot.status)).toEqual(['ready', 'error', 'ready', 'ready'])
+    })
+
     it.each([
         { status: 404, failed: false },
         { status: 500, failed: true },
