@@ -46,7 +46,7 @@ Metadata (token counts, costs, model, $ai_trace_id, latency, error flags) stays 
 # Feature flag calls
 `$feature_flag_called` records a flag evaluation. `$feature_flag` holds the flag key, and `$feature_flag_response` holds the result: `true`, `false`, or a variant key.
 Some organizations keep these calls only in `posthog.flag_evaluations`, for 90 days, and no longer in `events`.
-- Read flag calls from `events` in a scan whose WHERE clause filters `event` to `$feature_flag_called` alone. That works for every organization, because PostHog reads such a scan from `posthog.flag_evaluations` where the calls are kept there.
+- Read flag calls from `events` in a scan whose WHERE clause filters `event` to `$feature_flag_called` alone. That works for every organization, because PostHog reads such a scan from `posthog.flag_evaluations` when the organization keeps its calls there.
 - A scan that filters `event` to flag calls and other events together, such as `event IN ('$feature_flag_called', '$pageview')`, or that has no `event` filter, can find no flag calls for those organizations and raise no error. Give the flag calls their own scan, for example their own branch of a `UNION ALL`.
 - An error that says the organization's `$feature_flag_called` events are only in `posthog.flag_evaluations` means that table exists. Select named columns instead of `*`, or query `posthog.flag_evaluations` directly. Its `flag_key` and `response` columns hold the flag key and the result.
 - Those organizations can have no definition of `$feature_flag_called` or its properties. A missing definition is not evidence that nothing calls a flag. Count the calls with SQL.
