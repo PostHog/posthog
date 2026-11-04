@@ -1330,6 +1330,140 @@ export const UploadedMediaStartUploadCreateBody = /* @__PURE__ */ zod.object({
         .describe("Library to add this image to once uploaded, e.g. 'email'."),
 })
 
+export const workloadTrustPoliciesCreateBodyNameMax = 200
+
+export const workloadTrustPoliciesCreateBodyIssuerMax = 255
+
+export const workloadTrustPoliciesCreateBodySubjectNameMax = 255
+
+export const workloadTrustPoliciesCreateBodySubjectMax = 255
+
+export const workloadTrustPoliciesCreateBodyScopesItemMax = 100
+
+export const WorkloadTrustPoliciesCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(workloadTrustPoliciesCreateBodyNameMax).describe('A name that says what the policy is for.'),
+    issuer: zod
+        .string()
+        .max(workloadTrustPoliciesCreateBodyIssuerMax)
+        .describe('The OIDC issuer of the workload provider, from the list of supported providers.'),
+    subject_name: zod
+        .string()
+        .max(workloadTrustPoliciesCreateBodySubjectNameMax)
+        .describe(
+            "The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly."
+        ),
+    subject: zod
+        .string()
+        .max(workloadTrustPoliciesCreateBodySubjectMax)
+        .describe(
+            "The workload's immutable ID, from the provider's subject claim, for example a repository ID. Matched exactly together with the name, so a deleted and re-created workload with the same name does not match."
+        ),
+    conditions: zod
+        .record(zod.string(), zod.string())
+        .optional()
+        .describe(
+            "Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition."
+        ),
+    scopes: zod
+        .array(zod.string().max(workloadTrustPoliciesCreateBodyScopesItemMax))
+        .describe(
+            'The scopes every token minted under this policy carries. Scopes that manage credentials or access are refused.'
+        ),
+    enabled: zod.boolean().optional().describe('Whether the policy can mint tokens. Disabling it cuts off its tokens.'),
+})
+
+export const workloadTrustPoliciesUpdateBodyNameMax = 200
+
+export const workloadTrustPoliciesUpdateBodyIssuerMax = 255
+
+export const workloadTrustPoliciesUpdateBodySubjectNameMax = 255
+
+export const workloadTrustPoliciesUpdateBodySubjectMax = 255
+
+export const workloadTrustPoliciesUpdateBodyScopesItemMax = 100
+
+export const WorkloadTrustPoliciesUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(workloadTrustPoliciesUpdateBodyNameMax).describe('A name that says what the policy is for.'),
+    issuer: zod
+        .string()
+        .max(workloadTrustPoliciesUpdateBodyIssuerMax)
+        .describe('The OIDC issuer of the workload provider, from the list of supported providers.'),
+    subject_name: zod
+        .string()
+        .max(workloadTrustPoliciesUpdateBodySubjectNameMax)
+        .describe(
+            "The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly."
+        ),
+    subject: zod
+        .string()
+        .max(workloadTrustPoliciesUpdateBodySubjectMax)
+        .describe(
+            "The workload's immutable ID, from the provider's subject claim, for example a repository ID. Matched exactly together with the name, so a deleted and re-created workload with the same name does not match."
+        ),
+    conditions: zod
+        .record(zod.string(), zod.string())
+        .optional()
+        .describe(
+            "Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition."
+        ),
+    scopes: zod
+        .array(zod.string().max(workloadTrustPoliciesUpdateBodyScopesItemMax))
+        .describe(
+            'The scopes every token minted under this policy carries. Scopes that manage credentials or access are refused.'
+        ),
+    enabled: zod.boolean().optional().describe('Whether the policy can mint tokens. Disabling it cuts off its tokens.'),
+})
+
+export const workloadTrustPoliciesPartialUpdateBodyNameMax = 200
+
+export const workloadTrustPoliciesPartialUpdateBodyIssuerMax = 255
+
+export const workloadTrustPoliciesPartialUpdateBodySubjectNameMax = 255
+
+export const workloadTrustPoliciesPartialUpdateBodySubjectMax = 255
+
+export const workloadTrustPoliciesPartialUpdateBodyScopesItemMax = 100
+
+export const WorkloadTrustPoliciesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(workloadTrustPoliciesPartialUpdateBodyNameMax)
+        .optional()
+        .describe('A name that says what the policy is for.'),
+    issuer: zod
+        .string()
+        .max(workloadTrustPoliciesPartialUpdateBodyIssuerMax)
+        .optional()
+        .describe('The OIDC issuer of the workload provider, from the list of supported providers.'),
+    subject_name: zod
+        .string()
+        .max(workloadTrustPoliciesPartialUpdateBodySubjectNameMax)
+        .optional()
+        .describe(
+            "The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly."
+        ),
+    subject: zod
+        .string()
+        .max(workloadTrustPoliciesPartialUpdateBodySubjectMax)
+        .optional()
+        .describe(
+            "The workload's immutable ID, from the provider's subject claim, for example a repository ID. Matched exactly together with the name, so a deleted and re-created workload with the same name does not match."
+        ),
+    conditions: zod
+        .record(zod.string(), zod.string())
+        .optional()
+        .describe(
+            "Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition."
+        ),
+    scopes: zod
+        .array(zod.string().max(workloadTrustPoliciesPartialUpdateBodyScopesItemMax))
+        .optional()
+        .describe(
+            'The scopes every token minted under this policy carries. Scopes that manage credentials or access are refused.'
+        ),
+    enabled: zod.boolean().optional().describe('Whether the policy can mint tokens. Disabling it cuts off its tokens.'),
+})
+
 /**
  * Public, unauthenticated endpoint for self-service revocation of a leaked PostHog personal API key, project secret API key, legacy feature flags secure API key, or OAuth access/refresh token. If the token matches a real credential, it is revoked immediately and the owner is notified by email. This includes an expired OAuth access token: the paired refresh token it protects may still be live. A legacy feature flags secure API key is matched through its migrated project secret API key row; it cannot be rotated automatically, so its project admins get an email to rotate it.
  *

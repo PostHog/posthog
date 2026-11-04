@@ -21,6 +21,7 @@ from posthog.api.sdk_health import SdkHealthViewSet
 from posthog.api.wizard import http as wizard
 from posthog.products import load_product_modules
 from posthog.settings import EE_AVAILABLE
+from posthog.workload_identity.trust_policy import WorkloadTrustPolicyViewSet
 
 from ee.api.quota_limits import QuotaLimitsViewSet
 from ee.api.vercel import vercel_installation, vercel_product, vercel_proxy, vercel_resource
@@ -546,6 +547,10 @@ projects_router.register(
     project_secret_api_key.ProjectSecretAPIKeyViewSet,
     "project_project_secret_api_keys",
     ["team_id"],
+)
+
+projects_router.register(
+    r"workload_trust_policies", WorkloadTrustPolicyViewSet, "project_workload_trust_policies", ["project_id"]
 )
 
 projects_router.register(
