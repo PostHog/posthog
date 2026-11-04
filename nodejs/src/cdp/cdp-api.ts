@@ -1985,13 +1985,7 @@ export class CdpApi {
                     return res.status(400).json({ error: 'Invalid or expired token' })
                 }
 
-                return res.status(200).json({
-                    valid: result.valid,
-                    team_id: result.team_id,
-                    identifier: result.identifier,
-                    app_source_id: result.app_source_id,
-                    instance_id: result.instance_id,
-                })
+                return res.status(200).json(result)
             } catch (error) {
                 logger.error('[CdpApi] Error validating preferences token', error)
                 return res.status(500).json({ error: 'Failed to validate token' })

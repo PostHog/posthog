@@ -638,6 +638,33 @@ describe('CDP API', () => {
         expect(allLogText).toContain('***REDACTED***')
     })
 
+    it('returns every claim of a workflow email preferences token', async () => {
+        const token = api['recipientTokensService'].generatePreferencesToken(
+            { team_id: team.id, identifier: 'recipient@example.com' },
+            {
+                appSourceId: 'flow-1',
+                instanceId: 'action-1',
+                workflowId: 'flow-1',
+                invocationId: 'run-1',
+                workflowVersion: 3,
+            }
+        )
+
+        const res = await supertest(app).get(`/api/messaging/validate_preferences_token/${token}`)
+
+        expect(res.status).toEqual(200)
+        expect(res.body).toEqual({
+            valid: true,
+            team_id: team.id,
+            identifier: 'recipient@example.com',
+            app_source_id: 'flow-1',
+            instance_id: 'action-1',
+            workflow_id: 'flow-1',
+            invocation_id: 'run-1',
+            workflow_version: 3,
+        })
+    })
+
     describe('transformations', () => {
         let configuration: HogFunctionType
 
