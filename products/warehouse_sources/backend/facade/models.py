@@ -14,7 +14,10 @@ Consumers that only read fields should use ``facade.api`` (contracts) instead.
 
 from products.warehouse_sources.backend.facade.contracts import UnsupportedSyncTypeError
 from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
-from products.warehouse_sources.backend.models.column_statistics import WarehouseColumnStatistics
+from products.warehouse_sources.backend.models.column_statistics import (
+    WarehouseColumnStatistics,
+    clear_masked_column_bounds,
+)
 from products.warehouse_sources.backend.models.credential import (
     DataWarehouseCredential,
     get_or_create_datawarehouse_credential,
@@ -125,6 +128,7 @@ __all__ = [
     "latest_completed_job_prefetch",
     "get_or_create_datawarehouse_credential",
     "get_or_create_warehouse_destination",
+    "clear_masked_column_bounds",
     "clickhouse_column_to_dwh_column",
     "clickhouse_columns_to_dwh_columns",
     "motherduck_column_to_dwh_column",
