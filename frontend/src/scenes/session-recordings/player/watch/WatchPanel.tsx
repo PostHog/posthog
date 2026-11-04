@@ -4,23 +4,17 @@ import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSett
 
 import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 
-import { SummarizeRecordingBar } from 'products/replay_vision/frontend/components/SummarizeRecordingBar'
+import { QuillSummarizeRecordingBar } from 'products/replay_vision/frontend/components/QuillSummarizeRecordingBar'
 import { visionSurfaceShown } from 'products/replay_vision/frontend/utils/visionSurface'
 
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
 import { DebugModeBanner } from './DebugModeBanner'
 import { RecordingCommentsList } from './RecordingCommentsList'
-import { RecordingDebugSection } from './RecordingDebugSection'
-import { RecordingObservationsSection } from './RecordingObservationsSection'
-import { RecordingOverviewDisclosure } from './RecordingOverviewDisclosure'
 import { RecordingTitleBlock } from './RecordingTitleBlock'
+import { WatchPanelTabs } from './WatchPanelTabs'
+import { WatchPanelTabsWithObservations } from './WatchPanelTabsWithObservations'
 
-export function WatchPanel({
-    summaryActions,
-}: {
-    /** Recording actions the host places beside the summarize button. */
-    summaryActions?: React.ReactNode
-}): JSX.Element | null {
+export function WatchPanel(): JSX.Element | null {
     const { logicProps, sessionRecordingId } = useValues(sessionRecordingPlayerLogic)
     const { debugMode, watchDebugDock } = useValues(playerSettingsLogic)
     const { dataProcessingAccepted } = useValues(aiConsentLogic)
@@ -28,17 +22,18 @@ export function WatchPanel({
         return null
     }
     const vision = visionSurfaceShown(logicProps)
+    const debugDocked = debugMode && watchDebugDock === 'bottom'
 
     return (
-        <div data-quill className="flex flex-col gap-4 px-1 pt-3 pb-6 text-foreground" data-attr="watch-panel">
+        <div data-quill className="flex flex-col gap-4 px-1 pt-3 pb-6 text-foreground isolate" data-attr="watch-panel">
             <DebugModeBanner />
-            <RecordingTitleBlock
-                actions={vision ? <SummarizeRecordingBar inline extraActions={summaryActions} /> : summaryActions}
-            />
-            <RecordingOverviewDisclosure />
+            <RecordingTitleBlock actions={vision ? <QuillSummarizeRecordingBar /> : undefined} />
+            {vision && dataProcessingAccepted ? (
+                <WatchPanelTabsWithObservations sessionId={sessionRecordingId} debug={debugDocked} />
+            ) : (
+                <WatchPanelTabs debug={debugDocked} />
+            )}
             <RecordingCommentsList sessionId={sessionRecordingId} />
-            {debugMode && watchDebugDock === 'bottom' && <RecordingDebugSection />}
-            {vision && dataProcessingAccepted && <RecordingObservationsSection sessionId={sessionRecordingId} />}
         </div>
     )
 }

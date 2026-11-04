@@ -1,7 +1,6 @@
 AmazonS3 not-checkable:schemas
 AppStoreConnect not-checkable:no-request
 AppleSearchAds not-checkable:no-request
-AppsFlyer fail:safe-point
 Attentive not-checkable:database
 AwsAthena not-checkable:schemas
 AwsDocumentDB not-checkable:driver:pymongo
@@ -17,7 +16,6 @@ CiscoDuo not-checkable:no-request
 ClickHouse not-checkable:schemas
 CloudflareD1 not-checkable:schemas
 CloudflareR2 not-checkable:schemas
-Coda fail:safe-point
 Convex not-checkable:schemas
 CosmosDB not-checkable:schemas
 Coveralls not-checkable:no-request
@@ -42,15 +40,12 @@ GooglePlayConsole not-checkable:no-request
 GoogleSearchConsole not-checkable:database
 GoogleSheets not-checkable:schemas
 GrafanaIRM not-checkable:no-request
-Groq fail:safe-point
 Hatchet not-checkable:no-request
 HelpScout not-checkable:database
 Hubspot not-checkable:database
 Instagram not-checkable:database
 Intercom not-checkable:database
 Kafka not-checkable:driver:confluent_kafka
-Kandji fail:safe-point
-Kernel fail:safe-point
 Kestra not-checkable:no-request
 Linear not-checkable:database
 LinkedinAds not-checkable:database
@@ -60,13 +55,11 @@ MetaAds not-checkable:database
 Modal not-checkable:driver:grpclib
 MongoDB not-checkable:driver:pymongo
 Motherduck not-checkable:driver:duckdb
-MyHours fail:safe-point
 MySQL not-checkable:driver:psycopg
 Neo4j not-checkable:schemas
 Neon not-checkable:driver:psycopg
 OpenMeteo not-checkable:no-request
 OpenWeather not-checkable:no-request
-Optimizely fail:safe-point
 Pardot not-checkable:database
 PinterestAds not-checkable:database
 Pipedrive not-checkable:database
@@ -87,9 +80,7 @@ TemporalIO not-checkable:driver:temporalio.client
 TikTokAds not-checkable:database
 Trino not-checkable:schemas
 TwitterAds not-checkable:database
-Vitally fail:safe-point
 Wrike not-checkable:no-request
 YouTubeAnalytics not-checkable:database
-ZapierSupportedStorage fail:safe-point
 shared-path:rest-client-paginate fail:safe-point
 shared-path:rest-framework-wrapped-resource fail:safe-point

@@ -564,6 +564,27 @@ export const signalsReportsList = async (
     })
 }
 
+export const getSignalsReportsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/reports/`
+}
+
+/**
+ * File a complete inbox report yourself, with the same validation and safety judge a scout report passes. The report surfaces at the status `actionability` implies, or is suppressed. It never starts an implementation run or opens a pull request on its own, now or after a later edit: start one from the report's actions. Safe to retry: a resend returns the first report with `idempotent_replay` true. Each person can file a limited number of reports per project per day.
+ * @summary File an inbox report
+ */
+export const signalsReportsCreate = async (
+    projectId: string,
+    emitReportRequestApi: EmitReportRequestApi,
+    options?: RequestInit
+): Promise<EmitReportResponseApi> => {
+    return apiMutator<EmitReportResponseApi>(getSignalsReportsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(emitReportRequestApi),
+    })
+}
+
 export const getSignalsReportsRetrieveUrl = (projectId: string, id: string) => {
     return `/api/projects/${projectId}/signals/reports/${id}/`
 }
@@ -666,7 +687,7 @@ export const getSignalsReportsClaimUrl = (projectId: string, id: string) => {
 }
 
 /**
- * Start or update work for the current user, internal task, or external agent. Supply claim_id to resume, pull_requests to add PRs, takeover=true to explicitly take ownership, or release=true to end ownership while preserving work history and PR links.
+ * Start or update work for the current user, internal task, or external agent. Supply claim_id to resume, pull_requests to add PRs, takeover=true to explicitly take ownership, or release=true to end ownership while preserving work history and PR links. Adding PRs needs task:write as well as inbox:write.
  * @summary Claim or release a signal report
  */
 export const signalsReportsClaim = async (
@@ -1612,7 +1633,7 @@ export const getSignalsReportsForMeRetrieveUrl = (projectId: string, params?: Si
 }
 
 /**
- * Your open inbox reports, ranked for you by one language model call over your activity summary, the reports that need you and the ranking model's predictions. Each entry has a reason and a compact report. The request never waits on the model. A current stored list returns at once. Otherwise the request starts a background build and returns the last stored list with `stale: true`, or your reports in inbox order with `fallback_reason: building`, and `building: true`. Pass `wait_seconds` to wait a short time for the new list. Only the user the list is about can read it.
+ * Your open inbox reports, ranked for you by one language model call over your activity summary, the reports that need you and the ranking model's predictions. Each entry has a reason and a compact report. The request never waits on the model. A current stored list returns quickly. Otherwise the request reads every candidate report, which can take some seconds, starts a background build and returns the last stored list with `stale: true`, or your reports in inbox order with `fallback_reason: building`, and `building: true`. Pass `wait_seconds` to wait a short time for the new list. Only the user the list is about can read it.
  * @summary Get your personal ranked inbox
  */
 export const signalsReportsForMeRetrieve = async (
