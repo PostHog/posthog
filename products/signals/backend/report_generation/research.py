@@ -377,7 +377,9 @@ _DEFAULT_CHECK_SCHEDULING_GUIDANCE = """`soak_hours` is how long after the repor
 {default_soak} hours, which covers a deploy plus a day of traffic. Say longer when the fix only
 reaches users slowly — a mobile release, a cached client bundle, a weekly batch."""
 
-_MONITORING_CHECK_SCHEDULING_GUIDANCE = """Monitoring uses one fixed observation window: merge through merge + soak_hours.
+_MONITORING_CHECK_SCHEDULING_GUIDANCE = """Monitoring uses one fixed observation window: the recorded Monitoring start through start + soak_hours.
+PR completion uses the latest implementation PR merge timestamp as the start. Manual entry uses
+the time Monitoring starts.
 `soak_hours` is the duration of that entire window, not a delay before starting a shorter query.
 The executor replaces relative query dates with these fixed bounds. It does not discard an initial
 deployment buffer or select only the last few hours. Choose a useful duration from the observed
@@ -554,7 +556,8 @@ class FixVerificationOutput(BaseModel):
         proposed = "".join(
             f"\n\n_Proposed follow-up check: **{check.title}**, "
             + (
-                f"observing the full {check.soak_hours} hours from merge._"
+                f"observing the full {check.soak_hours} hours from the recorded Monitoring start "
+                "(the merge time for PR completion)._"
                 if monitoring_enabled
                 else f"with a minimum wait of {check.soak_hours} hours after this report is resolved._"
             )
@@ -1604,7 +1607,9 @@ def build_fix_verification_prompt(
     schema_dict = FixVerificationOutput.model_json_schema()
     if monitoring_enabled:
         schema_dict["$defs"]["CheckSpec"]["properties"]["soak_hours"]["description"] = (
-            "Duration in hours of the entire fixed observation window from merge through merge + soak_hours. "
+            "Duration in hours of the entire fixed observation window from the recorded Monitoring start "
+            "through start + soak_hours. PR completion uses the latest implementation PR merge timestamp; "
+            "manual entry uses the time Monitoring starts. "
             "No deployment buffer is excluded. Omission preserves an existing check's duration."
         )
     if not (metric_checks_enabled and monitoring_enabled):
@@ -1634,7 +1639,7 @@ def build_fix_verification_prompt(
                 if prefer_metric_checks
                 else "decides the question",
                 agent_selection=agent_selection,
-                soak_description="the full observation duration starting at merge"
+                soak_description="the full observation duration from the recorded Monitoring start"
                 if monitoring_enabled
                 else "the decision window after resolution",
                 no_metric_guidance=(

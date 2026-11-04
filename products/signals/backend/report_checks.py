@@ -519,8 +519,10 @@ class CheckSpec(BaseModel):
         ge=MIN_CHECK_SOAK_HOURS,
         le=MAX_CHECK_SOAK_HOURS,
         description=(
-            "Verification duration in hours. Monitoring observes the entire fixed window from merge through "
-            "merge + soak_hours, without excluding a deployment buffer. Without Monitoring, this is the wait "
+            "Verification duration in hours. Monitoring observes the entire fixed window from the recorded "
+            "Monitoring start through start + soak_hours, without excluding a deployment buffer. PR completion "
+            "uses the latest implementation PR merge timestamp; manual entry uses the time Monitoring starts. "
+            "Without Monitoring, this is the wait "
             f"after resolution before measuring. Defaults to {DEFAULT_CHECK_SOAK_HOURS} hours for a new check; "
             "omission preserves an existing check's duration."
         ),

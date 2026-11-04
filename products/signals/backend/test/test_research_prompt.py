@@ -366,7 +366,9 @@ class TestBuildFixVerificationPrompt:
         )
         assert ('Use `kind: "agent"`' in prompt) is agent_checks_enabled
         if monitoring_enabled and (metric_checks_enabled or agent_checks_enabled):
-            assert "merge through merge + soak_hours" in prompt
+            assert "recorded Monitoring start through start + soak_hours" in prompt
+            assert "PR completion uses the latest implementation PR merge timestamp" in prompt
+            assert "Manual entry uses the time Monitoring starts" in " ".join(prompt.split())
             assert "wait before measuring" not in prompt
             assert "deployment delay of several hours" not in prompt
 
@@ -474,7 +476,8 @@ class TestBuildFixVerificationPrompt:
         proposed = (
             "\n\n_Proposed follow-up check: **Uploads recover**, "
             + (
-                f"observing the full {existing_wait or 24} hours from merge._"
+                f"observing the full {existing_wait or 24} hours from the recorded Monitoring start "
+                "(the merge time for PR completion)._"
                 if monitoring_enabled
                 else f"with a minimum wait of {existing_wait or 24} hours after this report is resolved._"
             )

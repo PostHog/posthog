@@ -625,7 +625,7 @@ This final request is optional: if generation or note conversion fails, research
 The findings, actionability, priority, title, and summary remain available.
 Core research failures and cancellation still fail the run and trigger session cleanup.
 
-With Monitoring enabled, research authoring uses the fixed observation window for titles, verification prose, agent instructions, comparisons, and minimum sample requirements. `soak_hours` covers the entire interval from merge through the soak deadline. Deployment uncertainty does not create an excluded buffer or a shorter trailing query. Baseline and target reference periods retain their independently measured durations.
+With Monitoring enabled, research authoring uses the fixed observation window for titles, verification prose, agent instructions, comparisons, and minimum sample requirements. `soak_hours` covers the entire interval from the recorded Monitoring start through start + `soak_hours`. PR completion uses the latest implementation PR merge timestamp; manual entry uses the time Monitoring starts. Deployment uncertainty does not create an excluded buffer or a shorter trailing query. Baseline and target reference periods retain their independently measured durations.
 
 Verification proposals can name `existing_check_id` to revise an open check while preserving its remaining recurrence. An unchanged rounded `soak_hours` preserves the original minute precision; an explicitly changed wait replaces it. Equivalent default-valued config fields do not reset approval. Invalid stored configs do not prevent a valid proposal from replacing them. Presentation receives current checks as untrusted evidence, and verification can align the final Expected impact prose with its proposed metric goals.
 
