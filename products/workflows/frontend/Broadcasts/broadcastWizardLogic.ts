@@ -1628,6 +1628,8 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                     } else if (integrations && getMissingSenderIds(email.from, integrations).length > 0) {
                         // Shown on the content step, where the sender is picked, rather than first at launch.
                         errors.content.push(DELETED_SENDER_ERROR)
+                    } else if (integrations && getSandboxSenderIds(email.from, integrations).length > 0) {
+                        errors.content.push(SANDBOX_SENDER_BROADCAST_ERROR)
                     }
                     if (!email.subject) {
                         errors.content.push('Add a subject line')
@@ -2894,13 +2896,24 @@ export function getSenderLaunchError(
     if (getMissingSenderIds(from, integrations).length > 0) {
         return DELETED_SENDER_ERROR
     }
-    const chosen = senderIds.map((id) =>
-        integrations.find((integration) => integration.kind === 'email' && integration.id === id)
-    )
-    if (chosen.some((integration) => integration && isSandboxEmailSender(integration))) {
+    if (getSandboxSenderIds(from, integrations).length > 0) {
         return SANDBOX_SENDER_BROADCAST_ERROR
     }
-    return chosen.every((integration) => integration?.config?.verified === true) ? null : UNVERIFIED_SENDER_MESSAGE
+    const allVerified = senderIds.every(
+        (id) =>
+            integrations.find((integration) => integration.kind === 'email' && integration.id === id)?.config
+                ?.verified === true
+    )
+    return allVerified ? null : UNVERIFIED_SENDER_MESSAGE
+}
+
+export function getSandboxSenderIds(
+    from: BroadcastEmailValue['from'] | undefined,
+    integrations: IntegrationType[]
+): number[] {
+    return getSenderIds(from).filter((id) =>
+        integrations.some((integration) => integration.id === id && isSandboxEmailSender(integration))
+    )
 }
 
 export function getSenderIds(from: BroadcastEmailValue['from'] | undefined): number[] {
