@@ -17,8 +17,8 @@ describe('Generated email template tools', () => {
     })
 
     it.each([
-        ['workflows-send-email', 'a misspelled field', { ...codeSend, capture_engagment: false }],
-        ['workflows-send-email', 'a field of a send by template', { ...codeSend, template_id: templateId }],
+        ['workflows-send-email-prepare', 'a misspelled field', { ...codeSend, capture_engagment: false }],
+        ['workflows-send-email-prepare', 'a field of a send by template', { ...codeSend, template_id: templateId }],
         [
             'workflows-make-email-template-transactional-prepare',
             'an unknown top-level field',
@@ -49,7 +49,7 @@ describe('Generated email template tools', () => {
     })
 
     it('accepts a send of the email your code rendered', () => {
-        expect(toolSchema('workflows-send-email').parse(codeSend)).toEqual(codeSend)
+        expect(toolSchema('workflows-send-email-prepare').parse(codeSend)).toEqual(codeSend)
     })
 
     it('keeps keys the design format adds at its top level and in its body', () => {
