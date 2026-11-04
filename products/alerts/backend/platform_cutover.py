@@ -19,6 +19,7 @@ from posthog.dataclasses import frozen
 from posthog.schema_enums import AlertState
 from posthog.tasks.alerts.utils import due_insight_alerts_q
 from posthog.temporal.alerts.investigation import IN_FLIGHT_INVESTIGATION_HORIZON
+from posthog.temporal.alerts.retry_policy import alert_timeouts
 
 from products.alerts.backend.facade.destinations import choose_delivery_path
 from products.alerts.backend.insight_alert_state_machine import apply_invalid_configuration, apply_platform_state
@@ -86,6 +87,9 @@ class CutoverSkip(StrEnum):
     # The insight stack's agent still runs for a recent firing, or its held notification is unsent.
     # Moved now, that notification could not go out, and the platform would start a second agent.
     INVESTIGATION_UNSETTLED = "investigation_unsettled"
+    # A recent check fired and its workflow can still notify. Moved now, that notification would be
+    # dropped, and nobody would hear of the firing if the platform's next check clears.
+    NOTIFICATION_PENDING = "notification_pending"
 
 
 @frozen
@@ -122,6 +126,19 @@ def _investigation_unsettled(alert: AlertConfiguration, at: datetime) -> bool:
         .filter(in_flight | held)
         .exists()
     )
+
+
+def _firing_notification_pending(alert: AlertConfiguration, at: datetime) -> bool:
+    # A check's workflow notifies before its execution timeout ends, so past that the insight stack
+    # has sent the notification or given up on it.
+    horizon = alert_timeouts(alert.calculation_interval).workflow_execution
+    return AlertCheck.objects.filter(
+        alert_configuration=alert,
+        created_at__gte=at - horizon,
+        state=AlertState.FIRING,
+        notification_sent_at__isnull=True,
+        notification_suppressed_by_agent=False,
+    ).exists()
 
 
 def cut_over_team(team_id: int, *, now: datetime | None = None) -> tuple[AlertCutover, ...]:
@@ -172,6 +189,8 @@ def _cut_over_alert(team_id: int, alert_id: UUID, now: datetime | None) -> Cutov
             return CutoverSkip.CHECK_DUE
         if _investigation_unsettled(alert, at):
             return CutoverSkip.INVESTIGATION_UNSETTLED
+        if _firing_notification_pending(alert, at):
+            return CutoverSkip.NOTIFICATION_PENDING
         if not hand_over(alert, at):
             return CutoverSkip.PLATFORM_FIRING
     return None
