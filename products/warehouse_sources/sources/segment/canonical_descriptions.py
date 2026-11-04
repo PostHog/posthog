@@ -172,7 +172,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         },
     },
     "destination_delivery_metrics": {
-        "description": "Event delivery totals per destination and metric over the last 30 full UTC days.",
+        "description": "Event delivery totals per destination and metric over the last 12 full UTC days.",
         "docs_url": "https://docs.segmentapis.com/tag/Destinations",
         "columns": {
             "destinationId": "Identifier of the destination.",

@@ -194,7 +194,8 @@ class TestFanOut:
         ]
         assert result.saved_states == [
             SegmentResumeConfig(cursor="rules2", parent_id="tp_a"),
-            SegmentResumeConfig(parent_id="tp_b"),
+            SegmentResumeConfig(parent_id="tp_a", parent_done=True),
+            SegmentResumeConfig(parent_id="tp_b", parent_done=True),
         ]
 
     @parameterized.expand(
@@ -206,11 +207,18 @@ class TestFanOut:
                 ["rules2"],
             ),
             (
-                "deleted_parent_restarts_from_the_first_parent",
-                SegmentResumeConfig(parent_id="tp_gone"),
-                ["/tracking-plans/tp_a/rules", "/tracking-plans/tp_b/rules"],
-                [None, None],
+                "deleted_parent_continues_at_the_next_parent",
+                SegmentResumeConfig(cursor="gone_cursor", parent_id="tp_aa"),
+                ["/tracking-plans/tp_b/rules"],
+                [None],
             ),
+            (
+                "done_parent_continues_at_the_next_parent",
+                SegmentResumeConfig(parent_id="tp_a", parent_done=True),
+                ["/tracking-plans/tp_b/rules"],
+                [None],
+            ),
+            ("done_last_parent_reads_no_child", SegmentResumeConfig(parent_id="tp_b", parent_done=True), [], []),
         ]
     )
     def test_resume(
@@ -244,7 +252,26 @@ class TestFanOut:
             assert isinstance(result.raised, expected_error)
             assert result.rows == []
 
-    def test_delivery_metrics_request_a_whole_day_window_per_destination(self) -> None:
+    @parameterized.expand(
+        [
+            ("fresh_run", None, "2026-03-03T00:00:00.000Z", "2026-03-15T00:00:00.000Z"),
+            (
+                "resumed_run_keeps_its_window",
+                SegmentResumeConfig(window_end="2026-03-14T00:00:00.000Z"),
+                "2026-03-02T00:00:00.000Z",
+                "2026-03-14T00:00:00.000Z",
+            ),
+            (
+                "resumed_window_past_the_lookback_limit_is_replaced",
+                SegmentResumeConfig(window_end="2026-03-13T00:00:00.000Z"),
+                "2026-03-03T00:00:00.000Z",
+                "2026-03-15T00:00:00.000Z",
+            ),
+        ]
+    )
+    def test_delivery_metrics_request_a_whole_day_window_per_destination(
+        self, _name: str, resume_state: SegmentResumeConfig | None, window_start: str, window_end: str
+    ) -> None:
         summary = {
             "sourceId": "src1",
             "destinationMetadataId": "meta1",
@@ -260,14 +287,15 @@ class TestFanOut:
                     _list("destinations", [{"id": "d1", "sourceId": "src1"}, {"id": "d_no_source"}]),
                     _page({"data": {"deliveryMetricsSummary": summary}}),
                 ],
+                resume_state=resume_state,
             )
 
         window = {
             "destinationId": "d1",
             "sourceId": "src1",
             "destinationMetadataId": "meta1",
-            "windowStart": "2026-02-13T00:00:00.000Z",
-            "windowEnd": "2026-03-15T00:00:00.000Z",
+            "windowStart": window_start,
+            "windowEnd": window_end,
         }
         assert result.paths == ["/destinations", "/destinations/d1/delivery-metrics"]
         request = result.requests[1]

@@ -1,3 +1,4 @@
+import bisect
 import dataclasses
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
@@ -11,10 +12,12 @@ from tenacity import retry_if_exception_type, stop_after_attempt, wait_exponenti
 from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SourceResponse,
+    frozen,
     make_tracked_session,
     retry_with_deadline,
 )
 from products.warehouse_sources.sources.segment.settings import (
+    DELIVERY_METRICS_MAX_LOOKBACK_DAYS,
     DELIVERY_METRICS_WINDOW_DAYS,
     REGION_BASE_URLS,
     SEGMENT_ENDPOINTS,
@@ -39,6 +42,10 @@ class SegmentResumeConfig:
     cursor: str | None = None
     # Fan-out tables: the parent to read next. `cursor` is then the next child page of that parent.
     parent_id: str | None = None
+    # Fan-out tables: every page of `parent_id` is already yielded, so resume after it.
+    parent_done: bool = False
+    # Delivery metrics: the end of the reporting window, so a resumed run reports the same window.
+    window_end: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -207,15 +214,30 @@ def _list_parents(
             return parents
 
 
-def _format_time(value: datetime) -> str:
-    return value.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+_TIME_FORMAT = "%Y-%m-%dT%H:%M:%S.000Z"
 
 
-def _delivery_metrics_window(now: datetime) -> tuple[str, str]:
-    """Whole UTC days, so every sync reports the same span and today's partial day is left out."""
-    end = now.astimezone(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
+@frozen
+class _MetricsWindow:
+    start: str
+    end: str
+
+
+def _delivery_metrics_window(now: datetime, resumed_end: str | None) -> _MetricsWindow:
+    """Whole UTC days, so every sync reports the same span and today's partial day is left out.
+
+    A resumed run keeps the window of its first attempt while Segment still accepts that start time.
+    """
+    now = now.astimezone(UTC)
+    end = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    if resumed_end is not None:
+        resumed = datetime.strptime(resumed_end, _TIME_FORMAT).replace(tzinfo=UTC)
+        if now - (resumed - timedelta(days=DELIVERY_METRICS_WINDOW_DAYS)) < timedelta(
+            days=DELIVERY_METRICS_MAX_LOOKBACK_DAYS
+        ):
+            end = resumed
     start = end - timedelta(days=DELIVERY_METRICS_WINDOW_DAYS)
-    return _format_time(start), _format_time(end)
+    return _MetricsWindow(start=start.strftime(_TIME_FORMAT), end=end.strftime(_TIME_FORMAT))
 
 
 def _tracking_plan_parents(plans: list[dict[str, Any]], config: SegmentEndpointConfig) -> list[_Parent]:
@@ -231,16 +253,15 @@ def _tracking_plan_parents(plans: list[dict[str, Any]], config: SegmentEndpointC
 
 
 def _delivery_metrics_parents(
-    destinations: list[dict[str, Any]], config: SegmentEndpointConfig, now: datetime
+    destinations: list[dict[str, Any]], config: SegmentEndpointConfig, window: _MetricsWindow
 ) -> list[_Parent]:
-    window_start, window_end = _delivery_metrics_window(now)
     parents: list[_Parent] = []
     for destination in destinations:
         destination_id, source_id = destination.get("id"), destination.get("sourceId")
         if not destination_id or not source_id:
             continue
         query = urlencode(
-            {"sourceId": source_id, "granularity": "DAY", "startTime": window_start, "endTime": window_end}
+            {"sourceId": source_id, "granularity": "DAY", "startTime": window.start, "endTime": window.end}
         )
         parents.append(
             _Parent(
@@ -249,8 +270,8 @@ def _delivery_metrics_parents(
                 row_fields={
                     "destinationId": destination_id,
                     "sourceId": source_id,
-                    "windowStart": window_start,
-                    "windowEnd": window_end,
+                    "windowStart": window.start,
+                    "windowEnd": window.end,
                 },
             )
         )
@@ -342,32 +363,38 @@ def _fan_out(
     headers: dict[str, str],
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[SegmentResumeConfig],
+    resume: SegmentResumeConfig | None,
     parents: list[_Parent],
     build_url: Callable[[str, str, str | None], str],
     shape: Callable[[_Parent, dict[str, Any]], list[dict[str, Any]]],
+    redacted_fields: frozenset[str],
+    window_end: str | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
-    # Sorted, so an attempt that resumes at a parent id skips the same parents the last attempt read.
+    # Sorted by id, so a resumed attempt finds its position even when the parent it saved is gone.
     parents = sorted(parents, key=lambda parent: parent.id)
     start, cursor = 0, None
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume is not None and resume.parent_id is not None:
         parent_ids = [parent.id for parent in parents]
-        # A resume parent deleted since the last attempt restarts the walk from the first parent.
-        if resume.parent_id in parent_ids:
-            start, cursor = parent_ids.index(resume.parent_id), resume.cursor
-            logger.debug(f"Segment: resuming at parent={resume.parent_id}, cursor={cursor}")
+        start = bisect.bisect_left(parent_ids, resume.parent_id)
+        found = start < len(parent_ids) and parent_ids[start] == resume.parent_id
+        if found and resume.parent_done:
+            start += 1
+        elif found:
+            cursor = resume.cursor
+        logger.debug(f"Segment: resuming at parent index={start} of {len(parents)}, cursor={cursor}")
 
     for index in range(start, len(parents)):
         parent = parents[index]
         while True:
             data = _fetch_unless_not_found(session, build_url(base_url, parent.path, cursor), headers, logger)
-            rows = shape(parent, data) if data is not None else []
+            rows = _redact_rows(shape(parent, data), redacted_fields) if data is not None else []
             cursor = _next_cursor(data) if data is not None else None
 
-            if cursor:
-                resumable_source_manager.save_state(SegmentResumeConfig(cursor=cursor, parent_id=parent.id))
-            elif index + 1 < len(parents):
-                resumable_source_manager.save_state(SegmentResumeConfig(parent_id=parents[index + 1].id))
+            resumable_source_manager.save_state(
+                SegmentResumeConfig(
+                    cursor=cursor, parent_id=parent.id, parent_done=cursor is None, window_end=window_end
+                )
+            )
 
             if rows:
                 yield rows
@@ -392,14 +419,18 @@ def get_fanout_rows(
     def list_parents(path: str) -> list[dict[str, Any]]:
         return _list_parents(session, base_url, path, headers, logger, resumable_source_manager)
 
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     parents: list[_Parent]
     build_url: Callable[[str, str, str | None], str]
     shape: Callable[[_Parent, dict[str, Any]], list[dict[str, Any]]]
+    window_end: str | None = None
     if config.fanout == "tracking_plan_rules":
         parents = _tracking_plan_parents(list_parents("/tracking-plans"), config)
         build_url, shape = _build_url, _shape_rule_rows
     elif config.fanout == "delivery_metrics":
-        parents = _delivery_metrics_parents(list_parents("/destinations"), config, datetime.now(UTC))
+        window = _delivery_metrics_window(datetime.now(UTC), resume.window_end if resume else None)
+        window_end = window.end
+        parents = _delivery_metrics_parents(list_parents("/destinations"), config, window)
         build_url, shape = _build_plain_url, _shape_delivery_metric_rows
     elif config.fanout == "reverse_etl_syncs":
         parents = _reverse_etl_parents(session, base_url, headers, logger, resumable_source_manager, config)
@@ -407,7 +438,19 @@ def get_fanout_rows(
     else:
         raise ValueError(f"Segment endpoint {config.name} is not a fan-out endpoint")
 
-    yield from _fan_out(session, base_url, headers, logger, resumable_source_manager, parents, build_url, shape)
+    yield from _fan_out(
+        session,
+        base_url,
+        headers,
+        logger,
+        resumable_source_manager,
+        resume,
+        parents,
+        build_url,
+        shape,
+        config.redacted_fields,
+        window_end,
+    )
 
 
 def segment_source(

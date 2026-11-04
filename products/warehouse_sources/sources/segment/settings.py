@@ -92,7 +92,10 @@ SEGMENT_ENDPOINTS: dict[str, SegmentEndpointConfig] = {
     ),
 }
 
-DELIVERY_METRICS_WINDOW_DAYS = 30
+# Segment accepts a DAY-granularity range of at most 14 days that starts at most 14 days ago. 12 whole
+# days stay inside both limits, also for a resumed run that keeps the window of its first attempt.
+DELIVERY_METRICS_WINDOW_DAYS = 12
+DELIVERY_METRICS_MAX_LOOKBACK_DAYS = 14
 
 ENDPOINTS = tuple(SEGMENT_ENDPOINTS.keys())
 
