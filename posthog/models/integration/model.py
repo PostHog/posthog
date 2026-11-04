@@ -11,6 +11,7 @@ from django.utils.functional import Promise
 
 import structlog
 from prometheus_client import Counter
+from rest_framework.exceptions import ValidationError
 
 from posthog.helpers.encrypted_fields import FERNET_TOKEN_PREFIX, EncryptedJSONField
 from posthog.integrations.contracts import IntegrationRecord
@@ -33,6 +34,13 @@ from .auth_types import (
 )
 
 logger = structlog.get_logger(__name__)
+
+
+class IntegrationHostChangeError(ValidationError):
+    """Raised when a save points an integration at another server but keeps its stored credentials."""
+
+    default_detail = "Enter the credentials again to connect this integration to a new server."
+    default_code = "integration_host_change_needs_credentials"
 
 
 class UndecryptedIntegrationSecretError(ValueError):
@@ -388,11 +396,9 @@ class Integration(models.Model):
         self.config = normalized_config(self.kind, self.config)
         if self._credentials_follow_new_host():
             # The credentials were entered for the old server, so a new server must not receive them.
-            self.sensitive_config = {}
-            update_fields = kwargs.get("update_fields")
-            if update_fields is not None and "sensitive_config" not in update_fields:
-                kwargs["update_fields"] = [*update_fields, "sensitive_config"]
-            logger.warning("integration_credentials_cleared_on_host_change", integration_id=self.pk, kind=self.kind)
+            # Refusing, rather than clearing them, keeps a working integration intact.
+            logger.warning("integration_host_change_refused", integration_id=self.pk, kind=self.kind)
+            raise IntegrationHostChangeError()
         super().save(*args, **kwargs)
         self._remember_stored_credentials()
 

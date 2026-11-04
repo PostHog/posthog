@@ -16,7 +16,12 @@ from parameterized import parameterized
 
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.instance_setting import set_instance_setting
-from posthog.models.integration import Integration, SlackIntegration, UndecryptedIntegrationSecretError
+from posthog.models.integration import (
+    Integration,
+    IntegrationHostChangeError,
+    SlackIntegration,
+    UndecryptedIntegrationSecretError,
+)
 
 
 def get_db_field_value(field, model_id):
@@ -108,14 +113,14 @@ class TestIntegrationModel(BaseTest):
 
     @parameterized.expand(
         [
-            ("new_host_without_credentials", {"host": "attacker.example.com"}, None, {}),
-            ("new_port_without_credentials", {"port": 6543}, None, {}),
+            ("new_host_without_credentials", {"host": "attacker.example.com"}, None, None),
+            ("new_port_without_credentials", {"port": 6543}, None, None),
             ("new_host_with_credentials", {"host": "new.example.com"}, {"password": "new"}, {"password": "new"}),
             ("same_host", {"name": "Renamed"}, None, {"password": "stored"}),
         ]
     )
     def test_credentials_stay_bound_to_their_host(
-        self, _name: str, config_change: dict, new_sensitive_config: Optional[dict], expected: dict
+        self, _name: str, config_change: dict, new_sensitive_config: Optional[dict], expected: Optional[dict]
     ) -> None:
         integration = Integration.objects.create(
             team=self.team,
@@ -130,10 +135,20 @@ class TestIntegrationModel(BaseTest):
         loaded.config = {**loaded.config, **config_change}
         if new_sensitive_config is not None:
             loaded.sensitive_config = new_sensitive_config
-        loaded.save(update_fields=["config", "sensitive_config"] if new_sensitive_config else ["config"])
+        update_fields = ["config", "sensitive_config"] if new_sensitive_config else ["config"]
+        if expected is None:
+            with self.assertRaises(IntegrationHostChangeError):
+                loaded.save(update_fields=update_fields)
+        else:
+            loaded.save(update_fields=update_fields)
 
         loaded.refresh_from_db()
-        assert loaded.sensitive_config == expected
+        if expected is None:
+            assert loaded.config["host"] == "db.example.com"
+            assert loaded.config["port"] == 5432
+            assert loaded.sensitive_config == {"password": "stored"}
+        else:
+            assert loaded.sensitive_config == expected
 
     def test_slack_integration_config(self):
         set_instance_setting("SLACK_APP_CLIENT_ID", None)
