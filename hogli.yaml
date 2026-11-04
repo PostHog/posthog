@@ -1334,5 +1334,5 @@ environment:
         hidden: true
     devbox:worktree:hook:
         bin_script: devbox-worktree-hook
-        description: 'TODO: add description for devbox-worktree-hook'
+        description: 'Start or stop the devbox of this worktree from an app create or remove hook'
         hidden: true

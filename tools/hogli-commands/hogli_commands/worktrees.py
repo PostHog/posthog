@@ -542,7 +542,7 @@ def prune_boxes_of_removed_worktrees(
     if dry_run:
         click.echo(f"[DRY-RUN] Would {box_action} them.")
     else:
-        _clean_worktree_boxes(boxes, box_action, keep_stopped_records=True)
+        _clean_worktree_boxes(boxes, box_action)
     return boxes
 
 
@@ -551,44 +551,53 @@ def teardown_worktree_box(
     git_dir: Path,
     box_action: str,
     dry_run: bool,
+    keep_record: bool = False,
     act_on_box: Callable[[WorktreeBox, str], None] | None = None,
 ) -> WorktreeBox | None:
     """Stop the mirror and act on the box of the worktree at *worktree_path*, which a tool is about to remove.
 
     The mirror stops first, while the files still exist, for the reason in
-    `_stop_worktree_mirrors`. A record saved for an earlier worktree at the
-    same path does not match, so its box is left alone. *act_on_box* replaces
-    the box action, so a caller can move it out of a tool's hook time limit.
+    `_stop_worktree_mirrors`. The record is found by the ID in *git_dir*, so a
+    moved worktree still finds its box, and a record saved for an earlier
+    worktree at the same path does not match. *keep_record* keeps the record
+    of a stopped box, for a tool that keeps the worktree and can restore it.
+    *act_on_box* replaces the box action, so a caller can move it out of a
+    tool's hook time limit.
     """
-    record = load_worktree_boxes().get(str(worktree_path))
-    if record is None or not record.tracks_worktree(git_dir):
+    worktree_id = read_worktree_id(git_dir)
+    match = next(
+        (
+            (Path(path), record)
+            for path, record in load_worktree_boxes().items()
+            if worktree_id is not None and record.worktree_id == worktree_id
+        ),
+        None,
+    )
+    if match is None:
         return None
-    box = WorktreeBox(worktree_path=worktree_path, record=record)
+    box = WorktreeBox(worktree_path=match[0], record=match[1], current_path=worktree_path)
     if dry_run:
         click.echo(f"[DRY-RUN] Would stop the sync mirror and {box_action} {box.workspace}.")
         return box
     _stop_worktree_mirrors([box])
     if act_on_box is None:
-        _clean_worktree_boxes([box], box_action, keep_stopped_records=True)
+        _clean_worktree_boxes([box], box_action, keep_stopped_records=keep_record)
     else:
         act_on_box(box, box_action)
     return box
 
 
-def clean_registered_box(worktree_path: Path, worktree_id: str, box_action: str) -> bool:
-    """Act on the box registered for *worktree_path*, if the record still belongs to the worktree with *worktree_id*.
+def clean_registered_box(worktree_path: Path, worktree_id: str, box_action: str, keep_record: bool) -> None:
+    """Act on the box registered for *worktree_path*, if the worktree with *worktree_id* still holds it.
 
-    A teardown checked that worktree before it started this in the background. An
-    app can recreate a worktree at the same path in the meantime, and the record
-    then belongs to the new worktree, so its box is left alone.
+    A worktree recreated at the same path can take the box over before this
+    runs, and its record then carries its own ID.
     """
     record = load_worktree_boxes().get(str(worktree_path))
-    if record is None or record.worktree_id != worktree_id:
-        return False
-    _clean_worktree_boxes(
-        [WorktreeBox(worktree_path=worktree_path, record=record)], box_action, keep_stopped_records=True
-    )
-    return True
+    if record is not None and record.worktree_id == worktree_id:
+        _clean_worktree_boxes(
+            [WorktreeBox(worktree_path=worktree_path, record=record)], box_action, keep_stopped_records=keep_record
+        )
 
 
 def _clean_boxes_of_removed_worktrees(
@@ -665,8 +674,8 @@ def _clean_worktree_boxes(
 ) -> None:
     """Stop or delete *boxes* and forget their records.
 
-    With *keep_stopped_records*, a box that ends up stopped keeps its record, so a
-    worktree recreated at the same path can take it over again.
+    With *keep_stopped_records*, a box that ends up stopped keeps its record, so
+    the worktree can start it again when a tool restores it.
     """
     hogland_boxes = [box for box in boxes if box.record.provider == "hogland"]
     coder_boxes = [box for box in boxes if box.record.provider != "hogland"]

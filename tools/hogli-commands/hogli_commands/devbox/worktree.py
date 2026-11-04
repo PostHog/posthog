@@ -189,10 +189,10 @@ def _link_herdr_plugin(root: Path) -> None:
             f"herdr isn't on your PATH. Once it is, run `herdr plugin link <main checkout>/{_HERDR_PLUGIN_DIR}`."
         )
         return
-    listing = subprocess.run([herdr, "plugin", "list", "--json"], capture_output=True, text=True, timeout=30)
     try:
+        listing = subprocess.run([herdr, "plugin", "list", "--json"], capture_output=True, text=True, timeout=30)
         existing = _find_herdr_plugin(json.loads(listing.stdout)) if listing.returncode == 0 else None
-    except ValueError:
+    except (OSError, subprocess.SubprocessError, ValueError):
         existing = None
     if existing is not None:
         state = "enabled" if existing.get("enabled") else "disabled"
@@ -200,11 +200,19 @@ def _link_herdr_plugin(root: Path) -> None:
             f"The herdr plugin {_HERDR_PLUGIN_ID} is already linked from {existing.get('plugin_root')} ({state})."
         )
         return
-    plugin_dir = _main_checkout(root) / _HERDR_PLUGIN_DIR
+    try:
+        plugin_dir = _main_checkout(root) / _HERDR_PLUGIN_DIR
+    except (OSError, subprocess.SubprocessError):
+        click.echo(f"Couldn't find your main checkout. Run `herdr plugin link <main checkout>/{_HERDR_PLUGIN_DIR}`.")
+        return
     if not (plugin_dir / "herdr-plugin.toml").is_file():
         click.echo(f"Your main checkout has no {_HERDR_PLUGIN_DIR} yet. Pull it, then run this command again.")
         return
-    result = subprocess.run([herdr, "plugin", "link", str(plugin_dir)], capture_output=True, text=True, timeout=60)
+    try:
+        result = subprocess.run([herdr, "plugin", "link", str(plugin_dir)], capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError) as error:
+        click.echo(f"Couldn't link the herdr plugin: {error}")
+        return
     if result.returncode != 0:
         click.echo(f"Couldn't link the herdr plugin: {(result.stderr or result.stdout).strip()}")
         return
@@ -360,6 +368,28 @@ def _list_workspaces_or_fail() -> list[dict[str, Any]]:
         )
         raise SystemExit(1)  # unreachable; helps the type checker see no fall-through
     return workspaces
+
+
+def _prune_box_of_worktree_removed_during_setup(root: Path, git_dir: Path) -> bool:
+    if root.exists():
+        return False
+    click.echo(f"{root} was removed while its devbox started.")
+    box_action = saved_worktree_box_cleanup() or "stop"
+    prune_boxes_of_removed_worktrees(git_dir.parents[2], box_action, root, dry_run=False)
+    return True
+
+
+def _has_reusable_mirror(target: _WorktreeTarget) -> bool:
+    if target.reset_mirror:
+        return False
+    return bool(mutagen.sync_list(label_selector=mutagen.workspace_label_selector(target.workspace_name)))
+
+
+def _reset_recreated_mirror(target: _WorktreeTarget) -> None:
+    # Runs before `_claim_box` saves the new worktree's ID. A failed terminate then
+    # leaves the old ID in place, so a retry still sees a recreated worktree and resets.
+    if target.reset_mirror:
+        mutagen.sync_terminate(mutagen.workspace_label_selector(target.workspace_name))
 
 
 @click.command(name="devbox:worktree", help="Give this worktree its own devbox and sync mirror")
@@ -536,28 +566,6 @@ def _claim_box(
     return git_dir, worktree_id
 
 
-def _prune_box_of_worktree_removed_during_setup(root: Path, git_dir: Path) -> bool:
-    if root.exists():
-        return False
-    click.echo(f"{root} was removed while its devbox started.")
-    box_action = saved_worktree_box_cleanup() or "stop"
-    prune_boxes_of_removed_worktrees(git_dir.parents[2], box_action, root, dry_run=False)
-    return True
-
-
-def _has_reusable_mirror(target: _WorktreeTarget) -> bool:
-    if target.reset_mirror:
-        return False
-    return bool(mutagen.sync_list(label_selector=mutagen.workspace_label_selector(target.workspace_name)))
-
-
-def _reset_recreated_mirror(target: _WorktreeTarget) -> None:
-    # Runs before `_claim_box` saves the new worktree's ID. A failed terminate then
-    # leaves the old ID in place, so a retry still sees a recreated worktree and resets.
-    if target.reset_mirror:
-        mutagen.sync_terminate(mutagen.workspace_label_selector(target.workspace_name))
-
-
 def _drop_abandoned_mirror(target: _WorktreeTarget) -> None:
     if target.abandoned_mirror is not None:
         mutagen.sync_terminate(mutagen.workspace_label_selector(target.abandoned_mirror))
@@ -634,40 +642,10 @@ def devbox_worktree_prune(action: str | None, worktree_path: Path | None, dry_ru
         click.echo("No devboxes belong to removed worktrees.")
 
 
-@click.command(
-    name="devbox:worktree:teardown",
-    help="Stop the sync mirror and the devbox of this worktree before a tool such as Superset or Emdash removes it",
-)
-@click.option("--stop", "action", flag_value="stop", default=None, help="Stop the box")
-@click.option("--delete", "action", flag_value="delete", help="Delete the box, including its disk")
-@click.option(
-    "--background",
-    is_flag=True,
-    help="Stop the mirror now and act on the box in a background process, to stay inside a tool's hook time limit",
-)
-@click.option("--box-of", "box_of", type=click.Path(path_type=Path), default=None, hidden=True)
-@click.option("--worktree-id", "worktree_id", default=None, hidden=True)
-@click.option("--dry-run", is_flag=True, help="Print the plan without changing anything")
-def devbox_worktree_teardown(
-    action: str | None, background: bool, box_of: Path | None, worktree_id: str | None, dry_run: bool
-) -> None:
-    box_action = action or saved_worktree_box_cleanup() or "stop"
-    if box_of is not None:
-        if worktree_id is not None:
-            clean_registered_box(box_of, worktree_id, box_action)
-        return
-    root = _detect_local_posthog_checkout()
-    if not _is_linked_worktree(root):
-        return
-    act_on_box = _act_on_box_in_background if background else None
-    if teardown_worktree_box(root, _git_dir(root), box_action, dry_run, act_on_box) is None:
-        click.echo("This worktree has no devbox from `hogli devbox:worktree`.")
-
-
-def _act_on_box_in_background(box: WorktreeBox, box_action: str) -> None:
+def _act_on_box_in_background(worktree_root: Path, box: WorktreeBox, box_action: str, keep_record: bool) -> None:
     # The worktree and its git directory are about to be deleted, so the process runs
     # from the main checkout and logs next to the box records.
-    main_checkout = Path(box.record.git_dir).parent.parent.parent
+    main_checkout = _main_checkout(worktree_root)
     log_path = get_worktree_boxes_path().with_name(_TEARDOWN_LOG_NAME)
     main_env = {key: value for key, value in os.environ.items() if key not in ("VIRTUAL_ENV", "PYTHONPATH")}
     with log_path.open("ab") as log:
@@ -680,6 +658,7 @@ def _act_on_box_in_background(box: WorktreeBox, box_action: str) -> None:
                 str(box.worktree_path),
                 "--worktree-id",
                 str(box.record.worktree_id),
+                *(["--keep-record"] if keep_record else []),
             ],
             cwd=main_checkout,
             env={**main_env, "HOGLI_MANIFEST": str(main_checkout / "hogli.yaml")},
@@ -691,6 +670,50 @@ def _act_on_box_in_background(box: WorktreeBox, box_action: str) -> None:
     click.echo(
         f"hogli: the sync mirror is stopped. The devbox {box_action} continues in the background. Log: {log_path}"
     )
+
+
+@click.command(
+    name="devbox:worktree:teardown",
+    help="Stop the sync mirror and the devbox of this worktree before a tool such as Superset or Emdash removes it",
+)
+@click.option("--stop", "action", flag_value="stop", default=None, help="Stop the box")
+@click.option("--delete", "action", flag_value="delete", help="Delete the box, including its disk")
+@click.option(
+    "--background",
+    is_flag=True,
+    help="Stop the mirror now and act on the box in a background process, to stay inside a tool's hook time limit",
+)
+@click.option(
+    "--keep-record",
+    is_flag=True,
+    help="Keep the record of a stopped box, for a tool that keeps the worktree on disk, such as Emdash on archive",
+)
+@click.option("--box-of", "box_of", type=click.Path(path_type=Path), default=None, hidden=True)
+@click.option("--worktree-id", "worktree_id", default=None, hidden=True)
+@click.option("--dry-run", is_flag=True, help="Print the plan without changing anything")
+def devbox_worktree_teardown(
+    action: str | None,
+    background: bool,
+    keep_record: bool,
+    box_of: Path | None,
+    worktree_id: str | None,
+    dry_run: bool,
+) -> None:
+    box_action = action or saved_worktree_box_cleanup() or "stop"
+    if box_of is not None:
+        if worktree_id is not None:
+            clean_registered_box(box_of, worktree_id, box_action, keep_record)
+        return
+    root = _detect_local_posthog_checkout()
+    if not _is_linked_worktree(root):
+        return
+    git_dir = _git_dir(root)
+    act_on_box = (lambda box, chosen: _act_on_box_in_background(root, box, chosen, keep_record)) if background else None
+    if teardown_worktree_box(root, git_dir, box_action, dry_run, keep_record, act_on_box) is None:
+        click.echo("This worktree has no devbox from `hogli devbox:worktree`.")
+    elif not dry_run:
+        # A tool that keeps the worktree, such as Emdash on archive, can run its create hook again later.
+        (git_dir / _AUTO_STARTED_NAME).unlink(missing_ok=True)
 
 
 def _claim_auto_start(git_dir: Path) -> bool:

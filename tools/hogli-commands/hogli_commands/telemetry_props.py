@@ -204,7 +204,7 @@ def _worktree_tool(repo_root: Path) -> str | None:
         if not git_dir.is_absolute():
             git_dir = repo_root / git_dir
         tool = (git_dir / _WORKTREE_TOOL_FILE).read_text().strip()
-    except OSError:
+    except (OSError, ValueError):
         return None
     return tool if _WORKTREE_TOOL_RE.match(tool) else None
 

@@ -4,6 +4,7 @@
 #
 #   bin/devbox-worktree-hook created <source>   after the app creates the worktree
 #   bin/devbox-worktree-hook removing           before the app deletes the worktree
+#   bin/devbox-worktree-hook archiving          before the app archives a worktree it keeps on disk
 #
 # It always exits 0, so a devbox problem never blocks the app. Like .husky/post-checkout,
 # it runs the main clone's hogli and venv, because a new worktree has no venv of its own.
@@ -21,10 +22,15 @@ case "${1:-}" in
         grep -qs '"worktree_auto_box"' "$HOME/.config/posthog/hogli_devbox.json" || exit 0
         set -- devbox:worktree:auto --source "${2:-other}"
         ;;
-    removing)
+    removing | archiving)
         [ -s "$HOME/.config/posthog/hogli_devbox_worktrees.json" ] || exit 0
         # The box action runs in the background, because Superset and Orca kill a remove hook after 60 and 120 seconds.
-        set -- devbox:worktree:teardown --background
+        # An archived worktree can be restored, and its create hook then starts the box again from the kept record.
+        if [ "$1" = archiving ]; then
+            set -- devbox:worktree:teardown --background --keep-record
+        else
+            set -- devbox:worktree:teardown --background
+        fi
         ;;
     *)
         exit 0
