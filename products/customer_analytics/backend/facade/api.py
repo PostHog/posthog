@@ -3507,7 +3507,6 @@ def _list_accounts_sorted_by_custom_property(
     offset: int,
     limit: int,
 ) -> list[Account]:
-    # A LEFT JOIN with NULLS LAST joins every account; two queries let the cpv_active_sort_* index stop at the page.
     if sort.definition_id is None:
         raise InvalidAccountTableColumn("Custom property sorting requires a definition.")
     value_field = {
@@ -3517,7 +3516,6 @@ def _list_accounts_sorted_by_custom_property(
         DataType.DATETIME: "value_datetime",
     }[DATA_TYPE_BY_DISPLAY_TYPE[custom_property_display_types[sort.definition_id]]]
     sort_value = F(f"custom_property_values__{value_field}")
-    # One filter() call, then annotate(), so the sort value reuses the filter's join instead of adding a second one.
     with_value = queryset.filter(
         custom_property_values__team_id=team_id,
         custom_property_values__definition_id=sort.definition_id,
@@ -3528,7 +3526,6 @@ def _list_accounts_sorted_by_custom_property(
             Left(sort_value, SORT_VALUE_STR_PREFIX_LENGTH) if value_field == "value_str" else sort_value
         ),
     )
-    # The id tiebreaker follows the sort direction so one index scan direction serves both.
     if sort.direction == contracts.AccountTableSortDirection.ASCENDING:
         with_value = with_value.order_by(F("_account_table_sort").asc(), "id")
     else:

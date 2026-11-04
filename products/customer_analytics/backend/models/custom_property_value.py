@@ -9,7 +9,6 @@ from posthog.models.utils import CreatedMetaFields, UUIDModel
 # service can tell this (retriable) race apart from other integrity errors by name.
 ACTIVE_VALUE_CONSTRAINT_NAME = "unique_active_custom_property_value"
 
-# Text values have no length limit, and a btree entry over about 2.7KB fails the insert.
 SORT_VALUE_STR_PREFIX_LENGTH = 256
 
 
