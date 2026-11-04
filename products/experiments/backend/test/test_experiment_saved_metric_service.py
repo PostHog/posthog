@@ -30,7 +30,16 @@ _WAREHOUSE_NATIVE_MEAN: dict[str, object] = {
 }
 
 _SHARED_RULE_CASES: list[tuple[str, dict[str, object], str]] = [
-    ("warehouse_native_not_supported_yet", _WAREHOUSE_NATIVE_MEAN, "warehouse-native sources are not supported yet"),
+    (
+        "ratio_mixing_warehouse_native_and_events",
+        {
+            "kind": "ExperimentMetric",
+            "metric_type": "ratio",
+            "numerator": _WAREHOUSE_NATIVE_MEAN["source"],
+            "denominator": {"kind": "EventsNode", "event": "$pageview"},
+        },
+        "cannot mix a warehouse-native source with PostHog events",
+    ),
     (
         "funnel_without_steps",
         {"kind": "ExperimentMetric", "metric_type": "funnel", "series": []},
