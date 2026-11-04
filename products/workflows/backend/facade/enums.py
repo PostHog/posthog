@@ -109,6 +109,7 @@ class HogFlowOriginProduct(LabeledStrEnum):
     LOOPS = "loops", "Loops"
     BROADCASTS = "broadcasts", "Broadcasts"
     TRANSACTIONAL_EMAILS = "transactional_emails", "Transactional emails"
+    TRANSACTIONAL_EMAIL_KEYS = "transactional_email_keys", "Transactional email keys"
 
 
 class HogFlowEmailSendingPausedBy(LabeledStrEnum):
@@ -211,3 +212,18 @@ class EmailDomainSetupStepState(LabeledStrEnum):
     DONE = "done", "Done"
     PENDING = "pending", "Pending"
     FAILED = "failed", "Failed"
+
+
+class PushTokenImportStatus(LabeledStrEnum):
+    RUNNING = "running", "Import running"
+    COMPLETED = "completed", "Import completed"
+    CANCELLED = "cancelled", "Import cancelled"
+    FAILED = "failed", "Import failed"
+
+
+class PushTokenImportRowFailureReason(LabeledStrEnum):
+    INVALID_ROW = "invalid_row", "The line is missing a value or a value is too long"
+    UNKNOWN_PERSON = "unknown_person", "No person has this distinct ID"
+    TOKEN_MISMATCH = "token_mismatch", "The token does not fit this channel"
+    NOT_STORED = "not_stored", "The device was not stored"
+    PERSON_PROCESSING_DISABLED = "person_processing_disabled", "Person processing is off for this person"

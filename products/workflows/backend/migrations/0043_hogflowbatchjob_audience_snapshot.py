@@ -7,7 +7,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
     dependencies = [
         ("posthog", "1415_organizationaiterms"),
-        ("workflows", "0041_hogflowbatchjob_partially_failed_status"),
+        ("workflows", "0042_push_token_import"),
     ]
 
     operations = [
