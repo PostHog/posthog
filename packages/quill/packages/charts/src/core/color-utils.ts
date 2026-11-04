@@ -1,5 +1,6 @@
 import { color as d3Color, rgb as d3Rgb } from 'd3-color'
 
+import { DEFAULT_CHART_COLORS } from './theme'
 import type { ResolvedSeries, Series } from './types'
 
 /** Translucent variant of a series colour (any CSS color form d3 can parse — hex 3/6 digit,
@@ -8,30 +9,36 @@ export function dimColor(color: string, alpha: number): string {
     return d3Color(color)?.copy({ opacity: alpha }).toString() ?? color
 }
 
-/** Resolve a CSS custom-property reference (`var(--x)`, with an optional fallback) to its
+interface ResolveCssColorOptions {
+    /** Element to read the custom property from. Defaults to `document.body`, to match {@link themeFromCssVars}. */
+    root?: HTMLElement
+    fallback?: string
+}
+
+/** Resolve a CSS custom-property reference (`var(--x)`, with an optional CSS fallback) to its
  *  computed color value. A canvas 2D context can't resolve `var()`, so an accent handed to
  *  `fillStyle`/`strokeStyle` (or through `dimColor`, which relies on `d3.color` parsing it)
- *  must be a concrete color first. Non-`var()` inputs, and SSR/no-DOM contexts, return the
- *  input unchanged; `root` defaults to `document.body` to match {@link themeFromCssVars}. */
-export function resolveCssColor(color: string, root?: HTMLElement): string {
+ *  must be a concrete color first. A reference that does not resolve returns `fallback`, because
+ *  the canvas ignores an invalid color and paints with the color of the previous stroke. */
+export function resolveCssColor(
+    color: string,
+    { root, fallback = DEFAULT_CHART_COLORS[0] }: ResolveCssColorOptions = {}
+): string {
     const trimmed = color.trim()
     if (!trimmed.startsWith('var(')) {
         return color
     }
-    if (typeof document === 'undefined' || typeof getComputedStyle !== 'function') {
-        return color
-    }
     const match = /^var\(\s*(--[^,)]+?)\s*(?:,\s*([\s\S]+))?\)$/.exec(trimmed)
-    if (!match) {
-        return color
+    if (!match || typeof document === 'undefined' || typeof getComputedStyle !== 'function') {
+        return fallback
     }
-    const [, name, fallback] = match
+    const [, name, cssFallback] = match
     const el = root ?? document.body
     const value = getComputedStyle(el).getPropertyValue(name).trim()
     if (value) {
         return value
     }
-    return fallback && fallback.trim() ? resolveCssColor(fallback.trim(), el) : color
+    return cssFallback?.trim() ? resolveCssColor(cssFallback.trim(), { root: el, fallback }) : fallback
 }
 
 /** Linear RGB interpolation between two colors. `t` is clamped to [0, 1]; `t=0` returns `from`,
