@@ -67,6 +67,42 @@ describe('broadcastPerformanceLogic', () => {
         expect(logic.values.stats?.sent).toEqual(49)
     })
 
+    it.each(['email', 'push'] as const)(
+        'counts %s sends that stopped at an error before reaching the provider, and says why',
+        async (channel) => {
+            const rows: [number, string][] = [
+                [0, 'email_sent'],
+                [0, 'push_sent'],
+                [245, 'failed'],
+            ]
+            const errorLog = '[Action:step_1] Errored: Error: invalid value expression: "person.name |", line:3, col:1'
+            jest.spyOn(api, 'queryHogQL').mockImplementation(
+                async (query) =>
+                    ({
+                        results: String(query).includes('log_entries')
+                            ? [[errorLog]]
+                            : rows.filter(([, name]) => String(query).includes(`'${name}'`)),
+                    }) as HogQLQueryResponse
+            )
+            const logic = broadcastPerformanceLogic({
+                runId: `run-errored-${channel}`,
+                runStartedAt: '2026-10-19T22:28:56Z',
+                channel,
+            })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadTotalsSuccess', 'loadLatestErrorLogSuccess'])
+            expect(logic.values.stats).toMatchObject({ sent: 0, failed: 0 })
+            expect(logic.values.sendCounts).toEqual({ sent: 0, notSent: 245 })
+            expect(logic.values.sendError).toEqual({
+                kind: 'content',
+                reason: "A merge tag can't be read",
+                tag: '{{ person.name | }}',
+                nextStep: `Check the tag in the ${channel === 'push' ? 'notification' : 'email'} for typos.`,
+            })
+        }
+    )
+
     it('does not report tracking off before anything was sent', async () => {
         jest.spyOn(api, 'queryHogQL').mockResolvedValue({ results: [] } as unknown as HogQLQueryResponse)
         const logic = broadcastPerformanceLogic({ runId: 'run-2', runStartedAt: '2026-10-19T22:28:56Z' })

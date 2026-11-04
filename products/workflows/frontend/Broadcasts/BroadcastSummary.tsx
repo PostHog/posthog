@@ -2,15 +2,7 @@ import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect } from 'react'
 
 import { IconChevronDown, IconLetter } from '@posthog/icons'
-import {
-    LemonBanner,
-    LemonButton,
-    LemonDialog,
-    LemonDivider,
-    LemonInput,
-    LemonTag,
-    LemonTagType,
-} from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDialog, LemonDivider, LemonInput } from '@posthog/lemon-ui'
 
 import PropertyFiltersDisplay from 'lib/components/PropertyFilters/components/PropertyFiltersDisplay'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -20,7 +12,6 @@ import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
-import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -34,24 +25,18 @@ import { broadcastAudienceCohortsLogic } from './audience/broadcastAudienceCohor
 import { BroadcastEmailPreview } from './BroadcastEmailPreview'
 import { archiveDisabledReason, manageDisabledReason } from './broadcastLifecycle'
 import { BroadcastPerformance } from './BroadcastPerformance'
+import { broadcastPerformanceLogic } from './broadcastPerformanceLogic'
 import { BroadcastPushPerformance } from './BroadcastPushPerformance'
 import { BroadcastPushPreview } from './BroadcastPushPreview'
 import { BroadcastSceneHeader } from './BroadcastSceneHeader'
+import type { BroadcastSendErrorAction } from './BroadcastSendErrorBanner'
 import { broadcastSentLogic } from './broadcastSentLogic'
+import { type BroadcastChannel, type BroadcastRunStatus, getRunStatus } from './broadcastsLogic'
 import { BroadcastStatusTag } from './BroadcastStatusTag'
 import { broadcastPath } from './broadcastUsage'
 import { broadcastWizardLogic } from './broadcastWizardLogic'
 import { ComposerDraftFeedback } from './ComposerDraftFeedback'
 import { QuillBroadcastActionsMenu } from './QuillBroadcastActionsMenu'
-
-const BATCH_JOB_STATUS_TAG: Record<string, LemonTagType> = {
-    waiting: 'default',
-    queued: 'warning',
-    active: 'warning',
-    completed: 'success',
-    cancelled: 'muted',
-    failed: 'danger',
-}
 
 /**
  * The recipients of one run. Each run binds its own broadcastSentLogic (keyed on the run id), so
@@ -61,21 +46,54 @@ function RunRecipients({
     workflowId,
     runId,
     runCreatedAt,
+    runFinished,
+    channel,
 }: {
     workflowId: string
     runId: string
     runCreatedAt: string
+    runFinished: boolean
+    channel: BroadcastChannel
 }): JSX.Element {
+    const { sendCounts } = useValues(broadcastPerformanceLogic({ runId, runStartedAt: runCreatedAt, channel }))
     return (
-        <div className="bg-surface-secondary border-t px-4 py-3 w-0 min-w-full">
+        <div className="bg-surface-secondary border-t px-4 py-3 w-0 min-w-full flex flex-col gap-3">
             <BindLogic logic={broadcastSentLogic} props={{ id: workflowId || 'new', parentRunId: runId, runCreatedAt }}>
-                <RunRecipientsTable workflowId={workflowId} />
+                <RunRecipientsTable workflowId={workflowId} runFinished={runFinished} sent={sendCounts?.sent ?? null} />
             </BindLogic>
         </div>
     )
 }
 
-function RunRecipientsTable({ workflowId }: { workflowId: string }): JSX.Element {
+function runNoSendsMessage({
+    runPastRetention,
+    runFinished,
+    sent,
+}: {
+    runPastRetention: boolean
+    runFinished: boolean
+    sent: number | null
+}): string {
+    if (runPastRetention) {
+        return "Recipient details are kept for 30 days after sending, so this run's list is no longer available."
+    }
+    if (!runFinished) {
+        return 'No sends recorded for this run yet.'
+    }
+    // Metrics can count sends that the recipient list has no record of.
+    return sent === 0 ? "This run didn't send to anyone." : "Recipient details aren't available for this run."
+}
+
+function RunRecipientsTable({
+    workflowId,
+    runFinished,
+    sent,
+}: {
+    workflowId: string
+    runFinished: boolean
+    /** How many sends the run's metrics count. Null until they load. */
+    sent: number | null
+}): JSX.Element {
     const {
         sends,
         sendsLoading,
@@ -92,9 +110,7 @@ function RunRecipientsTable({ workflowId }: { workflowId: string }): JSX.Element
         loadSends()
     }, [loadSends])
 
-    const noSendsMessage = runPastRetention
-        ? "Recipient details are kept for 30 days after sending, so this run's list is no longer available."
-        : 'No sends recorded for this run yet.'
+    const noSendsMessage = runNoSendsMessage({ runPastRetention, runFinished, sent })
 
     const columns: LemonTableColumns<MessageAsset> = [
         {
@@ -221,11 +237,13 @@ function RunsTable({
     batchJobs,
     batchJobsLoading,
     columns,
+    channel,
 }: {
     workflowId: string
     batchJobs: HogFlowBatchJobApi[]
     batchJobsLoading: boolean
     columns: LemonTableColumns<HogFlowBatchJobApi>
+    channel: BroadcastChannel
 }): JSX.Element {
     const { expandedRunIds } = useValues(broadcastWizardLogic)
     const { expandRun, collapseRun } = useActions(broadcastWizardLogic)
@@ -237,9 +255,16 @@ function RunsTable({
             rowKey="id"
             columns={columns}
             nouns={['run', 'runs']}
+            // Each row's status loads that run's metrics, so a page bounds the queries for a long recurring broadcast.
             expandable={{
                 expandedRowRender: (job) => (
-                    <RunRecipients workflowId={workflowId} runId={job.id} runCreatedAt={job.created_at} />
+                    <RunRecipients
+                        workflowId={workflowId}
+                        runId={job.id}
+                        runCreatedAt={job.created_at}
+                        runFinished={getRunStatus(job.status) !== 'sending'}
+                        channel={channel}
+                    />
                 ),
                 rowExpandable: (job) => !!job.id,
                 // A table inside a table runs out of room first. Dropping the indent cell gives the
@@ -254,13 +279,21 @@ function RunsTable({
     )
 }
 
-const LATEST_RUN_LABEL: Record<string, string> = {
-    completed: 'Sent',
-    waiting: 'Sending, started',
-    queued: 'Sending, started',
-    active: 'Sending, started',
+/** A status with the people the run didn't reach. Mounting the run's metrics here shares them with the Overview. */
+const LATEST_RUN_LABEL: Record<BroadcastRunStatus, string> = {
+    sent: 'Sent',
+    partially_failed: 'Partly sent',
+    sending: 'Sending, started',
     failed: 'Last send failed, started',
     cancelled: 'Last send was cancelled, started',
+}
+
+function LatestRunLabel({ job }: { job: HogFlowBatchJobApi }): JSX.Element {
+    return (
+        <span>
+            <span>{LATEST_RUN_LABEL[getRunStatus(job.status)]}</span> <TZLabel time={job.created_at} />
+        </span>
+    )
 }
 
 export function BroadcastSummary(): JSX.Element {
@@ -306,6 +339,16 @@ export function BroadcastSummary(): JSX.Element {
         })
     }
 
+    // A sent broadcast can't change, so a fix goes into a copy. A broadcast with sends still scheduled is edited in place.
+    const fixAction: BroadcastSendErrorAction | undefined = canMoveToDraft
+        ? { label: 'Stop and edit', onClick: confirmMoveToDraft }
+        : canEditContent
+          ? { label: 'Fix and send again', onClick: duplicateBroadcast }
+          : undefined
+    const resendAction: BroadcastSendErrorAction | undefined = canEditContent
+        ? { label: 'Send again', onClick: duplicateBroadcast }
+        : undefined
+
     const latestBatchJob = batchJobs[0]
     const latestBatchJobId = latestBatchJob?.id
 
@@ -318,11 +361,7 @@ export function BroadcastSummary(): JSX.Element {
         {
             title: 'Status',
             key: 'status',
-            render: (_, job) => (
-                <LemonTag type={BATCH_JOB_STATUS_TAG[job.status ?? 'waiting'] ?? 'default'}>
-                    {capitalizeFirstLetter(job.status ?? 'waiting')}
-                </LemonTag>
-            ),
+            render: (_, job) => <BroadcastStatusTag status={getRunStatus(job.status)} />,
         },
         {
             title: 'Started by',
@@ -475,10 +514,7 @@ export function BroadcastSummary(): JSX.Element {
                                                     ) : null}
                                                 </div>
                                             ) : latestBatchJob ? (
-                                                <span>
-                                                    {LATEST_RUN_LABEL[latestBatchJob.status ?? 'waiting'] ?? 'Last run'}{' '}
-                                                    <TZLabel time={latestBatchJob.created_at} />
-                                                </span>
+                                                <LatestRunLabel job={latestBatchJob} />
                                             ) : (
                                                 <span>{scheduleSummary}</span>
                                             )}
@@ -504,12 +540,19 @@ export function BroadcastSummary(): JSX.Element {
                                                 runStartedAt={latestBatchJob.created_at}
                                                 hasGoal={goalEnabled}
                                                 channel={channel}
+                                                fixAction={fixAction}
+                                                resendAction={resendAction}
+                                                content={`${push.title}\n${push.body}`}
                                             />
                                         ) : latestBatchJob ? (
                                             <BroadcastPerformance
                                                 runId={latestBatchJob.id}
                                                 runStartedAt={latestBatchJob.created_at}
                                                 hasGoal={goalEnabled}
+                                                channel={channel}
+                                                fixAction={fixAction}
+                                                resendAction={resendAction}
+                                                content={`${email.subject}\n${email.preheader ?? ''}\n${email.html}`}
                                             />
                                         ) : (
                                             <span className="text-muted">
@@ -541,6 +584,7 @@ export function BroadcastSummary(): JSX.Element {
                                     batchJobs={batchJobs}
                                     batchJobsLoading={batchJobsLoading}
                                     columns={batchJobColumns}
+                                    channel={channel}
                                 />
                             ),
                         },
