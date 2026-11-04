@@ -30,7 +30,8 @@ def _sandbox_sender_config(organization_name: str) -> dict[str, str | bool]:
     }
 
 
-def _sandbox_sender_configured() -> bool:
+def sandbox_sender_configured() -> bool:
+    """Whether this deployment can provision sandbox senders. Off, no sandbox send can exist."""
     return bool(
         settings.WORKFLOWS_SANDBOX_SENDER_DOMAIN
         and settings.SES_SANDBOX_FROM_ADDRESS
@@ -59,7 +60,7 @@ def _organization_blocked(team: Team) -> bool:
 
 def ensure_sandbox_email_sender(team_id: int) -> SandboxEmailSender:
     team = Team.objects.select_related("organization").get(id=team_id)
-    if not _sandbox_sender_configured() or not _sandbox_sender_enabled(team) or _organization_blocked(team):
+    if not sandbox_sender_configured() or not _sandbox_sender_enabled(team) or _organization_blocked(team):
         raise SandboxSenderUnavailable()
 
     config = _sandbox_sender_config(team.organization.name)
