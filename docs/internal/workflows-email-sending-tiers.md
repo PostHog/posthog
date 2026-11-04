@@ -106,6 +106,7 @@ A project appearing there often is spending more on transactional than its tier 
 
 The worker sends through a `sandbox` email integration only when `WORKFLOWS_SANDBOX_SENDER_ENABLED` is on and `SES_SANDBOX_TENANT_NAME`, `SES_SANDBOX_CONFIGURATION_SET`, and `SES_SANDBOX_FROM_ADDRESS` are set.
 Otherwise every send through it skips with a reason in the run log and a `workflows sandbox email blocked` event with reason `switch_off`.
+It sends workflow email steps and test sends only: a broadcast or a transactional API email through it skips with a reason in the run log.
 Every To, CC, and BCC address must belong to an active member of the team's active organization with a verified email address.
 Membership snapshots expire within one minute, and the worker checks recipients again right before delivery.
 A failed or stale membership check skips the send and lists the blocked addresses in the run log.
