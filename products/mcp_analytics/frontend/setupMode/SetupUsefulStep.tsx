@@ -10,6 +10,7 @@ import { type HoggiePngProps, pngHoggie } from 'lib/brand/hoggies'
 import { urls } from 'scenes/urls'
 
 import { mcpEarlyDataLogic } from '../earlyData/mcpEarlyDataLogic'
+import { weeklyReportStep } from '../earlyData/nextSteps'
 import { WeeklyReportActions } from '../earlyData/WeeklyReportActions'
 import { SetupCallsPanel } from './SetupCallsPanel'
 import { SetupStepHero } from './SetupStepHero'
@@ -78,23 +79,12 @@ function OptionCard({
     )
 }
 
+// Reads the offer itself rather than the activity next steps, which also wait on the overview request.
 function WeeklyReportOption(): JSX.Element {
-    const { nextSteps, weeklyReportOffer } = useValues(mcpEarlyDataLogic)
+    const { weeklyReportOffer } = useValues(mcpEarlyDataLogic)
     const { nextStepClicked } = useActions(mcpEarlyDataLogic)
-    const reportStep = nextSteps?.find((step) => step.key === 'weekly-report')
 
-    if (reportStep?.action.kind === 'weekly-report') {
-        return (
-            <OptionCard
-                Hedgehog={HedgehogMailbox}
-                title={reportStep.title}
-                detail={reportStep.detail}
-                error={reportStep.error}
-                actions={<WeeklyReportActions offer={reportStep.action.offer} />}
-            />
-        )
-    }
-    if (nextSteps === null) {
+    if (weeklyReportOffer.state === 'loading') {
         return (
             <OptionCard
                 Hedgehog={HedgehogMailbox}
@@ -104,7 +94,19 @@ function WeeklyReportOption(): JSX.Element {
             />
         )
     }
-    const hasReport = weeklyReportOffer.state === 'hidden' && weeklyReportOffer.reason === 'has-report'
+    if (weeklyReportOffer.state !== 'hidden') {
+        const reportStep = weeklyReportStep(weeklyReportOffer)
+        return (
+            <OptionCard
+                Hedgehog={HedgehogMailbox}
+                title={reportStep.title}
+                detail={reportStep.detail}
+                error={reportStep.error}
+                actions={<WeeklyReportActions offer={weeklyReportOffer} />}
+            />
+        )
+    }
+    const hasReport = weeklyReportOffer.reason === 'has-report'
     return (
         <OptionCard
             Hedgehog={HedgehogMailbox}
