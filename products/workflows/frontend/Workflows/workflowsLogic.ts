@@ -18,6 +18,7 @@ import { hogFlowsPartialUpdate } from '../generated/api'
 import type { HogFlow } from './hogflows/types'
 import { prepareWorkflowDuplicate } from './workflowDuplication'
 import { confirmArchiveWorkflow, confirmDeleteWorkflow, restoreWorkflowToDraft } from './workflowRowActions'
+import { WORKFLOW_TRIGGER_TYPE_OPTIONS, WorkflowTriggerTypeFilter } from './workflowTriggerTypes'
 
 export type WorkflowStatusFilter = 'all' | 'active' | 'draft' | 'archived'
 
@@ -30,22 +31,6 @@ export type WorkflowTypeFilter = 'all' | 'messaging' | 'automation' | 'loop'
 const WORKFLOWS_PAGE_TYPES: HogFlowListType[] = ['messaging', 'automation', 'loop']
 
 const WORKFLOW_TYPE_FILTERS: WorkflowTypeFilter[] = ['all', 'messaging', 'automation', 'loop']
-
-export type WorkflowTriggerTypeFilter = 'all' | (NonNullable<HogFlow['trigger']> extends { type: infer T } ? T : never)
-
-// Keep in sync with TRIGGER_TYPES in products/workflows/backend/models/hog_flow/hog_flow.py.
-export const WORKFLOW_TRIGGER_TYPE_OPTIONS: { value: WorkflowTriggerTypeFilter; label: string }[] = [
-    { value: 'all', label: 'All' },
-    { value: 'event', label: 'Event' },
-    { value: 'schedule', label: 'Schedule' },
-    { value: 'manual', label: 'Manual' },
-    { value: 'batch', label: 'Batch' },
-    { value: 'webhook', label: 'Webhook' },
-    { value: 'tracking_pixel', label: 'Tracking pixel' },
-    { value: 'data-warehouse-table', label: 'Data warehouse table' },
-    { value: 'data-warehouse-view', label: 'Data warehouse view' },
-    { value: 'internal-event', label: 'Internal event' },
-]
 
 const WORKFLOW_TRIGGER_TYPE_FILTERS = WORKFLOW_TRIGGER_TYPE_OPTIONS.map((option) => option.value)
 

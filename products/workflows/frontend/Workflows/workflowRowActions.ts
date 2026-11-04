@@ -3,7 +3,7 @@ import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import { deleteFromTree } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 
 import { hogFlowsDestroy, hogFlowsPartialUpdate } from 'products/workflows/frontend/generated/api'
-import type { HogFlowUpdateApi } from 'products/workflows/frontend/generated/api.schemas'
+import type { HogFlowStateEnumApi, HogFlowUpdateApi } from 'products/workflows/frontend/generated/api.schemas'
 
 /** What the row actions need to know about a workflow, in either list. */
 export interface WorkflowRowTarget {
@@ -11,8 +11,6 @@ export interface WorkflowRowTarget {
     name: string | null
     status?: string
 }
-
-type WorkflowStatus = 'draft' | 'active' | 'archived'
 
 export type WorkflowRowAction = 'toggle' | 'duplicate' | 'archive' | 'restore' | 'delete'
 
@@ -25,7 +23,7 @@ export function workflowActionErrorDetail(error: unknown): string {
 export async function setWorkflowStatus(
     teamId: string,
     workflow: WorkflowRowTarget,
-    status: WorkflowStatus
+    status: HogFlowStateEnumApi
 ): Promise<HogFlowUpdateApi | null> {
     try {
         return await hogFlowsPartialUpdate(teamId, workflow.id, { status })

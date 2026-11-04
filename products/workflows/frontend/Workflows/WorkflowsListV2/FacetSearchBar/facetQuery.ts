@@ -21,8 +21,6 @@ export interface FacetDefinition<TItem> {
     emptyLabel?: string
     /** Listed when the input is empty. Other facets are found by typing. */
     showOnFocus?: boolean
-    /** Lower sorts first. */
-    order?: number
 }
 
 export interface FacetFilter {
@@ -54,10 +52,6 @@ export function findFacet<TItem>(facets: FacetDefinition<TItem>[], key: string):
 
 export function formatFacetValue<TItem>(facet: FacetDefinition<TItem> | undefined, value: string): string {
     return facet?.formatValue ? facet.formatValue(value) : value
-}
-
-export function sortFacets<TItem>(facets: FacetDefinition<TItem>[]): FacetDefinition<TItem>[] {
-    return [...facets].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
 }
 
 export function normalizeFacetValue<TItem>(facet: FacetDefinition<TItem>, value: string): string {
@@ -171,15 +165,6 @@ export function createFacetMatcher<TItem>(
     return (item) => passesGroups(item, groups) && (!text || matchesText(item, text))
 }
 
-export function matchesFacetQuery<TItem>(
-    item: TItem,
-    value: FacetSearchValue,
-    facets: FacetDefinition<TItem>[],
-    matchesText: MatchesText<TItem>
-): boolean {
-    return createFacetMatcher(value, facets, matchesText)(item)
-}
-
 /**
  * Returns a counter of each facet's values over the items the other pills and the text let through.
  * A facet's own pills are left out, so picking one value keeps the counts of its OR alternatives.
@@ -216,14 +201,4 @@ export function createFacetCounter<TItem>(
         }
         return [...counts.values()].sort((a, b) => b.count - a.count || a.value.localeCompare(b.value))
     }
-}
-
-export function countFacetValues<TItem>(
-    items: TItem[],
-    facetKey: string,
-    value: FacetSearchValue,
-    facets: FacetDefinition<TItem>[],
-    matchesText: MatchesText<TItem>
-): FacetValueCount[] {
-    return createFacetCounter(items, value, facets, matchesText)(facetKey)
 }

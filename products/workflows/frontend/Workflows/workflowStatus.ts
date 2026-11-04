@@ -1,4 +1,6 @@
-export type WorkflowStatusValue = 'draft' | 'active' | 'archived'
+import type { HogFlowStateEnumApi } from 'products/workflows/frontend/generated/api.schemas'
+
+export type WorkflowStatusValue = HogFlowStateEnumApi
 
 export const WORKFLOW_STATUS_CONFIG: Record<
     WorkflowStatusValue,

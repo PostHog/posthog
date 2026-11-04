@@ -36,16 +36,11 @@ import { workflowSuggestionsAvailabilityLogic } from './suggestions/workflowSugg
 import { workflowLogic } from './workflowLogic'
 import { WorkflowRowMenuOverlay } from './WorkflowRowMenuOverlay'
 import { findMatchingWorkflowSteps } from './workflowSearchMatches'
-import {
-    WORKFLOW_TRIGGER_TYPE_OPTIONS,
-    WorkflowStatusFilter,
-    WorkflowTriggerTypeFilter,
-    WorkflowTypeFilter,
-    workflowsLogic,
-} from './workflowsLogic'
+import { WorkflowStatusFilter, WorkflowTypeFilter, workflowsLogic } from './workflowsLogic'
 import { WorkflowStatusTag } from './WorkflowStatusTag'
 import { WorkflowStepMatches } from './WorkflowStepMatches'
 import { WorkflowTagsCell } from './WorkflowTagsCell'
+import { WORKFLOW_TRIGGER_TYPE_OPTIONS, WorkflowTriggerTypeFilter } from './workflowTriggerTypes'
 import { hasMessagingAction } from './workflowTypeFilters'
 
 function WorkflowTypeTag({ workflow }: { workflow: HogFlow }): JSX.Element {

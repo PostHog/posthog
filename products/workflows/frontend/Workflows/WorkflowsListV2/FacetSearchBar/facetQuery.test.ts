@@ -1,8 +1,8 @@
 import {
     FacetDefinition,
     FacetSearchValue,
-    countFacetValues,
-    matchesFacetQuery,
+    createFacetCounter,
+    createFacetMatcher,
     parseFacetQuery,
     serializeFacetQuery,
 } from './facetQuery'
@@ -36,7 +36,7 @@ const ITEMS: Item[] = [
 const matchesText = (item: Item, text: string): boolean => item.name.toLowerCase().includes(text.toLowerCase())
 
 const names = (value: FacetSearchValue): string[] =>
-    ITEMS.filter((item) => matchesFacetQuery(item, value, FACETS, matchesText)).map((item) => item.name)
+    ITEMS.filter(createFacetMatcher(value, FACETS, matchesText)).map((item) => item.name)
 
 describe('facetQuery', () => {
     it.each([
@@ -129,18 +129,18 @@ describe('facetQuery', () => {
             ],
             text: '',
         }
-        expect(countFacetValues(ITEMS, 'status', value, FACETS, matchesText)).toEqual([
+        expect(createFacetCounter(ITEMS, value, FACETS, matchesText)('status')).toEqual([
             { value: 'archived', count: 1 },
             { value: 'draft', count: 1 },
         ])
-        expect(countFacetValues(ITEMS, 'sentBy', value, FACETS, matchesText)).toEqual([
+        expect(createFacetCounter(ITEMS, value, FACETS, matchesText)('sentBy')).toEqual([
             { value: 'b@example.com', count: 1 },
         ])
-        expect(countFacetValues(ITEMS, 'status', { filters: [], text: 'e' }, FACETS, matchesText)).toEqual([
+        expect(createFacetCounter(ITEMS, { filters: [], text: 'e' }, FACETS, matchesText)('status')).toEqual([
             { value: 'active', count: 1 },
             { value: 'draft', count: 1 },
         ])
-        expect(countFacetValues(ITEMS, 'status', { filters: [], text: '' }, FACETS, matchesText)[0]).toEqual({
+        expect(createFacetCounter(ITEMS, { filters: [], text: '' }, FACETS, matchesText)('status')[0]).toEqual({
             value: 'draft',
             count: 2,
         })

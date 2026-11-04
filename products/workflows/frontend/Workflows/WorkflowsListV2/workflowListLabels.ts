@@ -1,5 +1,5 @@
-import { WORKFLOW_TRIGGER_TYPE_OPTIONS } from '../workflowsLogic'
 import { WORKFLOW_STATUS_CONFIG } from '../workflowStatus'
+import { WORKFLOW_TRIGGER_TYPE_OPTIONS } from '../workflowTriggerTypes'
 import type { WorkflowHealth } from './workflowListRows'
 
 export const STATUS_LABELS: Record<string, string> = Object.fromEntries(

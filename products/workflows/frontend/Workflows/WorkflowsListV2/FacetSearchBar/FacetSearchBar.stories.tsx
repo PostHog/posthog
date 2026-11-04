@@ -19,7 +19,6 @@ const FACETS: FacetDefinition<Item>[] = [
         label: 'Status',
         description: 'Draft, active or archived',
         showOnFocus: true,
-        order: 1,
         getValues: (item) => [item.status],
         formatValue: (value) => value[0].toUpperCase() + value.slice(1),
     },
@@ -28,7 +27,6 @@ const FACETS: FacetDefinition<Item>[] = [
         label: 'Channel',
         description: 'What it sends',
         showOnFocus: true,
-        order: 2,
         getValues: (item) => item.channel,
     },
     {
@@ -37,7 +35,6 @@ const FACETS: FacetDefinition<Item>[] = [
         label: 'Sends',
         description: 'Email subject',
         showOnFocus: true,
-        order: 3,
         getValues: (item) => item.subjects,
     },
 ]

@@ -13,7 +13,6 @@ import {
     formatFacetValue,
     normalizeFacetValue,
     resolvedFacetFilterKey,
-    sortFacets,
 } from './facetQuery'
 
 const MAX_VALUE_SUGGESTIONS = 50
@@ -238,11 +237,10 @@ function buildSuggestions(
         return [{ id: 'none', kind: 'none', label }]
     }
 
-    const ordered = sortFacets(facets)
     const { rest, token } = splitLastToken(input)
 
     if (!token) {
-        return ordered
+        return facets
             .filter((facet) => facet.showOnFocus)
             .map((facet) => ({
                 id: `facet-${facet.key}`,
@@ -257,7 +255,7 @@ function buildSuggestions(
     const bare = (negated ? token.slice(1) : token).toLowerCase()
     const result: FacetSuggestion[] = []
     if (bare) {
-        for (const facet of ordered) {
+        for (const facet of facets) {
             if ([...facetNames(facet), facet.label.toLowerCase()].some((name) => name.startsWith(bare))) {
                 result.push({
                     id: `facet-${facet.key}`,
@@ -274,7 +272,7 @@ function buildSuggestions(
     if (bare.length >= MIN_CROSS_FACET_TOKEN_LENGTH) {
         const matches: FacetSuggestion[] = []
         const countValues = createFacetCounter(items, { filters: value.filters, text: rest }, facets, matchesText)
-        for (const facet of ordered) {
+        for (const facet of facets) {
             for (const { value: v, count } of countValues(facet.key)) {
                 const label = formatFacetValue(facet, v)
                 if (!label.toLowerCase().includes(bare) && !v.toLowerCase().includes(bare)) {
