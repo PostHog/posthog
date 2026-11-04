@@ -52,6 +52,14 @@ const isActiveEvent = (event: SnapshotEvent): boolean => {
     const type = eventData?.type
     const source = eventData?.data?.source
 
+    // FullSnapshots count as activity, as they do in the player's segmenter.
+    // Mobile recordings consist almost entirely of FullSnapshots (wireframes),
+    // so without this they record almost no active time and are filtered out
+    // of the recordings list by the minimum active duration filter.
+    if (type === RRWebEventType.FullSnapshot) {
+        return true
+    }
+
     return type === RRWebEventType.IncrementalSnapshot && activeSources.includes(source ?? -1)
 }
 
