@@ -26,8 +26,12 @@ export type DotMatrixTileResult =
 
 export function createMatrixHogQLQuery(query: string, context: DotMatrixQueryContext): HogQLQuery {
     if (query.includes('{filters}') && (context.groupTypeIndex == null || !context.externalId)) {
-        throw new Error(
-            'Link this account and choose an account group type in Customer analytics settings to use {filters}.'
+        // Status 400 marks this as the user's to fix, like a SQL mistake, so it isn't reported as an exception.
+        throw Object.assign(
+            new Error(
+                'Link this account and choose an account group type in Customer analytics settings to use {filters}.'
+            ),
+            { status: 400 }
         )
     }
     return {

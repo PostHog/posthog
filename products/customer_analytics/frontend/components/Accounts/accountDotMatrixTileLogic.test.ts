@@ -1,4 +1,5 @@
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 
@@ -697,6 +698,57 @@ describe('accountDotMatrixTileLogic', () => {
             expect(logic.values.config.weeks).toBe(8)
             expect(logic.values.matrixResult).toMatchObject({ query: DRAFT })
             logic.unmount()
+        })
+    })
+
+    describe('reporting load failures', () => {
+        const capture = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
+        const SQL = { kind: 'hogql', query: 'SELECT 1', mapping: { row: 'r', column: 'c' } } as const
+
+        beforeEach(() => {
+            capture.mockClear()
+        })
+
+        async function failWith(error: unknown): Promise<string | null> {
+            mockPerformQuery.mockRejectedValue(error)
+            const logic = accountDotMatrixTileLogic({
+                instanceId: 'failing-report',
+                accountId: 'account-1',
+                initialConfig: { source: SQL },
+            })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadMatrixFailure']).toFinishAllListeners()
+            const { loadError } = logic.values
+            logic.unmount()
+            return loadError
+        }
+
+        it('does not report a SQL mistake, and still shows it', async () => {
+            const loadError = await failWith(Object.assign(new Error('mismatched input'), { status: 400 }))
+            expect(loadError).toBe('mismatched input')
+            expect(capture).not.toHaveBeenCalled()
+        })
+
+        it('does not report a setup problem the user has to fix', async () => {
+            const logic = accountDotMatrixTileLogic({
+                instanceId: 'failing-setup',
+                accountId: 'account-1',
+                initialConfig: { source: { ...SQL, query: 'SELECT 1 FROM events WHERE {filters}' } },
+            })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadMatrixFailure']).toFinishAllListeners()
+            expect(logic.values.loadError).toContain('Link this account')
+            expect(capture).not.toHaveBeenCalled()
+            logic.unmount()
+        })
+
+        it.each([
+            ['a server error', Object.assign(new Error('boom'), { status: 500 })],
+            ['an error with no status', new Error('Unexpected token')],
+        ])('reports %s exactly once', async (_, error) => {
+            await failWith(error)
+            expect(capture).toHaveBeenCalledTimes(1)
+            expect(capture).toHaveBeenCalledWith(error)
         })
     })
 })
