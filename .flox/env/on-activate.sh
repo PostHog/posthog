@@ -194,16 +194,14 @@ fi
 # ── Go toolchain isolation ─────────────────────────────────────────
 # User shells often export GOROOT/GOCACHE for Homebrew, asdf, or other local Go
 # installs. Keep flox builds on the pinned Go toolchain and in caches this repo
-# owns so host Go upgrades cannot poison builds. The caches are shared by every
-# worktree: Go keys the build cache by toolchain and the module cache by module
-# version, so a per-worktree copy only costs disk.
+# owns so host Go upgrades cannot poison builds. Go keys both caches by toolchain
+# and module version, so every worktree shares them.
 unset GOROOT
 export GOTOOLCHAIN=local
 export GOPATH="$HOME/.cache/posthog/go"
 export GOCACHE="$HOME/.cache/posthog/go-build"
 export GOMODCACHE="$GOPATH/pkg/mod"
-# A copy left under this checkout's flox cache is unused. Module caches made
-# without -modcacherw are read-only, and this hook runs under set -e.
+# Module caches made without -modcacherw are read-only, and this hook runs under set -e.
 if [[ -d "$FLOX_ENV_CACHE/go" || -d "$FLOX_ENV_CACHE/go-build" ]]; then
   chmod -R u+w "$FLOX_ENV_CACHE/go" "$FLOX_ENV_CACHE/go-build" 2>/dev/null || true
   rm -rf "$FLOX_ENV_CACHE/go" "$FLOX_ENV_CACHE/go-build" 2>/dev/null || true
@@ -376,11 +374,8 @@ if [[ -d "$UV_PROJECT_ENVIRONMENT/bin" ]]; then
 fi
 
 # ── Stale worktree cleanup ──────────────────────────────────────────
-# Agent tools create worktrees faster than anyone removes them, and each one is a
-# full copy of the tracked tree. Reap idle ones in the background once a day.
-# hogli skips registered worktrees with unsaved or unpushed work. It does remove
-# orphans, which git no longer tracks. POSTHOG_WORKTREES_AUTOCLEAN=0 opts out.
-# hogli writes the lock file on each real run, so a fresh one means skip.
+# Agent tools create worktrees faster than anyone removes them.
+# POSTHOG_WORKTREES_AUTOCLEAN=0 opts out. hogli writes the lock file on each real run.
 WORKTREES_CLEAN_LOCK="$HOME/.config/posthog/worktrees-clean.lock"
 if [[ "${POSTHOG_WORKTREES_AUTOCLEAN:-1}" != "0" ]] && [[ -z "${CI:-}" ]] && [[ -x "$UV_PROJECT_ENVIRONMENT/bin/python" ]] \
   && [[ -z "$(find "$WORKTREES_CLEAN_LOCK" -size +0c -mmin -1440 2>/dev/null)" ]]; then

@@ -1291,8 +1291,6 @@ def _execute(worktrees: list[Worktree], mode: str, repo_root: Path) -> tuple[flo
     failed = 0
     need_prune = False
 
-    # Sizing the candidates can take minutes, so a process may have entered one
-    # since the first snapshot. Check again before anything is deleted.
     busy = _process_cwds()
     if busy is None:
         click.echo("Could not list running processes; nothing removed.")
