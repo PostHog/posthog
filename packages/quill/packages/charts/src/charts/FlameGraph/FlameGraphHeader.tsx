@@ -1,6 +1,6 @@
 import React from 'react'
 
-import { formatShare } from './flame-colors'
+import { formatShare } from '../../utils/format'
 import type { FlameSearchResult } from './flame-layout'
 
 export interface FlameCrumb {

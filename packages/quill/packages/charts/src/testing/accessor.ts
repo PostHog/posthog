@@ -351,12 +351,10 @@ export function getChart<Meta = unknown>(
             valueColor: () => gaugePart('value')?.style.color ?? null,
         },
         flame: {
-            breadcrumb: () =>
-                Array.from(
-                    wrapper
-                        .closest('[data-hog-charts-flame]')
-                        ?.querySelectorAll<HTMLElement>('[data-attr="hog-chart-flame-breadcrumb"]') ?? []
-                ).map((el) => el.textContent ?? ''),
+            breadcrumb: () => {
+                const root = wrapper.closest('[data-hog-charts-flame]')
+                return root ? textsOf(root, 'hog-chart-flame-breadcrumb') : []
+            },
             searchSummary: () =>
                 wrapper
                     .closest('[data-hog-charts-flame]')

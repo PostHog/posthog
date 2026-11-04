@@ -138,6 +138,11 @@ export function percentage(
     })
 }
 
+/** A share of a whole with at most one decimal. A small nonzero share reads `<0.1%`, not `0%`. */
+export function formatShare(fraction: number): string {
+    return fraction > 0 && fraction < 0.001 ? '<0.1%' : percentage(fraction, 1)
+}
+
 export function compactNumber(value: number | null): string {
     if (value === null) {
         return '-'
