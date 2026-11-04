@@ -421,7 +421,7 @@ class TestRoutineInsights(BaseTest):
                 started.add(ref)
                 return None
             if ref == slow_ref and kwargs["blocking"]:
-                clock[0] = 30.0
+                clock[0] = routine.BLOCKING_SECONDS + 10
             if ref in ("slow", slow_ref):
                 return None
             return insight({"opened": points}, short_id=ref, name=ref)
@@ -437,9 +437,9 @@ class TestRoutineInsights(BaseTest):
 
         self.assertEqual([metric.key for metric in pulse], [f"insight:{ref}" for ref in expected])
         self.assertEqual({ref for ref, _, _, _ in queried}, {"a", "slow", "b", "c", "d"})
-        self.assertTrue(all(deadline == 20.0 for _, _, deadline, _ in queried))
+        self.assertTrue(all(deadline == routine.BLOCKING_SECONDS for _, _, deadline, _ in queried))
         self.assertTrue(any(blocking for _, blocking, _, _ in queried))
-        self.assertTrue(all(not blocking for _, blocking, _, at in queried if at >= 30.0))
+        self.assertTrue(all(not blocking for _, blocking, _, at in queried if at > routine.BLOCKING_SECONDS))
 
     @time_machine.travel("2026-10-13T12:00:00Z", tick=False)
     def test_a_person_with_few_views_also_sees_the_insights_the_project_opens_most(self) -> None:
@@ -483,7 +483,7 @@ class TestProgressiveInsights(SimpleTestCase):
     def test_ready_numbers_are_published_while_the_first_query_is_still_running(self) -> None:
         clock = [0.0]
         published: list[tuple[float, HighlightFindings, list[PulseSlot]]] = []
-        ready_at = {"slow": 8.0, "fast": 1.0, "empty": 0.0, "timeout": 30.0}
+        ready_at = {"slow": 30.0, "fast": 1.0, "empty": 0.0, "timeout": 200.0, "spare": 2.0}
         views = [routine.ViewedItem(kind="insight", ref=ref, days=frozenset({TODAY})) for ref in ready_at]
         definitions = {
             ref: SavedInsightDefinition(id=i, short_id=ref, name=ref, query={"kind": "TrendsQuery"})
@@ -525,24 +525,30 @@ class TestProgressiveInsights(SimpleTestCase):
             patch.object(routine, "monotonic", side_effect=lambda: clock[0]),
             patch.object(routine, "sleep", side_effect=advance),
         ):
-            found = routine._progressive_metrics(context, frozenset(), 6)
+            found = routine._progressive_metrics(context, frozenset(), 4)
 
         self.assertEqual(published[0][0], 0)
+        self.assertEqual([slot.key for slot in published[0][2]], [f"insight:{ref}" for ref in list(ready_at)[:4]])
         self.assertTrue(all(slot.status == PulseSlotStatus.PENDING for slot in published[0][2]))
         first_number = next((at, result) for at, result, _ in published if result.pulse)
         self.assertEqual(first_number[0], 1.0)
         self.assertEqual(first_number[1].pulse[0].key, "insight:fast")
-        self.assertEqual([metric.key for metric in found], ["insight:slow", "insight:fast"])
-        self.assertEqual(clock[0], 20.0)
-        self.assertEqual({ref for ref, at in queried if at == 0}, set(ready_at))
+        self.assertEqual([metric.key for metric in found], ["insight:slow", "insight:fast", "insight:spare"])
+        self.assertEqual(clock[0], routine.BLOCKING_SECONDS)
+        self.assertEqual({ref for ref, at in queried if at == 0}, {"slow", "fast", "empty", "timeout"})
         self.assertEqual(
-            [slot.status for slot in published[-1][2]],
-            [PulseSlotStatus.READY, PulseSlotStatus.READY, PulseSlotStatus.EMPTY, PulseSlotStatus.ERROR],
+            {slot.key: slot.status for slot in published[-1][2]},
+            {
+                "insight:slow": PulseSlotStatus.READY,
+                "insight:fast": PulseSlotStatus.READY,
+                "insight:empty": PulseSlotStatus.EMPTY,
+                "insight:timeout": PulseSlotStatus.ERROR,
+                "insight:spare": PulseSlotStatus.READY,
+            },
         )
         self.assertEqual(context.failures, ["insight:timeout"])
-        self.assertEqual(Counter(ref for ref, _ in queried), {"slow": 2, "fast": 2, "empty": 1, "timeout": 1})
-        self.assertTrue(
-            all([slot.key for slot in slots] == [slot.key for slot in published[0][2]] for _, _, slots in published)
+        self.assertEqual(
+            Counter(ref for ref, _ in queried), {"slow": 2, "fast": 2, "empty": 1, "timeout": 1, "spare": 2}
         )
 
     def test_a_dashboard_skips_an_unsupported_tile_before_selecting_a_loading_card(self) -> None:

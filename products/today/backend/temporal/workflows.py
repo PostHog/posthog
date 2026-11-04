@@ -20,7 +20,7 @@ with temporalio.workflow.unsafe.imports_passed_through():
         ResolvePinsInputs,
     )
 
-HIGHLIGHT_SOURCE_TIMEOUT = timedelta(seconds=60)
+HIGHLIGHT_SOURCE_TIMEOUT = timedelta(seconds=180)
 FINALIZE_HIGHLIGHTS_TIMEOUT = timedelta(seconds=30)
 PINNED_NUMBERS_PATCH = "today-pinned-numbers"
 

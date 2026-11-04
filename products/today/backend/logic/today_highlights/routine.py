@@ -1,4 +1,4 @@
-from collections.abc import Collection, Iterator, Sequence
+from collections.abc import Collection, Iterable, Iterator, Sequence
 from dataclasses import replace
 from datetime import date, timedelta
 from functools import partial
@@ -37,7 +37,7 @@ FRECENCY_HALF_LIFE_DAYS = 14
 FRECENCY_LOOKBACK_DAYS = VIEW_DAYS_KEPT
 FRECENCY_CANDIDATES = 8
 PULSE_CANDIDATES = 6
-BLOCKING_SECONDS = 20
+BLOCKING_SECONDS = 150
 POPULAR_DAYS = 30
 POPULAR_CANDIDATES = 8
 DASHBOARD_TILES_TRIED = 6
@@ -59,6 +59,13 @@ class PulseCandidate:
     short_id: str
     dashboard: DashboardInsights | None = None
     tile: DashboardInsightTile | None = None
+
+
+@frozen
+class PulseChoice:
+    key: str
+    candidate: PulseCandidate
+    slot: contracts.PulseSlot
 
 
 def find(context: Context) -> Found:
@@ -95,45 +102,30 @@ def _progressive_metrics(context: Context, excluded: Collection[str], budget: in
                     PulseCandidate(viewed=item, short_id=tile.insight_short_id, dashboard=dashboard, tile=tile)
                     for tile in dashboard.tiles
                 )
-    definitions = viewable_insight_definitions(
-        team=context.team, user=context.user, short_ids=[candidate.short_id for candidate in candidates]
-    )
-    selected: dict[str, PulseCandidate] = {}
+    choices = _eligible_choices(context, excluded, candidates)
+    selected: dict[str, PulseChoice] = {}
+    tried: set[str] = set()
     slots: dict[str, contracts.PulseSlot] = {}
-    dashboards: set[int] = set()
-    for candidate in candidates:
-        key = f"insight:{candidate.short_id}"
-        definition = definitions.get(candidate.short_id)
-        if key in excluded or key in selected or definition is None:
-            continue
-        source = definition.query.get("source", definition.query)
-        if not context.guard(
-            f"eligible insight {candidate.short_id}",
-            partial(insight_series_supported, query=definition.query, dashboard=_dashboard_context(candidate)),
-            False,
-        ):
-            continue
-        dashboard = candidate.dashboard
-        if dashboard is not None and dashboard.dashboard_id in dashboards:
-            continue
-        interval = (dashboard.filters.get("interval") if dashboard else None) or source.get("interval", "day")
-        selected[key] = candidate
-        slots[key] = contracts.PulseSlot(
-            key=key,
-            name=definition.name or "Untitled insight",
-            reason=HighlightMetricReason.POPULAR if candidate.viewed.popular else HighlightMetricReason.ROUTINE,
-            url=f"/dashboard/{dashboard.dashboard_id}" if dashboard else f"/insights/{candidate.short_id}",
-            interval=HighlightInterval(interval)
-            if source.get("kind") == "TrendsQuery" and interval in HighlightInterval.values
-            else None,
-        )
-        if dashboard is not None:
-            dashboards.add(dashboard.dashboard_id)
-        if len(selected) >= budget:
-            break
+    pending: dict[str, PulseCandidate] = {}
+
+    def fill() -> None:
+        while len(selected) < budget:
+            choice = _next_choice(choices, tried, selected.values())
+            if choice is None:
+                return
+            tried.add(choice.key)
+            selected[choice.key] = choice
+            slots[choice.key] = choice.slot
+            pending[choice.key] = choice.candidate
+
+    def drop(key: str) -> None:
+        slots[key] = replace(slots[key], status=PulseSlotStatus.EMPTY)
+        del selected[key]
+        fill()
+
+    fill()
     metrics: dict[str, contracts.HighlightMetric] = {}
     context.publish_pulse(Found(), list(slots.values()))
-    pending = dict(selected)
     query_ids: dict[str, str] = {}
     while pending and monotonic() < deadline:
         for key, candidate in list(pending.items()):
@@ -160,14 +152,14 @@ def _progressive_metrics(context: Context, excluded: Collection[str], budget: in
                 query_ids[key] = error.query_id
                 continue
             except Exception as error:
-                context.failures.append(key)
                 capture_exception(error, {"product": "today", "provider": "routine"})
-                slots[key] = replace(slots[key], status=PulseSlotStatus.ERROR)
-            else:
-                slots[key] = replace(slots[key], status=PulseSlotStatus.READY if metric else PulseSlotStatus.EMPTY)
-                if metric is not None:
-                    metrics[key] = metric
+                metric = None
             del pending[key]
+            if metric is None:
+                drop(key)
+            else:
+                slots[key] = replace(slots[key], status=PulseSlotStatus.READY)
+                metrics[key] = metric
             context.publish_pulse(Found(pulse=tuple(metrics.values())), list(slots.values()))
         if pending:
             sleep(min(1.0, max(0, deadline - monotonic())))
@@ -177,6 +169,58 @@ def _progressive_metrics(context: Context, excluded: Collection[str], budget: in
             slots[key] = replace(slots[key], status=PulseSlotStatus.ERROR)
         context.publish_pulse(Found(pulse=tuple(metrics.values())), list(slots.values()))
     return [metrics[key] for key in selected if key in metrics]
+
+
+def _eligible_choices(
+    context: Context, excluded: Collection[str], candidates: Sequence[PulseCandidate]
+) -> list[PulseChoice]:
+    definitions = viewable_insight_definitions(
+        team=context.team, user=context.user, short_ids=[candidate.short_id for candidate in candidates]
+    )
+    choices: dict[str, PulseChoice] = {}
+    for candidate in candidates:
+        key = f"insight:{candidate.short_id}"
+        definition = definitions.get(candidate.short_id)
+        if key in excluded or key in choices or definition is None:
+            continue
+        if not context.guard(
+            f"eligible insight {candidate.short_id}",
+            partial(insight_series_supported, query=definition.query, dashboard=_dashboard_context(candidate)),
+            False,
+        ):
+            continue
+        source = definition.query.get("source", definition.query)
+        dashboard = candidate.dashboard
+        interval = (dashboard.filters.get("interval") if dashboard else None) or source.get("interval", "day")
+        choices[key] = PulseChoice(
+            key=key,
+            candidate=candidate,
+            slot=contracts.PulseSlot(
+                key=key,
+                name=definition.name or "Untitled insight",
+                reason=HighlightMetricReason.POPULAR if candidate.viewed.popular else HighlightMetricReason.ROUTINE,
+                url=f"/dashboard/{dashboard.dashboard_id}" if dashboard else f"/insights/{candidate.short_id}",
+                interval=HighlightInterval(interval)
+                if source.get("kind") == "TrendsQuery" and interval in HighlightInterval.values
+                else None,
+            ),
+        )
+    return list(choices.values())
+
+
+def _next_choice(
+    choices: Sequence[PulseChoice], tried: Collection[str], selected: Iterable[PulseChoice]
+) -> PulseChoice | None:
+    shown = {choice.candidate.dashboard.dashboard_id for choice in selected if choice.candidate.dashboard is not None}
+    return next(
+        (
+            choice
+            for choice in choices
+            if choice.key not in tried
+            and (choice.candidate.dashboard is None or choice.candidate.dashboard.dashboard_id not in shown)
+        ),
+        None,
+    )
 
 
 def frecency(view_days: Collection[date], today: date) -> float:
