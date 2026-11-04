@@ -45,10 +45,12 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     prefix_promotion_rows_synced,
     process_incremental_value,
     resolve_sync_type,
+    self_managed_table_ref,
     staged_handoff_resume_point,
 )
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.self_managed_access import adoption_access_error
 from products.warehouse_sources.backend.temporal.data_imports.destinations.enablement import (
     external_destination_ids_for,
 )
@@ -90,6 +92,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.rep
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.typings import PipelineResult
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
     PipelineInputs,
+    find_replaced_self_managed_table,
     relink_orphan_table,
 )
 from products.warehouse_sources.backend.temporal.data_imports.retry_limits import PROGRESSLESS_RESUMABLE_ATTEMPTS
@@ -206,6 +209,21 @@ def _get_external_data_schema(schema_id: uuid.UUID, team_id: int) -> ExternalDat
         .exclude(deleted=True)
         .get(id=schema_id, team_id=team_id)
     )
+
+
+def self_managed_adoption_error(schema: ExternalDataSchema) -> str | None:
+    """The error that stops this run before it extracts anything, or None.
+
+    The first sync of a migration schema replaces a self-managed table. When the access rules changed
+    since the migration linked the table, the publish step would refuse to replace it, so the copy
+    would be wasted.
+    """
+    if schema.table_id is not None or self_managed_table_ref(schema) is None:
+        return None
+    table = find_replaced_self_managed_table(schema, schema.source)
+    if table is None or table.external_data_source_id is not None:
+        return None
+    return adoption_access_error(table, schema.source)
 
 
 @database_sync_to_async_pool
@@ -642,6 +660,12 @@ async def _import_data_with_reporting(
             schema = await _get_external_data_schema(inputs.schema_id, inputs.team_id)
         except ExternalDataSchema.DoesNotExist as e:
             await _handle_import_error(job_inputs, logger, e)
+
+        # Checked before anything is extracted, so a refused move costs no copy. The publish step
+        # checks again before it changes the table.
+        adoption_error = await database_sync_to_async_pool(self_managed_adoption_error)(schema)
+        if adoption_error is not None:
+            raise NonRetryableException(adoption_error)
 
         reset_pipeline = _resolve_reset_pipeline(inputs, schema, job_created_at=model.created_at)
 

@@ -48,6 +48,10 @@ _SYSTEM_DEFAULT = "editor"
 # Each role profile doubles the subjects to check, so a rule set that names more is refused.
 _MAX_ROLE_PROFILES = 10
 
+# The start of the error a sync raises when it must not replace a self-managed table. The import
+# classifies it as permanent, so the job fails once and syncing stops until someone fixes the rules.
+ADOPTION_ACCESS_ERROR = "PostHog did not replace the self-managed table"
+
 TABLE_RULES_REASON = "the table has its own access rules, which the source PostHog would create can't carry"
 PROJECT_RULES_REASON = "the project has access rules for sources or for the warehouse, which the move would change"
 ROLES_REASON = "the access rules name too many roles to check"
@@ -385,13 +389,24 @@ def adoption_access_refusal(
     return None
 
 
-def assert_adoption_keeps_access(table: DataWarehouseTable, source: ExternalDataSource) -> None:
-    """Raise when a migration source must not adopt the table. Sources the migration didn't make are not checked."""
+def adoption_access_error(table: DataWarehouseTable, source: ExternalDataSource) -> str | None:
+    """The error to show when a migration source must not adopt the table, or None when it may.
+
+    Sources the migration didn't make are not checked.
+    """
     if MIGRATION_MARKER_KEY not in (source.connection_metadata or {}):
-        return
+        return None
     refusal = adoption_access_refusal(table, source)
-    if refusal is not None:
-        raise AdoptionAccessError(
-            f"The sync did not replace the table '{table.name}', because {refusal}. "
-            "The table still reads its own files."
-        )
+    if refusal is None:
+        return None
+    return (
+        f"{ADOPTION_ACCESS_ERROR} '{table.name}', because {refusal}. The table still reads its own files. "
+        "To continue, an organization admin must make the access rules of this source the same as the "
+        "rules of the table, then turn syncing on again. PostHog support can help with this."
+    )
+
+
+def assert_adoption_keeps_access(table: DataWarehouseTable, source: ExternalDataSource) -> None:
+    error = adoption_access_error(table, source)
+    if error is not None:
+        raise AdoptionAccessError(error)

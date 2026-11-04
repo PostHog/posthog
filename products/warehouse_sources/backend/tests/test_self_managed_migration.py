@@ -38,6 +38,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.self_managed_access import (
+    ADOPTION_ACCESS_ERROR,
     AdoptionAccessError,
     TeamAccessRules,
     assert_adoption_keeps_access,
@@ -56,6 +57,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     SelfManagedCredential,
     parse_self_managed_url,
     table_definition_for,
+)
+from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.import_data_sync import (
+    self_managed_adoption_error,
 )
 from products.warehouse_sources.backend.types import DataWarehouseTableFormat, ExternalDataJobStatus
 
@@ -1423,6 +1427,31 @@ class TestAccessRulesAfterLinking(_AccessRulesTest):
         assert status.state == TableMigrationState.AWAITING_SYNC
         assert refusal in (status.reason or "")
         assert "the first sync will fail and leave the table as it is" in (status.reason or "")
+
+    @parameterized.expand([("unchanged", False, False), ("rule_added", True, False), ("already_adopted", True, True)])
+    def test_the_import_stops_before_extraction_only_when_the_rules_no_longer_fit(
+        self, _name: str, rule_added: bool, adopted: bool
+    ) -> None:
+        table = self._linked({"table": "viewer"})
+        if rule_added:
+            self._rule("table:named", "viewer", table)
+        if adopted:
+            self._adopt(table)
+
+        error = self_managed_adoption_error(_schema_for(table) if not adopted else self._unlinked_schema(table))
+
+        if not rule_added or adopted:
+            assert error is None
+            return
+        assert error is not None
+        assert error.startswith(f"{ADOPTION_ACCESS_ERROR} 'orders', because the access rules of the table")
+        assert "an organization admin must make the access rules of this source the same" in error
+
+    def _unlinked_schema(self, table: DataWarehouseTable) -> ExternalDataSchema:
+        schema = _schema_for(table)
+        ExternalDataSchema.objects.filter(pk=schema.pk).update(table=None)
+        schema.refresh_from_db()
+        return schema
 
     def test_a_source_made_before_access_signatures_takes_only_tables_without_rules(self) -> None:
         old = self._linked({})
