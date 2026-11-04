@@ -32,7 +32,7 @@ from posthog.auth import (
 )
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
-from posthog.exceptions import Conflict, EnterpriseFeatureException, PaidFeatureException
+from posthog.exceptions import Conflict, EnterpriseFeatureException, InsufficientScope, PaidFeatureException
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, is_enforcement_disable_request
 from posthog.models import Organization, OrganizationDomain, OrganizationMembership, Project, Team, User
 from posthog.models.oauth import OAuthAccessToken
@@ -977,8 +977,7 @@ class APIScopePermission(ScopeBasePermission):
 
         missing_scopes = scopes_missing_after_legacy_fallback(request, view, key_scopes, required_scopes)
         if missing_scopes:
-            self.message = f"API key missing required scope '{missing_scopes[0]}'"
-            return False
+            raise InsufficientScope(required_scopes, detail=f"API key missing required scope '{missing_scopes[0]}'")
 
         return True
 
