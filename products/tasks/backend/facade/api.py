@@ -299,6 +299,7 @@ __all__ = [
     "owner_origin_has_non_terminal_run",
     "owner_origin_open_task_ids",
     "owner_origin_recent_task_ids",
+    "owner_origin_task_ids_with_state_entry",
     "create_completed_sandbox_snapshot",
     "create_run",
     "create_sandbox_connection_token",
@@ -2143,6 +2144,39 @@ def owner_origin_open_task_ids(*, team_id: int, created_by_id: int, origin_produ
             task__origin_product=origin_product,
             status__in=_NON_TERMINAL_RUN_STATUSES,
         ).values_list("task_id", flat=True)
+    )
+
+
+def owner_origin_task_ids_with_state_entry(
+    *, team_id: int, created_by_id: int, origin_product: str, key: str
+) -> set[UUID]:
+    """Ids of this owner's tasks of this origin whose shared state holds a non-null ``key``, deleted tasks included."""
+    return set(
+        Task.objects.filter(
+            team_id=team_id,
+            created_by_id=created_by_id,
+            origin_product=origin_product,
+            state__has_key=key,
+        )
+        .exclude(state__contains={key: None})
+        .values_list("id", flat=True)
+    )
+
+
+def owner_origin_recent_run_ids(
+    *, team_id: int, created_by_id: int, origin_product: str, since: datetime, limit: int
+) -> list[UUID]:
+    """Ids of runs started since ``since`` on this owner's tasks of this origin, newest first, deleted tasks included."""
+    return list(
+        TaskRun.objects.filter(
+            team_id=team_id,
+            task__team_id=team_id,
+            task__created_by_id=created_by_id,
+            task__origin_product=origin_product,
+            created_at__gte=since,
+        )
+        .order_by("-created_at")
+        .values_list("id", flat=True)[:limit]
     )
 
 
