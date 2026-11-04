@@ -160,6 +160,17 @@ class RoutingPinDTO:
 
 
 @dataclass(frozen=True)
+class RoutingFileDTO:
+    """A changed file that one owner owns, as GitHub listed it when the run made its requests."""
+
+    path: str
+    previous_path: str | None = None
+    status: str = ""
+    additions: int = 0
+    deletions: int = 0
+
+
+@dataclass(frozen=True)
 class RoutingRunOwnerDTO:
     """What one reviewer routing run did with one owner of the changed code, and why."""
 
@@ -169,6 +180,7 @@ class RoutingRunOwnerDTO:
     reason: RoutingOwnerReason
     model_reason: str = ""
     pins: list[RoutingPinDTO] = Field(default_factory=list)
+    files: list[RoutingFileDTO] = Field(default_factory=list)
     lines: int = 0
     file_count: int = 0
 
@@ -190,6 +202,7 @@ class RoutingRunDTO:
     model: str = ""
     files_truncated: bool = False
     additions_resolved: bool = True
+    owners_sha: str = ""
     owners: list[RoutingRunOwnerDTO] = Field(default_factory=list)
     created_at: datetime | None = None
 

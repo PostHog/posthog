@@ -625,6 +625,7 @@ _ROUTING_RUN_COLUMNS = (
     "model",
     "files_truncated",
     "additions_resolved",
+    "owners_sha",
     "created_at",
 )
 
@@ -637,6 +638,16 @@ def _routing_owner_to_dto(row: RoutingRunOwner) -> contracts.RoutingRunOwnerDTO:
         reason=RoutingOwnerReason(row.reason),
         model_reason=row.model_reason,
         pins=[contracts.RoutingPinDTO(reason=PinReason(pin["reason"]), path=pin["path"]) for pin in row.pins],
+        files=[
+            contracts.RoutingFileDTO(
+                path=file["path"],
+                previous_path=file["previous_path"],
+                status=file["status"],
+                additions=file["additions"],
+                deletions=file["deletions"],
+            )
+            for file in row.files
+        ],
         lines=row.lines,
         file_count=row.file_count,
     )
@@ -657,6 +668,7 @@ def _routing_run_to_dto(row: RoutingRun) -> contracts.RoutingRunDTO:
         model=row.model,
         files_truncated=row.files_truncated,
         additions_resolved=row.additions_resolved,
+        owners_sha=row.owners_sha,
         owners=[_routing_owner_to_dto(owner) for owner in row.owners.all()],
         created_at=row.created_at,
     )

@@ -709,6 +709,22 @@ export interface StamphogRoutingPinApi {
     path: string
 }
 
+export interface StamphogRoutingFileApi {
+    /** The changed path. */
+    path: string
+    /**
+     * The path before a rename. Null for any other change.
+     * @nullable
+     */
+    previous_path?: string | null
+    /** GitHub's file status, such as 'added', 'modified', 'removed' or 'renamed'. */
+    status?: string
+    /** Added lines. */
+    additions?: number
+    /** Deleted lines. */
+    deletions?: number
+}
+
 /**
  * * `team` - Team
  * * `person` - Person
@@ -743,6 +759,8 @@ export interface StamphogRoutingRunOwnerApi {
     readonly reason: RoutingOwnerReasonEnumApi
     /** The changed paths that pinned the owner, so no cut could remove them. */
     readonly pins: readonly StamphogRoutingPinApi[]
+    /** Every changed file this owner owns, which is what made them a candidate. Patches are not kept. */
+    readonly files: readonly StamphogRoutingFileApi[]
     /** Whether the owner is a GitHub team or a person.
      *
      * * `team` - Team
@@ -797,6 +815,8 @@ export interface StamphogRoutingRunApi {
     files_truncated?: boolean
     /** Whether the new-path lookup worked. When false, owners of new paths may not be pinned. */
     additions_resolved?: boolean
+    /** The default-branch commit whose owners.yaml files decided the owners. Blank when unknown. */
+    owners_sha?: string
     /** The run's decision for every owner of the changed code. */
     readonly owners: readonly StamphogRoutingRunOwnerApi[]
     /**

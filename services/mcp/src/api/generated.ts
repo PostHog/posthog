@@ -74684,6 +74684,22 @@ export namespace Schemas {
       path: string;
     }
 
+    export interface StamphogRoutingFile {
+      /** The changed path. */
+      path: string;
+      /**
+         * The path before a rename. Null for any other change.
+         * @nullable
+         */
+      previous_path?: string | null;
+      /** GitHub's file status, such as 'added', 'modified', 'removed' or 'renamed'. */
+      status?: string;
+      /** Added lines. */
+      additions?: number;
+      /** Deleted lines. */
+      deletions?: number;
+    }
+
     export interface StamphogRoutingRunOwner {
       /** What the run did with the owner: 'requested', 'labeled' (a fork label instead of a request), 'refused' (GitHub refused the request), 'cut', 'not_requested' (stamphog approved, so only pinned owners were asked) or 'already_requested' (an earlier run asked this pinned owner).
        *
@@ -74707,6 +74723,8 @@ export namespace Schemas {
       readonly reason: RoutingOwnerReasonEnum;
       /** The changed paths that pinned the owner, so no cut could remove them. */
       readonly pins: readonly StamphogRoutingPin[];
+      /** Every changed file this owner owns, which is what made them a candidate. Patches are not kept. */
+      readonly files: readonly StamphogRoutingFile[];
       /** Whether the owner is a GitHub team or a person.
        *
        * * `team` - Team
@@ -74761,6 +74779,8 @@ export namespace Schemas {
       files_truncated?: boolean;
       /** Whether the new-path lookup worked. When false, owners of new paths may not be pinned. */
       additions_resolved?: boolean;
+      /** The default-branch commit whose owners.yaml files decided the owners. Blank when unknown. */
+      owners_sha?: string;
       /** The run's decision for every owner of the changed code. */
       readonly owners: readonly StamphogRoutingRunOwner[];
       /**

@@ -377,6 +377,9 @@ class RoutingRun(ProductTeamModel):
     # A partial file list or ownership read explains an owner that should have been pinned and was not.
     files_truncated = models.BooleanField(default=False)
     additions_resolved = models.BooleanField(default=True)
+    # The default-branch commit whose owners.yaml files decided the candidates. With each owner's files,
+    # it lets a reader resolve the run's owners again after owners.yaml changes.
+    owners_sha = models.CharField(max_length=64, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta(ProductTeamModel.Meta):
@@ -404,6 +407,9 @@ class RoutingRunOwner(ProductTeamModel):
     model_reason = models.TextField(blank=True)
     # The sensitive and new paths that pinned the owner, as `[{"reason": ..., "path": ...}]`.
     pins = models.JSONField(default=list)
+    # Every changed file this owner owns, as GitHub listed it, without the patch. owners.yaml and the
+    # pull request both move after the run, so the run keeps its own copy.
+    files = models.JSONField(default=list)
     lines = models.PositiveIntegerField(default=0)
     file_count = models.PositiveIntegerField(default=0)
 

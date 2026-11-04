@@ -863,6 +863,19 @@ class RoutingPinSerializer(DataclassSerializer):
         }
 
 
+@extend_schema_serializer(component_name="StamphogRoutingFile")
+class RoutingFileSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = contracts.RoutingFileDTO
+        extra_kwargs = {
+            "path": {"help_text": "The changed path."},
+            "previous_path": {"help_text": "The path before a rename. Null for any other change."},
+            "status": {"help_text": "GitHub's file status, such as 'added', 'modified', 'removed' or 'renamed'."},
+            "additions": {"help_text": "Added lines."},
+            "deletions": {"help_text": "Deleted lines."},
+        }
+
+
 @extend_schema_serializer(component_name="StamphogRoutingRunOwner")
 class RoutingRunOwnerSerializer(DataclassSerializer):
     outcome = serializers.ChoiceField(
@@ -886,6 +899,11 @@ class RoutingRunOwnerSerializer(DataclassSerializer):
     )
     pins = RoutingPinSerializer(
         many=True, read_only=True, help_text="The changed paths that pinned the owner, so no cut could remove them."
+    )
+    files = RoutingFileSerializer(
+        many=True,
+        read_only=True,
+        help_text="Every changed file this owner owns, which is what made them a candidate. Patches are not kept.",
     )
     kind = serializers.ChoiceField(
         choices=OwnerKind.choices, read_only=True, help_text="Whether the owner is a GitHub team or a person."
@@ -943,6 +961,7 @@ class RoutingRunSerializer(DataclassSerializer):
             "model",
             "files_truncated",
             "additions_resolved",
+            "owners_sha",
             "owners",
             "created_at",
         ]
@@ -961,6 +980,9 @@ class RoutingRunSerializer(DataclassSerializer):
             },
             "additions_resolved": {
                 "help_text": "Whether the new-path lookup worked. When false, owners of new paths may not be pinned."
+            },
+            "owners_sha": {
+                "help_text": "The default-branch commit whose owners.yaml files decided the owners. Blank when unknown."
             },
             "created_at": {"help_text": "When the run made its requests."},
         }

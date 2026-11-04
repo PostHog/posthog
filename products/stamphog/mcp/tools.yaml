@@ -160,9 +160,11 @@ tools:
         description: >
             List stamphog's reviewer routing runs, newest first. Each run is one round of review requests on a pull
             request, with the run's decision for every owner of the changed code from owners.yaml: an `outcome` and the
-            `reason` behind it, plus the model's one-line `model_reason` when it proposed a cut. To answer "why was my
-            team not asked to review", filter by `owner` (a team slug such as `team-devex`, or `@` and a GitHub login),
-            optionally with `repository` and `pr_number`.
+            `reason` behind it, the model's one-line `model_reason` when it proposed a cut, and the `files` the owner
+            owns. To answer "why was my team not asked to review", filter by `owner` (a team slug such as `team-devex`,
+            or `@` and a GitHub login), optionally with `repository` and `pr_number`. An owner missing from a run owns
+            none of its changed files. No runs for a pull request means routing has not run on it: routing is off for the
+            repository, or it still waits for stamphog's verdict.
         feature_flag: stamphog
     stamphog-review-runs-list:
         operation: stamphog_review_runs_list

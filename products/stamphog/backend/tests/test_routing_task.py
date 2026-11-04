@@ -162,6 +162,12 @@ def _run_log(team_id: int) -> dict[str, tuple[str, str, str]]:
         return {row.owner: (row.outcome, row.reason, row.model_reason) for row in rows}
 
 
+def _run_log_paths(team_id: int) -> dict[str, list[str]]:
+    with team_scope(team_id):
+        rows = RoutingRunOwner.objects.for_team(team_id).all()
+        return {row.owner: [file["path"] for file in row.files] for row in rows}
+
+
 def _seed_routing_comment(chain: RoutingChain, repo_config: StamphogRepoConfig) -> None:
     chain.recorder.issue_comments[(REPO, PR_NUMBER)] = [
         {
@@ -270,6 +276,15 @@ def test_routing_requests_the_owners_the_cut_step_keeps(
     assert record["additions_resolved"] is True
     assert {candidate["owner"] for candidate in record["candidates"]} == {"team-alpha", "team-beta", "@carol"}
     assert _run_log(team.id) == (_LOG_ONE_CUT if expected_cut else _LOG_CUT_SKIPPED)
+    assert _run_log_paths(team.id) == {
+        "team-alpha": ["products/alpha/a.py", "products/alpha/new/b.py"],
+        "team-beta": ["products/beta/b.py"],
+        "@carol": ["products/gamma/c.py"],
+    }
+    assert all("files" not in candidate for candidate in record["candidates"])
+    assert record["owners_sha"]
+    with team_scope(team.id):
+        assert RoutingRun.objects.for_team(team.id).get().owners_sha == record["owners_sha"]
     edits = _writes(routing_chain, "issue_comment_edit")
     deletes = _writes(routing_chain, "delete_comment")
     if expected_cut:

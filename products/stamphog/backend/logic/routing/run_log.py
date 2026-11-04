@@ -37,6 +37,7 @@ def _owner_row(entry: Mapping[str, Any], *, run: RoutingRun, refused: set[str]) 
         # The model read untrusted pull request content, so its reason is cleaned like the comment's.
         model_reason=clean_reason(scrub_credentials(entry["model_reason"])),
         pins=entry["pins"],
+        files=entry["files"],
         lines=entry["lines"],
         file_count=entry["file_count"],
     )
@@ -61,6 +62,7 @@ def record_routing_run(pr_obj: PullRequest, record: Mapping[str, Any]) -> None:
         model=record["model"] or "",
         files_truncated=record["files_truncated"],
         additions_resolved=record["additions_resolved"],
+        owners_sha=record["owners_sha"] or "",
     )
     refused = set(record["refused"])
     owners = [_owner_row(entry, run=run, refused=refused) for entry in record["candidates"]]

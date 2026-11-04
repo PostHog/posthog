@@ -68,6 +68,7 @@ class Migration(migrations.Migration):
                 ("model", models.CharField(blank=True, max_length=128)),
                 ("files_truncated", models.BooleanField(default=False)),
                 ("additions_resolved", models.BooleanField(default=True)),
+                ("owners_sha", models.CharField(blank=True, max_length=64)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 (
                     "pull_request",
@@ -136,6 +137,7 @@ class Migration(migrations.Migration):
                 ),
                 ("model_reason", models.TextField(blank=True)),
                 ("pins", models.JSONField(default=list)),
+                ("files", models.JSONField(default=list)),
                 ("lines", models.PositiveIntegerField(default=0)),
                 ("file_count", models.PositiveIntegerField(default=0)),
                 (

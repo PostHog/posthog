@@ -299,9 +299,15 @@ class _SourceWithoutKinds:
         self._files.read_all(paths)
 
 
-def _resolve_owners(
-    client: StamphogGitHubClient, repository: str, files: Sequence[ChangedFile]
-) -> tuple[dict[str, Resolution], bool]:
+@frozen
+class _Ownership:
+    resolutions: dict[str, Resolution]
+    # False when the owners of additions could not be read, so the run routes without their pins.
+    additions_resolved: bool
+    owners_sha: str | None
+
+
+def _resolve_owners(client: StamphogGitHubClient, repository: str, files: Sequence[ChangedFile]) -> _Ownership:
     """Every path's resolution at one default-branch commit, and whether the owners of additions are part of it.
 
     The owners of additions are an extra. A failed kind lookup routes without their pins rather than
@@ -323,8 +329,10 @@ def _resolve_owners(
         tree.prefetch_kinds(paths)
     except Exception:
         logger.warning("stamphog_reviewer_routing_additions_unavailable", exc_info=True)
-        return OwnersResolver(source=_SourceWithoutKinds(tree)).map(paths), False
-    return OwnersResolver(source=tree).map(paths), True
+        resolutions = OwnersResolver(source=_SourceWithoutKinds(tree)).map(paths)
+        return _Ownership(resolutions=resolutions, additions_resolved=False, owners_sha=tree.head_sha)
+    resolutions = OwnersResolver(source=tree).map(paths)
+    return _Ownership(resolutions=resolutions, additions_resolved=True, owners_sha=tree.head_sha)
 
 
 @frozen
@@ -376,6 +384,16 @@ def _candidate_record(
         "lines": candidate.lines,
         "file_count": len(candidate.files),
         "pins": sorted(({"reason": pin.reason.value, "path": pin.path} for pin in candidate.pins), key=str),
+        "files": [
+            {
+                "path": file.path,
+                "previous_path": file.previous_path,
+                "status": file.status,
+                "additions": file.additions,
+                "deletions": file.deletions,
+            }
+            for file in candidate.files
+        ],
         "outcome": outcome.value,
         "reason": reason.value,
         "model_reason": decision.model_reasons.get(candidate.owner, ""),
@@ -404,6 +422,10 @@ def finish_comment(client: StamphogGitHubClient, pr_obj: PullRequest, record: di
         # Nobody is cut now, so a comment from an earlier routing names cuts that no longer hold.
         client.delete_sticky_comment(repository, pr_obj.pr_number, marker=ROUTING_COMMENT_MARKER)
     done = {key: value for key, value in record.items() if key != "pending_comment"}
+    # The run log already holds the file lists, and a large pull request would carry them on its row for good.
+    done["candidates"] = [
+        {key: value for key, value in candidate.items() if key != "files"} for candidate in record["candidates"]
+    ]
     done["status"] = STATUS_DONE
     done[COMMENT_POSTED] = posted
     _save_claimed(pr_obj, done)
@@ -460,8 +482,8 @@ def _plan(
             listed=len(files),
             changed_files=changed_files,
         )
-    resolutions, additions_resolved = _resolve_owners(client, repository, files)
-    candidates = find_candidates(files, resolutions)
+    ownership = _resolve_owners(client, repository, files)
+    candidates = find_candidates(files, ownership.resolutions)
 
     model = GatewayCutModel(
         team_id=repo_config.team_id,
@@ -509,7 +531,8 @@ def _plan(
         "run_id": run_id,
         "llm_skipped": decision.llm_skipped.value if decision.llm_skipped else None,
         "model": CUT_MODEL if model.sent_request else None,
-        "additions_resolved": additions_resolved,
+        "additions_resolved": ownership.additions_resolved,
+        "owners_sha": ownership.owners_sha,
         "files_truncated": files_truncated,
         "request_owners": [candidate.owner for candidate in to_request],
         "requested_teams": requests.teams,

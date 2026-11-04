@@ -1245,6 +1245,13 @@ class TestRoutingRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
     databases = PRODUCT_DATABASES
 
     _PIN = {"reason": "new_path", "path": "products/alpha/new/"}
+    _FILE = {
+        "path": "products/alpha/new/b.py",
+        "previous_path": None,
+        "status": "added",
+        "additions": 20,
+        "deletions": 0,
+    }
 
     def setUp(self) -> None:
         super().setUp()
@@ -1263,6 +1270,7 @@ class TestRoutingRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
                     "outcome": "requested",
                     "reason": "new_path",
                     "pins": [self._PIN],
+                    "files": [self._FILE],
                 },
                 {
                     "owner": "team-beta",
@@ -1303,6 +1311,7 @@ class TestRoutingRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             trigger="opened",
             scope="full",
             model="claude-haiku-5-5",
+            owners_sha="owners-1",
         )
         for owner in owners:
             RoutingRunOwner.objects.unscoped().create(team_id=team_id, run=run, **owner)
@@ -1324,8 +1333,11 @@ class TestRoutingRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
         response = self.client.get(self.url, {"pr_number": 1})
 
         assert response.status_code == status.HTTP_200_OK, response.content
-        owners = {owner["owner"]: owner for owner in response.json()["results"][0]["owners"]}
+        run = response.json()["results"][0]
+        assert run["owners_sha"] == "owners-1"
+        owners = {owner["owner"]: owner for owner in run["owners"]}
         assert owners["team-alpha"]["pins"] == [self._PIN]
+        assert owners["team-alpha"]["files"] == [self._FILE]
         beta = owners["team-beta"]
         assert (beta["outcome"], beta["reason"], beta["model_reason"]) == (
             "cut",
