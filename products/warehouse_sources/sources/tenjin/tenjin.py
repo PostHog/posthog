@@ -203,7 +203,8 @@ def tenjin_source(
             resume_hook=lambda state: save_checkpoint(state, window_end),
             initial_paginator_state={"next_url": next_url} if next_url else None,
         )
-        resumable_source_manager.save_state(TenjinResumeConfig(window_end=window_end.isoformat()))
+        if window_end < today:
+            resumable_source_manager.save_state(TenjinResumeConfig(window_end=window_end.isoformat()))
         resumable_source_manager.safe_point()
 
     def pages() -> Iterator[Any]:
