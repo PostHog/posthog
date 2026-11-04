@@ -238,7 +238,7 @@ describe('settleRequest', () => {
         })
 
         test.each([
-            ['type:workflows name:venue', () => hogFlowsList, ['1', { search: 'venue', limit: 20 }, expect.anything()]],
+            ['type:workflows name:venue', () => hogFlowsList, ['1', { name: 'venue', limit: 20 }, expect.anything()]],
             [
                 'type:workflows name:venue nudge',
                 () => api.search.list,

@@ -237,7 +237,7 @@ const TYPE_SEARCHES: Record<string, TypeSearch> = {
         }
         const response = await hogFlowsList(
             String(context.currentTeamId),
-            { search: terms.name, limit: RESULTS_LIMIT },
+            { name: terms.name, limit: RESULTS_LIMIT },
             { signal }
         )
         return response.results.map(hogFlowToSearchItem)

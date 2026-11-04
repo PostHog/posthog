@@ -127160,6 +127160,10 @@ export namespace Schemas {
      */
     limit?: number;
     /**
+     * Only workflows whose name contains this text, ignoring case. Unlike `search`, it never reads descriptions, tags or step content.
+     */
+    name?: string;
+    /**
      * The initial index from which to return the results.
      */
     offset?: number;
