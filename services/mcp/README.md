@@ -291,7 +291,10 @@ Claude web and desktop also get the compact tool-domain index inline, because th
 Optional, task-specific guidance is served through the same tool:
 
 - `learn` lists the available built-in guides and, when enabled, the PostHog/project skill discovery syntax.
-- `learn analytics` loads detailed analytics guidance and examples.
+- `learn analytics` loads the core analytics guidance: governed metrics first, typed query runners over SQL, schema-first discovery, and the catalog's certified tables and verified joins. Agents load it for almost every data task, so it stays small.
+- `learn artifacts` loads the guidance for choosing and building a notebook, dashboard, or saved insight, and for explaining why a chart changed.
+- `learn activity` loads the configuration history procedure when an activity log reader is available.
+- `learn examples` loads worked multi-step analysis plans.
 - `learn hogql` loads the full HogQL guidelines, SQL examples, and the observability and LLM table reference for `execute-sql`.
 - `learn visualizations` loads rendering guidance when visualizations are available.
 - `learn urls` loads the PostHog app link formatting rules.

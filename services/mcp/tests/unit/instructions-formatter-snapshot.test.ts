@@ -1,3 +1,4 @@
+import guidelines from '@shared/guidelines.md'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
@@ -9,8 +10,12 @@ import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { MCPClientProfile } from '@/lib/client-detection'
 import { MCP_INSTRUCTIONS_CHAR_BUDGET } from '@/lib/constants'
+import { estimateTokens } from '@/lib/estimate-tokens'
 import { buildToolDomainsCompact, type QueryToolInfo } from '@/lib/instructions'
 import { InstructionsFormatter, type InstructionsContext } from '@/lib/instructions-formatter'
+import { byteLength, maxResponseBytes } from '@/lib/response-budget'
+import CLI_EXAMPLES from '@/templates/sections/cli-examples.md'
+import { LEARN_GUIDE_TOKEN_BUDGET } from '@/tools/exec-learn'
 import { getToolCategory, getToolDefinitions } from '@/tools/toolDefinitions'
 
 // Static, deterministic context shared by all snapshots — mirrors the realistic
@@ -236,6 +241,52 @@ describe('InstructionsFormatter prompt snapshots', () => {
             expect(familyTools.length).toBeGreaterThan(0)
             expect(familyTools.every((name) => domains.some((domain) => name.startsWith(domain)))).toBe(true)
         }
+    })
+
+    function liveCliContext(): InstructionsContext {
+        const state = {
+            allTools: Object.keys(getToolDefinitions()).map((name) => ({ name })),
+            clientProfile: new MCPClientProfile({ vendorClient: 'ClaudeCode' }),
+            toolFeatureFlags: {},
+            renderUiEnabled: true,
+            requestContext: { mcpConsumer: undefined },
+            sessionContext: null,
+        } as unknown as ResolvedState
+        return new InstructionsBuilder(guidelines).buildContext(state)
+    }
+
+    // A guide over the budget reaches Codex cut in the middle. Agents load `analytics` on
+    // nearly every data task, so its budget is far tighter: if it fails, move a section to
+    // its own topic instead of raising the number.
+    it('keeps every learn guide within one tool result and the analytics guide lean', () => {
+        const guides = new InstructionsFormatter().buildExecLearnGuides(liveCliContext())
+        const oversized = guides
+            .filter(({ content }) => byteLength(content) > maxResponseBytes(LEARN_GUIDE_TOKEN_BUDGET))
+            .map(({ id }) => id)
+
+        expect(oversized).toEqual([])
+        expect(estimateTokens(guides.find(({ id }) => id === 'analytics')!.content)).toBeLessThan(4_000)
+    })
+
+    // The compact reference replaces the full one's CLI examples with its own learn-aware set,
+    // so only those lines may be missing; every other line must ship inline or in a guide.
+    it('loses no line of the full command reference between the compact reference and the guides', () => {
+        const ctx = liveCliContext()
+        const formatter = new InstructionsFormatter()
+        const compact = formatter.buildCompactExecCommandReference(ctx)
+        const guides = formatter.buildExecLearnGuides(ctx).map(({ content }) => content)
+
+        const missing = formatter
+            .buildExecCommandReference(ctx)
+            .split('\n')
+            .filter(
+                (line) =>
+                    line.trim() &&
+                    !CLI_EXAMPLES.includes(line) &&
+                    !compact.includes(line) &&
+                    !guides.some((guide) => guide.includes(line))
+            )
+        expect(missing).toEqual([])
     })
 
     // Exercises the re-render branch, which the live catalog no longer reaches now that it

@@ -16,9 +16,11 @@ call [--json] [--confirm] <tool_name> [json_input] — call a tool with JSON inp
 
 **LEARN FIRST: HARD REQUIREMENT**
 
-Load all matching topics in one `learn` command first. Topics are cumulative.
+First, load only the topics this task needs in one `learn` command.
 
-- analytics: Query or analyze PostHog data; governed metrics, certified tables, and verified joins live in the catalog.
+- analytics: Query or analyze data: governed metrics, typed runners over SQL, schema checks, certified tables, verified joins.
+- artifacts: Notebooks, dashboards, saved insights, chart explanations.
+- examples: Worked multi-step analysis plans.
 - hogql: Full HogQL guidelines, examples, and the observability and LLM tables for `execute-sql`.
 - visualizations: Create or render a visualization.
 - urls: Load before writing any PostHog app link or URL.
@@ -83,8 +85,8 @@ Assistant: [Briefly summarizes the weekly active user trend.] I'll render it so 
 
 <example>
 User: Create a dashboard for our key revenue metrics
-Assistant: Analytics applies. I'll load it before any other command.
-[Runs `posthog:exec({"command":"learn analytics"})`]
+Assistant: Analytics and artifacts apply. I'll load both first.
+[Runs `posthog:exec({"command":"learn analytics artifacts"})`]
 Assistant: I need dashboard and query tools.
 [Runs `posthog:exec({"command":"search dashboard"})` and `posthog:exec({"command":"search execute-sql"})` in parallel]
 Assistant: I'll inspect both schemas.

@@ -640,7 +640,7 @@ describe('ToolExecutor', () => {
 
             expect(result.content[0]!.text).toContain('## Analytics')
             expect(result.content[0]!.text).toContain('### Retrieving data')
-            expect(result.content[0]!.text).toContain('### Examples')
+            expect(result.content[0]!.text).not.toContain('### Examples')
             expect(result.content[0]!.text).toContain('## Visualizations')
             expect(result.content[0]!.text).toContain('### Rendering visualizations')
         })

@@ -1,3 +1,4 @@
+import { CODEX_TOOL_RESULT_TOKEN_LIMIT } from '@/lib/client-detection'
 import type { ProjectSkillCatalog, ProjectSkillList } from '@/skills/project-skill-catalog'
 import {
     fitLearnOutput,
@@ -11,6 +12,11 @@ import {
 // that receive a learn catalog. Shared with scripts/generate-exec-docs.ts so the
 // published docs can't drift from the runtime declaration.
 export const LEARN_COMMAND_LINE = 'learn <topic...> - load one or more learning topics\n'
+
+/** The most built-in guide content one `learn` result carries. It sits below the smallest
+ *  client tool-result limit, with room for the exec response footers, so no client cuts a
+ *  guide mid-text. */
+export const LEARN_GUIDE_TOKEN_BUDGET = CODEX_TOOL_RESULT_TOKEN_LIMIT - 1_000
 
 export interface ExecLearnGuide {
     id: string

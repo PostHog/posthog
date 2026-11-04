@@ -338,27 +338,44 @@ export class InstructionsFormatter {
     }
 
     buildExecLearnGuides(ctx: InstructionsContext): ExecLearnGuide[] {
+        // Agents load `analytics` for almost every data task, so it holds only the query
+        // routing and discovery rules; artifacts, history, and worked examples load apart.
         const entries: ExecLearnGuide[] = [
             {
                 id: 'analytics',
                 title: 'Analytics',
                 description:
-                    'Query or analyze PostHog data; governed metrics, certified tables, and verified joins live in the catalog.',
+                    'Query or analyze data: governed metrics, typed runners over SQL, schema checks, certified tables, verified joins.',
                 content: this.compose(
-                    [
-                        METRIC_DISCOVERY,
-                        RETRIEVING_DATA,
-                        SCHEMA_WORKFLOW,
-                        CATALOG_TRUST_DISCOVERY,
-                        ...this.artifactSections(ctx),
-                        ...this.activityHistorySections(ctx),
-                        EXAMPLES,
-                    ],
+                    [METRIC_DISCOVERY, RETRIEVING_DATA, SCHEMA_WORKFLOW, CATALOG_TRUST_DISCOVERY],
                     ctx,
                     { compact: false }
                 ),
             },
+            {
+                id: 'artifacts',
+                title: 'Analysis artifacts',
+                description: 'Notebooks, dashboards, saved insights, chart explanations.',
+                content: this.compose(this.artifactSections(ctx), ctx, { compact: false }),
+            },
         ]
+
+        const activityHistory = this.activityHistorySections(ctx)
+        if (activityHistory.length > 0) {
+            entries.push({
+                id: 'activity',
+                title: 'Activity history',
+                description: 'Who changed a configuration, and when.',
+                content: this.compose(activityHistory, ctx, { compact: false }),
+            })
+        }
+
+        entries.push({
+            id: 'examples',
+            title: 'Analytics examples',
+            description: 'Worked multi-step analysis plans.',
+            content: this.compose([EXAMPLES], ctx, { compact: false }),
+        })
 
         // The compact `execute-sql` description points here, so this guide must keep the
         // complete guidelines and every section that description leaves out.
@@ -428,7 +445,7 @@ export class InstructionsFormatter {
                 TOOL_SEARCH,
                 ...envContextSections(ctx),
                 // URL patterns and activity history normally load through `learn urls`
-                // and `learn analytics`; with learn unavailable there is no topic to load.
+                // and `learn activity`; with learn unavailable there is no topic to load.
                 ...(learnSection ? [] : [URL_PATTERNS]),
                 ...(learnSection ? [] : this.activityHistorySections(ctx)),
             ],

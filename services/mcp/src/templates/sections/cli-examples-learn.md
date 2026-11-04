@@ -20,8 +20,8 @@ Assistant: I now have the inputs for the query.
 
 <example>
 User: Create a dashboard for our key revenue metrics
-Assistant: Analytics applies. I'll load it before any other command.
-[Runs `posthog:exec({"command":"learn analytics"})`]
+Assistant: Analytics and artifacts apply. I'll load both first.
+[Runs `posthog:exec({"command":"learn analytics artifacts"})`]
 Assistant: I need dashboard and query tools.
 [Runs `posthog:exec({"command":"search dashboard"})` and `posthog:exec({"command":"search execute-sql"})` in parallel]
 Assistant: I'll inspect both schemas.
