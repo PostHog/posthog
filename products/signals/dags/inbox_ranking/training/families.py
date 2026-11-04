@@ -42,6 +42,9 @@ NN_WITH_PRIO_SOURCES_MODEL_NAME = "nn_with_prio_sources_v1"
 NN_WITH_PRIO_FIXED_MODEL_NAME = "nn_with_prio_fixed_v1"
 NN_WITH_PRIO_FIXED_NODISMISS_MODEL_NAME = "nn_with_prio_fixed_nodismiss_v1"
 FIXED_EXPERIMENT_EXPIRES = datetime.date(2026, 11, 27)
+NN_WITH_PRIO_AA_MODEL_NAME = "nn_with_prio_aa_v1"
+# Far from any baseline seed, so the A/A arm never shares an initialization with its baseline.
+AA_SEED_OFFSET = 100
 NN_PAIR_BASE_MODEL_NAME = "nn_pair_base_v1"
 NN_PAIR_USER_MODEL_NAME = "nn_pair_user_v1"
 PAIR_EXPERIMENT_EXPIRES = datetime.date(2026, 11, 25)
@@ -67,6 +70,10 @@ class ModelFamily:
     `project_vector_kinds` are the team context kinds the network reads, in its input order. Only a
     report-grain experiment can change them. The pair lane reads `PROJECT_VECTOR_KINDS` only.
 
+    `seed_offset` moves the experiment arm's comparison seeds away from the baseline's. Only a
+    report-grain experiment can set it. An A/A experiment, with its baseline's exact recipe, sets it
+    so that its deltas measure the noise of the comparison alone.
+
     A pair-grain family is always an experiment and declares its `heads` from `PAIR_HEAD_NAMES`. Its
     `baseline` is another pair experiment, and it names a `baseline`, a `reference`, or both: the
     first pair family of a comparison has no pair baseline and is graded against the reference only."""
@@ -83,9 +90,12 @@ class ModelFamily:
     heads: tuple[str, ...] = ()
     reference: str | None = None
     project_vector_kinds: tuple[str, ...] = PROJECT_VECTOR_KINDS
+    seed_offset: int = 0
 
     def __post_init__(self) -> None:
         self._check_project_vector_kinds()
+        if self.seed_offset and (not self.experiment or self.grain == PAIR_GRAIN):
+            raise ValueError(f"family {self.name} sets a seed offset; only a report-grain experiment can")
         if self.grain == PAIR_GRAIN:
             self._check_pair()
             return
@@ -127,6 +137,10 @@ class ModelFamily:
     def expired(self, day: datetime.date) -> bool:
         return self.expires is not None and day > self.expires
 
+    def experiment_seeds(self, seeds: Sequence[int]) -> tuple[int, ...]:
+        """The seeds the experiment arm fits with, paired in order with the baseline's `seeds`."""
+        return tuple(seed + self.seed_offset for seed in seeds)
+
 
 # The families the training jobs train, in the order they are trained. A
 # family with no metadata for the day is skipped, so an entry can be added here before its trainer
@@ -139,6 +153,8 @@ class ModelFamily:
 # report's signals as of the moment, graded against `nn_with_prio_v2`.
 # `nn_with_prio_fixed_v1` adds a `fixed` project vector to `nn_with_prio_v2`, because fixes reach
 # teams whose UI kinds are thin. `nn_with_prio_fixed_nodismiss_v1` swaps `dismiss` for `fixed`.
+# `nn_with_prio_aa_v1` is an A/A control: `nn_with_prio_v2` against itself on other seeds, so its
+# deltas show how large a null delta is.
 # `nn_pair_base_v1` and `nn_pair_user_v1` are the user-history comparison at pair grain: one network,
 # one input shape, the same pairs and seeds, and the same reviewer flag. The base holds every
 # user-history input at zero, so `nn_pair_user_v1` against it is the uplift of the user's history
@@ -181,6 +197,16 @@ MODEL_FAMILIES: tuple[ModelFamily, ...] = (
         baseline=NN_WITH_PRIO_MODEL_NAME,
         expires=FIXED_EXPERIMENT_EXPIRES,
         project_vector_kinds=("typical", "open", "action", "fixed"),
+    ),
+    ModelFamily(
+        name=NN_WITH_PRIO_AA_MODEL_NAME,
+        feature_set=REPORT_EMBEDDINGS_PRIORITY_FEATURE_SET,
+        learner=ONNX_MODEL_KIND,
+        location=ML_LOCATION,
+        experiment=True,
+        baseline=NN_WITH_PRIO_MODEL_NAME,
+        expires=datetime.date(2026, 12, 2),
+        seed_offset=AA_SEED_OFFSET,
     ),
     ModelFamily(
         name=NN_PAIR_BASE_MODEL_NAME,

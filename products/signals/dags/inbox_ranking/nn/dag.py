@@ -108,7 +108,8 @@ NN_WITH_PRIO_CHAMPION_ASSET = "inbox_ranking_nn_with_prio_model_champion"
 
 # The settings the prototype compared against the champion recipe with.
 NETWORK_CONFIG = NetworkConfig()
-# The seeds an experiment and its baseline are both fit with for the paired comparison.
+# The seeds an experiment and its baseline are both fit with for the paired comparison. An
+# experiment with a `seed_offset` fits its own arm on these seeds moved by the offset.
 EXPERIMENT_SEEDS = (0, 1, 2)
 
 NN_ASSET_KWARGS: dict[str, Any] = {**COMMON_ASSET_KWARGS, "group_name": "inbox_ranking_nn"}
@@ -306,11 +307,13 @@ def train_candidate(
     vs_baseline = None
     if baseline_reports is not None and family.baseline is not None:
         baseline_inputs = NetworkInputs(reports=baseline_reports, context=baseline_context or inputs.context)
+        experiment_seeds = family.experiment_seeds(EXPERIMENT_SEEDS)
         vs_baseline = vs_baseline_block(
             examples.table,
             baseline=family.baseline,
             seeds=EXPERIMENT_SEEDS,
-            experiment_scores=seed_scores(examples.table, inputs, NN_HEADS, NETWORK_CONFIG, EXPERIMENT_SEEDS),
+            experiment_seeds=experiment_seeds,
+            experiment_scores=seed_scores(examples.table, inputs, NN_HEADS, NETWORK_CONFIG, experiment_seeds),
             baseline_scores=seed_scores(examples.table, baseline_inputs, NN_HEADS, NETWORK_CONFIG, EXPERIMENT_SEEDS),
         )
     metadata = write_candidate(
