@@ -3101,6 +3101,12 @@ describe('CDP API', () => {
                     ['no token', () => ({})],
                     ["another team's token", () => ({ Authorization: `Bearer ${mintManageToken(team.id + 1)}` })],
                     [
+                        'a token signed with another key',
+                        () => ({
+                            Authorization: `Bearer ${mintManageToken(team.id, { secret: 'not-the-signing-key' })}`,
+                        }),
+                    ],
+                    [
                         'a send token',
                         () => ({
                             Authorization: `Bearer ${mintManageToken(team.id, {
