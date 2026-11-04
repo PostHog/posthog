@@ -21,6 +21,7 @@ interface PreBuiltTool {
     meta: ToolBase<ZodObjectAny>['_meta']
     rawInputSchema: ToolBase<ZodObjectAny>['rawInputSchema']
     renderedNote?: ToolBase<ZodObjectAny>['renderedNote']
+    infoFieldDescriptions?: ToolBase<ZodObjectAny>['infoFieldDescriptions']
     definition: ToolDefinition | undefined
 }
 
@@ -191,6 +192,7 @@ export class ToolCatalog {
                 meta: base._meta,
                 rawInputSchema: base.rawInputSchema,
                 renderedNote: base.renderedNote,
+                infoFieldDescriptions: base.infoFieldDescriptions,
                 definition: defs[name],
             })
         }
@@ -287,6 +289,7 @@ export class ToolCatalog {
                 ...(preBuilt.rawInputSchema ? { rawInputSchema: preBuilt.rawInputSchema } : {}),
                 ...(preBuilt.meta ? { _meta: preBuilt.meta } : {}),
                 ...(preBuilt.renderedNote ? { renderedNote: preBuilt.renderedNote } : {}),
+                ...(preBuilt.infoFieldDescriptions ? { infoFieldDescriptions: preBuilt.infoFieldDescriptions } : {}),
                 title: definition.title,
                 description: definition.description,
                 scopes: definition.required_scopes ?? [],

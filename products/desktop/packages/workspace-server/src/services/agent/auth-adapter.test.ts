@@ -325,7 +325,7 @@ describe("AgentAuthAdapter", () => {
     }
   });
 
-  it("identifies as the posthog-code consumer with bundled skills so the MCP server tailors its output", async () => {
+  it("identifies as the posthog-code consumer so the MCP server emits UI-app metadata", async () => {
     const { servers } = await adapter.buildMcpServers(baseCredentials);
 
     const posthogServer = servers.find((s) => s.name === "posthog");
@@ -333,7 +333,6 @@ describe("AgentAuthAdapter", () => {
     expect(posthogServer?.headers).toEqual(
       expect.arrayContaining([
         { name: "x-posthog-mcp-consumer", value: "posthog-code" },
-        { name: "x-posthog-mcp-bundled-skills", value: "true" },
       ]),
     );
   });
