@@ -11,7 +11,13 @@ from products.warehouse_sources.sources.scalr._config import ScalrSourceConfig
 from products.warehouse_sources.sources.scalr.scalr import ScalrResumeConfig
 from products.warehouse_sources.sources.scalr.source import ScalrSource
 from products.warehouse_sources.sources.sdk import ResumableSourceManager, SourceInputs
-from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+from products.warehouse_sources.sources.sdk.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
 
 MIXINS = "products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins"
 
@@ -138,9 +144,10 @@ def test_validation_uses_one_small_page(config: ScalrSourceConfig) -> None:
     assert dict(network.requests_log[0].query) == {"filter[account]": ("acc-example",), "page[size]": ("1",)}
 
 
+@pytest.mark.parametrize("endpoint", ["runs", "plans"])
 @pytest.mark.parametrize("body", [{"errors": [{"title": "Unexpected result"}]}, {"data": {"id": "wrong-shape"}}])
-def test_malformed_response_fails(config: ScalrSourceConfig, body: dict[str, Any]) -> None:
-    result = SourceDriver(ScalrSource(), config).run("runs", [response(body)])
+def test_malformed_response_fails(config: ScalrSourceConfig, endpoint: str, body: dict[str, Any]) -> None:
+    result = SourceDriver(ScalrSource(), config).run(endpoint, [response(body)])
 
     assert isinstance(result.raised, ValueError)
     assert len(result.requests) == 1
@@ -192,3 +199,85 @@ def test_unsupported_incremental_field_fails(config: ScalrSourceConfig, endpoint
     assert isinstance(result.raised, ValueError)
     assert "only for the workspace updated_at" in str(result.raised)
     assert result.requests == []
+
+
+def test_plans_come_from_included_runs_on_every_page(config: ScalrSourceConfig) -> None:
+    def runs_page(run_id: str, plan_id: str, next_page: int | None) -> ScriptedResponse:
+        return response(
+            {
+                "data": [{"id": run_id, "type": "runs", "attributes": {}}],
+                "included": [
+                    {"id": plan_id, "type": "plans", "attributes": {"resource-additions": 2, "status": "finished"}},
+                    {"id": "ws-1", "type": "workspaces", "attributes": {}},
+                ],
+                "meta": {"pagination": {"next-page": next_page}},
+            }
+        )
+
+    result = SourceDriver(ScalrSource(), config).run(
+        "plans",
+        [runs_page("run-1", "plan-1", 2), runs_page("run-2", "plan-2", 3), response({"data": [], "meta": {}})],
+    )
+
+    assert result.raised is None
+    assert [(row["id"], row["resource_additions"]) for row in result.rows] == [("plan-1", 2), ("plan-2", 2)]
+    assert [request.path for request in result.requests] == ["/api/iacp/v3/runs"] * 3
+    assert all(request.param("include") == "plan" for request in result.requests)
+
+
+def test_state_versions_fan_out_over_workspaces_without_state_secrets(config: ScalrSourceConfig) -> None:
+    state_versions = {
+        "ws-1": [
+            response(
+                {
+                    "data": [
+                        {
+                            "id": "sv-1",
+                            "type": "state-versions",
+                            "attributes": {
+                                "created-at": "2025-01-01T00:00:00Z",
+                                "serial": 1,
+                                "state": "c2VjcmV0",
+                                "outputs": [
+                                    {"name": "password", "sensitive": True, "value": "secret"},
+                                    {"name": "url", "sensitive": False, "value": "https://example.com"},
+                                ],
+                            },
+                        }
+                    ],
+                    "meta": {"pagination": {"next-page": 2}},
+                }
+            ),
+            page("state-versions", "sv-2", None),
+        ],
+        "ws-2": [response({"errors": [{"status": "404"}]}, 404)],
+    }
+
+    def respond(request: RecordedRequest) -> ScriptedResponse:
+        if request.path.endswith("/workspaces"):
+            return response(
+                {
+                    "data": [{"id": ws, "type": "workspaces", "attributes": {}} for ws in state_versions],
+                    "meta": {"pagination": {"next-page": None}},
+                }
+            )
+        workspace = request.param("filter[workspace]")
+        assert workspace is not None
+        return state_versions[workspace].pop(0)
+
+    result = SourceDriver(ScalrSource(), config).run("state_versions", respond)
+
+    assert result.raised is None
+    assert [row["id"] for row in result.rows] == ["sv-1", "sv-2"]
+    assert "state" not in result.rows[0]
+    assert result.rows[0]["outputs"] == [
+        {"name": "password", "sensitive": True, "value": None},
+        {"name": "url", "sensitive": False, "value": "https://example.com"},
+    ]
+    assert [(request.path, request.param("filter[workspace]")) for request in result.requests] == [
+        ("/api/iacp/v3/workspaces", None),
+        ("/api/iacp/v3/state-versions", "ws-1"),
+        ("/api/iacp/v3/state-versions", "ws-1"),
+        ("/api/iacp/v3/state-versions", "ws-2"),
+    ]
+    assert result.requests[2].param("page[number]") == "2"
