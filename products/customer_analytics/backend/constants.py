@@ -15,6 +15,9 @@ CUSTOMER_ANALYTICS_FEATURE_REQUESTS_FLAG = "customer-analytics-feature-requests"
 CUSTOMER_ANALYTICS_TRACK_RULES_FLAG = "customer-analytics-track-rules"
 CUSTOMER_ANALYTICS_CUSTOMER_TASKS_FLAG = "customer-analytics-customer-tasks"
 CUSTOMER_ANALYTICS_ACCOUNT_VIEWS_FLAG = "customer-analytics-account-views"
+# Mirrors frontend `FEATURE_FLAGS.CUSTOMER_ANALYTICS_PRODUCT_USAGE`. Gates BookActivityMatrixQuery, whose product
+# rules describe PostHog's own app, so v1 is released to project 2 only.
+CUSTOMER_ANALYTICS_PRODUCT_USAGE_FLAG = "customer-analytics-product-usage"
 
 # Mirrors frontend `FEATURE_FLAGS.WAREHOUSE_PERSON_PROPERTIES`. Gates the whole warehouse -> person
 # properties feature: creating person-target custom property sources (API + UI), staging rows during

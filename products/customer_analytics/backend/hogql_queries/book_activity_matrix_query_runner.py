@@ -32,10 +32,14 @@ from posthog.clickhouse.workload import Workload
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.user import User
+from posthog.permissions import posthog_feature_flag_enabled
 from posthog.week_start_day import WeekStartDay
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
-from products.customer_analytics.backend.constants import BOOK_ACTIVITY_MATRIX_QUERY_STATUS_LABEL_PREFIX
+from products.customer_analytics.backend.constants import (
+    BOOK_ACTIVITY_MATRIX_QUERY_STATUS_LABEL_PREFIX,
+    CUSTOMER_ANALYTICS_PRODUCT_USAGE_FLAG,
+)
 from products.customer_analytics.backend.logic.posthog_product_usage import (
     ENGAGED_MAX_SECONDS,
     ENGAGED_SECONDS,
@@ -62,6 +66,14 @@ class BookActivityMatrixQueryRunner(AnalyticsQueryRunner[BookActivityMatrixQuery
 
     def validate_query_runner_access(self, user: User) -> bool:
         UserAccessControl(user=user, team=self.team).assert_access_level_for_resource("account", "viewer")
+        # Runs before the cache lookup, so turning the flag off also stops cached results.
+        if not posthog_feature_flag_enabled(
+            CUSTOMER_ANALYTICS_PRODUCT_USAGE_FLAG,
+            user.distinct_id or str(user.uuid),
+            organization_id=self.team.organization_id,
+            team_id=self.team.id,
+        ):
+            raise UserAccessControlError("account", "viewer")
         return True
 
     def get_cache_key_variant(self) -> str:
