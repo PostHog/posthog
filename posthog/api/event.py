@@ -39,11 +39,17 @@ from posthog.errors import ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Element, Person, PropertyDefinition, User
-from posthog.models.event.legacy_events_query import LegacyEventsListQuery, get_one_event
+from posthog.models.event.legacy_events_query import (
+    EVENT_LIST_DEFAULT_AFTER_WINDOW,
+    LegacyEventsListQuery,
+    get_one_event,
+    resolve_before,
+)
 from posthog.models.event.util import ClickhouseEventSerializer
 from posthog.models.person.util import get_persons_mapped_by_distinct_id
 from posthog.models.team import Team
 from posthog.models.utils import UUIDT
+from posthog.permissions import posthog_feature_flag_enabled
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
@@ -66,6 +72,8 @@ EVENT_VALUES_COUNTER = Counter(
 
 QUERY_DEFAULT_EXPORT_LIMIT = 1_000
 EVENT_LIST_MAX_LIMIT = 1_000
+EVENTS_LIST_DEFAULT_AFTER_FLAG = "events-list-default-after"
+DEFAULT_AFTER_HEADER = "X-PostHog-Events-Default-After"
 
 
 # Legacy property-filter keys the frontend still appends but EventsQuery's schema forbids.
@@ -101,6 +109,21 @@ def _iter_leaf_property_filters(properties: "builtins.list[dict] | dict | None")
             stack.extend(v for v in values if isinstance(v, dict))
         else:
             yield node
+
+
+def _default_after_enabled(team: Team) -> bool:
+    if settings.PATCH_EVENT_LIST_MAX_OFFSET > 1:
+        return True
+    try:
+        return posthog_feature_flag_enabled(
+            EVENTS_LIST_DEFAULT_AFTER_FLAG,
+            str(team.uuid),
+            organization_id=team.organization_id,
+            team_id=team.id,
+            only_evaluate_locally=True,
+        )
+    except Exception:
+        return False
 
 
 @dataclasses.dataclass(frozen=True)
@@ -203,8 +226,11 @@ class EventViewSet(
         request: request.Request,
         last_event_timestamp: datetime,
         order_by: list[str],
+        after: Optional[str],
     ) -> str:
         params = request.GET.dict()
+        if after:
+            params["after"] = after
         reverse = "-timestamp" in order_by
         timestamp = last_event_timestamp.replace(tzinfo=UTC).isoformat()
         if reverse:
@@ -309,13 +335,23 @@ class EventViewSet(
             restricted_context = self._get_restricted_properties_context(request, team)
             self._reject_restricted_property_references(properties, order_by, restricted_context)
 
+            before = request.GET.get("before")
+            after = request.GET.get("after")
+            default_after: Optional[str] = None
+            if not after and _default_after_enabled(team):
+                before_dt = resolve_before(before, team.timezone_info)
+                # Pass the resolved `before` too, so the query sees an exact 24h range and skips its
+                # 24h window probe instead of running the same range twice.
+                before = before_dt.isoformat()
+                default_after = after = (before_dt - EVENT_LIST_DEFAULT_AFTER_WINDOW).astimezone(UTC).isoformat()
+
             request_user = cast(Optional[User], request.user if request.user.is_authenticated else None)
             query_result, has_more = LegacyEventsListQuery(team, request_user).run(
                 limit=limit,
                 offset=offset,
                 order=order,
-                before=request.GET.get("before"),
-                after=request.GET.get("after"),
+                before=before,
+                after=after,
                 event=request.GET.get("event"),
                 person_id=request.GET.get("person_id"),
                 distinct_id=request.GET.get("distinct_id"),
@@ -335,17 +371,17 @@ class EventViewSet(
 
             next_url: Optional[str] = None
             if not is_csv_request and has_more and query_result:
-                next_url = self._build_next_url(request, query_result[-1]["timestamp"], order_by)
-            headers = None
+                next_url = self._build_next_url(request, query_result[-1]["timestamp"], order_by, after)
+            headers: dict[str, str] = {}
             if settings.PATCH_EVENT_LIST_MAX_OFFSET > 0:
-                headers = {"X-PostHog-Warn": "https://posthog.com/docs/api/events"}
+                headers["X-PostHog-Warn"] = "https://posthog.com/docs/api/events"
             elif deprecate_offset and offset:
-                headers = {
-                    "X-PostHog-Warn": (
-                        "offset is deprecated. "
-                        "Use: https://posthog.com/docs/api/queries#5-use-timestamp-based-pagination-instead-of-offset"
-                    )
-                }
+                headers["X-PostHog-Warn"] = (
+                    "offset is deprecated. "
+                    "Use: https://posthog.com/docs/api/queries#5-use-timestamp-based-pagination-instead-of-offset"
+                )
+            if default_after:
+                headers[DEFAULT_AFTER_HEADER] = default_after
             return response.Response({"next": next_url, "results": result}, headers=headers)
 
         except Exception as ex:

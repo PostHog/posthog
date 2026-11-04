@@ -3,6 +3,7 @@ import random
 import builtins
 from datetime import datetime, timedelta
 from typing import Optional, cast
+from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.core.cache import cache
@@ -35,6 +36,7 @@ EVENT_LIST_SELECT_COLUMNS = ["uuid", "event", "properties", "timestamp", "distin
 EVENT_LIST_TIME_WINDOWS = [60, 300, 900, 3600, 21600, 86400]
 EVENT_LIST_CACHE_TTL = 86400  # 24 hours
 EVENT_LIST_CACHE_KEY_PREFIX = "event_list_good_period"
+EVENT_LIST_DEFAULT_AFTER_WINDOW = timedelta(hours=24)
 
 
 def _get_limit_size_category(limit: int) -> str:
@@ -79,6 +81,11 @@ def _execute_events_list_query(runner: EventsQueryRunner, database: Database) ->
     )
     rows = [dict(zip(EVENT_LIST_SELECT_COLUMNS, row)) for row in runner.paginator.results]
     return rows, runner.paginator.has_more()
+
+
+def resolve_before(before: Optional[str], tzinfo: ZoneInfo) -> datetime:
+    # Just past now, so events ingested a moment ago aren't excluded.
+    return relative_date_parse(before, tzinfo) if before else datetime.now(tzinfo) + timedelta(seconds=5)
 
 
 def get_one_event(team: Team, pk: str) -> Optional[dict]:
@@ -228,18 +235,12 @@ class LegacyEventsListQuery:
         """
         tzinfo = self.team.timezone_info
 
-        # Resolve the [after_dt, before_dt) bounds. `before` defaults to just past now (so events
-        # ingested a moment ago aren't excluded); `after` stays open unless requested.
+        # Resolve the [after_dt, before_dt) bounds. `after` stays open unless the caller passes one.
         # PATCH_EVENT_LIST_MAX_OFFSET clamps this deprecated endpoint's ClickHouse cost as a graduated
-        # rollout (0 = off, 1 = migration, 2 = enabled; see settings/data_stores.py): at 2 a missing
-        # `after` defaults to before-24h, and a range over a year is rejected (always at 2, ~1% at 1).
-        before_dt = relative_date_parse(before, tzinfo) if before else datetime.now(tzinfo) + timedelta(seconds=5)
-        if after:
-            after_dt: Optional[datetime] = relative_date_parse(after, tzinfo)
-        elif settings.PATCH_EVENT_LIST_MAX_OFFSET > 1:
-            after_dt = before_dt - timedelta(hours=24)
-        else:
-            after_dt = None
+        # rollout (0 = off, 1 = migration, 2 = enabled; see settings/data_stores.py): a range over a
+        # year is rejected (always at 2, ~1% at 1).
+        before_dt = resolve_before(before, tzinfo)
+        after_dt: Optional[datetime] = relative_date_parse(after, tzinfo) if after else None
 
         if settings.PATCH_EVENT_LIST_MAX_OFFSET > 0 and after_dt is not None:
             if (before_dt - after_dt) > timedelta(days=366) and (

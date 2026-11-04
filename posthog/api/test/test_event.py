@@ -1,6 +1,6 @@
 import json
 from datetime import datetime
-from urllib.parse import unquote, urlencode
+from urllib.parse import parse_qs, unquote, urlencode, urlparse
 from zoneinfo import ZoneInfo
 
 import time_machine
@@ -1198,6 +1198,50 @@ class TestEvents(ClickhouseTestMixin, APIBaseTest):
         response = self.client.get(f"/api/projects/{self.team.id}/events/?before=2024-01-10T10:20:02Z&limit=1").json()
         assert len(response["results"]) == 0
         assert patch_execute_query.call_count == 20
+
+    @parameterized.expand(
+        [
+            ("flag_on", {"return_value": True}, True),
+            ("flag_off", {"return_value": False}, False),
+            ("flag_error", {"side_effect": Exception("flag evaluation failed")}, False),
+        ]
+    )
+    def test_missing_after_defaults_to_24h_behind_flag(self, _name, flag_patch, default_applies):
+        with time_machine.travel("2024-03-10T12:00:00Z", tick=False):
+            old_event = _create_event(
+                team=self.team, event="old", distinct_id="1", timestamp=timezone.now() - relativedelta(days=3)
+            )
+            recent_events = [
+                _create_event(
+                    team=self.team,
+                    event="recent",
+                    distinct_id="1",
+                    timestamp=timezone.now() - relativedelta(seconds=seconds),
+                )
+                for seconds in (10, 20, 30)
+            ]
+            flush_persons_and_events()
+
+            with patch("posthog.api.event.posthog_feature_flag_enabled", **flag_patch):
+                first_page = self.client.get(f"/api/projects/{self.team.id}/events/?limit=2")
+                full_page = self.client.get(f"/api/projects/{self.team.id}/events/")
+                explicit_after = self.client.get(
+                    f"/api/projects/{self.team.id}/events/",
+                    data={"after": (timezone.now() - relativedelta(days=7)).isoformat()},
+                )
+
+        next_params = parse_qs(urlparse(first_page.json()["next"]).query)
+        full_page_ids = [event["id"] for event in full_page.json()["results"]]
+        if default_applies:
+            assert first_page.headers["X-PostHog-Events-Default-After"] == "2024-03-09T12:00:05+00:00"
+            assert next_params["after"] == ["2024-03-09T12:00:05+00:00"]
+            assert full_page_ids == recent_events
+        else:
+            assert "X-PostHog-Events-Default-After" not in first_page.headers
+            assert "after" not in next_params
+            assert full_page_ids == [*recent_events, old_event]
+        assert "X-PostHog-Events-Default-After" not in explicit_after.headers
+        assert [event["id"] for event in explicit_after.json()["results"]] == [*recent_events, old_event]
 
     def test_optimize_query_with_bounded_dates(self):
         # Test that bounded date ranges return correct results
