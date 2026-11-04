@@ -12,7 +12,7 @@ import { makeHighlights, makePulseMetric } from './todayTestFixtures'
 
 jest.mock('kea', () => ({ ...jest.requireActual('kea'), useActions: jest.fn(), useValues: jest.fn() }))
 jest.mock('./todayLogic', () => ({ todayLogic: { values: { homeScrollTop: null } }, reportIdFromPath: () => null }))
-jest.mock('./todayHighlightsLogic', () => ({ todayHighlightsLogic: {} }))
+jest.mock('./todayHighlightsLogic', () => ({ todayHighlightsLogic: {}, pulsePinLimitReason: () => undefined }))
 jest.mock('./TodaySampleBanner', () => ({ TodaySampleBanner: () => null }))
 jest.mock('./TodayForYou', () => ({ TodayForYou: () => null }))
 jest.mock('./TodayRecents', () => ({ TodayRecents: () => null }))
@@ -87,6 +87,9 @@ describe('TodayHomePage loading', () => {
             pulsePending: false,
             pulseTiles: [] as typeof metrics,
             pulseSlots: slots,
+            pulsePins: [],
+            pulsePinsLoaded: false,
+            pulsePinsUnavailableReason: null,
         }
         const actions = {
             setReturnFocusReportId: jest.fn(),

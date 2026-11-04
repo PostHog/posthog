@@ -1252,8 +1252,9 @@ class ScoutNoteSerializer(serializers.Serializer):
             "a directive. `report_feedback` for the note someone left when rating a report useful or "
             "not: one reader's rating of the named report, context to weigh rather than a directive. "
             "`report_reviewer_correction` for a suggested reviewer someone added or removed on a "
-            "report: evidence about who owns that surface, and a prompt to revisit the routing "
-            "memory it corrects, rather than a directive."
+            "report, or for a report a person or their agent claimed: evidence about who owns that "
+            "surface, and a prompt to revisit the routing memory it corrects or supports, rather "
+            "than a directive."
         ),
     )
 
@@ -1754,6 +1755,15 @@ class EmitReportResponseSerializer(serializers.Serializer):
 class EditReportRequestSerializer(ReviewerProposalSerializer):
     """Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones."""
 
+    reviewer_outcome_reason = serializers.CharField(
+        required=False,
+        max_length=500,
+        help_text=(
+            "Why no suitable owner exists, with `reviewer_outcome: no_suitable_owner`. Required to clear a "
+            "report that already has suggested reviewers: without it the current reviewers stay and the "
+            "response carries a warning. The reason is recorded in the report's work log."
+        ),
+    )
     report_id = serializers.CharField(help_text="Id of the report to edit (must belong to this project).")
     title = serializers.CharField(
         required=False,

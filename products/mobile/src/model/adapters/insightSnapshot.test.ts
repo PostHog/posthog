@@ -5,6 +5,7 @@ import {
     insightRenderState,
     noDataText,
     pinRangeLabel,
+    snapshotBarLayout,
     snapshotChartSeries,
     snapshotFormatter,
 } from '@/features/views/snapshotChart'
@@ -139,6 +140,17 @@ describe('insightSnapshot', () => {
         )
 
         expect(snapshotFormatter(snapshot)(snapshot.value as number)).toBe(expected)
+    })
+
+    test.each([
+        ['ActionsBar', null, 'stacked'],
+        ['ActionsStackedBar', null, 'stacked'],
+        ['ActionsUnstackedBar', null, 'grouped'],
+        ['ActionsBar', 'grouped', 'grouped'],
+        ['ActionsUnstackedBar', 'stacked', 'stacked'],
+    ] as const)('uses %s with the device preference %s as %s', (display, preferred, expected) => {
+        const snapshot = insightSnapshot(insight({ query: trends(undefined, display) }), undefined, CONTEXT)
+        expect(snapshotBarLayout(snapshot, preferred)).toBe(expected)
     })
 
     test.each<[string, Partial<InsightApi>]>([
