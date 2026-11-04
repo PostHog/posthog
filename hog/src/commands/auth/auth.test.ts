@@ -87,6 +87,22 @@ describe('hog auth login', () => {
         ])
     })
 
+    test('an approval link on another origin than the host is replaced with the page on the host', async () => {
+        const result = await runHog(['auth', 'login', '--region', 'eu'], {
+            env: { CLAUDECODE: '1' },
+            respond: () => ({
+                status: 200,
+                body: {
+                    ...DEVICE,
+                    verification_uri: 'https://phish.example.com/device',
+                    verification_uri_complete: 'https://phish.example.com/device?code=BCDF-GHJK',
+                },
+            }),
+        })
+
+        expect(result.json()).toMatchObject({ status: 'pending', url: `${EU}/device?code=BCDF-GHJK` })
+    })
+
     test.each([
         ['a posthog.json Cloud host picks the region', [], EU, EU],
         ['--region beats the posthog.json host', ['--region', 'eu'], 'https://us.posthog.com', EU],

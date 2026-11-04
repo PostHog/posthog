@@ -3,6 +3,7 @@ import { HogError } from '@/core/errors'
 import { escapeControls } from '@/core/output'
 import type { Runtime } from '@/core/runtime'
 
+import { hostKey, hostUrl } from './host'
 import { HOG_CLIENT_ID, OAuthLogin, oauthPost, type TokenResponse } from './oauth'
 
 const DEVICE_CODE_GRANT = 'urn:ietf:params:oauth:grant-type:device_code'
@@ -107,6 +108,17 @@ interface DeviceAuthorizationResponse {
     interval?: number
 }
 
+// hog opens the approval page only on the host it logs in to. A server that names another origin could
+// send the person to a look-alike page, and the code check wouldn't catch it: that server chose the code.
+function approvalUrl(host: string, userCode: string, named: string): string {
+    if (URL.canParse(named) && hostKey(named) === hostKey(host)) {
+        return named
+    }
+    const url = hostUrl(host, 'device')
+    url.searchParams.set('code', userCode)
+    return url.toString()
+}
+
 export async function startDeviceLogin(
     runtime: Runtime,
     host: string,
@@ -139,7 +151,7 @@ export async function startDeviceLogin(
         host,
         deviceCode: body.device_code,
         userCode: body.user_code,
-        url: body.verification_uri_complete ?? body.verification_uri,
+        url: approvalUrl(host, body.user_code, body.verification_uri_complete ?? body.verification_uri),
         expiresAt: runtime.now() + body.expires_in * 1000,
         intervalSeconds: body.interval ?? 5,
         scopes: [...scopes],
