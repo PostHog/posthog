@@ -10,6 +10,7 @@ import { useProjectScope } from '@/auth/useProjectScope'
 import { useDataMode } from '@/demo/demoMode'
 import { useArchiveChat } from '@/features/chats/hooks'
 import { setViewedNotificationTask } from '@/features/notifications/foregroundNotifications'
+import { usePostHogStatus } from '@/features/status/usePostHogStatus'
 import { track } from '@/lib/analytics'
 import { isReportId } from '@/lib/ids'
 import { useNow } from '@/lib/useNow'
@@ -25,13 +26,14 @@ import { useScreenInsets } from '@/ui/useScreenInsets'
 import { defaultModelSelection, isPermissionMode, modeLabel } from '../handoff/runOptions'
 import { useModelCatalogue, useRunDefaults } from '../handoff/useRunOptions'
 import { useInboxItems } from '../inbox/hooks'
+import { AiIncidentNotice } from './AiIncidentNotice'
 import { AttachMenuSheet } from './attachments/AttachMenuSheet'
 import { AttachmentChip } from './attachments/AttachmentChip'
 import type { AttachmentSource, PendingAttachment } from './attachments/types'
 import { releaseAttachments, useComposerAttachments } from './attachments/useComposerAttachments'
 import { ChatAccessGate } from './ChatAccessGate'
 import { ChatEmptyState } from './ChatEmptyState'
-import { CHAT_HEADER_HEIGHT, ChatHeader } from './ChatHeader'
+import { CHAT_COMPACT_HEADER_HEIGHT, CHAT_HEADER_HEIGHT, ChatHeader } from './ChatHeader'
 import { type ChatOptionsPage, ChatOptionsSheet } from './ChatOptionsSheet'
 import { Composer } from './Composer'
 import { ContextChip } from './ContextChip'
@@ -75,6 +77,7 @@ interface ChatScreenProps {
     initialTaskId?: string
     initialRunId?: string
     source: ChatSheetSource
+    autoFocus?: boolean
     onBack: () => void
 }
 
@@ -91,18 +94,22 @@ export function ChatScreen({
     initialTaskId,
     initialRunId,
     source,
+    autoFocus = false,
     onBack,
 }: ChatScreenProps): ReactElement {
     const styles = useStyles()
     const insets = useScreenInsets()
     const { height: sceneHeight, width: sceneWidth } = useSceneDimensions()
     const compact = sceneHeight < 480 && sceneWidth >= 600
-    const headerHeight = compact ? 60 : CHAT_HEADER_HEIGHT
+    const headerHeight = compact ? CHAT_COMPACT_HEADER_HEIGHT : CHAT_HEADER_HEIGHT
     const now = useNow()
     const inbox = useInboxItems()
     const [target, setTarget] = useState<SessionOptions>(() => sessionTarget(initialTaskId, initialRunId))
     const session = useSession(target)
     const scope = useProjectScope()
+    const { aiIncident } = usePostHogStatus(scope?.host)
+    const headerInset = insets.top + headerHeight
+    const contentInset = aiIncident ? 0 : headerInset
     const demo = useDataMode() === 'demo'
     const keyboard = useReanimatedKeyboardAnimation()
     const blurTarget = useRef<View>(null)
@@ -193,6 +200,15 @@ export function ChatScreen({
     // never takes them.
     const [sendingFileIds, setSendingFileIds] = useState<readonly string[]>([])
     const input = useRef<TextInput>(null)
+    const inputRef = useCallback(
+        (node: TextInput | null) => {
+            input.current = node
+            if (autoFocus) {
+                node?.focus()
+            }
+        },
+        [autoFocus]
+    )
     const historyStatus = session.history.status
     const optionsDisabled =
         session.phase !== 'idle' || historyStatus !== 'idle' || session.isSending || session.decision !== undefined
@@ -606,10 +622,15 @@ export function ChatScreen({
                 <View style={styles.page}>
                     <BlurTargetView ref={blurTarget} style={styles.body}>
                         <Animated.View style={[styles.keyboard, keyboardStyle]}>
+                            {aiIncident ? (
+                                <View style={{ paddingTop: headerInset }}>
+                                    <AiIncidentNotice incident={aiIncident} />
+                                </View>
+                            ) : null}
                             {showEmptyState ? (
                                 <ScrollView
                                     style={styles.empty}
-                                    contentContainerStyle={{ flexGrow: 1, paddingTop: insets.top + headerHeight }}
+                                    contentContainerStyle={{ flexGrow: 1, paddingTop: contentInset }}
                                     keyboardShouldPersistTaps="handled"
                                 >
                                     <ChatEmptyState
@@ -621,7 +642,7 @@ export function ChatScreen({
                             ) : (
                                 <SessionThread
                                     session={session}
-                                    topInset={insets.top + headerHeight}
+                                    topInset={contentInset}
                                     onRetryHistory={() => {
                                         track('mobile_session_load_retried')
                                         if (session.reconnect) session.reconnect()
@@ -676,7 +697,7 @@ export function ChatScreen({
                                             ) : null}
                                             <Composer
                                                 compact={compact}
-                                                ref={input}
+                                                ref={inputRef}
                                                 text={text}
                                                 onChangeText={changeText}
                                                 chips={chips}
