@@ -1293,13 +1293,18 @@ describe('Cyclotron V2', () => {
                 ['cancelUnclaimed', 'a claimed job', 'claimed', 'claim'],
                 ['cancelUnclaimed', "another team's job", 'not_found', 'other_team'],
                 ['cancelUnclaimed', 'an unknown id', 'not_found', 'unknown'],
+                ['cancelUnclaimed', 'a job on another queue', 'not_found', 'other_queue'],
                 ['rescheduleUnclaimed', 'a claimed job', 'claimed', 'claim'],
                 ['rescheduleUnclaimed', "another team's job", 'not_found', 'other_team'],
                 ['rescheduleUnclaimed', 'an unknown id', 'not_found', 'unknown'],
+                ['rescheduleUnclaimed', 'a job on another queue', 'not_found', 'other_queue'],
                 ['rescheduleUnclaimed', 'a job canceled before its claim', 'canceled', 'cancel_unclaimed'],
                 ['rescheduleUnclaimed', 'a job flagged by a run cancel', 'canceled', 'cancel_flag'],
             ] as const)('%s on %s answers %s and changes nothing', async (op, _desc, outcome, setup) => {
-                let id = await seedScheduledEmail(setup === 'other_team' ? 2 : 1)
+                let id =
+                    setup === 'other_queue'
+                        ? await manager.createJob({ teamId: 1, queueName: QUEUE, scheduled: IN_A_WEEK() })
+                        : await seedScheduledEmail(setup === 'other_team' ? 2 : 1)
                 if (setup === 'claim') {
                     await assertPool.query(claimSql, [id])
                 } else if (setup === 'cancel_unclaimed') {
