@@ -304,13 +304,13 @@ export interface experimentMetricsLogicValues {
     queuedRerun: ExperimentMetricsRecalculationRequestTriggerEnumApi | null
     recalculatingMetricUuids: string[]
     recalculationAbandoned: boolean
+    recalculationAgeLimitExceeded: boolean
     recalculationDisplayState: 'cold' | 'initial' | 'partial' | 'refreshing' | 'resting'
     recalculationLoading: boolean
     recalculationProgress: {
         completed: number
         total: number
     }
-    recalculationAgeLimitExceeded: boolean
     recalculationRejectionMessage: string | null
     refreshEligibilityTick: number
     resultConfigurationNotice: 'previous' | 'unknown' | null
