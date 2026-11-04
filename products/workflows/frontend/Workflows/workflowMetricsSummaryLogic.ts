@@ -29,6 +29,25 @@ import { workflowLogic } from './workflowLogic'
 // "View converted users" deep-links to the events explorer scoped to this workflow and date range.
 const CONVERSION_EVENT = '$workflows_conversion'
 
+// Earlier runs have no `conversion_by_start` row even when they converted, so a range that reaches back
+// past this keeps counting conversions by when they happened. Otherwise its rate would read near zero.
+export const CONVERSION_BY_START_RECORDED_SINCE = '2026-11-04T00:00:00Z'
+
+export function conversionRateQuery(
+    dateFrom: Dayjs,
+    dateTo: Dayjs
+): Pick<AppMetricsTotalsRequest, 'dateFrom' | 'dateTo' | 'metricName'> {
+    if (dateFrom.isBefore(dayjs.utc(CONVERSION_BY_START_RECORDED_SINCE))) {
+        return { dateFrom: dateFrom.toISOString(), dateTo: dateTo.toISOString(), metricName: ['conversion'] }
+    }
+    // `conversion_by_start` sits at the top of the UTC hour a run started, so both totals cover whole hours.
+    return {
+        dateFrom: dayjs.utc(dateFrom).startOf('hour').toISOString(),
+        dateTo: dayjs.utc(dateTo).add(1, 'hour').subtract(1, 'millisecond').startOf('hour').toISOString(),
+        metricName: ['conversion_by_start'],
+    }
+}
+
 // The run-level "succeeded" metric is emitted once per run that finishes successfully, with an
 // empty instance_id — for ANY terminal path, including early exits (e.g. exiting on conversion).
 // Filtering on it (rather than the exit node's succeeded) makes "Completed" count converted /
@@ -1129,9 +1148,7 @@ export const workflowMetricsSummaryLogic = kea<workflowMetricsSummaryLogicType>(
                         appSource: values.params.appSource,
                         appSourceId: values.params.appSourceId,
                         breakdownBy: ['metric_name'],
-                        dateFrom: dateRange.dateFrom.toISOString(),
-                        dateTo: dateRange.dateTo.toISOString(),
-                        metricName: ['conversion'],
+                        ...conversionRateQuery(dateRange.dateFrom, dateRange.dateTo),
                     }
                     // The two totals have no data dependency, so fetch them in parallel.
                     const [conversionResponse, startedResponse] = await Promise.all([
