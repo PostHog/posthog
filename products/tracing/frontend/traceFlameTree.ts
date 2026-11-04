@@ -156,14 +156,16 @@ export function buildTree(current: SpanTreeNode[], previous: SpanTreeNode[] | nu
  * so the graph colors by service instead.
  */
 export function toFlameNodes(root: TraceTreeNode, hasBaseline: boolean): FlameNode<TraceFlameMeta>[] {
+    // The chart reads a value of 0 as a missing span, so a zero-duration span that exists gets 1 ns.
+    const p50 = (node: SpanTreeNode | null): number => (node ? Math.max(node.p50_duration_nano, 1) : 0)
     const convert = (node: TraceTreeNode, parentId: string): FlameNode<TraceFlameMeta> => {
         const id = `${parentId}/${nodeKey(node.serviceName, node.name)}`
         return {
             id,
             name: node.name,
             group: node.serviceName,
-            value: node.node?.p50_duration_nano ?? 0,
-            baselineValue: hasBaseline ? (node.previousNode?.p50_duration_nano ?? 0) : undefined,
+            value: p50(node.node),
+            baselineValue: hasBaseline ? p50(node.previousNode) : undefined,
             count: node.node?.count,
             baselineCount: hasBaseline ? (node.previousNode?.count ?? 0) : undefined,
             meta: { serviceName: node.serviceName, current: node.node, previous: node.previousNode },
