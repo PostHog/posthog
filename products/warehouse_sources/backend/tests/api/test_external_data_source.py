@@ -32,6 +32,7 @@ from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.cdp.backend.facade.models import HogFunction
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.data_warehouse.backend.facade.api import DIRECT_POSTGRES_URL_PATTERN, DIRECT_TRINO_URL_PATTERN
 from products.data_warehouse.backend.facade.models import ExternalDataSourceRevenueAnalyticsConfig
@@ -448,6 +449,7 @@ class TestExternalDataSource(APIBaseTest):
         latest_error: str | None = None,
         should_sync: bool = True,
         row_count: int = 0,
+        sync_type: str | None = None,
     ) -> ExternalDataSchema:
         table = DataWarehouseTable.objects.create(
             name=name, team=self.team, external_data_source=source, row_count=row_count
@@ -460,7 +462,59 @@ class TestExternalDataSource(APIBaseTest):
             status=status,
             latest_error=latest_error,
             should_sync=should_sync,
+            sync_type=sync_type,
         )
+
+    def _make_webhook_function(
+        self, source: ExternalDataSource, *, enabled: bool = True, deleted: bool = False
+    ) -> None:
+        HogFunction.objects.create(
+            team=self.team,
+            type="warehouse_source_webhook",
+            hog="return event",
+            enabled=enabled,
+            deleted=deleted,
+            inputs_schema=[{"key": "source_id", "type": "string"}],
+            inputs={"source_id": {"value": str(source.pk)}},
+        )
+
+    @parameterized.expand(
+        [
+            ("no_webhook", "webhook", True, None, True),
+            ("disabled_webhook", "webhook", True, "disabled", True),
+            ("deleted_webhook", "webhook", True, "deleted", True),
+            ("webhook_for_other_source", "webhook", True, "other_source", True),
+            ("enabled_webhook", "webhook", True, "enabled", False),
+            ("webhook_table_not_syncing", "webhook", False, None, False),
+            ("no_webhook_table", "incremental", True, None, False),
+        ]
+    )
+    def test_webhook_not_registered(
+        self, _name: str, sync_type: str, should_sync: bool, webhook: str | None, expected: bool
+    ) -> None:
+        source = self._make_source("webhooked")
+        other_source = self._make_source("other")
+        self._make_schema_with_table(source, "Customer", sync_type=sync_type, should_sync=should_sync)
+        self._make_schema_with_table(source, "Invoice", sync_type="full_refresh")
+        if webhook is not None:
+            self._make_webhook_function(
+                other_source if webhook == "other_source" else source,
+                enabled=webhook != "disabled",
+                deleted=webhook == "deleted",
+            )
+
+        listed = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/").json()["results"]
+        detail = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/").json()
+
+        assert {row["prefix"]: row["webhook_not_registered"] for row in listed} == {
+            "webhooked": expected,
+            "other": False,
+        }
+        assert detail["webhook_not_registered"] is expected
+        assert {row["name"]: row["webhook_not_registered"] for row in detail["schemas"]} == {
+            "Customer": expected,
+            "Invoice": False,
+        }
 
     def test_exists_ignores_deleted_and_other_project_sources_without_loading_schemas(self) -> None:
         source = self._make_source("exists")
@@ -590,7 +644,7 @@ class TestExternalDataSource(APIBaseTest):
         # A regression to per-source credential/source lookups or the duplicate schema prefetch shows up
         # here as a rising query count.
         first = self._make_source("one")
-        self._make_schema_with_table(first, "A")
+        self._make_schema_with_table(first, "A", sync_type="webhook")
 
         # warm any per-request caches so the two measurements compare like with like
         self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
@@ -600,7 +654,9 @@ class TestExternalDataSource(APIBaseTest):
 
         for index in range(4):
             extra = self._make_source(f"many-{index}")
-            self._make_schema_with_table(extra, f"S{index}")
+            self._make_schema_with_table(extra, f"S{index}", sync_type="webhook")
+            if index % 2:
+                self._make_webhook_function(extra)
 
         with CaptureQueriesContext(connection) as many_source_queries:
             self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
@@ -3629,6 +3685,7 @@ class TestExternalDataSource(APIBaseTest):
                 "revenue_analytics_config",
                 "user_access_level",
                 "supports_webhooks",
+                "webhook_not_registered",
                 "supports_column_selection",
                 "file_name",
                 "api_version",
@@ -3665,6 +3722,7 @@ class TestExternalDataSource(APIBaseTest):
                     "primary_key_columns": None,
                     "cdc_table_mode": "consolidated",
                     "incremental_sync_blocked": None,
+                    "webhook_not_registered": False,
                     "enabled_columns": None,
                     "masked_columns": None,
                     "row_filters": None,
