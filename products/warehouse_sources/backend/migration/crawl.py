@@ -62,24 +62,27 @@ class _NoCatalog:
 PENDING_CATALOG: CatalogLookup = _NoCatalog()
 
 
-def crawl_migration(*, team_id: int, migration_id: UUID, catalog: CatalogLookup = PENDING_CATALOG) -> int:
+def crawl_migration(
+    *, team_id: int, migration_id: UUID, workflow_id: str, catalog: CatalogLookup = PENDING_CATALOG
+) -> int:
     """Read the vendor account, plan every connection, and store the result. Returns the item count.
 
+    Writes only while the migration still names `workflow_id` as its crawl, so a replaced crawl changes nothing.
     A failure leaves the migration `crawling`: the workflow retries, then calls `mark_migration_failed`.
     """
-    migration = WarehouseMigration.objects.for_team(team_id).filter(id=migration_id).first()
-    if migration is None:
-        # Deleted while the crawl waited to start.
+    own = WarehouseMigration.objects.for_team(team_id).filter(id=migration_id, workflow_id=workflow_id)
+    if not own.update(status=WarehouseMigration.Status.CRAWLING, latest_error="", updated_at=timezone.now()):
+        # Deleted, or a newer crawl replaced this one.
         return 0
-    migration.status = WarehouseMigration.Status.CRAWLING
-    migration.latest_error = ""
-    migration.save(update_fields=["status", "latest_error", "updated_at"])
+    migration = own.first()
+    if migration is None:
+        return 0
 
     snapshot = fetch_snapshot(FivetranClient(FivetranCredentials(**migration.credentials)))
     with transaction.atomic():
-        locked = WarehouseMigration.objects.for_team(team_id).select_for_update().filter(id=migration_id).first()
+        locked = own.select_for_update().first()
         if locked is None or locked.status != WarehouseMigration.Status.CRAWLING:
-            # Deleted, or a newer crawl or a failure mark already won.
+            # Deleted, replaced by a newer crawl, or already marked failed.
             return 0
         return len(save_plan(locked, snapshot, catalog=catalog))
 
@@ -119,9 +122,12 @@ def _team_has_flag(team: Team, flag: str) -> bool:
     )
 
 
-def mark_migration_failed(*, team_id: int, migration_id: UUID, auth_failed: bool) -> None:
+def mark_migration_failed(*, team_id: int, migration_id: UUID, workflow_id: str, auth_failed: bool) -> None:
+    """Mark the crawl `workflow_id` failed, unless a newer crawl replaced it."""
     WarehouseMigration.objects.for_team(team_id).filter(
-        id=migration_id, status__in=(WarehouseMigration.Status.PENDING, WarehouseMigration.Status.CRAWLING)
+        id=migration_id,
+        workflow_id=workflow_id,
+        status__in=(WarehouseMigration.Status.PENDING, WarehouseMigration.Status.CRAWLING),
     ).update(
         status=WarehouseMigration.Status.FAILED,
         latest_error=_AUTH_FAILED_MESSAGE if auth_failed else _CRAWL_FAILED_MESSAGE,
