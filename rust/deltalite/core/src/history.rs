@@ -290,6 +290,15 @@ fn validate_source(
     source_schema: &SchemaRef,
     opts: &HistoryUpsertOptions,
 ) -> Result<()> {
+    // Every check below reads the declared schema, and the planner indexes columns by it.
+    if let Some(i) = source_batches
+        .iter()
+        .position(|b| b.schema().fields() != source_schema.fields())
+    {
+        return Err(Error::SchemaMismatch(format!(
+            "source batch {i} does not match the declared source schema"
+        )));
+    }
     let table_schema = RecordBatchWriter::for_table(table)?.arrow_schema();
     Columns::resolve(&table_schema, source_schema, opts)?;
     for (role, column) in [

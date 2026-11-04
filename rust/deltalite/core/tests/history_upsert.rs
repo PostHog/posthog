@@ -574,6 +574,28 @@ async fn refuses_input_it_cannot_apply() {
         assert_eq!(err.kind(), kind, "{case}: {err}");
     }
 
+    // A batch whose columns differ from the declared schema, here a string tie-break
+    // declared as an integer, is refused before any column is read.
+    let mut cols = valid.columns().to_vec();
+    cols[4] = Arc::new(StringArray::from(vec!["1"]));
+    let mut fields: Vec<Field> = source_schema()
+        .fields()
+        .iter()
+        .map(|f| f.as_ref().clone())
+        .collect();
+    fields[4] = Field::new("seq", DataType::Utf8, true);
+    let undeclared = RecordBatch::try_new(Arc::new(Schema::new(fields)), cols).unwrap();
+    let err = history
+        .history_upsert(
+            vec![undeclared],
+            source_schema(),
+            opts(),
+            MultipartConfig::default(),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.kind(), "schema_mismatch", "{err}");
+
     for (case, partition_by) in [("unpartitioned", vec![]), ("other column", vec!["q"])] {
         let dir = tempfile::tempdir().unwrap();
         let mut h = create(dir.path(), &partition_by).await;
