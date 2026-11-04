@@ -29,6 +29,9 @@ The ClickHouse export is the same, except that it casts each column to the Parqu
 An export-only run (`skip_ducklake_registration: true`) writes the same types, so `add_files` can register its files later.
 ClickHouse lists the files it exported, because nothing else on the path can list the duckling bucket.
 Each export writes under a new file prefix, so a retry never overwrites a file that DuckLake has already registered.
+A Trino backfill connects through the normal Trino hostname.
+Set `use_trino_canary: true` in the run config to connect through the canary hostname instead, which needs `MANAGED_WAREHOUSE_TRINO_CANARY_DOMAIN` to be set. Without it, the run fails.
+The flag `managed-warehouse-trino-canary` does not apply to backfills.
 
 One `add_files` call registers the files of an export and removes the rows they replace in a single DuckLake snapshot:
 
@@ -192,6 +195,7 @@ class DucklingBackfillConfig:
     create_tables_if_missing: bool = True     # Auto-create events/persons tables
     delete_tables: bool = False               # DANGER: Drop and recreate tables
     dry_run: bool = False                     # Preview mode, no writes
+    use_trino_canary: bool = False            # Trino path only: connect through the canary hostname
     events_parquet_row_group_size_bytes: int = 536_870_912  # Events only; 512 MiB
     target_rows_per_file: int = 5_000_000      # Target rows per exported file
     max_s3_file_fanout: int = 256              # Maximum before the automatic buffer-budget limit

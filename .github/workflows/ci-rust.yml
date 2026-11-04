@@ -475,9 +475,10 @@ jobs:
                       # cohort-stream-processor's broker and S3 tests are #[ignore]'d. This job runs Kafka
                       # and SeaweedFS (objectstorage, :19000). `kind(test)` selects the tests/ binaries,
                       # whose ignored tests all need this stack. One at a time: each joins its own
-                      # consumer group and most create several 64-partition topics.
+                      # consumer group and most create several 64-partition topics. Not `localhost`: it
+                      # also resolves to `::1`, where the broker refuses, and the tests' readers fail on that.
                       if [ "$pkg" = "cohort-stream-processor" ]; then
-                          KAFKA_HOSTS=localhost:9092 \
+                          KAFKA_HOSTS=kafka:9092 \
                           CHECKPOINT_S3_ENDPOINT=http://localhost:19000 \
                           CHECKPOINT_S3_REGION=us-east-1 \
                           CHECKPOINT_S3_BUCKET=posthog \
