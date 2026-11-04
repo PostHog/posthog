@@ -78,6 +78,15 @@ const INTERNAL_LOGS_DRAIN_TIMEOUT_MS = 10_000
 // A switch token of its own, so ingestion turns on apart from the CDP workers that `hog_function` covers.
 const HOG_FUNCTION_TRANSFORMATIONS_SWITCH = 'hog_function_transformations'
 
+export function parseInternalLogsSources(value: string): Set<string> {
+    return new Set(
+        value
+            .split(',')
+            .map((source) => source.trim())
+            .filter(Boolean)
+    )
+}
+
 export type TransformationsMonitoringConfig = Pick<CdpConfig, 'CDP_INTERNAL_LOGS_SOURCES'> & InternalLogsProducerConfig
 
 /** Monitoring for hog transformations. Their logs are stored under the `hog_function` source. */
@@ -86,9 +95,7 @@ export function createTransformationsMonitoringService(
     config: TransformationsMonitoringConfig,
     teamManager: Pick<TeamManager, 'getTeam'>
 ): HogFunctionMonitoringService {
-    const enabled = config.CDP_INTERNAL_LOGS_SOURCES.split(',').some(
-        (source) => source.trim() === HOG_FUNCTION_TRANSFORMATIONS_SWITCH
-    )
+    const enabled = parseInternalLogsSources(config.CDP_INTERNAL_LOGS_SOURCES).has(HOG_FUNCTION_TRANSFORMATIONS_SWITCH)
     return enabled
         ? new HogFunctionMonitoringService(
               outputs,
