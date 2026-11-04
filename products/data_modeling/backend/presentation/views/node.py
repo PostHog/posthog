@@ -5,7 +5,7 @@ from django.db import models
 from django.db.models import Exists, OuterRef, Subquery
 
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
+from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_field
 from rest_framework import filters, mixins, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, Throttled
@@ -551,6 +551,16 @@ class NodeViewSet(
             LineageResponseSerializer({"nodes": nodes, "edges": edges}, context=self.get_serializer_context()).data
         )
 
+    @extend_schema(
+        request=None,
+        responses={
+            200: OpenApiResponse(description="Materialization started. The response has no body."),
+            400: OpenApiResponse(description="The node is not a view, materialized view or endpoint node."),
+            429: OpenApiResponse(
+                description="The view's latest run started too recently and the query has not changed since. The Retry-After header gives the wait in seconds."
+            ),
+        },
+    )
     @action(methods=["POST"], detail=True)
     def materialize(self, req: request.Request, *args, **kwargs) -> response.Response:
         """Materialize just this single node."""

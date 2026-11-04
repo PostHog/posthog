@@ -48,24 +48,6 @@ export const DataModelingNodesPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Materialize just this single node.
- */
-export const dataModelingNodesMaterializeCreateBodyNameMax = 2048
-
-export const dataModelingNodesMaterializeCreateBodyDescriptionMax = 1024
-
-export const DataModelingNodesMaterializeCreateBody = /* @__PURE__ */ zod.object({
-    name: zod.string().max(dataModelingNodesMaterializeCreateBodyNameMax),
-    type: zod
-        .enum(['table', 'view', 'matview', 'endpoint', 'metric'])
-        .optional()
-        .describe(
-            '\* `table` - Table\n\* `view` - View\n\* `matview` - Mat View\n\* `endpoint` - Endpoint\n\* `metric` - Metric'
-        ),
-    description: zod.string().max(dataModelingNodesMaterializeCreateBodyDescriptionMax).optional(),
-})
-
-/**
  * Run this node with its upstream dependencies or downstream dependents.
  */
 export const DataModelingNodesRunCreateBody = /* @__PURE__ */ zod.object({
