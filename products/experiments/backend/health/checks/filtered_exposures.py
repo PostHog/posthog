@@ -3,12 +3,16 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingActionKind,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
+    ExperimentHealthMeasurement,
+    ExperimentHealthMeasurementSide,
+    ExperimentHealthMeasurementUnit,
 )
 from products.experiments.backend.health.context import ExposureTotals, HealthContext
 from products.experiments.backend.health.delays import ZERO_EXPOSURES_GRACE_HOURS
 from products.experiments.backend.health.skips import (
     RUNS_AFTER_LAUNCH,
     CheckOutcome,
+    CheckPassed,
     CheckSkip,
     not_applicable,
     not_checked,
@@ -43,8 +47,17 @@ def exposures_removed_by_test_account_filter(ctx: HealthContext) -> CheckOutcome
             f"Couldn't check because the {unit}s exposed without the test account filter weren't counted"
         )
     counted = exposures.total
-    if exposed < MINIMUM_EXPOSED_WITHOUT_FILTER or counted * 100 > exposed * KEPT_SHARE_THRESHOLD:
+    if exposed < MINIMUM_EXPOSED_WITHOUT_FILTER:
         return None
+    if counted * 100 > exposed * KEPT_SHARE_THRESHOLD:
+        return CheckPassed(
+            measurement=ExperimentHealthMeasurement(
+                value=counted / exposed * 100,
+                threshold=KEPT_SHARE_THRESHOLD,
+                unit=ExperimentHealthMeasurementUnit.PERCENTAGE,
+                warns=ExperimentHealthMeasurementSide.BELOW,
+            )
+        )
     return ExperimentHealthFinding(
         code=ExperimentHealthFindingCode.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES,
         subcode=None,
