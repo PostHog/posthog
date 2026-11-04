@@ -2243,118 +2243,164 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
             }
         },
         launchBroadcast: async (_, breakpoint) => {
-            // Launch sends the email as saved, so a brand that arrives after this click must not change the preview.
-            cache.brandClosed = true
-            if (!values.currentProjectId) {
-                actions.launchBroadcastFinished()
-                return
-            }
-            if (values.firstInvalidStep) {
-                actions.launchBroadcastFinished()
-                actions.setStep(values.firstInvalidStep)
-                return
-            }
-            const projectId = String(values.currentProjectId)
-            // The cohort cards poll, so a list can finish or fail between the last poll and this click.
-            const cohortErrors = await loadAudienceCohortLaunchErrors(projectId, values.audienceProperties)
-            breakpoint()
-            actions.setAudienceCohortLaunchErrors(cohortErrors)
-            const blockingErrors = blockingCohortLaunchErrors(cohortErrors, values.blastRadius?.realtime_cohort?.id)
-            if (blockingErrors.length > 0) {
-                lemonToast.error(blockingErrors[0])
-                actions.launchBroadcastFinished()
-                return
-            }
-            // Same ordering as Continue: a save that trails the content step must land first.
-            cache.autosaveConflict = false
-            const saves = getSaveQueue(cache, values)
-            await saves.whenIdle()
-            breakpoint()
-            if (cache.autosaveConflict) {
-                captureLaunchFailed(values.broadcastId, 'edited_elsewhere')
-                actions.launchBroadcastFinished()
-                return
-            }
-            let broadcastId = values.broadcastId
-            let activated: HogFlowApi | null = null
-            try {
-                // Save the latest edits (creating the draft if the user skipped ahead).
-                const saved = await saves.run(() =>
-                    broadcastId ? saveWithoutClobbering(projectId, broadcastId, values) : createDraft(projectId, values)
-                )
-                broadcastId = saved.id
-                actions.saveBroadcastFinished(saved)
-
-                // A fresh audience preview mints the confirm token the batch dispatch expects.
-                const blastRadius = await hogFlowsUserBlastRadiusCreate(
-                    projectId,
-                    audiencePreviewRequest(values.audienceProperties, values.channel)
-                )
-
-                // The resolver silently caps the batch at this limit, so dispatching an audience over
-                // it would confirm N recipients and deliver to the first slice. Stop at the step that
-                // can fix it. Mirrors the guard on the workflow editor's manual trigger.
-                if (blastRadius.limit != null && blastRadius.affected > blastRadius.limit) {
-                    captureLaunchFailed(broadcastId, 'audience_over_limit')
-                    actions.launchBroadcastFinished()
-                    actions.setStep('recipients')
+            // Leaving the page while the launch runs unmounts this logic, and reading `values` from an
+            // unmounted logic throws. Hold a mount until the launch ends, so the send still finishes.
+            const releaseMount = broadcastWizardLogic(props).mount()
+            const launchedFrom = router.values.location.pathname
+            const stillOnPage = (): boolean => router.values.location.pathname === launchedFrom
+            const showDraftUrlIfStillOnPage = (): void => {
+                if (stillOnPage()) {
                     actions.showSavedDraftUrl()
-                    lemonToast.error(
-                        `This project can send a broadcast to up to ${humanFriendlyNumber(
-                            blastRadius.limit
-                        )} people right now. Add filters to narrow the audience, then launch again.`,
-                        {
-                            button: {
-                                label: 'See sending limits',
-                                action: () => router.actions.push(urls.workflows('reputation')),
-                                dataAttr: 'broadcast-launch-limit-see-sending-limits',
-                            },
-                        }
-                    )
+                }
+            }
+            try {
+                // Launch sends the email as saved, so a brand that arrives after this click must not change the preview.
+                cache.brandClosed = true
+                if (!values.currentProjectId) {
+                    actions.launchBroadcastFinished()
                     return
                 }
+                if (values.firstInvalidStep) {
+                    actions.launchBroadcastFinished()
+                    actions.setStep(values.firstInvalidStep)
+                    return
+                }
+                const projectId = String(values.currentProjectId)
+                // The cohort cards poll, so a list can finish or fail between the last poll and this click.
+                const cohortErrors = await loadAudienceCohortLaunchErrors(projectId, values.audienceProperties)
+                breakpoint()
+                actions.setAudienceCohortLaunchErrors(cohortErrors)
+                const blockingErrors = blockingCohortLaunchErrors(cohortErrors, values.blastRadius?.realtime_cohort?.id)
+                if (blockingErrors.length > 0) {
+                    lemonToast.error(blockingErrors[0])
+                    actions.launchBroadcastFinished()
+                    return
+                }
+                // Same ordering as Continue: a save that trails the content step must land first.
+                cache.autosaveConflict = false
+                const saves = getSaveQueue(cache, values)
+                await saves.whenIdle()
+                breakpoint()
+                if (cache.autosaveConflict) {
+                    captureLaunchFailed(values.broadcastId, 'edited_elsewhere')
+                    actions.launchBroadcastFinished()
+                    return
+                }
+                let broadcastId = values.broadcastId
+                let activated: HogFlowApi | null = null
+                try {
+                    // Save the latest edits (creating the draft if the user skipped ahead).
+                    const saved = await saves.run(() =>
+                        broadcastId
+                            ? saveWithoutClobbering(projectId, broadcastId, values)
+                            : createDraft(projectId, values)
+                    )
+                    broadcastId = saved.id
+                    actions.saveBroadcastFinished(saved)
 
-                // The assistant can edit the draft during the audience request. Activate only the saved
-                // version, so the send never goes out with an email the user did not see. Schedule
-                // changes don't bump the flow's updated_at, so the base stays valid across the swap.
-                const toActivate = broadcastId
-                const activate = (): Promise<HogFlowApi> =>
-                    saves.run(() =>
-                        patchWithoutClobbering(projectId, toActivate, { status: 'active' }, saved.updated_at)
+                    // A fresh audience preview mints the confirm token the batch dispatch expects.
+                    const blastRadius = await hogFlowsUserBlastRadiusCreate(
+                        projectId,
+                        audiencePreviewRequest(values.audienceProperties, values.channel)
                     )
-                // An old schedule would fire alongside the new one, and a paused one can't be resumed, so
-                // launch replaces them. The flow stays a draft until the swap is done, and the scheduler
-                // skips drafts, so a failure part way never leaves two live schedules or none.
-                const oldScheduleIds = (values.broadcast?.schedules ?? []).map((existing) => existing.id)
-                // Stop before touching schedules if the assistant saved meanwhile. Otherwise the guarded
-                // activation below would 409 after the old schedule is already gone.
-                const current = await hogFlowsRetrieve(projectId, toActivate)
-                if (current.updated_at !== saved.updated_at) {
-                    throw new EditedElsewhereError(current)
-                }
-                if (values.scheduleMode === 'now') {
-                    for (const id of oldScheduleIds) {
-                        await hogFlowsSchedulesDestroy(projectId, broadcastId, id)
+
+                    // The resolver silently caps the batch at this limit, so dispatching an audience over
+                    // it would confirm N recipients and deliver to the first slice. Stop at the step that
+                    // can fix it. Mirrors the guard on the workflow editor's manual trigger.
+                    if (blastRadius.limit != null && blastRadius.affected > blastRadius.limit) {
+                        captureLaunchFailed(broadcastId, 'audience_over_limit')
+                        actions.launchBroadcastFinished()
+                        actions.setStep('recipients')
+                        showDraftUrlIfStillOnPage()
+                        lemonToast.error(
+                            `This project can send a broadcast to up to ${humanFriendlyNumber(
+                                blastRadius.limit
+                            )} people right now. Add filters to narrow the audience, then launch again.`,
+                            {
+                                button: {
+                                    label: 'See sending limits',
+                                    action: () => router.actions.push(urls.workflows('reputation')),
+                                    dataAttr: 'broadcast-launch-limit-see-sending-limits',
+                                },
+                            }
+                        )
+                        return
                     }
-                    activated = await activate()
-                    const batchJob = await hogFlowsBatchJobsCreate(projectId, broadcastId, {
-                        hog_flow: broadcastId,
-                        variables: {},
-                        confirm_token: blastRadius.confirm_token,
-                    } as any)
-                    lemonToast.success(
-                        batchJob.status === 'waiting'
-                            ? 'Broadcast will send once its cohort finishes calculating'
-                            : 'Broadcast is sending'
+
+                    // The assistant can edit the draft during the audience request. Activate only the saved
+                    // version, so the send never goes out with an email the user did not see. Schedule
+                    // changes don't bump the flow's updated_at, so the base stays valid across the swap.
+                    const toActivate = broadcastId
+                    const activate = (): Promise<HogFlowApi> =>
+                        saves.run(() =>
+                            patchWithoutClobbering(projectId, toActivate, { status: 'active' }, saved.updated_at)
+                        )
+                    // An old schedule would fire alongside the new one, and a paused one can't be resumed, so
+                    // launch replaces them. The flow stays a draft until the swap is done, and the scheduler
+                    // skips drafts, so a failure part way never leaves two live schedules or none.
+                    const oldScheduleIds = (values.broadcast?.schedules ?? []).map((existing) => existing.id)
+                    // Stop before touching schedules if the assistant saved meanwhile. Otherwise the guarded
+                    // activation below would 409 after the old schedule is already gone.
+                    const current = await hogFlowsRetrieve(projectId, toActivate)
+                    if (current.updated_at !== saved.updated_at) {
+                        throw new EditedElsewhereError(current)
+                    }
+                    if (values.scheduleMode === 'now') {
+                        for (const id of oldScheduleIds) {
+                            await hogFlowsSchedulesDestroy(projectId, broadcastId, id)
+                        }
+                        activated = await activate()
+                        const batchJob = await hogFlowsBatchJobsCreate(projectId, broadcastId, {
+                            hog_flow: broadcastId,
+                            variables: {},
+                            confirm_token: blastRadius.confirm_token,
+                        } as any)
+                        lemonToast.success(
+                            batchJob.status === 'waiting'
+                                ? 'Broadcast will send once its cohort finishes calculating'
+                                : 'Broadcast is sending'
+                        )
+                    } else {
+                        await hogFlowsSchedulesCreate(projectId, broadcastId, wizardSchedule(values) as any)
+                        for (const id of oldScheduleIds) {
+                            await hogFlowsSchedulesDestroy(projectId, broadcastId, id)
+                        }
+                        activated = await activate()
+                        lemonToast.success('Broadcast scheduled')
+                    }
+                } catch (error: any) {
+                    if (error instanceof EditedElsewhereError) {
+                        captureLaunchFailed(broadcastId, 'edited_elsewhere')
+                        actions.applyExternalEdit(error.latest, values.broadcast)
+                        actions.launchBroadcastFinished()
+                        lemonToast.info(
+                            'This email changed while you were editing it. Review the latest version, then launch.'
+                        )
+                        showDraftUrlIfStillOnPage()
+                        return
+                    }
+                    if (activated && broadcastId) {
+                        // Activation landed but the send did not. An active broadcast with no job and no
+                        // schedule is read-only, so leaving it there would strand it with no way to retry.
+                        try {
+                            await hogFlowsPartialUpdate(projectId, broadcastId, { status: 'draft' })
+                        } catch {
+                            lemonToast.error(
+                                'The broadcast is still active but has nothing scheduled. Reload the page.'
+                            )
+                        }
+                    }
+                    captureLaunchFailed(broadcastId, 'error')
+                    actions.launchBroadcastFinished()
+                    lemonToast.error(
+                        `Couldn't launch the broadcast: ${error?.detail || error?.message || 'unknown error'}`
                     )
-                } else {
-                    await hogFlowsSchedulesCreate(projectId, broadcastId, wizardSchedule(values) as any)
-                    for (const id of oldScheduleIds) {
-                        await hogFlowsSchedulesDestroy(projectId, broadcastId, id)
-                    }
-                    activated = await activate()
-                    lemonToast.success('Broadcast scheduled')
+                    // The launch saved the draft first, so a reload of /broadcasts/new would orphan it.
+                    showDraftUrlIfStillOnPage()
+                    return
                 }
+                // The send is out from here on. Moving the broadcast back to draft now would cancel every
+                // queued recipient run, so the steps below stay outside the rollback above.
                 // Resuming a draft launches from the broadcast's own URL, so the router push below is a
                 // no-op there. Store the activated broadcast so the scene swaps to the read-only summary
                 // instead of leaving a live send button on a broadcast that already went out.
@@ -2389,32 +2435,11 @@ export const broadcastWizardLogic = kea<broadcastWizardLogicType>([
                 })
                 actions.loadBatchJobs()
                 actions.launchBroadcastFinished()
-                router.actions.push(urls.broadcast(broadcastId))
-            } catch (error: any) {
-                if (error instanceof EditedElsewhereError) {
-                    captureLaunchFailed(broadcastId, 'edited_elsewhere')
-                    actions.applyExternalEdit(error.latest, values.broadcast)
-                    actions.launchBroadcastFinished()
-                    lemonToast.info(
-                        'This email changed while you were editing it. Review the latest version, then launch.'
-                    )
-                    actions.showSavedDraftUrl()
-                    return
+                if (stillOnPage()) {
+                    router.actions.push(urls.broadcast(broadcastId))
                 }
-                if (activated && broadcastId) {
-                    // Activation landed but the send did not. An active broadcast with no job and no
-                    // schedule is read-only, so leaving it there would strand it with no way to retry.
-                    try {
-                        await hogFlowsPartialUpdate(projectId, broadcastId, { status: 'draft' })
-                    } catch {
-                        lemonToast.error('The broadcast is still active but has nothing scheduled. Reload the page.')
-                    }
-                }
-                captureLaunchFailed(broadcastId, 'error')
-                actions.launchBroadcastFinished()
-                lemonToast.error(`Couldn't launch the broadcast: ${error?.detail || error?.message || 'unknown error'}`)
-                // The launch saved the draft first, so a reload of /broadcasts/new would orphan it.
-                actions.showSavedDraftUrl()
+            } finally {
+                releaseMount()
             }
         },
         moveToDraft: async () => {
