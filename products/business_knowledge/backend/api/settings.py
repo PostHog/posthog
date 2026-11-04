@@ -157,4 +157,6 @@ class BusinessKnowledgeSettingsViewSet(TeamAndOrgViewSetMixin, ViewSet):
         config = learning_settings.get_team_business_knowledge_config(self.team)
         if not config.learn_from_support_enabled:
             raise ValidationError("Turn on Learn from support to learn from past tickets.")
+        if not self.team.conversations_enabled:
+            raise ValidationError("Turn on Support to learn from resolved tickets.")
         return Response(self._serialize(learning_settings.start_learning_backfill(self.team)))

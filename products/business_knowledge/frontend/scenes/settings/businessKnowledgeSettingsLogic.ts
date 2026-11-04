@@ -117,7 +117,8 @@ export const businessKnowledgeSettingsLogic = kea<businessKnowledgeSettingsLogic
                 actions.loadSettingsSuccess(updated)
             } catch (error) {
                 lemonToast.error(
-                    (error instanceof ApiError && error.detail) || 'Could not start learning from past tickets. Try again.'
+                    (error instanceof ApiError && error.detail) ||
+                        'Could not start learning from past tickets. Try again.'
                 )
                 return
             } finally {

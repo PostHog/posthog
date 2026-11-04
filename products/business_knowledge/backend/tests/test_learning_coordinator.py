@@ -77,6 +77,8 @@ class _Provider:
     def __init__(self) -> None:
         self.refs_by_team: dict[int, list[EvidenceRef]] = {}
         self.calls: list[tuple[int, datetime, int, int, UUID | None]] = []
+        self.error: Exception | None = None
+        self.filter_by_since = False
 
     def collect(
         self,
@@ -88,7 +90,11 @@ class _Provider:
         ticket_id: UUID | None = None,
     ) -> list[EvidenceRef]:
         self.calls.append((team_id, since, limit, offset, ticket_id))
+        if self.error is not None:
+            raise self.error
         refs = self.refs_by_team.get(team_id, [])
+        if self.filter_by_since:
+            refs = [ref for ref in refs if ref.revision_at >= since]
         if ticket_id is not None:
             refs = [ref for ref in refs if ref.ticket_id == ticket_id]
         return refs[offset : offset + limit]
@@ -208,24 +214,74 @@ class TestCollectLearningEvidence(BaseTest):
         assert result.items[0].run_id == str(failed_run.id)
         assert immediate_retry.items == []
 
+    def _old_evidence(self, seed: int) -> EvidenceRef:
+        self.provider.filter_by_since = True
+        return _evidence(self.team.id, seed, revision_at=datetime.now(UTC) - timedelta(days=30))
+
+    def _backfill_state(self) -> tuple[datetime | None, dict]:
+        config = learning_settings.get_team_business_knowledge_config(self.team)
+        return config.learning_backfill_since, config.learning_backfill_cursor
+
+    def _run_for(self, ref: EvidenceRef, status: str, *, age: timedelta = timedelta(0)) -> KnowledgeLearningRun:
+        run = KnowledgeLearningRun.objects.for_team(self.team.id).create(
+            team=self.team,
+            provider=ref.provider,
+            evidence_key=ref.evidence_key,
+            source_team_id=self.team.id,
+            analysis_version=ANALYSIS_VERSION,
+            status=status,
+        )
+        KnowledgeLearningRun.objects.for_team(self.team.id).filter(id=run.id).update(
+            created_at=timezone.now() - age, updated_at=timezone.now() - age
+        )
+        return run
+
     @patch(f"{COLLECT_MODULE}.logic.has_feature_flag", return_value=True)
-    def test_backfill_widens_the_window_until_no_ticket_is_left(self, _feature_flag) -> None:
-        config = learning_settings.start_learning_backfill(self.team)
-        backfill_since = config.learning_backfill_since
-        assert backfill_since is not None
+    def test_backfill_reads_old_tickets_and_waits_for_their_runs_to_complete(self, _feature_flag) -> None:
+        old_ref = self._old_evidence(7)
+        self.provider.refs_by_team[self.team.id] = [old_ref]
+
+        assert collect_learning_evidence(LearningCoordinatorInput()).items == []
+
+        learning_settings.start_learning_backfill(self.team)
+        first = collect_learning_evidence(LearningCoordinatorInput())
+        while_running = collect_learning_evidence(LearningCoordinatorInput())
+
+        assert [item.evidence for item in first.items] == [old_ref]
+        assert while_running.items == []
+        assert self._backfill_state()[0] is not None
+
+        KnowledgeLearningRun.objects.for_team(self.team.id).update(status=LearningRunStatus.COMPLETED)
+        collect_learning_evidence(LearningCoordinatorInput())
+
+        assert self._backfill_state() == (None, {})
+
+    @patch(f"{COLLECT_MODULE}.logic.has_feature_flag", return_value=True)
+    def test_backfill_survives_a_collection_failure(self, _feature_flag) -> None:
+        self.provider.refs_by_team[self.team.id] = []
+        learning_settings.start_learning_backfill(self.team)
+        self.provider.error = RuntimeError("provider unavailable")
+
+        collect_learning_evidence(LearningCoordinatorInput())
+
+        assert self._backfill_state()[0] is not None
+
+    @patch(f"{COLLECT_MODULE}.LEARNING_PROVIDER_MAX_SCAN_LIMIT", 2)
+    @patch(f"{COLLECT_MODULE}.LEARNING_PROVIDER_SCAN_LIMIT", 2)
+    @patch(f"{COLLECT_MODULE}.logic.has_feature_flag", return_value=True)
+    def test_backfill_resumes_past_settled_tickets_beyond_the_scan_budget(self, _feature_flag) -> None:
+        completed_ref, gave_up_ref, unread_ref = (self._old_evidence(seed) for seed in (8, 9, 10))
+        self.provider.refs_by_team[self.team.id] = [completed_ref, gave_up_ref, unread_ref]
+        self._run_for(completed_ref, LearningRunStatus.COMPLETED)
+        self._run_for(gave_up_ref, LearningRunStatus.FAILED, age=timedelta(hours=25))
+        learning_settings.start_learning_backfill(self.team)
 
         first = collect_learning_evidence(LearningCoordinatorInput())
-        config.refresh_from_db()
-
-        assert len(first.items) == 1
-        assert self.provider.calls[0][1] == backfill_since
-        assert config.learning_backfill_since == backfill_since
-
         second = collect_learning_evidence(LearningCoordinatorInput())
-        config.refresh_from_db()
 
-        assert second.items == []
-        assert config.learning_backfill_since is None
+        assert first.items == []
+        assert self._backfill_state()[0] is not None
+        assert [item.evidence for item in second.items] == [unread_ref]
 
     @patch(f"{COLLECT_MODULE}.timezone.now", return_value=datetime(2026, 9, 12, tzinfo=UTC))
     @patch(f"{COLLECT_MODULE}.logic.has_feature_flag", return_value=True)

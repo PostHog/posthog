@@ -28,6 +28,15 @@ class TeamBusinessKnowledgeConfig(models.Model):
             "lookback window. Null when no backfill is in progress."
         ),
     )
+    learning_backfill_cursor = models.JSONField(
+        default=dict,
+        db_default={},
+        blank=True,
+        help_text=(
+            "Backfill scan position per '<source team id>:<provider>'. The coordinator never moves it past "
+            "a ticket that still waits for analysis or a retry."
+        ),
+    )
     # Environment-scoped, unlike learn_from_support_enabled. A GitHub App installation belongs to
     # this environment, so a child environment must not inherit the parent's repository allowlist.
     github_integration_id = models.IntegerField(

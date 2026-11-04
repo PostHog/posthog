@@ -39,5 +39,6 @@ def set_learn_from_support_enabled(team: Team, enabled: bool) -> TeamBusinessKno
 def start_learning_backfill(team: Team) -> TeamBusinessKnowledgeConfig:
     config = get_team_business_knowledge_config(team)
     config.learning_backfill_since = timezone.now() - timedelta(days=LEARNING_MAX_LOOKBACK_DAYS)
-    config.save(update_fields=["learning_backfill_since"])
+    config.learning_backfill_cursor = {}
+    config.save(update_fields=["learning_backfill_since", "learning_backfill_cursor"])
     return config

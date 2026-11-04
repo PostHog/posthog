@@ -38,7 +38,7 @@ export function LearnFromSupportSetting(): JSX.Element {
                 // data-attr is a frozen autocapture / Playwright key. Do not rename.
                 data-attr="business-knowledge-learn-from-support"
             />
-            {settings.learn_from_support_enabled ? (
+            {settings.learn_from_support_enabled && !supportOff ? (
                 <div className="flex flex-col items-start gap-1">
                     <LemonButton
                         type="secondary"

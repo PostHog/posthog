@@ -28,6 +28,7 @@ from products.business_knowledge.backend.models import (
 
 from ..constants import (
     ANALYSIS_VERSION,
+    LEARNING_BACKFILL_RETRY_HOURS,
     LEARNING_COORDINATOR_INTERVAL_MINUTES,
     LEARNING_MAX_ITEMS_PER_TEAM,
     LEARNING_MAX_ITEMS_PER_TICK,
@@ -283,18 +284,136 @@ def _collect_team_refs(
     return refs
 
 
-def _team_since(config: TeamBusinessKnowledgeConfig, default_since: datetime) -> datetime:
-    if config.learning_backfill_since is None:
-        return default_since
-    return min(default_since, config.learning_backfill_since)
+@frozen
+class _BackfillScan:
+    refs: list[EvidenceRef]
+    cursor: int
+    # True only when the scan reached the end of the window and every revision before it is settled.
+    exhausted: bool
 
 
-def _finish_backfill(config: TeamBusinessKnowledgeConfig) -> None:
-    # Match the stored value so a backfill restarted during this tick is not cleared.
-    TeamBusinessKnowledgeConfig.objects.filter(
+@frozen
+class _BackfillProgress:
+    refs: list[EvidenceRef]
+    cursor: dict[str, int]
+    finished: bool
+
+
+def _backfill_run_settled(run: KnowledgeLearningRun, ref: EvidenceRef, now: datetime) -> bool:
+    if run.source_team_id != ref.source_team_id or run.status == LearningRunStatus.COMPLETED:
+        return True
+    # A revision that keeps failing must not hold the backfill open forever.
+    return run.status == LearningRunStatus.FAILED and run.created_at <= now - timedelta(
+        hours=LEARNING_BACKFILL_RETRY_HOURS
+    )
+
+
+def _scan_backfill(
+    canonical_team: Team,
+    *,
+    source_team_id: int,
+    provider: LearningEvidenceProvider,
+    since: datetime,
+    settle_cutoff: datetime,
+    now: datetime,
+    selected: set[_EvidenceIdentity],
+    limit: int,
+    offset: int,
+) -> _BackfillScan:
+    # The cursor moves only past settled revisions, so a running or failed one is scanned again next tick.
+    # Provider order is newest first: new activity pushes old tickets back, and the cursor re-reads them.
+    refs: list[EvidenceRef] = []
+    cursor = offset
+    settled_prefix = True
+    position = offset
+    scan_end = offset + LEARNING_PROVIDER_MAX_SCAN_LIMIT
+    while position < scan_end:
+        page_limit = min(LEARNING_PROVIDER_SCAN_LIMIT, scan_end - position)
+        try:
+            collected = provider.collect(source_team_id, since=since, limit=page_limit, offset=position)
+        except Exception:
+            logger.exception(
+                "business_knowledge.learning.backfill_collection_failed",
+                team_id=canonical_team.id,
+                source_team_id=source_team_id,
+                provider=provider.name,
+            )
+            return _BackfillScan(refs=refs, cursor=cursor, exhausted=False)
+        existing = _existing_runs(canonical_team.id, collected)
+        for ref in collected:
+            position += 1
+            identity = _EvidenceIdentity(provider=ref.provider, evidence_key=ref.evidence_key)
+            run = existing.get(identity)
+            settled = False
+            if ref.provider != provider.name or ref.source_team_id != source_team_id:
+                settled = True
+            elif run is not None and _backfill_run_settled(run, ref, now):
+                settled = True
+            elif (
+                ref.revision_at <= settle_cutoff
+                and identity not in selected
+                and (run is None or _run_can_start(run, ref, now))
+                and len(refs) < limit
+            ):
+                refs.append(ref)
+                selected.add(identity)
+
+            if not settled:
+                settled_prefix = False
+            elif settled_prefix:
+                cursor = position
+            if not settled_prefix and len(refs) >= limit:
+                return _BackfillScan(refs=refs, cursor=cursor, exhausted=False)
+        if len(collected) < page_limit:
+            return _BackfillScan(refs=refs, cursor=cursor, exhausted=settled_prefix)
+    return _BackfillScan(refs=refs, cursor=cursor, exhausted=False)
+
+
+def _collect_backfill_refs(
+    config: TeamBusinessKnowledgeConfig,
+    *,
+    since: datetime,
+    settle_cutoff: datetime,
+    now: datetime,
+    selected: set[_EvidenceIdentity],
+    limit: int,
+) -> _BackfillProgress:
+    canonical_team = config.team
+    stored_cursor = config.learning_backfill_cursor if isinstance(config.learning_backfill_cursor, dict) else {}
+    cursor: dict[str, int] = {}
+    refs: list[EvidenceRef] = []
+    finished = True
+    for source_team_id in _source_team_ids(canonical_team, None):
+        for provider in get_learning_providers():
+            key = f"{source_team_id}:{provider.name}"
+            offset = stored_cursor.get(key, 0)
+            scan = _scan_backfill(
+                canonical_team,
+                source_team_id=source_team_id,
+                provider=provider,
+                since=since,
+                settle_cutoff=settle_cutoff,
+                now=now,
+                selected=selected,
+                limit=max(limit - len(refs), 0),
+                offset=offset if isinstance(offset, int) and offset >= 0 else 0,
+            )
+            refs.extend(scan.refs)
+            cursor[key] = scan.cursor
+            finished = finished and scan.exhausted
+    return _BackfillProgress(refs=refs, cursor=cursor, finished=finished)
+
+
+def _save_backfill_progress(config: TeamBusinessKnowledgeConfig, progress: _BackfillProgress) -> None:
+    # Match the stored start so a backfill restarted during this tick keeps its fresh state.
+    match = TeamBusinessKnowledgeConfig.objects.filter(
         team_id=config.team_id, learning_backfill_since=config.learning_backfill_since
-    ).update(learning_backfill_since=None)
-    logger.info("business_knowledge.learning.backfill_completed", team_id=config.team_id)
+    )
+    if progress.finished:
+        match.update(learning_backfill_since=None, learning_backfill_cursor={})
+        logger.info("business_knowledge.learning.backfill_completed", team_id=config.team_id)
+    elif progress.cursor != config.learning_backfill_cursor:
+        match.update(learning_backfill_cursor=progress.cursor)
 
 
 def collect_learning_evidence(input: LearningCoordinatorInput) -> CollectLearningEvidenceOutput:
@@ -316,13 +435,23 @@ def collect_learning_evidence(input: LearningCoordinatorInput) -> CollectLearnin
         refs = _collect_team_refs(
             canonical_team,
             requested_source_team_id=requested_source_team_id,
-            since=_team_since(config, since),
+            since=since,
             settle_cutoff=settle_cutoff,
             ticket_id=ticket_id,
             now=now,
         )
-        if not refs and config.learning_backfill_since is not None and ticket_id is None:
-            _finish_backfill(config)
+        # Manual runs can target one environment or ticket, so only scheduled ticks move a backfill.
+        if config.learning_backfill_since is not None and input.team_id is None and ticket_id is None:
+            backfill = _collect_backfill_refs(
+                config,
+                since=config.learning_backfill_since,
+                settle_cutoff=settle_cutoff,
+                now=now,
+                selected={_EvidenceIdentity(provider=ref.provider, evidence_key=ref.evidence_key) for ref in refs},
+                limit=LEARNING_MAX_ITEMS_PER_TEAM - len(refs),
+            )
+            refs.extend(backfill.refs)
+            _save_backfill_progress(config, backfill)
         existing = _existing_runs(canonical_team.id, refs)
         selected_for_team = 0
         for ref in refs:
