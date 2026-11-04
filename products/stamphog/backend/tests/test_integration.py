@@ -1826,6 +1826,39 @@ def test_approval_posted_while_losing_supersession_race_is_dismissed(team, stamp
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_bot_run_posts_nothing_once_its_admission_is_revoked(team, stamphog_chain: StamphogChain) -> None:
+    # The revocation commits before this run's row exists when it races the admission, so only a read here sees it.
+    repo_config = _repo_config(team.id)
+    recorder = stamphog_chain.recorder
+    head_sha = "sha118a"
+    recorder.register_pr(REPO, 118, _pr_object(118, "renovate[bot]", head_sha), _pr_files())
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id,
+        repo_config=repo_config,
+        pr_number=118,
+        author_login="renovate[bot]",
+        bot_admission_revoked_at=timezone.now(),
+    )
+    run = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id,
+        pull_request=pull_request,
+        head_sha=head_sha,
+        status=ReviewRunStatus.REVIEWING,
+        output={
+            "reviewer_raw": fakes.approved_engine_output().splitlines()[-1],
+            "bot_author_review": {"trigger": "webhook", "action": "synchronize", "login": "renovate[bot]"},
+        },
+    )
+
+    result = _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
+
+    assert result == {"verdict": "skipped_superseded"}
+    assert [w for w in recorder.github_writes if w["kind"] == "approve_review"] == []
+    run.refresh_from_db()
+    assert run.status == ReviewRunStatus.SUPERSEDED
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_retry_dismisses_orphan_when_superseded_before_the_fresh_status_recheck(
     team, stamphog_chain: StamphogChain
 ) -> None:
@@ -2277,6 +2310,54 @@ def test_rereview_after_external_review_retries_a_failure_with_backoff(
         rereview_after_external_review.apply(args=(REPO, 124, "sha124b"))
 
     assert retry.value.when == countdown
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+@pytest.mark.parametrize(
+    "revoked, expected_new_runs",
+    [pytest.param(False, 1, id="still-admitted-reruns"), pytest.param(True, 0, id="revoked-stays-with-people")],
+)
+def test_rereview_after_external_review_reruns_a_waiting_bot_run(
+    team, stamphog_chain: StamphogChain, revoked: bool, expected_new_runs: int
+) -> None:
+    # A bot-authored PR trips the bot refusal, so the re-run must carry the admission its first run earned.
+    repo_config = _repo_config(team.id)
+    bot = {"login": "renovate[bot]", "id": 29139614, "type": "Bot"}
+    live_pr = _pr_object(127, "renovate[bot]", "sha127b") | {
+        "state": "open",
+        "user": bot,
+        "head": {"sha": "sha127b", "ref": "renovate/left-pad-1.x", "repo": {"full_name": REPO}},
+    }
+    stamphog_chain.recorder.register_pr(REPO, 127, live_pr, _pr_files())
+    stamphog_chain.recorder.pr_commits[(REPO, 127)] = [
+        {"sha": "sha127b", "author": {"id": 29139614}, "committer": {"login": "web-flow"}}
+        | {"commit": {"message": "chore(deps): update left-pad", "verification": {"verified": True}}}
+    ]
+    stamphog_chain.recorder.policy_files[".stamphog/policy.yml"] = (
+        "bot_authors:\n  - {login: 'renovate[bot]', id: 29139614, branch_prefix: 'renovate/', requires: every_file_attested}\n"
+    )
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id,
+        repo_config=repo_config,
+        pr_number=127,
+        author_login="renovate[bot]",
+        bot_admission_revoked_at=timezone.now() if revoked else None,
+    )
+    provenance = {"trigger": "webhook", "action": "opened", "login": "renovate[bot]"}
+    waiting = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id,
+        pull_request=pull_request,
+        head_sha="sha127b",
+        status=ReviewRunStatus.COMPLETED,
+        verdict=ReviewVerdict.WAIT,
+        output={"bot_author_review": provenance},
+    )
+
+    with patch("products.stamphog.backend.tasks.tasks.execute_stamphog_review_workflow"):
+        rereview_after_external_review(REPO, 127, "sha127b")
+
+    new_runs = ReviewRun.objects.for_team(team.id).filter(pull_request=pull_request).exclude(id=waiting.id)
+    assert [run.output.get("bot_author_review") for run in new_runs] == [provenance] * expected_new_runs
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

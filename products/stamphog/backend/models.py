@@ -184,6 +184,9 @@ class PullRequest(ProductTeamModel):
     # The latest reviewer routing result for this PR (logic/routing/service.py). Null until routing
     # runs. Holds owner names and counts only, never PR content.
     routing = models.JSONField(null=True, blank=True)
+    # Set when someone other than the admitted bot pushed to the bot's PR. People review the PR from
+    # then on, even after the bot pushes again, because a later push need not undo the other one.
+    bot_admission_revoked_at = models.DateTimeField(null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

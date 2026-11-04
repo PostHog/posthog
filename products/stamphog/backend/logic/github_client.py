@@ -739,6 +739,14 @@ class StamphogGitHubClient:
 
         Newest first, the order `git log` lists them, so the engine collects trailer values in the
         same order on both paths.
+        """
+        commits = self.get_pr_commits(repo, number, head_sha)
+        if commits is None:
+            return None
+        return [str((commit.get("commit") or {}).get("message") or "") for commit in reversed(commits)]
+
+    def get_pr_commits(self, repo: str, number: int, head_sha: str) -> list[dict] | None:
+        """The PR's raw commits, oldest first, or None when the list does not end at ``head_sha``.
 
         The endpoint answers for the live head, so a push after the run was queued returns commits
         the run does not review. GitHub also lists at most 250 commits per PR, and past that cap
@@ -766,7 +774,7 @@ class StamphogGitHubClient:
                 break
         if not commits or commits[-1].get("sha") != head_sha:
             return None
-        return [str((commit.get("commit") or {}).get("message") or "") for commit in reversed(commits)]
+        return commits
 
     def compare_diff(self, repo: str, base_sha: str, head_sha: str) -> str:
         """The unified diff between two commits, as text.

@@ -139,6 +139,22 @@ class Attestation:
 
 
 @dataclass(frozen=True, kw_only=True)
+class BotAuthor:
+    """A bot whose PRs stamphog reviews, on condition that CI proves every file the PR changes.
+
+    GitHub attests `login` and `id` on the PR. The hosted server admits a PR only when the bot opened
+    it on a same-repository branch under `branch_prefix`, every commit is the bot's own GitHub-signed
+    commit, and the delivery came from the bot's own push. `requires` names that condition, so a
+    future condition is a policy change a reader can see.
+    """
+
+    login: str
+    id: int
+    branch_prefix: str
+    requires: str
+
+
+@dataclass(frozen=True, kw_only=True)
 class DenyException:
     keyword: str | None
     path_prefixes: tuple[str, ...]
@@ -219,6 +235,7 @@ class Policy:
     ownership: tuple[OwnershipSource, ...]
     deny_exceptions: dict[str, tuple[DenyException, ...]] = field(default_factory=dict)
     attestations: tuple[Attestation, ...] = ()
+    bot_authors: tuple[BotAuthor, ...] = ()
 
     def deny_pattern_defs(self) -> dict[str, dict[str, list[str]]]:
         """Reconstruct the raw scope→patterns mapping the compiler consumes."""
@@ -307,7 +324,9 @@ _TOP_LEVEL_KEYS = {"version", "deny", "allow", "size_gate", "tiers", "overrides"
 # a push may retain a standing approval (logic/approval_retention.py). A repo that could widen those
 # rules could keep an approval standing across arbitrary code pushes.
 _SERVER_ONLY_TOP_LEVEL_KEYS = {"digest", "dismiss"}
-_OPTIONAL_TOP_LEVEL_KEYS = {"deny_exceptions", "attestations"}
+_OPTIONAL_TOP_LEVEL_KEYS = {"deny_exceptions", "attestations", "bot_authors"}
+_BOT_AUTHOR_KEYS = {"login", "id", "branch_prefix", "requires"}
+_BOT_AUTHOR_REQUIREMENTS = {"every_file_attested"}
 _DENY_SCOPES = {"any", "titles", "paths"}
 _BREADTH_RULES = {"single-area", "not-cross-cutting"}
 
@@ -541,6 +560,28 @@ def _parse_attestations(raw: object, deny: dict[str, DenyCategory]) -> tuple[Att
                 name=name, lifts=lifts, paths=paths, publisher_paths=publisher_paths, check=check, app_id=app_id
             )
         )
+    return tuple(parsed)
+
+
+def _parse_bot_authors(raw: object) -> tuple[BotAuthor, ...]:
+    _require(isinstance(raw, list), "bot_authors: must be a list")
+    parsed: list[BotAuthor] = []
+    for index, spec in enumerate(raw):
+        context = f"bot_authors[{index}]"
+        _require(isinstance(spec, dict), f"{context}: must be a mapping")
+        _require_exact_keys(spec, _BOT_AUTHOR_KEYS, context)
+        login = _optional_string(spec, "login", context) or ""
+        _require(login.endswith("[bot]"), f"{context}.login: must be a bot login ending in [bot]")
+        _require(all(login != other.login for other in parsed), f"{context}.login: duplicate {login!r}")
+        bot_id = _require_positive_int(spec.get("id"), f"{context}.id")
+        prefix = _optional_string(spec, "branch_prefix", context) or ""
+        _require(bool(prefix), f"{context}.branch_prefix: required")
+        requires = spec.get("requires")
+        _require(
+            requires in _BOT_AUTHOR_REQUIREMENTS,
+            f"{context}.requires: must be one of {sorted(_BOT_AUTHOR_REQUIREMENTS)}",
+        )
+        parsed.append(BotAuthor(login=login, id=bot_id, branch_prefix=prefix, requires=str(requires)))
     return tuple(parsed)
 
 
@@ -780,6 +821,7 @@ def _parse_policy(raw: Any, *, lockfile_names: Iterable[str], ownership_formats:
         ownership=_parse_ownership(raw["ownership"], ownership_formats),
         deny_exceptions=_parse_deny_exceptions(raw.get("deny_exceptions", {}), deny),
         attestations=_parse_attestations(raw.get("attestations", []), deny),
+        bot_authors=_parse_bot_authors(raw.get("bot_authors", [])),
     )
 
 

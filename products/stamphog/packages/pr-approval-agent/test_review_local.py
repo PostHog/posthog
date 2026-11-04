@@ -20,7 +20,7 @@ import review_pr  # noqa: E402
 import review_local  # noqa: E402
 import openai_reviewer  # noqa: E402
 from github import CommitProvenance  # noqa: E402
-from policy import Attestation, DenyException  # noqa: E402
+from policy import Attestation, BotAuthor, DenyException  # noqa: E402
 from review_pr import Pipeline  # noqa: E402
 
 _MIGRATION_RISK = Attestation(
@@ -799,6 +799,93 @@ def test_pregate_is_final_only_where_the_full_review_agrees(
 
     monkeypatch.setattr(openai_reviewer.OpenAIReviewer, "review", approve)
     assert review_local.run(context)["final_verdict"] == expect_verdict
+
+
+_RENOVATE = BotAuthor(login="renovate[bot]", id=29139614, branch_prefix="renovate/", requires="every_file_attested")
+_DEPENDENCY_PROOF = Attestation(
+    name="Dependency proof",
+    check="Dependency proof",
+    app="dependency-prover",
+    lifts=("deps_toolchain",),
+    paths=(r"^pnpm-lock\.yaml$", r"(?:^|/)package\.json$"),
+    publisher_paths=(r"^\.github/scripts/prove-dependencies\.py$",),
+)
+_PROVEN = {
+    "name": "Dependency proof",
+    "app": {"slug": "dependency-prover"},
+    "status": "completed",
+    "conclusion": "success",
+    "completed_at": "2026-11-05T10:00:00Z",
+    "output": {"summary": '<!-- stamphog:v1 ["pnpm-lock.yaml", "package.json"] -->'},
+}
+_RUNNING = {**_PROVEN, "status": "in_progress", "conclusion": None, "completed_at": None}
+
+
+@pytest.mark.parametrize(
+    "files, lines, bot_id, admitted, proof, expected_verdict",
+    [
+        pytest.param(
+            ["pnpm-lock.yaml", "package.json"], 10, 29139614, True, _PROVEN, "APPROVED", id="every-file-proven"
+        ),
+        pytest.param(
+            ["pnpm-lock.yaml", "src/app.py"], 10, 29139614, True, _PROVEN, "REFUSED", id="a-file-no-proof-covers"
+        ),
+        pytest.param(["pnpm-lock.yaml"], 10, 29139614, True, _RUNNING, "WAIT", id="proof-still-running"),
+        pytest.param(
+            ["pnpm-lock.yaml"],
+            5000,
+            29139614,
+            True,
+            _RUNNING,
+            "WAIT",
+            id="proof-still-running-on-an-oversized-lockfile",
+        ),
+        pytest.param(
+            ["pnpm-lock.yaml"],
+            10,
+            29139614,
+            True,
+            {**_PROVEN, "conclusion": "failure"},
+            "REFUSED",
+            id="proof-failed",
+        ),
+        pytest.param(["pnpm-lock.yaml"], 10, 29139614, False, _PROVEN, "REFUSED", id="server-did-not-admit"),
+        pytest.param(["pnpm-lock.yaml"], 10, 1, True, _PROVEN, "REFUSED", id="login-with-another-id"),
+    ],
+)
+def test_admitted_bot_needs_ci_to_attest_every_file(
+    monkeypatch, files: list[str], lines: int, bot_id: int, admitted: bool, proof: dict, expected_verdict: str
+) -> None:
+    policy = replace(review_pr.POLICY, attestations=(_DEPENDENCY_PROOF,), bot_authors=(_RENOVATE,))
+    monkeypatch.setattr(review_pr, "POLICY", policy)
+    monkeypatch.setattr(review_local, "_git_diff_files", lambda *a, **k: [])
+    monkeypatch.setattr(review_local, "pr_provenance", lambda *a, **k: None)
+    monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
+    monkeypatch.setattr(review_pr, "manifest_script_changes", lambda *a, **k: [])
+
+    def approve(self, pr, classification, gate_context, diff_path=None):
+        return {"verdict": "APPROVE", "reasoning": "ok", "risk": "low", "issues": []}
+
+    monkeypatch.setattr(openai_reviewer.OpenAIReviewer, "review", approve)
+    api_files = [{**_api_file(path, status="modified"), "additions": lines} for path in files]
+    context = _pregate_context(api_files, folder_policies_known=True)
+    context["pr"]["user"] = {"login": "renovate[bot]", "id": bot_id, "type": "Bot"}
+    context["bot_author_review"] = admitted
+    context["check_runs"] = [proof]
+    if "package.json" in files:
+        context["manifest_contents"] = {
+            "package.json": {"base": '{"version": "1.0.0"}', "head": '{"version": "1.0.1"}'}
+        }
+
+    outcome = review_local.pregate(context)
+
+    assert review_local.run(context)["final_verdict"] == expected_verdict
+    # Only an approval needs the sandbox review. Every refusal and wait is already decided.
+    assert outcome["final"] is (expected_verdict != "APPROVED")
+    if outcome["final"]:
+        assert outcome["result"]["final_verdict"] == expected_verdict
+    # The worker's check before posting must confirm exactly the approvals the full review reaches.
+    assert review_local.attest(context)["attested"] is (expected_verdict == "APPROVED")
 
 
 @pytest.mark.parametrize(

@@ -18,7 +18,8 @@ head-changing event must retract standing approvals itself:
   all-heads retraction — it changes the diff without moving the head.
 - Every Celery skip path that never reaches the workflow (trigger-label absent, author below
   write permission, untrusted association, disabled repo) retracts via
-  `_retract_stale_approvals_on_skip`.
+  `_retract_stale_approvals_on_skip`. It first supersedes every live run of an older head, so a
+  run already past its startup sweep cannot land an approval after the retraction.
 - `post_verdict` persists `posted_review_id` the moment GitHub accepts the review, and any path
   that abandons the run _after_ posting (lost terminal save, superseded/head-moved guards on
   retry) dismisses its own orphan (`_dismiss_orphaned_approval`). Before posting it also
@@ -74,8 +75,8 @@ Retention must never consult that endpoint.
 Everything ambiguous falls through to the normal path, which dismisses first: no standing approval, an approval already at this head, a run with no recorded base sha, an empty diff on either side, a diff describing a binary change, or any GitHub error, a diff too large for GitHub to render included.
 Retention also re-checks GitHub that the stored approval is still active, because a maintainer dismissing it by hand updates nothing in the product DB, and skipping the review over a dismissed approval would leave the PR with neither.
 A retained head is recorded on the approving run (`retained_head_shas`), because `_record_merged_pull_request` matches an approving run on `head_sha` alone and would otherwise treat every retained merge as unapproved and drop it from the digest for good.
-Self-driving inbox runs are excluded so the carve-out's head pinning stays untouched.
-So is an approval that a CI attestation lifted a deny for, because that result proves the approved head only.
+Bot carve-out runs are excluded: the inbox carve-out pins its head, and an admitted bot's approval rests on CI results for the approved head only.
+So is an approval that a CI attestation lifted a deny for, for the same reason.
 The worker's `--attest` check records the lift (`gate_attestation.attestation_lifted`), never the sandbox, and an approval without that record is not retained.
 
 ## Supersession and terminal states
@@ -87,6 +88,7 @@ A newer relevant delivery supersedes older non-terminal runs. Rules that keep th
   (`.exclude(status=SUPERSEDED).update(...)`), never plain `save()`.
 - `post_verdict` guards before ANY GitHub write: superseded status, current head vs run head, current base (ref and SHA) vs the reviewed one (a retarget, or a parent branch moving under a stacked PR, rewrites the diff with the head unchanged, and the retarget delivery can trail the activity), and a last fresh status read.
   Losing the final conditional update means dismiss-your-own-approval, not "log and return".
+- A skipped head-changing delivery older than the stored `payload_updated_at` supersedes and dismisses nothing, because it names an old head.
 - Out-of-order webhook deliveries are dropped by the `payload_updated_at` clock — checked before
   the transaction AND re-checked under the row lock, and the descriptive-field refresh is gated on
   the same clock inside the UPDATE's WHERE clause.
@@ -119,11 +121,21 @@ add a read-then-act path, pin it; this class of bug has been found on five separ
   The default OpenAI reviewer (openai_reviewer.py) discovers no SDK settings, hooks or MCP servers from the tree; only the trusted `.stamphog/` guidance files shape its prompt. Its read_file/grep/glob tools refuse any path that resolves outside the checkout.
   Don't reintroduce filesystem settings discovery there.
 
-## The self-driving inbox carve-out (the one exception to the bot-author refusal)
+## Bots admitted by policy
+
+A repository may name a bot in `bot_authors` in its default-branch `.stamphog/policy.yml`. Stamphog then reviews that bot's PRs, and approves one only when CI attests every changed file (`requires: every_file_attested`). Rules that keep the admission narrow:
+
+- The server admits a delivery (`_bot_author_admission`) only on facts GitHub attests: the author's login and numeric id, a head in the base repository on a branch under `branch_prefix`, a sender that is the bot itself, and PR commits that are all authored by the bot's id, committed by `web-flow` and verified. A login alone is never enough.
+- A push by anyone else to the bot's PR sets `PullRequest.bot_admission_revoked_at`, and people review that PR for good. A later push by the bot need not remove the other commit, so nothing restores the admission. The revocation supersedes every live run with `bot_author_review` provenance and dismisses every standing approval, whatever head it is at, and `post_verdict` reads the flag again before it posts, because a revocation can commit before the run's row exists.
+- The run carries `bot_author_review` provenance, which turns on the engine flag. The engine matches the author against its own effective policy again and adds the attestations gate. A file that no passing attestation lists blocks the approval, and only unattested files count toward the size gate. The worker's `--attest` check reads the same flag, so it confirms an admitted bot's approval and refuses every other bot.
+- These runs bypass the review-mode and write-permission gates like inbox runs, and never retain an approval across a push. A refusal is not handed to ReviewHog: the PR's assigned owners read it.
+- A re-review after a WAIT (`_rereview_waiting_run`) repeats every check except the sender, because the run it re-reviews was admitted on the bot's own delivery for the same head.
+
+## The self-driving inbox carve-out
 
 Bot-authored PRs are refused at every layer — the webhook pre-filter (`_review_skip_reason`) and
-the engine (`review_pr.py::_refuse_bot_author`, called by `review_local.py`) — with ONE deliberate
-exception: a PR **positively linked** to a
+the engine (`review_pr.py::_refuse_bot_author`, called by `review_local.py`) — except for the bots
+the repository's policy admits (above) and one deliberate exception: a PR **positively linked** to a
 self-driving Inbox implementation run (a signal-report-carrying TaskRun at
 `ai_stage="implementation"`, matched through the tasks facade), one of whose assigned reviewers
 opted in via ReviewHog's per-user `stamphog_review_inbox_prs` toggle. Rules that keep the exception
@@ -303,7 +315,7 @@ Every entry names a repository's own CI job, so the shipped default declares non
 - A result with more than one marker lifts nothing, because a publisher's report can quote PR content.
 - A PR that changes a file in `paths` waits for a result that has not reported (a WAIT, not a refusal, because a refusal strips the trigger label over a race with CI). The publisher's trigger must cover `paths`, or such a PR waits forever. A result that reported and lifted nothing leaves the deny standing. A `deps_toolchain` deny from the manifest scripts scan never waits, because no attestation lifts it. The scan reads every changed manifest, also one next to its lockfile, because an attestation can lift the lockfile's own deny.
 - The WAIT records `pending_attestations` in the classification. Nothing in a web request wakes it: after the WAIT is saved and the sandbox is gone, the workflow polls `poll_pending_attestations` from a durable timer, within a budget sized past the slowest CI run. The poll reads each pending entry from the default-branch policy the run read, never from the sandbox's report, and asks whether the newest check run of that name from the pinned App has completed (`check_attestations_reported` in `logic/attestations.py`), the engine's own rule. A wake that disagrees with the engine queues the same WAIT again. Once every pending entry reported, it queues the re-review through `request_rereview_after_external_review`. It stops without one when the run is no longer the PR's latest, the head moved, or the repo was disabled.
-- `_blocked_only_by_pending_attestations` lets a failing tier gate through, because a deny always drags the tier to T2-never with it.
+- `_blocked_only_by_pending_attestations` lets a failing tier gate through, because a deny always drags the tier to T2-never with it. For an admitted bot it lets a failing size gate through too, because the pending attestations must list every file the size gate counts.
 
 ## Temporal specifics
 

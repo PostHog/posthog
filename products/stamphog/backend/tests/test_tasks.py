@@ -122,6 +122,8 @@ def _run_task(
     pr_files: list[dict[str, Any]] | None = None,
     active_approval_ids: list[int] | None = None,
     compare_diffs: list[str] | None = None,
+    policy_text: str | None = None,
+    pr_commits: list[dict[str, Any]] | None = None,
 ):
     # transaction.on_commit never fires on its own outside a real commit, so run it
     # inline; execute_stamphog_review_workflow is a Temporal network call and gets mocked, as is
@@ -136,6 +138,8 @@ def _run_task(
     ):
         mock_client.return_value.get_collaborator_permission.return_value = author_permission
         mock_client.return_value.get_pr_files.return_value = pr_files or []
+        mock_client.return_value.get_default_branch_file.return_value = policy_text
+        mock_client.return_value.get_pr_commits.return_value = pr_commits
         # Retention reads both sides of its comparison with compare_diff, and it reads the approved
         # head first.
         if compare_diffs is None:
@@ -338,19 +342,38 @@ def test_disabled_repo_skip_retracts_stale_approvals_on_head_change(team, repo_c
     mock_execute.assert_not_called()
 
 
+@pytest.mark.parametrize(
+    "skipped_updated_at,expected_status,expected_dismissals",
+    [
+        # Still live, the run of the old head could post its approval after the dismissal.
+        ("2026-07-02T00:00:00Z", ReviewRunStatus.SUPERSEDED, 1),
+        # A late retry of an older delivery must not cancel the run or the approval of the newer head.
+        ("2026-06-30T00:00:00Z", ReviewRunStatus.QUEUED, 0),
+    ],
+    ids=["current_delivery_supersedes", "stale_delivery_leaves_the_run_live"],
+)
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_untrusted_author_skip_retracts_stale_approvals_on_head_change(team, repo_config):
+def test_untrusted_author_skip_retracts_stale_approvals_on_head_change(
+    team, repo_config, skipped_updated_at, expected_status, expected_dismissals
+):
     # An author who loses their trusted association (left the org, collaborator removed) can still
     # push to an approved PR; the payload-only skip must retract the standing approval, not just
     # drop the event — otherwise the old approval keeps satisfying required reviews.
-    _run_task(_pr_payload(), "delivery-assoc-approved", team.id)
+    _run_task(_pr_payload(updated_at="2026-07-01T00:00:00Z"), f"delivery-assoc-approved-{expected_status}", team.id)
 
     with patch("products.stamphog.backend.tasks.tasks.dismiss_stale_approvals_for_head", return_value=1) as dismiss:
-        _run_task(_pr_payload(action="synchronize", author_association="NONE"), "delivery-assoc-revoked", team.id)
+        _run_task(
+            _pr_payload(
+                action="synchronize", head_sha="sha-2", author_association="NONE", updated_at=skipped_updated_at
+            ),
+            f"delivery-assoc-revoked-{expected_status}",
+            team.id,
+        )
 
-    dismiss.assert_called_once()
+    assert dismiss.call_count == expected_dismissals
     with team_scope(team.id):
-        assert ReviewRun.objects.count() == 1  # no second run was queued
+        [run] = ReviewRun.objects.all()  # no second run was queued
+    assert run.status == expected_status
 
 
 @pytest.mark.parametrize(
@@ -1029,6 +1052,183 @@ def test_inbox_carve_out_requires_task_linkage(team, repo_config):
     mock_execute.assert_not_called()
 
 
+_BOT_LOGIN = "renovate[bot]"
+_BOT_ID = 29139614
+_BOT_POLICY = f"""
+bot_authors:
+  - login: '{_BOT_LOGIN}'
+    id: {_BOT_ID}
+    branch_prefix: 'renovate/'
+    requires: every_file_attested
+"""
+
+
+def _bot_commit(
+    *, author_id: int = _BOT_ID, committer: str = "web-flow", committer_id: int = 19864447, verified: bool = True
+) -> dict[str, Any]:
+    return {
+        "author": {"id": author_id},
+        "committer": {"login": committer, "id": committer_id},
+        "commit": {"verification": {"verified": verified}},
+    }
+
+
+def _bot_payload(*, sender_id: int = _BOT_ID, **overrides: Any) -> dict[str, Any]:
+    payload = _pr_payload(
+        **{
+            "head_repo": REPO,
+            "head_branch": "renovate/left-pad-1.x",
+            "author_login": _BOT_LOGIN,
+            "user_type": "Bot",
+            "author_association": "NONE",
+            **overrides,
+        }
+    )
+    payload["pull_request"]["user"]["id"] = _BOT_ID
+    payload["sender"] = {"id": sender_id}
+    return payload
+
+
+@pytest.mark.parametrize(
+    "payload_kwargs,policy_text,commits,expect_run",
+    [
+        pytest.param({}, _BOT_POLICY, [_bot_commit()], True, id="opened"),
+        pytest.param({"action": "synchronize", "head_sha": "sha-2"}, _BOT_POLICY, [_bot_commit()], True, id="push"),
+        pytest.param({"action": "ready_for_review"}, _BOT_POLICY, [_bot_commit()], True, id="ready_for_review"),
+        pytest.param({}, None, [_bot_commit()], False, id="policy-names-no-bot"),
+        pytest.param({"sender_id": 42}, _BOT_POLICY, [_bot_commit()], False, id="sent-by-someone-else"),
+        pytest.param({}, _BOT_POLICY, [_bot_commit(), _bot_commit(author_id=42)], False, id="someone-elses-commit"),
+        pytest.param({}, _BOT_POLICY, [_bot_commit(verified=False)], False, id="unsigned-commit"),
+        pytest.param(
+            {}, _BOT_POLICY, [_bot_commit(committer=_BOT_LOGIN, committer_id=_BOT_ID)], True, id="signed-by-the-bot"
+        ),
+        pytest.param({}, _BOT_POLICY, [_bot_commit(committer="someone", committer_id=42)], False, id="other-committer"),
+        pytest.param({}, _BOT_POLICY, None, False, id="commit-list-short-of-head"),
+        pytest.param({"head_branch": "feature/x"}, _BOT_POLICY, [_bot_commit()], False, id="branch-outside-prefix"),
+        pytest.param({"head_repo": "someone/fork"}, _BOT_POLICY, [_bot_commit()], False, id="fork"),
+        pytest.param({"action": "labeled", "added_label": "deps"}, _BOT_POLICY, [_bot_commit()], False, id="labeled"),
+        pytest.param({"draft": True}, _BOT_POLICY, [_bot_commit()], False, id="draft"),
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_bot_admission_reviews_only_the_admitted_bots_own_pushes(
+    team, repo_config, payload_kwargs, policy_text, commits, expect_run
+):
+    # LABEL mode and a read-only author would each drop the PR, so a run proves the admission
+    # bypassed both. Every other case must keep the bot refusal.
+    _sync_repo_config(team.id, repo_config)
+    with team_scope(team.id):
+        StamphogRepoConfig.objects.filter(id=repo_config.id).update(review_mode=ReviewMode.LABEL)
+
+    mock_execute = _run_task(
+        _bot_payload(**payload_kwargs),
+        f"delivery-bot-{uuid.uuid4()}",
+        team.id,
+        author_permission="read",
+        policy_text=policy_text,
+        pr_commits=commits,
+    )
+
+    with team_scope(team.id):
+        runs = list(ReviewRun.objects.all())
+    if not expect_run:
+        assert runs == []
+        mock_execute.assert_not_called()
+        return
+    [run] = runs
+    assert run.output["bot_author_review"] == {
+        "trigger": "webhook",
+        "action": payload_kwargs.get("action", "opened"),
+        "login": _BOT_LOGIN,
+    }
+    assert run.output["review_trigger"] == "bot_author"
+    mock_execute.assert_called_once_with(review_run_id=str(run.id), team_id=team.id)
+
+
+@pytest.mark.parametrize("draft", [False, True], ids=["ready", "draft"])
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_push_by_someone_else_hands_the_bots_pr_to_people_for_good(team, repo_config, draft):
+    # The bot's next push can leave the other person's change in the PR, so it must not restore the admission.
+    _sync_repo_config(team.id, repo_config)
+    _run_task(
+        _bot_payload(), f"delivery-bot-opened-{draft}", team.id, policy_text=_BOT_POLICY, pr_commits=[_bot_commit()]
+    )
+    _approved_run(team.id)
+
+    with patch("products.stamphog.backend.tasks.tasks.dismiss_stale_approvals_for_head", return_value=1) as dismiss:
+        _run_task(
+            _bot_payload(action="synchronize", head_sha="sha-2", sender_id=42, draft=draft),
+            f"delivery-bot-foreign-push-{draft}",
+            team.id,
+            policy_text=_BOT_POLICY,
+            pr_commits=[_bot_commit(), _bot_commit(author_id=42)],
+        )
+        mock_execute = _run_task(
+            _bot_payload(action="synchronize", head_sha="sha-3"),
+            f"delivery-bot-push-after-{draft}",
+            team.id,
+            policy_text=_BOT_POLICY,
+            pr_commits=[_bot_commit()],
+        )
+
+    # The revocation dismisses at every head (""), and each skipped push dismisses for its own head.
+    assert [call.args[3] for call in dismiss.call_args_list] == ["", "sha-2", "sha-3"]
+    mock_execute.assert_not_called()
+    with team_scope(team.id):
+        assert PullRequest.objects.get(pr_number=42).bot_admission_revoked_at is not None
+        assert ReviewRun.objects.count() == 1
+
+
+@pytest.mark.parametrize("failing_lookup", ["_inbox_rereview_carve_out", "_policy_bot_rule"])
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_push_by_someone_else_revokes_even_when_a_lookup_fails(team, repo_config, failing_lookup):
+    # The failed lookup retries the delivery, and retries can run out, so the revocation must not wait for them.
+    _sync_repo_config(team.id, repo_config)
+    with (
+        patch(f"products.stamphog.backend.tasks.tasks.{failing_lookup}", side_effect=RuntimeError("lookup failed")),
+        contextlib.suppress(RuntimeError),
+    ):
+        _run_task(
+            _bot_payload(action="synchronize", head_sha="sha-2", sender_id=42),
+            f"delivery-foreign-push-{failing_lookup}-down",
+            team.id,
+            policy_text=_BOT_POLICY,
+            pr_commits=[_bot_commit(), _bot_commit(author_id=42)],
+        )
+
+    with team_scope(team.id):
+        assert PullRequest.objects.get(pr_number=42).bot_admission_revoked_at is not None
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_a_late_push_by_someone_else_revokes_the_newer_bot_run_and_its_approval(team, repo_config):
+    # GitHub can deliver another person's push after a newer bot push already queued its run.
+    _sync_repo_config(team.id, repo_config)
+    _run_task(
+        _bot_payload(action="synchronize", head_sha="sha-3", updated_at="2026-07-15T13:00:00Z"),
+        "delivery-bot-newer-push",
+        team.id,
+        policy_text=_BOT_POLICY,
+        pr_commits=[_bot_commit()],
+    )
+
+    with patch("products.stamphog.backend.tasks.tasks.dismiss_stale_approvals_for_head", return_value=0) as dismiss:
+        _run_task(
+            _bot_payload(action="synchronize", head_sha="sha-2", sender_id=42, updated_at="2026-07-15T12:00:00Z"),
+            "delivery-late-foreign-push",
+            team.id,
+            policy_text=_BOT_POLICY,
+            pr_commits=[_bot_commit(), _bot_commit(author_id=42)],
+        )
+
+    # Only the revocation dismisses. The stale skip names an old head and dismisses nothing for it.
+    assert [call.args[3] for call in dismiss.call_args_list] == [""]
+    with team_scope(team.id):
+        assert PullRequest.objects.get(pr_number=42).bot_admission_revoked_at is not None
+        [run] = ReviewRun.objects.all()
+        assert (run.head_sha, run.status) == ("sha-3", ReviewRunStatus.SUPERSEDED)
+
+
 @pytest.mark.parametrize(
     "pr_url,expected",
     [
@@ -1365,6 +1565,26 @@ def _approved_run(team_id: int, gate_attestation: dict | None = None) -> None:
             posted_review_id=9,
             output={"pr": {"base": {"sha": "base-1"}}, "gate_attestation": gate_attestation},
         )
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_admitted_bot_push_with_an_identical_diff_is_reviewed_again(team, repo_config):
+    # The approval rests on CI results for the approved head, which say nothing about the new one.
+    _sync_repo_config(team.id, repo_config)
+    _run_task(
+        _bot_payload(), "delivery-bot-retention-approved", team.id, policy_text=_BOT_POLICY, pr_commits=[_bot_commit()]
+    )
+    _approved_run(team.id)
+    mock_execute = _run_task(
+        _bot_payload(action="synchronize", head_sha="sha-2"),
+        "delivery-bot-retention-push",
+        team.id,
+        compare_diffs=[_APPROVED, _APPROVED],
+        policy_text=_BOT_POLICY,
+        pr_commits=[_bot_commit()],
+    )
+
+    mock_execute.assert_called_once()
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)

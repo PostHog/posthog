@@ -218,6 +218,7 @@ class BuildReviewerInvocationTests(SimpleTestCase):
         # Separate keys on purpose: self_driving_review relaxes gates, the trigger only describes.
         assert context_for()["review_trigger"] == ""
         assert context_for()["self_driving_review"] is False
+        assert context_for()["bot_author_review"] is False
 
 
 def _graphql_commit(oid: str, login: str | None) -> dict:

@@ -736,6 +736,7 @@ class TestReviewRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             # whether or not the repo also reviews every PR event.
             ("self_driving_beats_all_mode", ReviewMode.ALL, {"inbox_review": {"trigger": "inbox"}}, "self_driving"),
             ("self_driving_beats_label_mode", ReviewMode.LABEL, {"inbox_review": {"trigger": "inbox"}}, "self_driving"),
+            ("bot_author_beats_label_mode", ReviewMode.LABEL, {"bot_author_review": {"login": "bot"}}, "bot_author"),
             ("manual_beats_label_mode", ReviewMode.LABEL, {"manual_review": {"acting_user_id": 1}}, "manual"),
             ("label_mode", ReviewMode.LABEL, {}, "label"),
             ("all_mode", ReviewMode.ALL, {}, "all"),

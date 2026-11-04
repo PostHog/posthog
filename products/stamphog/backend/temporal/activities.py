@@ -106,6 +106,7 @@ from products.stamphog.backend.logic.reviewer import (
 from products.stamphog.backend.logic.scrubbing import neutralize_active_markdown, scrub_credentials
 from products.stamphog.backend.models import PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.tasks.tasks import (
+    bot_admission_revoked,
     pending_attestation_names,
     queue_routing_after_verdict,
     request_rereview_after_external_review,
@@ -485,10 +486,9 @@ def _fetch_review_context(input: StamphogReviewInput) -> dict:
     number = pull_request.pr_number
 
     client = StamphogGitHubClient(repo_config.installation_id)
-    # Self-driving runs skip the author's history: the author is the App machine user, so
-    # familiarity from its merged PRs would read to the engine as human trust. Without facts the
-    # engine only omits the familiarity section from the reviewer prompt; the review proceeds normally.
-    is_inbox_review = bool((run.output or {}).get("inbox_review"))
+    # Bot runs skip the author's history, because familiarity from a bot's merged PRs would read to the
+    # engine as human trust. Without facts the engine omits the familiarity section and the review proceeds normally.
+    is_bot_review = bool((run.output or {}).get("inbox_review") or (run.output or {}).get("bot_author_review"))
     timer = _StepTimer()
     started = time.monotonic()
     # Mint the installation token once up front. On a cold cache every pool thread would mint its own.
@@ -528,26 +528,23 @@ def _fetch_review_context(input: StamphogReviewInput) -> dict:
         # The familiarity facts depend only on the PR and its files. fetch_review_history bounds its
         # own time and never raises.
         history_future = submit(
-            "history", fetch_review_history, client, repo, pr, files, include_familiarity=not is_inbox_review
+            "history", fetch_review_history, client, repo, pr, files, include_familiarity=not is_bot_review
         )
         folder_policy_future = submit(
             "folder_policy_files", fetch_folder_policy_files, client, repo, run.head_sha, files
         )
-        # Skipped for self-driving runs, like the familiarity facts above.
         author_pr_numbers_future = (
             submit("author_pr_numbers", client.get_author_merged_pr_numbers, repo, author)
-            if author and not is_inbox_review
+            if author and not is_bot_review
             else None
         )
         # The engine cannot resolve which of the owning teams the author belongs to. The sandbox holds
         # no token, and the engine learns the owning teams only after it reads the checkout's ownership
         # sources. One bulk lookup here gives the engine every team that the author belongs to, and the
-        # engine intersects that list with the teams that own the changed paths. Inbox reviews skip this
-        # lookup for the same reason that they skip author_pr_numbers: the author is the App machine
-        # user, so its team membership says nothing about who wrote the diff.
+        # engine intersects that list with the teams that own the changed paths. Bot runs skip it, as above.
         author_team_slugs_future = (
             submit("author_team_slugs", client.get_user_team_slugs, repo.split("/")[0], author)
-            if author and not is_inbox_review
+            if author and not is_bot_review
             else None
         )
 
@@ -880,6 +877,8 @@ def _review_invocation(run: ReviewRun, merge_base_sha: str | None) -> ReviewerIn
         # The engine's carve-out for bot-authored drafts keys off this flag alone. It comes only
         # from the run's inbox provenance, stamped after the PR is linked to a signals run.
         self_driving_review=bool(output.get("inbox_review")),
+        # Stamped only after the webhook matched the author, the sender and the commits to the policy.
+        bot_author_review=bool(output.get("bot_author_review")),
         # Read as a description rather than a permission: the reviewer is told why it was asked,
         # and decides for itself what that means for this diff.
         review_trigger=trigger_for_run(output=output, review_mode=run.pull_request.repo_config.review_mode),
@@ -1839,6 +1838,11 @@ def post_verdict(input: StamphogReviewInput) -> dict:
         "verdict_posted_at",
         "updated_at",
     ]
+    # A revocation that commits before this run's row exists supersedes nothing, so read it again here.
+    if output.get("bot_author_review") and bot_admission_revoked(input.team_id, id=pull_request.id):
+        ReviewRun.objects.for_team(input.team_id).filter(id=run.id).exclude(status__in=TERMINAL_STATUSES).update(
+            status=ReviewRunStatus.SUPERSEDED, completed_at=timezone.now(), updated_at=timezone.now()
+        )
     # Last look before any GitHub write: a same-head re-review delivery (e.g. a trigger-label re-add)
     # supersedes this run WITHOUT moving the head, so the head guard above can't catch it — only a
     # fresh status read can.

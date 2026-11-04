@@ -322,6 +322,19 @@ def _set_attestation(d: dict, **changes: object) -> None:
     d["attestations"] = [{k: v for k, v in entry.items() if v is not None}]
 
 
+_VALID_BOT_AUTHOR = {
+    "login": "renovate[bot]",
+    "id": 29139614,
+    "branch_prefix": "renovate/",
+    "requires": "every_file_attested",
+}
+
+
+def _set_bot_author(d: dict, **changes: object) -> None:
+    entry = {**_VALID_BOT_AUTHOR, **changes}
+    d["bot_authors"] = [{k: v for k, v in entry.items() if v is not None}]
+
+
 @pytest.mark.parametrize(
     "mutate",
     [
@@ -422,6 +435,17 @@ def _set_attestation(d: dict, **changes: object) -> None:
                 ("no-publisher-paths", {"publisher_paths": None}),
                 ("invalid-publisher-path", {"publisher_paths": ["("]}),
                 ("unknown-key", {"lift": ["deps_toolchain"]}),
+            ]
+        ],
+        *[
+            pytest.param(partial(_set_bot_author, **changes), id=f"bot-author-{name}")
+            for name, changes in [
+                ("human-login", {"login": "renovate"}),
+                ("no-id", {"id": None}),
+                ("string-id", {"id": "29139614"}),
+                ("no-branch-prefix", {"branch_prefix": None}),
+                ("unknown-requirement", {"requires": "nothing"}),
+                ("no-requirement", {"requires": None}),
             ]
         ],
     ],

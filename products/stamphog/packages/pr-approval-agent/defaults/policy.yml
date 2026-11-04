@@ -130,6 +130,8 @@ deny:
 # CI results that lift deny categories for the files they list (see attestations.py). Every one
 # names a repository's own CI job, so a repository declares its own and none ships here.
 attestations: []
+# Bots whose PRs stamphog reviews when CI proves every changed file. None by default.
+bot_authors: []
 allow:
     path_patterns:
         - 'docs/'

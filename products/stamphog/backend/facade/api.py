@@ -153,16 +153,20 @@ def _digest_run_to_dto(obj: DigestRun) -> contracts.DigestRunDTO:
 _SELF_DRIVING = Q(output__has_key="inbox_review")
 # Same shape for a manual request: request_manual_review writes a populated dict or no key at all.
 _MANUAL = Q(output__has_key="manual_review")
+_BOT_AUTHOR = Q(output__has_key="bot_author_review")
 
 # Preserves the caller's queryset type, so a team-scoped queryset stays team-scoped through the filter.
 _RunQS = TypeVar("_RunQS", bound=QuerySet)
 
 
-def _derive_trigger(obj: ReviewRun, *, has_inbox_review: bool, has_manual_review: bool) -> ReviewTrigger:
+def _derive_trigger(
+    obj: ReviewRun, *, has_inbox_review: bool, has_bot_author_review: bool, has_manual_review: bool
+) -> ReviewTrigger:
     """Why stamphog looked at this PR. The rule itself lives in logic/review_trigger.py, because
     the reviewer invocation has to answer the same question before a run exists to read."""
     return derive_review_trigger(
         has_inbox_review=has_inbox_review,
+        has_bot_author_review=has_bot_author_review,
         has_manual_review=has_manual_review,
         review_mode=obj.pull_request.repo_config.review_mode,
     )
@@ -178,12 +182,18 @@ def _filter_by_trigger(qs: _RunQS, trigger: str) -> _RunQS:
     """
     if trigger == ReviewTrigger.SELF_DRIVING:
         return qs.filter(_SELF_DRIVING)
+    if trigger == ReviewTrigger.BOT_AUTHOR:
+        return qs.exclude(_SELF_DRIVING).filter(_BOT_AUTHOR)
     if trigger == ReviewTrigger.MANUAL:
-        return qs.exclude(_SELF_DRIVING).filter(_MANUAL)
+        return qs.exclude(_SELF_DRIVING | _BOT_AUTHOR).filter(_MANUAL)
     if trigger == ReviewTrigger.LABEL:
-        return qs.exclude(_SELF_DRIVING | _MANUAL).filter(pull_request__repo_config__review_mode=ReviewMode.LABEL)
+        return qs.exclude(_SELF_DRIVING | _BOT_AUTHOR | _MANUAL).filter(
+            pull_request__repo_config__review_mode=ReviewMode.LABEL
+        )
     if trigger == ReviewTrigger.ALL:
-        return qs.exclude(_SELF_DRIVING | _MANUAL).filter(pull_request__repo_config__review_mode=ReviewMode.ALL)
+        return qs.exclude(_SELF_DRIVING | _BOT_AUTHOR | _MANUAL).filter(
+            pull_request__repo_config__review_mode=ReviewMode.ALL
+        )
     return qs.none()
 
 
@@ -220,6 +230,7 @@ def _review_run_to_dto(obj: ReviewRun) -> contracts.ReviewRunDTO:
     trigger = _derive_trigger(
         obj,
         has_inbox_review=bool(output.get("inbox_review")),
+        has_bot_author_review=bool(output.get("bot_author_review")),
         has_manual_review=bool(output.get("manual_review")),
     )
     return _build_review_run_dto(obj, output=output, trigger=trigger)
@@ -234,6 +245,7 @@ def _slim_review_runs(qs: _RunQS, output_keys: tuple[str, ...]) -> _RunQS:
     return qs.defer("output").annotate(
         **{f"slim_output_{key}": KeyTransform(key, "output") for key in output_keys},
         slim_has_inbox_review=ExpressionWrapper(_SELF_DRIVING, output_field=BooleanField()),
+        slim_has_bot_author_review=ExpressionWrapper(_BOT_AUTHOR, output_field=BooleanField()),
         slim_has_manual_review=ExpressionWrapper(_MANUAL, output_field=BooleanField()),
     )
 
@@ -244,6 +256,7 @@ def _slim_review_run_to_dto(obj: ReviewRun, output_keys: tuple[str, ...]) -> con
     trigger = _derive_trigger(
         obj,
         has_inbox_review=obj.slim_has_inbox_review,  # type: ignore[attr-defined]
+        has_bot_author_review=obj.slim_has_bot_author_review,  # type: ignore[attr-defined]
         has_manual_review=obj.slim_has_manual_review,  # type: ignore[attr-defined]
     )
     return _build_review_run_dto(obj, output=output, trigger=trigger)
