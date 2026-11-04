@@ -164,9 +164,8 @@ class TestValidateFrequencyTarget(TestCase):
             ),
             ("below_plan_floor", "a", H1, [("src", "a")], {}, {"src": STREAMING}, False, frozenset(), H6),
             ("on_plan_floor_ok", "a", H6, [("src", "a")], {}, {"src": STREAMING}, True, frozenset(), H6),
-            # a consumer saved at 15min before the floor applied refreshes at the floor, so it allows the floor
             (
-                "plan_floor_above_a_faster_consumer_ok",
+                "enforced_plan_floor_above_a_faster_consumer_ok",
                 "a",
                 H6,
                 [("src", "a"), ("a", "ep")],
@@ -175,11 +174,33 @@ class TestValidateFrequencyTarget(TestCase):
                 True,
                 frozenset(),
                 H6,
+                H6,
+            ),
+            (
+                "unenforced_plan_floor_keeps_a_faster_consumer_ceiling",
+                "a",
+                H6,
+                [("src", "a"), ("a", "ep")],
+                {"ep": M15},
+                {"src": STREAMING},
+                False,
+                frozenset(),
+                H6,
             ),
         ]
     )
     def test_validate(
-        self, _name, node_id, target, edges, targets, source_intervals, ok, pinned=frozenset(), plan_floor=None
+        self,
+        _name,
+        node_id,
+        target,
+        edges,
+        targets,
+        source_intervals,
+        ok,
+        pinned=frozenset(),
+        plan_floor=None,
+        schedule_plan_floor=None,
     ):
         if ok:
             validate_declared_target(
@@ -190,6 +211,7 @@ class TestValidateFrequencyTarget(TestCase):
                 source_intervals=source_intervals,
                 pinned=pinned,
                 plan_floor=plan_floor,
+                schedule_plan_floor=schedule_plan_floor,
             )
         else:
             with self.assertRaises(UnsatisfiableFrequencyError):
@@ -201,6 +223,7 @@ class TestValidateFrequencyTarget(TestCase):
                     source_intervals=source_intervals,
                     pinned=pinned,
                     plan_floor=plan_floor,
+                    schedule_plan_floor=schedule_plan_floor,
                 )
 
     def test_plan_refusal_names_the_plan_and_the_cadence_to_pick(self):
@@ -324,6 +347,7 @@ class TestComputeTargetBounds(TestCase):
             declared_targets=overrides.pop("declared_targets", self.TARGETS),
             source_intervals=overrides.pop("source_intervals", self.INTERVALS),
             plan_floor=overrides.pop("plan_floor", None),
+            schedule_plan_floor=overrides.pop("schedule_plan_floor", None),
         )
         return bounds, {option.value: option for option in bounds.options}
 
@@ -371,7 +395,7 @@ class TestComputeTargetBounds(TestCase):
                 None,
             ),
             (
-                "faster_consumer_moves_its_ceiling_up_to_the_plan_floor",
+                "faster_consumer_moves_its_ceiling_up_to_the_enforced_plan_floor",
                 H6,
                 STREAMING,
                 {"ep": M15},
@@ -385,12 +409,35 @@ class TestComputeTargetBounds(TestCase):
                     DAY30: "consumer",
                 },
                 H6,
+                H6,
+            ),
+            (
+                "faster_consumer_keeps_its_ceiling_while_the_plan_floor_is_not_enforced",
+                H6,
+                STREAMING,
+                {"ep": M15},
+                {
+                    M15: "plan",
+                    M30: "plan",
+                    H1: "plan",
+                    H6: "consumer",
+                    H12: "consumer",
+                    DAY: "consumer",
+                    timedelta(days=7): "consumer",
+                    DAY30: "consumer",
+                },
+                H6,
             ),
         ]
     )
-    def test_plan_floor(self, _name, plan_floor, source_interval, targets, expected_blocked, expected_plan_floor):
+    def test_plan_floor(
+        self, _name, plan_floor, source_interval, targets, expected_blocked, expected_plan_floor, schedule_floor=None
+    ):
         bounds, options = self._options(
-            declared_targets=targets, source_intervals={"src": source_interval}, plan_floor=plan_floor
+            declared_targets=targets,
+            source_intervals={"src": source_interval},
+            plan_floor=plan_floor,
+            schedule_plan_floor=schedule_floor,
         )
         self.assertEqual(
             {value: option.blocked_by for value, option in options.items() if not option.allowed}, expected_blocked

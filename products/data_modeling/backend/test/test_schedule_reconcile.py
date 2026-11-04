@@ -542,7 +542,12 @@ class TestMaybeReconcileDag(BaseTest):
                 _free_plan_floor({"min_interval": "6hour", "clamp_existing": True}),
                 M15,
             ),
-            ("flag_error_sets_no_floor", False, mock.Mock(side_effect=RuntimeError("flags down")), M15),
+            (
+                "daily_floor_uses_the_sync_frequency_name",
+                False,
+                _free_plan_floor({"min_interval": "24hour", "clamp_existing": True}),
+                DAY,
+            ),
             (
                 "existing_cadence_kept_until_clamp_existing",
                 False,
@@ -571,6 +576,51 @@ class TestMaybeReconcileDag(BaseTest):
         )
         endpoint = Node.objects.get(dag=dag, type=NodeType.ENDPOINT)
         self.assertEqual(get_declared_target(endpoint), M15)
+
+    @parameterized.expand(
+        [
+            ("flag_raises", mock.Mock(side_effect=RuntimeError("flags down"))),
+            ("bad_payload", _free_plan_floor({"min_interval": "soon"})),
+        ]
+    )
+    def test_unreadable_plan_floor_leaves_existing_schedules_alone(self, _name, flag):
+        self.organization.has_active_subscription = False
+        self.organization.save(update_fields=["has_active_subscription"])
+        dag = self._dag_with_target()
+
+        with (
+            mock.patch(FLAG_RESULT, side_effect=flag),
+            mock.patch(f"{RECONCILE}.async_connect", new=mock.AsyncMock()) as connect,
+            mock.patch(f"{RECONCILE}.capture_exception") as capture,
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                maybe_reconcile_dag(dag)
+
+        connect.assert_not_called()
+        capture.assert_called_once()
+
+    def test_a_pin_can_slow_to_the_enforced_plan_floor_above_a_consumer_it_holds_back(self):
+        self.organization.has_active_subscription = False
+        self.organization.save(update_fields=["has_active_subscription"])
+        dag = DAG.get_or_create_default(self.team)
+        source = _table_node(self.team, dag, "events", {"origin": "posthog"})
+        view = _saved_query_node(self.team, dag, "mv", NodeType.MAT_VIEW)
+        consumer = _saved_query_node(self.team, dag, "ep", NodeType.ENDPOINT)
+        Edge.objects.create(team=self.team, dag=dag, source=source, target=view)
+        Edge.objects.create(team=self.team, dag=dag, source=view, target=consumer)
+        set_declared_target(view, M15)
+        set_declared_pin(view, True)
+        set_declared_target(consumer, M15)
+        assert view.saved_query is not None
+
+        with (
+            mock.patch(FLAG_RESULT, side_effect=_free_plan_floor({"min_interval": "6hour", "clamp_existing": True})),
+            mock.patch(f"{RECONCILE}.maybe_reconcile_dag"),
+        ):
+            apply_saved_query_frequency_target(view.saved_query, H6)
+
+        view.refresh_from_db()
+        self.assertEqual(get_declared_target(view), H6)
 
     def test_saving_a_cadence_finer_than_the_plan_floor_is_refused(self):
         self.organization.has_active_subscription = False

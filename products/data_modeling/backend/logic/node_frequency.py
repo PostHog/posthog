@@ -36,7 +36,7 @@ from products.data_modeling.backend.logic.freshness import (
     normalize_seed_target,
 )
 from products.data_modeling.backend.logic.node_suspension import merged_suspension_state
-from products.data_modeling.backend.logic.refresh_floor import plan_refresh_floor_for_team
+from products.data_modeling.backend.logic.refresh_floor import read_plan_refresh_floor
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.edge import NON_SCHEDULING_EDGES, Edge
 from products.data_modeling.backend.models.node import SAVED_QUERY_NODE_TYPES, Node, NodeType
@@ -295,6 +295,15 @@ class FrequencyGraph:
     identities: dict[str, NodeIdentity]  # node id -> the resource its name belongs to
     plan_floor: timedelta | None  # finest cadence the team's plan lets a view be set to
     schedule_plan_floor: timedelta | None  # finest cadence the scheduler runs a view at on the team's plan
+    plan_floor_evaluated: bool
+
+    @property
+    def scheduled_targets(self) -> dict[str, timedelta]:
+        """The declared targets as the scheduler honors them: none finer than the enforced plan floor."""
+        floor = self.schedule_plan_floor
+        if floor is None:
+            return self.declared_targets
+        return {node_id: max(target, floor) for node_id, target in self.declared_targets.items()}
 
 
 def build_frequency_graph(dag: DAG) -> FrequencyGraph:
@@ -323,7 +332,8 @@ def build_frequency_graph(dag: DAG) -> FrequencyGraph:
 
     source_nodes = [node for node in nodes if node.type == NodeType.TABLE]
     source_intervals, best_effort = resolve_source_intervals(source_nodes)
-    plan_floor = plan_refresh_floor_for_team(dag.team_id)
+    plan_floor_reading = read_plan_refresh_floor(dag.team_id)
+    plan_floor = plan_floor_reading.floor
 
     return FrequencyGraph(
         nodes=schedulable,
@@ -337,6 +347,7 @@ def build_frequency_graph(dag: DAG) -> FrequencyGraph:
         identities={str(node.id): node_identity(node) for node in nodes},
         plan_floor=plan_floor.min_interval if plan_floor is not None else None,
         schedule_plan_floor=plan_floor.schedule_floor if plan_floor is not None else None,
+        plan_floor_evaluated=plan_floor_reading.evaluated,
     )
 
 
@@ -407,6 +418,7 @@ def saved_query_target_bounds(team_id: int, saved_query_id: str | uuid.UUID) -> 
                 source_intervals=graph.source_intervals,
                 pinned=graph.pinned,
                 plan_floor=graph.plan_floor,
+                schedule_plan_floor=graph.schedule_plan_floor,
             )
         )
         names.update(graph.names)
@@ -473,7 +485,7 @@ def saved_query_pin_preview(team_id: int, saved_query_id: str | uuid.UUID) -> Sa
             delays_if_pinned.setdefault(cadence, set()).update(delayed)
         below_floor = nodes_below_source_floor(
             edges=graph.edges,
-            declared_targets=graph.declared_targets,
+            declared_targets=graph.scheduled_targets,
             source_intervals=graph.source_intervals,
             pinned=graph.pinned - {node_id},
         )
@@ -482,7 +494,7 @@ def saved_query_pin_preview(team_id: int, saved_query_id: str | uuid.UUID) -> Sa
                 node_id=node_id,
                 target=option.value,
                 edges=graph.edges,
-                declared_targets=graph.declared_targets,
+                declared_targets=graph.scheduled_targets,
                 source_intervals=graph.source_intervals,
                 pinned=graph.pinned,
                 already_below_floor=below_floor,

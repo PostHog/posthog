@@ -23,7 +23,7 @@ logger = structlog.get_logger(__name__)
 
 REFRESH_FLOOR_FLAG = "data-modeling-refresh-floor"
 
-_BUCKETS_BY_NAME = {format_cadence(bucket): bucket for bucket in SCHEDULABLE_BUCKETS}
+_BUCKETS_BY_NAME = {format_cadence(bucket): bucket for bucket in SCHEDULABLE_BUCKETS} | {"24hour": timedelta(days=1)}
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
@@ -41,18 +41,31 @@ class InvalidRefreshFloorPayload(ValueError):
     pass
 
 
-def plan_refresh_floor_for_team(team_id: int) -> PlanRefreshFloor | None:
-    """The plan floor of the team's organization. See `plan_refresh_floor`."""
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+class PlanRefreshFloorReading:
+    floor: PlanRefreshFloor | None
+    evaluated: bool
+
+
+def read_plan_refresh_floor(team_id: int) -> PlanRefreshFloorReading:
+    """The plan floor of the team's organization. See `read_organization_plan_refresh_floor`."""
     organization = Organization.objects.filter(team__id=team_id).first()
-    return plan_refresh_floor(organization) if organization is not None else None
+    if organization is None:
+        return PlanRefreshFloorReading(floor=None, evaluated=True)
+    return read_organization_plan_refresh_floor(organization)
 
 
-def plan_refresh_floor(organization: Organization) -> PlanRefreshFloor | None:
-    """The organization's plan floor, or None when its plan sets none.
+def plan_refresh_floor_for_team(team_id: int) -> PlanRefreshFloor | None:
+    """The plan floor of the team's organization, or None when it sets none or cannot be read."""
+    return read_plan_refresh_floor(team_id).floor
+
+
+def read_organization_plan_refresh_floor(organization: Organization) -> PlanRefreshFloorReading:
+    """Read the organization's plan floor without raising.
 
     Evaluated locally on the organization, so the bounds read and every reconcile can call it without
-    a network round trip. Never raises: a flag outage or a bad payload reads as no floor, which only
-    keeps today's cadences.
+    a network round trip. When the SDK has no flag definitions it returns no result, which reads as
+    no floor, because self-hosted instances never have definitions to load.
     """
     organization_id = str(organization.id)
     try:
@@ -66,16 +79,16 @@ def plan_refresh_floor(organization: Organization) -> PlanRefreshFloor | None:
             send_feature_flag_events=False,
         )
         if result is None or not result.enabled:
-            return None
-        return _parse(result.payload)
+            return PlanRefreshFloorReading(floor=None, evaluated=True)
+        return PlanRefreshFloorReading(floor=_parse(result.payload), evaluated=True)
     except InvalidRefreshFloorPayload as error:
         # The payload is typed by hand into the flag, which only checks that it is JSON. Report a value
         # the code cannot use, so the person who set it hears about it.
         capture_exception(error, {"flag": REFRESH_FLOOR_FLAG, "organization_id": organization_id})
-        return None
+        return PlanRefreshFloorReading(floor=None, evaluated=False)
     except Exception:
         logger.warning("refresh_floor_flag_evaluation_failed", organization_id=organization_id, exc_info=True)
-        return None
+        return PlanRefreshFloorReading(floor=None, evaluated=False)
 
 
 def _parse(payload: object) -> PlanRefreshFloor:

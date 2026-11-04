@@ -515,6 +515,7 @@ def compute_target_bounds(
     source_intervals: dict[str, timedelta],
     pinned: Collection[str] = frozenset(),
     plan_floor: timedelta | None = None,
+    schedule_plan_floor: timedelta | None = None,
 ) -> TargetBounds:
     """Resolve one node's selectable cadences, marking each blocked option with what blocks it.
 
@@ -529,20 +530,17 @@ def compute_target_bounds(
     ceiling = all_consumer_ceiling_bounds(edges, declared_targets, pinned).get(node_id)
     if node_id in pinned:
         ceiling = None
+    if schedule_plan_floor is not None and ceiling is not None:
+        enforced_floor = nearest_schedulable_bucket_at_least(schedule_plan_floor)
+        if is_finer_than(ceiling.value, enforced_floor):
+            ceiling = Bound(value=enforced_floor, blocker=ceiling.blocker)
     return _bounds_from(floor=floor, ceiling=ceiling, plan_floor=plan_floor)
 
 
 def _bounds_from(*, floor: Bound, ceiling: Bound | None, plan_floor: timedelta | None = None) -> TargetBounds:
-    """Mark every cadence against the bounds, reporting each bound only if it blocks.
-
-    The plan floor holds every consumer of the team too, so a consumer that declares a finer target
-    refreshes at the plan floor, and the ceiling it sets moves up to the plan floor with it. Without
-    that, a consumer saved before the floor applied would leave this node no cadence at all.
-    """
+    """Mark every cadence against the bounds, reporting each bound only if it blocks."""
     if plan_floor is not None:
         plan_floor = nearest_schedulable_bucket_at_least(plan_floor)
-        if ceiling is not None and is_finer_than(ceiling.value, plan_floor):
-            ceiling = Bound(value=plan_floor, blocker=ceiling.blocker)
     options: list[TargetOption] = []
     for value in sorted(SCHEDULABLE_BUCKETS):
         if is_finer_than(value, floor.value):
@@ -640,6 +638,7 @@ def validate_declared_target(
     names: Mapping[str, str] | None = None,
     pinned: Collection[str] = frozenset(),
     plan_floor: timedelta | None = None,
+    schedule_plan_floor: timedelta | None = None,
 ) -> None:
     """Raise if `target` is not selectable or falls outside the node's bounds.
 
@@ -647,6 +646,8 @@ def validate_declared_target(
     that blocks the target, which is the thing a person has to change to unblock it. `pinned`
     holds the pin state the write would leave, including `node_id`'s own. `plan_floor` is the
     finest cadence the organization's plan allows, or None when its plan sets no floor.
+    `schedule_plan_floor` is the part of it the scheduler enforces, or None while views set faster
+    keep their cadence.
     """
     if target not in SCHEDULABLE_BUCKETS:
         supported = ", ".join(format_cadence(interval) for interval in sorted(SCHEDULABLE_BUCKETS))
@@ -661,6 +662,7 @@ def validate_declared_target(
         source_intervals=source_intervals,
         pinned=pinned,
         plan_floor=plan_floor,
+        schedule_plan_floor=schedule_plan_floor,
     )
     option = bounds.option_for(target)
     if option is None or option.allowed:

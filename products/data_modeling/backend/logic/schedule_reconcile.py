@@ -83,6 +83,10 @@ if TYPE_CHECKING:
 logger = structlog.get_logger(__name__)
 
 
+class PlanFloorUnavailableError(Exception):
+    """The plan floor could not be read, so a reconcile could speed up schedules the floor holds back."""
+
+
 def maybe_reconcile_dag(dag: DAG) -> None:
     """Trigger hook for graph/target mutations: reconcile the DAG, best-effort.
 
@@ -223,13 +227,14 @@ def apply_saved_query_frequency_target(
                         names=visible_names or {},
                         pinned=(graph.pinned - {node_id}) | ({node_id} if pin else set()),
                         plan_floor=graph.plan_floor,
+                        schedule_plan_floor=graph.schedule_plan_floor,
                     )
                     if pin:
                         validate_pin(
                             node_id=node_id,
                             target=node_target,
                             edges=graph.edges,
-                            declared_targets=graph.declared_targets,
+                            declared_targets=graph.scheduled_targets,
                             source_intervals=graph.source_intervals,
                             pinned=graph.pinned,
                             names=visible_names or {},
@@ -263,6 +268,7 @@ def check_saved_query_frequency_target(
             names=visible_names or {},
             pinned=graph.pinned,
             plan_floor=graph.plan_floor,
+            schedule_plan_floor=graph.schedule_plan_floor,
         )
 
 
@@ -302,6 +308,8 @@ def reconcile_dag_schedules(dag: DAG, *, graph: FrequencyGraph | None = None) ->
     team = dag.team
     if graph is None:
         graph = build_frequency_graph(dag)
+    if not graph.plan_floor_evaluated:
+        raise PlanFloorUnavailableError(f"Plan refresh floor unavailable for team {team.pk}")
     effective, _clamped = scheduled_cadences(graph)
     desired_tiers = bucket_into_cadence_tiers(effective, graph.declared_anchors)
     _apply_reconciliation(
