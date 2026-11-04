@@ -444,7 +444,6 @@ export const FEATURE_FLAGS = {
     NEW_TEAM_CORE_EVENTS: 'new-team-core-events', // owner: @jabahamondes #team-web-analytics
     NOTEBOOK_SANDBOX_FREE_COMPUTE: 'notebook-sandbox-free-compute', // owner: #team-data-tools, shows the notebook sandbox rate crossed out at $0.00 / h
     NOTEBOOK_SHARING: 'notebook-sharing', // owner: @reecejones #team-platform-features
-    ONBOARDING_SIMPLE_FLOW: 'onboarding-simple-flow', // owner: @rafaeelaudibert #team-growth multivariate=control,test, test sends new users through a short install, MCP and card flow, then to the welcome page
     ORGANIZATION_BILLING_API: 'organization-billing-api', // owner: #team-billing, reads the usage and spend pages from the organization billing API; the same flag gates those routes
     OWNER_ONLY_BILLING: 'owner-only-billing', // owner: @pawelcebula #team-billing
     PAGE_REPORTS_AVERAGE_PAGE_VIEW: 'page-reports-average-page-view', // owner: @jordanm-posthog #team-web-analytics

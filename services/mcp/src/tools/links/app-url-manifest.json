@@ -1624,11 +1624,6 @@
         "params": [],
         "scope": "global"
     },
-    "simpleOnboarding": {
-        "template": "/onboarding/simple",
-        "params": [],
-        "scope": "project"
-    },
     "site": {
         "template": "/site/{url}",
         "params": ["url"],
