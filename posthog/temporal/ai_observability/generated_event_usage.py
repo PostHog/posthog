@@ -1,6 +1,7 @@
 import json
 import uuid
 import hashlib
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from django.utils import timezone
@@ -8,6 +9,7 @@ from django.utils import timezone
 import structlog
 from confluent_kafka import KafkaException
 
+from posthog.kafka_client.client import ClickhouseProducer, DeliveryTimeoutError, ProduceResult
 from posthog.models.event.util import create_event
 from posthog.models.team import Team
 from posthog.usage_ingestion.client import UsageRecord, report_usage
@@ -15,8 +17,16 @@ from posthog.usage_ingestion.client import UsageRecord, report_usage
 PRODUCER_ID = "ai-observability"
 AI_EVENTS_USAGE_KEY = "ai_events"
 EVENT_DELIVERY_TIMEOUT_SECONDS = 2.0
+# librdkafka reports every message within `message.timeout.ms`. The producers keep its default of
+# 300 seconds, so no acknowledgement arrives after this.
+LATE_DELIVERY_TIMEOUT_SECONDS = 300.0
+REPORT_SITE = "ai_observability_generated_event"
 
 logger = structlog.get_logger(__name__)
+
+# One thread is enough for every late acknowledgement. Its polls run the delivery callbacks of all
+# messages on the shared producer, so the next wait in its queue usually returns at once.
+_late_deliveries = ThreadPoolExecutor(max_workers=1, thread_name_prefix="generated-ai-event-usage")
 
 
 def create_generated_ai_event(
@@ -34,6 +44,15 @@ def create_generated_ai_event(
     need their own record here.
     """
     timestamp = timezone.now()
+    record = UsageRecord(
+        record_id=_record_id(timestamp.date().isoformat(), event, distinct_id, event_uuid),
+        producer_id=PRODUCER_ID,
+        team_id=team.id,
+        usage_key=AI_EVENTS_USAGE_KEY,
+        unit="events",
+        quantity=1,
+        timestamp_ms=int(timestamp.timestamp() * 1000),
+    )
     try:
         create_event(
             event_uuid=event_uuid,
@@ -44,25 +63,27 @@ def create_generated_ai_event(
             properties=properties,
             delivery_timeout_seconds=EVENT_DELIVERY_TIMEOUT_SECONDS,
         )
-    except (KafkaException, TimeoutError):
+    except DeliveryTimeoutError as error:
+        # Kafka can still acknowledge the event after this wait. A background thread waits for the
+        # acknowledgement and reports the usage then, so the activity does not wait any longer.
+        _late_deliveries.submit(_report_when_delivered, error.results, record, event)
+        return
+    except KafkaException:
         # Usage counts only the events that Kafka acknowledged, as ingestion does. The error does not
         # fail the activity, because a retry repeats the work that produced the event.
         logger.warning("generated_ai_event_not_delivered", ai_event=event, team_id=team.id, exc_info=True)
         return
-    report_usage(
-        [
-            UsageRecord(
-                record_id=_record_id(timestamp.date().isoformat(), event, distinct_id, event_uuid),
-                producer_id=PRODUCER_ID,
-                team_id=team.id,
-                usage_key=AI_EVENTS_USAGE_KEY,
-                unit="events",
-                quantity=1,
-                timestamp_ms=int(timestamp.timestamp() * 1000),
-            )
-        ],
-        site="ai_observability_generated_event",
-    )
+    report_usage([record], site=REPORT_SITE)
+
+
+def _report_when_delivered(results: list[ProduceResult], record: UsageRecord, event: str) -> None:
+    try:
+        ClickhouseProducer().wait_for_delivery(results, LATE_DELIVERY_TIMEOUT_SECONDS)
+    except (KafkaException, TimeoutError):
+        logger.warning("generated_ai_event_not_delivered", ai_event=event, team_id=record.team_id, exc_info=True)
+        return
+    logger.info("generated_ai_event_delivered_late", ai_event=event, team_id=record.team_id)
+    report_usage([record], site=REPORT_SITE)
 
 
 def _record_id(day: str, event: str, distinct_id: str, event_uuid: uuid.UUID) -> str:

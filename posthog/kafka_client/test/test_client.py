@@ -10,7 +10,7 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from confluent_kafka import KafkaError, KafkaException
 from parameterized import parameterized
 
-from posthog.kafka_client.client import ClickhouseProducer, ProduceResult, _KafkaProducer
+from posthog.kafka_client.client import ClickhouseProducer, DeliveryTimeoutError, ProduceResult, _KafkaProducer
 from posthog.settings.kafka import KafkaProfileSettings, _resolve_producer_settings
 
 
@@ -265,7 +265,7 @@ class ClickhouseProducerDeliveryTestCase(SimpleTestCase):
         [
             ("acknowledged", True, None, None),
             ("failed", True, KafkaError(KafkaError._MSG_TIMED_OUT), KafkaException),  # type: ignore[attr-defined]
-            ("unacknowledged", False, None, TimeoutError),
+            ("unacknowledged", False, None, DeliveryTimeoutError),
         ]
     )
     @override_settings(TEST=False)
