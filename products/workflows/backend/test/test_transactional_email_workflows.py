@@ -15,6 +15,7 @@ from products.workflows.backend.facade.api import set_default_email_sender_if_un
 from products.workflows.backend.facade.contracts import (
     TransactionalEmailContent,
     TransactionalEmailContentInvalid,
+    TransactionalEmailSandboxSender,
     TransactionalEmailSenderUnavailable,
     WorkflowNotFound,
 )
@@ -124,12 +125,12 @@ class TestTransactionalEmailWorkflows(BaseTest):
 
     @parameterized.expand(
         [
-            ("unverified_default", False, None),
-            ("another_teams_sender", True, "other"),
-            ("sandbox_sender", True, "sandbox"),
+            ("unverified_default", False, None, TransactionalEmailSenderUnavailable),
+            ("another_teams_sender", True, "other", TransactionalEmailSenderUnavailable),
+            ("sandbox_sender", True, "sandbox", TransactionalEmailSandboxSender),
         ]
     )
-    def test_a_new_transactional_email_needs_a_verified_sender_of_its_own(self, _name, verified, requested):
+    def test_a_new_transactional_email_needs_a_verified_sender_of_its_own(self, _name, verified, requested, error):
         self.sender.config = {"verified": verified}
         self.sender.save()
         requested_id = None
@@ -143,10 +144,12 @@ class TestTransactionalEmailWorkflows(BaseTest):
                 config={"provider": SANDBOX_EMAIL_PROVIDER, "verified": True},
             ).id
 
-        with self.assertRaises(TransactionalEmailSenderUnavailable):
+        with self.assertRaises(error) as raised:
             create_transactional_email_workflow(
                 team_id=self.team.id, user_id=self.user.id, content=_content(from_integration_id=requested_id)
             )
+
+        assert type(raised.exception) is error
 
         assert not HogFlow.objects.filter(team_id=self.team.id).exists()
 
