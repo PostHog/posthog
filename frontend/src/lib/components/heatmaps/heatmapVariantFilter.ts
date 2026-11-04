@@ -1,10 +1,15 @@
-import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, CombinedFeatureFlagAndValueType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { HeatmapEventFilter } from './types'
 
 export type HeatmapVariantFilter = {
     flagKey: string
     variant: string
+}
+
+export type HeatmapVariantFlag = {
+    flagKey: string
+    variants: HeatmapVariantFilter[]
 }
 
 const FLAG_CALLED_EVENT = '$feature_flag_called'
@@ -34,6 +39,18 @@ export function variantFromEventFilters(events: HeatmapEventFilter[] | undefined
     const flagKey = valueOf('$feature_flag')
     const variant = valueOf('$feature_flag_response')
     return typeof flagKey === 'string' && typeof variant === 'string' ? { flagKey, variant } : null
+}
+
+export function variantFlagsFromUserFlags(userFlags: CombinedFeatureFlagAndValueType[]): HeatmapVariantFlag[] {
+    return userFlags
+        .filter(({ feature_flag }) => feature_flag.filters?.multivariate?.variants?.length)
+        .map(({ feature_flag }) => ({
+            flagKey: feature_flag.key,
+            variants: (feature_flag.filters.multivariate?.variants ?? []).map(({ key }) => ({
+                flagKey: feature_flag.key,
+                variant: key,
+            })),
+        }))
 }
 
 // Autocapture events carry the $feature/<key> property, so the clickmap can filter each click directly.

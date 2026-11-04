@@ -1,44 +1,38 @@
 import { useActions, useValues } from 'kea'
+import { useEffect } from 'react'
 
 import { LemonSelect, LemonSelectSection } from '@posthog/lemon-ui'
 
 import { HeatmapVariantFilter as VariantFilter } from 'lib/components/heatmaps/heatmapVariantFilter'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 
 import { heatmapToolbarMenuLogic } from '~/toolbar/shared/elements/heatmapToolbarMenuLogic'
 import { flagsToolbarLogic } from '~/toolbar/shared/flags/flagsToolbarLogic'
-import { toolbarPosthogJS } from '~/toolbar/shared/toolbarPosthogJS'
+import { useToolbarFeatureFlag } from '~/toolbar/shared/toolbarPosthogJS'
 
 const optionKey = ({ flagKey, variant }: VariantFilter): string => JSON.stringify([flagKey, variant])
 
 export function HeatmapVariantFilter(): JSX.Element | null {
-    const { userFlags } = useValues(flagsToolbarLogic)
-    const { getUserFlags } = useActions(flagsToolbarLogic)
-    const { heatmapVariantFilter } = useValues(heatmapToolbarMenuLogic)
+    const eventFilterEnabled = useToolbarFeatureFlag(FEATURE_FLAGS.HEATMAPS_EVENT_FILTER)
+    const { heatmapVariantFilter, heatmapVariantFlags } = useValues(heatmapToolbarMenuLogic)
     const { setHeatmapVariantFilter } = useActions(heatmapToolbarMenuLogic)
+    const { getUserFlags } = useActions(flagsToolbarLogic)
 
-    useOnMountEffect(getUserFlags)
-
-    const variantsByKey = new Map<string, VariantFilter>()
-    const sections: LemonSelectSection<string | null>[] = userFlags
-        .filter(({ feature_flag }) => feature_flag.filters?.multivariate?.variants?.length)
-        .map(({ feature_flag }) => ({
-            title: feature_flag.key,
-            options: (feature_flag.filters.multivariate?.variants ?? []).map(({ key: variant }) => {
-                const variantFilter = { flagKey: feature_flag.key, variant }
-                variantsByKey.set(optionKey(variantFilter), variantFilter)
-                return { label: variant, value: optionKey(variantFilter) }
-            }),
-        }))
+    useEffect(() => {
+        if (eventFilterEnabled) {
+            getUserFlags()
+        }
+    }, [eventFilterEnabled, getUserFlags])
 
     // A persisted filter stays visible so it can be cleared, even when its flag no longer loads.
-    if (
-        !heatmapVariantFilter &&
-        (!sections.length || !toolbarPosthogJS.getFeatureFlag(FEATURE_FLAGS.HEATMAPS_EVENT_FILTER))
-    ) {
+    if (!eventFilterEnabled || (!heatmapVariantFilter && !heatmapVariantFlags.length)) {
         return null
     }
+
+    const sections: LemonSelectSection<string | null>[] = heatmapVariantFlags.map(({ flagKey, variants }) => ({
+        title: flagKey,
+        options: variants.map((variantFilter) => ({ label: variantFilter.variant, value: optionKey(variantFilter) })),
+    }))
 
     return (
         <LemonSelect
@@ -52,7 +46,13 @@ export function HeatmapVariantFilter(): JSX.Element | null {
                     ? `${heatmapVariantFilter.flagKey}: ${heatmapVariantFilter.variant}`
                     : 'All variants'
             }
-            onChange={(value) => setHeatmapVariantFilter(value ? (variantsByKey.get(value) ?? null) : null)}
+            onChange={(value) =>
+                setHeatmapVariantFilter(
+                    heatmapVariantFlags
+                        .flatMap(({ variants }) => variants)
+                        .find((variantFilter) => optionKey(variantFilter) === value) ?? null
+                )
+            }
         />
     )
 }

@@ -25,6 +25,8 @@ import {
 } from 'lib/components/heatmaps/heatmapUrlMatch'
 import {
     HeatmapVariantFilter,
+    HeatmapVariantFlag,
+    variantFlagsFromUserFlags,
     variantFromEventFilters,
     variantToElementStatsProperty,
     variantToEventFilter,
@@ -43,6 +45,7 @@ import {
     matchEventToElementUsingSelectors,
     matchIsChainConsistent,
 } from '~/toolbar/shared/elements/domElementIndex'
+import { flagsToolbarLogic } from '~/toolbar/shared/flags/flagsToolbarLogic'
 import { productToursLogic } from '~/toolbar/shared/product-tours/productToursLogic'
 import { currentPageLogic } from '~/toolbar/shared/stats/currentPageLogic'
 import { toolbarApi } from '~/toolbar/shared/toolbarApi'
@@ -58,7 +61,7 @@ import {
     invalidateZoomCache,
     trimElement,
 } from '~/toolbar/shared/utils'
-import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, CombinedFeatureFlagAndValueType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { HrefMatchType } from '../../../lib/components/heatmaps/heatmapDataLogic'
 import type { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from '../../../lib/components/heatmaps/types'
@@ -350,6 +353,7 @@ const emptyElementsStatsPages: PaginatedResponse<ElementsEventType> = {
 export interface heatmapToolbarMenuLogicValues {
     href: string // currentPageLogic
     wildcardHref: string // currentPageLogic
+    userFlags: CombinedFeatureFlagAndValueType[] // flagsToolbarLogic
     commonFilters: CommonFilters // heatmapDataLogic
     dateRange: string | null // heatmapDataLogic
     heatmapColorPalette: string | null // heatmapDataLogic
@@ -387,6 +391,7 @@ export interface heatmapToolbarMenuLogicValues {
     } | null
     heatmapEnabled: boolean
     heatmapVariantFilter: HeatmapVariantFilter | null
+    heatmapVariantFlags: HeatmapVariantFlag[]
     highestClickCount: number
     isRefreshing: boolean
     lastElementStatsRequest: {
@@ -622,6 +627,7 @@ export interface heatmapToolbarMenuLogicActions {
 export interface heatmapToolbarMenuLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         heatmapVariantFilter: (commonFilters: CommonFilters) => HeatmapVariantFilter | null
+        heatmapVariantFlags: (userFlags: CombinedFeatureFlagAndValueType[]) => HeatmapVariantFlag[]
         countedElements: (
             processedElements: CountedHTMLElement[],
             elementMetrics: Map<
@@ -676,6 +682,8 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             ['href', 'wildcardHref'],
             toolbarConfigLogic,
             ['posthog'],
+            flagsToolbarLogic,
+            ['userFlags'],
             heatmapDataLogic,
             [
                 'commonFilters',
@@ -928,7 +936,10 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                     }
 
                     const { href, wildcardHref } = values
-                    const variantFilter = values.heatmapVariantFilter
+                    // The heatmap API drops the variant when this flag is off, so the clickmap drops it too.
+                    const variantFilter = toolbarPosthogJS.getFeatureFlag(FEATURE_FLAGS.HEATMAPS_EVENT_FILTER)
+                        ? values.heatmapVariantFilter
+                        : null
                     const options = {
                         context: 'load_heatmap_stats',
                         reauthenticateOnForbidden: true,
@@ -992,6 +1003,11 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             (s) => [s.commonFilters],
             (commonFilters: CommonFilters): HeatmapVariantFilter | null =>
                 variantFromEventFilters(commonFilters.events),
+        ],
+        heatmapVariantFlags: [
+            (s) => [s.userFlags],
+            (userFlags: CombinedFeatureFlagAndValueType[]): HeatmapVariantFlag[] =>
+                variantFlagsFromUserFlags(userFlags),
         ],
         countedElements: [
             (s) => [s.processedElements, s.elementMetrics],
