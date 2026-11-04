@@ -107,11 +107,23 @@ describe('WorkflowsScene', () => {
         expect(document.querySelector('[data-attr="workflows-import-customerio"]')).not.toBeNull()
     })
 
-    it('keeps the loaded rows when a reload fails', async () => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true })
+    it.each([
+        ['the flat list', false],
+        ['the folder view', true],
+    ])('keeps the loaded rows when a reload fails in %s', async (_, folders) => {
+        useMocks({ get: emptyProjectFiles })
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.WORKFLOWS_LIST_V2]: true,
+            [FEATURE_FLAGS.WORKFLOWS_PROJECT_FILES]: folders,
+        })
+        if (folders) {
+            router.actions.push(urls.workflows(), { q: 'in:Unfiled' })
+        }
         render(
             <Provider>
-                <WorkflowsScene />
+                <DndContext>
+                    <WorkflowsScene />
+                </DndContext>
             </Provider>
         )
         await waitFor(() => expect(shownRowNames()).toContain('Welcome series'))
@@ -121,6 +133,7 @@ describe('WorkflowsScene', () => {
         await waitFor(() => expect(workflowsListV2Logic.values.loadFailed).toBe(true))
         expect(shownRowNames()).toContain('Welcome series')
         expect(document.querySelector('[data-attr="workflows-list-v2-retry"]')).toBeNull()
+        expect(document.querySelector('[data-attr="workflows-folder-contents"]') !== null).toBe(folders)
     })
 
     it('keeps guided automation setup on an empty automation view', async () => {
@@ -192,8 +205,9 @@ describe('WorkflowsScene', () => {
         await waitFor(() => expect(shownRowNames()[0]).toEqual('Flow 000 even'))
 
         await user.click(document.querySelector('[aria-label="Next page"]')!)
-        await waitFor(() => expect(shownRowNames()[0]).not.toEqual('Flow 000 even'))
-        expect(shownRowNames()[0] >= 'Flow 099').toBe(true)
+        // The folder view spends one row of each page on the ".." row.
+        await waitFor(() => expect(shownRowNames()[0]).toEqual(folders ? 'Flow 099 odd' : 'Flow 100 even'))
+        expect(shownRowNames()).toHaveLength(100)
 
         // 125 rows match, so a kept page would still show matches 101 and up.
         act(() => workflowsListV2Logic.actions.setValue({ filters: scope, text: 'odd' }))

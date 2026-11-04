@@ -184,7 +184,11 @@ export function WorkflowsListV2(): JSX.Element {
                     <div className="min-w-0 flex-1 @container">
                         <WorkflowFolderDropMonitor />
                         <WorkflowFolderToolbar />
-                        {loadFailed || browserLoadFailed || metricsFailed ? renderBody() : <WorkflowFolderContents />}
+                        {(loadFailed && !listLoaded) || browserLoadFailed || metricsFailed ? (
+                            renderBody()
+                        ) : (
+                            <WorkflowFolderContents />
+                        )}
                     </div>
                 </div>
             ) : (
