@@ -323,7 +323,9 @@ class HogFlow(FileSystemSyncMixin, Taggable, UUIDTModel):
     @classmethod
     def get_file_system_unfiled(cls, team: Team, surface: str = DEFAULT_SURFACE) -> QuerySet["HogFlow"]:
         return cls._filter_unfiled_queryset(
-            cls.objects.filter(team=team, origin_product__isnull=True),
+            cls.objects.filter(team=team, origin_product__isnull=True).only(
+                "id", "team_id", "name", "created_at", "created_by_id", "origin_product"
+            ),
             team,
             type="hog_flow",
             ref_field="id",
