@@ -25,6 +25,7 @@ __all__ = [
     "CPUnavailableError",
     "DuckLakeBackfillCatalog",
     "DuckLakeDayReplacement",
+    "DuckLakeTableLayoutError",
     "DuckLakeTableReplacement",
     "DuckgresQueryServerConfig",
     "DuckgresStoredBucketConfig",
@@ -447,12 +448,20 @@ class DuckLakeTableReplacement:
     """All rows of the table, which a full backfill export replaces."""
 
 
+class DuckLakeTableLayoutError(ValueError):
+    """The table's column types differ from the backfill export, so add_files refuses the export's files."""
+
+
 class DuckLakeBackfillCatalog(Protocol):
     """The DuckLake statements a backfill runs in the organization's Trino catalog."""
 
     def ensure_table(
         self, table: str, columns: Mapping[str, str], *, drop_first: bool, create_if_missing: bool, validate: bool
     ) -> None: ...
+
+    def replace_table(self, table: str, columns: Mapping[str, str]) -> None: ...
+
+    def validate_file_count(self, files: Sequence[str]) -> None: ...
 
     def register_files(
         self,
