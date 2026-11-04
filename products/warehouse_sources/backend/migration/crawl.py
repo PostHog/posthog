@@ -1,3 +1,4 @@
+import dataclasses
 from collections.abc import Collection
 from uuid import UUID
 
@@ -73,9 +74,14 @@ def save_plan(
     again, and no item is deleted. Either way, items an apply claimed or finished, or the user skipped, stay.
     """
     team = Team.objects.only("organization_id").get(id=migration.team_id)
-    planned = plan_items(snapshot, catalog, source_capabilities, flag_enabled=lambda flag: _team_has_flag(team, flag))
+    to_plan = snapshot
     if connection_ids is not None:
-        planned = tuple(plan for plan in planned if plan.vendor_connection_id in connection_ids)
+        # Only the batch is planned. `_save_items` reserves the prefixes of every other item.
+        batch = set(connection_ids)
+        to_plan = dataclasses.replace(
+            snapshot, connections=tuple(connection for connection in snapshot.connections if connection.id in batch)
+        )
+    planned = plan_items(to_plan, catalog, source_capabilities, flag_enabled=lambda flag: _team_has_flag(team, flag))
     _save_items(migration, planned, delete_missing=connection_ids is None)
     migration.snapshot = snapshot.to_json()
     migration.account_name = snapshot.account_name or ""
