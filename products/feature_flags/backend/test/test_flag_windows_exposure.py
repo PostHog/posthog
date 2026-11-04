@@ -1,8 +1,15 @@
 import dataclasses
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from posthog.test.base import (
+    BaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_flag_evaluations,
+    flush_persons_and_events,
+)
 
 from django.test import SimpleTestCase
 
@@ -11,9 +18,12 @@ from parameterized import parameterized
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 
 from posthog.models import Team
-from posthog.test.persons import create_person
+from posthog.models.group.util import raw_create_group_ch
+from posthog.test.persons import create_group_type_mapping, create_person
 
 from products.cohorts.backend.models.cohort import Cohort
+from products.event_definitions.backend.models.property_definition import PropertyDefinition
+from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.flag_windows.exposure import (
     ConditionExposure,
     ExposureBucket,
@@ -21,6 +31,7 @@ from products.feature_flags.backend.flag_windows.exposure import (
     exposure_by_bucket,
 )
 from products.feature_flags.backend.flag_windows.query import ConditionMatch, WatchedCondition, WatchedEdit
+from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 
 START = datetime(2026, 10, 1, 12, 0, tzinfo=UTC)
 BUCKET = timedelta(minutes=10)
@@ -57,6 +68,13 @@ EVERYONE = WatchedCondition(position=0, properties=())
 
 # (distinct id, minutes after START, event properties)
 Event = tuple[str, int, dict[str, Any]]
+
+
+def _text_compared_with_a_number(team: Team) -> dict[str, Any]:
+    PropertyDefinition.objects.create(
+        team=team, name="age", property_type="Numeric", type=PropertyDefinition.Type.PERSON
+    )
+    return {"key": "age", "type": "person", "value": "abc", "operator": "gt"}
 
 
 class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
@@ -237,6 +255,14 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
                 ("person-4", 4, called("Evaluated locally", True)),
                 ("person-5", 5, called("Matched condition set 1", True)),
                 ("person-6", 6, called("Matched condition set 1", True, flag_key="other-flag")),
+                (
+                    "person-7",
+                    7,
+                    {**called("Matched condition set 2", True, flag_key="other-flag"), "$feature/new-checkout": True},
+                ),
+                ("person-8", 2, called("Matched condition set 1", True, flag_key="other-flag")),
+                ("person-9", 8, called("Matched condition set 3", True)),
+                ("person-10", 9, called("Matched condition set 1", True)),
             ],
             event="$feature_flag_called",
             people={
@@ -245,6 +271,9 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
                 "person-3": {"plan": "free"},
                 "person-4": {"plan": "pro"},
                 "person-5": {"plan": "free"},
+                "person-7": {"plan": "free"},
+                "person-9": {"plan": "enterprise"},
+                "person-10": {"plan": "pro", "beta": "yes"},
             },
         )
         _create_event(
@@ -254,9 +283,30 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
             timestamp=START - timedelta(minutes=5),
             properties=called("Matched condition set 2", True),
         )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="person-8",
+            timestamp=START + timedelta(minutes=8),
+            properties={"$feature/other-flag": True},
+        )
         flush_persons_and_events()
-        edit = dataclasses.replace(BOOLEAN, conditions=(PRO_PLAN,))
-        other = dataclasses.replace(BOOLEAN, id="other", flag_key="other-flag", conditions=(EVERYONE,))
+        beta = ({"key": "beta", "type": "person", "value": ["yes"], "operator": "exact"},)
+        enterprise = WatchedCondition(
+            position=2, properties=({"key": "plan", "type": "person", "value": ["enterprise"], "operator": "exact"},)
+        )
+        on_another_flag = ({"key": "123", "type": "flag", "value": True, "operator": "flag_evaluates_to"},)
+        edit = dataclasses.replace(
+            BOOLEAN,
+            conditions=(dataclasses.replace(PRO_PLAN, earlier_at_full_rollout=(beta, on_another_flag)), enterprise),
+        )
+        other = dataclasses.replace(
+            BOOLEAN,
+            id="other",
+            flag_key="other-flag",
+            edited_at=START + timedelta(minutes=3),
+            conditions=(EVERYONE,),
+        )
 
         exposure = exposure_by_bucket(self.team, [edit, other], START - timedelta(minutes=10), START + BUCKET, BUCKET)
 
@@ -264,22 +314,30 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
             {edit_id: buckets[-1].since_edit.in_condition for edit_id, buckets in exposure.items()},
             {
                 "boolean": {
-                    ConditionMatch.REASON: ConditionExposure(with_flag=2, exposed=1),
-                    ConditionMatch.PROPERTIES: ConditionExposure(with_flag=3, exposed=2),
+                    ConditionMatch.REASON: ConditionExposure(with_flag=3, exposed=2),
+                    ConditionMatch.PROPERTIES: ConditionExposure(with_flag=4, exposed=3),
                 },
                 "other": {
                     ConditionMatch.REASON: ConditionExposure(with_flag=1, exposed=1),
-                    ConditionMatch.PROPERTIES: ConditionExposure(with_flag=1, exposed=1),
+                    ConditionMatch.PROPERTIES: ConditionExposure(with_flag=3, exposed=3),
                 },
             },
         )
 
     def test_a_relative_date_in_a_condition_counts_back_from_the_range_end(self) -> None:
+        self.team.timezone = "Asia/Tokyo"
+        self.team.save()
         self._send(
-            [("person-1", 1, {"$feature/new-checkout": True}), ("person-2", 2, {"$feature/new-checkout": True})],
+            [
+                ("person-1", 1, {"$feature/new-checkout": True}),
+                ("person-2", 2, {"$feature/new-checkout": True}),
+                ("person-3", 3, {"$feature/new-checkout": True}),
+            ],
             people={
                 "person-1": {"signed_up_at": (START - timedelta(days=2)).isoformat()},
                 "person-2": {"signed_up_at": (START - timedelta(days=9)).isoformat()},
+                # Before the cutoff in UTC, but after it if the cutoff were read in the team's timezone.
+                "person-3": {"signed_up_at": (START + BUCKET - timedelta(days=7, hours=3)).isoformat()},
             },
         )
         recent_sign_up = WatchedCondition(
@@ -295,7 +353,39 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
             ConditionExposure(with_flag=1, exposed=1),
         )
 
-    def test_a_condition_on_a_deleted_cohort_leaves_out_only_the_counts_by_properties_of_its_edit(self) -> None:
+    @parameterized.expand(
+        [
+            (
+                "deleted_static_cohort",
+                lambda team: {
+                    "key": "id",
+                    "type": "cohort",
+                    "value": Cohort.objects.create(team=team, name="Beta", is_static=True, deleted=True).pk,
+                },
+                True,
+            ),
+            ("cohort_id_not_a_number", lambda team: {"key": "id", "type": "cohort", "value": "beta"}, True),
+            (
+                "date_filter_without_a_string",
+                lambda team: {"key": "signed_up_at", "type": "person", "value": 7, "operator": "is_date_after"},
+                True,
+            ),
+            ("invalid_regex", lambda team: {"key": "email", "type": "person", "value": "(", "operator": "regex"}, True),
+            # ClickHouse rejects these values only when the query runs, so no edit keeps its counts by properties.
+            ("text_compared_with_a_number", _text_compared_with_a_number, False),
+            (
+                "date_that_clickhouse_cant_parse",
+                lambda team: {"key": "signed_up_at", "type": "person", "value": "abc", "operator": "is_date_after"},
+                False,
+            ),
+        ]
+    )
+    def test_a_condition_the_query_cant_evaluate_leaves_out_only_counts_by_properties(
+        self,
+        _name: str,
+        broken_filter: Callable[[Team], dict[str, Any]],
+        healthy_keeps_properties: bool,
+    ) -> None:
         self._send(
             [
                 (
@@ -309,26 +399,31 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
                 )
             ],
             event="$feature_flag_called",
+            people={"person-1": {"age": 30, "signed_up_at": "2026-09-01"}},
         )
-        cohort = Cohort.objects.create(team=self.team, name="Beta testers", is_static=True, deleted=True)
-        in_cohort = WatchedCondition(position=0, properties=({"key": "id", "type": "cohort", "value": cohort.pk},))
-        broken = dataclasses.replace(BOOLEAN, conditions=(in_cohort,))
+        broken = dataclasses.replace(
+            BOOLEAN, conditions=(WatchedCondition(position=0, properties=(broken_filter(self.team),)),)
+        )
         healthy = dataclasses.replace(BOOLEAN, id="healthy", conditions=(EVERYONE,))
 
         exposure = exposure_by_bucket(self.team, [broken, healthy], START, START + BUCKET, BUCKET)
 
+        by_reason = {ConditionMatch.REASON: ConditionExposure(with_flag=1, exposed=1)}
+        by_reason_and_properties = {**by_reason, ConditionMatch.PROPERTIES: ConditionExposure(with_flag=1, exposed=1)}
         self.assertEqual(
-            {edit_id: buckets[0].in_bucket.in_condition for edit_id, buckets in exposure.items()},
+            {edit_id: buckets[0].in_bucket for edit_id, buckets in exposure.items()},
             {
-                "boolean": {ConditionMatch.REASON: ConditionExposure(with_flag=1, exposed=1)},
-                "healthy": {
-                    ConditionMatch.REASON: ConditionExposure(with_flag=1, exposed=1),
-                    ConditionMatch.PROPERTIES: ConditionExposure(with_flag=1, exposed=1),
-                },
+                "boolean": ExposureCounts(with_flag=1, exposed=1, by_variant={}, in_condition=by_reason),
+                "healthy": ExposureCounts(
+                    with_flag=1,
+                    exposed=1,
+                    by_variant={},
+                    in_condition=by_reason_and_properties if healthy_keeps_properties else by_reason,
+                ),
             },
         )
 
-    def test_counts_in_the_watched_conditions_of_a_group_flag_with_variants(self) -> None:
+    def test_counts_in_the_watched_conditions_of_a_group_flag_with_variants_next_to_a_person_flag(self) -> None:
         def called(group: str, reason: str, value: str | bool) -> dict[str, Any]:
             return {
                 "$feature_flag": "org-beta",
@@ -337,30 +432,109 @@ class TestExposureByBucket(ClickhouseTestMixin, BaseTest):
                 "$group_0": group,
             }
 
+        # HogQL hides the group of an event sent before the group type existed.
+        create_group_type_mapping(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="organization",
+            group_type_index=0,
+            created_at=START - timedelta(days=1),
+        )
+        # A group filter reads the ClickHouse groups table, which `create_group` leaves empty in tests.
+        for group_key, tier in (("org-a", "enterprise"), ("org-b", "enterprise"), ("org-c", "free")):
+            raw_create_group_ch(self.team.pk, 0, group_key, {"tier": tier}, created_at=START - timedelta(days=1))
         self._send(
             [
                 ("person-1", 1, called("org-a", "Matched condition set 1", "control")),
                 ("person-2", 2, called("org-a", "Matched condition set 1", "control")),
                 ("person-3", 3, called("org-b", "Out of rollout bound", False)),
                 ("person-4", 4, called("org-c", "Matched condition set 2", "test")),
+                (
+                    "person-5",
+                    5,
+                    {
+                        "$feature_flag": "new-checkout",
+                        "$feature_flag_reason": "Matched condition set 1",
+                        "$feature/new-checkout": True,
+                    },
+                ),
             ],
             event="$feature_flag_called",
         )
-        edit = dataclasses.replace(GROUP, variants=("control", "test"), conditions=(EVERYONE,))
+        enterprise = WatchedCondition(
+            position=0,
+            properties=(
+                {"key": "tier", "type": "group", "group_type_index": 0, "value": ["enterprise"], "operator": "exact"},
+            ),
+        )
+        group_edit = dataclasses.replace(GROUP, variants=("control", "test"), conditions=(enterprise,))
+        person_edit = dataclasses.replace(BOOLEAN, conditions=(EVERYONE,))
+
+        exposure = exposure_by_bucket(self.team, [group_edit, person_edit], START, START + BUCKET, BUCKET)
+
+        in_condition = {
+            ConditionMatch.REASON: ConditionExposure(with_flag=1, exposed=1),
+            ConditionMatch.PROPERTIES: ConditionExposure(with_flag=1, exposed=1),
+        }
+        self.assertEqual(
+            {edit_id: buckets[0].in_bucket for edit_id, buckets in exposure.items()},
+            {
+                "group": ExposureCounts(
+                    with_flag=3,
+                    exposed=2,
+                    by_variant={"control": 1, "test": 1},
+                    in_condition={
+                        ConditionMatch.REASON: ConditionExposure(with_flag=2, exposed=1),
+                        ConditionMatch.PROPERTIES: ConditionExposure(with_flag=2, exposed=1),
+                    },
+                ),
+                "boolean": ExposureCounts(with_flag=1, exposed=1, by_variant={}, in_condition=in_condition),
+            },
+        )
+
+    @parameterized.expand(
+        [
+            # Ingestion still writes every flag call to events, and to flag_evaluations only for some teams.
+            ("read_flag_evaluations", FlagEvaluationsMode.READ_FLAG_EVALUATIONS, False),
+            ("flag_evaluations_only", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, True),
+        ]
+    )
+    def test_reads_the_flag_reasons_where_the_mode_keeps_every_flag_call(
+        self, _name: str, mode: FlagEvaluationsMode, calls_in_flag_evaluations: bool
+    ) -> None:
+        OrganizationFeatureFlagsConfig.objects.update_or_create(
+            organization=self.organization, defaults={"flag_evaluations_mode": mode}
+        )
+        person = create_person(team=self.team, distinct_ids=["person-1"])
+        call = {
+            "$feature_flag": "new-checkout",
+            "$feature_flag_reason": "Matched condition set 1",
+            "$feature/new-checkout": True,
+        }
+        _create_event(
+            team=self.team,
+            event="$pageview" if calls_in_flag_evaluations else "$feature_flag_called",
+            distinct_id="person-1",
+            timestamp=START + timedelta(minutes=1),
+            properties={"$feature/new-checkout": True} if calls_in_flag_evaluations else call,
+        )
+        flush_persons_and_events()
+        if calls_in_flag_evaluations:
+            _create_flag_evaluations(
+                self.team.pk,
+                "new-checkout",
+                timestamp=START + timedelta(minutes=1),
+                distinct_id="person-1",
+                person_id=person.uuid,
+                properties={"$feature_flag_reason": "Matched condition set 1"},
+            )
+        edit = dataclasses.replace(BOOLEAN, conditions=(EVERYONE,))
 
         exposure = exposure_by_bucket(self.team, [edit], START, START + BUCKET, BUCKET)
 
         self.assertEqual(
-            exposure[edit.id][0].in_bucket,
-            ExposureCounts(
-                with_flag=3,
-                exposed=2,
-                by_variant={"control": 1, "test": 1},
-                in_condition={
-                    ConditionMatch.REASON: ConditionExposure(with_flag=2, exposed=1),
-                    ConditionMatch.PROPERTIES: ConditionExposure(with_flag=3, exposed=2),
-                },
-            ),
+            exposure[edit.id][0].in_bucket.in_condition[ConditionMatch.REASON],
+            ConditionExposure(with_flag=1, exposed=1),
         )
 
     def test_one_query_keeps_the_counts_of_each_edit_apart(self) -> None:

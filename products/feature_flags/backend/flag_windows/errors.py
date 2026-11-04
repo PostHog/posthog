@@ -9,8 +9,8 @@ Flag rollback suggestions attribute errors to an edit from this split and from t
 - Levels 4 and 5 follow all errors over time. An error of an issue first seen after the edit is stronger evidence than
   an older error that became more frequent.
 
-The query reads only `$exception` events, so it costs far less than the exposure query. `flag_windows/query.py` holds
-the counting rules.
+The query reads the `$exception` events, and the flag calls of the watched flags for the counts in the watched conditions.
+`flag_windows/query.py` holds the counting rules.
 """
 
 from collections.abc import Mapping, Sequence
@@ -74,13 +74,13 @@ def errors_by_bucket(
     counts = counts_by_bucket(
         team,
         edits,
-        _conditions,
+        _counts,
         start,
         end,
         bucket,
         query_type="flag_errors_by_bucket",
         event="$exception",
-        join=_issue_first_seen_join(),
+        joins=[_issue_first_seen_join()],
     )
     return {edit.id: _buckets(edit, counts[edit.id]) for edit in edits}
 
@@ -89,11 +89,11 @@ def _buckets(edit: WatchedEdit, counts: EditCounts) -> list[ErrorBucket]:
     return [
         ErrorBucket(
             start=row.start,
-            in_bucket=_errors(edit, counts.in_condition, row.in_bucket),
-            since_edit=_errors(edit, counts.in_condition, row.since_edit),
+            in_bucket=_errors(edit, counts.matches, row.in_bucket),
+            since_edit=_errors(edit, counts.matches, row.since_edit),
         )
         for row in counts.buckets
-        if _errors(edit, counts.in_condition, row.in_bucket).with_errors
+        if _errors(edit, counts.matches, row.in_bucket).with_errors
     ]
 
 
@@ -117,7 +117,7 @@ def _issue_first_seen_join() -> ast.JoinExpr:
     )
 
 
-def _conditions(edit: WatchedEdit, read: FlagRead) -> list[ast.Expr]:
+def _counts(edit: WatchedEdit, read: FlagRead) -> list[ast.Expr]:
     unexposed = parse_expr(
         "{with_flag} AND NOT {exposed}",
         placeholders={"with_flag": read.with_flag, "exposed": read.exposed},
@@ -142,7 +142,7 @@ def _conditions(edit: WatchedEdit, read: FlagRead) -> list[ast.Expr]:
 
 def _errors(edit: WatchedEdit, matches: Sequence[ConditionMatch], values: tuple[int, ...]) -> ErrorCounts:
     with_errors, with_new_errors, exposed_with_errors, unexposed_with_errors, *rest = values
-    by_variant, in_condition = rest[: len(edit.variants)], rest[len(edit.variants) :]
+    by_variant, in_condition_values = rest[: len(edit.variants)], rest[len(edit.variants) :]
     return ErrorCounts(
         with_errors=with_errors,
         with_new_errors=with_new_errors,
@@ -151,6 +151,6 @@ def _errors(edit: WatchedEdit, matches: Sequence[ConditionMatch], values: tuple[
         by_variant=dict(zip(edit.variants, by_variant, strict=True)),
         in_condition={
             match: ConditionErrors(exposed_with_errors=counts[0], unexposed_with_errors=counts[1])
-            for match, counts in read_in_condition(matches, in_condition, 2).items()
+            for match, counts in read_in_condition(matches, in_condition_values).items()
         },
     )

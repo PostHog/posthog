@@ -187,7 +187,8 @@ def replace_proxy_properties(team: Team, feature_flag_condition: dict, now: Opti
             if prop.operator in ("is_date_before", "is_date_after"):
                 relative_date = relative_date_parse_for_feature_flag_matching(str(prop.value), now=now)
                 if relative_date:
-                    prop.value = relative_date.strftime("%Y-%m-%d %H:%M:%S")
+                    # The offset keeps the time in UTC. HogQL reads a time without one in the team's timezone.
+                    prop.value = relative_date.isoformat()
             else:
                 _normalize_property_value(prop)
 

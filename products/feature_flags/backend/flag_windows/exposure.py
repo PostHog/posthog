@@ -60,7 +60,7 @@ def exposure_by_bucket(
 ) -> dict[str, list[ExposureBucket]]:
     """The exposure of each edit in each bucket of `[start, end)`, by edit id, oldest bucket first. A bucket in which
     nobody carried the flag after the edit has no entry. A person whose value changed counts under both values."""
-    counts = counts_by_bucket(team, edits, _conditions, start, end, bucket, query_type="flag_exposure_by_bucket")
+    counts = counts_by_bucket(team, edits, _counts, start, end, bucket, query_type="flag_exposure_by_bucket")
     return {edit.id: _buckets(edit, counts[edit.id]) for edit in edits}
 
 
@@ -68,15 +68,15 @@ def _buckets(edit: WatchedEdit, counts: EditCounts) -> list[ExposureBucket]:
     return [
         ExposureBucket(
             start=row.start,
-            in_bucket=_exposure(edit, counts.in_condition, row.in_bucket),
-            since_edit=_exposure(edit, counts.in_condition, row.since_edit),
+            in_bucket=_exposure(edit, counts.matches, row.in_bucket),
+            since_edit=_exposure(edit, counts.matches, row.since_edit),
         )
         for row in counts.buckets
-        if _exposure(edit, counts.in_condition, row.in_bucket).with_flag
+        if _exposure(edit, counts.matches, row.in_bucket).with_flag
     ]
 
 
-def _conditions(edit: WatchedEdit, read: FlagRead) -> list[ast.Expr]:
+def _counts(edit: WatchedEdit, read: FlagRead) -> list[ast.Expr]:
     return [
         read.with_flag,
         read.exposed,
@@ -87,13 +87,13 @@ def _conditions(edit: WatchedEdit, read: FlagRead) -> list[ast.Expr]:
 
 def _exposure(edit: WatchedEdit, matches: Sequence[ConditionMatch], values: tuple[int, ...]) -> ExposureCounts:
     with_flag, exposed, *rest = values
-    by_variant, in_condition = rest[: len(edit.variants)], rest[len(edit.variants) :]
+    by_variant, in_condition_values = rest[: len(edit.variants)], rest[len(edit.variants) :]
     return ExposureCounts(
         with_flag=with_flag,
         exposed=exposed,
         by_variant=dict(zip(edit.variants, by_variant, strict=True)),
         in_condition={
             match: ConditionExposure(with_flag=counts[0], exposed=counts[1])
-            for match, counts in read_in_condition(matches, in_condition, 2).items()
+            for match, counts in read_in_condition(matches, in_condition_values).items()
         },
     )
