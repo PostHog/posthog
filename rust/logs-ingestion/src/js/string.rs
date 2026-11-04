@@ -319,6 +319,27 @@ pub fn utf16_slice_lossy(s: &str, start: usize, end: usize) -> String {
         .into_string_lossy()
 }
 
+/// `None` when `s` has at most `max` UTF-16 units. It reads only `max + 1` units, so a large body costs no more than the cap.
+pub fn utf16_prefix_lossy(s: &str, max: usize) -> Option<String> {
+    if s.is_ascii() {
+        return (s.len() > max).then(|| s[..max].to_string());
+    }
+    let mut units = 0usize;
+    for (at, c) in s.char_indices() {
+        let width = c.len_utf16();
+        if units + width > max {
+            let mut prefix = s[..at].to_string();
+            if units < max {
+                // The cut falls inside a surrogate pair. The lone high surrogate converts to U+FFFD.
+                prefix.push('\u{FFFD}');
+            }
+            return Some(prefix);
+        }
+        units += width;
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -332,6 +353,9 @@ mod tests {
         assert!(cut.as_str().is_none());
         assert_eq!(cut.to_utf8_lossy(), "a\u{FFFD}");
         assert_eq!(utf16_slice_lossy("a🚀b", 0, 2), "a\u{FFFD}");
+        assert_eq!(utf16_prefix_lossy("a🚀b", 2).as_deref(), Some("a\u{FFFD}"));
+        assert_eq!(utf16_prefix_lossy("a🚀b", 3).as_deref(), Some("a🚀"));
+        assert_eq!(utf16_prefix_lossy("a🚀b", 4), None);
     }
 
     #[test]

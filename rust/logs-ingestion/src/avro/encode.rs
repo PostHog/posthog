@@ -202,7 +202,11 @@ fn zstd_compress(data: &[u8]) -> std::io::Result<Vec<u8>> {
             Some(c) => c,
             None => slot.insert(zstd::bulk::Compressor::new(1)?),
         };
-        compressor.compress(data)
+        let compressed = compressor.compress(data);
+        if compressed.is_err() {
+            *slot = None;
+        }
+        compressed
     })
 }
 

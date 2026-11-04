@@ -332,7 +332,12 @@ fn inflate(data: &[u8]) -> std::io::Result<Vec<u8>> {
                     Some(d) => d,
                     None => slot.insert(zstd::bulk::Decompressor::new()?),
                 };
-                decompressor.decompress(data, size as usize)
+                let inflated = decompressor.decompress(data, size as usize);
+                // A failed frame can leave state in the context, so the next frame gets a new one.
+                if !matches!(&inflated, Ok(out) if out.len() as u64 == size) {
+                    *slot = None;
+                }
+                inflated
             });
             if let Ok(inflated) = fast {
                 if inflated.len() as u64 == size {

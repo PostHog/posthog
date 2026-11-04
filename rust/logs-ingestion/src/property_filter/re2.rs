@@ -614,6 +614,8 @@ struct Piece {
     text: String,
     kind: PieceKind,
     repeated: bool,
+    /// Repetition groups around this piece. A flag group between operators lets them stack.
+    wraps: usize,
     reps: Vec<RepNode>,
 }
 
@@ -701,6 +703,7 @@ impl<'a> Parser<'a> {
             text,
             kind,
             repeated: false,
+            wraps: 0,
             reps: Vec::new(),
         });
     }
@@ -734,6 +737,7 @@ impl<'a> Parser<'a> {
                         text,
                         kind: PieceKind::Atom,
                         repeated: false,
+                        wraps: 0,
                         reps: frame.reps,
                     });
                 }
@@ -825,6 +829,10 @@ impl<'a> Parser<'a> {
             return err("missing argument to repetition operator");
         };
         if piece.repeated || piece.kind == PieceKind::Assertion {
+            piece.wraps += 1;
+            if piece.wraps > MAX_NESTING {
+                return err("bad nesting depth");
+            }
             piece.text = format!("(?:{})", piece.text);
             piece.kind = PieceKind::Atom;
         }
@@ -1245,7 +1253,8 @@ mod tests {
         let repetitions = format!("(?:{}a{}){{2}}", "(?:".repeat(n), "){1}".repeat(n));
         let groups = format!("{}a{}", "(".repeat(n), ")".repeat(n));
         let stacked_flags = format!("a{}", "(?i){1}".repeat(n));
-        for p in [repetitions, groups, stacked_flags] {
+        let stacked_stars = format!("a{}", "(?i)*".repeat(n));
+        for p in [repetitions, groups, stacked_flags, stacked_stars] {
             assert!(Re2::new(p.as_bytes(), "").is_err());
         }
     }

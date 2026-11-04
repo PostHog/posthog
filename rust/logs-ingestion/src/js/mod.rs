@@ -13,7 +13,7 @@ pub use json::{
 };
 pub use number::{number_to_string, write_number};
 pub use object::{is_array_index, JsKey, JsObject};
-pub use string::{utf16_len, utf16_slice_lossy, CharOrSurrogate, JsString};
+pub use string::{utf16_len, utf16_prefix_lossy, utf16_slice_lossy, CharOrSurrogate, JsString};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum JsValue {

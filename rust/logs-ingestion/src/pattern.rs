@@ -6,7 +6,9 @@ use std::time::Instant;
 
 use metrics::{counter, histogram};
 
-use crate::js::{json_parse_shape, utf16_len, utf16_slice_lossy, JsString, JsonShape};
+use crate::js::{
+    json_parse_shape, utf16_len, utf16_prefix_lossy, utf16_slice_lossy, JsString, JsonShape,
+};
 use crate::pii::RuleRegex;
 use crate::record::LogRecord;
 
@@ -287,12 +289,12 @@ pub fn select_pattern_input(body: Option<&str>, message_keys: &[&str]) -> Patter
         Some(body) => body,
     };
 
-    let input_capped = utf16_len(body) > PATTERN_CAPS.max_input_chars;
     // A cut pair leaves a lone high surrogate, which is never valid JSON and masks as U+FFFD, so the lossy slice agrees.
-    let capped_body: Cow<'_, str> = if input_capped {
-        Cow::Owned(utf16_slice_lossy(body, 0, PATTERN_CAPS.max_input_chars))
-    } else {
-        Cow::Borrowed(body)
+    let prefix = utf16_prefix_lossy(body, PATTERN_CAPS.max_input_chars);
+    let input_capped = prefix.is_some();
+    let capped_body: Cow<'_, str> = match prefix {
+        Some(prefix) => Cow::Owned(prefix),
+        None => Cow::Borrowed(body),
     };
     let shape = json_parse_shape(&capped_body, |key| message_keys.iter().any(|m| *key == *m));
     let mask = |input: String, body_kind| PatternInputSelection::Mask {
