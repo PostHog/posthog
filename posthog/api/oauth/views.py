@@ -62,6 +62,12 @@ from posthog.api.oauth.client_assertion import (
     verify_client_assertion,
 )
 from posthog.api.oauth.client_auth import verify_client_secret
+from posthog.api.oauth.device import (
+    DEVICE_CODE_GRANT_TYPE,
+    DEVICE_POLL_WAITING_ERRORS,
+    device_token_response,
+    token_server_kwargs,
+)
 from posthog.api.oauth.mcp_resource_scopes import build_oauth_mcp_consent_context, is_trusted_posthog_mcp_resource
 from posthog.api.oauth.metadata import (
     Document,
@@ -98,6 +104,7 @@ from posthog.scopes import (
     is_truncated_scope_request,
     narrow_scopes_to_ceiling,
     resolve_ceiling,
+    resolve_requested_scopes,
     scopes_outside_ceiling,
 )
 from posthog.security.url_validation import has_ambiguous_authority
@@ -674,6 +681,12 @@ class OAuthValidator(OAuth2Validator):
         assertion = self._resolve_request_assertion(request)
         if assertion is None:
             return False
+        # oauthlib's device grant authenticates a confidential client twice per request. The first
+        # check spends the assertion's jti, so a second verification would reject it as a replay.
+        # Read from `__dict__` only: oauthlib's Request answers a missing attribute from the request
+        # parameters, so getattr would let a caller send the "verified" value itself.
+        if request.__dict__.get("verified_client_assertion") == assertion.client_assertion:
+            return True
 
         app = self._load_application(assertion.client_id, request)
         # jwks_uri alone gates this, not client_type: a public CIMD client may publish keys
@@ -696,6 +709,7 @@ class OAuthValidator(OAuth2Validator):
             return False
 
         request.client = app
+        request.verified_client_assertion = assertion.client_assertion
         return True
 
     # PostHog deliberately does NOT support OIDC silent authentication (`prompt=none`). Every
@@ -825,13 +839,11 @@ class OAuthValidator(OAuth2Validator):
         their sign-in. A request with nothing grantable yields an identity-only
         token whose resource calls 403; `oauth_scopes_clamped` is what surfaces it.
         """
-        app_scopes = getattr(client, "ceiling_scopes", None) or []
-        ordered = list(scopes or [])
-        requested = set(ordered)
-        if not requested or is_truncated_scope_request(ordered):
-            request.scopes = sorted(effective_ceiling(app_scopes) | ALWAYS_ALLOWED_SCOPES)
-            return True
-        request.scopes = clamp_scopes_to_ceiling(requested, app_scopes, allow_wildcard_under_empty_ceiling=True)
+        request.scopes = resolve_requested_scopes(
+            list(scopes or []),
+            getattr(client, "ceiling_scopes", None) or [],
+            allow_wildcard_under_empty_ceiling=True,
+        )
         return True
 
     def get_original_scopes(self, refresh_token, request, *args, **kwargs):
@@ -2062,7 +2074,17 @@ class OAuthTokenView(TokenView):
     of the code_verifier that was sent in the authorization request.
 
     RFC 6749 requires x-www-form-urlencoded, but this endpoint also accepts application/json for convenience.
+
+    The RFC 8628 device code grant ("urn:ietf:params:oauth:grant-type:device_code") is served
+    here too: see `posthog.api.oauth.device`.
     """
+
+    @classmethod
+    def get_server(cls):
+        return cls.get_server_class()(cls.get_validator_class()(), **token_server_kwargs())
+
+    def device_flow_token_response(self, request, device_code, *args, **kwargs):
+        return device_token_response(self.create_token_response, request, device_code)
 
     @staticmethod
     def _request_client_auth_method(request) -> str:
@@ -2263,6 +2285,12 @@ class OAuthTokenView(TokenView):
         if grant_type == id_jag.JWT_BEARER_GRANT_TYPE:
             return self._handle_jwt_bearer_grant(request)
 
+        # DOT reads `device_code` with a bare subscript, which turns a missing one into a 500.
+        if grant_type == DEVICE_CODE_GRANT_TYPE and not request.POST.get("device_code"):
+            return JsonResponse(
+                {"error": "invalid_request", "error_description": "Missing device_code parameter"}, status=400
+            )
+
         client_id = request.POST.get("client_id", "")
         client_id_prefix = client_id[:8] if client_id else "unknown"
         client_auth_method = self._request_client_auth_method(request)
@@ -2391,7 +2419,8 @@ class OAuthTokenView(TokenView):
             else:
                 response["Content-Type"] = "application/json"
 
-        if response.status_code != 200:
+        # A device client polls until the person approves, so these answers are waiting, not rejections.
+        if response.status_code != 200 and _token_error_code(response) not in DEVICE_POLL_WAITING_ERRORS:
             self._capture_token_rejected(grant_type, client_id, _token_error_code(response), client_auth_method)
 
         return response

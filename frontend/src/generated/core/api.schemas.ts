@@ -31,6 +31,63 @@ export interface ConnectedAppApi {
     is_self_registered: boolean
 }
 
+export interface DeviceApprovalApi {
+    /**
+     * The code the device shows, as the person typed it. Case and dashes don't matter.
+     * @maxLength 20
+     */
+    user_code: string
+    /** The project the token is scoped to. */
+    project_id: number
+}
+
+/**
+ * * `authorized` - Authorized
+ * * `denied` - Denied
+ */
+export type DeviceDecisionEnumApi = (typeof DeviceDecisionEnumApi)[keyof typeof DeviceDecisionEnumApi]
+
+export const DeviceDecisionEnumApi = {
+    Authorized: 'authorized',
+    Denied: 'denied',
+} as const
+
+export interface DeviceDecisionApi {
+    /** The device grant's status after the decision.
+     *
+     * * `authorized` - Authorized
+     * * `denied` - Denied */
+    status: DeviceDecisionEnumApi
+}
+
+export interface DeviceUserCodeApi {
+    /**
+     * The code the device shows, as the person typed it. Case and dashes don't matter.
+     * @maxLength 20
+     */
+    user_code: string
+}
+
+export interface DeviceGrantDetailsApi {
+    /** The code, in the form the device shows it. */
+    user_code: string
+    /** The client that started the device grant. */
+    client_id: string
+    /** The client's display name. */
+    client_name: string
+    /**
+     * The client's logo, if it declared one.
+     * @nullable
+     */
+    logo_uri: string | null
+    /** Whether PostHog has verified the client. */
+    is_verified: boolean
+    /** The scopes the token will carry if the person approves. */
+    scopes: string[]
+    /** When the code expires. */
+    expires_at: string
+}
+
 /**
  * * `engineering` - Engineering
  * * `data` - Data
