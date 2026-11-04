@@ -100,7 +100,7 @@ export default defineCommand({
     notes: [
         'At a terminal, hog asks where your PostHog account is hosted and opens the browser to approve the login.',
         'Agents and scripts get a link and a code to hand to a person, then finish with `hog auth login --wait`.',
-        'In CI, skip login and set HOG_API_KEY, HOG_PROJECT_ID and HOG_HOST.',
+        'In CI, skip login and set HOG_PERSONAL_API_KEY, HOG_PROJECT_ID and HOG_HOST.',
     ].join('\n'),
     examples: ['hog auth login', 'hog auth login --region eu', 'hog auth login --wait'],
 
@@ -124,7 +124,7 @@ export default defineCommand({
             throw new HogError(
                 'login_needs_a_person',
                 'hog auth login needs a person to approve it in a browser, so it does not run in CI.',
-                'Set HOG_API_KEY, HOG_PROJECT_ID and HOG_HOST instead.'
+                'Set HOG_PERSONAL_API_KEY, HOG_PROJECT_ID and HOG_HOST instead.'
             )
         }
 

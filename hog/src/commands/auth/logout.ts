@@ -1,5 +1,5 @@
 import { defineCommand } from '@/core/command'
-import { API_KEY_ENV_VAR, posthogFile } from '@/posthog/credentials'
+import { PERSONAL_API_KEY_ENV_VAR, posthogFile } from '@/posthog/credentials'
 import { clearPendingLogin } from '@/posthog/login'
 
 interface LogoutResult {
@@ -33,7 +33,7 @@ export default defineCommand({
             status: stored ? 'logged_out' : 'not_logged_in',
             credentialsPath,
             revokeUrl: host ? new URL('settings/user-api-keys', `${host.replace(/\/+$/, '')}/`).toString() : null,
-            stillSet: runtime.env[API_KEY_ENV_VAR] ? [API_KEY_ENV_VAR] : [],
+            stillSet: runtime.env[PERSONAL_API_KEY_ENV_VAR] ? [PERSONAL_API_KEY_ENV_VAR] : [],
         }
     },
 

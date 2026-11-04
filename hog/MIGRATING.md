@@ -19,7 +19,7 @@ hog reads only `HOG_` variables. Rename these:
 
 | posthog-cli                                    | hog                      |
 | ---------------------------------------------- | ------------------------ |
-| `POSTHOG_CLI_API_KEY`, `POSTHOG_CLI_TOKEN`     | `HOG_API_KEY`            |
+| `POSTHOG_CLI_API_KEY`, `POSTHOG_CLI_TOKEN`     | `HOG_PERSONAL_API_KEY`   |
 | `POSTHOG_CLI_PROJECT_ID`, `POSTHOG_CLI_ENV_ID` | `HOG_PROJECT_ID`         |
 | `POSTHOG_CLI_HOST`                             | `HOG_HOST`               |
 | `POSTHOG_CLI_DOTENV_FILE`                      | `HOG_DOTENV_FILE`        |

@@ -5,8 +5,8 @@ import { fakeRuntime } from '@/testing'
 
 import { DEFAULT_HOST, resolveCredentials } from './credentials'
 
-const ENV = { HOG_API_KEY: 'phx_env', HOG_PROJECT_ID: '1', HOG_HOST: 'https://env.example.com' }
-const DOTENV = 'HOG_API_KEY="phx_dotenv"\n# comment\nHOG_PROJECT_ID=2\n'
+const ENV = { HOG_PERSONAL_API_KEY: 'phx_env', HOG_PROJECT_ID: '1', HOG_HOST: 'https://env.example.com' }
+const DOTENV = 'HOG_PERSONAL_API_KEY="phx_dotenv"\n# comment\nHOG_PROJECT_ID=2\n'
 const STORED = JSON.stringify({ token: 'phx_stored', env_id: '3', host: 'https://stored.example.com' })
 
 describe('resolveCredentials', () => {
@@ -87,14 +87,14 @@ describe('resolveCredentials', () => {
         ],
         [
             'a key without the phx_ prefix',
-            { HOG_API_KEY: 'abc', HOG_PROJECT_ID: '1' },
+            { HOG_PERSONAL_API_KEY: 'abc', HOG_PROJECT_ID: '1' },
             'invalid_credentials',
             {},
             undefined,
         ],
         [
             'a project ID that is not a number',
-            { HOG_API_KEY: 'phx_a', HOG_PROJECT_ID: 'two' },
+            { HOG_PERSONAL_API_KEY: 'phx_a', HOG_PROJECT_ID: 'two' },
             'invalid_credentials',
             {},
             undefined,
@@ -134,6 +134,6 @@ describe('resolveCredentials', () => {
 
         expect(error.code).toBe('not_authenticated')
         expect(error.hint).toContain('HOG_HOME')
-        expect(error.hint).toContain('HOG_API_KEY')
+        expect(error.hint).toContain('HOG_PERSONAL_API_KEY')
     })
 })

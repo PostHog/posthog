@@ -22,12 +22,12 @@ interface RawCredentials {
     host: string | undefined
 }
 
-export const API_KEY_ENV_VAR = 'HOG_API_KEY'
+export const PERSONAL_API_KEY_ENV_VAR = 'HOG_PERSONAL_API_KEY'
 
 // The host only counts when it comes from the same source as the key, so a stray host cannot
 // redirect a key from somewhere else.
 function fromLookup(lookup: (name: string) => string | undefined): RawCredentials | undefined {
-    const apiKey = lookup(API_KEY_ENV_VAR)
+    const apiKey = lookup(PERSONAL_API_KEY_ENV_VAR)
     const projectId = lookup('HOG_PROJECT_ID')
     if (!apiKey || !projectId) {
         return undefined
@@ -80,7 +80,7 @@ async function readDotenv(runtime: Runtime, path: string): Promise<string | unde
 }
 
 const NO_HOME_HINT =
-    'Set HOG_HOME to a folder hog can write to, or set HOG_API_KEY and HOG_PROJECT_ID to skip logging in.'
+    'Set HOG_HOME to a folder hog can write to, or set HOG_PERSONAL_API_KEY and HOG_PROJECT_ID to skip logging in.'
 
 function posthogHomeDir(env: Env, homeDir: string | undefined): string | undefined {
     if (env.HOG_HOME) {
@@ -185,7 +185,7 @@ export async function resolveCredentials(
             if (!fromFile) {
                 throw new HogError(
                     'not_authenticated',
-                    `hog couldn't find HOG_API_KEY and HOG_PROJECT_ID in the environment or in ${dotenvFile}.`,
+                    `hog couldn't find HOG_PERSONAL_API_KEY and HOG_PROJECT_ID in the environment or in ${dotenvFile}.`,
                     'Add both variables to the file, or remove --dotenv-file.'
                 )
             }
@@ -219,6 +219,6 @@ export async function resolveCredentials(
     throw new HogError(
         'not_authenticated',
         "hog couldn't find PostHog credentials.",
-        'Run `hog auth login`, or set HOG_API_KEY and HOG_PROJECT_ID.'
+        'Run `hog auth login`, or set HOG_PERSONAL_API_KEY and HOG_PROJECT_ID.'
     )
 }
