@@ -24,6 +24,7 @@ export function ChatEntryScreen({ conversationId, ...props }: ChatEntryScreenPro
     const chatAccess = useChatAccess()
     const explicitTask = !!props.initialTaskId || !!props.initialReportId || !!props.initialObject || mode === 'demo'
     const [newChat, setNewChat] = useState(false)
+    const [generation, setGeneration] = useState(0)
     const [selected, setSelected] = useState<'langgraph' | 'sandbox' | null>(null)
     const withAccess = (screen: ReactElement): ReactElement => (
         <ChatAccessContext.Provider value={chatAccess}>{screen}</ChatAccessContext.Provider>
@@ -38,8 +39,20 @@ export function ChatEntryScreen({ conversationId, ...props }: ChatEntryScreenPro
         chatAccess.checkAgain()
         setNewChat(true)
         setSelected(null)
+        setGeneration((value) => value + 1)
     }
-    if (explicitTask && !newChat) return withAccess(<ChatScreen {...props} onNewChat={restart} />)
+    if (mode === 'demo' || (explicitTask && !newChat))
+        return withAccess(
+            <ChatScreen
+                key={generation}
+                {...props}
+                initialTaskId={newChat ? undefined : props.initialTaskId}
+                initialRunId={newChat ? undefined : props.initialRunId}
+                initialReportId={newChat ? undefined : props.initialReportId}
+                initialObject={newChat ? null : props.initialObject}
+                onNewChat={restart}
+            />
+        )
     if (conversationId && !newChat) {
         if (conversation.data && (conversation.data.agent_runtime !== 'sandbox' || conversation.data.task)) {
             return withAccess(
@@ -95,6 +108,7 @@ export function ChatEntryScreen({ conversationId, ...props }: ChatEntryScreenPro
     return withAccess(
         active === 'sandbox' ? (
             <ChatScreen
+                key={generation}
                 {...props}
                 initialTaskId={undefined}
                 initialRunId={undefined}
@@ -104,6 +118,7 @@ export function ChatEntryScreen({ conversationId, ...props }: ChatEntryScreenPro
             />
         ) : (
             <ClassicChatScreen
+                key={generation}
                 source={props.source}
                 autoFocus={props.autoFocus ?? false}
                 onBack={props.onBack}

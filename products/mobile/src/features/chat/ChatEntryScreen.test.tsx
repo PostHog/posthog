@@ -159,6 +159,16 @@ describe('mobile AI runtime selection', () => {
         expect(getConversation).not.toHaveBeenCalled()
     })
 
+    test('a new demo chat resets its task without calling the organization API', () => {
+        jest.mocked(useDataMode).mockReturnValue('demo')
+        open({ initialTaskId: 'demo-task' })
+        expect(screen.getByText('demo-task')).toBeTruthy()
+        fireEvent.press(screen.getByText('New'))
+        expect(screen.queryByText('demo-task')).toBeNull()
+        expect(screen.getByTestId('sandbox')).toBeTruthy()
+        expect(fetchOrganization).not.toHaveBeenCalled()
+    })
+
     test('falls back to classic when the organization lookup fails', async () => {
         jest.mocked(fetchOrganization).mockRejectedValue(new Error('Offline'))
         open()
