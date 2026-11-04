@@ -31,7 +31,8 @@ Find the object they mean and take its real link.
 
 | What they mention        | Tool to resolve it                                           | What to take                      |
 | ------------------------ | ------------------------------------------------------------ | --------------------------------- |
-| An experiment            | `experiment-get-by-flag-key`, then `experiment-stats`        | Link, id, status, exposure counts |
+| An experiment            | `experiment-get-by-flag-key`                                 | Link, id, status                  |
+| An experiment's results  | `experiment-metrics-recalculation-latest-retrieve`           | The current metric results        |
 | A feature flag           | `feature-flag-get-definition-by-key`, `feature-flag-get-all` | Link, key, whether it is enabled  |
 | An insight or a chart    | `insight-get`, `insights-list`                               | Link, short id                    |
 | A dashboard              | `dashboard-get`                                              | Link, id                          |
@@ -39,9 +40,14 @@ Find the object they mean and take its real link.
 | A session or a replay    | The session recording tools in your tool list                | Link, session id                  |
 | A documented behavior    | `docs-search`                                                | The page you already checked      |
 
-Take every link from the `_posthogUrl` field of the tool result.
+A 404 from the results tool means the experiment has no results yet.
+Put that in the ticket, because it is often the thing the person is asking about.
+
+Take every link to a project object from the `_posthogUrl` field of the tool result.
 Never build a PostHog URL by hand.
 The region and the project id differ for every account, and a wrong link reads as a real one.
+
+`docs-search` is the exception. It returns a `content` string of titles, URLs and excerpts, and no `_posthogUrl`, so copy a documentation URL out of that content as it stands.
 
 Tool names change a little between MCP versions.
 When a name above is not in your tool list, use the one that matches the object type.
