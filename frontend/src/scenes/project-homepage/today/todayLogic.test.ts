@@ -53,6 +53,7 @@ describe('todayLogic', () => {
                 '/api/projects/:team_id/signals/reports/:id/state/': () => [200, {}],
             },
         })
+        localStorage.clear()
         initKeaTests()
     })
 
@@ -88,6 +89,56 @@ describe('todayLogic', () => {
             })
         )
     })
+
+    it.each([
+        { view: 'list', canShowMore: true },
+        { view: 'feed', canShowMore: false },
+    ] as const)(
+        'offers show more in the $view view only when it reveals rows: $canShowMore',
+        async ({ view, canShowMore }) => {
+            const reports = Array.from({ length: TOP_REPORT_COUNT }, (_, index) => makeReport({ id: `r-${index}` }))
+            listResponse = [200, { results: reports, count: reports.length }]
+            highlightResponses = [
+                [200, makeHighlights({ items: ['a', 'b'].map((key) => makeHighlightItem({ key: `alert:${key}` })) })],
+            ]
+            const logic = todayLogic()
+            logic.mount()
+            logic.actions.setForYouView(view)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.forYouRows.rows.length).toBeGreaterThan(logic.values.forYouRows.limit)
+            expect(logic.values.forYouCanShowMore).toBe(canShowMore)
+        }
+    )
+
+    it('shows the whole feed when the filtered source has no rows left', async () => {
+        listResponse = [200, { results: [makeReport({ id: 'r-1' })], count: 1 }]
+        const logic = todayLogic()
+        logic.mount()
+        logic.actions.setFeedSource('A source with no rows')
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.activeFeedSource).toBeNull()
+        expect(logic.values.feedRows).toEqual(logic.values.forYouRows.rows)
+        expect(logic.values.feedRows.length).toBeGreaterThan(0)
+    })
+
+    it.each([
+        { variant: 'test', choice: null, view: 'feed' },
+        { variant: 'control', choice: null, view: 'list' },
+        { variant: false, choice: null, view: 'list' },
+        { variant: 'test', choice: 'list', view: 'list' },
+        { variant: 'control', choice: 'feed', view: 'feed' },
+    ] as const)(
+        'opens the $view view for the $variant variant when the choice is $choice',
+        ({ variant, choice, view }) => {
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TODAY_FOR_YOU_DEFAULT_VIEW]: variant })
+            const logic = todayLogic()
+            logic.mount()
+            if (choice) {
+                logic.actions.setForYouView(choice)
+            }
+            expect(logic.values.forYouView).toEqual(view)
+        }
+    )
 
     afterEach(() => {
         jest.useRealTimers()
