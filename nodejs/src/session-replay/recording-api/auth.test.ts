@@ -2,7 +2,13 @@ import { NextFunction, Request, Response } from 'ultimate-express'
 
 import { JWT, PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 
-import { RecordingApiAuthOptions, assertRecordingApiAuthConfigured, createRecordingApiAuthMiddleware } from './auth'
+import {
+    RecordingApiAuthOptions,
+    assertRecordingApiAuthConfigured,
+    assertRecordingApiRoleAuthConfigured,
+    createRecordingApiAuthMiddleware,
+    internalApiAuthExcludedPathPrefixes,
+} from './auth'
 
 describe('createRecordingApiAuthMiddleware', () => {
     const JWT_SECRET = 'recording-api-secret-key'
@@ -282,5 +288,35 @@ describe('assertRecordingApiAuthConfigured', () => {
 
     it('passes outside production even with nothing configured (local dev)', () => {
         expect(() => assertRecordingApiAuthConfigured({ ...base, isProd: false })).not.toThrow()
+    })
+
+    it.each([
+        ['public', '', 'k', /RECORDING_API_BLOCKS_JWT_SECRET/],
+        ['all', '', 'k', /RECORDING_API_BLOCKS_JWT_SECRET/],
+        ['all', 'b', '', /no auth configured in production/],
+        ['internal', '', '', /no auth configured in production/],
+    ] as const)(
+        'refuses to start a %s process without the secrets it serves',
+        (role, blocksJwtSecret, jwtSecret, error) => {
+            expect(() => assertRecordingApiRoleAuthConfigured({ ...base, role, blocksJwtSecret, jwtSecret })).toThrow(
+                error
+            )
+        }
+    )
+
+    it.each([
+        ['public', 'b', ''],
+        ['all', 'b', 'k'],
+        ['internal', '', 'k'],
+    ] as const)('starts a %s process holding only the secrets it serves', (role, blocksJwtSecret, jwtSecret) => {
+        expect(() => assertRecordingApiRoleAuthConfigured({ ...base, role, blocksJwtSecret, jwtSecret })).not.toThrow()
+    })
+
+    it.each([
+        ['internal', false],
+        ['public', true],
+        ['all', true],
+    ] as const)('a %s process exempts the browser route from the shared secret: %s', (role, exempt) => {
+        expect(internalApiAuthExcludedPathPrefixes(role).includes('/replay-blocks/')).toBe(exempt)
     })
 })

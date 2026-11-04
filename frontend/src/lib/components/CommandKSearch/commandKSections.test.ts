@@ -33,7 +33,7 @@ const emptyLocal = (): LocalLists => ({
     'data-management': [],
     people: [],
     health: [],
-    misc: [],
+    actions: [],
     shortcuts: [],
     settings: [],
     create: [],
