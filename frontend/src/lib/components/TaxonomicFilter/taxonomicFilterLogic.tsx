@@ -1750,6 +1750,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         searchPlaceholder: 'attributes',
                         type: TaxonomicFilterGroupType.MetricAttributes,
                         endpoint: combineUrl(`api/projects/${projectId}/metrics/attributes`, {
+                            // A value the user remembers, such as a service or environment, finds the
+                            // attribute that carries it, as it does for logs and traces.
+                            search_values: 'true',
                             ...endpointFilters,
                         }).url,
                         valuesEndpoint: (key) =>

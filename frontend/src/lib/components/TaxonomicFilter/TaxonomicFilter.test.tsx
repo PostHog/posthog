@@ -1959,6 +1959,27 @@ describe('TaxonomicFilter', () => {
         expect(requests[0].get('dateFrom')).toBe('2026-01-01T00:00:00Z')
     })
 
+    it('asks the metrics attribute endpoint to match values too', async () => {
+        const requests: URLSearchParams[] = []
+        const captureRequest = (info: MockResolverInfo): [number, unknown] => {
+            requests.push(new URL(info.request.url).searchParams)
+            return [200, { results: [], count: 0 }]
+        }
+        useMocks({
+            get: {
+                '/api/projects/:team/metrics/attributes': captureRequest,
+                '/api/environments/:team/metrics/attributes': captureRequest,
+            },
+        })
+
+        renderFilter({ taxonomicGroupTypes: [TaxonomicFilterGroupType.MetricAttributes], searchQuery: 'checkout' })
+
+        await waitFor(() => expect(requests.length).toBeGreaterThan(0))
+        expect(requests[0].get('search')).toBe('checkout')
+        // A remembered value finds the attribute that carries it, as it does for logs and traces.
+        expect(requests[0].get('search_values')).toBe('true')
+    })
+
     it.each([
         [TaxonomicFilterGroupType.EmailAddresses, 'Search for an email address or domain.'],
         [TaxonomicFilterGroupType.PageviewUrls, 'Search for a URL, domain, or path.'],

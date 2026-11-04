@@ -522,6 +522,7 @@ def list_metric_attribute_keys(
     team: Team,
     metric_name: str = "",
     search: str = "",
+    search_values: bool = False,
     date_from: dt.datetime | None = None,
     date_to: dt.datetime | None = None,
     limit: int = 100,
@@ -532,6 +533,9 @@ def list_metric_attribute_keys(
     recent window supply choices. Datapoint and resource attributes are merged
     into one list (filters run with scope 'auto', so the split doesn't matter
     to callers); `service_name` is always surfaced when it matches the search.
+    With `search_values`, keys whose values contain the search term are listed
+    after the keys whose name does, and carry `matchedOn: "value"` plus the
+    matching `matchedValue`.
     The window defaults to the last 24 hours. Returns `{"name": str,
     "value_count": int}` dicts. Raises `ValueError` for an out-of-range limit
     or an inverted window.
@@ -540,6 +544,7 @@ def list_metric_attribute_keys(
         team=team,
         metric_name=metric_name,
         search=search,
+        search_values=search_values,
         date_from=date_from,
         date_to=date_to,
         limit=limit,

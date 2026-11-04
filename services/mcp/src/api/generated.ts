@@ -116972,6 +116972,13 @@ export namespace Schemas {
       name: string;
       /** Number of distinct values for this attribute in recent data. */
       value_count: number;
+      /** Present when the key matched through one of its values rather than its name. */
+      matchedOn?: 'value';
+      /**
+       * One value that matched the search; only set when matchedOn is 'value'.
+       * @nullable
+       */
+      matchedValue?: string | null;
     }
 
     export interface _MetricAttributeKeysResponse {
