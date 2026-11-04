@@ -39,6 +39,7 @@ from products.experiments.backend.recalculation import (
     request_recalculation,
     request_recalculation_without_age_limit,
 )
+from products.experiments.backend.test.utils import patch_calculation_key_version
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -629,6 +630,10 @@ class TestRecalculationService(BaseTest):
 @pytest.mark.django_db(transaction=True)
 @time_machine.travel("2026-09-01T12:00:00Z", tick=False)
 class TestTimeseriesColdStartPayload(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.enterContext(patch_calculation_key_version(2))
+
     def _flag(self, key: str) -> FeatureFlag:
         return FeatureFlag.objects.create(
             team=self.team,
@@ -653,7 +658,14 @@ class TestTimeseriesColdStartPayload(BaseTest):
     def _config_fp(self, exp: Experiment, metric_uuid: str) -> str:
         return _calculation_key(exp, metric_uuid)
 
-    def _timeseries_point(self, exp: Experiment, metric_uuid: str, query_to: datetime, result: dict | None) -> None:
+    def _timeseries_point(
+        self,
+        exp: Experiment,
+        metric_uuid: str,
+        query_to: datetime,
+        result: dict | None,
+        completed_at: datetime | None = None,
+    ) -> None:
         assert exp.start_date is not None
         ExperimentMetricResult.objects.create(
             experiment=exp,
@@ -663,6 +675,7 @@ class TestTimeseriesColdStartPayload(BaseTest):
             query_to=query_to,
             status="completed" if result is not None else "failed",
             result=result,
+            completed_at=completed_at,
         )
 
     def test_returns_none_when_no_timeseries_data(self):
@@ -702,26 +715,56 @@ class TestTimeseriesColdStartPayload(BaseTest):
 
     @parameterized.expand(
         [
-            ("fresh_point", timedelta(hours=23), True),
-            ("stale_point", timedelta(hours=25), False),
+            ("fresh_point", timedelta(hours=23), None, True),
+            ("stale_point", timedelta(hours=25), None, False),
             # The backfill writes end-of-day points, so today's point can sit in the future.
-            ("future_point", timedelta(hours=-10), False),
+            ("future_point", timedelta(hours=-10), None, False),
+            # An ended experiment's point that reaches the end date is its final result, however old.
+            ("ended_with_a_point_at_the_end_date", timedelta(days=3), timedelta(days=3), True),
+            # A point before the end date misses the final hours, so a cold run must compute them.
+            ("ended_with_a_stale_point_before_the_end_date", timedelta(days=4), timedelta(days=3), False),
+            # A backfill stamps the end of the day it ran on, so its data stops at completed_at, before the end date.
+            (
+                "ended_with_a_backfill_point_computed_before_the_end_date",
+                timedelta(days=3) - timedelta(hours=6),
+                timedelta(days=3),
+                False,
+                timedelta(days=3) + timedelta(hours=8),
+            ),
         ]
     )
-    def test_only_points_inside_the_max_age_feed_the_fallback(self, _name: str, age: timedelta, included: bool):
+    def test_only_points_inside_the_max_age_feed_the_fallback(
+        self,
+        _name: str,
+        age: timedelta,
+        ended_ago: timedelta | None,
+        included: bool,
+        completed_ago: timedelta | None = None,
+    ) -> None:
         exp = self._experiment(f"ts-age-{_name}", ["m1"])
-        self._timeseries_point(exp, "m1", timezone.now() - age, {"ok": True})
+        if ended_ago is not None:
+            exp.end_date = timezone.now() - ended_ago
+            exp.save()
+        completed_at = timezone.now() - completed_ago if completed_ago is not None else None
+        self._timeseries_point(exp, "m1", timezone.now() - age, {"ok": True}, completed_at=completed_at)
 
         payload = build_timeseries_cold_start_payload(exp)
         assert (payload is not None) == included
 
-    def test_config_fingerprint_mismatch_yields_no_point(self):
-        exp = self._experiment("ts-drift", ["m1"])
-        # Store a point under a stale fingerprint, then change config so the recomputed fp won't match.
+    @parameterized.expand(
+        [
+            # An exclusion changes both keys, so neither the current nor the version 1 key finds the point.
+            ("excluded_variants", {"excluded_variants": ["test"]}),
+            # The version 1 key ignores the credible interval, but the point carries the current key of the old
+            # settings, so the version 1 fallback does not find it either.
+            ("credible_interval", {"stats_config": {"bayesian": {"ci_level": 0.9}}}),
+        ]
+    )
+    def test_a_settings_edit_after_the_point_yields_no_point(self, _name: str, changes: dict) -> None:
+        exp = self._experiment(f"ts-drift-{_name}", ["m1"])
         self._timeseries_point(exp, "m1", timezone.now() - timedelta(hours=1), {"ok": True})
-        exp.exposure_criteria = {"filterTestAccounts": True}
-        exp.save()
-        assert build_timeseries_cold_start_payload(exp) is None
+        Experiment.objects.filter(pk=exp.pk).update(**changes)
+        assert build_timeseries_cold_start_payload(Experiment.objects.get(pk=exp.pk)) is None
 
 
 @pytest.mark.django_db(transaction=True)
