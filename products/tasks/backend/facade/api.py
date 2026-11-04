@@ -10059,6 +10059,13 @@ def run_task(
     if warm_run is not None:
         _warm_retry_message_id(warm_retry_token, warm_run)
         warm_state = warm_run.state or {}
+        warm_billing_matches = task.origin_product not in {
+            Task.OriginProduct.SIGNAL_REPORT,
+            Task.OriginProduct.SIGNALS_SCOUT,
+        } or (
+            warm_state.get("mode", "background") == mode
+            and (warm_state.get("billing_product") != "posthog_ai") == task.uses_self_driving_billing(mode)
+        )
         # Both directions. A request that states no resume source must not be handed a successor
         # warmed to resume an earlier run — its filesystem was restored from that run's snapshot, so
         # a run asked to start fresh would silently inherit it.
@@ -10109,7 +10116,8 @@ def run_task(
                 "initial_permission_mode"
             ) == state_value(requested_permission_mode)
             if (
-                warm_runtime_matches
+                warm_billing_matches
+                and warm_runtime_matches
                 and warm_permission_matches
                 and _warm_sandbox_selection_is_accessible(
                     team_id=team_id,
@@ -10434,6 +10442,14 @@ def run_task(
             "create_pr": True,
             "posthog_mcp_scopes": mcp_scopes_for_run_source(run_source),
         }
+    from products.signals.backend.facade.trial import prepare_task_trial  # noqa: PLC0415 -- Signals depends on Tasks
+
+    trial_admission = prepare_task_trial(
+        team=task.team,
+        origin=task.origin_product,
+        report_id=task.signal_report_id,
+        mode=mode if task.uses_self_driving_billing(mode) else "interactive",
+    )
     try:
         with transaction.atomic():
             if only_if_no_runs:
@@ -10441,7 +10457,12 @@ def run_task(
                 if task.runs.filter(team_id=task.team_id).exists():
                     return contracts.TaskRunResult(task=get_task_detail(task.id, team_id, user_id))
             task_run = task.create_run(
-                mode=mode, branch=branch, extra_state=extra_state, acting_user_id=user_id, scheduled_at=scheduled_at
+                mode=mode,
+                branch=branch,
+                extra_state=extra_state,
+                acting_user_id=user_id,
+                scheduled_at=scheduled_at,
+                _trial_admission=trial_admission,
             )
             if report_id_for_slot_check is not None:
                 enforce_report_implementation_rerun_cap(
@@ -12835,12 +12856,29 @@ def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting
     Returns ``signaled`` / ``new_run`` / ``already_queued`` / ``not_found`` /
     ``forbidden`` / ``quota_exhausted`` / ``organization_deactivated``.
     """
+    from products.signals.backend.facade.trial import (
+        prepare_task_trial,  # noqa: PLC0415 -- Signals depends on the Tasks facade
+    )
     from products.tasks.backend.exceptions import (
         ComputeBillingLimitError,  # noqa: PLC0415 — keep temporalio off the api import path
     )
     from products.tasks.backend.logic.services.compute_quota import get_compute_quota_denial_reason  # noqa: PLC0415
 
+    admission_task = Task.objects.select_related("team").filter(id=task_id, team_id=team_id).first()
+    if admission_task is None:
+        return "not_found"
+    if acting_user_id is None or admission_task.created_by_id != acting_user_id:
+        return "forbidden"
+    trial_admission = prepare_task_trial(
+        team=admission_task.team,
+        origin=admission_task.origin_product,
+        report_id=admission_task.signal_report_id,
+        mode="background" if admission_task.uses_self_driving_billing("background") else "interactive",
+    )
+
     with transaction.atomic():
+        if trial_admission is not None:
+            trial_admission.lock_report(admission_task.signal_report_id)
         # of=("self",): FOR UPDATE cannot span the nullable created_by join.
         task = (
             Task.objects.select_for_update(of=("self",))
@@ -12870,7 +12908,9 @@ def request_canvas_fix(task_id: str | UUID, team_id: int, *, prompt: str, acting
                 return "already_queued"
             # The workflow is gone despite the non-terminal row (evicted or stale); fall
             # through to a fresh run rather than reporting a dead end.
-        task_run = task.create_run(mode="background", extra_state={"pending_user_message": prompt})
+        task_run = task.create_run(
+            mode="background", extra_state={"pending_user_message": prompt}, _trial_admission=trial_admission
+        )
         from products.tasks.backend.logic.services.workflow_dispatch import (  # noqa: PLC0415
             WorkflowDispatchOptions,
             enqueue_or_start_workflow,
