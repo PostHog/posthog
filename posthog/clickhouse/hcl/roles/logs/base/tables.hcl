@@ -641,6 +641,12 @@ database "posthog" {
       type    = "LowCardinality(String)"
       default = "''"
     }
+    column "_source_topic" {
+      type = "String"
+    }
+    column "_source_partition" {
+      type = "UInt32"
+    }
     engine "distributed" {
       cluster_name    = "posthog_single_shard"
       remote_database = "posthog"
@@ -1092,6 +1098,12 @@ database "posthog" {
     column "internal_source" {
       type    = "LowCardinality(String)"
       default = "''"
+    }
+    column "_source_topic" {
+      type = "String"
+    }
+    column "_source_partition" {
+      type = "UInt32"
     }
     index "idx_severity_text_set" {
       expr        = "severity_text"

@@ -382,15 +382,6 @@ database "posthog" {
   # patch can reorder inherited columns. See PostHog/chschema#240.
   patch_materialized_view "kafka_logs34_avro_mv" {
     to_table = "posthog.writable_logs34"
-    modify_column "original_expiry_timestamp" {
-      type = "Nullable(DateTime64(6))"
-    }
-    modify_column "_bytes_uncompressed" {
-      type = "Nullable(Float64)"
-    }
-    modify_column "_bytes_compressed" {
-      type = "Nullable(Float64)"
-    }
   }
 
   patch_materialized_view "kafka_trace_spans_avro_mv" {
