@@ -5860,6 +5860,12 @@ describe('a flag in config version 2', () => {
             Array.from({ length: 20 }, (_, i) => ({ key: `v${i}`, name: '', rollout_percentage: 5 })),
         ],
         [
+            'ignores a key and variants the router decodes into objects',
+            '/feature-flags/new?type=multivariate&key={"toString":null}&variants=[{"toString":null},"wide"]',
+            '',
+            [{ key: 'wide', name: '', rollout_percentage: 100 }],
+        ],
+        [
             'keeps the default variants without a variants param',
             urls.featureFlagNew({ key: 'checkout-layout', type: 'multivariate' }),
             'checkout-layout',

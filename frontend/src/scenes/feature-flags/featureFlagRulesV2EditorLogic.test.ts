@@ -508,10 +508,11 @@ describe('featureFlagRulesV2EditorLogic', () => {
     })
 
     it.each([
-        ['a valid key', 'checkout-layout', 'checkout-layout'],
-        ['an invalid key', "x' + 1 + '", ''],
-    ])('starts a new flag with %s from the link', (_label, key, expectedKey) => {
-        router.actions.push(urls.featureFlagNew({ format: 'rules_v2', key }))
+        ['a valid key', urls.featureFlagNew({ format: 'rules_v2', key: 'checkout-layout' }), 'checkout-layout'],
+        ['an invalid key', urls.featureFlagNew({ format: 'rules_v2', key: "x' + 1 + '" }), ''],
+        ['a key the router decodes into an object', '/feature-flags/new?format=rules_v2&key={"toString":null}', ''],
+    ])('starts a new flag with %s from the link', (_label, link, expectedKey) => {
+        router.actions.push(link)
         const logic = featureFlagRulesV2EditorLogic({ id: 'new' })
         logic.mount()
 
