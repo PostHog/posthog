@@ -7,7 +7,7 @@ import tempfile
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import IO, Any, cast
 
 import pytest
 from unittest.mock import MagicMock, call, patch
@@ -23,6 +23,7 @@ from botocore.stub import Stubber
 from deltalake import DeltaTable, WriterProperties, write_deltalake
 from deltalake.exceptions import DeltaError, TableNotFoundError
 from fsspec.implementations.local import LocalFileSystem
+from fsspec.spec import AbstractBufferedFile
 from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store import (
@@ -34,6 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.config import (
     CsvOptions,
     DiscoveryOptions,
+    FileFormat,
     ObjectStoreConfig,
     ObjectStoreProvider,
 )
@@ -93,6 +95,15 @@ LOGGER = structlog.get_logger()
 
 def stored(path: str) -> StoredObject:
     return StoredObject(path=path, size=10, modified_at=MODIFIED_AT)
+
+
+class _BytesBufferedFile(AbstractBufferedFile):
+    def __init__(self, content: bytes) -> None:
+        self._content = content
+        super().__init__(LocalFileSystem(), "object", mode="rb", block_size=4, size=len(content))
+
+    def _fetch_range(self, start: int, end: int) -> bytes:
+        return self._content[start:end]
 
 
 def local_store(root: Path) -> ObjectStore:
@@ -672,6 +683,23 @@ class TestReadTable:
             ("3", "mixed/c.parquet"),
         ]
         assert all(row["_file_modified_at"].tzinfo is not None for row in rows)
+
+    @parameterized.expand(
+        [
+            ("csv_with_header", "orders.csv", "csv", CsvOptions(), b"id,name\n1,a\n2,b\n"),
+            ("csv_without_header", "orders.csv", "csv", CsvOptions(has_header=False), b"1,a\n2,b\n"),
+            ("jsonl", "orders.jsonl", "jsonl", CsvOptions(), b'{"id": "1"}\n{"id": "2"}\n'),
+        ]
+    )
+    def test_reads_a_text_file_from_an_fsspec_buffered_file(
+        self, _name: str, path: str, file_format: FileFormat, options: CsvOptions, content: bytes
+    ) -> None:
+        stream = _BytesBufferedFile(content)
+
+        tables = list(iter_file_tables(cast(IO[bytes], stream), stored(path), file_format, options))
+
+        first_column = "id" if options.has_header else "c1"
+        assert [row[first_column] for table in tables for row in table.to_pylist()] == ["1", "2"]
 
     def test_gzipped_parquet_is_unpacked_before_it_is_read(self, tmp_path: Path) -> None:
         buffer = io.BytesIO()
