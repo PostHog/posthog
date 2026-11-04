@@ -35,7 +35,7 @@ class OrganizationEventsRetentionConfig(models.Model):
     )
     default_events_retention_months = _months_field(
         "Applies to every team in the organization that has no value of its own. Leave empty to use the plan's "
-        f"default window. {RETENTION_MONTHS_HELP}"
+        f"default period. {RETENTION_MONTHS_HELP}"
     )
     min_events_retention_months = _months_field("The shortest retention a team in this organization may set.")
     max_events_retention_months = _months_field("The longest retention a team in this organization may set.")

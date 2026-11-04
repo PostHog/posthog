@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from datetime import date, datetime, time
 from functools import partial
 
@@ -14,7 +14,7 @@ from posthog.models.events_plan_deletion import (
     next_cleanup_on,
     next_pass_on,
     reschedule_plan_deletions,
-    with_window,
+    with_period,
 )
 from posthog.models.events_retention_config import (
     OrganizationEventsRetentionConfig,
@@ -28,10 +28,10 @@ from posthog.models.events_retention_config import (
 from posthog.models.organization import Organization
 from posthog.models.team import Team
 from posthog.models.team.event_retention import (
-    STANDARD_DEFAULT_WINDOW_MONTHS,
+    STANDARD_DEFAULT_PERIOD_MONTHS,
     TeamPlan,
-    default_window,
-    events_retention_windows,
+    default_period,
+    events_retention_periods,
     has_standard_retention,
     organization_events_retention_months,
     should_enforce_events_retention,
@@ -111,8 +111,8 @@ def organization_events_retention(organization: Organization) -> OrganizationEve
     standard = has_standard_retention(organization)
     return OrganizationEventsRetention(
         organization_months=config.default_events_retention_months if config else None,
-        default_months=default_window(plan_months, standard, staff_min),
-        default_is_grandfathered=not standard and plan_months > STANDARD_DEFAULT_WINDOW_MONTHS,
+        default_months=default_period(plan_months, standard, staff_min),
+        default_is_grandfathered=not standard and plan_months > STANDARD_DEFAULT_PERIOD_MONTHS,
         plan_months=plan_months,
         min_months=staff_min or 1,
         max_months=min(plan_months, staff_max) if staff_max else plan_months,
@@ -122,7 +122,7 @@ def organization_events_retention(organization: Organization) -> OrganizationEve
 
 
 def _next_deletion(
-    team_id: int, setting: TeamEventsRetention | None, window_months: int, scheduled_pass_on: date | None
+    team_id: int, setting: TeamEventsRetention | None, period_months: int, scheduled_pass_on: date | None
 ) -> ScheduledEventsDeletion | None:
     pass_on = (
         max(scheduled_pass_on, next_cleanup_on())
@@ -132,7 +132,7 @@ def _next_deletion(
     deletes_on = next_cleanup_on() if setting is not None else pass_on
     if deletes_on is None:
         return None
-    months = deletion_months(setting, window_months if pass_on is not None and pass_on <= deletes_on else None)
+    months = deletion_months(setting, period_months if pass_on is not None and pass_on <= deletes_on else None)
     if months is None:
         return None
     deletes_before = whole_month_cutoff(datetime.combine(deletes_on, time()), months).date()
@@ -146,16 +146,16 @@ def project_events_retention(team: Team) -> ProjectEventsRetention:
         .first()
     )
     setting = next(iter(effective_events_retention(team_ids=[team.id])), None)
-    window_months = events_retention_windows([team])[team.id]
+    period_months = events_retention_periods([team])[team.id]
     today = cleanup_date()
     row = TeamEventsPlanDeletion.objects.filter(team_id=team.id).first()
-    scheduled_pass_on = with_window(row.state, window_months, today).next_deletion_on if row else None
+    scheduled_pass_on = with_period(row.state, period_months, today).next_deletion_on if row else None
     return ProjectEventsRetention(
         project_months=project_months,
-        next_deletion=_next_deletion(team.id, setting, window_months, scheduled_pass_on),
+        next_deletion=_next_deletion(team.id, setting, period_months, scheduled_pass_on),
         scheduled_pass_on=scheduled_pass_on,
         first_pass_on=next_pass_on(today),
-        default_window_deletes=should_enforce_events_retention(team.id),
+        default_period_deletes=should_enforce_events_retention(team.id),
     )
 
 
@@ -174,7 +174,7 @@ def _check_allowed(retention: OrganizationEventsRetention, months: int | None) -
         )
 
 
-def _enforced_plans(teams: Sequence[Team]) -> list[TeamPlan]:
+def _enforced_plans(teams: Iterable[Team]) -> list[TeamPlan]:
     return [team_plan(team) for team in teams if should_enforce_events_retention(team.id)]
 
 

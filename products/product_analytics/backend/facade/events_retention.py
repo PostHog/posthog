@@ -1,8 +1,8 @@
 """
 Events retention settings for organizations and projects.
 
-The windows set here are the ones the events cleanup deletes by, at every monthly cleanup. Projects without a window
-keep events for their plan's default window, which the cleanup every 3 months deletes by.
+The periods set here are the ones the events cleanup deletes by, at every monthly cleanup. Projects without a period
+keep events for their plan's default period, which the cleanup every 3 months deletes by.
 """
 
 from posthog.models.organization import Organization
@@ -19,7 +19,7 @@ def organization_events_retention(organization: Organization) -> OrganizationEve
 
 
 def project_events_retention(team: Team) -> ProjectEventsRetention:
-    """The window set for this project and its next deletion."""
+    """The period set for this project and its next deletion."""
     return events_retention.project_events_retention(team)
 
 

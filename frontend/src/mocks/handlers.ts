@@ -111,7 +111,7 @@ export const defaultMocks: Mocks = {
             next_deletion_before: null,
             scheduled_pass_on: null,
             first_pass_on: '2027-02-03',
-            default_window_deletes: false,
+            default_period_deletes: false,
             organization_retention_months: null,
             default_retention_months: 84,
             default_is_grandfathered: true,

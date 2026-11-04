@@ -111,15 +111,15 @@ class EventsRetentionSerializer(OrganizationEventsRetentionSerializer):
     scheduled_pass_on = serializers.DateField(
         read_only=True,
         allow_null=True,
-        help_text="The next cleanup every 3 months that deletes this project's events past its current window. Null while the project has none scheduled.",
+        help_text="The next cleanup every 3 months that deletes this project's events past its current period. Null while the project has none scheduled.",
     )
     first_pass_on = serializers.DateField(
         read_only=True,
-        help_text="The earliest cleanup every 3 months for a window that gets shorter today.",
+        help_text="The earliest cleanup every 3 months for a period that gets shorter today.",
     )
-    default_window_deletes = serializers.BooleanField(
+    default_period_deletes = serializers.BooleanField(
         read_only=True,
-        help_text="Whether the cleanup deletes this project's events past the default window while no window is set.",
+        help_text="Whether the cleanup deletes this project's events past the default period while no period is set.",
     )
 
 
@@ -127,7 +127,7 @@ class EventsRetentionUpdateSerializer(serializers.Serializer):
     retention_months = serializers.IntegerField(
         allow_null=True,
         min_value=1,
-        help_text="The window in months. Older events are deleted at the next monthly cleanup and can't be restored. Null removes the window.",
+        help_text="The period in months. Older events are deleted at the next monthly cleanup and can't be restored. Null removes the period.",
     )
 
 
@@ -167,7 +167,7 @@ class EventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     "next_deletion_before": project.next_deletion.deletes_before if project.next_deletion else None,
                     "scheduled_pass_on": project.scheduled_pass_on,
                     "first_pass_on": project.first_pass_on,
-                    "default_window_deletes": project.default_window_deletes,
+                    "default_period_deletes": project.default_period_deletes,
                     **_organization_fields(organization_events_retention(self.organization)),
                 }
             ).data
@@ -178,8 +178,8 @@ class EventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         summary="Get the events retention window for a project",
         description=(
             "Returns how far back events stay queryable for this project, the windows set for the project and its "
-            "organization, the range an admin can set, and the project's next deletion. Both queryable window fields "
-            "are null while no retention window applies to the project."
+            "organization, the range an admin can set, and the project's next deletion. Both queryable period fields "
+            "are null while no retention period applies to the project."
         ),
         responses={200: EventsRetentionSerializer},
     )
@@ -191,7 +191,7 @@ class EventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         operation_id="events_retention_update",
         summary="Set the events retention window for a project",
         description=(
-            "Sets how long this project keeps events, overriding the organization's window. Older events are deleted "
+            "Sets how long this project keeps events, overriding the organization's period. Older events are deleted "
             "at the next monthly cleanup and can't be restored. Organization admins only."
         ),
         responses={
@@ -244,7 +244,7 @@ class OrganizationEventsRetentionViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSe
         operation_id="organization_events_retention_update",
         summary="Set the organization's events retention window",
         description=(
-            "Sets how long every project without its own window keeps events. Older events are deleted at the next "
+            "Sets how long every project without its own period keeps events. Older events are deleted at the next "
             "monthly cleanup and can't be restored. Organization admins only."
         ),
         responses={

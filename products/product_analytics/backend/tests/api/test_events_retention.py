@@ -85,7 +85,7 @@ class TestEventsRetentionAPI(APIBaseTest):
             "next_deletion_before": None,
             "scheduled_pass_on": None,
             "first_pass_on": "2027-01-03",
-            "default_window_deletes": True,
+            "default_period_deletes": True,
             "organization_retention_months": None,
             "default_retention_months": 12,
             "default_is_grandfathered": False,
@@ -99,12 +99,12 @@ class TestEventsRetentionAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("pass", 24, 24, None, ("2026-11-03", "2024-11-01", "2026-11-03")),
-            ("shorter_window_pushes_the_pass", 24, 12, None, ("2027-01-03", "2026-01-01", "2027-01-03")),
-            ("set_window_keeps_its_pass", 12, 24, 12, ("2026-10-03", "2025-10-01", "2026-11-03")),
-            ("set_window_without_a_pass", None, 24, 12, ("2026-10-03", "2025-10-01", None)),
+            ("shorter_period_pushes_the_pass", 24, 12, None, ("2027-01-03", "2026-01-01", "2027-01-03")),
+            ("set_period_keeps_its_pass", 12, 24, 12, ("2026-10-03", "2025-10-01", "2026-11-03")),
+            ("set_period_without_a_pass", None, 24, 12, ("2026-10-03", "2025-10-01", None)),
             ("not_admitted", None, 84, None, (None, None, None)),
             (
-                "due_pass_shortens_a_set_window_past_the_plan",
+                "due_pass_shortens_a_set_period_past_the_plan",
                 12,
                 12,
                 36,
@@ -172,7 +172,7 @@ class TestEventsRetentionAPI(APIBaseTest):
         assert response.json()["retention_months"] is None
         assert response.json()["retained_from"] is None
         assert response.json()["next_deletion_on"] is None
-        assert response.json()["default_window_deletes"] is False
+        assert response.json()["default_period_deletes"] is False
 
     @time_machine.travel("2026-09-22T20:00:00Z", tick=False)
     def test_organization_admin_sets_and_clears_the_project_window(self) -> None:
@@ -197,7 +197,7 @@ class TestEventsRetentionAPI(APIBaseTest):
         assert not TeamEventsRetentionConfig.objects.filter(team=self.team).exists()
 
     @time_machine.travel("2026-09-22T20:00:00Z", tick=False)
-    def test_clearing_a_set_window_after_a_plan_upgrade_waits_a_full_interval(self) -> None:
+    def test_clearing_a_set_period_after_a_plan_upgrade_waits_a_full_interval(self) -> None:
         self._set_membership("organization_admin")
         self._set_plan_years(7, standard=True)
         self.team.event_retention_months = 84

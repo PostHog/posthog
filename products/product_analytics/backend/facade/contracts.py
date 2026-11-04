@@ -216,7 +216,7 @@ class ProjectEventsRetention:
     next_deletion: ScheduledEventsDeletion | None
     scheduled_pass_on: date | None
     first_pass_on: date
-    default_window_deletes: bool
+    default_period_deletes: bool
 
 
 @dataclass(frozen=True)

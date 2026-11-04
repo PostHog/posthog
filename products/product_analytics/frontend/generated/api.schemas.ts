@@ -31,7 +31,7 @@ export interface OrganizationEventsRetentionApi {
 
 export interface EventsRetentionUpdateApi {
     /**
-     * The window in months. Older events are deleted at the next monthly cleanup and can't be restored. Null removes the window.
+     * The period in months. Older events are deleted at the next monthly cleanup and can't be restored. Null removes the period.
      * @minimum 1
      * @nullable
      */
@@ -290,14 +290,14 @@ export interface EventsRetentionApi {
      */
     readonly next_deletion_before: string | null
     /**
-     * The next cleanup every 3 months that deletes this project's events past its current window. Null while the project has none scheduled.
+     * The next cleanup every 3 months that deletes this project's events past its current period. Null while the project has none scheduled.
      * @nullable
      */
     readonly scheduled_pass_on: string | null
-    /** The earliest cleanup every 3 months for a window that gets shorter today. */
+    /** The earliest cleanup every 3 months for a period that gets shorter today. */
     readonly first_pass_on: string
-    /** Whether the cleanup deletes this project's events past the default window while no window is set. */
-    readonly default_window_deletes: boolean
+    /** Whether the cleanup deletes this project's events past the default period while no period is set. */
+    readonly default_period_deletes: boolean
 }
 
 export type InsightVizNodeApiKind = (typeof InsightVizNodeApiKind)[keyof typeof InsightVizNodeApiKind]
