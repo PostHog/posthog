@@ -769,6 +769,7 @@ CREDENTIAL_KINDS: Mapping[str, str] = {
     "Mastodon": "mastodon",
     "Matomo": "matomo",
     "Maxio": "maxio",
+    "Measure": "measure",
     "Medusa": "medusa",
     "Meetup": "meetup",
     "Megaphone": "megaphone",

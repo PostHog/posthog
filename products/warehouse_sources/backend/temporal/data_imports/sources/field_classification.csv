@@ -761,6 +761,7 @@ Marketstack,access_key,,,symbols cik_codes,,marketstack
 Mastodon,,,,,,mastodon
 Matomo,host site_id api_token,,,,,matomo
 Maxio,subdomain api_key region,,,,,maxio
+Measure,,,,,,measure
 Medusa,base_url api_key,,,,,medusa
 Meetup,,,,,,meetup
 Megaphone,api_token organization_id,,,,,megaphone
