@@ -11,6 +11,7 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import override_settings
 
+from botocore.exceptions import BotoCoreError
 from parameterized import parameterized
 from temporalio.service import RPCError, RPCStatusCode
 
@@ -37,11 +38,16 @@ from products.warehouse_sources.backend.self_managed_migration import (
     MigrationOptions,
     TableMigrationState,
     abandon_tables,
+    backdate_migration_sources,
     evaluate_tables,
     merge_duplicate_sources,
     migrate_self_managed_tables,
+    resolve_s3_bucket_region,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store import source_base
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.errors import (
+    ObjectStorageError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.self_managed import (
     SelfManagedCredential,
     parse_self_managed_url,
@@ -70,6 +76,51 @@ def _schemas_for(table: DataWarehouseTable) -> list[ExternalDataSchema]:
 def _schema_for(table: DataWarehouseTable) -> ExternalDataSchema:
     [schema] = [schema for schema in _schemas_for(table) if not schema.deleted]
     return schema
+
+
+class TestResolveS3BucketRegion:
+    @parameterized.expand(
+        [
+            ("keyed_region", "key", "eu-west-1", "us-east-1", "eu-west-1", True, False),
+            ("missing_header", "key", None, "eu-west-1", "eu-west-1", True, True),
+            ("empty_key", "", None, "eu-west-1", "eu-west-1", False, True),
+            ("anonymous_error", "key", None, ObjectStorageError("no region"), None, True, True),
+            ("keyed_error", "key", BotoCoreError(), "eu-west-1", "eu-west-1", True, True),
+        ]
+    )
+    def test_resolves_bucket_region(
+        self,
+        _name: str,
+        access_key: str,
+        keyed_result: str | BotoCoreError | None,
+        anonymous_result: str | ObjectStorageError,
+        expected_region: str | None,
+        keyed_called: bool,
+        anonymous_called: bool,
+    ) -> None:
+        credential = SelfManagedCredential(access_key=access_key, access_secret="secret")
+        with patch(f"{MODULE}.boto3.client") as mock_client, patch(f"{MODULE}.lookup_s3_bucket_region") as mock_lookup:
+            if isinstance(keyed_result, BotoCoreError):
+                mock_client.return_value.head_bucket.side_effect = keyed_result
+            else:
+                headers = {"x-amz-bucket-region": keyed_result} if keyed_result is not None else {}
+                mock_client.return_value.head_bucket.return_value = {"ResponseMetadata": {"HTTPHeaders": headers}}
+            if isinstance(anonymous_result, ObjectStorageError):
+                mock_lookup.side_effect = anonymous_result
+            else:
+                mock_lookup.return_value = anonymous_result
+
+            assert resolve_s3_bucket_region("exports", credential) == expected_region
+
+            if keyed_called:
+                mock_client.assert_called_once()
+                mock_client.return_value.head_bucket.assert_called_once_with(Bucket="exports")
+            else:
+                mock_client.assert_not_called()
+            if anonymous_called:
+                mock_lookup.assert_called_once_with("exports")
+            else:
+                mock_lookup.assert_not_called()
 
 
 class _MigrationTest(BaseTest):
@@ -202,6 +253,41 @@ class TestSelfManagedMigration(_MigrationTest):
         assert (_schema_for(first).source_id == _schema_for(second).source_id) is shared
         assert ExternalDataSource.objects.filter(team=self.team).count() == (1 if shared else 2)
 
+    @parameterized.expand([("older_first", False), ("newer_first", True)])
+    def test_shared_source_uses_its_oldest_table_date_in_either_link_order(self, _name: str, newer_first: bool) -> None:
+        older_date = datetime(2024, 1, 1, tzinfo=UTC)
+        newer_date = datetime(2024, 2, 1, tzinfo=UTC)
+        older = self._table("orders", created_at=older_date)
+        newer = self._table(
+            "refunds", url="https://exports.s3.eu-west-1.amazonaws.com/refunds/*.csv", created_at=newer_date
+        )
+
+        for table in (newer, older) if newer_first else (older, newer):
+            [outcome] = self._migrate(table_ids=(str(table.pk),))
+            assert outcome.action == "linked"
+
+        older_schema = _schema_for(older)
+        newer_schema = _schema_for(newer)
+        assert older_schema.source_id == newer_schema.source_id
+        assert ExternalDataSource.objects.get(pk=older_schema.source_id).created_at == older_date
+        assert older_schema.created_at == older_date
+        assert newer_schema.created_at == newer_date
+
+    def test_a_newer_table_does_not_move_its_source_date_forward(self) -> None:
+        older_date = datetime(2024, 1, 1, tzinfo=UTC)
+        newer_date = datetime(2025, 1, 1, tzinfo=UTC)
+        older = self._table("orders", created_at=older_date)
+        self._migrate()
+        source_id = _schema_for(older).source_id
+        newer = self._table(
+            "refunds", url="https://exports.s3.eu-west-1.amazonaws.com/refunds/*.csv", created_at=newer_date
+        )
+
+        self._migrate(table_ids=(str(newer.pk),))
+
+        assert ExternalDataSource.objects.get(pk=source_id).created_at == older_date
+        assert _schema_for(newer).created_at == newer_date
+
     @parameterized.expand(
         [
             ("same_value", "c2VjcmV0", False, True),
@@ -264,8 +350,8 @@ class TestSelfManagedMigration(_MigrationTest):
         }
         assert expected_contract["preserve_column_names"] is True
         assert schema.source.source_type == "AmazonS3"
-        # A normal new source: its date is not moved to the table's.
-        assert schema.source.created_at > created_at
+        assert schema.created_at == created_at
+        assert schema.source.created_at == created_at
         assert schema.source.job_inputs["url_pattern"] == "https://s3.eu-west-1.amazonaws.com/exports/"
         assert ExternalDataSourceDestination.objects.for_team(self.team.pk).filter(source=schema.source).exists()
         assert not ExternalDataJob.objects.filter(team=self.team).exists()
@@ -790,6 +876,128 @@ class TestMergeDuplicateSources(_MigrationTest):
         assert ExternalDataSource.objects.filter(team=self.team, deleted=False).count() == 3
 
 
+class TestBackdateMigrationSources(_MigrationTest):
+    def _legacy_tables(self) -> list[DataWarehouseTable]:
+        tables = [
+            self._table("orders", created_at=datetime(2024, 1, 1, tzinfo=UTC)),
+            self._table(
+                "refunds",
+                url="https://exports.s3.eu-west-1.amazonaws.com/refunds/*.csv",
+                created_at=datetime(2024, 2, 1, tzinfo=UTC),
+            ),
+        ]
+        self._migrate()
+        source_id = _schema_for(tables[0]).source_id
+        legacy_date = datetime(2030, 1, 1, tzinfo=UTC)
+        ExternalDataSource.objects.filter(pk=source_id).update(created_at=legacy_date)
+        ExternalDataSchema.objects.filter(source_id=source_id).update(created_at=legacy_date)
+        return tables
+
+    def test_dry_run_reports_the_date_without_changing_rows(self) -> None:
+        tables = self._legacy_tables()
+        source = _schema_for(tables[0]).source
+        schemas = [_schema_for(table) for table in tables]
+        source_updated_at = source.updated_at
+        schema_updated_at = [schema.updated_at for schema in schemas]
+
+        [outcome] = backdate_migration_sources(team_id=self.team.pk, live_run=False)
+
+        assert (outcome.source_id, outcome.team_id, outcome.action) == (str(source.pk), self.team.pk, "would_backdate")
+        assert (outcome.old_created_at, outcome.new_created_at) == (source.created_at, tables[0].created_at)
+        source.refresh_from_db()
+        assert source.created_at == datetime(2030, 1, 1, tzinfo=UTC)
+        assert source.updated_at == source_updated_at
+        for schema, updated_at in zip(schemas, schema_updated_at):
+            schema.refresh_from_db()
+            assert schema.created_at == datetime(2030, 1, 1, tzinfo=UTC)
+            assert schema.updated_at == updated_at
+
+    def test_live_run_backdates_source_and_each_schema_using_deleted_tables(self) -> None:
+        tables = self._legacy_tables()
+        DataWarehouseTable.raw_objects.filter(pk=tables[0].pk).update(deleted=True)
+        source = _schema_for(tables[0]).source
+        source_updated_at = source.updated_at
+        schema_updated_at = {table.pk: _schema_for(table).updated_at for table in tables}
+
+        [outcome] = backdate_migration_sources(team_id=self.team.pk, live_run=True)
+
+        assert (outcome.action, outcome.old_created_at, outcome.new_created_at) == (
+            "backdated",
+            datetime(2030, 1, 1, tzinfo=UTC),
+            tables[0].created_at,
+        )
+        source.refresh_from_db()
+        assert source.created_at == tables[0].created_at
+        assert source.updated_at == source_updated_at
+        for table in tables:
+            schema = _schema_for(table)
+            assert schema.created_at == table.created_at
+            assert schema.updated_at == schema_updated_at[table.pk]
+
+    def test_source_at_its_oldest_table_date_is_unchanged(self) -> None:
+        table = self._table(created_at=datetime(2024, 1, 1, tzinfo=UTC))
+        self._migrate()
+        source = _schema_for(table).source
+
+        [outcome] = backdate_migration_sources(team_id=self.team.pk, live_run=True)
+
+        assert (outcome.source_id, outcome.action, outcome.new_created_at) == (str(source.pk), "unchanged", None)
+        assert ExternalDataSource.objects.get(pk=source.pk).created_at == table.created_at
+
+    def test_non_migration_source_is_not_touched(self) -> None:
+        table = self._table(created_at=datetime(2024, 1, 1, tzinfo=UTC))
+        self._migrate()
+        migration_schema = _schema_for(table)
+        regular_source = ExternalDataSource.objects.create(team=self.team, source_type="Postgres", job_inputs={})
+        regular_schema = ExternalDataSchema.objects.create(
+            team=self.team,
+            source=regular_source,
+            name="regular",
+            sync_type_config=migration_schema.sync_type_config,
+        )
+        later = datetime(2030, 1, 1, tzinfo=UTC)
+        ExternalDataSource.objects.filter(pk=regular_source.pk).update(created_at=later)
+        ExternalDataSchema.objects.filter(pk=regular_schema.pk).update(created_at=later)
+
+        outcomes = backdate_migration_sources(team_id=self.team.pk, live_run=True)
+
+        assert len(outcomes) == 1
+        assert outcomes[0].source_id == str(migration_schema.source_id)
+        regular_source.refresh_from_db()
+        regular_schema.refresh_from_db()
+        assert regular_source.created_at == later
+        assert regular_schema.created_at == later
+
+    @parameterized.expand([("dry_run", False, "would_backdate"), ("live_run", True, "backdated")])
+    def test_command_reports_changed_sources_and_counts(self, _name: str, live_run: bool, action: str) -> None:
+        tables = self._legacy_tables()
+        source = _schema_for(tables[0]).source
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        ExternalDataSource.objects.create(
+            team=other_team,
+            source_type="Postgres",
+            job_inputs={},
+            connection_metadata={MIGRATION_MARKER_KEY: {}},
+        )
+        out = StringIO()
+
+        call_command(
+            "migrate_self_managed_tables",
+            team_id=self.team.pk,
+            backfill_created_at=True,
+            live_run=live_run,
+            stdout=out,
+        )
+
+        assert out.getvalue().splitlines()[0] == (
+            f"source={source.pk} team={self.team.pk} {source.created_at.isoformat()} "
+            f"-> {tables[0].created_at.isoformat()} {action}"
+        )
+        assert f"1 source(s): 1 {action}" in out.getvalue()
+        source.refresh_from_db()
+        assert source.created_at == (tables[0].created_at if live_run else datetime(2030, 1, 1, tzinfo=UTC))
+
+
 class TestMigrateSelfManagedTablesCommand(BaseTest):
     @parameterized.expand(
         [
@@ -797,6 +1005,7 @@ class TestMigrateSelfManagedTablesCommand(BaseTest):
             ("status_and_abandon", {"status": True, "abandon": "x"}, "only one"),
             ("status_and_merge", {"status": True, "merge_sources": True}, "only one"),
             ("abandon_and_merge", {"abandon": "x", "merge_sources": True}, "only one"),
+            ("status_and_backfill", {"status": True, "backfill_created_at": True}, "only one"),
             ("empty_abandon", {"abandon": " , "}, "at least one table id"),
         ]
     )
@@ -887,6 +1096,19 @@ class TestUploadedTableMigration(_MigrationTest):
         )
         table.refresh_from_db()
         return table
+
+    def test_an_uploaded_table_sets_its_source_and_schema_dates(self) -> None:
+        created_at = datetime(2024, 3, 1, tzinfo=UTC)
+        table = self._uploaded("orders", "managed/team_{team}/orders.csv")
+        DataWarehouseTable.raw_objects.filter(pk=table.pk).update(created_at=created_at)
+        table.refresh_from_db()
+
+        [outcome] = self._migrate()
+
+        schema = _schema_for(table)
+        assert outcome.action == "linked"
+        assert schema.created_at == created_at
+        assert schema.source.created_at == created_at
 
     @parameterized.expand(
         [

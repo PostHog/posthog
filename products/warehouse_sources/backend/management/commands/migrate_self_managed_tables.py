@@ -7,6 +7,7 @@ from products.warehouse_sources.backend.self_managed_migration import (
     DEFAULT_ABANDON_REASON,
     MigrationOptions,
     abandon_tables,
+    backdate_migration_sources,
     describe_merge,
     describe_status,
     evaluate_tables,
@@ -62,6 +63,11 @@ class Command(BaseCommand):
             "the extra sources. A source with a table that started to sync stays as it is.",
         )
         parser.add_argument(
+            "--backfill-created-at",
+            action="store_true",
+            help="Set migration source and schema creation dates from their self-managed tables.",
+        )
+        parser.add_argument(
             "--live-run", action="store_true", help="Act. Without this the command only reports what it would do."
         )
 
@@ -74,6 +80,7 @@ class Command(BaseCommand):
                 ("--status", options["status"]),
                 ("--abandon", options["abandon"] is not None),
                 ("--merge-sources", options["merge_sources"]),
+                ("--backfill-created-at", options["backfill_created_at"]),
             )
             if chosen
         ]
@@ -90,6 +97,8 @@ class Command(BaseCommand):
             self._abandon(_split_ids(options["abandon"]), options["abandon_reason"], team_id, live_run)
         elif options["merge_sources"]:
             self._merge_sources(team_id, live_run)
+        elif options["backfill_created_at"]:
+            self._backfill_created_at(team_id, live_run)
         else:
             self._migrate(team_id, table_ids, live_run, options["limit"])
 
@@ -121,6 +130,21 @@ class Command(BaseCommand):
         )
         if not live_run:
             self.stdout.write(self.style.WARNING("\nDry run. Pass --live-run to merge these sources."))
+
+    def _backfill_created_at(self, team_id: int | None, live_run: bool) -> None:
+        outcomes = backdate_migration_sources(team_id=team_id, live_run=live_run)
+        for outcome in outcomes:
+            if outcome.action == "unchanged":
+                continue
+            assert outcome.new_created_at is not None
+            self.stdout.write(
+                f"source={outcome.source_id} team={outcome.team_id} "
+                f"{outcome.old_created_at.isoformat()} -> {outcome.new_created_at.isoformat()} {outcome.action}"
+            )
+        actions = Counter(outcome.action for outcome in outcomes)
+        self.stdout.write(f"\n{len(outcomes)} source(s): " + ", ".join(f"{n} {a}" for a, n in sorted(actions.items())))
+        if not live_run:
+            self.stdout.write(self.style.WARNING("\nDry run. Pass --live-run to backdate these sources."))
 
     def _migrate(self, team_id: int | None, table_ids: list[str], live_run: bool, limit: int | None) -> None:
         outcomes = migrate_self_managed_tables(
