@@ -70,13 +70,6 @@ export interface PrecheckResponseType {
 
 // Precheck result to fall back to when the request fails (e.g. rate limited). Without this the form
 // would stay stuck at `status: 'pending'`, which keeps the password field hidden and swallows submits.
-function resendFailureMessage(code: string | undefined, detail: string | undefined): string {
-    if (detail) {
-        return detail
-    }
-    return code === 'too_soon' ? 'Please wait before requesting another email' : 'Failed to resend email'
-}
-
 function precheckFallback(email: string): PrecheckResponseType {
     return {
         status: 'completed',
@@ -86,6 +79,13 @@ function precheckFallback(email: string): PrecheckResponseType {
         email,
         precheckFailed: true,
     }
+}
+
+function resendFailureMessage(code: string | undefined, detail: string | undefined): string {
+    if (detail) {
+        return detail
+    }
+    return code === 'too_soon' ? 'Please wait before requesting another email' : 'Failed to resend email'
 }
 
 export interface LoginForm {
