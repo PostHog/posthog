@@ -118,6 +118,8 @@ class ExperimentMetricsRecalculationWorkflowInputs:
     # Task queue for the metric calculation activity, chosen when the run starts so replay stays deterministic.
     # None keeps the activity on the workflow's own queue.
     activity_task_queue: str | None = None
+    # The key version that the run files its results under, chosen when the run is requested.
+    calculation_key_version: int = 1
 
 
 @dataclasses.dataclass(frozen=False)
@@ -161,6 +163,7 @@ class MetricOutOfTimeFailure:
     experiment_id: int
     metric_uuid: str
     role: str  # "primary" or "secondary"
+    calculation_key_version: int = 1
 
 
 @dataclasses.dataclass

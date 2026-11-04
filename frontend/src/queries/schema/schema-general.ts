@@ -1477,6 +1477,7 @@ export interface ChartSettingsFormatting {
 export interface ChartSettingsDisplay {
     color?: string
     label?: string
+    description?: string
     trendLine?: boolean
     yAxisPosition?: 'left' | 'right'
     displayType?: 'auto' | 'line' | 'bar' | 'area'
@@ -1591,6 +1592,8 @@ export interface ChartSettings {
     showYAxisBorder?: boolean
     showLegend?: boolean
     showAnnotations?: boolean
+    /** Shows only the annotations saved at this level. Unset shows every level. */
+    annotationsScope?: AnnotationScope
     /** Where the legend sits relative to the chart. Unset falls back per chart type: right for pie and donut, bottom for proportion bar, top for the rest. */
     legendPosition?: 'top' | 'bottom' | 'left' | 'right'
     showValuesOnSeries?: boolean
@@ -4171,6 +4174,8 @@ export interface MCPMissingCapabilitiesQueryResponse extends AnalyticsQueryRespo
 export interface MCPMissingCapabilitiesQuery extends DataNode<MCPMissingCapabilitiesQueryResponse> {
     kind: NodeKind.MCPMissingCapabilitiesQuery
     dateRange?: DateRange
+    /** Exclude reports from the project's internal and test users. */
+    filterTestAccounts?: boolean
     /** Case-insensitive substring match over the report text. */
     search?: string
     /** Page size; defaults to 100, capped at 500. */
@@ -4553,6 +4558,8 @@ export interface ErrorTrackingQuery extends DataNode<ErrorTrackingQueryResponse>
     dateRange: DateRange
     /** Filter by issue status. */
     status?: ErrorTrackingQueryStatus
+    /** Filter by issue severity. */
+    severity?: ErrorTrackingQueryIssueSeverity | null
     assignee?: ErrorTrackingIssueAssignee | null
     filterGroup?: PropertyGroupFilter
     /** Whether to filter out test accounts. */
@@ -6608,16 +6615,36 @@ export type ExperimentExposureHealthCheckKey =
 
 export type ExperimentExposureHealthCheckStatus = 'passed' | 'finding' | 'not_applicable' | 'not_checked'
 
+export type ExperimentExposureHealthMeasurementUnit = 'percentage' | 'p_value'
+
+export type ExperimentExposureHealthMeasurementSide = 'above' | 'below'
+
+/** The value that decided a passed exposure check, against its threshold. */
+export interface ExperimentExposureHealthMeasurement {
+    /** The value that the check measured on the experiment. */
+    value: number
+    /** The value at which the check reports a finding. */
+    threshold: number
+    /** percentage: a share of the exposed users or groups, on the 0-100 scale. p_value: the p-value of a statistical test. */
+    unit: ExperimentExposureHealthMeasurementUnit
+    /** The side of the threshold that reports a finding. */
+    warns: ExperimentExposureHealthMeasurementSide
+}
+
 /** What one health check concluded on the exposure answer. Same shape as the experiment's `health.checks`. */
 export interface ExperimentExposureHealthCheck {
     /** Stable identifier of the check. */
     key: ExperimentExposureHealthCheckKey
     /** The problem the check looks for, as the health panel lists it. */
     name: string
+    /** What the check looks for and why it matters. Missing on an answer cached before the field existed. */
+    description?: string
     /** passed: no problem found. finding: a finding in `health_findings`. not_applicable: the check doesn't cover the experiment's state. not_checked: an input was missing or the check failed. */
     status: ExperimentExposureHealthCheckStatus
     /** Why the check did not look, for the statuses not_applicable and not_checked, for example 'Runs after launch'. Null for passed and finding. */
     reason: string | null
+    /** The value that decided a passed check. Null for the other statuses and for a pass without a value. */
+    measurement?: ExperimentExposureHealthMeasurement | null
 }
 
 export interface ExperimentExposureQueryResponse {
@@ -7214,6 +7241,8 @@ export interface MetricsAlertConfig {
     type: 'MetricsAlertConfig'
     /** When true, anchor on the trailing (possibly still accumulating) bucket instead of the last complete one. */
     check_ongoing_interval?: boolean
+    /** Values for the `$name` variables in the insight's query. */
+    variables?: Record<string, MetricsDashboardVariableSelection>
 }
 
 /** One blocked period for quiet hours: 24-hour HH:MM in the project timezone; interval is half-open [start, end). */
@@ -8576,6 +8605,8 @@ export interface MarketingAnalyticsRecommendationsSource {
     performanceMaxSearchTermTable?: string
     /** Google Search Console table with one row per query, or per query and page. */
     queryTable?: string
+    /** Google Search Console table with one row per query and page, used to find the page that ranks for a search. */
+    queryPageTable?: string
     /** Google Search Console sites table, used to infer the brand name. */
     sitesTable?: string
 }
@@ -9071,6 +9102,7 @@ export const MARKETING_INTEGRATION_CONFIGS = {
             'audience_network',
             'facebook_marketplace',
             'threads',
+            'th',
         ] as const,
         primarySource: 'meta',
         adsetTableName: 'adsets' as const,

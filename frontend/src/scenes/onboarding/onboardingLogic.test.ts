@@ -561,6 +561,15 @@ describe('onboardingLogic — flow composition', () => {
                 router.actions.push('/onboarding/web_analytics?with=logs,product_analytics')
             }).toDispatchActions(['setSecondaryProductKeys'])
             expect(logic.values.secondaryProductKeys).toEqual([ProductKey.LOGS, ProductKey.PRODUCT_ANALYTICS])
+
+            logic.actions.setStepId(`${OnboardingStepKey.INSTALL}:${ProductKey.LOGS}`)
+            expect(logic.values.installStepReturnUrl).toBe(
+                urls.onboarding({
+                    productKey: ProductKey.WEB_ANALYTICS,
+                    step: `${OnboardingStepKey.INSTALL}:${ProductKey.LOGS}`,
+                    withProducts: [ProductKey.LOGS, ProductKey.PRODUCT_ANALYTICS],
+                })
+            )
         })
 
         it('filters the primary product out of ?with= (avoids self-secondary)', async () => {

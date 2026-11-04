@@ -253,8 +253,63 @@ export interface DestinationConnectLinkApi {
     integration_kind: string
     /** Full URL to share with the user. It opens the connection form for this integration kind in PostHog, so credentials never pass through the agent or the chat. */
     connect_url: string
+    /** Secret token in the link. Pass it to the connect link status endpoint to learn which integration the user saved. Only the user who asked for the link can read its status. */
+    connect_token: string
+    /** When the link stops accepting a new connection. Ask for a new link after this time. */
+    expires_at: string
     /** Next steps for the agent to relay to the user. */
     instructions: string
+}
+
+export interface DestinationConnectCompleteRequestApi {
+    /**
+     * The connect token from the connect link URL.
+     * @maxLength 128
+     */
+    connect_token: string
+    /**
+     * Id of the integration the user saved on the connect page.
+     * @minimum 1
+     */
+    integration_id: number
+}
+
+/**
+ * * `pending` - Pending
+ * * `connected` - Connected
+ * * `expired` - Expired
+ */
+export type DestinationConnectStatusEnumApi =
+    (typeof DestinationConnectStatusEnumApi)[keyof typeof DestinationConnectStatusEnumApi]
+
+export const DestinationConnectStatusEnumApi = {
+    Pending: 'pending',
+    Connected: 'connected',
+    Expired: 'expired',
+} as const
+
+export interface DestinationConnectStatusApi {
+    /** `pending`: the user has not saved a connection yet. `connected`: the user saved one, and integration_id holds it. `expired`: the link is no longer valid, or it is unknown or belongs to another user. Ask for a new link.
+     *
+     * * `pending` - Pending
+     * * `connected` - Connected
+     * * `expired` - Expired */
+    status: DestinationConnectStatusEnumApi
+    /**
+     * Id of the saved integration when status is `connected`. Pass it to destination create.
+     * @nullable
+     */
+    integration_id: number | null
+    /**
+     * The integration kind the link is for. Null when status is `expired`.
+     * @nullable
+     */
+    integration_kind: string | null
+    /**
+     * Name of the saved connection, such as the account or host, to confirm with the user.
+     * @nullable
+     */
+    display_name: string | null
 }
 
 /**
@@ -523,11 +578,18 @@ export interface ExternalDataSchemaApi {
      * * `missing_primary_key` - Missing primary key
      * * `duplicate_primary_key` - Duplicate primary key */
     readonly incremental_sync_blocked: IncrementalSyncBlockedReasonEnumApi | null
+    /** Whether this table uses webhook sync, but its source has no enabled webhook. Such a table gets no webhook updates. Each sync polls the source API instead, which is slower and can read the whole table. Set up the webhook on the source, or change `sync_type`. */
+    readonly webhook_not_registered: boolean
     /**
      * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
      * @nullable
      */
     enabled_columns?: string[] | null
+    /**
+     * Names of source columns whose values are replaced with a deterministic one-way digest at sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. Primary-key, partition and incremental columns can't be masked, and direct query sources don't support masking. Any change to this list starts a full resync of the table (CDC tables take a new snapshot), or stages it until syncing is turned on. A synced webhook table can't change its masked columns, because its data can't be fetched again.
+     * @nullable
+     */
+    masked_columns?: string[] | null
     /**
      * Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN "NOT IN"` and the value must match the column's type (for `IN`/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows.
      * @nullable
@@ -727,11 +789,18 @@ export interface PatchedExternalDataSchemaApi {
      * * `missing_primary_key` - Missing primary key
      * * `duplicate_primary_key` - Duplicate primary key */
     readonly incremental_sync_blocked?: IncrementalSyncBlockedReasonEnumApi | null
+    /** Whether this table uses webhook sync, but its source has no enabled webhook. Such a table gets no webhook updates. Each sync polls the source API instead, which is slower and can read the whole table. Set up the webhook on the source, or change `sync_type`. */
+    readonly webhook_not_registered?: boolean
     /**
      * Names of source columns to sync. `null` (default) syncs all columns. Primary-key columns and the active incremental field are always retained, even if not listed here.
      * @nullable
      */
     enabled_columns?: string[] | null
+    /**
+     * Names of source columns whose values are replaced with a deterministic one-way digest at sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. Primary-key, partition and incremental columns can't be masked, and direct query sources don't support masking. Any change to this list starts a full resync of the table (CDC tables take a new snapshot), or stages it until syncing is turned on. A synced webhook table can't change its masked columns, because its data can't be fetched again.
+     * @nullable
+     */
+    masked_columns?: string[] | null
     /**
      * Predicates ANDed onto the source query so only matching rows sync. Each is `{column, operator, value}`; `null`/empty (default) syncs all rows. The operator must be one of `> >= < <= = != IN "NOT IN"` and the value must match the column's type (for `IN`/`NOT IN`, a comma-separated list like `1, 2, 3` or `'a','b'`). Applied on the next sync — not retroactive to already-synced rows.
      * @nullable
@@ -911,6 +980,8 @@ export interface ExternalDataSourceSerializersApi {
      */
     readonly user_access_level: string | null
     readonly supports_webhooks: boolean
+    /** Whether at least one table of this source uses webhook sync, but the source has no enabled webhook. Those tables get no webhook updates. Each of their syncs polls the source API instead, which is slower and can read the whole table. Set up the webhook, or change the sync method of those tables. */
+    readonly webhook_not_registered: boolean
     /** Whether this source supports per-column sync selection via `enabled_columns`. */
     readonly supports_column_selection: boolean
     /**
@@ -1068,6 +1139,8 @@ export interface PatchedExternalDataSourceSerializersApi {
      */
     readonly user_access_level?: string | null
     readonly supports_webhooks?: boolean
+    /** Whether at least one table of this source uses webhook sync, but the source has no enabled webhook. Those tables get no webhook updates. Each of their syncs polls the source API instead, which is slower and can read the whole table. Set up the webhook, or change the sync method of those tables. */
+    readonly webhook_not_registered?: boolean
     /** Whether this source supports per-column sync selection via `enabled_columns`. */
     readonly supports_column_selection?: boolean
     /**
@@ -1159,6 +1232,11 @@ export interface ExternalDataSourceBulkUpdateSchemaApi {
      * @nullable
      */
     enabled_columns?: string[] | null
+    /**
+     * Columns whose values are replaced with a one-way digest at sync time. Null means mask nothing. Any change starts a full resync of the table.
+     * @nullable
+     */
+    masked_columns?: string[] | null
     /**
      * Row-filter predicates ANDed onto the source query. Null/empty means sync all rows.
      * @nullable
@@ -2250,6 +2328,15 @@ export const ExternalDataDestinationsConnectLinkRetrieveDestinationType = {
     AzureBlob: 'AzureBlob',
     S3: 'S3',
 } as const
+
+export type ExternalDataDestinationsConnectLinkStatusRetrieveParams = {
+    /**
+     * The connect_token that the connect link returned.
+     * @minLength 1
+     * @maxLength 128
+     */
+    connect_token: string
+}
 
 export type ExternalDataSchemasListParams = {
     /**

@@ -217,15 +217,22 @@ After returning from chat, rotate a report and check that its footer stays attac
 
 ## Chat navigation and header
 
+In a new chat, fail a send with a multi-line error while the keyboard is open. Check that the full notice and Dismiss button stay above the composer without overlapping suggestions.
+Tap empty space to dismiss the keyboard, refocus the draft, then drag down in the suggestions area to dismiss it again.
+Repeat with larger system text. Suggestions must scroll when they do not fit, and dismissing the notice must preserve the draft.
+For an unsaved draft, check that Retry save remains visible and disabled while saving. For a lost connection, check Reconnect and Dismiss.
+
 On iOS and Android, open an existing chat and start a new chat. Both must fill the screen without a
 sheet grabber or drag-down dismissal. Header Back and platform Back return to the previous page;
 a direct link falls back to the configured default page. Scroll a long thread under the title-free
 blurred header and focus the composer to check the keyboard and safe-area spacing.
 
-New chat and the ellipsis share the Inbox's pill control. Open the menu, copy the link, and confirm
+Saved chats show New chat and the ellipsis in a bordered pill beside the labeled Back chip. Open the menu, copy the link, and confirm
 it targets the current project and chat. Archive a saved chat and confirm it disappears from Chats
 only after success. Fail each action and retry; repeated taps must not start duplicate requests.
-An unsaved chat has no link or task to archive, so its ellipsis is disabled.
+An unsaved chat shows only Back, aligned with Settings, until the first message creates a task.
+Open New chat several times and check that the page finishes sliding in before the keyboard rises from the bottom.
+Repeat with the AI access check delayed so the composer mounts after the transition, and check the compact landscape layout.
 
 ## Chat drafts and rich replies
 

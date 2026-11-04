@@ -114,8 +114,7 @@ export function TodayPulse({ metrics, slots }: { metrics: HighlightMetricApi[]; 
     const listRef = useRef<HTMLUListElement>(null)
     useSettleOnReorder(listRef, cards.map((tile) => tile.key).join('|'))
     const { baseCurrency } = useValues(teamLogic)
-    const { pulseMetricOpened, pulseMetricPreviewed, hidePulseMetric, holdPulseOrder, releasePulseOrder, retryPulse } =
-        useActions(todayHighlightsLogic)
+    const { pulseMetricOpened, pulseMetricPreviewed, hidePulseMetric, retryPulse } = useActions(todayHighlightsLogic)
     return (
         <ul ref={listRef} className="TodayPulse" aria-label="Key numbers, against the period before">
             {cards.map((slot, position) => {
@@ -200,12 +199,6 @@ export function TodayPulse({ metrics, slots }: { metrics: HighlightMetricApi[]; 
                             onOpenChange={(open) => {
                                 if (open) {
                                     pulseMetricPreviewed(metric, position)
-                                    holdPulseOrder(
-                                        metric.key,
-                                        cards.map((tile) => tile.key)
-                                    )
-                                } else {
-                                    releasePulseOrder(metric.key)
                                 }
                             }}
                             card={

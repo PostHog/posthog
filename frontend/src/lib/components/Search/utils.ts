@@ -103,6 +103,8 @@ const TICKET_SEARCH_MAX_LENGTH = 200
  * of a support inbox anyway. A ticket number is exempt from the lower bound in both directions: it
  * is an indexed lookup, and "#7" is a complete query rather than the start of a longer one.
  */
+export const isTicketNumberQuery = (query: string): boolean => TICKET_NUMBER_QUERY.test(query.trim())
+
 export const shouldSearchTickets = (query: string): boolean => {
     const trimmed = query.trim()
     if (trimmed.length > TICKET_SEARCH_MAX_LENGTH) {
@@ -148,7 +150,7 @@ export const getCategoryDisplayName = (category: string): string => {
         session_recording_playlist: 'Session recording filter',
         hog_flow: 'Workflows',
         health: 'Health',
-        misc: 'Misc',
+        actions: 'Actions',
     }
 
     return displayNames[category] || category

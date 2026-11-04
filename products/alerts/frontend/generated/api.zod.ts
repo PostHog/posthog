@@ -1195,6 +1195,23 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
                         type: zod
                             .enum(['MetricsAlertConfig'])
                             .default(alertsSimulateCreateBodyConfigOneFourTypeDefault),
+                        variables: zod
+                            .union([
+                                zod.record(
+                                    zod.string(),
+                                    zod.object({
+                                        all: zod.union([zod.boolean(), zod.null()]).optional(),
+                                        values: zod
+                                            .array(zod.string())
+                                            .describe(
+                                                'The selected values. Empty when `all` is true: All stands for every option of the variable.'
+                                            ),
+                                    })
+                                ),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe("Values for the `$name` variables in the insight's query."),
                     }),
                 ])
                 .describe(
