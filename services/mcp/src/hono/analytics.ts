@@ -340,8 +340,23 @@ const POSTHOG_CONNECTION_TOOL_NAMES: ReadonlySet<string> = new Set([
     'posthog-connection-forward',
 ])
 
+const EMAIL_SEND_TOOL_PREFIX = 'workflows-send-email'
+
+function sendsEmailContent(toolName: string, input: unknown): boolean {
+    if (toolName.startsWith(EMAIL_SEND_TOOL_PREFIX)) {
+        return true
+    }
+    // Match the whole exec command, not its parsed inner tool: a send forwarded through
+    // posthog-connection-call, or a command exec rejects, still carries the email body.
+    const command = (input as { command?: unknown } | null | undefined)?.command
+    return toolName === 'exec' && typeof command === 'string' && command.includes(EMAIL_SEND_TOOL_PREFIX)
+}
+
 function shouldCaptureToolSpan(toolName: string, input: unknown): boolean {
     if (isPrivateScoutTrialTool(toolName)) {
+        return false
+    }
+    if (sendsEmailContent(toolName, input)) {
         return false
     }
     // A proxied third-party tool's args and result are the vendor's content — an issue
