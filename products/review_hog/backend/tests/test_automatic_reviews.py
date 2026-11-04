@@ -401,18 +401,31 @@ class TestAuthoredPRReviewTask(BaseTest):
 
     @parameterized.expand(
         [
-            ("connector_runs_it", True, False, "started"),
-            ("no_connector", False, False, "bot_no_connector"),
-            ("draft_in_a_repository_without_drafts", True, True, "draft_skipped"),
+            ("connector_runs_it", True, False, "started", False),
+            ("no_connector", False, False, "bot_no_connector", False),
+            ("draft_in_a_repository_without_drafts", True, True, "draft_skipped", False),
+            # The connector's own draft switch is off, and it must not apply to a bot's pull request.
+            ("draft_in_a_repository_that_reviews_drafts", True, True, "started", True),
         ]
     )
     @patch(_START)
     def test_bot_pull_requests_run_as_the_connector_when_the_project_reviews_bots(
-        self, _name: str, has_connector: bool, draft: bool, expected_outcome: str, start: MagicMock
+        self,
+        _name: str,
+        has_connector: bool,
+        draft: bool,
+        expected_outcome: str,
+        repository_drafts: bool,
+        start: MagicMock,
     ) -> None:
         ReviewProjectSettings.objects.for_team(self.team.id).create(
             team=self.team, bot_prs=ReviewProjectSettings.BotPullRequests.RUN
         )
+        if repository_drafts:
+            self.repository.review_drafts = True
+            self.repository.save()
+            self.preferences.preferences = {"default_review_mode": "flash", "review_drafts": False}
+            self.preferences.save(update_fields=["preferences"])
         if not has_connector:
             self.integration.created_by = None
             self.integration.save(update_fields=["created_by"])
