@@ -1,12 +1,13 @@
 from posthog.test.base import BaseTest
 from unittest.mock import AsyncMock, patch
 
+from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
 from posthog.schema import AlertState
 
 from posthog.redis import TEST_clear_clients
-from posthog.temporal.alerts.alert_firing_signal import emit_alert_firing_signal
+from posthog.temporal.alerts.alert_firing_signal import dispatch_alert_firing_signal, prepare_alert_firing_signal
 from posthog.token_bucket import Budget, TEST_reset_scripts
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
@@ -77,9 +78,10 @@ class TestEmitAlertFiringSignal(BaseTest):
             ),
             patch(f"{_MODULE}.get_analytics_alert_scope", return_value=scope),
         ):
-            emitted = emit_alert_firing_signal(
+            signal = prepare_alert_firing_signal(
                 alert, check, previous_state=previous_state, breaches=["The value is above the threshold"]
             )
+            emitted = signal is not None and async_to_sync(dispatch_alert_firing_signal)(signal)
         return emitted, emit
 
     @parameterized.expand(

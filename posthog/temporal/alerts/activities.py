@@ -60,7 +60,11 @@ from posthog.temporal.alerts.admission import (
     release_evaluation_slot,
     release_evaluation_slots,
 )
-from posthog.temporal.alerts.alert_firing_signal import emit_alert_firing_signal
+from posthog.temporal.alerts.alert_firing_signal import (
+    AlertFiringSignal,
+    dispatch_alert_firing_signal,
+    prepare_alert_firing_signal,
+)
 from posthog.temporal.alerts.investigation import (
     carried_verdict_suppresses,
     claim_investigation_slot,
@@ -643,12 +647,15 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
     # replaced learns it only on its next slot refresh, so a query that finishes before then still
     # records.
     stopping = threading.Event()
+    # Set by the evaluation thread, and dispatched once that thread returns.
+    firing_signal: AlertFiringSignal | None = None
 
     def _stop_if_cancelled() -> None:
         if stopping.is_set():
             raise _EvaluationStopped()
 
     def _evaluate(alert: AlertConfiguration) -> EvaluateAlertResult:
+        nonlocal firing_signal
         _stop_if_cancelled()
         evaluated_alert = alert
         evaluated_fingerprint = _evaluation_fingerprint(alert)
@@ -784,7 +791,9 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
         # recorded on the check and can't affect the alert outcome.
         if should_run_metrics_investigation:
             run_metrics_alert_investigation(alert, alert_check)
-        emit_alert_firing_signal(alert, alert_check, previous_state=previous_state, breaches=breaches)
+        firing_signal = prepare_alert_firing_signal(
+            alert, alert_check, previous_state=previous_state, breaches=breaches
+        )
 
         return EvaluateAlertResult(
             alert_check_id=str(alert_check.id),
@@ -819,7 +828,11 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
         thread = asyncio.ensure_future(
             database_sync_to_async(_evaluate, thread_sensitive=False, executor=executor)(alert)
         )
-        return await asyncio.shield(thread)
+        result = await asyncio.shield(thread)
+        if firing_signal is not None:
+            # Here, not in the thread: emit_signal needs the default executor that the thread runs on.
+            await dispatch_alert_firing_signal(firing_signal)
+        return result
 
     timeouts = alert_timeouts(inputs.calculation_interval)
 

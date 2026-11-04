@@ -1025,25 +1025,43 @@ class TestEvaluateAlert:
     @pytest.mark.parametrize("signal_error", [None, RuntimeError("signals unavailable")])
     async def test_evaluate_firing_with_breaches(self, alert, signal_error: Exception | None) -> None:
         # The inbox signal is best effort: a failure must not change the check or its notification.
-        emit = AsyncMock(return_value=True, side_effect=signal_error)
-        with (
-            patch(
-                "posthog.temporal.alerts.activities.check_alert_for_insight",
-                return_value=AlertEvaluationResult(value=100.0, breaches=["value above threshold"]),
-            ),
-            patch("posthog.temporal.alerts.alert_firing_signal.emit_signal", emit),
-            patch(
-                "posthog.temporal.alerts.alert_firing_signal.get_source_config",
-                return_value=SignalSourceConfigSnapshot(enabled=True, created_by_id=None, config={}),
-            ),
-            patch(
-                "posthog.temporal.alerts.alert_firing_signal.get_analytics_alert_scope",
-                return_value="all_firing_alerts",
-            ),
-        ):
-            env = ActivityEnvironment()
-            result = await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id)))
+        reached_default_executor = False
 
+        async def _emit(**_kwargs) -> bool:
+            nonlocal reached_default_executor
+            # emit_signal runs sync work on the default executor. An evaluation thread that waits for
+            # the emission holds the only worker, so this would time out.
+            await asyncio.wait_for(sync_to_async(lambda: None, thread_sensitive=False)(), timeout=5)
+            reached_default_executor = True
+            if signal_error is not None:
+                raise signal_error
+            return True
+
+        emit = AsyncMock(side_effect=_emit)
+        loop = asyncio.get_running_loop()
+        loop.set_default_executor(ThreadPoolExecutor(max_workers=1))
+        try:
+            with (
+                patch(
+                    "posthog.temporal.alerts.activities.check_alert_for_insight",
+                    return_value=AlertEvaluationResult(value=100.0, breaches=["value above threshold"]),
+                ),
+                patch("posthog.temporal.alerts.alert_firing_signal.emit_signal", emit),
+                patch(
+                    "posthog.temporal.alerts.alert_firing_signal.get_source_config",
+                    return_value=SignalSourceConfigSnapshot(enabled=True, created_by_id=None, config={}),
+                ),
+                patch(
+                    "posthog.temporal.alerts.alert_firing_signal.get_analytics_alert_scope",
+                    return_value="all_firing_alerts",
+                ),
+            ):
+                env = ActivityEnvironment()
+                result = await env.run(evaluate_alert, EvaluateAlertActivityInputs(alert_id=str(alert.id)))
+        finally:
+            loop.set_default_executor(ThreadPoolExecutor())
+
+        assert reached_default_executor
         emit.assert_awaited_once()
         assert emit.await_args is not None
         assert emit.await_args.kwargs["source_id"] == f"{alert.id}:{result.alert_check_id}"

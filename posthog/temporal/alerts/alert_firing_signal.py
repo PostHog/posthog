@@ -8,12 +8,14 @@ This path covers the alerts it never investigates, for teams whose product analy
 from __future__ import annotations
 
 import enum
+import asyncio
 
 import structlog
-from asgiref.sync import async_to_sync
 
 from posthog.schema import AlertState
 
+from posthog.dataclasses import frozen
+from posthog.models import Team
 from posthog.temporal.alerts.investigation import investigates
 from posthog.token_bucket import BucketUnavailable, Budget, consume, refund
 from posthog.utils import absolute_uri
@@ -70,76 +72,107 @@ def alert_firing_skip_reason(
     return None
 
 
-def emit_alert_firing_signal(
-    alert: AlertConfiguration, alert_check: AlertCheck, *, previous_state: str, breaches: list[str] | None
-) -> bool:
-    """Emit the signal when every gate passes. Returns whether it was dispatched. Never raises.
+@frozen
+class AlertFiringSignal:
+    """A signal that passed every gate and charged the cap, ready to dispatch."""
 
-    Call it after the check is committed, outside the alert row lock. A failure here must not change
-    the check, its notification or the alert state.
+    team: Team
+    alert_id: str
+    alert_check_id: str
+    description: str
+    extra: dict
+
+
+def prepare_alert_firing_signal(
+    alert: AlertConfiguration, alert_check: AlertCheck, *, previous_state: str, breaches: list[str] | None
+) -> AlertFiringSignal | None:
+    """Run the gates and build the signal, or return None to skip it. Never raises.
+
+    Call it in the evaluation thread, after the check is committed and outside the alert row lock.
+    It charges the cap, and `dispatch_alert_firing_signal` refunds the charge when nothing is sent.
     """
     try:
-        skip_reason = _emit(alert, alert_check, previous_state=previous_state, breaches=breaches or [])
+        skip_reason, signal = _prepare(alert, alert_check, previous_state=previous_state, breaches=breaches or [])
     except Exception:
         logger.exception(
-            "alert_firing.signal_emission_failed", alert_id=str(alert.id), alert_check_id=str(alert_check.id)
+            "alert_firing.signal_prepare_failed", alert_id=str(alert.id), alert_check_id=str(alert_check.id)
         )
-        return False
-    if skip_reason in _UNLOGGED_SKIP_REASONS:
-        return False
-    if skip_reason is not None:
-        logger.info(
-            "alert_firing.signal_skipped",
-            alert_id=str(alert.id),
-            alert_check_id=str(alert_check.id),
-            reason=skip_reason.value,
-        )
-        return False
-    logger.info("alert_firing.signal_emitted", alert_id=str(alert.id), alert_check_id=str(alert_check.id))
-    return True
+        return None
+    if skip_reason is not None and skip_reason not in _UNLOGGED_SKIP_REASONS:
+        _log_skip(str(alert.id), str(alert_check.id), skip_reason)
+    return signal
 
 
-def _emit(
-    alert: AlertConfiguration, alert_check: AlertCheck, *, previous_state: str, breaches: list[str]
-) -> AlertFiringSkipReason | None:
-    skip_reason = alert_firing_skip_reason(alert, previous_state=previous_state, new_state=alert_check.state)
-    if skip_reason is not None:
-        return skip_reason
-    source = get_source_config(
-        team_id=alert.team_id, source_product=SIGNAL_SOURCE_PRODUCT, source_type=_SOURCE_CONFIG_TYPE
-    )
-    if source is None or not source.enabled:
-        return AlertFiringSkipReason.SOURCE_DISABLED
-    if get_analytics_alert_scope(team_id=alert.team_id) != _ALL_FIRING_ALERTS:
-        return AlertFiringSkipReason.SCOPE
+async def dispatch_alert_firing_signal(signal: AlertFiringSignal) -> bool:
+    """Send a prepared signal. Returns whether it was dispatched. Never raises.
 
-    decision = consume(cap_key(alert.team_id), CAP_BUDGET)
-    if isinstance(decision, BucketUnavailable):
-        # Fails closed: the cap exists to bound spend during the rollout, and the signal is best effort.
-        return AlertFiringSkipReason.CAP_UNAVAILABLE
-    if not decision.allowed:
-        return AlertFiringSkipReason.CAP
-
-    source_id = f"{alert.id}:{alert_check.id}"
+    Await it from the activity's event loop after the evaluation thread returns. `emit_signal` runs
+    sync work on the default executor, so a call that blocks an evaluation thread on it can deadlock
+    once every executor thread waits the same way. A failure never changes the committed check.
+    """
+    source_id = f"{signal.alert_id}:{signal.alert_check_id}"
     try:
-        dispatched = async_to_sync(emit_signal)(
-            team=alert.team,
+        dispatched = await emit_signal(
+            team=signal.team,
             source_product=SIGNAL_SOURCE_PRODUCT,
             source_type=SIGNAL_SOURCE_TYPE,
             source_id=source_id,
             # Same key on a retried evaluation, so one episode starts at most one emission.
             idempotency_key=source_id,
-            description=build_signal_description(alert, breaches),
+            description=signal.description,
             weight=1,
-            extra=build_signal_extra(alert, alert_check, breaches),
+            extra=signal.extra,
         )
     except Exception:
-        refund(cap_key(alert.team_id), CAP_BUDGET)
-        raise
-    if not dispatched:
-        refund(cap_key(alert.team_id), CAP_BUDGET)
-        return AlertFiringSkipReason.NOT_DISPATCHED
-    return None
+        logger.exception(
+            "alert_firing.signal_emission_failed", alert_id=signal.alert_id, alert_check_id=signal.alert_check_id
+        )
+        dispatched = None
+    if dispatched:
+        logger.info("alert_firing.signal_emitted", alert_id=signal.alert_id, alert_check_id=signal.alert_check_id)
+        return True
+    await asyncio.to_thread(refund, cap_key(signal.team.id), CAP_BUDGET)
+    if dispatched is False:
+        _log_skip(signal.alert_id, signal.alert_check_id, AlertFiringSkipReason.NOT_DISPATCHED)
+    return False
+
+
+def _log_skip(alert_id: str, alert_check_id: str, reason: AlertFiringSkipReason) -> None:
+    logger.info("alert_firing.signal_skipped", alert_id=alert_id, alert_check_id=alert_check_id, reason=reason.value)
+
+
+def _prepare(
+    alert: AlertConfiguration, alert_check: AlertCheck, *, previous_state: str, breaches: list[str]
+) -> tuple[AlertFiringSkipReason | None, AlertFiringSignal | None]:
+    skip_reason = alert_firing_skip_reason(alert, previous_state=previous_state, new_state=alert_check.state)
+    if skip_reason is not None:
+        return skip_reason, None
+    source = get_source_config(
+        team_id=alert.team_id, source_product=SIGNAL_SOURCE_PRODUCT, source_type=_SOURCE_CONFIG_TYPE
+    )
+    if source is None or not source.enabled:
+        return AlertFiringSkipReason.SOURCE_DISABLED, None
+    if get_analytics_alert_scope(team_id=alert.team_id) != _ALL_FIRING_ALERTS:
+        return AlertFiringSkipReason.SCOPE, None
+
+    team = alert.team
+    # `emit_signal` reads the organization for its consent gate. Loading it here keeps that read off the event loop.
+    team.organization  # noqa: B018
+    signal = AlertFiringSignal(
+        team=team,
+        alert_id=str(alert.id),
+        alert_check_id=str(alert_check.id),
+        description=build_signal_description(alert, breaches),
+        extra=build_signal_extra(alert, alert_check, breaches),
+    )
+    # Charged last, so a failure above spends no token.
+    decision = consume(cap_key(alert.team_id), CAP_BUDGET)
+    if isinstance(decision, BucketUnavailable):
+        # Fails closed: the cap exists to bound spend during the rollout, and the signal is best effort.
+        return AlertFiringSkipReason.CAP_UNAVAILABLE, None
+    if not decision.allowed:
+        return AlertFiringSkipReason.CAP, None
+    return None, signal
 
 
 def _detector_type(alert: AlertConfiguration) -> str:
