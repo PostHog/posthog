@@ -32,8 +32,7 @@ The endpoint requires `integration:write` and project membership. Repeated reque
 Set `WORKFLOWS_SANDBOX_SENDER_DOMAIN`, `SES_SANDBOX_FROM_ADDRESS`, and `SES_SANDBOX_TENANT_NAME` in Django; any empty value leaves the endpoint unavailable.
 Teams can't register an integration on `WORKFLOWS_SANDBOX_SENDER_DOMAIN` or its subdomains while that setting has a value, even when the other two are empty.
 The worker sends from the same `SES_SANDBOX_FROM_ADDRESS`, so set it once for Django and the worker. The address the UI shows is then the address the worker sends from.
-With the flag on, a project admin who opens the Channels page creates the sender, and the page shows it in its own row.
-Other members see the row once an admin has opened the page.
+With the flag on, any project member who opens the Channels page creates the sender, and the page shows it in its own row.
 Users cannot edit, verify, or remove the managed integration, make it the project default, use it for transactional email, or register their own integration on the shared domain.
 The managed integration is excluded from project SES tenant migration, identity cleanup, data suggestions, and the reputation page's domain breakdown.
 Configure the shared SES route, then enable `WORKFLOWS_SANDBOX_SENDER_ENABLED` on the worker and CDP API. Enable `workflows-sandbox-sender` last, and only for test projects until the sandbox caps ship.
