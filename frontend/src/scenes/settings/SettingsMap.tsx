@@ -1667,7 +1667,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Macros',
                 description: 'Save replies you send often and insert them from a ticket.',
                 component: <MacrosSection />,
-                flag: 'PRODUCT_SUPPORT_MACROS',
                 allowForTeam: (t) => !!t?.conversations_enabled,
                 keywords: ['macro', 'canned', 'reply', 'shortcut', 'template', 'support', 'conversation'],
             },
