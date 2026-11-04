@@ -18,6 +18,9 @@ from posthog.schema import (
     ExperimentExposureHealthFindingActionKind,
     ExperimentExposureHealthFindingCode,
     ExperimentExposureHealthFindingSeverity,
+    ExperimentExposureHealthMeasurement,
+    ExperimentExposureHealthMeasurementSide,
+    ExperimentExposureHealthMeasurementUnit,
     ExperimentExposureQuery,
     ExperimentExposureQueryResponse,
     ExperimentExposureTimeSeries,
@@ -470,8 +473,17 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             ExperimentExposureHealthCheck(
                 key=ExperimentExposureHealthCheckKey(check.key.value),
                 name=check.name,
+                description=check.description,
                 status=ExperimentExposureHealthCheckStatus(check.status.value),
                 reason=check.reason,
+                measurement=ExperimentExposureHealthMeasurement(
+                    value=check.measurement.value,
+                    threshold=check.measurement.threshold,
+                    unit=ExperimentExposureHealthMeasurementUnit(check.measurement.unit.value),
+                    warns=ExperimentExposureHealthMeasurementSide(check.measurement.warns.value),
+                )
+                if check.measurement
+                else None,
             )
             for check in health.checks
         ]
