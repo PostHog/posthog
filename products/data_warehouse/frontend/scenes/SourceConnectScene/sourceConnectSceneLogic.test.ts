@@ -288,6 +288,52 @@ describe('sourceConnectSceneLogic', () => {
         expect(sourceConnectSceneLogic.values.loadedMigrationItemId).toEqual(OTHER_ITEM_ID)
     })
 
+    it('stores credentials for a prefilled item only once the server is confirmed, with the prefill kept', async () => {
+        const bodies: Record<string, any>[] = []
+        useMocks({
+            post: {
+                '/api/projects/:team_id/external_data_sources/store_credentials/': async ({ request }) => {
+                    bodies.push((await request.json()) as Record<string, any>)
+                    return [
+                        201,
+                        {
+                            credential_id: 'ba07775f-8eaf-4d09-aa6f-50e37f17f243',
+                            source_type: 'Postgres',
+                            created_at: '2026-06-10T00:00:00Z',
+                            expires_at: '2026-06-11T00:00:00Z',
+                        },
+                    ]
+                },
+            },
+        })
+        const url = `/data-warehouse/connect?kind=Postgres&migration_id=${MIGRATION_ID}&migration_item_id=${ITEM_ID}`
+        await expectLogic(sourceConnectSceneLogic, () => router.actions.push(url)).toFinishAllListeners()
+        expect(sourceConnectSceneLogic.values.prefilledFieldRows).toEqual([
+            { label: 'Host', value: 'db.example.com' },
+            { label: 'Ssh tunnel › Host', value: 'bastion.example.com' },
+        ])
+        // A changed prefilled value never reaches the API.
+        sourceConnectSceneLogic.actions.setCredentialsFormValue(['payload', 'host'], 'elsewhere.example.com')
+
+        await expectLogic(sourceConnectSceneLogic, () => {
+            sourceConnectSceneLogic.actions.submitCredentialsForm()
+        }).toFinishAllListeners()
+        expect(bodies).toEqual([])
+
+        sourceConnectSceneLogic.actions.setPrefillConfirmed(true)
+        await expectLogic(sourceConnectSceneLogic, () => {
+            sourceConnectSceneLogic.actions.submitCredentialsForm()
+        }).toFinishAllListeners()
+        expect(bodies).toEqual([
+            {
+                source_type: 'Postgres',
+                payload: { host: 'db.example.com' },
+                migration_item_id: ITEM_ID,
+            },
+        ])
+        expect(sourceConnectSceneLogic.values.storedCredential).not.toBeNull()
+    })
+
     it('shows the rejection message when the credentials fail validation', async () => {
         const errorToast = jest.spyOn(lemonToast, 'error').mockReturnValue(undefined as any)
         router.actions.push('/data-warehouse/connect?kind=Postgres')

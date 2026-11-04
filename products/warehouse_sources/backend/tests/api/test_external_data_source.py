@@ -72,6 +72,7 @@ from products.warehouse_sources.backend.models.external_data_destination import 
     ExternalDataDestination,
     ExternalDataSourceDestination,
 )
+from products.warehouse_sources.backend.models.warehouse_migration import WarehouseMigration, WarehouseMigrationItem
 from products.warehouse_sources.backend.presentation.views.external_data_schema import ExternalDataSchemaSerializer
 from products.warehouse_sources.backend.presentation.views.external_data_source.helpers import (
     DIRECT_QUERY_UNSUPPORTED_SOURCE_MESSAGE,
@@ -13551,7 +13552,7 @@ class TestExternalDataSourceSetup(APIBaseTest):
 
 
 class TestExternalDataSourceStoreCredentials(APIBaseTest):
-    def _store(self, source_type: str = "Stripe", payload: dict | None = None):
+    def _store(self, source_type: str = "Stripe", payload: dict | None = None, **extra: str):
         return self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/store_credentials/",
             data={
@@ -13559,8 +13560,49 @@ class TestExternalDataSourceStoreCredentials(APIBaseTest):
                 "payload": payload
                 if payload is not None
                 else {"auth_method": {"selection": "api_key", "stripe_secret_key": "sk_test_123"}},
+                **extra,
             },
         )
+
+    @parameterized.expand(
+        [
+            ("matching_prefill", "api_key", status.HTTP_201_CREATED),
+            # The connect page shows prefilled settings read-only, so a changed one never reaches the live check.
+            ("changed_prefill", "oauth", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_store_credentials_for_a_migration_item_keeps_its_prefill(
+        self, _name: str, prefilled_selection: str, expected_status: int, mock_validate: MagicMock
+    ) -> None:
+        migration = WarehouseMigration.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk, provider=WarehouseMigration.Provider.FIVETRAN
+        )
+        item = WarehouseMigrationItem.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk,
+            migration=migration,
+            vendor_connection_id="conn_stripe",
+            vendor_service="stripe",
+            name="stripe",
+            verdict=WarehouseMigrationItem.Verdict.AS_IS,
+            proposal={"source_type": "Stripe", "prefill": {"auth_method": {"selection": prefilled_selection}}},
+        )
+
+        response = self._store(migration_item_id=str(item.id))
+
+        assert response.status_code == expected_status, response.json()
+        assert mock_validate.called == (expected_status == status.HTTP_201_CREATED)
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            assert "auth_method.selection" in response.json()["message"]
+            assert not PendingSourceCredential.objects.for_team(self.team.pk).exists()
+
+    def test_store_credentials_for_an_unknown_migration_item_is_rejected(self) -> None:
+        response = self._store(migration_item_id="01a1a3b0-0000-7000-8000-000000000009")
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not PendingSourceCredential.objects.for_team(self.team.pk).exists()
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
