@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 
 from django.test import override_settings
@@ -5,7 +7,8 @@ from django.test.client import Client as HttpClient
 
 from rest_framework import status
 
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationManager, IntegrationRecord
+from posthog.models import Team, User
 from posthog.security.url_validation import INVALID_HOST_MESSAGE, UNREACHABLE_HOST_MESSAGE
 
 from products.batch_exports.backend.tests.api.fixtures import create_organization, create_team, create_user
@@ -36,7 +39,7 @@ pytestmark = [
                 "s3_bucket": "my-production-s3-bucket",
                 "region_name": "us-east-1",
                 "s3_key_prefix": "posthog-events/",
-                "bucket_credentials": {"aws_access_key_id": "abc123", "aws_secret_access_key": "secret"},
+                "bucket_credentials": "integration",
                 "authorization": "default",
             },
             status.HTTP_201_CREATED,
@@ -47,8 +50,8 @@ pytestmark = [
                 "s3_bucket": "my-production-s3-bucket",
                 "region_name": "us-east-1",
                 "s3_key_prefix": "posthog-events/",
-                "bucket_credentials": {"aws_access_key_id": "abc123", "aws_secret_access_key": "secret"},
-                "authorization": {"aws_access_key_id": "abc123", "aws_secret_access_key": "secret"},
+                "bucket_credentials": "integration",
+                "authorization": "integration",
             },
             status.HTTP_201_CREATED,
         ),
@@ -58,7 +61,7 @@ pytestmark = [
             {
                 "region_name": "us-east-1",
                 "s3_key_prefix": "posthog-events/",
-                "bucket_credentials": {"aws_access_key_id": "abc123", "aws_secret_access_key": "secret"},
+                "bucket_credentials": "integration",
                 "authorization": "default",
             },
             status.HTTP_400_BAD_REQUEST,
@@ -69,7 +72,7 @@ pytestmark = [
             {
                 "s3_bucket": "my-production-s3-bucket",
                 "s3_key_prefix": "posthog-events/",
-                "bucket_credentials": {"aws_access_key_id": "abc123", "aws_secret_access_key": "secret"},
+                "bucket_credentials": "integration",
                 "authorization": "default",
             },
             status.HTTP_400_BAD_REQUEST,
@@ -105,7 +108,7 @@ pytestmark = [
                 "s3_bucket": "my-production-s3-bucket",
                 "region_name": "us-east-1",
                 "s3_key_prefix": "posthog-events/",
-                "bucket_credentials": {"aws_access_key_id": "abc123", "aws_secret_access_key": "secret"},
+                "bucket_credentials": "integration",
                 "authorization": {},
             },
             status.HTTP_400_BAD_REQUEST,
@@ -117,7 +120,7 @@ pytestmark = [
                 "s3_bucket": "my-production-s3-bucket",
                 "region_name": "us-east-1",
                 "s3_key_prefix": "posthog-events/",
-                "bucket_credentials": {"aws_access_key_id": "abc123", "aws_secret_access_key": "secret"},
+                "bucket_credentials": "integration",
                 "authorization": "",
             },
             status.HTTP_400_BAD_REQUEST,
@@ -125,11 +128,21 @@ pytestmark = [
     ],
 )
 def test_create_redshift_batch_export_validates_copy_inputs(
-    client: HttpClient, mode, copy_inputs, expected_status, temporal, organization, team, user, aws_redshift_integration
-):
-    """Test creating a BatchExport with Redshift destination validates inputs for 'COPY'."""
+    client: HttpClient,
+    mode: str,
+    copy_inputs: dict[str, Any] | None,
+    expected_status: int,
+    team: Team,
+    user: User,
+    aws_redshift_integration: IntegrationRecord,
+    aws_s3_integration: IntegrationRecord,
+) -> None:
+    if copy_inputs:
+        copy_inputs = {
+            key: aws_s3_integration.id if value == "integration" else value for key, value in copy_inputs.items()
+        }
 
-    destination_data = {
+    destination_data: dict[str, Any] = {
         "type": "Redshift",
         "config": {
             "database": "my-db",
@@ -139,7 +152,7 @@ def test_create_redshift_batch_export_validates_copy_inputs(
             "mode": mode,
             "copy_inputs": copy_inputs,
         },
-        "integration": aws_redshift_integration.pk,
+        "integration": aws_redshift_integration.id,
     }
 
     batch_export_data = {
@@ -164,13 +177,14 @@ def test_create_redshift_batch_export_validates_copy_inputs(
 
 @pytest.mark.parametrize("authorization", [["arn:aws:iam::123456789012:role/my-role"], True, 1.5])
 def test_create_redshift_batch_export_rejects_invalid_authorization_type(
-    client: HttpClient, authorization, temporal, organization, team, user, aws_redshift_integration
-):
-    """Test 'authorization' values that are neither credentials, a role, nor an id are a 400.
-
-    These used to pass validation and crash with a TypeError when the export synced.
-    """
-    destination_data = {
+    client: HttpClient,
+    authorization: object,
+    team: Team,
+    user: User,
+    aws_redshift_integration: IntegrationRecord,
+    aws_s3_integration: IntegrationRecord,
+) -> None:
+    destination_data: dict[str, Any] = {
         "type": "Redshift",
         "config": {
             "database": "my-db",
@@ -180,11 +194,11 @@ def test_create_redshift_batch_export_rejects_invalid_authorization_type(
                 "s3_bucket": "my-production-s3-bucket",
                 "region_name": "us-east-1",
                 "s3_key_prefix": "posthog-events/",
-                "bucket_credentials": {"aws_access_key_id": "abc123", "aws_secret_access_key": "secret"},
+                "bucket_credentials": aws_s3_integration.id,
                 "authorization": authorization,
             },
         },
-        "integration": aws_redshift_integration.pk,
+        "integration": aws_redshift_integration.id,
     }
 
     batch_export_data = {
@@ -225,7 +239,7 @@ def test_create_redshift_batch_export_fails_with_invalid_host(
     comes from the linked Integration rather than from inline config.
     """
 
-    destination_data = {
+    destination_data: dict[str, Any] = {
         "type": "Redshift",
         "config": {
             "database": "my-db",
@@ -233,7 +247,7 @@ def test_create_redshift_batch_export_fails_with_invalid_host(
             "schema": "public",
             "table_name": "my_events",
         },
-        "integration": aws_redshift_integration.pk,
+        "integration": aws_redshift_integration.id,
     }
 
     batch_export_data = {
@@ -268,7 +282,7 @@ def test_create_redshift_batch_export_with_aws_integration(
             # No user/password inline: credentials come from the integration. Only the
             # cluster endpoint stays in the config.
             "config": {"database": "my-db", "host": "8.8.8.8"},
-            "integration": aws_redshift_integration.pk,
+            "integration": aws_redshift_integration.id,
         },
     }
 
@@ -279,13 +293,12 @@ def test_create_redshift_batch_export_with_aws_integration(
 
 
 def test_create_redshift_batch_export_with_plain_integration(client: HttpClient, temporal, organization, team, user):
-    integration = Integration.objects.create(
-        team=team,
-        kind=Integration.IntegrationKind.AWS_REDSHIFT,
-        integration_id="prod-redshift-plain",
+    integration = IntegrationManager.aws_redshift.credentials.create(
+        team_id=team.id,
+        external_id="prod-redshift-plain",
         config={"host": "8.8.8.8", "port": 5439, "user": "posthog", "ssl_mode": "require"},
         sensitive_config={"password": "very-secret"},
-        created_by=user,
+        created_by_id=user.id,
     )
 
     batch_export_data = {
@@ -295,7 +308,7 @@ def test_create_redshift_batch_export_with_plain_integration(client: HttpClient,
             "type": "Redshift",
             # Plain Redshift integrations store the host themselves, so none is needed here.
             "config": {"database": "my-db"},
-            "integration": integration.pk,
+            "integration": integration.id,
         },
     }
 
@@ -328,9 +341,9 @@ def test_create_redshift_batch_export_validates_integration(
     integration_pk = None
 
     if failure == "wrong_kind":
-        integration_pk = aws_s3_integration.pk
+        integration_pk = aws_s3_integration.id
     elif failure == "aws_integration_without_host":
-        integration_pk = aws_redshift_integration.pk
+        integration_pk = aws_redshift_integration.id
 
     destination_data: dict = {"type": "Redshift", "config": config}
     if integration_pk is not None:
@@ -351,46 +364,54 @@ def test_create_redshift_batch_export_validates_integration(
 
 @pytest.mark.parametrize(
     "copy_credential_source",
-    ["own_integration", "other_team_integration", "wrong_kind_integration", "nonexistent_integration"],
+    [
+        "own_integration",
+        "iam_role",
+        "inline_bucket_credentials",
+        "inline_authorization",
+        "other_team_integration",
+        "wrong_kind_integration",
+        "nonexistent_integration",
+    ],
 )
 def test_create_redshift_batch_export_validates_copy_integration_ids(
     client: HttpClient,
-    copy_credential_source,
-    temporal,
-    organization,
-    team,
-    user,
-    aws_s3_integration,
-    aws_redshift_integration,
-):
+    copy_credential_source: str,
+    team: Team,
+    user: User,
+    aws_s3_integration: IntegrationRecord,
+    aws_redshift_integration: IntegrationRecord,
+) -> None:
     # These ids live inside `config` rather than the team-scoped `integration` field, so
     # tenant scoping is enforced by validation: a foreign or wrong-kind id must 400, not 500.
     expected_status: int
-    if copy_credential_source == "own_integration":
-        integration_id = aws_s3_integration.pk
+    if copy_credential_source in {"own_integration", "iam_role"}:
+        integration_id = aws_s3_integration.id
         expected_status = status.HTTP_201_CREATED
+    elif copy_credential_source.startswith("inline_"):
+        integration_id = aws_s3_integration.id
+        expected_status = status.HTTP_400_BAD_REQUEST
     elif copy_credential_source == "other_team_integration":
         other_organization = create_organization("Other Org")
         other_team = create_team(other_organization)
-        other_user = create_user("other@user.com", "Other User", other_organization)
-        other_integration = Integration.objects.create(
-            team=other_team,
-            kind=Integration.IntegrationKind.AWS_S3,
-            integration_id="other-prod-aws",
-            config={"name": "other-prod-aws", "aws_account_id": "999999999999"},
-            sensitive_config={"aws_access_key_id": "key", "aws_secret_access_key": "secret"},
-            created_by=other_user,
+        other_user = create_user("other@example.com", "Other User", other_organization)
+        other_integration = IntegrationManager.aws_s3.credentials.create(
+            team_id=other_team.id,
+            external_id="other-test-aws",
+            config={"name": "other-test-aws"},
+            sensitive_config={"aws_access_key_id": "test-key", "aws_secret_access_key": "test-secret"},
+            created_by_id=other_user.id,
         )
-        integration_id = other_integration.pk
+        integration_id = other_integration.id
         expected_status = status.HTTP_400_BAD_REQUEST
     elif copy_credential_source == "wrong_kind_integration":
-        integration_id = aws_redshift_integration.pk
+        integration_id = aws_redshift_integration.id
         expected_status = status.HTTP_400_BAD_REQUEST
     else:
         integration_id = 999999
         expected_status = status.HTTP_400_BAD_REQUEST
 
-    destination_data = {
+    destination_data: dict[str, Any] = {
         "type": "Redshift",
         "config": {
             "database": "my-db",
@@ -404,8 +425,16 @@ def test_create_redshift_batch_export_validates_copy_integration_ids(
                 "authorization": integration_id,
             },
         },
-        "integration": aws_redshift_integration.pk,
+        "integration": aws_redshift_integration.id,
     }
+
+    if copy_credential_source == "iam_role":
+        destination_data["config"]["copy_inputs"]["authorization"] = "arn:aws:iam::000000000000:role/test-copy"
+    elif copy_credential_source.startswith("inline_"):
+        destination_data["config"]["copy_inputs"][copy_credential_source.removeprefix("inline_")] = {
+            "aws_access_key_id": "test-access-key",
+            "aws_secret_access_key": "test-secret-key",
+        }
 
     batch_export_data = {
         "name": "my-production-redshift-destination",
@@ -418,11 +447,19 @@ def test_create_redshift_batch_export_validates_copy_integration_ids(
 
     assert response.status_code == expected_status, response.json()
 
-    if expected_status == status.HTTP_400_BAD_REQUEST:
+    if copy_credential_source.startswith("inline_"):
+        assert "must be an AWS S3 integration" in response.json()["detail"]
+        assert "Inline AWS access keys are no longer accepted" in response.json()["detail"]
+        assert "test-access-key" not in response.json()["detail"]
+        assert "test-secret-key" not in response.json()["detail"]
+    elif expected_status == status.HTTP_400_BAD_REQUEST:
         assert "does not reference an AWS S3 integration" in response.json()["detail"]
     else:
         # EncryptedJSONField stringifies the stored ids; responses must restore them to ints
         # to honor the generated types.
         batch_export = get_batch_export_ok(client, team.pk, response.json()["id"])
         assert batch_export["destination"]["config"]["copy_inputs"]["bucket_credentials"] == integration_id
-        assert batch_export["destination"]["config"]["copy_inputs"]["authorization"] == integration_id
+        assert (
+            batch_export["destination"]["config"]["copy_inputs"]["authorization"]
+            == destination_data["config"]["copy_inputs"]["authorization"]
+        )

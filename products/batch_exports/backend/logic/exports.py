@@ -216,8 +216,7 @@ def _check_redshift_copy_inputs(
     ):
         # Sticky like the top-level integration: COPY credentials that reference an
         # integration cannot drop back to inline values.
-        # TODO: remove this guard once integrations are mandatory for Redshift and
-        # inline credentials are gone.
+        # TODO: remove legacy comparisons after all stored COPY keys move to integrations.
         if (
             instance is not None
             and copy_integration_id is None
@@ -225,7 +224,19 @@ def _check_redshift_copy_inputs(
         ):
             raise contracts.InvalidBatchExportDestinationError(
                 f"Cannot switch '{field_name}' from an integration to inline credentials. "
-                "Send a different integration ID to swap, or omit the field to keep the current one."
+                "Choose an AWS S3 integration, or omit the field to keep the current one."
+            )
+        value = copy_inputs[field_name]
+        if (
+            isinstance(value, dict)
+            and credential_keys <= value.keys()
+            and (instance is None or value != existing_copy_inputs.get(field_name))
+        ):
+            allowed_source = "an AWS S3 integration"
+            if field_name == "authorization":
+                allowed_source += " or an IAM role ARN"
+            raise contracts.InvalidBatchExportDestinationError(
+                f"'{field_name}' must be {allowed_source}. Inline AWS access keys are no longer accepted."
             )
         if copy_integration_id is None:
             continue
@@ -250,7 +261,7 @@ def _check_redshift_copy_inputs(
                 raise contracts.InvalidBatchExportDestinationError("Missing required IAM role for 'COPY'")
         else:
             raise contracts.InvalidBatchExportDestinationError(
-                "Authorization for 'COPY' must be an IAM role ARN, AWS credentials, or an integration ID."
+                "Authorization for 'COPY' must be an IAM role ARN or an AWS S3 integration ID."
             )
 
 
