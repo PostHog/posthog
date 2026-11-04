@@ -2126,9 +2126,6 @@ export interface hogFlowEditorLogicActions {
     copyNodeToHighlightedDropzone: () => {
         value: true
     }
-    duplicateNodeBelow: (actionId: string) => {
-        actionId: string
-    }
     fitView: (options?: { duration?: number; noZoom?: boolean }) => {
         duration?: number | undefined
         noZoom?: boolean | undefined
@@ -2373,7 +2370,6 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             isBranchJoinDropzone,
             joinEdges,
         }),
-        duplicateNodeBelow: (actionId: string) => ({ actionId }),
         markUtmSavedAsTeamDefault: (actionId: string, saved: UtmTagValues) => ({ actionId, saved }),
         loadActionMetricsById: (
             params: Pick<AppMetricsTotalsRequest, 'appSource' | 'appSourceId' | 'dateFrom' | 'dateTo'>,
@@ -3182,17 +3178,6 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         utm_params_from_default: utmKeysFollowingSavedDefault(latest.config.utm_params ?? {}, saved),
                     },
                 })
-            },
-            duplicateNodeBelow: ({ actionId }) => {
-                const action = values.workflow.actions.find((action) => action.id === actionId)
-                const targetEdge = values.workflow.edges.find((edge) => edge.from === actionId)
-
-                if (!action || action.type === 'trigger' || action.type === 'exit' || !targetEdge) {
-                    return
-                }
-
-                actions.setNodeToBeAdded(action)
-                actions.onDrop(undefined, targetEdge)
             },
             handlePaneClick: () => {
                 actions.setSelectedNodeId(null)
