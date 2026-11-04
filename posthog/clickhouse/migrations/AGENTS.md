@@ -337,8 +337,8 @@ run_sql_with_exceptions(
 )
 ```
 
-`INGESTION_SMALL` is the default only when the topic's volume is unclear.
-Measure the topic and choose small, medium or events with the node role guide in `.agents/skills/clickhouse-migrations/SKILL.md`.
+`INGESTION_SMALL` is the default only when the topic's message rate is unclear.
+Measure or estimate the rate, and choose small, medium or events with the node role guide in `.agents/skills/clickhouse-migrations/SKILL.md`.
 
 ### Required settings
 

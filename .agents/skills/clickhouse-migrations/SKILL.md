@@ -37,9 +37,10 @@ Pick the role by **which cluster owns the object**, not by its type alone:
   pre-aggregate (see below).
 - `[NodeRole.INGESTION_SMALL]`, `[NodeRole.INGESTION_MEDIUM]`, `[NodeRole.INGESTION_EVENTS]`: writable tables, Kafka tables, materialized views on the ingestion layer.
   `INGESTION_EVENTS` is for consumers of all of `clickhouse_events_json`, `INGESTION_MEDIUM` is for high-volume topics such as `clickhouse_flag_evaluations`, and `INGESTION_SMALL` is for lower-volume topics.
-  Measure the topic in each environment before you choose. Use `prometheus_query` to compare `sum(rate(warpstream_produced_records{topic="<topic>"}[5m]))` with topics that run on each role.
-  `ClickHouseCustomMetric_KafkaConsumerGroupInfo` shows the role of each consumer group in its `ch_cluster` label.
-  Use `INGESTION_SMALL` when the result is unclear or the topic has no traffic yet.
+  Choose by message rate, compared with topics that run on each role.
+  For an existing topic, measure the rate in each environment. The topic is live before your consumer exists.
+  For a new topic, estimate the rate from what will produce to it.
+  Use `INGESTION_SMALL` when you can't tell.
 - `[NodeRole.APM]`: the `ingestion-apm` nodes, the metrics ingestion layer. Kafka tables, `Null` input
   tables, materialized views and writable `Distributed` tables that write into storage on `LOGS`.
   Stateless like the other ingestion nodes, so storage tables never go here.
