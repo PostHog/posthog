@@ -1,12 +1,15 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 import { createElement } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -87,7 +90,7 @@ describe('sandbox setup in the channel catalog', () => {
         expect(logic.values.sandboxSetupError).toBeNull()
     })
 
-    it('keeps a channel load failure separate from sandbox setup and reloads on retry', async () => {
+    it('keeps a channel load failure separate from sandbox setup', async () => {
         let loadStatus = 500
         const sandbox = { id: 9, kind: 'email', config: { provider: 'sandbox', verified: true } }
         useMocks({
@@ -115,7 +118,7 @@ describe('sandbox setup in the channel catalog', () => {
         cleanup()
 
         loadStatus = 200
-        await expectLogic(logic, () => logic.actions.retrySandboxSenderSetup()).toFinishAllListeners()
+        await expectLogic(integrationsLogic, () => integrationsLogic.actions.loadIntegrations()).toFinishAllListeners()
         await expectLogic(integrationsLogic).toFinishAllListeners()
         expect(logic.values.integrationsLoadFailed).toBe(false)
         expect(logic.values.channels).not.toBeNull()
@@ -192,5 +195,39 @@ describe('sandbox setup in the channel catalog', () => {
         await waitFor(() => expect(integrationsLogic.values.sandboxEmailSender).not.toBeNull())
         await expectLogic(logic).toFinishAllListeners()
         expect(requests).toBe(1)
+    })
+
+    it.each([
+        { who: 'a project member below admin', level: OrganizationMembershipLevel.Member, existing: [] },
+        {
+            who: 'an admin whose project already has the sender',
+            level: OrganizationMembershipLevel.Admin,
+            existing: [9],
+        },
+    ])('sends no setup request for $who', async ({ level, existing }) => {
+        let requests = 0
+        const results = existing.map((id) => ({ id, kind: 'email', config: { provider: 'sandbox', verified: true } }))
+        useMocks({
+            get: { '/api/projects/:team_id/integrations/': () => [200, { results }] },
+            post: {
+                '/api/projects/:team_id/integrations/email_sandbox_sender/': () => {
+                    requests++
+                    return [403, { detail: "You don't have sufficient permissions in the project." }]
+                },
+            },
+        })
+        teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, effective_membership_level: level })
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER], {
+            [FEATURE_FLAGS.WORKFLOWS_SANDBOX_SENDER]: true,
+        })
+        integrationsLogic.mount()
+        await expectLogic(integrationsLogic).toFinishAllListeners()
+
+        logic = channelCatalogLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(requests).toBe(0)
+        expect(logic.values.sandboxSetupError).toBeNull()
     })
 })

@@ -5,12 +5,13 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TeamMembershipLevel } from 'lib/constants'
-import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
 import { IntegrationType } from '~/types'
 
+import { channelCatalogLogic } from './channelCatalogLogic'
+
 export function SandboxEmailSenderRow({ integration }: { integration: IntegrationType }): JSX.Element {
-    const { openSetupModal } = useActions(integrationsLogic)
+    const { startChannelSetup } = useActions(channelCatalogLogic)
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -39,7 +40,7 @@ export function SandboxEmailSenderRow({ integration }: { integration: Integratio
                     size="small"
                     icon={<IconPlus />}
                     className="shrink-0 self-start @lg:self-center"
-                    onClick={() => openSetupModal(undefined, 'email')}
+                    onClick={() => startChannelSetup('email')}
                     disabledReason={restrictedReason}
                     data-attr="sandbox-email-sender-add-own"
                 >
