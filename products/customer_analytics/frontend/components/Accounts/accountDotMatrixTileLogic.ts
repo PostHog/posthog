@@ -52,6 +52,7 @@ export interface accountDotMatrixTileLogicValues {
     activeMapping: DotMatrixSourceMapping
     config: DotMatrixTileConfig
     displayResult: DotMatrixTileResult | null
+    lastRunQuery: string | null
     loadError: string | null
     mappingDraft: DotMatrixSourceMapping
     matrixResult: DotMatrixTileResult | null
@@ -102,6 +103,9 @@ export interface accountDotMatrixTileLogicActions {
     ) => {
         matrixResult: DotMatrixTileResult | null
         payload?: DotMatrixTileSource | null
+    }
+    refreshMatrix: () => {
+        value: true
     }
     restoreConfig: (config: DotMatrixTileConfig) => {
         config: DotMatrixTileConfig
@@ -220,6 +224,7 @@ export const accountDotMatrixTileLogic: LogicWrapper<accountDotMatrixTileLogicTy
             runQuery: true,
             saveQuery: true,
             applyQuery: (source: DotMatrixTileSource) => ({ source }),
+            refreshMatrix: true,
             retry: true,
         }),
         loaders(({ cache, props, values }) => ({
@@ -314,6 +319,12 @@ export const accountDotMatrixTileLogic: LogicWrapper<accountDotMatrixTileLogicTy
                 {
                     editQuery: () => false,
                     loadMatrix: (_, source) => source !== undefined,
+                },
+            ],
+            lastRunQuery: [
+                null as string | null,
+                {
+                    loadMatrix: (_, source) => (source?.kind === 'hogql' ? source.query : null),
                 },
             ],
             loadError: [
@@ -472,7 +483,21 @@ export const accountDotMatrixTileLogic: LogicWrapper<accountDotMatrixTileLogicTy
             setWeeks: ({ weeks }) => {
                 props.onConfigChange?.({ ...values.config })
                 posthog.capture(AccountsEvents.DotMatrixSettingChanged, { setting: 'weeks', value: weeks })
-                actions.loadMatrix(values.queryEditorOpen ? null : undefined)
+                actions.refreshMatrix()
+            },
+            // Follows a new date window or account. While editing, it re-runs what was already executed, never unrun SQL.
+            refreshMatrix: () => {
+                if (!values.queryEditorOpen) {
+                    actions.loadMatrix()
+                    return
+                }
+                const result = values.matrixResult
+                const query = values.lastRunQuery ?? (result?.kind === 'hogql' ? result.query : null)
+                if (query !== null) {
+                    actions.loadMatrix({ kind: 'hogql', query, mapping: values.mappingDraft })
+                } else if (result) {
+                    actions.loadMatrix()
+                }
             },
             setSelectedSeries: ({ selectedSeries }) => {
                 if (!values.queryEditorOpen) {
@@ -510,7 +535,7 @@ export const accountDotMatrixTileLogic: LogicWrapper<accountDotMatrixTileLogicTy
                 props.externalId !== previousProps.externalId ||
                 queryChanged
             ) {
-                actions.loadMatrix(values.queryEditorOpen ? null : undefined)
+                actions.refreshMatrix()
             }
         }),
         afterMount(({ actions }) => {

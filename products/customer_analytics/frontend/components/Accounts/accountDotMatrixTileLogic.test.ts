@@ -456,4 +456,124 @@ describe('accountDotMatrixTileLogic', () => {
             logic.unmount()
         })
     })
+
+    describe('changing weeks while editing', () => {
+        const DRAFT = 'SELECT person AS who, week AS wk FROM events'
+        const MAPPING = { row: 'who', column: 'wk' }
+        const RESPONSE = { columns: ['who', 'wk'], results: [['person-1', 'week-1']] }
+        const lastQuery = (): any => mockPerformQuery.mock.calls[mockPerformQuery.mock.calls.length - 1][0]
+
+        async function mountWithRunDraft(save: jest.Mock): Promise<ReturnType<typeof accountDotMatrixTileLogic>> {
+            const logic = accountDotMatrixTileLogic({
+                instanceId: 'weeks-draft',
+                accountId: 'account-1',
+                externalId: 'external-1',
+                initialConfig: { source: null },
+                onConfigChange: save,
+            })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.chooseSource('hogql')
+            logic.actions.setQueryDraft(DRAFT)
+            logic.actions.setMappingDraft(MAPPING)
+            mockPerformQuery.mockResolvedValue(RESPONSE)
+            await expectLogic(logic, () => logic.actions.runQuery()).toDispatchActions(['loadMatrixSuccess'])
+            return logic
+        }
+
+        it('keeps results and mapping, and re-runs the executed query for the new window', async () => {
+            const save = jest.fn()
+            const logic = await mountWithRunDraft(save)
+            let resolveRerun: (value: unknown) => void = () => {}
+            mockPerformQuery.mockImplementationOnce(() => new Promise((resolve) => (resolveRerun = resolve)))
+
+            logic.actions.setWeeks(12)
+
+            expect(logic.values.matrixResult).toMatchObject({ kind: 'hogql', query: DRAFT })
+            expect(logic.values.mappingDraft).toEqual(MAPPING)
+            expect(lastQuery()).toMatchObject({ query: DRAFT, filters: { dateRange: { date_from: '-11wStart' } } })
+
+            resolveRerun(RESPONSE)
+            await expectLogic(logic).toDispatchActions(['loadMatrixSuccess']).toFinishAllListeners()
+
+            expect(logic.values.queryEditorOpen).toBe(true)
+            expect(logic.values.mappingDraft).toEqual(MAPPING)
+            expect(logic.values.querySaveError).toBeNull()
+            expect(logic.values.presentation.matrix.data).toHaveLength(1)
+            expect(save).toHaveBeenLastCalledWith({ mode: 'dots', weeks: 12, selectedSeries: [], source: null })
+            logic.unmount()
+        })
+
+        it('re-runs what was executed, never unrun edits in the editor', async () => {
+            const logic = await mountWithRunDraft(jest.fn())
+            logic.actions.setQueryDraft('SELECT unrun edits')
+
+            await expectLogic(logic, () => logic.actions.setWeeks(26)).toFinishAllListeners()
+
+            expect(lastQuery().query).toBe(DRAFT)
+            expect(logic.values.queryDraft).toBe('SELECT unrun edits')
+            expect(logic.values.querySaveError).toBe('Run the query before saving.')
+            logic.unmount()
+        })
+
+        it('runs nothing when no query has run yet', async () => {
+            const logic = accountDotMatrixTileLogic({
+                instanceId: 'weeks-unrun',
+                accountId: 'account-1',
+                initialConfig: { source: null },
+            })
+            logic.mount()
+            logic.actions.chooseSource('hogql')
+
+            await expectLogic(logic, () => logic.actions.setWeeks(12)).toFinishAllListeners()
+
+            expect(mockPerformQuery).not.toHaveBeenCalled()
+            logic.unmount()
+        })
+
+        it('supersedes a run still in flight, keeping that query', async () => {
+            const logic = accountDotMatrixTileLogic({
+                instanceId: 'weeks-inflight',
+                accountId: 'account-1',
+                externalId: 'external-1',
+                initialConfig: { source: null },
+            })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+            logic.actions.chooseSource('hogql')
+            logic.actions.setQueryDraft(DRAFT)
+            logic.actions.setMappingDraft(MAPPING)
+            let releaseFirstRun: (value: unknown) => void = () => {}
+            mockPerformQuery.mockImplementationOnce(() => new Promise((resolve) => (releaseFirstRun = resolve)))
+            logic.actions.runQuery()
+            mockPerformQuery.mockResolvedValue(RESPONSE)
+
+            logic.actions.setWeeks(12)
+            releaseFirstRun(RESPONSE)
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(lastQuery()).toMatchObject({ query: DRAFT, filters: { dateRange: { date_from: '-11wStart' } } })
+            expect(logic.values.matrixResult).toMatchObject({ query: DRAFT })
+            logic.unmount()
+        })
+
+        it('reloads the saved results on Cancel for the new window', async () => {
+            mockPerformQuery.mockResolvedValue({ results: BOOK_ACTIVITY_MATRIX_MOCK })
+            const logic = accountDotMatrixTileLogic({
+                instanceId: 'weeks-preset',
+                accountId: 'account-1',
+                initialConfig: { source: { kind: 'product_usage' } },
+            })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadMatrixSuccess']).toFinishAllListeners()
+            logic.actions.chooseSource('hogql')
+
+            await expectLogic(logic, () => logic.actions.setWeeks(12)).toDispatchActions(['loadMatrixSuccess'])
+            logic.actions.cancelQuery()
+
+            expect(lastQuery()).toMatchObject({ dateRange: { date_from: '-11wStart' } })
+            expect(logic.values.displayResult?.kind).toBe('product_usage')
+            logic.unmount()
+        })
+    })
 })
