@@ -560,8 +560,14 @@ async fn unmap(
     // order on either side is a deadlock cycle waiting for load. Sorted
     // acquisition on both sides (the writer sorts its flush batches the
     // same way) makes a cycle impossible.
+    //
+    // FOR NO KEY UPDATE for the same reason as the merge flip: the
+    // tombstone below changes no key column, the mode still excludes every
+    // other writer of the row, and it lets a foreign key check from the
+    // feature flag service's hash key override insert (FOR KEY SHARE)
+    // proceed instead of queueing behind this transaction.
     let lock_persons_sql = format!(
-        "SELECT id FROM {person_table} WHERE team_id = $1 AND id = ANY($2) ORDER BY id FOR UPDATE",
+        "SELECT id FROM {person_table} WHERE team_id = $1 AND id = ANY($2) ORDER BY id FOR NO KEY UPDATE",
         person_table = tables.person,
     );
     sqlx::query(&query_tag!("delete_unmap_lock_persons", lock_persons_sql))
