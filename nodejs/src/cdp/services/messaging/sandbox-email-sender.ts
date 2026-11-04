@@ -358,6 +358,14 @@ function conditionHolds(condition: string, client: ConditionalClient): boolean {
 
 const MAX_TEMPLATE_HTML_BYTES = 75_000
 
+class TooLargeForSandbox extends Error {
+    constructor() {
+        super(
+            'Sandbox emails can have at most 75 KB of HTML, so every inbox shows the identification footer. Shorten the template and try again.'
+        )
+    }
+}
+
 function conditionalMarker(comment: string): ConditionalMarker | null {
     const data = comment.trim()
     const hidden = /^\[if\b([^\]]*)\]>([\s\S]*)<!\[endif\]$/i.exec(data)
@@ -432,9 +440,7 @@ function outlookViews(html: string): DefaultTreeAdapterMap['document'][] {
 
 function appendHtmlFooter(html: string, footer: string, preheader?: string): string {
     if (Buffer.byteLength(html) > MAX_TEMPLATE_HTML_BYTES) {
-        throw new Error(
-            'Sandbox emails can have at most 75 KB of HTML, so every inbox shows the identification footer. Shorten the template and try again.'
-        )
+        throw new TooLargeForSandbox()
     }
     const preheaderText = parseFragment(preheader ?? '', { scriptingEnabled: false })
     neutralizeRawTextElements(preheaderText.childNodes)
@@ -456,6 +462,9 @@ function appendHtmlFooter(html: string, footer: string, preheader?: string): str
     defaultTreeAdapter.insertText(paragraph, footer)
     defaultTreeAdapter.appendChild(body, paragraph)
     const serialized = serialize(document, { scriptingEnabled: false })
+    if (Buffer.byteLength(serialized) > MAX_TEMPLATE_HTML_BYTES) {
+        throw new TooLargeForSandbox()
+    }
     if (leavesOutlookConditionalOpen(document.childNodes)) {
         throw new Error(
             'The sandbox email template could not retain its identification footer. Update the template and try again.'
