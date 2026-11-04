@@ -1,5 +1,5 @@
 import pytest
-from posthog.test.base import BaseTest
+from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
 from parameterized import parameterized
 
@@ -9,7 +9,10 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing
+from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.transforms.projection_pushdown import pushdown_projections
+
+from posthog.models.instance_setting import override_instance_config
 
 
 class TestProjectionPushdown(BaseTest):
@@ -726,3 +729,73 @@ class TestProjectionPushdown(BaseTest):
         assert isinstance(inner, ast.SelectQuery)
         column_names = {self._col_name(col) for col in inner.select}
         assert column_names == {"event", "properties"}, f"pruner dropped the property base column: got {column_names}"
+
+
+class TestProjectionPushdownExecution(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="u0",
+            timestamp="2024-01-02T10:00:00",
+            properties={"plan": "free"},
+        )
+        _create_event(
+            team=self.team,
+            event="signup",
+            distinct_id="u1",
+            timestamp="2024-01-02T11:00:00",
+            properties={"plan": "paid"},
+        )
+        flush_persons_and_events()
+
+    @parameterized.expand(
+        [
+            (
+                "same_names_in_another_order",
+                "SELECT a, count() FROM (SELECT * FROM (SELECT event AS a, distinct_id AS b FROM events) "
+                "UNION ALL SELECT * FROM (SELECT distinct_id AS b, event AS a FROM events)) AS sub GROUP BY a ORDER BY a",
+                [("$pageview", 2), ("signup", 2)],
+            ),
+            (
+                "explicit_column_after_asterisks_of_different_counts",
+                "SELECT region, sum(n) FROM (SELECT *, 'US' AS region FROM (SELECT 1 AS n, event AS a FROM events) "
+                "UNION ALL SELECT *, 'EU' AS region FROM (SELECT distinct_id AS b, uuid AS c, 1 AS n FROM events)) "
+                "AS sub GROUP BY region ORDER BY region",
+                [("EU", 2), ("US", 2)],
+            ),
+            (
+                "name_past_the_end_of_a_shorter_branch",
+                "SELECT c FROM (SELECT * FROM (SELECT distinct_id AS a, 1 AS b, event AS c FROM events) "
+                "UNION ALL SELECT * FROM (SELECT event AS c, distinct_id AS a FROM events)) AS sub ORDER BY c",
+                [("$pageview",), ("$pageview",), ("signup",), ("signup",)],
+            ),
+            (
+                "branch_without_the_name_keeps_the_position",
+                "SELECT a FROM (SELECT * FROM (SELECT event AS a, distinct_id AS x FROM events) "
+                "UNION ALL SELECT * FROM (SELECT event AS b, distinct_id AS y FROM events)) AS sub ORDER BY a",
+                [("$pageview",), ("$pageview",), ("signup",), ("signup",)],
+            ),
+            (
+                "cte_union",
+                "WITH sources AS (SELECT * FROM (SELECT event AS a, distinct_id AS b FROM events) "
+                "UNION ALL SELECT * FROM (SELECT distinct_id AS b, event AS a FROM events)) "
+                "SELECT a, count() FROM sources GROUP BY a ORDER BY a",
+                [("$pageview", 2), ("signup", 2)],
+            ),
+            (
+                "properties_through_both_branches",
+                "SELECT properties.plan AS plan, count() FROM (SELECT * FROM (SELECT event AS a, properties FROM events) "
+                "UNION ALL SELECT * FROM (SELECT event AS a, properties FROM events)) AS sub GROUP BY plan ORDER BY plan",
+                [("free", 2), ("paid", 2)],
+            ),
+        ]
+    )
+    def test_set_query_branches_return_the_named_columns(self, _name: str, query: str, expected: list[tuple]) -> None:
+        for narrowing in (True, False):
+            with override_instance_config("HOGQL_PROPERTIES_NARROWING_ENABLED", narrowing):
+                response = execute_hogql_query(
+                    query, team=self.team, modifiers=HogQLQueryModifiers(optimizeProjections=True)
+                )
+            assert response.results == expected, f"narrowing={narrowing}: {response.results}"
