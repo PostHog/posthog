@@ -732,6 +732,7 @@ def get_activity_overview(
     properties: list[AnyPropertyFilterDiscriminated] | None = None,
     filter_test_accounts: bool = False,
     user: User | None = None,
+    refresh: bool = False,
 ) -> contracts.ActivityOverview:
     """Return everything the activity view renders, bounded to ``ACTIVITY_WINDOW``.
 
@@ -740,7 +741,7 @@ def get_activity_overview(
     """
     restrictions = get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team.pk)
     cache_key = _activity_overview_cache_key(team, properties, filter_test_accounts, restrictions, user)
-    cached = cache.get(cache_key)
+    cached = None if refresh else cache.get(cache_key)
     if cached is not None:
         return cached
 

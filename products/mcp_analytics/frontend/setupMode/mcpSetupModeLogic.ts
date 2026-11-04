@@ -129,11 +129,11 @@ export interface mcpSetupModeLogicActions {
               }
             | undefined
     } // productSetupStatusLogic
-    exitSetupMode: (reason: MCPSetupExitReason) => {
-        reason: MCPSetupExitReason
-    }
     askPostHogAI: (prompt: string) => {
         prompt: string
+    }
+    exitSetupMode: (reason: MCPSetupExitReason) => {
+        reason: MCPSetupExitReason
     }
     goToUsefulStep: () => {
         value: true
@@ -175,6 +175,7 @@ export interface mcpSetupModeLogicMeta {
         ) => MCPSetupStep | null
         viewedStep: (setupPath: MCPSetupPath | null, step: MCPSetupStep | null) => string | null
         connectState: (onboardingState: MCPOnboardingState | null) => MCPConnectState
+        pollTarget: (isOpen: boolean, step: MCPSetupStep | null) => SetupPollTarget
     }
 }
 
@@ -218,7 +219,10 @@ export const mcpSetupModeLogic = kea<mcpSetupModeLogicType>([
                 loadRecentCalls: async (_: void, breakpoint): Promise<MCPActivityRecentCallApi[] | null> => {
                     // The overview resolves each call's client to a harness label and pulls the readable
                     // message out of a failed call's response, both of which only the backend knows how to do.
-                    const overview = await mcpAnalyticsSessionsActivityOverview(String(values.currentProjectId))
+                    // `refresh` skips the overview's shared five-minute cache, which would hide the calls that follow the first.
+                    const overview = await mcpAnalyticsSessionsActivityOverview(String(values.currentProjectId), {
+                        refresh: true,
+                    })
                     breakpoint()
                     return overview.recent_calls.slice(0, RECENT_CALLS)
                 },
@@ -268,7 +272,10 @@ export const mcpSetupModeLogic = kea<mcpSetupModeLogicType>([
             (setupPath: MCPSetupPath | null, step: MCPSetupStep | null): string | null =>
                 setupPath && step ? `${setupPath}:${step}` : null,
         ],
-        connectState: [(s) => [s.onboardingState], connectStateFor],
+        connectState: [
+            (s) => [s.onboardingState],
+            (onboardingState: MCPOnboardingState | null): MCPConnectState => connectStateFor(onboardingState),
+        ],
         // An unknown step (the first signals query failed) polls the signals too, so a retry comes quickly.
         pollTarget: [
             (s) => [s.isOpen, s.step],
@@ -368,9 +375,10 @@ export const mcpSetupModeLogic = kea<mcpSetupModeLogicType>([
         },
         pollTarget: (pollTarget: SetupPollTarget) => {
             cache.disposables.dispose('setupPoll')
+            // Each poll skips while the last request is in flight. A request slower than the interval
+            // would otherwise be cancelled by the next one, forever.
             if (pollTarget === 'signals') {
                 cache.disposables.add(() => {
-                    // A query slower than the interval would otherwise be cancelled by the next one, forever.
                     const id = window.setInterval(
                         () => !values.signalsLoading && actions.loadSignals(),
                         CONNECT_POLL_MS
@@ -380,7 +388,10 @@ export const mcpSetupModeLogic = kea<mcpSetupModeLogicType>([
             } else if (pollTarget === 'calls') {
                 actions.loadRecentCalls()
                 cache.disposables.add(() => {
-                    const id = window.setInterval(() => actions.loadRecentCalls(), FIRST_CALL_POLL_MS)
+                    const id = window.setInterval(
+                        () => !values.recentCallsLoading && actions.loadRecentCalls(),
+                        FIRST_CALL_POLL_MS
+                    )
                     return () => clearInterval(id)
                 }, 'setupPoll')
             }

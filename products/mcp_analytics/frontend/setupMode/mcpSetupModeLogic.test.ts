@@ -16,9 +16,14 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { SidePanelTab } from '~/types'
 
+import { mcpAnalyticsSessionsActivityOverview } from '../generated/api'
 import { mcpSetupModeLogic, resetSetupModeTrackingForTests } from './mcpSetupModeLogic'
 
 jest.mock('lib/api')
+jest.mock('../generated/api', () => ({
+    ...jest.requireActual('../generated/api'),
+    mcpAnalyticsSessionsActivityOverview: jest.fn(),
+}))
 jest.mock('lib/posthog-typed', () => ({ __esModule: true, default: { capture: jest.fn(), captureRaw: jest.fn() } }))
 
 const captureRawMock = posthog.captureRaw as jest.Mock
@@ -193,22 +198,30 @@ describe('mcpSetupModeLogic', () => {
             await jest.advanceTimersByTimeAsync(0)
         }
 
-        it('waits for a slow signals query instead of cancelling it with the next poll', async () => {
-            const query = jest
-                .spyOn(api, 'query')
-                .mockReset()
-                .mockResolvedValueOnce({ results: [CONNECTED] } as any)
-            logic.actions.loadSignals()
-            await jest.advanceTimersByTimeAsync(0)
-            await openAgentSetup()
-            expect(logic.values.step).toBe('connect')
-            query.mockReturnValue(new Promise(() => {}))
-            const sentBefore = query.mock.calls.length
+        it.each([
+            { poll: 'signals', signals: CONNECTED, step: 'connect' },
+            { poll: 'recent calls', signals: ONE_CALL, step: 'first-call' },
+        ])(
+            'waits for a slow $poll query instead of cancelling it with the next poll',
+            async ({ poll, signals, step }) => {
+                const query = jest
+                    .spyOn(api, 'query')
+                    .mockReset()
+                    .mockResolvedValueOnce({ results: [signals] } as any)
+                const overview = jest.mocked(mcpAnalyticsSessionsActivityOverview).mockReset()
+                logic.actions.loadSignals()
+                await jest.advanceTimersByTimeAsync(0)
+                await openAgentSetup()
+                expect(logic.values.step).toBe(step)
+                const slowRequest = poll === 'signals' ? query : overview
+                slowRequest.mockReturnValue(new Promise(() => {}))
+                const sentBefore = slowRequest.mock.calls.length
 
-            await jest.advanceTimersByTimeAsync(16000)
+                await jest.advanceTimersByTimeAsync(31000)
 
-            expect(query.mock.calls.length - sentBefore).toBe(1)
-        })
+                expect(slowRequest.mock.calls.length - sentBefore).toBe(1)
+            }
+        )
 
         it('retries soon when the first signals query fails, instead of spinning until the slow poll', async () => {
             logic.unmount()

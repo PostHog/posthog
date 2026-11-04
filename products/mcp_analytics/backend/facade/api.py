@@ -178,16 +178,18 @@ def get_activity_overview(
     properties: list[AnyPropertyFilterDiscriminated] | None = None,
     filter_test_accounts: bool = False,
     user: User | None = None,
+    refresh: bool = False,
 ) -> contracts.ActivityOverview:
     """Compute the activity view's aggregates and recent-call feed in one pass.
 
     Bounded to the last 30 days. Cached by the filters and the caller's property restrictions:
     for 5 minutes without restrictions, for less than one poll interval with them.
+    ``refresh`` skips the cached entry and stores the fresh result in its place.
 
     ``properties`` and ``filter_test_accounts`` are the tabs' shared filters.
     """
     return logic.get_activity_overview(
-        team, properties=properties, filter_test_accounts=filter_test_accounts, user=user
+        team, properties=properties, filter_test_accounts=filter_test_accounts, user=user, refresh=refresh
     )
 
 

@@ -772,4 +772,8 @@ export type McpAnalyticsSessionsActivityOverviewParams = {
      * Property filters that narrow the underlying $mcp_tool_call events, JSON-encoded. A list of event, person, or session property filters, each with key, value, operator, and type. Example: [{"key": "$mcp_tool_name", "value": ["query_run"], "operator": "exact", "type": "event"}]
      */
     properties?: string
+    /**
+     * Compute the overview again instead of serving the cached result. The fresh result replaces the cached one.
+     */
+    refresh?: boolean
 }
