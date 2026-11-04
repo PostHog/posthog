@@ -3,7 +3,8 @@ import json
 import time
 import uuid
 import hashlib
-from contextlib import suppress
+from collections.abc import Iterator
+from contextlib import contextmanager, suppress
 from datetime import timedelta
 from functools import lru_cache
 from typing import TYPE_CHECKING
@@ -14,6 +15,7 @@ from django.urls import resolve
 from django.utils import timezone
 
 from prometheus_client import Counter
+from redis.exceptions import RedisError
 from rest_framework import exceptions
 from rest_framework.throttling import SimpleRateThrottle, UserRateThrottle
 from statshog.defaults.django import statsd
@@ -31,6 +33,7 @@ from posthog.metrics import LABEL_PATH, LABEL_ROUTE, LABEL_TEAM_ID
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.team.team import Team
 from posthog.models.utils import hash_key_value
+from posthog.redis import get_client
 from posthog.settings.utils import get_list
 from posthog.utils import get_trusted_client_ip, patchable
 
@@ -365,26 +368,53 @@ class SignupIPThrottle(IPThrottle):
     an account, because a user who retries a form that keeps failing (validation errors, challenges,
     passkey retries) would otherwise lock out their IP for a day. `SignupAttemptIPThrottle` bounds the
     failed attempts instead.
+
+    The reservation and the release both read, change and write the cached history. A per-IP Redis lock
+    serializes them, because otherwise one request's write can erase another request's reservation.
     """
 
     scope = "signup_ip"
     rate = settings.SIGNUP_IP_THROTTLE_RATE
     reserved = False
 
+    @contextmanager
+    def _history_lock(self, key: str) -> Iterator[None]:
+        lock = get_client().lock(f"{key}:lock", timeout=5, blocking_timeout=5)
+        try:
+            acquired = lock.acquire()
+        except RedisError as e:
+            # Without the lock the throttle still works, with the same race as any DRF throttle.
+            capture_exception(e)
+            acquired = False
+        try:
+            yield
+        finally:
+            if acquired:
+                with suppress(RedisError):
+                    lock.release()
+
+    def allow_request(self, request: "Request", view: "APIView") -> bool:
+        key = self.get_cache_key(request, view) if self.rate is not None else None
+        if key is None:
+            return super().allow_request(request, view)
+        with self._history_lock(key):
+            return super().allow_request(request, view)
+
     def throttle_success(self) -> bool:
         self.reserved = True
         return super().throttle_success()
 
     def release(self) -> None:
-        if not self.reserved:
+        if not self.reserved or self.key is None:
             return
         self.reserved = False
         try:
             _, duration = self.parse_rate(self.rate)
-            history = self.cache.get(self.key, [])
-            with suppress(ValueError):
-                history.remove(self.now)
-            self.cache.set(self.key, history, duration)
+            with self._history_lock(self.key):
+                history = self.cache.get(self.key, [])
+                with suppress(ValueError):
+                    history.remove(self.now)
+                self.cache.set(self.key, history, duration)
         except Exception as e:
             # The request is already failing, so a cache error here must not replace its original error.
             capture_exception(e)
