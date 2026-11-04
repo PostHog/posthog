@@ -66,6 +66,8 @@ Pick by intent, not appearance. Each cluster below lists the discriminating ques
 | Combobox     | Pick one or many values from a long/dynamic list, with search. Multi-select renders chips                 | Action menus                                |
 | Autocomplete | Search-first text input with suggestions where the typed text itself is the value                         | Constrained choices — use Select/Combobox   |
 
+To search a menu's rows, wrap `DropdownMenu` or `DropdownMenuSub` in `DropdownMenuFilterProvider`, then add `DropdownMenuInput` and `DropdownMenuEmpty`, and put the rows in `DropdownMenuList`. Base UI marks this API as a preview.
+
 For a custom menu-like list inside a Popover (when DropdownMenu's open/close semantics don't fit), use `Item variant="menuItem"` with `ItemMenuItem`/`ItemCheckbox`/`ItemRadio` — don't restyle Buttons into menu rows. Inside quill, a primitive that renders a Button as a list row passes `size="row"` rather than pinning width, weight and text size per caller. `MenuLabel` is the shared section-label primitive the menu families render internally (DropdownMenuLabel, ComboboxLabel); it's exported for these custom menu-like lists.
 
 ### Disclosure
