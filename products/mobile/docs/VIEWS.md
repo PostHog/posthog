@@ -291,6 +291,11 @@ The tab makes no backend change. [`VIEWS_BACKEND_FOLLOWUPS.md`](VIEWS_BACKEND_FO
 - Insights viewed on the web in Recent, and phone views in the web's "Recently viewed".
 - Compare on dashboards: `DASHBOARD_COMPARE_SUPPORTED` stays false until US and EU run a build that accepts `compareFilter` in a dashboard override (the deploy check at the end of that file).
 
+## Session replays
+
+Session rows show a country flag beside the person when their profile has a valid `$geoip_country_code`.
+Profiles without a country show the person alone.
+
 ## Sessions and Errors release controls
 
 The `mobile-session-replay` and `mobile-error-tracking` feature flags control Sessions and Errors independently.
