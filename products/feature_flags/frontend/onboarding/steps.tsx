@@ -1,6 +1,6 @@
-import { FeatureFlagsSDKInstructions } from 'scenes/onboarding/sdks/feature-flags/FeatureFlagsSDKInstructions'
-import { OnboardingInstallStep } from 'scenes/onboarding/sdks/OnboardingInstallStep'
-import { INSTALL_DEDUP_KEYS, type ProductOnboardingProvider } from 'scenes/onboarding/types'
+import { FeatureFlagsSDKInstructions } from 'scenes/onboarding/flows/control/sdks/feature-flags/FeatureFlagsSDKInstructions'
+import { OnboardingInstallStep } from 'scenes/onboarding/flows/control/sdks/OnboardingInstallStep/index'
+import { INSTALL_DEDUP_KEYS, type ProductOnboardingProvider } from 'scenes/onboarding/flows/control/types'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'

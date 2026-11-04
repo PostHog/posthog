@@ -27,7 +27,6 @@ frontend/src/scenes/data-warehouse/editor/SQLEditor.tsx -> .EditorScene
 frontend/src/scenes/feature-flags/FeatureFlagVariantsForm.tsx -> .VariantFormList
 frontend/src/scenes/feature-flags/PercentageInput.tsx -> .LemonInput
 frontend/src/scenes/notebooks/Nodes/components/NotebookNodeTitle.tsx -> .NotebookNodeTitle
-frontend/src/scenes/onboarding/productSelection/ProductSelection.tsx -> .OnboardingProductCard
 frontend/src/scenes/project-homepage/today/TodayChange.tsx -> .TodayChange
 frontend/src/scenes/project-homepage/today/TodayCodeExcerpt.tsx -> .TodayCodeExcerpt
 frontend/src/scenes/project-homepage/today/TodayEvidenceDetail.tsx -> .TodayCodeExcerpt

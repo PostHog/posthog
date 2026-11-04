@@ -1,7 +1,7 @@
 import './sourceMapsWizardVisuals.scss'
 
+import { WizardHog as WizardHogImage } from 'lib/onboarding/wizardHog'
 import { cn } from 'lib/utils/css-classes'
-import { WizardHog as WizardHogImage } from 'scenes/onboarding/shared/wizardHog'
 
 export function WizardHog({ castKey = 0, className }: { castKey?: number; className?: string }): JSX.Element {
     return (

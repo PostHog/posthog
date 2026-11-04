@@ -17,10 +17,10 @@ import type {
 
 import { useChartTheme } from 'lib/charts/hooks'
 import { CommandBlock } from 'lib/components/CommandBlock/CommandBlock'
+import { useWizardCommand } from 'lib/onboarding/useWizardCommand'
 import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
-import { setupWizardStatusLogic } from 'scenes/onboarding/shared/setupWizardStatusLogic'
-import { useWizardCommand } from 'scenes/onboarding/shared/useWizardCommand'
+import { setupWizardStatusLogic } from 'scenes/insights/EmptyStates/setupWizardStatusLogic'
 
 import { SampleDataTag } from './SampleDataTag'
 

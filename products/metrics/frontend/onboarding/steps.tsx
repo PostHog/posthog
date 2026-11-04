@@ -1,6 +1,6 @@
-import { MetricsSDKInstructions } from 'scenes/onboarding/sdks/metrics/MetricsSDKInstructions'
-import { OnboardingInstallStep } from 'scenes/onboarding/sdks/OnboardingInstallStep'
-import { type ProductOnboardingProvider } from 'scenes/onboarding/types'
+import { MetricsSDKInstructions } from 'scenes/onboarding/flows/control/sdks/metrics/MetricsSDKInstructions'
+import { OnboardingInstallStep } from 'scenes/onboarding/flows/control/sdks/OnboardingInstallStep/index'
+import { type ProductOnboardingProvider } from 'scenes/onboarding/flows/control/types'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'

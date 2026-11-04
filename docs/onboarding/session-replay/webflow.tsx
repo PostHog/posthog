@@ -1,4 +1,7 @@
-import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
+import {
+    OnboardingComponentsContext,
+    createInstallation,
+} from 'scenes/settings/environment/OnboardingDocsContentWrapper'
 
 import { getWebflowInstallSteps } from '../product-analytics/webflow'
 import { StepDefinition } from '../steps'

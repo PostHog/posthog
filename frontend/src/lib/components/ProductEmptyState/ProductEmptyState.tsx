@@ -9,8 +9,8 @@ import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedAr
 import { type FeatureFlagKey, TeamMembershipLevel } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { type FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { useWizardCommand } from 'lib/onboarding/useWizardCommand'
 import { cn } from 'lib/utils/css-classes'
-import { useWizardCommand } from 'scenes/onboarding/shared/useWizardCommand'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { productSetupStatusLogic } from './productSetupStatusLogic'

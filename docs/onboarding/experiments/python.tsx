@@ -1,4 +1,7 @@
-import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
+import {
+    OnboardingComponentsContext,
+    createInstallation,
+} from 'scenes/settings/environment/OnboardingDocsContentWrapper'
 
 import { getPythonInstallSteps } from '../product-analytics/python'
 import { StepDefinition } from '../steps'

@@ -1,4 +1,7 @@
-import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
+import {
+    OnboardingComponentsContext,
+    createInstallation,
+} from 'scenes/settings/environment/OnboardingDocsContentWrapper'
 
 import { getDotNetInstallSteps } from '../product-analytics/dotnet'
 import { StepDefinition } from '../steps'

@@ -1,12 +1,12 @@
 import { SetupTaskId } from 'lib/components/ProductSetup'
-import { OnboardingErrorTrackingAlertsStep } from 'scenes/onboarding/error-tracking/OnboardingErrorTrackingAlertsStep'
-import { OnboardingErrorTrackingSourceMapsStep } from 'scenes/onboarding/error-tracking/OnboardingErrorTrackingSourceMapsStep'
+import { OnboardingErrorTrackingAlertsStep } from 'scenes/onboarding/flows/control/error-tracking/OnboardingErrorTrackingAlertsStep'
+import { OnboardingErrorTrackingSourceMapsStep } from 'scenes/onboarding/flows/control/error-tracking/OnboardingErrorTrackingSourceMapsStep'
 import {
     ErrorTrackingSDKDocsLinkOverrides,
     ErrorTrackingSDKInstructions,
-} from 'scenes/onboarding/sdks/error-tracking/ErrorTrackingSDKInstructions'
-import { OnboardingInstallStep } from 'scenes/onboarding/sdks/OnboardingInstallStep'
-import { INSTALL_DEDUP_KEYS, type ProductOnboardingProvider } from 'scenes/onboarding/types'
+} from 'scenes/onboarding/flows/control/sdks/error-tracking/ErrorTrackingSDKInstructions'
+import { OnboardingInstallStep } from 'scenes/onboarding/flows/control/sdks/OnboardingInstallStep/index'
+import { INSTALL_DEDUP_KEYS, type ProductOnboardingProvider } from 'scenes/onboarding/flows/control/types'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'

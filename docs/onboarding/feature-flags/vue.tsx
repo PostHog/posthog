@@ -1,4 +1,7 @@
-import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
+import {
+    OnboardingComponentsContext,
+    createInstallation,
+} from 'scenes/settings/environment/OnboardingDocsContentWrapper'
 
 import { getVueSteps as getVueStepsPA } from '../product-analytics/vue'
 import { StepDefinition } from '../steps'

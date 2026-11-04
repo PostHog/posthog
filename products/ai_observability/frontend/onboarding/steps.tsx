@@ -1,17 +1,17 @@
 import { SetupTaskId } from 'lib/components/ProductSetup'
+import { AnthropicLogo } from 'lib/onboarding/logos/AnthropicLogo'
+import geminiImage from 'lib/onboarding/logos/gemini.svg'
+import { LangChainLogo } from 'lib/onboarding/logos/LangChainLogo'
+import { OpenAILogo } from 'lib/onboarding/logos/OpenAILogo'
+import { OpenRouterLogo } from 'lib/onboarding/logos/OpenRouterLogo'
+import type { WizardBadgeItem } from 'lib/onboarding/wizard-command/WizardModeShell'
 import {
     AIObservabilitySDKInstructions,
     AIObservabilitySDKTagOverrides,
-} from 'scenes/onboarding/sdks/ai-observability/AIObservabilitySDKInstructions'
-import { VERIFY_AI_EVENTS } from 'scenes/onboarding/sdks/hooks/useInstallationComplete'
-import { OnboardingInstallStep } from 'scenes/onboarding/sdks/OnboardingInstallStep'
-import { AnthropicLogo } from 'scenes/onboarding/shared/logos/AnthropicLogo'
-import geminiImage from 'scenes/onboarding/shared/logos/gemini.svg'
-import { LangChainLogo } from 'scenes/onboarding/shared/logos/LangChainLogo'
-import { OpenAILogo } from 'scenes/onboarding/shared/logos/OpenAILogo'
-import { OpenRouterLogo } from 'scenes/onboarding/shared/logos/OpenRouterLogo'
-import type { WizardBadgeItem } from 'scenes/onboarding/shared/wizard-command/WizardModeShell'
-import { type ProductOnboardingProvider } from 'scenes/onboarding/types'
+} from 'scenes/onboarding/flows/control/sdks/ai-observability/AIObservabilitySDKInstructions'
+import { VERIFY_AI_EVENTS } from 'scenes/onboarding/flows/control/sdks/hooks/useInstallationComplete'
+import { OnboardingInstallStep } from 'scenes/onboarding/flows/control/sdks/OnboardingInstallStep/index'
+import { type ProductOnboardingProvider } from 'scenes/onboarding/flows/control/types'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'

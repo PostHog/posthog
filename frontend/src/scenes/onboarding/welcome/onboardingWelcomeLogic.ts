@@ -4,7 +4,7 @@ import posthog from 'posthog-js'
 
 import type { SceneProductEmptyState } from 'lib/components/ProductEmptyState/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { availableOnboardingProducts } from 'scenes/onboarding/shared/utils'
+import { availableOnboardingProducts } from 'lib/onboarding/utils'
 import { urls } from 'scenes/urls'
 
 import { ProductKey } from '~/queries/schema/schema-general'

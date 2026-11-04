@@ -141,12 +141,12 @@ Two entry paths coexist, sharing one install hero.
    stateless-only server, which emits no `$mcp_initialize`: such a project reads as
    `needs-setup` until its first tool call and then goes straight to `has-data`, skipping
    `waiting-for-data`. See [stateless-and-sessions.md](stateless-and-sessions.md).
-2. **The legacy app-wide `/onboarding` flow** is still registered, under
-   `frontend/src/scenes/onboarding/legacy/stepProviderRegistry.ts` — the `legacy/` segment
-   signals it is being phased out. Registering a product there takes roughly six touches:
+2. **The app-wide `/onboarding` flow** is still registered, under
+   `frontend/src/scenes/onboarding/flows/control/stepProviderRegistry.ts`.
+   Registering a product there takes roughly six touches:
    `ProductKey.MCP_ANALYTICS` (`schema-general.ts`), `Scene.MCPAnalytics` (`sceneTypes.ts`),
    the `AvailableOnboardingProducts` union (`types.ts`), an `availableOnboardingProducts` entry
-   (`onboarding/shared/utils.tsx`), the provider in `legacy/stepProviderRegistry.ts`, and the
+   (`lib/onboarding/utils.tsx`), the provider in `flows/control/stepProviderRegistry.ts`, and the
    custom install step (`products/mcp_analytics/frontend/onboarding/steps.tsx`).
 
 **They do not share a component — check which one you're editing.** Only the legacy path renders

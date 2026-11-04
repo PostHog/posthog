@@ -1,4 +1,7 @@
-import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
+import {
+    OnboardingComponentsContext,
+    createInstallation,
+} from 'scenes/settings/environment/OnboardingDocsContentWrapper'
 
 import { getFramerInstallSteps } from '../product-analytics/framer'
 import { StepDefinition } from '../steps'

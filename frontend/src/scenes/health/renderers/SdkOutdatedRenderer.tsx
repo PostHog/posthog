@@ -1,8 +1,8 @@
 import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { SDK_DOCS_LINKS, SDK_TYPE_READABLE_NAME } from 'scenes/onboarding/shared/sdkHealth/sdkConstants'
-import type { SdkType } from 'scenes/onboarding/shared/sdkHealth/sdkHealthLogic'
+import { SDK_DOCS_LINKS, SDK_TYPE_READABLE_NAME } from 'scenes/sdk-health/sdkConstants'
+import type { SdkType } from 'scenes/sdk-health/sdkHealthLogic'
 
 import type { HealthIssue } from '../types'
 

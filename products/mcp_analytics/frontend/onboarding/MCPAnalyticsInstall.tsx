@@ -4,8 +4,8 @@ import { IconCheckCircle } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { CommandBlock } from 'lib/components/CommandBlock/CommandBlock'
-import { useWizardCommand } from 'scenes/onboarding/shared/useWizardCommand'
-import { WizardHog } from 'scenes/onboarding/shared/wizardHog'
+import { useWizardCommand } from 'lib/onboarding/useWizardCommand'
+import { WizardHog } from 'lib/onboarding/wizardHog'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { mcpAnalyticsOnboardingLogic } from '../mcpAnalyticsOnboardingLogic'

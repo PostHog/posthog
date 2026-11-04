@@ -1,7 +1,7 @@
 import { IconLogomark } from '@posthog/icons'
 
-import { AnthropicLogo } from 'scenes/onboarding/shared/logos/AnthropicLogo'
-import { OpenAILogo } from 'scenes/onboarding/shared/logos/OpenAILogo'
+import { AnthropicLogo } from 'lib/onboarding/logos/AnthropicLogo'
+import { OpenAILogo } from 'lib/onboarding/logos/OpenAILogo'
 
 import { normalizeModelId } from 'products/tasks/frontend/modelCatalog'
 

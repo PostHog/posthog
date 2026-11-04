@@ -8,7 +8,7 @@ import { LemonButton, LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
-import { getProductIcon } from 'scenes/onboarding/shared/utils'
+import { getProductIcon } from 'lib/onboarding/utils'
 import { userLogic } from 'scenes/userLogic'
 
 import { AvailableFeature, BillingFeatureType, BillingProductV2AddonType, BillingProductV2Type } from '~/types'

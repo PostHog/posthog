@@ -6,8 +6,8 @@ import { ApiError } from 'lib/api-error'
 import { resolveTeamGitHubIntegration } from 'lib/integrations/GitHubIntegrationHelpers'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { uuid } from 'lib/utils/dom'
-import { onboardingLogic } from 'scenes/onboarding/onboardingLogic'
-import { wizardInstallStepLogic } from 'scenes/onboarding/sdks/OnboardingInstallStep/wizardInstallStepLogic'
+import { onboardingLogic } from 'scenes/onboarding/flows/control/onboardingLogic'
+import { wizardInstallStepLogic } from 'scenes/onboarding/flows/control/sdks/OnboardingInstallStep/wizardInstallStepLogic'
 
 import type { IntegrationType } from '~/types'
 

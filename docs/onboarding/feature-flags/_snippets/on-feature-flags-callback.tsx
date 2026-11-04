@@ -1,4 +1,4 @@
-import { useMDXComponents } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
+import { useMDXComponents } from 'scenes/settings/environment/OnboardingDocsContentWrapper'
 
 export const OnFeatureFlagsCallbackSnippet = (): JSX.Element => {
     const { CodeBlock, dedent, Markdown } = useMDXComponents()

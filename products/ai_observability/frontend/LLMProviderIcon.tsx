@@ -1,9 +1,9 @@
 import { IconCloud, IconGlobe } from '@posthog/icons'
 
-import { AnthropicLogo } from 'scenes/onboarding/shared/logos/AnthropicLogo'
-import geminiImage from 'scenes/onboarding/shared/logos/gemini.svg'
-import { OpenAILogo } from 'scenes/onboarding/shared/logos/OpenAILogo'
-import { OpenRouterLogo } from 'scenes/onboarding/shared/logos/OpenRouterLogo'
+import { AnthropicLogo } from 'lib/onboarding/logos/AnthropicLogo'
+import geminiImage from 'lib/onboarding/logos/gemini.svg'
+import { OpenAILogo } from 'lib/onboarding/logos/OpenAILogo'
+import { OpenRouterLogo } from 'lib/onboarding/logos/OpenRouterLogo'
 
 import azureImage from 'public/services/azure.png'
 

@@ -7,7 +7,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 
-import { ProjectTokenSnippet } from '../shared/ProjectTokenSnippet'
+import { ProjectTokenSnippet } from '../flows/control/ProjectTokenSnippet'
 import { onboardingWelcomeLogic, WELCOME_PRODUCTS } from './onboardingWelcomeLogic'
 import { WelcomeAiPanel } from './WelcomeAiPanel'
 import { WelcomeProductNavItem } from './WelcomeProductNavItem'

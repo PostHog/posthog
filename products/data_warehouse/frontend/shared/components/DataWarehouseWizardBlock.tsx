@@ -1,5 +1,5 @@
 import { CommandBlock } from 'lib/components/CommandBlock/CommandBlock'
-import { useWizardCommand } from 'scenes/onboarding/shared/useWizardCommand'
+import { useWizardCommand } from 'lib/onboarding/useWizardCommand'
 
 import type { ExternalDataSourceType } from '~/types'
 

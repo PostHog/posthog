@@ -2,9 +2,9 @@ import { useValues } from 'kea'
 
 import { dayjs } from 'lib/dayjs'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { availableOnboardingProducts, toSentenceCase } from 'lib/onboarding/utils'
 import { cn } from 'lib/utils/css-classes'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
-import { availableOnboardingProducts, toSentenceCase } from 'scenes/onboarding/shared/utils'
 
 import type { OnboardingProduct } from '~/types'
 

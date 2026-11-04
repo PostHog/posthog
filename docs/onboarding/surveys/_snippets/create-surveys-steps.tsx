@@ -1,4 +1,4 @@
-import { OnboardingComponentsContext } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
+import { OnboardingComponentsContext } from 'scenes/settings/environment/OnboardingDocsContentWrapper'
 
 import { StepDefinition } from '../../steps'
 
