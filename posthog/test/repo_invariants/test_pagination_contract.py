@@ -259,6 +259,8 @@ EXISTING_CUSTOM_LIST_VIEWSETS = {
     "products.signals.backend.presentation.spend.SignalSpendViewSet",
     # Returns one rollup per signal source type; Settings needs the complete breakdown to total usage.
     "products.signals.backend.presentation.spend.SignalSourceSpendViewSet",
+    # Returns one project's trial status, with no collection to paginate.
+    "products.signals.backend.presentation.trial.SelfDrivingTrialViewSet",
     "products.signals.backend.scout_harness.views.SignalScoutConfigViewSet",
     "products.signals.backend.scout_harness.views.SignalScoutMembersViewSet",
     "products.signals.backend.scout_harness.views.SignalScoutNoteViewSet",

@@ -332,6 +332,7 @@ from products.signals.backend.throttles import (
     ReportTaskActionRunSustainedThrottle,
 )
 from products.signals.backend.tracker_issues import tracker_issue_completion_lock
+from products.signals.backend.trial.service import TrialService
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.access import code_access_required_response, usage_limit_response
 from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
@@ -577,7 +578,13 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             serializer.validated_data.get("source_product"), serializer.validated_data.get("source_type")
         )
         try:
-            instance = serializer.save(team_id=team_id, created_by=self.request.user)
+            with TrialService(self.team).enroll_on_activation(
+                user=cast(User, self.request.user),
+                enabled=serializer.validated_data.get("enabled", True),
+                parent_access_allowed=self._can_reach_canonical_team(),
+                api_scopes=get_authenticator_scopes(self.request.successful_authenticator),
+            ):
+                instance = serializer.save(team_id=team_id, created_by=self.request.user)
         except IntegrityError:
             raise serializers.ValidationError(
                 {"source_product": "A configuration for this source product and type already exists for this team."}
@@ -635,7 +642,13 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 raise serializers.ValidationError({field: f"{field} cannot be changed after creation."})
 
         try:
-            instance = serializer.save()
+            with TrialService(self.team).enroll_on_activation(
+                user=cast(User, self.request.user),
+                enabled=serializer.validated_data.get("enabled", False),
+                parent_access_allowed=self._can_reach_canonical_team(),
+                api_scopes=get_authenticator_scopes(self.request.successful_authenticator),
+            ):
+                instance = serializer.save()
         except IntegrityError:
             raise serializers.ValidationError(
                 {"source_product": "A configuration for this source product and type already exists for this team."}
