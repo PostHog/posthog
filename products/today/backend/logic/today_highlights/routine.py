@@ -151,7 +151,11 @@ def _progressive_metrics(context: Context, excluded: Collection[str], budget: in
                     raise ValueError("Pending insight has no query ID") from error
                 query_ids[key] = error.query_id
                 continue
+            except ValueError as error:
+                capture_exception(error, {"product": "today", "provider": "routine"})
+                metric = None
             except Exception as error:
+                context.failures.append(key)
                 capture_exception(error, {"product": "today", "provider": "routine"})
                 metric = None
             del pending[key]
@@ -177,11 +181,11 @@ def _eligible_choices(
     definitions = viewable_insight_definitions(
         team=context.team, user=context.user, short_ids=[candidate.short_id for candidate in candidates]
     )
-    choices: dict[str, PulseChoice] = {}
+    choices: list[PulseChoice] = []
     for candidate in candidates:
         key = f"insight:{candidate.short_id}"
         definition = definitions.get(candidate.short_id)
-        if key in excluded or key in choices or definition is None:
+        if key in excluded or definition is None:
             continue
         if not context.guard(
             f"eligible insight {candidate.short_id}",
@@ -192,20 +196,22 @@ def _eligible_choices(
         source = definition.query.get("source", definition.query)
         dashboard = candidate.dashboard
         interval = (dashboard.filters.get("interval") if dashboard else None) or source.get("interval", "day")
-        choices[key] = PulseChoice(
-            key=key,
-            candidate=candidate,
-            slot=contracts.PulseSlot(
+        choices.append(
+            PulseChoice(
                 key=key,
-                name=definition.name or "Untitled insight",
-                reason=HighlightMetricReason.POPULAR if candidate.viewed.popular else HighlightMetricReason.ROUTINE,
-                url=f"/dashboard/{dashboard.dashboard_id}" if dashboard else f"/insights/{candidate.short_id}",
-                interval=HighlightInterval(interval)
-                if source.get("kind") == "TrendsQuery" and interval in HighlightInterval.values
-                else None,
-            ),
+                candidate=candidate,
+                slot=contracts.PulseSlot(
+                    key=key,
+                    name=definition.name or "Untitled insight",
+                    reason=HighlightMetricReason.POPULAR if candidate.viewed.popular else HighlightMetricReason.ROUTINE,
+                    url=f"/dashboard/{dashboard.dashboard_id}" if dashboard else f"/insights/{candidate.short_id}",
+                    interval=HighlightInterval(interval)
+                    if source.get("kind") == "TrendsQuery" and interval in HighlightInterval.values
+                    else None,
+                ),
+            )
         )
-    return list(choices.values())
+    return choices
 
 
 def _next_choice(

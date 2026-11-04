@@ -551,6 +551,59 @@ class TestProgressiveInsights(SimpleTestCase):
             Counter(ref for ref, _ in queried), {"slow": 2, "fast": 2, "empty": 1, "timeout": 1, "spare": 2}
         )
 
+    def test_failed_candidates_are_replaced_and_only_transient_errors_mark_the_source_failed(self) -> None:
+        dashboard = DashboardInsights(
+            dashboard_id=7,
+            name="Growth",
+            filters={},
+            variables=None,
+            tiles=(
+                DashboardInsightTile(insight_short_id="a", filters_overrides=None),
+                DashboardInsightTile(insight_short_id="b", filters_overrides=None),
+            ),
+        )
+        views = [
+            routine.ViewedItem(kind="dashboard", ref="7", days=frozenset({TODAY})),
+            *(routine.ViewedItem(kind="insight", ref=ref, days=frozenset({TODAY})) for ref in ("broken", "bad", "b")),
+        ]
+        definitions = {
+            ref: SavedInsightDefinition(id=i, short_id=ref, name=ref, query={"kind": "TrendsQuery"})
+            for i, ref in enumerate(("a", "b", "broken", "bad"))
+        }
+        errors: dict[str, Exception] = {"broken": ConnectionError("network"), "bad": ValueError("Insight query failed")}
+
+        def series(**kwargs: Any) -> InsightSeries:
+            ref = kwargs["short_id"]
+            if ref in errors:
+                raise errors[ref]
+            return insight({"opened": days([10.0] * 56)}, short_id=ref, name=ref)
+
+        context = cast(
+            Context,
+            SimpleNamespace(
+                team=None,
+                user=None,
+                today=TODAY,
+                failures=[],
+                guard=lambda name, compute, fallback: compute(),
+                publish_pulse=lambda found, slots: None,
+            ),
+        )
+        with (
+            patch.object(routine, "_frecent_views", return_value=views),
+            patch.object(routine, "_candidates", side_effect=lambda context, own: iter(own)),
+            patch.object(routine, "dashboard_insights", return_value=dashboard),
+            patch.object(routine, "viewable_insight_definitions", return_value=definitions),
+            patch.object(routine, "get_insight_series", side_effect=series),
+            patch.object(routine, "capture_exception"),
+        ):
+            found = routine._progressive_metrics(context, frozenset(), 2)
+
+        self.assertEqual(
+            [(metric.key, metric.dashboard_id) for metric in found], [("insight:a", 7), ("insight:b", None)]
+        )
+        self.assertEqual(context.failures, ["insight:broken"])
+
     def test_a_dashboard_skips_an_unsupported_tile_before_selecting_a_loading_card(self) -> None:
         viewed = routine.ViewedItem(kind="dashboard", ref="7", days=frozenset({TODAY}))
         dashboard = DashboardInsights(

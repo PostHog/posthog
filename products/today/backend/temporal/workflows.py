@@ -21,6 +21,7 @@ with temporalio.workflow.unsafe.imports_passed_through():
     )
 
 HIGHLIGHT_SOURCE_TIMEOUT = timedelta(seconds=180)
+HIGHLIGHT_SOURCE_TOTAL_TIMEOUT = timedelta(seconds=240)
 FINALIZE_HIGHLIGHTS_TIMEOUT = timedelta(seconds=30)
 PINNED_NUMBERS_PATCH = "today-pinned-numbers"
 
@@ -64,6 +65,7 @@ async def _run_source(inputs: ComputeHighlightsInputs, source_name: str) -> High
                 highlights_id=inputs.highlights_id if inputs.progressive else None,
             ),
             start_to_close_timeout=HIGHLIGHT_SOURCE_TIMEOUT,
+            schedule_to_close_timeout=HIGHLIGHT_SOURCE_TOTAL_TIMEOUT,
             retry_policy=temporalio.common.RetryPolicy(maximum_attempts=2),
         )
     except ActivityError:
