@@ -604,7 +604,7 @@ describe('EmailService', () => {
                 ],
                 ['an unknown error', () => new Error('connect ECONNRESET for test@example.com'), 'other'],
             ])('counts an SES send that fails with %s as %s', async (_name, makeError, expectedResult) => {
-                const labels = { result: expectedResult }
+                const labels = { result: expectedResult, source: 'workflow', priority_class: 'bulk' }
                 const before = await metricValue('cdp_ses_send_results_total', labels)
                 sendEmailSpy.mockRejectedValueOnce(makeError())
 
@@ -612,6 +612,35 @@ describe('EmailService', () => {
 
                 expect(await metricValue('cdp_ses_send_results_total', labels)).toBe(before + 1)
             })
+
+            it('exposes a loss series at zero before its first failure', async () => {
+                const values: { labels: Record<string, string>; value: number }[] = (
+                    await register.getSingleMetric('cdp_ses_send_results_total')!.get()
+                ).values as any
+
+                expect(values).toContainEqual({
+                    labels: { result: 'NotFoundException', source: 'workflow', priority_class: 'fast' },
+                    value: 0,
+                })
+            })
+
+            it.each([
+                ['transactional_api', 'fast', '$transactional_email', 'transactional'],
+                ['workflow', 'fast', '$pageview', 'transactional'],
+                ['workflow', 'bulk', '$pageview', 'marketing'],
+            ])(
+                'counts an accepted %s send on the %s lane',
+                async (source, priorityClass, eventName, messageCategoryType) => {
+                    invocation.state.globals.event.event = eventName
+                    invocation.hogFunction.metadata = { message_category_type: messageCategoryType }
+                    const labels = { result: 'success', source, priority_class: priorityClass }
+                    const before = await metricValue('cdp_ses_send_results_total', labels)
+
+                    await service.executeSendEmail(invocation)
+
+                    expect(await metricValue('cdp_ses_send_results_total', labels)).toBe(before + 1)
+                }
+            )
 
             it('still fails the job for non-throttle SES errors', async () => {
                 sendEmailSpy.mockRejectedValueOnce(

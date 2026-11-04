@@ -18,7 +18,8 @@ import { HogFunctionType } from '../../types'
  * other email rows, and routeToQueue restores the origin priority before a
  * job leaves the email queue.
  */
-export type EmailQueuePriorityClass = 'fast' | 'bulk'
+export const EMAIL_QUEUE_PRIORITY_CLASSES = ['fast', 'bulk'] as const
+export type EmailQueuePriorityClass = (typeof EMAIL_QUEUE_PRIORITY_CLASSES)[number]
 
 export const EMAIL_QUEUE_PRIORITY: Record<EmailQueuePriorityClass, number> = {
     fast: 0,
