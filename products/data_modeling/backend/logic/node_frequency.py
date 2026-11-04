@@ -541,6 +541,14 @@ def _unpinned_cadence_by_cadence(
     return result
 
 
+def scheduled_cadences_by_node(team_id: int, dag_ids: Iterable[uuid.UUID | str]) -> dict[str, timedelta | None]:
+    """The cadence the scheduler runs each node of these DAGs at, keyed by node id."""
+    result: dict[str, timedelta | None] = {}
+    for dag in DAG.objects.filter(team_id=team_id, id__in=set(dag_ids)):
+        result.update(scheduled_cadences(build_frequency_graph(dag))[0])
+    return result
+
+
 def scheduled_cadences(
     graph: FrequencyGraph,
     *,

@@ -35,6 +35,7 @@ from products.data_modeling.backend.facade.api import (
     run_related_node_materializations,
     saved_query_pin_preview,
     saved_query_target_bounds,
+    scheduled_cadences_by_node,
     suspension_state,
     unsuspend_nodes,
 )
@@ -193,6 +194,12 @@ class NodeSerializer(serializers.ModelSerializer):
     last_run_error = serializers.SerializerMethodField(read_only=True)
     user_tag = serializers.SerializerMethodField(read_only=True)
     sync_interval = serializers.SerializerMethodField(read_only=True)
+    effective_sync_interval = serializers.SerializerMethodField(
+        read_only=True,
+        help_text="How often this node actually refreshes. A downstream view can make an unpinned view "
+        "refresh more often than `sync_interval`, and a slow source can make it refresh less often. "
+        "Null when the node is not scheduled.",
+    )
     lineage_issue = serializers.SerializerMethodField(read_only=True)
     origin = serializers.SerializerMethodField(read_only=True)
     warehouse_table_id = serializers.SerializerMethodField(read_only=True)
@@ -218,6 +225,7 @@ class NodeSerializer(serializers.ModelSerializer):
             "last_run_error",
             "user_tag",
             "sync_interval",
+            "effective_sync_interval",
             "sync_frequency",
             "pinned",
             "suspended",
@@ -303,6 +311,14 @@ class NodeSerializer(serializers.ModelSerializer):
         if node.saved_query:
             return sync_frequency_interval_to_sync_frequency(node.saved_query.sync_frequency_interval)
         return None
+
+    def get_effective_sync_interval(self, node: Node) -> str | None:
+        # Built once per DAG for the whole response, not once per listed node.
+        by_dag = self.context.setdefault("_scheduled_cadences_by_dag", {})
+        if node.dag_id not in by_dag:
+            by_dag[node.dag_id] = scheduled_cadences_by_node(node.team_id, [node.dag_id])
+        cadence = by_dag[node.dag_id].get(str(node.id))
+        return sync_frequency_interval_to_sync_frequency(cadence) if cadence is not None else None
 
     @extend_schema_field(LineageIssueSerializer(allow_null=True))
     def get_lineage_issue(self, node: Node) -> dict[str, Any] | None:

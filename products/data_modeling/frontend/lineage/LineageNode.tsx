@@ -9,6 +9,7 @@ import {
     IconExternal,
     IconPauseFilled,
     IconPencil,
+    IconPinFilled,
     IconPlay,
     IconPlayFilled,
     IconTarget,
@@ -48,6 +49,8 @@ export type LineageNodeShape = Pick<
     | 'name'
     | 'type'
     | 'sync_interval'
+    | 'effective_sync_interval'
+    | 'pinned'
     | 'last_run_at'
     | 'last_run_status'
     | 'upstream_count'
@@ -182,14 +185,32 @@ function RunArrow({
     )
 }
 
+function CadenceLabel({ node }: { node: LineageNodeShape }): JSX.Element {
+    const runsAt = node.effective_sync_interval ?? node.sync_interval ?? undefined
+    const inherited = !node.pinned && !!runsAt && !!node.sync_interval && runsAt !== node.sync_interval
+    const title = !runsAt
+        ? 'This node is not set to sync on a schedule yet'
+        : node.pinned
+          ? 'Pinned to this cadence. Downstream views may read older data from it.'
+          : inherited
+            ? `Refreshes this often to keep up with a downstream view. Its own setting is ${syncIntervalToShorthand(node.sync_interval)}.`
+            : null
+    return (
+        <Tooltip title={title}>
+            <span className="inline-flex items-center gap-0.5">
+                {syncIntervalToShorthand(runsAt)}
+                {node.pinned && <IconPinFilled className="text-[10px]" />}
+            </span>
+        </Tooltip>
+    )
+}
+
 function MetadataBar({ node }: { node: LineageNodeShape }): JSX.Element {
     return (
         <div className="flex items-center bg-primary dark:bg-primary/60 rounded-b-lg px-2.5 py-1.5 justify-between">
             <div className="flex gap-1 text-[10px] items-center">
                 <IconClockRewind className="scale-x-[-1]" />
-                <Tooltip title={node.sync_interval ? null : 'This node is not set to sync on a schedule yet'}>
-                    {syncIntervalToShorthand(node.sync_interval)}
-                </Tooltip>
+                <CadenceLabel node={node} />
                 <IconActivity />
                 {node.last_run_at ? (
                     <Tooltip title="Last successful run.">
