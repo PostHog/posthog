@@ -36,6 +36,13 @@ from products.warehouse_sources.sources.sdk import (
     url_field,
 )
 
+# The IAM actions this source calls. A role session can use only these.
+AWS_SESSION_ACTIONS = (
+    "kms:Decrypt",
+    "s3:Get*",
+    "s3:List*",
+)
+
 
 @frozen
 class _AmazonS3Auth:
@@ -83,6 +90,7 @@ class AmazonS3Source(ObjectStorageSource[AmazonS3SourceConfig]):
     self_managed_service = "s3"
 
     flat_stored_selects = AWS_FLAT_STORED_SELECTS
+    aws_session_actions = AWS_SESSION_ACTIONS
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -105,7 +113,7 @@ class AmazonS3Source(ObjectStorageSource[AmazonS3SourceConfig]):
         if url.region is None:
             url = dataclasses.replace(url, region=lookup_s3_bucket_region(url.bucket))
         try:
-            credentials = resolve_aws_credentials(_AmazonS3Auth(block=config.aws_auth), team_id)
+            credentials = resolve_aws_credentials(_AmazonS3Auth(block=config.aws_auth), team_id, AWS_SESSION_ACTIONS)
         except AwsAuthError as e:
             # The object storage probe reports this error type to the user and lets others escape.
             raise ObjectStorageError(str(e)) from e

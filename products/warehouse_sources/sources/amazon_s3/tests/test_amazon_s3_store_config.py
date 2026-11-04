@@ -149,7 +149,7 @@ def test_a_role_builds_a_store_without_keys() -> None:
     ) as resolve:
         store_config = cast(ObjectStoreConfig, source.object_store_config(source.parse_config(ROLE_CONFIG), team_id=1))
 
-    auth, team_id = resolve.call_args.args
+    auth, team_id, _session_actions = resolve.call_args.args
     assert (auth.selection, auth.aws_integration_id, team_id) == ("role", 7, 1)
     assert store_config.role_credentials is role_credentials
     assert (store_config.access_key_id, store_config.secret_access_key) == ("", "")
