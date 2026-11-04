@@ -15,9 +15,9 @@ from datetime import timedelta
 import structlog
 import posthoganalytics
 
-from posthog.cloud_utils import is_cloud
 from posthog.exceptions_capture import capture_exception
 from posthog.models.organization import Organization
+from posthog.run_mode import run_mode
 
 from products.data_modeling.backend.logic.freshness import SCHEDULABLE_BUCKETS, format_cadence
 
@@ -97,14 +97,22 @@ def read_organization_plan_refresh_floor(organization: Organization) -> PlanRefr
 def _no_result_means_no_floor() -> bool:
     """Tell an instance with no floor from a failed read, because the SDK returns no result for both.
 
-    Self-hosted instances never load flag definitions, and loaded definitions without the flag mean
-    the flag was deleted. On cloud, empty definitions or a flag that could not be evaluated are a
-    failed read. The SDK logs these cases and does not raise.
+    On deployed cloud, a process with the SDK enabled but no definitions failed to load them, so a
+    reconcile could speed up a schedule the floor holds back. Self-hosted instances and E2E stacks may
+    never load definitions, and a disabled SDK returns no result for every flag.
+
+    With definitions loaded, no result means the flag was deleted or its conditions need data this
+    read does not send. That reads as no floor, so that one flag edit cannot block saves and
+    reconciles for every organization until someone edits it again.
     """
-    if not is_cloud():
+    if not run_mode().is_deployed_cloud or posthoganalytics.disabled:
         return True
     definitions = posthoganalytics.feature_flag_definitions()
-    return bool(definitions) and all(flag.get("key") != REFRESH_FLOOR_FLAG for flag in definitions)
+    if not definitions:
+        return False
+    if any(flag.get("key") == REFRESH_FLOOR_FLAG for flag in definitions):
+        logger.warning("refresh_floor_flag_inconclusive", flag=REFRESH_FLOOR_FLAG)
+    return True
 
 
 def _parse(payload: object) -> PlanRefreshFloor:
