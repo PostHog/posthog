@@ -211,6 +211,11 @@ _REASONS_BY_CODE = {
         "reference from the HTML.",
         fix="Send the bare ID, such as `logo`, and reference it as `cid:logo` in the HTML.",
     ),
+    "field_not_accepted": _Reason(
+        why="This PostHog version doesn't take the field yet, so it refused the email instead of sending it "
+        "without it.",
+        fix="Send the email without this field, or send it again once PostHog takes the field.",
+    ),
     "template_key_only": _Reason(
         why="A send with `template_id` takes its recipients and content from the template.",
         fix="Send the email's content with `template_key`, or leave this field out.",
@@ -218,29 +223,9 @@ _REASONS_BY_CODE = {
 }
 
 
-class CodeSendFieldRefused(serializers.ValidationError):
-    """A refused `cc`, `bcc` or `attachments` field. The view adds `why` and `fix` to the error body."""
-
-    # A ValidationError, because the error handler reads the field from a dict detail only on one.
-    default_type = "invalid_request"
-
-    def __init__(self, *, attr: str, detail: str, reason: _Reason) -> None:
-        super().__init__(detail={attr: detail}, code="invalid_request")
-        self.why = reason.why
-        self.fix = reason.fix
-
-
-_NOT_ACCEPTED_REASON = _Reason(
-    why="This PostHog version doesn't take the field yet, so it refused the email instead of sending it without it.",
-    fix="Send the email without this field, or send it again once PostHog takes the field.",
-)
-
-
-def field_not_accepted_refusal(field: str) -> CodeSendFieldRefused:
-    return CodeSendFieldRefused(
-        attr=field,
-        detail="PostHog doesn't take this field yet, so it didn't send the email.",
-        reason=_NOT_ACCEPTED_REASON,
+def field_not_accepted_refusal(field: str) -> serializers.ValidationError:
+    return serializers.ValidationError(
+        {field: "PostHog doesn't take this field yet, so it didn't send the email."}, code="field_not_accepted"
     )
 
 
@@ -250,25 +235,26 @@ def template_send_refusal(field: str) -> serializers.ValidationError:
     )
 
 
-def code_send_refusal(errors: Any) -> CodeSendFieldRefused | None:
-    """The refusal for the first error, when that error is about `cc`, `bcc` or `attachments`. The error handler
-    reports only the first error, so this picks the same one."""
-    path, detail = _first_error(errors)
-    if not path or path[0] not in CODE_SEND_EXTRA_FIELDS:
-        return None
-    code = getattr(detail, "code", "")
+def with_code_send_reason(body: dict[str, Any]) -> dict[str, Any]:
+    """The error body with `why` and `fix` added, when the error is about `cc`, `bcc` or `attachments`, or about a
+    field the pipeline doesn't take."""
+    path, code = (body.get("attr") or "").split("__"), body.get("code")
+    if body.get("type") != "validation_error" or (
+        path[0] not in CODE_SEND_EXTRA_FIELDS and code != "field_not_accepted"
+    ):
+        return body
+    if path[-1] == api_settings.NON_FIELD_ERRORS_KEY:
+        path.pop()
     if code == "max_length" and len(path) == 1:
         reason = _LIST_LIMIT_REASONS[path[0]]
     else:
-        fallback = _ADDRESS_REASON if path[0] in ADDRESS_FIELDS else _ATTACHMENT_REASON
-        reason = _REASONS_BY_CODE.get(code, fallback)
-    return CodeSendFieldRefused(attr="__".join(path), detail=str(detail), reason=reason)
-
-
-def _first_error(errors: Any, path: tuple[str, ...] = ()) -> tuple[tuple[str, ...], Any]:
-    if isinstance(errors, dict):
-        key, nested = next(iter(errors.items()))
-        return _first_error(nested, path if key == api_settings.NON_FIELD_ERRORS_KEY else (*path, str(key)))
-    if isinstance(errors, list) and errors:
-        return _first_error(errors[0], path)
-    return path, errors
+        reason = _REASONS_BY_CODE.get(code, _ADDRESS_REASON if path[0] in ADDRESS_FIELDS else _ATTACHMENT_REASON)
+    attr = "__".join(path)
+    return {
+        **body,
+        "type": "invalid_request",
+        "code": "invalid_request",
+        "attr": attr,
+        "why": reason.why,
+        "fix": reason.fix,
+    }

@@ -85,11 +85,10 @@ from products.messaging.backend.presentation.views.code_send_fields import (
     CODE_SEND_EXTRA_FIELDS,
     AddressListField,
     AttachmentListField,
-    CodeSendFieldRefused,
-    code_send_refusal,
     field_not_accepted_refusal,
     template_send_refusal,
     validate_pipeline_address,
+    with_code_send_reason,
 )
 from products.messaging.backend.presentation.views.serializers import DesignOperationSerializer
 from products.notifications.backend.facade.api import publish_resource_edited
@@ -545,15 +544,6 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         fields = super().get_fields()
         fields["from"] = fields.pop("from_address")
         return fields
-
-    def is_valid(self, *, raise_exception: bool = False) -> bool:
-        try:
-            return super().is_valid(raise_exception=raise_exception)
-        except serializers.ValidationError as error:
-            refusal = code_send_refusal(error.detail)
-            if refusal is None:
-                raise
-            raise refusal from None
 
     def validate_html(self, value: str) -> str:
         return _within_body_limit(value, "The HTML body")
@@ -1214,8 +1204,8 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
 
     def handle_exception(self, exc: Exception) -> Response:
         response = super().handle_exception(exc)
-        if isinstance(exc, CodeSendFieldRefused):
-            response.data = {**response.data, "why": exc.why, "fix": exc.fix}
+        if isinstance(response.data, dict):
+            response.data = with_code_send_reason(response.data)
         return response
 
     @validated_request(

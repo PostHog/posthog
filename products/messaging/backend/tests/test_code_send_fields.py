@@ -1,13 +1,14 @@
 import base64
 from typing import Any
 
-import pytest
-
-from django.test import SimpleTestCase
+from django.test import RequestFactory, SimpleTestCase
 
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 
-from products.messaging.backend.presentation.views.code_send_fields import CodeSendFieldRefused
+from posthog.exceptions import exception_handler
+
+from products.messaging.backend.presentation.views.code_send_fields import with_code_send_reason
 from products.messaging.backend.presentation.views.message_templates import SendEmailSerializer
 
 ADDRESS_VERDICTS = [
@@ -37,10 +38,11 @@ def _code_send(fields: dict[str, Any]) -> SendEmailSerializer:
     )
 
 
-def _refusal(fields: dict[str, Any]) -> CodeSendFieldRefused:
-    with pytest.raises(CodeSendFieldRefused) as refused:
-        _code_send(fields).is_valid(raise_exception=True)
-    return refused.value
+def _refusal(fields: dict[str, Any]) -> dict[str, Any]:
+    serializer = _code_send(fields)
+    assert not serializer.is_valid()
+    response = exception_handler(ValidationError(serializer.errors), {"request": RequestFactory().post("/")})
+    return with_code_send_reason(response.data)
 
 
 class TestCodeSendFieldRefusals(SimpleTestCase):
@@ -101,8 +103,8 @@ class TestCodeSendFieldRefusals(SimpleTestCase):
     def test_refuses_an_extra_field_it_cannot_send(self, _name: str, fields: dict[str, Any], attr: str) -> None:
         refused = _refusal(fields)
 
-        assert refused.get_codes() == {attr: "invalid_request"}
-        assert refused.why and refused.fix
+        assert (refused["type"], refused["code"], refused["attr"]) == ("invalid_request", "invalid_request", attr)
+        assert refused["why"] and refused["fix"]
 
     @parameterized.expand(
         [
@@ -121,8 +123,8 @@ class TestCodeSendFieldRefusals(SimpleTestCase):
     ) -> None:
         refused = _refusal(fields)
 
-        assert refused.get_codes() == {attr: "invalid_request"}
-        assert fix in refused.fix
+        assert (refused["code"], refused["attr"]) == ("invalid_request", attr)
+        assert fix in refused["fix"]
 
     @parameterized.expand(
         [
@@ -149,4 +151,4 @@ class TestCodeSendFieldRefusals(SimpleTestCase):
             assert serializer.is_valid(), serializer.errors
             assert serializer.validated_data[field] == [address]
         else:
-            assert _refusal({field: [address]}).get_codes() == {f"{field}__0": "invalid_request"}
+            assert _refusal({field: [address]})["attr"] == f"{field}__0"
