@@ -45,6 +45,7 @@ from gates import (
     assign_tier,
     build_ownership,
     category_fully_exempt,
+    changed_dependency_manifests,
     classify_files,
     dependency_manifests_without_lockfile,
     detect_deny_categories,
@@ -421,31 +422,33 @@ class Pipeline:
 
         pending_rules = pending(POLICY.attestations, results, pr.deny_paths)
 
-        def clears_deny(assumed: Iterable[Attestation]) -> bool:
-            if not deny:
-                return False
-            passing = assume_passing(assumed, results, pr.deny_paths)
-            return not detect_deny_categories(pr.deny_paths, lifted_files(POLICY.attestations, passing, pr.deny_paths))
-
         exception_lifted = bool(POLICY.deny_exceptions) and (
             detect_deny_categories(pr.deny_paths, attested, apply_exceptions=False) != deny
         )
         dep_manifests = dependency_manifests_without_lockfile(file_paths)
+        scanned_manifests = changed_dependency_manifests(file_paths)
         # Deterministic first line for the manifest scripts risk: an edit to
         # scripts/lifecycle/build keys hard-denies rather than resting solely
         # on the reviewer prompt's REFUSE instruction.
-        if not dep_manifests:
+        if not scanned_manifests:
             risky_manifests = []
         elif self.checkout:
             risky_manifests = manifest_script_changes(
-                dep_manifests, pr.base_sha, pr.head_sha, REPO_ROOT, pr.merge_base_sha
+                scanned_manifests, pr.base_sha, pr.head_sha, REPO_ROOT, pr.merge_base_sha
             )
         elif self.manifest_contents is not None:
-            risky_manifests = manifest_script_changes_from_contents(dep_manifests, self.manifest_contents)
+            risky_manifests = manifest_script_changes_from_contents(scanned_manifests, self.manifest_contents)
         else:
             risky_manifests = []
         if risky_manifests and "deps_toolchain" not in deny:
             deny = sorted([*deny, "deps_toolchain"])
+
+        def clears_deny(assumed: Iterable[Attestation]) -> bool:
+            if not deny or (risky_manifests and "deps_toolchain" in deny):
+                return False
+            passing = assume_passing(assumed, results, pr.deny_paths)
+            return not detect_deny_categories(pr.deny_paths, lifted_files(POLICY.attestations, passing, pr.deny_paths))
+
         denied_before_exemptions = len(deny)
         deny = [
             category

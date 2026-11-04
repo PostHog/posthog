@@ -444,6 +444,12 @@ def test_disabling_deny_exceptions_keeps_lifted_files(deny_exceptions) -> None:
             ["auth"],
             id="lift-stays-in-its-category",
         ),
+        pytest.param(
+            ["posthog/migrations/1117_add_column.py", "PostHog/migrations/1117_add_column.py"],
+            {"migrations": ["posthog/migrations/1117_add_column.py"]},
+            ["migrations"],
+            id="lift-matches-exact-case",
+        ),
     ],
 )
 def test_lifted_files_bypass_only_their_category(

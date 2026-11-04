@@ -405,7 +405,15 @@ def test_exempt_author_workflow_pr_gets_t1_scrutiny_not_t0(
     assert pipeline.classification["tier"] == "T1-agent"
 
 
-def test_manifest_scripts_edit_hard_denies(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(
+    "files",
+    [
+        pytest.param(["frontend/package.json"], id="manifest-alone"),
+        # A lockfile proof can lift the lockfile's own deny, so the scan must still read the manifest.
+        pytest.param(["frontend/package.json", "pnpm-lock.yaml"], id="manifest-with-its-lockfile"),
+    ],
+)
+def test_manifest_scripts_edit_hard_denies(monkeypatch: pytest.MonkeyPatch, files: list[str]) -> None:
     # The deterministic scan is the first line against scripts/hook edits —
     # when it fires, the PR must land T2-never rather than the LLM-only path.
     monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
@@ -413,7 +421,7 @@ def test_manifest_scripts_edit_hard_denies(monkeypatch: pytest.MonkeyPatch) -> N
 
     pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
     pr = _fake_pr(head_sha="abc123")
-    pr.files = [{"filename": "frontend/package.json", "additions": 2, "deletions": 1, "status": "M"}]
+    pr.files = [{"filename": path, "additions": 2, "deletions": 1, "status": "M"} for path in files]
     pipeline.pr = pr
 
     pipeline._classify()
@@ -421,6 +429,8 @@ def test_manifest_scripts_edit_hard_denies(monkeypatch: pytest.MonkeyPatch) -> N
     assert pipeline.classification["tier"] == "T2-never"
     assert "deps_toolchain" in pipeline.classification["deny_categories"]
     assert pipeline.classification["manifest_script_changes"] == ["frontend/package.json"]
+    assert pipeline.classification["pending_attestations_clear_deny"] is False
+    assert pipeline.classification["attestations_could_clear_deny"] is False
 
 
 @pytest.mark.parametrize(

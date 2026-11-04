@@ -291,14 +291,14 @@ A new path to an approval must go through this check too.
 ## Attestations (CI results that lift a deny)
 
 An attestation is a policy entry (`attestations` in the default-branch `.stamphog/policy.yml`, merged onto the shipped default) naming a check run, the deny categories it may lift, and `paths`, the files it judges.
-A passing result lifts those categories only for the files it lists itself, intersected with `paths`, and only those categories: the file still denies every other one.
+A passing result lifts those categories only for the files it lists itself, matched by exact path and intersected with `paths`, and only those categories: the file still denies every other one.
 Stamphog knows no ecosystem, tool or bot. What a passing result proves is the publisher's concern, so a new kind of proof is a new CI check and a policy entry, never engine code.
 `Migration risk` is the shipped default entry, pinned to the App that publishes it: a same-repo PR's workflow can create a check run of any name.
 
 - `stamphog_policy` is never liftable; the policy loader refuses such an entry. The files that prove an attestation (its workflow and the scripts it runs) belong in `stamphog_policy` too, because a `pull_request` run uses the PR's own copy of them.
 - Trust the run, not the name. An entry reads the head commit's check runs, which GitHub binds to that commit, and may pin the publishing App (`app`).
 - A result with more than one marker lifts nothing, because a publisher's report can quote PR content.
-- A PR that changes a file in `paths` waits for a result that has not reported (a WAIT, not a refusal, because a refusal strips the trigger label over a race with CI). The publisher's trigger must cover `paths`, or such a PR waits forever. A result that reported and lifted nothing leaves the deny standing.
+- A PR that changes a file in `paths` waits for a result that has not reported (a WAIT, not a refusal, because a refusal strips the trigger label over a race with CI). The publisher's trigger must cover `paths`, or such a PR waits forever. A result that reported and lifted nothing leaves the deny standing. A `deps_toolchain` deny from the manifest scripts scan never waits, because no attestation lifts it. The scan reads every changed manifest, also one next to its lockfile, because an attestation can lift the lockfile's own deny.
 - The WAIT records `pending_attestations` in the classification. Nothing re-runs it before the next push.
 - `_blocked_only_by_pending_attestations` lets a failing tier gate through, because a deny always drags the tier to T2-never with it.
 

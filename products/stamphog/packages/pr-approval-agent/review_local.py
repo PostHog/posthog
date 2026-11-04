@@ -66,7 +66,7 @@ from familiarity import (
     _select_considered_files,
     familiarity_from_facts,
 )
-from gates import POLICY, dependency_manifests_without_lockfile, substantive_size
+from gates import POLICY, changed_dependency_manifests, substantive_size
 from gateway import SUMMARY_MODEL
 from github import (
     TRUSTED_REACTOR_BOTS,
@@ -461,7 +461,7 @@ def _pending_attestation_outcome_is_known(pipeline: Pipeline, folder_policies_kn
     grants, which ``folder_policies_known`` supplies, and the manifest scripts scan, which reads git
     and can add a deny. A PR with a dependency manifest therefore stays undecided.
     """
-    return folder_policies_known and not dependency_manifests_without_lockfile(pipeline.pr.file_paths)
+    return folder_policies_known and not changed_dependency_manifests(pipeline.pr.file_paths)
 
 
 def _denial_is_final(pipeline: Pipeline, folder_policies_known: bool) -> bool:
@@ -611,7 +611,7 @@ def attest(context: dict) -> dict:
         return outcome("bot_author")
     if context.get("folder_policies_known") is not True:
         return outcome("folder_policies_unknown")
-    manifests = dependency_manifests_without_lockfile(pipeline.pr.file_paths)
+    manifests = changed_dependency_manifests(pipeline.pr.file_paths)
     manifest_contents = context.get("manifest_contents")
     if manifests:
         if not isinstance(manifest_contents, dict) or any(path not in manifest_contents for path in manifests):

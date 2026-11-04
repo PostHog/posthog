@@ -548,11 +548,10 @@ def detect_deny_categories(
     """
     hits: set[str] = set()
     lifted = lifted or {}
-    all_paths_lower = [f.lower() for f in files]
 
     for category, scopes in DENY_PATTERNS.items():
-        lifted_lower = {f.lower() for f in lifted.get(category, ())}
-        paths_lower = [p for p in all_paths_lower if p not in lifted_lower] if lifted_lower else all_paths_lower
+        lifted_for_category = set(lifted.get(category, ()))
+        paths_lower = [f.lower() for f in files if f not in lifted_for_category]
         path_regexes = scopes.get("paths", []) + [path_rx for path_rx, _title_rx in scopes.get("any", [])]
         exceptions = DENY_EXCEPTIONS.get(category, {}) if apply_exceptions else {}
         if any(
@@ -623,12 +622,20 @@ def dependency_manifests_without_lockfile(files: list[str]) -> list[str]:
     ecosystems_with_lockfile_change = {
         ecosystem for ecosystem, spec in DEPENDENCY_ECOSYSTEMS.items() if names & spec.lockfiles
     }
-    return sorted(
+    return [
         f
-        for f in files
-        if (ecosystem := _ecosystem_for_manifest(Path(f).name.lower())) is not None
-        and ecosystem not in ecosystems_with_lockfile_change
-    )
+        for f in changed_dependency_manifests(files)
+        if _ecosystem_for_manifest(Path(f).name.lower()) not in ecosystems_with_lockfile_change
+    ]
+
+
+def changed_dependency_manifests(files: list[str]) -> list[str]:
+    """Every changed manifest file, with or without its lockfile. The manifest scripts scan reads all of them.
+
+    A lockfile change denies on its own, but an attestation can lift that deny, so the scan must not
+    rely on it to catch a scripts edit in the manifest next to it.
+    """
+    return sorted(f for f in files if _ecosystem_for_manifest(Path(f).name.lower()) is not None)
 
 
 def has_ci_workflow_changes(files: list[str]) -> bool:
