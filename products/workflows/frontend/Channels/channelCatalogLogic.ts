@@ -93,7 +93,11 @@ export interface channelCatalogLogicActions {
 export interface channelCatalogLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         sandboxSetupLoading: (integrationsLoading: boolean, sandboxProvisionErrorLoading: boolean) => boolean
-        sandboxSetupError: (integrationsLoadFailed: boolean, sandboxProvisionError: string | null) => string | null
+        sandboxSetupError: (
+            sandboxEmailSenderEnabled: boolean,
+            integrationsLoadFailed: boolean,
+            sandboxProvisionError: string | null
+        ) => string | null
         channels: (integrations: IntegrationType[] | null, featureFlags: FeatureFlagsSet) => ChannelSummary[] | null
         activeCount: (channels: ChannelSummary[] | null) => number
     }
@@ -164,8 +168,9 @@ export const channelCatalogLogic = kea<channelCatalogLogicType>([
             (loading: boolean, provisioning: boolean): boolean => loading || provisioning,
         ],
         sandboxSetupError: [
-            (s) => [s.integrationsLoadFailed, s.sandboxProvisionError],
-            (loadFailed: boolean, setupError: string | null): string | null => (loadFailed ? null : setupError),
+            (s) => [s.sandboxEmailSenderEnabled, s.integrationsLoadFailed, s.sandboxProvisionError],
+            (enabled: boolean, loadFailed: boolean, setupError: string | null): string | null =>
+                enabled && !loadFailed ? setupError : null,
         ],
         /** `null` until the integrations load, so the catalog never shows a channel as not set up by mistake. */
         channels: [
