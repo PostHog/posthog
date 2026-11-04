@@ -630,8 +630,9 @@ export function ChatScreen({
                             {showEmptyState ? (
                                 <ScrollView
                                     style={styles.empty}
-                                    contentContainerStyle={{ flexGrow: 1, paddingTop: contentInset }}
+                                    contentContainerStyle={{ flexGrow: 1, paddingTop: contentInset, paddingBottom: 16 }}
                                     keyboardShouldPersistTaps="handled"
+                                    keyboardDismissMode="on-drag"
                                 >
                                     <ChatEmptyState
                                         reportCount={attached.length}
