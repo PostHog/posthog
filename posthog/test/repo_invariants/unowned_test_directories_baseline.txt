@@ -32,6 +32,7 @@ frontend/src/layout/navigation-3000/sidepanel/panels/access_control
 frontend/src/layout/navigation-3000/sidepanel/panels/access_control/ResourceAccessControlsV2
 frontend/src/layout/navigation-3000/sidepanel/panels/activity
 frontend/src/layout/navigation-3000/sidepanel/panels/max
+frontend/src/layout/navigation-3000/sidepanel/panels/support
 frontend/src/layout/navigation/Breadcrumbs
 frontend/src/layout/navigation/ImpersonationNotice
 frontend/src/layout/panel-layout
@@ -62,6 +63,7 @@ frontend/src/lib/components/Cards/InsightCard
 frontend/src/lib/components/Cards/TextCard
 frontend/src/lib/components/ChartFilter
 frontend/src/lib/components/ChartLegendSeriesMenu
+frontend/src/lib/components/ChartOptions
 frontend/src/lib/components/CodeSnippet
 frontend/src/lib/components/Command
 frontend/src/lib/components/CommandKSearch
@@ -205,6 +207,7 @@ nodejs/src/common/utils
 nodejs/src/common/utils/db
 nodejs/src/common/utils/event-ingestion-restrictions
 nodejs/src/logs
+nodejs/src/logs/framework
 nodejs/src/logs/metrics-rules
 nodejs/src/logs/pipeline
 nodejs/src/logs/retention
@@ -213,6 +216,7 @@ nodejs/src/logs/services
 nodejs/src/logs/transformations
 nodejs/src/logs/transformations/benchmarks
 nodejs/src/messaging/push-subscriptions
+nodejs/src/schema-check
 nodejs/src/servers
 nodejs/src/session-replay/recording-api
 packages/llm-normalizer/src
@@ -262,7 +266,6 @@ posthog/models/async_deletion
 posthog/models/distinct_id_usage/test
 posthog/models/exchange_rate/test
 posthog/models/file_system/test
-posthog/models/filters/mixins/test
 posthog/models/group
 posthog/models/person_group_membership/test
 posthog/models/property/test
@@ -330,6 +333,7 @@ posthog/user_scripts/v6
 posthog/user_scripts/v7
 posthog/user_scripts/v8
 posthog/user_scripts/v9
+posthog/workload_identity/test
 products/field_notes/backend/test
 products/games/frontend/ShipIt
 products/product_tours/backend/api/test
