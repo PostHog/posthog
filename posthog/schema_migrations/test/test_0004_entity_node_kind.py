@@ -4,7 +4,6 @@ from parameterized import parameterized
 
 from posthog.schema import FunnelsQuery, LifecycleQuery, TrendsQuery
 
-from posthog.schema_migrations import LATEST_VERSIONS
 from posthog.schema_migrations.upgrade import upgrade
 
 
@@ -121,7 +120,7 @@ def test_upgraded_stored_funnels_query_validates():
     assert [s.kind for s in query.series] == ["EventsNode", "EventsNode"]
     assert query.funnelsFilter is not None and query.funnelsFilter.exclusions is not None
     assert query.funnelsFilter.exclusions[0].kind == "EventsNode"
-    assert query.version == LATEST_VERSIONS["FunnelsQuery"]
+    assert query.version == 2
 
 
 def test_upgraded_stored_trends_query_validates():

@@ -1405,6 +1405,14 @@ export type insightVizDataLogicType = MakeLogicType<
     insightVizDataLogicMeta
 >
 
+// A debounced update targets the query as it was at dispatch, so it is dropped if
+// the user discarded their changes or switched insight type while it waited.
+const trackPendingUpdate = (cache: Record<string, any>, getKind: () => NodeKind | undefined): (() => boolean) => {
+    const discardCount = cache.discardCount ?? 0
+    const kind = getKind()
+    return () => (cache.discardCount ?? 0) !== discardCount || getKind() !== kind
+}
+
 export const insightVizDataLogic = kea<insightVizDataLogicType>([
     props({} as InsightLogicProps),
     key(keyForInsightLogicProps('new')),
@@ -2799,12 +2807,8 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             }
         },
 
-        // Discarding edits reverts the query to the saved version. A debounced filter
-        // update (e.g. updateDateRange) that was dispatched just before the discard would
-        // otherwise resolve afterwards and re-apply the discarded value on top of the
-        // reverted query. Flag it so the in-flight debounce bails out instead.
         cancelChanges: () => {
-            cache.pendingFilterUpdateCancelled = true
+            cache.discardCount = (cache.discardCount ?? 0) + 1
         },
 
         // query source
@@ -2845,14 +2849,11 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
         // query source properties
         updateDateRange: async ({ dateRange, ignoreDebounce }, breakpoint) => {
-            cache.pendingFilterUpdateCancelled = false
+            const isStale = trackPendingUpdate(cache, () => values.localQuerySource?.kind)
             if (!ignoreDebounce) {
                 await breakpoint(300)
             }
-            // Changes were discarded while this debounce was pending — don't re-apply the
-            // edited date range over the query that cancelChanges just reverted.
-            if (cache.pendingFilterUpdateCancelled) {
-                cache.pendingFilterUpdateCancelled = false
+            if (isStale()) {
                 return
             }
             posthog.capture('insight date range changed', { query_kind: values.querySource?.kind })
@@ -2884,13 +2885,21 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
             })
         },
         updateBreakdownFilter: async ({ breakdownFilter }, breakpoint) => {
+            const isStale = trackPendingUpdate(cache, () => values.localQuerySource?.kind)
             await breakpoint(500) // extra debounce time because of number input
+            if (isStale()) {
+                return
+            }
             posthog.capture('insight breakdown changed', { query_kind: values.querySource?.kind })
             const update: Partial<TrendsQuery> = { breakdownFilter: { ...values.breakdownFilter, ...breakdownFilter } }
             actions.updateQuerySource(update)
         },
         updateCompareFilter: async ({ compareFilter }, breakpoint) => {
+            const isStale = trackPendingUpdate(cache, () => values.localQuerySource?.kind)
             await breakpoint(500) // extra debounce time because of number input
+            if (isStale()) {
+                return
+            }
             posthog.capture('insight compare changed', { query_kind: values.querySource?.kind })
             const update: Partial<TrendsQuery> = { compareFilter: { ...values.compareFilter, ...compareFilter } }
             actions.updateQuerySource(update)
@@ -2898,7 +2907,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
 
         // insight filter
         updateInsightFilter: async ({ insightFilter }, breakpoint) => {
-            const kindAtDispatch = values.localQuerySource?.kind
+            const isStale = trackPendingUpdate(cache, () => values.localQuerySource?.kind)
 
             // When an external save handler is wired (dashboard card), skip the debounce so
             // rapid successive toggle clicks don't cancel each other and lose earlier changes.
@@ -2910,9 +2919,7 @@ export const insightVizDataLogic = kea<insightVizDataLogicType>([
                 return
             }
 
-            // The update targets the old insight type's filter. Applying it to a new type's filter
-            // can add keys the backend rejects, e.g. trends formulas in funnelsFilter.
-            if (values.localQuerySource?.kind !== kindAtDispatch) {
+            if (isStale()) {
                 return
             }
 
