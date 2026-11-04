@@ -1,9 +1,10 @@
 import 'react-native-gesture-handler/jestSetup'
-import { act, renderHook } from '@testing-library/react-native'
-import type { View } from 'react-native'
+import { act, fireEvent, render, renderHook } from '@testing-library/react-native'
+import { Text, type View } from 'react-native'
 import { PointerType, State } from 'react-native-gesture-handler'
 
 import type { PinView } from '@/model/views'
+import { PinDragTile } from './PinDragOverlay'
 import { type PinDrag, usePinDrag } from './usePinDrag'
 
 jest.mock('react-native-reanimated', () => ({
@@ -15,7 +16,8 @@ jest.mock('react-native-reanimated', () => ({
 jest.mock('react-native-worklets', () => ({ scheduleOnUI: (worklet: () => void) => worklet() }))
 jest.mock('@/lib/haptics', () => ({ haptic: jest.fn() }))
 
-const pins: PinView[] = ['a', 'b', 'c'].map((id) => ({
+const chartId = 'a'
+const pins: PinView[] = [chartId, 'b', 'c'].map((id) => ({
     shortcutId: id,
     shortcutIds: [id],
     kind: 'insight',
@@ -46,8 +48,8 @@ function event(y: number): StartEvent {
     }
 }
 
-function pickup(drag: PinDrag): void {
-    const touch = { id: 1, x: 50, y: 120, absoluteX: 50, absoluteY: 120 }
+function pickup(drag: PinDrag, y = 120): void {
+    const touch = { id: 1, x: 50, y, absoluteX: 50, absoluteY: y }
     drag.gesture.handlers.onTouchesDown?.(
         {
             handlerTag: 1,
@@ -61,10 +63,10 @@ function pickup(drag: PinDrag): void {
         { handlerTag: 1, begin: jest.fn(), activate: jest.fn(), end: jest.fn(), fail: jest.fn() }
     )
     // Native recognition supplies ACTIVE only after the extra-long hold; simulator coverage checks that timing.
-    drag.gesture.handlers.onStart?.(event(120))
+    drag.gesture.handlers.onStart?.(event(y))
 }
 
-function setup() {
+function setup(tileTop = (index: number): number => 100 + index * 100) {
     const reorder = jest.fn()
     const metrics = { current: { offset: 0, contentHeight: 1000, viewportHeight: 500 } }
     const scrollTo = jest.fn((offset: number) => {
@@ -87,7 +89,7 @@ function setup() {
         pins.forEach((pin, index) => {
             hook.result.current.register(pin.shortcutId, {
                 measureInWindow: (callback: (x: number, y: number, width: number, height: number) => void) =>
-                    callback(20, 100 + index * 100, 360, 80),
+                    callback(20, tileTop(index), 360, 80),
             } as unknown as View)
         })
     })
@@ -106,6 +108,21 @@ test('saves only on drop and preserves the pins between source and destination',
     act(() => result.current.gesture.handlers.onFinalize?.(event(320), true))
     expect(reorder).toHaveBeenCalledWith(['b', 'c', 'a'])
     expect(result.current.dragged).toBeNull()
+})
+
+test('picks up the tile below a chart after the chart grows', () => {
+    let extraHeight = 0
+    const { result } = setup((index) => 100 + index * 100 + (index > 0 ? extraHeight : 0))
+    const chart = render(
+        <PinDragTile id={chartId} drag={result.current}>
+            <Text>Chart</Text>
+        </PinDragTile>
+    )
+    extraHeight = 100
+    fireEvent(chart.getByText('Chart'), 'layout')
+    act(() => jest.advanceTimersByTime(32))
+    act(() => pickup(result.current, 320))
+    expect(result.current.dragged?.shortcutId).toBe('b')
 })
 
 test.each(['cancel', 'stationary', 'refresh', 'scope', 'disabled'] as const)(

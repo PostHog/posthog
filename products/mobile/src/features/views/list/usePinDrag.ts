@@ -41,7 +41,6 @@ export interface PinDrag {
     root: RefObject<View | null>
     dragged: PinView | null
     register: (id: string, node: View | null) => void
-    measure: (id: string) => void
     measureAll: () => void
     x: SharedValue<number>
     y: SharedValue<number>
@@ -89,12 +88,24 @@ export function usePinDrag(options: Options): PinDrag {
         },
         [measure]
     )
+    const layoutFrame = useRef<number | null>(null)
     const measureAll = useCallback((): void => {
-        root.current?.measureInWindow((x, y) => {
-            origin.current = { x, y }
+        if (layoutFrame.current !== null) return
+        layoutFrame.current = requestAnimationFrame(() => {
+            layoutFrame.current = null
+            root.current?.measureInWindow((x, y) => {
+                origin.current = { x, y }
+            })
+            for (const id of nodes.current.keys()) measure(id)
         })
-        for (const id of nodes.current.keys()) measure(id)
     }, [measure])
+    useEffect(
+        () => () => {
+            if (layoutFrame.current !== null) cancelAnimationFrame(layoutFrame.current)
+            layoutFrame.current = null
+        },
+        []
+    )
     const visibleFrames = useCallback((): PinFrame[] => {
         const { offset } = latest.current.metrics.current
         const ids = new Set(latest.current.pins.map((pin) => pin.shortcutId))
@@ -230,5 +241,5 @@ export function usePinDrag(options: Options): PinDrag {
         return () => subscription.remove()
     }, [finish])
 
-    return { gesture, root, dragged, register, measure, measureAll, x, y, targetX, targetY, targetWidth, targetHeight }
+    return { gesture, root, dragged, register, measureAll, x, y, targetX, targetY, targetWidth, targetHeight }
 }

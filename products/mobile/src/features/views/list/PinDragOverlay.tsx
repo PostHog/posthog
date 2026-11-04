@@ -10,13 +10,13 @@ import type { PinDrag } from './usePinDrag'
 import { ViewIcon } from './viewMeta'
 
 export function PinDragTile({ id, drag, children }: { id: string; drag: PinDrag; children: ReactNode }): ReactElement {
-    const { register, measure } = drag
+    const { register, measureAll } = drag
     const ref = useCallback((node: View | null) => register(id, node), [id, register])
     return (
         <View
             ref={ref}
             collapsable={false}
-            onLayout={() => measure(id)}
+            onLayout={measureAll}
             style={{ opacity: drag.dragged?.shortcutId === id ? 0.35 : 1 }}
         >
             {children}
