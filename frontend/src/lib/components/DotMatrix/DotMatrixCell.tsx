@@ -97,13 +97,20 @@ export function DotMatrixCell<D extends Record<string, unknown>>({
             type="button"
             className="DotMatrix__cell DotMatrix__cell--interactive"
             data-attr="dot-matrix-cell"
+            data-row-key={cell.rowKey}
+            data-column-key={cell.columnKey}
             onClick={() => onCellClick(cell)}
             aria-label={`${label}: ${cellDescription}`}
         >
             {content}
         </button>
     ) : (
-        <div className="DotMatrix__cell" tabIndex={tooltipContent ? 0 : undefined}>
+        <div
+            className="DotMatrix__cell"
+            data-row-key={cell.rowKey}
+            data-column-key={cell.columnKey}
+            tabIndex={tooltipContent ? 0 : undefined}
+        >
             {content}
         </div>
     )

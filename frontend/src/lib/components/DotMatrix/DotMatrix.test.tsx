@@ -54,6 +54,8 @@ describe('DotMatrix', () => {
         )
         const cell = container.querySelector<HTMLElement>('.DotMatrix__cell')!
         expect(cell.tabIndex).toBe(0)
+        expect(cell.dataset.rowKey).toBe('North')
+        expect(cell.dataset.columnKey).toBe('Morning')
         fireEvent.focus(cell)
         expect(await screen.findByText('Inspection details')).toBeTruthy()
         fireEvent.keyDown(document, { key: 'Escape' })
