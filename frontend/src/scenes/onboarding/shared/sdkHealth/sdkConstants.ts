@@ -9,6 +9,7 @@ export const SDK_TYPE_READABLE_NAME: Record<SdkType, string> = {
     'posthog-node': 'Node.js',
     'posthog-python': 'Python',
     'posthog-php': 'PHP',
+    'posthog-laravel': 'Laravel',
     'posthog-ruby': 'Ruby',
     'posthog-go': 'Go',
     'posthog-flutter': 'Flutter',
@@ -65,6 +66,10 @@ export const SDK_DOCS_LINKS: Record<SdkType, { releases: string; docs: string }>
     'posthog-php': {
         releases: 'https://github.com/PostHog/posthog-php/releases',
         docs: 'https://posthog.com/docs/libraries/php',
+    },
+    'posthog-laravel': {
+        releases: 'https://github.com/PostHog/posthog-php/releases?q=laravel-v',
+        docs: 'https://posthog.com/docs/libraries/laravel',
     },
     'posthog-ruby': {
         releases: 'https://github.com/PostHog/posthog-ruby/releases',

@@ -15,7 +15,12 @@ from uuid import UUID
 from posthog.dataclasses import frozen
 from posthog.schema_enums import AlertState
 
-from products.alerts_platform.backend.facade.contracts import DeliveryPath, DestinationType, IncidentAction
+from products.alerts_platform.backend.facade.contracts import (
+    AlertDeliveryRequest,
+    DeliveryPath,
+    DestinationType,
+    IncidentAction,
+)
 from products.cdp.backend.internal_events import LEGACY_INSIGHT_ALERT_EVENT
 
 # The internal event an insight alert's destinations fire on. Do not take it from
@@ -197,6 +202,11 @@ class MovedAlertCheck:
     triggered_dates: tuple[str, ...] = ()
     interval: str | None = None
     triggered_metadata: dict[str, Any] | None = None
+    investigation_status: str | None = None
+    investigation_verdict: str | None = None
+    investigation_summary: str | None = None
+    investigation_notebook_short_id: str | None = None
+    notification_suppressed_by_agent: bool = False
 
 
 @frozen
@@ -208,3 +218,13 @@ class MovedAlertCheckPage:
 
 class PlatformCannotOwn(ValueError):
     """An edit that would leave an alert the platform owns in a shape the platform cannot evaluate."""
+
+
+@frozen
+class InvestigationRelease:
+    """What a finished investigation of a platform evaluation hands back to the agent's workflow."""
+
+    # What the workflow starts: the held firing when the verdict let it go out, or the
+    # announcement of a changed verdict on a firing that already went out.
+    deliveries: tuple[AlertDeliveryRequest, ...]
+    previous_verdict: str | None
