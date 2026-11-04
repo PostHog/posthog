@@ -36,11 +36,15 @@ export function loginWait(runtime: Runtime): ApprovalWait<PendingLogin, OAuthLog
 
 // An agent that retries `hog auth login` for the same host gets the same code back, so the link it
 // already shared keeps working.
-export function loginFlow(runtime: Runtime, host: string): ApprovalFlow<PendingLogin, OAuthLogin> {
+export function loginFlow(
+    runtime: Runtime,
+    host: string,
+    scopes: readonly string[] = LOGIN_SCOPES
+): ApprovalFlow<PendingLogin, OAuthLogin> {
     return {
         ...loginWait(runtime),
-        start: () => startDeviceLogin(runtime, host, LOGIN_SCOPES),
-        reuse: (existing) => existing.host === host && existing.scopes?.join(' ') === LOGIN_SCOPES.join(' '),
+        start: () => startDeviceLogin(runtime, host, scopes),
+        reuse: (existing) => existing.host === host && existing.scopes?.join(' ') === scopes.join(' '),
     }
 }
 

@@ -87,6 +87,18 @@ describe('hog auth login', () => {
         ])
     })
 
+    test('--read-only asks for read access only', async () => {
+        const result = await runHog(['auth', 'login', '--region', 'eu', '--read-only'], {
+            env: { CLAUDECODE: '1' },
+            respond: deviceFlow(0),
+        })
+
+        const requested = String((result.requests[0]?.body as { scope?: string } | undefined)?.scope ?? '').split(' ')
+        expect(requested).toContain('insight:read')
+        expect(requested).toContain('openid')
+        expect(requested.filter((scope) => scope.endsWith(':write'))).toEqual([])
+    })
+
     test('an approval link on another origin than the host is replaced with the page on the host', async () => {
         const result = await runHog(['auth', 'login', '--region', 'eu'], {
             env: { CLAUDECODE: '1' },

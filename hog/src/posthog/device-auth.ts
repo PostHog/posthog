@@ -78,6 +78,14 @@ export const LOGIN_SCOPES: readonly string[] = [
     ...LOGIN_READ_SCOPES.map((object) => `${object}:read`),
 ]
 
+// What `hog auth login --read-only` asks for: the same objects, read access only.
+export const READ_ONLY_LOGIN_SCOPES: readonly string[] = [
+    'openid',
+    'profile',
+    'email',
+    ...[...LOGIN_WRITE_SCOPES, ...LOGIN_READ_SCOPES].map((object) => `${object}:read`),
+]
+
 // A login the person still has to approve in the browser. `deviceCode` redeems the tokens once
 // they approve, so it stays in a private file and never reaches the output.
 export interface PendingLogin extends PendingApproval {

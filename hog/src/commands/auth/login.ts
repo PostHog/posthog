@@ -7,6 +7,7 @@ import type { Prompts } from '@/core/prompts'
 import { PersonalAPIKey, type AccessKey } from '@/posthog/access-key'
 import type { StoreChoice } from '@/posthog/credential-store/types'
 import { checkApiKey, checkHost, checkProjectId } from '@/posthog/credentials'
+import { LOGIN_SCOPES, READ_ONLY_LOGIN_SCOPES } from '@/posthog/device-auth'
 import { trimHost } from '@/posthog/host'
 import { loginFlow, loginWait, saveLogin, type LoggedIn } from '@/posthog/login/flow'
 
@@ -91,6 +92,11 @@ export default defineCommand({
             type: 'boolean',
             description: 'Wait for the login an agent or script started, and save the token once a person approves it',
         },
+        readOnly: {
+            type: 'boolean',
+            description:
+                'Ask only for read access. To change something later, run `hog auth login` again without this flag',
+        },
     },
     notes: [
         'At a terminal, hog asks where your PostHog account is hosted and opens the browser to approve the login.',
@@ -99,7 +105,7 @@ export default defineCommand({
         'hog stores the token in the system keychain. If no keychain is available, such as over SSH, it stores the token in a file only you can read.',
         'In CI, skip login and set HOG_PERSONAL_API_KEY, HOG_PROJECT_ID and HOG_HOST.',
     ].join('\n'),
-    examples: ['hog auth login', 'hog auth login --region eu', 'hog auth login --wait'],
+    examples: ['hog auth login', 'hog auth login --region eu', 'hog auth login --read-only', 'hog auth login --wait'],
 
     async run({ options, ctx }): Promise<LoginResult> {
         const prompts = ctx.prompts
@@ -150,7 +156,8 @@ export default defineCommand({
             host = REGIONS[choice]
         }
 
-        const result = await runApproval(ctx, loginFlow(ctx.runtime, host))
+        const scopes = options.readOnly ? READ_ONLY_LOGIN_SCOPES : LOGIN_SCOPES
+        const result = await runApproval(ctx, loginFlow(ctx.runtime, host, scopes))
         return result.status === 'pending' ? { ...result, host } : finish(ctx, result.value)
     },
 
