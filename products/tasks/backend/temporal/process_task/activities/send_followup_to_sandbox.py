@@ -54,6 +54,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     mark_sandbox_github_identity,
     mark_sandbox_mcp_session,
     mcp_exclude_tools_from_state,
+    posthog_code_keeps_bundled_skills,
     record_delivered_message,
     sandbox_identity_scope,
     unmounted_mcp_installations_log_fields,
@@ -613,6 +614,7 @@ def _refresh_sandbox_mcp(
         task_id=str(task_run.task_id),
         origin_product=task_run.task.origin_product,
         exclude_tools=mcp_exclude_tools_from_state(state),
+        bundled_skills=posthog_code_keeps_bundled_skills(task_run),
     )
     user_mcp = get_user_mcp_server_configs(
         token=access_token,

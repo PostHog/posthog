@@ -53,6 +53,14 @@ def organization_state(mocker):
 
 
 @pytest.fixture(autouse=True)
+def bundled_skills(mocker):
+    return mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.posthog_code_keeps_bundled_skills",
+        return_value=False,
+    )
+
+
+@pytest.fixture(autouse=True)
 def task_run_state(mocker):
     mocker.patch("products.tasks.backend.temporal.process_task.activities.start_agent_server.transaction.atomic")
     mocker.patch(

@@ -64,7 +64,7 @@ from products.tasks.backend.logic.services.gateway_model_pin import (
     PRODUCT_ALLOWED_MODELS,
 )
 from products.tasks.backend.logic.services.gateway_usage import record_gateway_routing
-from products.tasks.backend.logic.services.local_skills import ENV_DISABLE_BUNDLED_SKILLS
+from products.tasks.backend.logic.services.local_skills import ENV_DISABLE_BUNDLED_SKILLS, bundled_skills_disabled
 from products.tasks.backend.logic.services.mcp_url import resolve_mcp_url as _resolve_mcp_url
 
 # Re-exported so existing activity/workflow imports keep working after the move to
@@ -820,6 +820,22 @@ def mcp_exec_skills_env_vars(ctx: TaskProcessingContext) -> dict[str, str]:
     return {ENV_DISABLE_BUNDLED_SKILLS: "1"}
 
 
+def posthog_code_keeps_bundled_skills(task_run: TaskRun) -> bool:
+    """Whether a `posthog-code` run's agent can read the bundled `querying-posthog-data` skill.
+
+    Mirrors what provisioning applies: `disable_skills` and the sandbox environment's
+    `ENV_DISABLE_BUNDLED_SKILLS` strip the bundled skills, while the `learn` flag never strips
+    them for this consumer. Pi runs are excluded because the pi agent does not load them.
+    """
+    if task_run.task.runtime == "pi" or (task_run.state or {}).get("disable_skills") is True:
+        return False
+    sandbox_environment = task_run.get_sandbox_environment()
+    applied_variables, _ = filter_user_sandbox_env_vars(
+        sandbox_environment.environment_variables if sandbox_environment else {}
+    )
+    return not bundled_skills_disabled(applied_variables)
+
+
 # Names capabilities rather than describing the server, because the agent's tool search reads
 # this before the PostHog MCP has ever connected.
 POSTHOG_MCP_DESCRIPTION = (
@@ -865,6 +881,7 @@ def get_sandbox_ph_mcp_configs(
     task_id: str | None = None,
     origin_product: str | None = None,
     exclude_tools: Sequence[str] | None = None,
+    bundled_skills: bool = False,
 ) -> list[McpServerConfig]:
     """Return PostHog MCP server configurations for sandbox agents.
 
@@ -875,6 +892,10 @@ def get_sandbox_ph_mcp_configs(
     `origin_product` rides along as `X-PostHog-Task-Origin`. The consumer header can't carry it
     (scouts and Desktop tasks both send `posthog-code`), and the MCP server needs it to keep
     `exec` from advertising gateway tools to runs that mount those servers directly.
+
+    `bundled_skills` sends `x-posthog-mcp-bundled-skills` for a `posthog-code` run whose agent has the
+    bundled skills (see `posthog_code_keeps_bundled_skills`), so the MCP server can point
+    `info execute-sql` at `querying-posthog-data` instead of inlining the full HogQL reference.
 
     Uses SANDBOX_MCP_URL if explicitly set, otherwise MCP_SERVER_URL. Returns an empty list when
     neither is set, because the instance has no MCP server.
@@ -887,18 +908,18 @@ def get_sandbox_ph_mcp_configs(
     if not url:
         return []
     read_only = not has_write_scopes(scopes)
+    consumer = _resolve_mcp_consumer(
+        interaction_origin, slack_reply_context=slack_reply_context, origin_product=origin_product
+    )
     headers = [
         {"name": "Authorization", "value": f"Bearer {token}"},
         {"name": "x-posthog-project-id", "value": str(project_id)},
         {"name": "x-posthog-mcp-version", "value": "2"},
         {"name": "x-posthog-read-only", "value": str(read_only).lower()},
-        {
-            "name": "x-posthog-mcp-consumer",
-            "value": _resolve_mcp_consumer(
-                interaction_origin, slack_reply_context=slack_reply_context, origin_product=origin_product
-            ),
-        },
+        {"name": "x-posthog-mcp-consumer", "value": consumer},
     ]
+    if bundled_skills and consumer == "posthog-code":
+        headers.append({"name": "x-posthog-mcp-bundled-skills", "value": "true"})
     if task_id:
         headers.append({"name": "X-PostHog-Task-Id", "value": str(task_id)})
     if origin_product:

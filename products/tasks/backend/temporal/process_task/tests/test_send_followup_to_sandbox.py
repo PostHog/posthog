@@ -67,6 +67,7 @@ def _make_task_run_mock(team_id: int = 7, created_by_id: int | None = 42, state:
     task.team_id = team_id
     task.internal = False
     task.origin_product = "user_created"
+    task.runtime = "acp"
     task.mcp_builtin_agent_key = None
     task.mcp_credential_owner_id = None
     task.mcp_gateway_server_allowlist = None
@@ -84,6 +85,7 @@ def _make_task_run_mock(team_id: int = 7, created_by_id: int | None = 42, state:
     # and leak into kwargs passed to `get_sandbox_ph_mcp_configs`.
     task_run.state = state
     task_run.imported_mcp_servers = None
+    task_run.get_sandbox_environment.return_value = None
     return task_run
 
 
@@ -130,6 +132,7 @@ class TestRefreshSandboxMcp:
             task_id="task-1",
             origin_product="support_reply",
             exclude_tools=["docs-search"],
+            bundled_skills=True,
         )
         mock_user_configs.assert_called_once_with(
             token="fresh-token",
@@ -262,6 +265,7 @@ class TestRefreshSandboxMcp:
             task_id="task-1",
             origin_product="user_created",
             exclude_tools=[],
+            bundled_skills=True,
         )
 
     def test_transition_refresh_failure_reports_unsafe(
