@@ -498,8 +498,10 @@ def send_transactional_email(
     with transactional_email_stage("workflow_lookup"):
         # A template passed in must be one of the team's templates that is not deleted, as this lookup returns.
         if isinstance(template, UUID):
-            template = MessageTemplate.objects.get(team_id=team.id, id=template, deleted=False)
-        hog_flow_id = _transactional_workflow_id(team.id, template)
+            model = MessageTemplate.objects.get(team_id=team.id, id=template, deleted=False)
+            hog_flow_id = _transactional_workflow_id(team.id, model)
+        else:
+            hog_flow_id = _transactional_workflow_id(team.id, template)
     payload = _send_payload(to, distinct_id, message_data, idempotency_key)
     return _queue(team.id, hog_flow_id, payload, run_transactional_workflow, timeout=timeout)
 
