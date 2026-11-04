@@ -102,7 +102,9 @@ def test_discovery_options_read_the_csv_quote_option_from_the_file_format(
 def test_a_self_managed_table_takes_the_account_from_the_url_and_the_key_from_the_secret() -> None:
     location = parse_self_managed_url("https://examplestore.blob.core.windows.net/exports/a.csv")
 
-    job_inputs = AzureBlobSource().job_inputs_for_self_managed(location, _credential(access_key="ExampleStore"), team_id=1)
+    job_inputs = AzureBlobSource().job_inputs_for_self_managed(
+        location, _credential(access_key="ExampleStore"), team_id=1
+    )
 
     assert (job_inputs["url_pattern"], job_inputs["account_key"]) == (
         "https://examplestore.blob.core.windows.net/exports/",
