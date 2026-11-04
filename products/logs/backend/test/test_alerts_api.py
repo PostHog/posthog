@@ -716,7 +716,9 @@ class TestLogsAlertAPI(APIBaseTest):
             ("not_capped_by_copies_of_deleted_alerts", False, "copies_of_deleted_rows", status.HTTP_201_CREATED, 1),
         ]
     )
-    def test_per_team_limit(self, _name, uncapped, existing, expected_status, created):
+    def test_per_team_limit(
+        self, _name: str, uncapped: bool, existing: str, expected_status: int, created: int
+    ) -> None:
         for i in range(MAX_ALERTS_PER_TEAM):
             if existing != "logs_rows":
                 with team_scope(self.team.id):
