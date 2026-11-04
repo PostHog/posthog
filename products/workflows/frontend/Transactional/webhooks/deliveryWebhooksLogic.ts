@@ -58,9 +58,9 @@ export interface deliveryWebhooksLogicValues {
     isAddModalOpen: boolean
     isWebhookFormSubmitting: boolean
     isWebhookFormValid: boolean
+    showWebhookFormErrors: boolean
     transactionalEmailOptions: TransactionalEmailOption[]
     transactionalEmailOptionsLoading: boolean
-    showWebhookFormErrors: boolean
     webhookForm: DeliveryWebhookForm
     webhookFormAllErrors: Record<string, any>
     webhookFormChanged: boolean
