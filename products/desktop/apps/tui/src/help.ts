@@ -61,7 +61,7 @@ export const HELP: HelpGroup[] = [
       },
       {
         keys: "← →",
-        does: "Fold or unfold the workspace a chat sits in; under the tabs, switch My chats, All chats and Inbox",
+        does: "Fold or unfold the workspace a chat sits in; under the tabs, switch Inbox, My chats and All chats",
       },
     ],
   },

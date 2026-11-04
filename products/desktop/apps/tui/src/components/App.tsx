@@ -77,7 +77,7 @@ import { Pane } from "./Pane";
 import { DividerColumn, PaneTree } from "./PaneTree";
 import { Search } from "./Search";
 import { Settings } from "./Settings";
-import { CHROME_ROWS, Sidebar } from "./Sidebar";
+import { CHROME_ROWS, SCOPES, Sidebar } from "./Sidebar";
 import { Welcome } from "./Welcome";
 
 export interface Session {
@@ -663,9 +663,8 @@ export function App({
       if (chat) setPinnedTo(chat, !pinned.some((p) => p.id === chat.id));
     },
     toggleScope: (direction) => {
-      const order: ChatScope[] = ["mine", "all", "inbox"];
-      const index = order.indexOf(scope);
-      switchScope(order[(index + direction + order.length) % order.length]);
+      const index = SCOPES.indexOf(scope);
+      switchScope(SCOPES[(index + direction + SCOPES.length) % SCOPES.length]);
     },
     toggleInbox: () => switchScope(scope === "inbox" ? "mine" : "inbox"),
     dismissFromInbox,

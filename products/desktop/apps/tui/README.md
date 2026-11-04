@@ -55,7 +55,7 @@ Picking a plan that lacks its login runs the sign-in on a sheet. Settings (Ctrl+
 | `!` | Run a shell command where the agent runs |
 | Ctrl+\ / Ctrl+\| | Split side by side / stacked |
 | Tab / Shift+Tab | Next pane or the sidebar / back |
-| ↑ ↓ ← → | Step chats / fold a workspace, or switch the My chats, All chats and Inbox tabs |
+| ↑ ↓ ← → | Step chats / fold a workspace, or switch the Inbox, My chats and All chats tabs |
 | Ctrl+[ / Ctrl+] | Back / forward through the chats visited (Ctrl+[ needs a kitty terminal) |
 | Ctrl+M / Ctrl+Shift+M | Step a Claude Code chat's mode / back (kitty terminals) |
 | Ctrl+B | Narrow the sidebar |

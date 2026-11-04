@@ -26,20 +26,20 @@ export const SIDEBAR_WIDTH = 31;
 // Narrowed with Ctrl+B: the logo's coloured stripes and a cell either side.
 export const NARROW_SIDEBAR_WIDTH = 5;
 
-// The tabs row: "My chats", a gap, then "All chats"; a click on a tab picks it by column.
-export const TABS = ["My chats", "All chats", "Inbox"] as const;
+// The tabs row: "Inbox", "My chats", then "All chats", with a gap between; a click on a tab picks it by column.
+export const TABS = ["Inbox", "My chats", "All chats"] as const;
 export const TAB_GAP = 2;
-export const ALL_TAB_COLUMN = TABS[0].length + TAB_GAP;
-export const INBOX_TAB_COLUMN = ALL_TAB_COLUMN + TABS[1].length + TAB_GAP;
-const SCOPES: ChatScope[] = ["mine", "all", "inbox"];
+export const MINE_TAB_COLUMN = TABS[0].length + TAB_GAP;
+export const ALL_TAB_COLUMN = MINE_TAB_COLUMN + TABS[1].length + TAB_GAP;
+export const SCOPES: ChatScope[] = ["inbox", "mine", "all"];
 
 // The tab a click at this column of the tabs row picks.
 export const scopeAtColumn = (column: number): ChatScope =>
-  column >= INBOX_TAB_COLUMN
-    ? "inbox"
-    : column >= ALL_TAB_COLUMN
-      ? "all"
-      : "mine";
+  column >= ALL_TAB_COLUMN
+    ? "all"
+    : column >= MINE_TAB_COLUMN
+      ? "mine"
+      : "inbox";
 
 const Tabs = ({ scope }: { scope: ChatScope }): ReactElement => (
   <Text>
