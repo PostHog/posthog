@@ -66,6 +66,7 @@ from posthog.exceptions import (
     ClickHouseQueryTimeOut,
 )
 from posthog.exceptions_capture import capture_exception
+from posthog.hogql_queries.user_query_errors import USER_QUERY_ERRORS
 from posthog.models import Team, User
 from posthog.permissions import is_authenticated_via_project_secret_api_key
 from posthog.schema_migrations.upgrade import upgrade
@@ -125,17 +126,17 @@ _QUERY_PERFORMANCE_ERRORS: dict[type[Exception], tuple[str, str]] = {
     ),
 }
 
-# Cost guardrails, budget refusals and transient capacity: customer problems, not faults. Skipped
-# from capture and re-raised past the materialized/ducklake inline fallback.
-_QUERY_GUARDRAIL_ERRORS: tuple[type[Exception], ...] = (
+_NON_REPORTABLE_QUERY_ERRORS: tuple[type[Exception], ...] = (
     *_QUERY_PERFORMANCE_ERRORS,
+    *USER_QUERY_ERRORS,
     ClickHouseAtCapacity,
     APIQueriesBudgetExceeded,
+    ConcurrencyLimitExceeded,
 )
 
 
-def _is_query_guardrail_error(error: BaseException) -> bool:
-    return isinstance(error, _QUERY_GUARDRAIL_ERRORS)
+def _is_non_reportable_query_error(error: Exception) -> bool:
+    return isinstance(error, _NON_REPORTABLE_QUERY_ERRORS)
 
 
 # ClickHouse cannot parse a value the customer sent (e.g. a bad date variable). execute() returns a 400.
@@ -916,8 +917,7 @@ class EndpointExecutionService(PydanticModelMixin):
 
             return result
         except Exception as e:
-            # Guardrail and input errors are customer-caused, not faults: skip capture and let execute() classify them.
-            if _is_query_guardrail_error(e) or _is_customer_input_error(e):
+            if _is_non_reportable_query_error(e):
                 raise
             logger.exception(
                 "Materialized endpoint execution failed",
@@ -1026,8 +1026,7 @@ class EndpointExecutionService(PydanticModelMixin):
 
         except Exception as e:
             self.handle_column_ch_error(e)
-            # Guardrail and input errors are customer-caused, not faults: skip capture and let execute() classify them.
-            if _is_query_guardrail_error(e) or _is_customer_input_error(e):
+            if _is_non_reportable_query_error(e):
                 raise
             logger.exception(
                 "Inline endpoint execution failed",

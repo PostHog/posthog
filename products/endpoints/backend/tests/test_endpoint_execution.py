@@ -22,7 +22,7 @@ from posthog.hogql.errors import ExposedHogQLError
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tags
-from posthog.errors import CHQueryErrorNoCommonType, wrap_clickhouse_query_error
+from posthog.errors import CHQueryErrorNoCommonType, CHQueryErrorNotAnAggregate, wrap_clickhouse_query_error
 from posthog.exceptions import APIQueriesBudgetExceeded, ClickHouseAtCapacity
 
 from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
@@ -159,6 +159,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
                 None,
                 "HogQL column `missing_property` could not be resolved",
                 None,
+                False,
             ),
             (
                 "clickhouse",
@@ -166,6 +167,15 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
                 "no_common_type",
                 "There is no supertype for types String, UInt64",
                 "Stack trace",
+                False,
+            ),
+            (
+                "materialized_clickhouse",
+                "DB::Exception: Column `value` is not under aggregate function and not in GROUP BY keys",
+                "not_an_aggregate",
+                "Column `value` is not under aggregate function",
+                None,
+                True,
             ),
         ]
     )
@@ -176,6 +186,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         code_name: str | None,
         expected_detail: str,
         forbidden_detail: str | None,
+        is_materialized: bool,
     ):
         endpoint = create_endpoint_with_version(
             name=f"{_name}_safe_error",
@@ -184,16 +195,23 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
             created_by=self.user,
             is_active=True,
         )
-        error = (
-            CHQueryErrorNoCommonType(message, code=386, code_name=code_name)
-            if code_name
-            else ExposedHogQLError(message)
-        )
+        error: Exception
+        if code_name == "not_an_aggregate":
+            error = CHQueryErrorNotAnAggregate(message, code=215, code_name=code_name)
+        elif code_name:
+            error = CHQueryErrorNoCommonType(message, code=386, code_name=code_name)
+        else:
+            error = ExposedHogQLError(message)
+
+        if is_materialized:
+            self._materialize_endpoint(endpoint)
 
         with (
             mock.patch("products.endpoints.backend.logic.execution.process_query_model", side_effect=error),
-            mock.patch("products.endpoints.backend.logic.execution.capture_exception"),
-            mock.patch("products.endpoints.backend.logic.execution._emit_endpoint_failure_signal"),
+            mock.patch("products.endpoints.backend.logic.execution.capture_exception") as mock_capture,
+            mock.patch(
+                "products.endpoints.backend.logic.execution._emit_endpoint_failure_signal"
+            ) as mock_failure_signal,
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/run/", {}, format="json"
@@ -205,6 +223,8 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         self.assertNotIn("Query execution failed.", detail)
         if forbidden_detail:
             self.assertNotIn(forbidden_detail, detail)
+        mock_capture.assert_not_called()
+        mock_failure_signal.assert_not_called()
 
     def test_budget_refusal_does_not_count_as_an_endpoint_error(self):
         endpoint = create_endpoint_with_version(

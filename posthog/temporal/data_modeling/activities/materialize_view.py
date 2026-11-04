@@ -45,6 +45,7 @@ from posthog.temporal.common.clickhouse import (
     ClickHouseError,
     ClickHouseQueryTimeoutError,
     ClickHouseTooManySimultaneousQueriesError,
+    ClickHouseQueryPlanningError,
     get_client as get_clickhouse_client,
 )
 from posthog.temporal.common.db_errors import is_transient_db_error
@@ -733,7 +734,7 @@ async def hogql_table(
         described_columns = await _describe_columns(
             printed, context.values, DESCRIBE_QUERY_SETTINGS, list(context.external_tables.values())
         )
-    except ClickHouseError as error:
+    except ClickHouseQueryPlanningError as error:
         # ClickHouse cannot plan some shapes once GLOBAL is gone, such as an IN subquery inside an
         # aggregate function. The untouched query is the one that runs, so it always describes.
         await logger.awarning(

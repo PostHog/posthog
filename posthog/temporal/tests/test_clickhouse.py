@@ -19,11 +19,13 @@ from posthog.temporal.common.clickhouse import (
     ClickHouseError,
     ClickHouseMemoryLimitExceededError,
     ClickHouseQueryNotFound,
+    ClickHouseQueryPlanningError,
     ClickHouseQueryStatus,
     ClickHouseQueryTimeoutError,
     ClickHouseTooManyBytesError,
     ClickHouseTooManySimultaneousQueriesError,
     ClickHouseUnknownTableError,
+    ClickHouseUserQueryError,
     add_log_comment_param,
     encode_clickhouse_data,
 )
@@ -197,6 +199,14 @@ def _mock_internal_session_post(return_value):
             "Code: 60. DB::Exception: Table posthog.missing_table does not exist. (UNKNOWN_TABLE)",
             ClickHouseUnknownTableError,
         ),
+        (
+            "Code: 8. DB::Exception: Cannot find column in source stream. (THERE_IS_NO_COLUMN) (version x.x.x.x (official build))",
+            ClickHouseQueryPlanningError,
+        ),
+        (
+            "Code: 215. DB::Exception: Column `value` is not under aggregate function and not in GROUP BY keys. (NOT_AN_AGGREGATE) (version x.x.x.x (official build))",
+            ClickHouseUserQueryError,
+        ),
     ],
     ids=[
         "MEMORY_LIMIT_EXCEEDED",
@@ -205,6 +215,8 @@ def _mock_internal_session_post(return_value):
         "TIMEOUT_EXCEEDED",
         "ALL_REPLICAS_ARE_STALE",
         "UNKNOWN_TABLE",
+        "THERE_IS_NO_COLUMN",
+        "NOT_AN_AGGREGATE",
     ],
 )
 def test_clickhouse_error_code_maps_to_exception(clickhouse_client, error_text, expected_exception):
