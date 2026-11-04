@@ -7,10 +7,10 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { visionDocsUrl } from '../../components/DocsLink'
 import { highlightPicksLogic } from '../highlightPicksLogic'
 import { highlightPicksStarterLogic } from '../highlightPicksStarterLogic'
-import { HighlightPicksEmptyState } from './HighlightPicksEmptyState'
 import { HighlightPicksScanningState } from './HighlightPicksScanningState'
 import { HighlightPicksStarterStatus } from './HighlightPicksStarterStatus'
 import { QuillHighlightPickRow } from './QuillHighlightPickRow'
+import { QuillHighlightPicksEmptyState } from './QuillHighlightPicksEmptyState'
 import { QuillHighlightPicksExtraRows } from './QuillHighlightPicksExtraRows'
 import { QuillHighlightPicksStaleBanner } from './QuillHighlightPicksStaleBanner'
 
@@ -63,7 +63,7 @@ export function QuillHighlightPicksList(): JSX.Element {
                             <QuillHighlightPicksExtraRows />
                         </>
                     ) : (
-                        <HighlightPicksEmptyState size="small" />
+                        <QuillHighlightPicksEmptyState size="small" />
                     )
                 ) : (
                     <>
