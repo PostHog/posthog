@@ -54,6 +54,20 @@ The `ingestion-apm` nodes (`NodeRole.APM`) run the same pattern for metrics: a K
 `Null` input table, materialized views fan it out to writable `Distributed` tables, and those write
 into the storage tables on the `logs` cluster (`NodeRole.LOGS`).
 
+### Choosing an ingestion role
+
+Choose the role from the load of the topic, not from where the consumer's dependencies already are.
+If a writable table or dictionary is on another role, create it on the consumer's role in the same migration.
+
+- `ingestion-events` (`NodeRole.INGESTION_EVENTS`) runs every ClickHouse consumer that reads all of `clickhouse_events_json`. A new full-topic consumer of that topic goes here.
+- `ingestion-small` (`NodeRole.INGESTION_SMALL`) is for lower-volume topics. It also runs the person, distinct ID and groups consumers.
+
+A filter in the materialized view does not reduce this load, because the Kafka engine reads and parses every message before the view runs.
+The memory limit is server-wide, so one heavy consumer can stall every consumer on its node.
+
+Migration 0251 created a full-topic consumer on `INGESTION_SMALL`. Do not copy that placement.
+The `INGESTION_SMALL` examples later in this file show the call shape, not a placement.
+
 # Local setup parity
 
 No table should exist only in the cloud. Every table created via migration must also exist
@@ -371,9 +385,42 @@ about 1000 to avoid trading tiny parts for merge pressure.
 `kafka_num_consumers` is per node. Nodes of a role share the topic's partitions and a consumer with
 no partition still holds a thread, so the total across the role must not exceed the partition count
 — a role on many nodes reaches that ceiling at 1. Each consumer also takes a slot in
-`background_message_broker_schedule_pool_size`, a server-level pool of 16 shared by every Kafka
+`background_message_broker_schedule_pool_size`, a server-level pool shared by every Kafka
 table on the node. Resolve the count through `kafka_num_consumers()` in
 `posthog/clickhouse/kafka_engine.py`, which returns 1 outside deployed cloud.
+
+The partition count is only a ceiling, so also work out the load per consumer.
+Take the topic's live record rate and average record size, and divide by the role's node count times `kafka_num_consumers`.
+Compare the result with a sibling consumer on the same topic.
+The consumer needs spare capacity above the peak rate, or it cannot drain a backlog after a stall.
+
+### Starting a new consumer group
+
+A group with no committed offsets starts at `earliest`, so its first run replays the full retention of the topic.
+A new group name causes this, so renaming a group does not skip history.
+No Kafka table setting changes the start position.
+`auto_offset_reset` works only in a named collection, and it then applies to every table that uses the collection.
+
+Decide the start position before the migration runs, and state it in the PR description.
+For a high-volume topic, start at the latest offset and fill the gap with a backfill.
+This needs writes that are safe to overlap, such as `min` and `max` aggregates.
+
+The ClickHouse team does this by hand before the migration merges, in dev first and then in each production environment:
+
+1. Create the Kafka table and the materialized view. A Kafka table with no view does not join the group, so the group appears only after this step.
+2. Wait for the group's first commit in the WarpStream console.
+3. Drop the view, then the Kafka table.
+4. Wait for the group to show `Empty`.
+5. In the group's `Topics` tab, use `Change committed offsets` and select `To current latest offset`. The [restoring event offsets runbook](https://runbooks.posthog.com/services/clickhouse/operations/restore-event-offsets) has the console steps. Read it for the console only, because its warning against the latest offset is about restores.
+6. Create the Kafka table and the view again on every node of the role.
+7. Confirm that the group's time lag stays at seconds.
+8. Merge the migration. `IF NOT EXISTS` makes it a no-op, so its SQL must match what you created.
+9. Run the backfill.
+
+Dropping the objects does not remove the group's committed offsets, and a later consumer with that name resumes from them.
+After a test, delete the group from its own page in the console. Do not use `Delete Empty Groups`, because that action is not limited to one group.
+
+Add the group to the ClickHouse consumer lag alert in `PostHog/charts`, and merge that after the consumer is healthy.
 
 ### Changing a Kafka table or its materialized view
 
@@ -383,9 +430,13 @@ change to an MV's SELECT alone (0298, 0199, 0208). This does not apply to `kafka
 `events_json_ws_mv`, which are never dropped or recreated — see the no-go zone caution above.
 
 With no MV attached nothing drives consumption and no offsets advance, so the cost is lag, not
-loss, provided the recreated table keeps the same `kafka_group_name`. Rows already written keep the
+loss, provided the recreated table keeps the same `kafka_group_name` and the committed offsets stay inside the topic's retention. Rows already written keep the
 old shape, so a change to how a column is derived needs a backfill or a sentinel marking pre-change
 rows, the way 0307 coalesces to `''` and 0.
+
+To stop a consumer that is causing trouble, run `DETACH TABLE <mv> PERMANENTLY`. A plain `DETACH` reverses when the server restarts.
+`ATTACH TABLE <mv>` resumes from the committed offsets.
+While the view is detached, watch the group's lag in the console.
 
 ### The repo is not the source of truth for these settings
 
