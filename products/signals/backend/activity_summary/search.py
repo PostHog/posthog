@@ -29,6 +29,7 @@ from posthog.ph_client import feature_enabled_or_false
 
 from products.signals.backend.activity_summary.prompt import EMBEDDING_DOCUMENT_TYPE, EMBEDDING_RENDERING
 from products.signals.backend.activity_summary.read import (
+    SKIPPED_REBUILD_STATUSES,
     ActivitySummaryTheme,
     ActivitySummaryView,
     readable_config,
@@ -47,6 +48,10 @@ MAX_LIMIT = 25
 # The standard constant from the reciprocal rank fusion paper. It keeps one top rank from outweighing
 # agreement between the two rankings.
 RRF_K = 60
+# The member roster attaches activity only to a narrowed result, so a full roster stays small.
+MAX_MEMBERS_WITH_ACTIVITY = 10
+# The roster carries a short activity block per member, so it keeps only the most active objects.
+MAX_MEMBER_ACTIVITY_OBJECTS = 5
 EMBEDDING_TIMEOUT_S = 10.0
 # A stalled read must end inside the MCP request deadline, so that a hybrid search can still return its keyword ranking.
 VECTOR_READ_MAX_EXECUTION_S = 10
@@ -128,6 +133,24 @@ class ActivitySummarySearchResult:
     semantic_used: bool
     # Members with access and no ready summary, so the caller can see how much of the project it covered.
     not_ready_count: int
+
+
+@frozen
+class MemberActivityObject:
+    type: str
+    id: str
+    name: str
+    last_at: str | None
+
+
+@frozen
+class MemberActivity:
+    headline: str | None
+    themes: tuple[ActivitySummaryTheme, ...]
+    owned: tuple[MemberActivityObject, ...]
+    watched: tuple[MemberActivityObject, ...]
+    generated_at: datetime.datetime | None
+    stale: bool
 
 
 @frozen
@@ -238,6 +261,55 @@ def search_summaries(
     return ActivitySummarySearchResult(
         results=tuple(hits), semantic_used=semantic_used, not_ready_count=not_ready_count
     )
+
+
+def member_activities(team: Team, user_uuids: Sequence[str]) -> dict[str, MemberActivity] | None:
+    """The ready activity summaries of the given members, keyed by user UUID.
+
+    Returns `None` when the team is not enrolled for reads or the search flag is off. A member without
+    a ready summary, or without access to `team`, has no key.
+    """
+    config = readable_config(team)
+    if config is None or not search_enabled(team):
+        return None
+    members = {
+        user_id: str(user_uuid)
+        for user_id, user_uuid in team.all_users_with_access().filter(uuid__in=user_uuids).values_list("id", "uuid")
+    }
+    # Two queries, not a join: the summary's user FK has no database constraint.
+    rows = UserActivitySummary.objects.for_team(team.id).filter(user_id__in=members.keys())
+    activities: dict[str, MemberActivity] = {}
+    for row in rows:
+        view = ready_view(row, config)
+        # Same readiness rule as `get_summary`: a stale summary whose rebuild skipped is not ready.
+        if view is None or (view.stale and row.status in SKIPPED_REBUILD_STATUSES):
+            continue
+        computed = view.computed or {}
+        activities[members[row.user_id]] = MemberActivity(
+            headline=view.headline,
+            themes=view.themes,
+            owned=_activity_objects(computed, "owned"),
+            watched=_activity_objects(computed, "watched"),
+            generated_at=view.generated_at,
+            stale=view.stale,
+        )
+    return activities
+
+
+def _activity_objects(computed: dict[str, Any], key: str) -> tuple[MemberActivityObject, ...]:
+    items = computed.get(key)
+    if not isinstance(items, list):
+        return ()
+    return tuple(
+        MemberActivityObject(
+            type=str(item.get("type") or ""),
+            id=str(item.get("id") or ""),
+            name=str(item.get("name") or ""),
+            last_at=last_at if isinstance(last_at := item.get("last_at"), str) else None,
+        )
+        for item in items
+        if isinstance(item, dict)
+    )[:MAX_MEMBER_ACTIVITY_OBJECTS]
 
 
 def _prefetch_github_identities(candidates: Sequence[_Candidate]) -> None:

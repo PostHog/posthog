@@ -102514,6 +102514,68 @@ export namespace Schemas {
       is_maintainer: boolean;
     }
 
+    export interface ScoutMemberActivityTheme {
+      /** A main thread of the member's recent work, in at most 60 characters. */
+      label: string;
+      /** How the member works on this thread, for example building it or only reading it. Null on older summaries.
+       *
+       * * `building` - Building
+       * * `analyzing` - Analyzing
+       * * `monitoring` - Monitoring
+       * * `investigating` - Investigating
+       * * `operating` - Operating
+       * * `experimenting` - Experimenting */
+      mode: ActivitySummaryModeEnum | null;
+      /**
+         * How much of the recent activity is about this thread: high, medium or low.
+         * @nullable
+         */
+      strength: string | null;
+      /**
+         * The last day of activity on this thread, as YYYY-MM-DD.
+         * @nullable
+         */
+      last_seen: string | null;
+    }
+
+    export interface ScoutMemberActivityObject {
+      /** The object type in snake case, such as `dashboard` or `feature_flag`. */
+      type: string;
+      /** The id of the object. */
+      id: string;
+      /** The latest name of the object. */
+      name: string;
+      /**
+         * The last day the member changed or opened the object, as YYYY-MM-DD.
+         * @nullable
+         */
+      last_at: string | null;
+    }
+
+    /**
+     * What one member worked on recently, from their activity summary.
+     */
+    export interface ScoutMemberActivity {
+      /**
+         * One line about the member's recent work.
+         * @nullable
+         */
+      headline: string | null;
+      /** The main threads of the member's work. */
+      themes: ScoutMemberActivityTheme[];
+      /** Up to 5 objects the member created or changed, the most edited first. */
+      owned: ScoutMemberActivityObject[];
+      /** Up to 5 objects the member opened on several days, the most opened first. A member who only reads the work shows up here. */
+      watched: ScoutMemberActivityObject[];
+      /**
+         * When the summary was written.
+         * @nullable
+         */
+      generated_at: string | null;
+      /** True when the summary is older than the current summary format and waits for a rebuild. */
+      stale: boolean;
+    }
+
     /**
      * One project member's routing identity, for picking a `suggested_reviewers` entry on a report.
      */
@@ -102533,6 +102595,8 @@ export namespace Schemas {
       github_login: string | null;
       /** The teams this member is on, from the project's synced team roster. Empty when no roster is synced, or when the member has no linked GitHub account, since the roster is keyed on that login. The roster is a periodic snapshot, so it can lag the live team. */
       teams: ScoutMemberTeam[];
+      /** What the member worked on recently, so you can check that they are close to the work before you route to them. Present only when the call passes `search` or `team` and returns at most 10 members. Null when the member has no ready summary, or when activity summaries are not available for this project. */
+      activity?: ScoutMemberActivity | null;
     }
 
     /**
