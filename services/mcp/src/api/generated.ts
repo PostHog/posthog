@@ -32924,6 +32924,7 @@ export namespace Schemas {
     export interface SyncFrequencyEffective {
       /** The `sync_frequency` value the view refreshes at now. The saved `sync_frequency` is never rewritten, so this differs from it when something holds the view back, and is finer than it when a downstream view or endpoint needs fresher data.
        *
+       * * `never` - never
        * * `15min` - 15min
        * * `30min` - 30min
        * * `1hour` - 1hour
@@ -32932,7 +32933,7 @@ export namespace Schemas {
        * * `24hour` - 24hour
        * * `7day` - 7day
        * * `30day` - 30day */
-      cadence: MaterializeSyncFrequencyEnum;
+      cadence: SavedQuerySyncFrequencyEnum;
       /** Why `cadence` is slower than the view would otherwise refresh: 'plan' when the organization's plan does not allow refreshing that often, 'source' when the upstream sources do not sync that often. Null when nothing holds the view back.
        *
        * * `source` - source

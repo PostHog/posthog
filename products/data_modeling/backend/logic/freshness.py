@@ -383,7 +383,7 @@ def _nearest_at_most(value: timedelta, buckets: frozenset[timedelta]) -> timedel
 ClampReason = Literal["source", "plan"]
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
 class ClampedCadence:
     """A node whose effective cadence was coarsened to what its sources deliver or its plan allows."""
 

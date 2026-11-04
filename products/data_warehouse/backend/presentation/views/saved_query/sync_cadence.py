@@ -108,7 +108,7 @@ class SyncFrequencyOptionSerializer(serializers.Serializer):
 
 class SyncFrequencyEffectiveSerializer(serializers.Serializer):
     cadence = serializers.ChoiceField(
-        choices=MATERIALIZE_SYNC_FREQUENCY_CHOICES,
+        choices=SavedQuerySyncFrequency.choices,
         help_text="The `sync_frequency` value the view refreshes at now. The saved `sync_frequency` is "
         "never rewritten, so this differs from it when something holds the view back, and is finer "
         "than it when a downstream view or endpoint needs fresher data.",
