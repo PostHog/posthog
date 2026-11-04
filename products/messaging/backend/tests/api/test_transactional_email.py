@@ -566,7 +566,7 @@ class TestTransactionalEmail(APIBaseTest):
         set_default_email_sender_if_unset(env.id, env_sender.id)
         clients = {
             self.team.id: self._psak_client(["hog_flow:write"]),
-            env.id: self._psak_client(["hog_flow:write"], env),
+            env.id: self._psak_client(["hog_flow:write"], team=env),
         }
 
         for team_id in (self.team.id, env.id, self.team.id, env.id):
@@ -1083,12 +1083,14 @@ class TestTransactionalEmail(APIBaseTest):
         if sender == "personal_api_key":
             token = generate_random_token_personal()
             PersonalAPIKey.objects.create(
-                label="email", user=self.user, secure_value=hash_key_value(token), scopes=["hog_flow:write"]
+                label="email", user=self.user, secure_value=hash_key_value(token), scopes=["transactional_email:write"]
             )
             client = APIClient()
             client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
             return client
-        return self._psak_client(["hog_flow:write"], created_by=self.user if sender == "key_creator" else None)
+        return self._psak_client(
+            ["transactional_email:write"], created_by=self.user if sender == "key_creator" else None
+        )
 
     @staticmethod
     def _first_code_sends(capture: MagicMock) -> list[CapturedFirstCodeSend]:
