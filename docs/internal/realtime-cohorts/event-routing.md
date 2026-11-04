@@ -108,6 +108,7 @@ A broker or network outage longer than that timeout abandons every forward still
 Other losses:
 
 - a message that cannot be parsed,
+- an event whose forwarded blob holds a lone surrogate escape: the shuffler copies blobs without checking them, and the processor then refuses the whole envelope,
 - a forward the producer rejects outright, for example because it is too large,
 - an event for a team that has just gained its first realtime cohort and is not yet in the team index.
   These are counted together with every other out-of-scope team, so they are not separately visible.

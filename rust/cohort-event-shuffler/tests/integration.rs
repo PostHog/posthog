@@ -6,9 +6,9 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use cohort_core::events::CohortStreamEvent;
 use cohort_event_shuffler::config::Config;
 use cohort_event_shuffler::consumer::EventShuffler;
-use cohort_event_shuffler::event::CohortStreamEvent;
 use cohort_event_shuffler::filter_team_index::{TeamGate, TeamIndex};
 use cohort_event_shuffler::producer::CohortStreamProducer;
 use common_cohort_team_access::TeamAccess;
@@ -128,7 +128,7 @@ async fn collect_output(
             Ok(Ok(msg)) => {
                 if let Some(payload) = msg.payload() {
                     let envelope: CohortStreamEvent = serde_json::from_slice(payload)
-                        .expect("output payload must be an envelope");
+                        .expect("the processor must decode every envelope");
                     collected.push((msg.partition(), envelope));
                     if collected.len() >= expected && grace_until.is_none() {
                         grace_until = Some(Instant::now() + Duration::from_secs(1));
@@ -377,12 +377,8 @@ async fn shuffler_forwards_only_gated_events_with_stable_partitioning() {
     assert_eq!(first.person_id, "pA");
     assert_eq!(first.event, "$pageview");
     assert_eq!(first.distinct_id, "did-pA");
-    let properties: Option<String> = first
-        .properties
-        .as_ref()
-        .map(|raw| serde_json::from_str(raw.get()).unwrap());
     assert_eq!(
-        properties.as_deref(),
+        first.properties.as_deref(),
         Some(r#"{"$current_url":"/pricing"}"#)
     );
     assert_eq!(first.source_partition, 1_000_000);

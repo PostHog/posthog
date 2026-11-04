@@ -2773,6 +2773,7 @@ dependencies = [
  "anyhow",
  "arc-swap",
  "axum 0.7.9",
+ "cohort-core",
  "common-alloc",
  "common-cohort-team-access",
  "common-database",
