@@ -186,7 +186,6 @@ export const DISPLAY_OPTIONS = [
         name: 'annotations',
         label: 'Annotations',
         info: 'Annotations are saved on an insight, a dashboard, the project, or the organization. Choose which of those to show here.',
-        stacked: true,
         group: 'display',
         control: 'select',
         options: [
@@ -285,13 +284,7 @@ export const DISPLAY_OPTIONS = [
     { name: 'yAxisBorder', label: 'Show border', group: 'y-axis', control: 'checkbox' },
     { name: 'yAxisScale', label: 'Scale', hideLabel: true, group: 'y-axis', control: 'toggle', options: SCALE_OPTIONS },
 
-    {
-        name: 'rightYAxisLabel',
-        label: 'Label',
-        group: 'right-y-axis',
-        control: 'text',
-        placeholder: 'Right Y-axis label',
-    },
+    { name: 'rightYAxisLabel', label: 'Label', group: 'right-y-axis', control: 'text', placeholder: 'None' },
     {
         name: 'rightYAxisBeginAtZero',
         label: 'Begin at zero',
