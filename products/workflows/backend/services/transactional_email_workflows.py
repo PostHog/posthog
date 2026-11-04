@@ -8,7 +8,7 @@ from uuid import UUID
 from django.db import transaction
 
 from posthog.integrations import IntegrationManager, IntegrationNotFound
-from posthog.models.integration import SANDBOX_EMAIL_PROVIDER
+from posthog.models.integration import is_sandbox_email_sender
 from posthog.models.scoping import with_team_scope
 
 from products.workflows.backend.facade.contracts import (
@@ -119,11 +119,19 @@ def resolve_transactional_email_sender(team_id: int, requested_id: int | None) -
             sender = IntegrationManager.email.credentials.get(team_id, sender_id)
         except IntegrationNotFound:
             pass
-    if sender is not None and sender.config.get("provider") == SANDBOX_EMAIL_PROVIDER:
+    if sender is not None and is_sandbox_email_sender(sender.config):
         raise TransactionalEmailSandboxSender()
     if sender is None or not sender.config.get("verified"):
         raise TransactionalEmailSenderUnavailable()
     return sender.id
+
+
+def _is_sandbox_sender(team_id: int, sender_id: int) -> bool:
+    try:
+        sender = IntegrationManager.email.credentials.get(team_id, sender_id)
+    except IntegrationNotFound:
+        return False
+    return is_sandbox_email_sender(sender.config)
 
 
 def _current_sender(flow: HogFlow) -> int | None:
@@ -170,7 +178,10 @@ def update_transactional_email_workflow(
         if content.from_integration_id:
             from_integration_id = resolve_transactional_email_sender(team_id, content.from_integration_id)
         else:
-            from_integration_id = _current_sender(flow) or resolve_transactional_email_sender(team_id, None)
+            current_sender = _current_sender(flow)
+            if current_sender is not None and _is_sandbox_sender(team_id, current_sender):
+                raise TransactionalEmailSandboxSender()
+            from_integration_id = current_sender or resolve_transactional_email_sender(team_id, None)
         update_workflow(
             team_id=team_id,
             user_id=user_id,
