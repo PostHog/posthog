@@ -77,6 +77,11 @@ describe('productUsageGridLogic', () => {
         await expectLogic(logic, () => logic.actions.runQuery()).toDispatchActions(['finishLoad'])
         query.mockResolvedValueOnce(accounts).mockResolvedValueOnce({ columns: ['row', 'column'], results: [['a', 1]] })
         await expectLogic(logic, () => logic.actions.saveSource()).toDispatchActions(['setSource', 'finishLoad'])
+        expect(query.mock.calls.slice(0, 2).map((call) => call[2])).toEqual(['force_blocking', 'force_blocking'])
+        expect(query.mock.calls.slice(2, 4).map((call) => call[2])).toEqual(['blocking', 'blocking'])
+        query.mockResolvedValueOnce(accounts).mockResolvedValueOnce({ columns: ['row', 'column'], results: [['a', 1]] })
+        await expectLogic(logic, () => logic.actions.refresh()).toDispatchActions(['finishLoad'])
+        expect(query.mock.calls.slice(4, 6).map((call) => call[2])).toEqual(['force_blocking', 'force_blocking'])
         expect(JSON.parse(localStorage.getItem(logic.values.storageKey)!)).toEqual(logic.values.source)
         expect(logic.values.editorOpen).toBe(false)
         expect(posthog.capture).toHaveBeenCalledWith('customer analytics product activity source saved', {

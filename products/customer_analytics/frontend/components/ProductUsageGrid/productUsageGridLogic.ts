@@ -147,7 +147,11 @@ export interface productUsageGridLogicActions {
         key: string
         people: BookActivityPerson[]
     }
-    load: (source: ProductUsageSource) => {
+    load: (
+        source: ProductUsageSource,
+        refresh?: 'blocking' | 'force_blocking'
+    ) => {
+        refresh: 'blocking' | 'force_blocking'
         source: ProductUsageSource
     }
     loadDetails: () => {
@@ -273,7 +277,10 @@ export const productUsageGridLogic = kea<productUsageGridLogicType>([
         setDraft: (source: ProductUsageSource) => ({ source }),
         runQuery: true,
         refresh: true,
-        load: (source: ProductUsageSource) => ({ source }),
+        load: (source: ProductUsageSource, refresh: 'blocking' | 'force_blocking' = 'blocking') => ({
+            source,
+            refresh,
+        }),
         startLoad: true,
         finishLoad: (result: ProductUsageLoadResult) => ({ result }),
         failLoad: (message: string) => ({ message }),
@@ -523,12 +530,12 @@ export const productUsageGridLogic = kea<productUsageGridLogicType>([
                 posthog.capture('customer analytics product activity query run', {
                     source_kind: values.draftSource.kind,
                 })
-                actions.load(values.draftSource)
+                actions.load(values.draftSource, 'force_blocking')
             }
         },
         refresh: () => {
             if (!values.loading && values.source) {
-                actions.load(values.source)
+                actions.load(values.source, 'force_blocking')
             }
         },
         setControls: async ({ controls }, breakpoint) => {
@@ -551,7 +558,7 @@ export const productUsageGridLogic = kea<productUsageGridLogicType>([
                 }
             }
         },
-        load: async ({ source }) => {
+        load: async ({ source, refresh }) => {
             cache.disposables.dispose('query')
             const id = uuid()
             const teamId = values.currentTeamId
@@ -584,7 +591,7 @@ export const productUsageGridLogic = kea<productUsageGridLogicType>([
                 const accounts = await performQuery<AccountsTableQuery>(
                     buildProductUsageAccountsQuery(controls),
                     { signal: controller.signal },
-                    'blocking',
+                    refresh,
                     `${id}-accounts`
                 )
                 if (controller.signal.aborted || cache.queryId !== id) {
@@ -605,7 +612,7 @@ export const productUsageGridLogic = kea<productUsageGridLogicType>([
                                     rowLimit: 200,
                                 },
                                 { signal: controller.signal },
-                                'blocking',
+                                refresh,
                                 id
                             )
                         ).results
@@ -618,7 +625,7 @@ export const productUsageGridLogic = kea<productUsageGridLogicType>([
                                 groupTypeIndex
                             ),
                             { signal: controller.signal },
-                            'blocking',
+                            refresh,
                             id
                         )
                     }
