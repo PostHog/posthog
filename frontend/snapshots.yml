@@ -8514,10 +8514,6 @@ snapshots:
         hash: v1.k794b7964.82956ad7b49338362f216d5648ee89813a3e18e903bc45b42c07c78f1b2a8867.byfxv4NIxretK2jzWWtxLDC8JOBfVF-tTXUPEO57PJ8
     products-workflows-editor-configuration-panel--email--light:
         hash: v1.k794b7964.dd2c15bc5c6a886c41f24f953cd0357978914f002f42d732b842c2349c04317b.6WUo7ta3_veXnom0KzU7BZ1lUzBWNCxugxmfTVPZwlQ
-    products-workflows-editor-configuration-panel--email-in-side-panel--dark:
-        hash: v1.k794b7964.b86dd0589d4176cecbfdfec32ed5fd8d9d6b4da89571a78f3d46567b13b095a7.pmXKJhqonqv2m0izV0rqZGqzaKcC7NuPqds4ykm428Y
-    products-workflows-editor-configuration-panel--email-in-side-panel--light:
-        hash: v1.k794b7964.5148ef83b4ffa0066217d18ab900c6c7fc93e6c7024dd16c30d3adce5be0ad95.fmtMjqlnEFw4qXHvkmJrJtAAzPGgwrBGTrPYwjoQtQY
     products-workflows-editor-configuration-panel--logs--dark:
         hash: v1.k794b7964.beabe0c2c69154a7e7b8e5709226f710bbb707c7a2a96ea3b908e7b5348ad177.l8BzDM-8b8Z6jYzADnoiRggNuU02m3lgVa6vtNm2VOw
     products-workflows-editor-configuration-panel--logs--light:
@@ -8571,9 +8567,9 @@ snapshots:
     products-workflows-editor-graph--support-sla-routing--light:
         hash: v1.k794b7964.7da9940d809322739e24142d5c513e9ea4cad9ff011779c5c26998cfaec24bb9.j7q5YusxDubsQpy3eiCFwNBRw6BeQUziOxHxIY7LaAk
     products-workflows-editor-graph--with-navigation--dark:
-        hash: v1.k794b7964.5f370b85344e6b2c4b44988d8bc2e13e647d1ae527720dce8d05e2b15a545381.H1s-o4FdoUogWavEbPSblWOU6HyHlCvOP8V-kI_fJyA
+        hash: v1.k794b7964.ab1cca72342def9799b3e737d5cc4f1c3ab17319ffb7669c5d15d4d2ece3ea0e.oFfPcSoBOkQRSqeDFljCoskzZ3gaW709fhlJJypQB8E
     products-workflows-editor-graph--with-navigation--light:
-        hash: v1.k794b7964.80893cf0e8c8e443606cad555c64cc7e33323c3d4da76599c8e63f7ca1c291bd.5ATLbGHLQWlJfeMpGAo-7Zld7eNzLRqjOkp2MwxmpV4
+        hash: v1.k794b7964.78d6d34bd90d3678289be8a6a7ecd4a5b39decc0fc2eee0c05195dd4c05912d4.Dwn_wEIpatedqmsbnc13pOPGtuNVR58fL4RHgkdzyQo
     products-workflows-editor-tile-canvas--long-emails--dark:
         hash: v1.k794b7964.1952a127037bb7742f34a262ba7383326e4f5e04c86ffd58caf988de908d8fe0.lASWXxfI4hHT-xShH9moFcK8Fsd5JbnWjflhV6hu1dI
     products-workflows-editor-tile-canvas--long-emails--light:
@@ -8594,38 +8590,6 @@ snapshots:
         hash: v1.k794b7964.7c7eac0a64e20be352335e9955c4abccf70d7ec2b180217d33e275e59061a7af.RfzdMvzPcl8UMVgMFh5cr00tXX09P7bfm2EC7tBQdVs
     products-workflows-editor-tile-canvas--with-step-counts--light:
         hash: v1.k794b7964.50beae04f0b949a710da41fdca70c671369ae0ac0499d284b69e1c57e931f1bc.o27SKj0cbEgIAZ6OSgXLX9_lFEaYUAWLmXef1W0TB3w
-    products-workflows-editor-tree--add-on-promotion-emails--dark:
-        hash: v1.k794b7964.17e5ae30b6cfa98729709e1bb572aa329eea7d267ee0fd757a8bcbb1d065f805.UCtBAJZoCAO4I9fElU_pbm8QniucCrnrfH8XHXnsEZA
-    products-workflows-editor-tree--add-on-promotion-emails--light:
-        hash: v1.k794b7964.f830380f7e4815a04d0194868c15ca52f1833cf78b57a69594fbd57402a0c561.5SP1lTTSGd3IzpqmDjcDcv1zuKatqfbNe1j7GkxPC9U
-    products-workflows-editor-tree--customer-onboarding-and-retention--dark:
-        hash: v1.k794b7964.808a132ead05351093977b04223be9dedd9e0623a2ed4de7defd9a8a5ba5a5cc.UzaUo0418u_lhAD2HCPee68-9wGdgRdWaekPfYR5mQA
-    products-workflows-editor-tree--customer-onboarding-and-retention--light:
-        hash: v1.k794b7964.67d1a2b0ef94f015512b92f398eaea2368b095f73a50aefd6f80a560081cf7bf.bNeVhwn053pmSIaXqid9kbk2prGjITRcrOeTls9PIqw
-    products-workflows-editor-tree--narrow-customer-onboarding-and-retention--dark:
-        hash: v1.k794b7964.673b09f7bfb1a2fb5f76a9d4e9fd654487b2dfb9e281556a4670cacf43dad021.CL7Ne89Gxo5uEAOHiOZ57sxijGimFQFEltj9marnNcs
-    products-workflows-editor-tree--narrow-customer-onboarding-and-retention--light:
-        hash: v1.k794b7964.314a6ca95c60c27d347ca282243c3302f888af0a6e7baa46c5b0e4199786f6cb.Zw8SsNDqanIMfgBrWRyc_VRFK5VDlTqkT6YAUpUGnKo
-    products-workflows-editor-tree--narrow-workflow--dark:
-        hash: v1.k794b7964.c5d5f2a2866b78902551f9e9380136d9be5a0011279f2e54f95377f013545b20.I-T3nqERLPDU8txzIe16BUhe78gHADq0jM4W39rAjYY
-    products-workflows-editor-tree--narrow-workflow--light:
-        hash: v1.k794b7964.7d8dac9b3eb931220260bb75055a56e7adcb05342e22d58003fa11574542dc24.Fj7P8W9ZEhkxhLJEd43nRkEoRGLmq0sstG1vv2rRa8I
-    products-workflows-editor-tree--new-workflow--dark:
-        hash: v1.k794b7964.a7f6a336ea69706fbf9c906d3548f0b772d465d9d867dabaa64af73088580d19.dPuzPuRnzJGd1m5ZyaPlBHt5OvuYmyDjwqxRyDiCzDE
-    products-workflows-editor-tree--new-workflow--light:
-        hash: v1.k794b7964.b26c001de2fec999dbf8cc7a5cb5e90a125221918565462383596e5954544120.1m0sV-zURViZ0FtU4NAcxq_lqR59MX6e0u93mf4TWhc
-    products-workflows-editor-tree--pending-ticket-cleanup--dark:
-        hash: v1.k794b7964.2de8be67590d2f1066894e8d3485b6037a3ff773f9290e67719a760106f3e642.vIxviv3sMgP2V_uh31dcntx-1MKtUwtS8GcEGP5OEMM
-    products-workflows-editor-tree--pending-ticket-cleanup--light:
-        hash: v1.k794b7964.58cf54c92e805d3467a646c65999e24754329185c78874fa445e04a6a7eebcf2.CXoA9tIjwJO99F8aFSybnxRmvJMzB2ip3Z-RowWBKNg
-    products-workflows-editor-tree--renewal-window-alerts--dark:
-        hash: v1.k794b7964.9a5bb43c5b9d124cca88f4e2c696103d1ab9d61305c8a8e17b62c227a15b6d70.-CPdH4DReMqjWF2eGilglDR00bid3OvfnKp8g2qfQVc
-    products-workflows-editor-tree--renewal-window-alerts--light:
-        hash: v1.k794b7964.c719df6871c48d89de7ad2f3c5965a56804dceda27b9a452bc27919932a14a10.jQgVO9iXW7sZnojFvL-Rh2Onb1exWc-0EfcCAF7keY4
-    products-workflows-editor-tree--support-sla-routing--dark:
-        hash: v1.k794b7964.411dd0f28eda261f093e7736ce3f58456e8aa70b09d8914116ea14698b24be24.xsESYYjDOqBeoYAUerv0N8ZaXq9q1W_9TX-oHH1Rwac
-    products-workflows-editor-tree--support-sla-routing--light:
-        hash: v1.k794b7964.57dcc01b1a8941186c56d4313765c1bc324d4d7773052ff59c33e32a76847677.CJpJ9x1W6gNaVt-_vLknTrAf0T8kp_ylQmeJp-aqhSY
     products-workflows-reputation--domain-withheld-from-caller--dark:
         hash: v1.k794b7964.4c8ae4bd60867d552c0b0499308c93dbb6a9e6da74929a97ddbedd39f992599b.bwSgpaQEan0zikdVKGPrgdoZQY5PMjSXnsfOVCyrrVc
     products-workflows-reputation--domain-withheld-from-caller--light:
