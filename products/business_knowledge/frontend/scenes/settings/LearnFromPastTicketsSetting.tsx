@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonBanner, LemonButton, LemonSkeleton, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { pluralize } from 'lib/utils/strings'
@@ -13,18 +13,12 @@ function progressSummary(progress: LearningBackfillProgressApi): string {
 }
 
 export function LearnFromPastTicketsSetting(): JSX.Element {
-    const { settings, settingsLoading, learningBackfillStarting } = useValues(businessKnowledgeSettingsLogic)
-    const { startLearningBackfill, loadSettings } = useActions(businessKnowledgeSettingsLogic)
+    const { settings, learningBackfillStarting } = useValues(businessKnowledgeSettingsLogic)
+    const { startLearningBackfill } = useActions(businessKnowledgeSettingsLogic)
 
-    if (settingsLoading && !settings) {
-        return <LemonSkeleton className="h-16 w-full max-w-xl" />
-    }
+    // The Self-learning setting renders this block only after settings load.
     if (!settings) {
-        return (
-            <p className="m-0">
-                Couldn't load this setting. <Link onClick={() => loadSettings()}>Try again</Link>
-            </p>
-        )
+        return null
     }
 
     const progress = settings.learning_backfill ?? null
@@ -39,6 +33,13 @@ export function LearnFromPastTicketsSetting(): JSX.Element {
 
     return (
         <div className="flex flex-col items-start gap-2 max-w-xl">
+            <div className="flex flex-col gap-1">
+                <h4 className="m-0 font-semibold">Learn from past tickets</h4>
+                <p className="m-0 text-secondary">
+                    Learn from support tickets resolved in the last 90 days, not only from new ones. Tickets that were
+                    already read are skipped. PostHog reads them in the background, which can take a few hours.
+                </p>
+            </div>
             <LemonBanner type="info" className="w-full">
                 Knowledge learned from past tickets counts toward your Business knowledge ingestion usage, the same as
                 sources you add yourself.

@@ -133,7 +133,6 @@ export type SettingId =
     | 'bounce-rate-duration'
     | 'bounce-rate-page-view-mode'
     | 'business-knowledge-github-repos'
-    | 'business-knowledge-learn-from-past-tickets'
     | 'business-knowledge-learn-from-support'
     | 'business-model'
     | 'change-password'

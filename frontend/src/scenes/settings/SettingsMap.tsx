@@ -55,7 +55,6 @@ import { AccessControlLevel, AccessControlResourceType, AvailableFeature, Realm 
 import { DevModeSetting } from 'products/ai_gateway/frontend/components/DevModeSetting'
 import { DevModeTeamUsage } from 'products/ai_gateway/frontend/components/DevModeTeamUsage'
 import { GithubReposSetting } from 'products/business_knowledge/frontend/scenes/settings/GithubReposSetting'
-import { LearnFromPastTicketsSetting } from 'products/business_knowledge/frontend/scenes/settings/LearnFromPastTicketsSetting'
 import { LearnFromSupportSetting } from 'products/business_knowledge/frontend/scenes/settings/LearnFromSupportSetting'
 import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'
 import { GeneralSection } from 'products/conversations/frontend/scenes/settings/GeneralSection'
@@ -1705,14 +1704,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'When on, PostHog learns reusable answers from public human replies on resolved support tickets.',
                 component: <LearnFromSupportSetting />,
                 docsUrl: 'https://posthog.com/docs/business-knowledge/learn-from-support',
-                keywords: ['business', 'knowledge', 'support', 'learn', 'ticket', 'resolved'],
-            },
-            {
-                id: 'business-knowledge-learn-from-past-tickets',
-                title: 'Learn from past tickets',
-                description:
-                    'Learn from support tickets resolved in the last 90 days, not only from new ones. Tickets that were already read are skipped. PostHog reads them in the background, which can take a few hours.',
-                component: <LearnFromPastTicketsSetting />,
                 keywords: ['business', 'knowledge', 'support', 'learn', 'ticket', 'resolved', 'past', 'backfill'],
             },
             {
