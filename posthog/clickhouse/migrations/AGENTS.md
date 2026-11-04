@@ -375,8 +375,8 @@ about 1000 to avoid trading tiny parts for merge pressure.
 `kafka_num_consumers` is per node. Nodes of a role share the topic's partitions and a consumer with
 no partition still holds a thread, so the total across the role must not exceed the partition count
 — a role on many nodes reaches that ceiling at 1. Each consumer also takes a slot in
-`background_message_broker_schedule_pool_size`, a server-level pool of 16 shared by every Kafka
-table on the node. Resolve the count through `kafka_num_consumers()` in
+`background_message_broker_schedule_pool_size`, a server-level pool shared by every Kafka
+table on the node. Check its live size with Housekeeper. Resolve the count through `kafka_num_consumers()` in
 `posthog/clickhouse/kafka_engine.py`, which returns 1 outside deployed cloud.
 
 ### Changing a Kafka table or its materialized view
