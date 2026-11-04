@@ -77,6 +77,10 @@ _ARRAY_CODECS: dict[str, str] = {
     "histogram_counts": " CODEC(T64, Default)",
 }
 
+# The ingest MV does not write these arrays, so new rows store an empty array.
+# Do not ARRAY JOIN them with the other point arrays: the lengths do not agree.
+METRICS4_UNWRITTEN_POINT_ARRAY_COLUMNS: frozenset[str] = frozenset({"observed_timestamp"})
+
 
 def _db() -> str:
     return settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
@@ -355,6 +359,7 @@ def METRICS4_INPUT_TO_METRICS4_SAMPLES_MV() -> str:
     group_arrays = ",\n".join(
         f"    groupArray({METRICS4_MAX_SAMPLES_PER_SERIES_HOUR})({name}) AS {name}_arr"
         for name, _ in METRICS4_POINT_ARRAY_COLUMNS
+        if name not in METRICS4_UNWRITTEN_POINT_ARRAY_COLUMNS
     )
     return f"""
 CREATE MATERIALIZED VIEW IF NOT EXISTS {db}.{METRICS4_INPUT_TABLE_NAME}_to_{METRICS4_SAMPLES_TABLE_NAME} TO {db}.{WRITABLE_METRICS4_SAMPLES_TABLE_NAME}
@@ -515,7 +520,6 @@ SELECT
     series_fingerprint,
     resource_fingerprint,
     timestamp,
-    observed_timestamp,
     original_expiry_timestamp,
     service_name,
     metric_type,
@@ -544,7 +548,6 @@ SELECT
     series_fingerprint,
     resource_fingerprint,
     point_timestamp AS timestamp,
-    point_observed_timestamp AS observed_timestamp,
     toDateTime64(original_expiry_date, 6) AS original_expiry_timestamp,
     service_name,
     metric_type,
@@ -563,7 +566,6 @@ SELECT
 FROM {db}.{METRICS4_SAMPLES_TABLE_NAME}
 ARRAY JOIN
     timestamp_arr AS point_timestamp,
-    observed_timestamp_arr AS point_observed_timestamp,
     value_arr AS point_value,
     count_arr AS point_count,
     histogram_counts_arr AS point_histogram_counts,
