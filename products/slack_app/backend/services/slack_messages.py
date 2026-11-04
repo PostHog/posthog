@@ -35,13 +35,15 @@ from slack_sdk.errors import SlackApiError
 from slack_sdk.http_retry.builtin_handlers import RateLimitErrorRetryHandler
 
 from posthog.dataclasses import frozen
-from posthog.models.integration import Integration, SlackIntegration
+from posthog.integrations import IntegrationManager, IntegrationNotFound
+from posthog.models.integration import SlackIntegration
 from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.slack.markdown import opens_with_line_anchored_markdown
 from posthog.utils import absolute_uri
 
 from products.slack_app.backend.services.model_catalogue import describe_run_model
 from products.slack_app.backend.services.slack_user_info import get_cached_bot_user_id, get_slack_user_info
+from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration
 
 logger = structlog.get_logger(__name__)
 
@@ -60,7 +62,7 @@ SLACK_WEBHOOK_TIMEOUT_SECONDS = 3
 
 def resolve_user_mentions_text(
     slack: SlackIntegration,
-    integration: Integration,
+    integration: WorkspaceIntegration,
     text: str,
     *,
     strip_bot_user_id: str | None = None,
@@ -150,7 +152,7 @@ def unwrap_slack_links(text: str) -> str:
 
 def _resolve_and_decode(
     slack: SlackIntegration,
-    integration: Integration,
+    integration: WorkspaceIntegration,
     text: str,
     *,
     strip_bot_user_id: str | None = None,
@@ -166,7 +168,7 @@ def _resolve_and_decode(
     return decode_slack_entities(resolved)
 
 
-def decode_slack_event_text(slack: SlackIntegration, integration: Integration, text: str) -> str:
+def decode_slack_event_text(slack: SlackIntegration, integration: WorkspaceIntegration, text: str) -> str:
     """Strip the bot's own self-mention from a Slack event and label the rest for the agent.
 
     Trigger sites all want the same thing: drop the bot's self-ping (it's just
@@ -545,7 +547,7 @@ def messages_at_or_before(messages: list[SlackThreadMessage], bound_ts: str) -> 
 
 def collect_thread_messages(
     slack: SlackIntegration,
-    integration: Integration,
+    integration: WorkspaceIntegration,
     channel: str,
     thread_ts: str,
     our_bot_id: str | None,
@@ -626,7 +628,7 @@ def collect_thread_messages(
 
 def cached_collect_thread_messages(
     slack: SlackIntegration,
-    integration: Integration,
+    integration: WorkspaceIntegration,
     channel: str,
     thread_ts: str,
     our_bot_id: str | None,
@@ -745,15 +747,14 @@ def _project_name(team_id: int, *, integration_id: int | None, created_by_id: in
         # The id is the install this reply posts through, read off stored thread state
         # rather than off the message, and all this reads from the row is the Slack
         # workspace it belongs to.
-        integration = (
-            Integration.objects.filter(pk=integration_id)  # nosemgrep: idor-lookup-without-team
-            .only("integration_id")
-            .first()
-        )
-        user = User.objects.filter(pk=created_by_id).first()
-        if integration is None or user is None:
+        try:
+            integration = IntegrationManager.slack.oauth.get(team_id, integration_id)
+        except IntegrationNotFound:
             return None
-        if not multiple_accessible_projects(slack_team_id=integration.integration_id, user=user):
+        user = User.objects.filter(pk=created_by_id).first()
+        if user is None:
+            return None
+        if not multiple_accessible_projects(slack_team_id=integration.integration_id or "", user=user):
             return None
         team = Team.objects.filter(pk=team_id).only("name").first()
     except Exception:
@@ -1011,7 +1012,7 @@ def context_block(text: str) -> dict[str, Any]:
     return {"type": "context", "elements": [{"type": "mrkdwn", "text": text}]}
 
 
-def app_home_url(integration: Integration, *, tab: str = "home") -> str | None:
+def app_home_url(integration: WorkspaceIntegration, *, tab: str = "home") -> str | None:
     """Deep link to this install's Home tab, where the model picker lives.
 
     The native `slack://` form rather than the https `app_redirect` one: the reader is
@@ -1061,7 +1062,7 @@ def _public_url(path: str) -> str:
     return absolute_uri(path)
 
 
-def viewer_has_code_access(integration: Integration, slack_user_id: str | None) -> bool:
+def viewer_has_code_access(integration: WorkspaceIntegration, slack_user_id: str | None) -> bool:
     """Whether the Slack identity reading this can open a PostHog Code link.
 
     Asked about the reader rather than the task's creator: the two can differ, and a link

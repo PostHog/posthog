@@ -8,7 +8,6 @@ export function isBIPivotTable(config: BIConfig): boolean {
             (config.chartType === ChartDisplayType.ActionsTable &&
                 !config.compareFilter?.compare &&
                 !config.source?.connectionId &&
-                config.rows.some((field) => field.expression.trim() || field.name.trim()) &&
                 config.columns.some((field) => field.expression.trim() || field.name.trim())))
     )
 }

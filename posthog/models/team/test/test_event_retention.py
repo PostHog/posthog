@@ -3,12 +3,18 @@ from typing import cast
 
 from posthog.test.base import BaseTest
 
+from django.test import override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.models.events_retention_config import TeamEventsRetentionConfig
 from posthog.models.organization import Organization, ProductFeature
-from posthog.models.team.event_retention import parse_events_feature_to_months, reconcile_organization_events_retention
+from posthog.models.team.event_retention import (
+    events_retention_months_for_team,
+    parse_events_feature_to_months,
+    reconcile_organization_events_retention,
+)
 from posthog.models.team.team import Team
 
 
@@ -75,3 +81,25 @@ class TestReconcileOrganizationEventsRetention(BaseTest):
 
         self.team.refresh_from_db()
         assert self.team.event_retention_months == 12
+
+
+@override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
+class TestEventsRetentionMonthsForTeam(BaseTest):
+    @parameterized.expand(
+        [
+            ("plan_window_only", None, 24),
+            ("shorter_set_window", 12, 12),
+            ("set_window_longer_than_a_downgraded_plan", 36, 24),
+        ]
+    )
+    def test_takes_the_shorter_of_the_plan_and_the_set_window(
+        self, _name: str, set_months: int | None, expected: int
+    ) -> None:
+        self.team.event_retention_months = 24
+        self.team.save()
+        if set_months is not None:
+            TeamEventsRetentionConfig.objects.create(team=self.team, events_retention_months=set_months)
+
+        assert events_retention_months_for_team(self.team, self.team.id) == expected
+        with self.assertNumQueries(0):
+            assert events_retention_months_for_team(self.team, self.team.id) == expected

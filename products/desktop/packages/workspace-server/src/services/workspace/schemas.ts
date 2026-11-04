@@ -225,6 +225,12 @@ export const markActivityInput = z.object({
   taskId: z.string(),
 });
 
+export const markUnreadInput = z.object({
+  taskId: z.string(),
+  // The task's last activity time in ms. The host can't see the backend's.
+  activityAt: z.number(),
+});
+
 export const getPinnedTaskIdsOutput = z.array(z.string());
 
 export const getTaskTimestampsInput = z.object({

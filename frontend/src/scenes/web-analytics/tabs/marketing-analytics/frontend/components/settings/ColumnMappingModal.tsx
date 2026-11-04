@@ -4,7 +4,10 @@ import { useMemo } from 'react'
 import { IconCheck, IconWarning, IconX } from '@posthog/icons'
 import { LemonButton, LemonModal, Spinner } from '@posthog/lemon-ui'
 
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { LemonInputSelect, LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { CURRENCY_SYMBOL_TO_NAME_MAP, IMPORTANT_CURRENCIES, OTHER_CURRENCIES } from 'lib/utils/currency'
 
 import {
@@ -17,6 +20,7 @@ import {
     VALID_NATIVE_MARKETING_SOURCES,
 } from '~/queries/schema/schema-general'
 import type { MarketingAnalyticsSchemaFieldTypes } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { ExternalTable } from '../../logic/marketingAnalyticsLogic'
 import { marketingAnalyticsSettingsLogic } from '../../logic/marketingAnalyticsSettingsLogic'
@@ -184,6 +188,9 @@ function buildColumnOptions(
 
 export function ColumnMappingModal({ table, isOpen, onClose }: ColumnMappingModalProps): JSX.Element {
     const { updateSourceMapping, testMapping } = useActions(marketingAnalyticsSettingsLogic)
+    const editDisabledReason =
+        useRestrictedArea({ scope: RestrictionScope.Project, minimumAccessLevel: TeamMembershipLevel.Admin }) ??
+        getAccessControlDisabledReason(AccessControlResourceType.MarketingAnalytics, AccessControlLevel.Editor)
     const { sources_map, testMappingResults } = useValues(marketingAnalyticsSettingsLogic)
 
     const requiredFields = Object.values(MarketingAnalyticsColumnsSchemaNames).filter(
@@ -262,9 +269,10 @@ export function ColumnMappingModal({ table, isOpen, onClose }: ColumnMappingModa
                             onClick={handleTestMapping}
                             tooltip="Test the mapping by running the adapter query"
                             disabledReason={
-                                requiredFieldsConfigured < requiredFields.length
+                                editDisabledReason ??
+                                (requiredFieldsConfigured < requiredFields.length
                                     ? 'Configure all required fields first'
-                                    : undefined
+                                    : undefined)
                             }
                         >
                             {testResult?.status === 'loading' ? (

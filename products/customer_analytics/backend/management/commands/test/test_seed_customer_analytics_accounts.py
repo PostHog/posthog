@@ -81,8 +81,10 @@ class TestSeedCustomerAnalyticsAccounts(BaseTest):
 
         # Users: a pool joined to the org, assigned as account relationships.
         assert len(self._pool_emails()) == 4
-        holders = AccountRelationship.objects.for_team(self.team.pk).filter(
-            account=accounts["acme-id"], ended_at__isnull=True
+        holders = (
+            AccountRelationship.objects.for_team(self.team.pk)
+            .filter(account=accounts["acme-id"], ended_at__isnull=True)
+            .select_related("definition", "user")
         )
         assert {rel.definition.name for rel in holders} == {"CSM", "Account executive", "Account owner"}
         assert all(rel.user is not None and rel.user.email in self._pool_emails() for rel in holders)

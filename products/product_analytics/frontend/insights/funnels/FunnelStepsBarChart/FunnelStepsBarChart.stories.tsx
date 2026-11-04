@@ -79,7 +79,6 @@ const manyStepsFixture = {
     ...funnelTopToBottomFixture,
     result: Array.from({ length: 10 }, (_, i) => ({
         ...funnelTopToBottomFixture.result[0],
-        action_id: `step_${i + 1}`,
         name: `step_${i + 1}`,
         order: i,
         count: Math.round(12000 * 0.9 ** i),

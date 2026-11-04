@@ -94,18 +94,32 @@ The input is always in exactly one mode, decided from the token under the cursor
 - A search with words goes to the ranked search endpoint (`file_system/search/`). A search made only of filters goes to the list endpoint, because there are no words to rank.
 - Sections, in this fixed order, covering everything the current palette finds:
   1. **Results**: file system objects (insights, dashboards, feature flags, experiments, surveys, notebooks, cohorts, actions, early access features, replay playlists, data pipelines), and products. For a search with words, see [Ranked results](#ranked-results).
-  2. In-memory lists, filtered on every keystroke: **Data management**, **People**, **Health**, **Misc**, **Settings** (with a Dark mode / Light mode row for "dark", "light", "theme", "appearance"), **Create new**. For a search with words they keep only items that match every word with no typo. Products rank with the results instead. In the test group of the `command-k-settings-in-results` experiment, settings that match every word with no typo also rank with the results, unless a product has the same name, and the **Settings** section lists only the ones that did not.
+  2. In-memory lists, filtered on every keystroke: **Data management**, **People**, **Health**, **Actions** (Log out, and Toggle terminal when the terminal is on), **Shortcuts** (with their key bindings), **Settings** (with a Dark mode / Light mode row for "dark", "light", "theme", "appearance"), **Create new**. For a search with words they keep only items that match every word with no typo. Products rank with the results instead. Settings that match every word with no typo also rank with the results, unless a product has the same name, and the **Settings** section lists only the ones that did not.
   3. Remote lists that the file system does not hold: **Events**, **Properties**, **Workflows** (one unified search request), **Accounts** (behind the customer analytics flag, excluding accounts already shown in ranked results), **Support tickets** (3+ characters or a ticket number).
   4. **Ask PostHog AI**.
   5. **Persons**, **Groups**. Person and group searches can take seconds, so they usually come last. The person search starts with the file system search, after 50 ms. A search that contains "@" waits for the person search and ranks the persons it finds with **Results** / **Best matches**. A person who matches every word comes first. Persons that do not rank stay in **Persons** below, with no duplicates. Other searches do not wait for persons or groups.
 - With any filter (a chip, or a valid `key:value` still being typed), only **Results** and **Ask PostHog AI** show, because filters apply only to objects.
 - With an `is:` chip (not negated), **Results** holds a **View all <types>** row (`View all feature flags`) that opens the list page of that type. With no search text it is the first row; once you type a search it moves below the results. It shows only for types with a list page.
+  - A list page that reads a search from its URL opens with the rest of the query. The type's product manifest names the URL param in `listSearchParam`, and Command K adds the search text to `listHref()`.
+  - Feature flags, experiments, cohorts, surveys, insights, and dashboards take the search text as `?search=`: the `name:` value, then the free text.
+  - These lists match the search text as one phrase, in the order typed. So `?search=` leaves out what a phrase cannot express: excluded words (`-legacy`, `"-legacy"`, `!draft`, a lone `-`), an excluded `name:`, and the quotes that group words (`"checkout v2"`).
+  - `createdBy:` and `in:` do not carry over, because the lists' own filters take user IDs and exact folders, not Command K's values.
+  - Any other type opens its bare list page.
 
 ### Ranked results
 
 Results for a search with words follow ordered tie-breaking rules: words matched, typos, word proximity, name before folder, exact words, word position, exactness, the person's recent views, then recency. Products rank with the same rules through their name and search keywords, so "recordings" finds Session replay. When a name match and a search keyword match tie, the name match ranks first, so "metrics" puts Metrics above Data catalog.
 
 - Accounts rank with the results when account search is enabled. The Accounts API matches the full search text, so an account can suppress the partial-match or spelling notice even when its display name does not contain the text. Distinct accounts with the same name stay separate. Accounts get no file-system **See all** filter.
+- In the test group of the `command-k-unified-ranking` experiment, one scorer ranks every result type with the same rules.
+  The sources only find candidates. The scorer then orders them by words matched, typos, match tier, the person's recent views, word proximity, word position, a type preference, then recency.
+  Match tiers, best first: exact name, exact name in singular, exact search keyword, name starts with the search, the same in singular, every word starts a name word, every word starts a name or keyword word, a match on an identity field (account external ID, website domain or email domain, person distinct ID), a match inside a word, then a match in the folder or type only.
+  Names compare as words, split on hyphens and underscores, so `checkout flow` matches the flags `checkout-flow-redesign` and `checkout_flow_redesign` as names that start with the search.
+  When every source answers and nothing matches, Cmd+K tries the search once more with underscores as spaces and says so ("No matches for **posthog_personal_api_key**. Showing results for **posthog personal api key**."), so a pasted variable name finds Personal API keys.
+  An account whose display name does not contain the search ranks as an identity match or a match inside a word, not as an exact match.
+  Products rank three match tiers higher, so a product whose name starts with the search ranks with an exact saved object name, and "replay" puts Replay vision above a notebook named Replay.
+  The type preference breaks ties: a search that looks like a domain or an email address prefers accounts and persons, and any other search prefers products, then saved objects and settings, then accounts and persons.
+  An account with no Salesforce, HubSpot deal or billing ID, no tag and no notebook ranks three match tiers lower, so a generic account name such as "Studio" does not lead an equally good saved object. A domain or email search still finds its account.
 - When no result has every word, results use the words that matched. A callout above the results names the dropped word ("No matches for **xyzzy**. Showing results for **report**."). When every match needs a typo, it says "No exact matches for **dashbord**. Showing close spellings." The callout is not selectable.
 - **Best matches** comes first: the three best results of different types.
 - The other results follow in groups by type, each with its total count and up to three rows. A group ends with a **See all N <types>** row that adds the `is:` chip and keeps the words. A one-word search that starts a type name (`dash`, `flag`) moves that type's group up.
@@ -177,7 +191,7 @@ These are the rules reviewers check. Breaking one is a bug.
 
 | Key                     | Action                                                                                                                      |
 | ----------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `↑` / `↓`               | Move highlight. Wraps at ends. Skips section headers.                                                                       |
+| `↑` / `↓`               | Move highlight. Skips section headers. `↑` on the first row returns to the input. `↓` stops at the last row.                |
 | `↵`                     | Filter key or value row: complete it. Result row: open it.                                                                  |
 | `⌘↵`                    | Open result in a new tab.                                                                                                   |
 | `Tab`                   | Highlighted key or value row: complete it. Any other row, with a query: ask PostHog AI. With neither, focus moves as usual. |
@@ -185,7 +199,7 @@ These are the rules reviewers check. Breaking one is a bug.
 | `⌫` at start of text    | First press selects the previous chip. Second press removes it.                                                             |
 | `↵` on a selected chip  | Turns the chip back into editable text (`is:dashboard`) with the cursor after it.                                           |
 | `←` / `→` at text edges | Move between chips.                                                                                                         |
-| `Esc`                   | Text in the input: clear it. Empty input: close the palette.                                                                |
+| `Esc`                   | Close the palette.                                                                                                          |
 | `⌘A`                    | Selects the chips and the text together. `⌫`, typing, or cut then replaces all of it. Copy includes the chips as text.      |
 
 ## Edge cases
@@ -195,7 +209,7 @@ These are the rules reviewers check. Breaking one is a bug.
 - **Pasted query** (`is:flag createdBy:me checkout`): parse into chips immediately.
 - **Same key twice** (`is:dashboard is:insight`): the later value replaces the earlier chip. While a value for a key that already has a chip is being typed, results preview the new value instead of the chip.
 - **Invalid value** (`is:banana`): keep it as plain text, no chip, and show "No type called banana" in the Suggestions section.
-- **Ask PostHog AI**: the last section in Search mode. Without filters, the question is the input text as typed. With filters and free text, the filters read as a sentence around the text (`Find notebooks created by me called "untitled"`). With filters and no free text, the section does not show and Tab does not ask AI.
+- **Ask PostHog AI**: the last section in Search mode, shown only when no other row matches. When other rows match, Tab and the **Press Tab to ask AI** button ask AI. Without filters, the question is the input text as typed. With filters and free text, the filters read as a sentence around the text (`Find notebooks created by me called "untitled"`). With filters and no free text, the section does not show and Tab does not ask AI.
   Asking AI does not send the question. It closes the palette and opens the PostHog AI side panel with the question in the composer, so the user can edit it and send it with Enter.
 
 ## Out of scope for v1
@@ -211,4 +225,4 @@ Every step emits an event so we can see adoption and drop-off:
 - `command k search opened` (source: shortcut, button)
 - `command k filter suggested` / `command k filter committed` (key, value kind, via: tab, enter, space, paste, see-all)
 - `command k result opened` (section, position, has_filters, filter_keys, query_length, ranked_section: `best-matches`, `group-<type>`, or the local section)
-- `command k search abandoned` (closed with no result opened; last mode, had_filters)
+- `command k search abandoned` (closed with no result opened; last mode, had_filters, had_results: whether any result row was on screen)

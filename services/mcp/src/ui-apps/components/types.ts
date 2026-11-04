@@ -135,10 +135,8 @@ export type StickinessResult = StickinessResultItem[]
 export interface FunnelStep {
     name?: string
     custom_name?: string
-    action_id?: string
     count?: number
     order?: number
-    type?: string
     breakdown_value?: string | number
     converted_people_url?: string
     dropped_people_url?: string

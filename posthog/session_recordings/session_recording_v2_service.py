@@ -8,7 +8,7 @@ from asgiref.sync import async_to_sync
 from prometheus_client import Counter
 
 from posthog.session_recordings.models.session_recording import SessionRecording
-from posthog.session_recordings.recordings.errors import RecordingApiConfigurationError
+from posthog.session_recordings.recordings.errors import RecordingApiConfigurationError, RecordingDeletedError
 from posthog.session_recordings.recordings.recording_api_client import recording_api_client
 
 logger = structlog.get_logger(__name__)
@@ -27,6 +27,9 @@ class RecordingBlock:
     end_byte: int
     start_timestamp: str
     end_timestamp: str
+    # recording-api's opaque name for the block, which the player can fetch directly. None for a recording from
+    # before encryption.
+    ref: str | None = None
 
 
 FIVE_SECONDS = 5
@@ -59,6 +62,7 @@ async def fetch_blocks_from_recording_api(session_id: str, team_id: int) -> list
             end_byte=b["end_byte"],
             start_timestamp=b["start_timestamp"],
             end_timestamp=b["end_timestamp"],
+            ref=b.get("ref"),
         )
         for b in raw_blocks
     ]
@@ -81,44 +85,28 @@ def _cache_blocks(cache_key: str | None, blocks: list[RecordingBlock]) -> None:
         cache.set(cache_key, blocks, timeout=FIVE_SECONDS)
 
 
-def list_blocks(recording: SessionRecording) -> list[RecordingBlock]:
+def list_blocks(recording: SessionRecording, use_cache: bool = True) -> list[RecordingBlock]:
     """
     Returns a list of recording blocks fetched from the recording-api.
     Results are cached to avoid excessive calls.
     """
-    cache_key, cached_blocks = _get_cached_blocks(recording)
-    if cached_blocks is not None:
-        return cached_blocks
-
-    try:
-        blocks = async_to_sync(fetch_blocks_from_recording_api)(recording.session_id, recording.team_id)
-    except RecordingApiConfigurationError:
-        # An empty listing is how a caller learns a recording has no blocks. A missing setting means no
-        # call was made at all, and no retry will change that, so it must not be reported as no blocks.
-        raise
-    except Exception:
-        logger.exception(
-            "recording_api_list_blocks_failed",
-            session_id=recording.session_id,
-            team_id=recording.team_id,
-        )
-        return []
-
-    _cache_blocks(cache_key, blocks)
-    return blocks
+    return async_to_sync(list_blocks_async)(recording, use_cache=use_cache)
 
 
-async def list_blocks_async(recording: SessionRecording) -> list[RecordingBlock]:
+async def list_blocks_async(recording: SessionRecording, use_cache: bool = True) -> list[RecordingBlock]:
     """
     Async version of list_blocks, safe to call from within a running event loop.
+    Pass use_cache=False where a deletion must show at once: the recording-api reports it, a cached listing does not.
     """
-    cache_key, cached_blocks = _get_cached_blocks(recording)
+    cache_key, cached_blocks = _get_cached_blocks(recording) if use_cache else (listing_cache_key(recording), None)
     if cached_blocks is not None:
         return cached_blocks
 
     try:
         blocks = await fetch_blocks_from_recording_api(recording.session_id, recording.team_id)
-    except RecordingApiConfigurationError:
+    except (RecordingApiConfigurationError, RecordingDeletedError):
+        # An empty listing is how a caller learns a recording has no blocks. A missing setting means no
+        # call was made at all, and a deleted recording must say so before the player reaches cached blocks.
         raise
     except Exception:
         logger.exception(

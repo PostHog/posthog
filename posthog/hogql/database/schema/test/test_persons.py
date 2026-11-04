@@ -2,6 +2,7 @@ from datetime import datetime
 
 from posthog.test.base import (
     APIBaseTest,
+    ClickhouseDestroyTablesMixin,
     ClickhouseTestMixin,
     _create_event,
     _create_person,
@@ -254,7 +255,8 @@ def _persons_semi_join(clickhouse: str) -> str:
     return sql[sql.rindex("FROM events", 0, end) : end]
 
 
-class TestPersonIdPushdown(ClickhouseTestMixin, APIBaseTest):
+class TestPersonIdPushdown(ClickhouseDestroyTablesMixin, ClickhouseTestMixin, APIBaseTest):
+    # The no_where case reads every event of the team, so rows left by earlier tests break it.
     FIXTURE = [
         ("in_window_paid", "paid_in_window", "paid", IN_WINDOW),
         ("in_window_free", "free_in_window", "free", IN_WINDOW),
