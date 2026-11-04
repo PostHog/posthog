@@ -1002,6 +1002,62 @@ class TestIssueTagValuesResumable:
         values_path = "/api/0/organizations/acme/issues/100/tags/browser/values/"
         values_requests = [request for request in result.requests if request.path == values_path]
         assert [request.param("cursor") for request in values_requests] == ["0:100:2"]
+        assert SentryResumeConfig(issue_id="100", completed_tag_keys=["os", "browser"], issue_position=2) in (
+            result.saved_states
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "other_tag_fails",
+                False,
+                SentryResumeConfig(
+                    issue_id="100",
+                    tag_key="os",
+                    values_next_url="https://sentry.io/api/0/organizations/acme/issues/100/tags/os/values/?cursor=0:100:2",
+                    completed_tag_keys=["browser"],
+                    issue_position=1,
+                ),
+            ),
+            ("saved_tag_dropped", True, SentryResumeConfig(completed_issue_id="100", issue_position=1)),
+        ]
+    )
+    def test_resume_reads_the_saved_values_page_before_other_tags(
+        self, _name: str, saved_tag_dropped: bool, expected_final_state: SentryResumeConfig
+    ) -> None:
+        resume_url = "https://sentry.io/api/0/organizations/acme/issues/100/tags/browser/values/?cursor=0:100:2"
+        os_next_link = (
+            "<https://sentry.io/api/0/organizations/acme/issues/100/tags/os/values/?cursor=0:100:2>; "
+            'rel="next"; results="true"'
+        )
+
+        def script(request: RecordedRequest) -> ScriptedResponse:
+            if request.path.endswith("/organizations/acme/issues/"):
+                return _json([{"id": "100"}])
+            if request.path.endswith("/organizations/acme/issues/100/tags/"):
+                return _json([{"key": "os"}] if saved_tag_dropped else [{"key": "os"}, {"key": "browser"}])
+            if request.url == resume_url or request.path.endswith("/tags/browser/values/"):
+                if saved_tag_dropped:
+                    return _json({"detail": "Not found"}, status=404)
+                return _json([{"value": "Firefox"}])
+            if request.param("cursor") == "0:100:2":
+                return _json([]) if saved_tag_dropped else _json({"detail": "Invalid token"}, status=401)
+            return _json([{"value": "Linux"}], link_header=os_next_link)
+
+        result = _driver().run(
+            "issue_tag_values",
+            script,
+            resume_state=SentryResumeConfig(
+                issue_id="100",
+                tag_key="browser",
+                values_next_url=resume_url,
+                completed_tag_keys=[],
+                issue_position=1,
+            ),
+        )
+
+        assert (result.raised is None) == saved_tag_dropped
+        assert result.final_state == expected_final_state
 
     @parameterized.expand(
         [
@@ -1012,9 +1068,14 @@ class TestIssueTagValuesResumable:
                     tag_key="browser",
                     values_next_url="https://sentry.io/api/0/organizations/acme/issues/999/tags/browser/values/?cursor=0:100:2",
                 ),
-                ["101", "102", "103"],
+                ["100", "101", "102", "103"],
             ),
             ("checkpoint_past_the_limit", SentryResumeConfig(completed_issue_id="102", issue_position=3), ["103"]),
+            (
+                "checkpoint_issue_gone_before_the_limit",
+                SentryResumeConfig(completed_issue_id="999", issue_position=10),
+                ["100", "101", "102", "103"],
+            ),
         ]
     )
     @patch("products.warehouse_sources.sources.sentry.sentry._RESUME_ISSUE_SKIP_LIMIT", 1)
