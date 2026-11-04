@@ -674,21 +674,21 @@ class TimeSensitiveActionPermission(BasePermission):
         return True
 
 
-def require_recent_authentication(request: object) -> None:
+def require_recent_authentication(request: object, max_age: Optional[int] = None) -> None:
     """Refuse a write from a session that `TimeSensitiveActionPermission` would refuse.
 
     For a write that is sensitive only for some payloads, so the check runs where the payload is
     known instead of on the whole view. The frontend opens the re-auth modal on this error and retries.
+
+    `max_age` narrows the window for an action that wants a shorter one, counted from the last
+    login or re-auth. It defaults to the `SESSION_SENSITIVE_ACTIONS_AGE` the permission class uses.
     """
     if not isinstance(getattr(request, "successful_authenticator", None), SessionAuthentication):
         return
     session = request.session  # type: ignore[attr-defined]
     reference = sensitive_action_reference(session)
-    if (
-        step_up_required(session)
-        or reference is None
-        or time.time() - reference > settings.SESSION_SENSITIVE_ACTIONS_AGE
-    ):
+    window = settings.SESSION_SENSITIVE_ACTIONS_AGE if max_age is None else max_age
+    if step_up_required(session) or reference is None or time.time() - reference > window:
         raise PermissionDenied(detail=TimeSensitiveActionPermission.message, code=TimeSensitiveActionPermission.code)
 
 

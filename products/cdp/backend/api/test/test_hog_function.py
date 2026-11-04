@@ -1456,12 +1456,29 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             res = self.client.patch(url, data={"hog": new_hog, "inputs": {"secret1": {"value": "RETYPED"}}})
             assert res.status_code == 200, res.json()
 
-    def _make_session_stale(self) -> None:
-        stale = time.time() - settings.SESSION_SENSITIVE_ACTIONS_AGE - 60
+    def _age_session(self, seconds: float) -> None:
+        aged = time.time() - seconds
         session = self.client.session
-        session[settings.SESSION_COOKIE_CREATED_AT_KEY] = stale
-        session[settings.SESSION_LAST_REAUTH_AT_KEY] = stale
+        session[settings.SESSION_COOKIE_CREATED_AT_KEY] = aged
+        session[settings.SESSION_LAST_REAUTH_AT_KEY] = aged
         session.save()
+
+    def _integration_payload(self, integration_id: int) -> dict[str, Any]:
+        return {
+            "type": "destination",
+            "name": "Fetch URL",
+            "hog": "fetch(inputs.url, {'body': inputs.body, 'headers': {'Authorization': inputs.slack.access_token}});",
+            "inputs_schema": [
+                {"key": "url", "type": "string", "label": "URL", "required": True},
+                {"key": "body", "type": "string", "label": "Body", "required": False},
+                {"key": "slack", "type": "integration", "integration": "slack", "required": False},
+            ],
+            "inputs": {
+                "url": {"value": "https://example.com"},
+                "body": {"value": "hello"},
+                "slack": {"value": integration_id},
+            },
+        }
 
     @parameterized.expand(
         [
@@ -1482,28 +1499,14 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     ) -> None:
         integration = Integration.objects.create(team=self.team, kind="slack", config={}, sensitive_config={})
         other = Integration.objects.create(team=self.team, kind="slack", integration_id="other", config={})
-        payload: dict[str, Any] = {
-            "type": "destination",
-            "name": "Fetch URL",
-            "hog": "fetch(inputs.url, {'body': inputs.body, 'headers': {'Authorization': inputs.slack.access_token}});",
-            "inputs_schema": [
-                {"key": "url", "type": "string", "label": "URL", "required": True},
-                {"key": "body", "type": "string", "label": "Body", "required": False},
-                {"key": "slack", "type": "integration", "integration": "slack", "required": False},
-            ],
-            "inputs": {
-                "url": {"value": "https://example.com"},
-                "body": {"value": "hello"},
-                "slack": {"value": integration.id},
-            },
-        }
+        payload = self._integration_payload(integration.id)
         if change is None:
-            self._make_session_stale()
+            self._age_session(settings.SESSION_INTEGRATION_LINK_AGE + 60)
             res = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=payload)
         else:
             create = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=payload)
             assert create.status_code == 201, create.json()
-            self._make_session_stale()
+            self._age_session(settings.SESSION_INTEGRATION_LINK_AGE + 60)
             inputs = {**payload["inputs"], **change.get("inputs", {})}
             if inputs["slack"].get("value") == "other":
                 inputs["slack"] = {"value": other.id}
@@ -1515,6 +1518,17 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert res.status_code == expected_status, res.json()
         if expected_status == 403:
             assert res.json()["code"] == "sensitive_action_required_reauth"
+
+    def test_integration_link_window_is_shorter_than_other_sensitive_actions(self) -> None:
+        integration = Integration.objects.create(team=self.team, kind="slack", config={}, sensitive_config={})
+        self._age_session(settings.SESSION_INTEGRATION_LINK_AGE + 60)
+
+        res = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/", data=self._integration_payload(integration.id)
+        )
+
+        assert res.status_code == 403, res.json()
+        assert res.json()["code"] == "sensitive_action_required_reauth"
 
     def test_secret_input_turned_public_keeps_a_new_value(self, *args):
         payload = {

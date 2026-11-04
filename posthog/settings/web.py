@@ -388,6 +388,10 @@ SESSION_SENSITIVE_ACTIONS_AGE = get_from_env("SESSION_SENSITIVE_ACTIONS_AGE", 60
 # enough for a stolen session cookie to take the account over (default 5 minutes)
 SESSION_FRESH_REAUTH_AGE = get_from_env("SESSION_FRESH_REAUTH_AGE", 60 * 5, type_cast=int)
 
+# Linking an integration into a destination or workflow narrows the window further, because the
+# saved function can then send that integration's token wherever its code points (default 15 minutes)
+SESSION_INTEGRATION_LINK_AGE = get_from_env("SESSION_INTEGRATION_LINK_AGE", 60 * 15, type_cast=int)
+
 SESSION_COOKIE_NAME = get_from_env("SESSION_COOKIE_NAME", "sessionid")
 CSRF_COOKIE_NAME = "posthog_csrftoken"
 CSRF_COOKIE_AGE = get_from_env("CSRF_COOKIE_AGE", SESSION_COOKIE_AGE, type_cast=int)

@@ -2298,7 +2298,9 @@ class HogFlowActionSerializer(serializers.Serializer):
                     data["config"].get("inputs"),
                     input_schema,
                 ):
-                    require_recent_authentication(self.context.get("request"))
+                    require_recent_authentication(
+                        self.context.get("request"), max_age=settings.SESSION_INTEGRATION_LINK_AGE
+                    )
                 if not is_draft:
                     _reject_empty_required_lists(input_schema, data["config"].get("inputs") or {})
                 if strict and template_id == _CREATE_TASK_TEMPLATE_ID:

@@ -5,6 +5,7 @@ from copy import deepcopy
 from datetime import timedelta
 from typing import Any, Optional, cast
 
+from django.conf import settings
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.signing import BadSignature, SignatureExpired, TimestampSigner
 from django.db import transaction
@@ -903,7 +904,7 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         )
         inputs_schema = attrs.get("inputs_schema", instance.inputs_schema if instance else [])
         if integration_link_needs_reauth(stored, current, inputs_schema):
-            require_recent_authentication(self.context.get("request"))
+            require_recent_authentication(self.context.get("request"), max_age=settings.SESSION_INTEGRATION_LINK_AGE)
 
     def to_representation(self, data):
         is_instance = isinstance(data, HogFunction)

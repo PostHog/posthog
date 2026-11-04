@@ -7343,7 +7343,7 @@ class TestHogFlowSecretInputs(APIBaseTest):
     ) -> None:
         integration = Integration.objects.create(team=self.team, kind="slack", config={}, sensitive_config={})
         payload = self._flow_payload(extra_inputs={"connection": {"value": integration.id}})
-        stale = time.time() - settings.SESSION_SENSITIVE_ACTIONS_AGE - 60
+        stale = time.time() - settings.SESSION_INTEGRATION_LINK_AGE - 60
 
         def make_session_stale() -> None:
             session = self.client.session
