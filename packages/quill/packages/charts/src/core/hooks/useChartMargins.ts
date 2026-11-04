@@ -134,12 +134,12 @@ function widestValueLabelWidth(
     yTickFormatter: ((value: number) => string) | undefined,
     isPercent: boolean
 ): number {
-    const range = seriesValueRange(series)
+    const range = isPercent ? null : seriesValueRange(series)
     // No data: the scale falls back to a [0, 1] domain (see `buildValueScale`), whose automatic ticks
     // render as "0".."1". Measure those so the empty-state margin still fits its labels — returning 0
     // here collapses the margin to its floor and clips the labels against the wrapper's overflow.
     const [min, max] =
-        isPercent || range.count === 0 ? [0, 1] : [range.min > 0 ? 0 : range.min, range.max < 0 ? 0 : range.max]
+        !range || range.count === 0 ? [0, 1] : [range.min > 0 ? 0 : range.min, range.max < 0 ? 0 : range.max]
     const ticks = scaleLinear().domain([min, max]).nice(6).ticks(6)
     if (ticks.length === 0) {
         return 0
