@@ -630,6 +630,52 @@ describe('workflowsListV2Logic', () => {
         expect(logic.values.pendingRowActions).toEqual({})
     })
 
+    it('stops paging an older load once a newer load starts', async () => {
+        const requestedOffsets: string[] = []
+        const heldFirstPages: Array<() => void> = []
+        let markHeld: () => void = () => {}
+        const nextHeld = (): Promise<void> => new Promise((resolve) => (markHeld = resolve))
+        let held = nextHeld()
+        useMocks({
+            get: {
+                '/api/projects/:team_id/hog_flows/summaries/': ({ request }) => {
+                    const offset = new URL(request.url).searchParams.get('offset') ?? '0'
+                    requestedOffsets.push(offset)
+                    if (offset !== '0') {
+                        return [200, paginated([buildWorkflowRow({ id: 'wf-second-page' })])]
+                    }
+                    return new Promise((resolve) => {
+                        heldFirstPages.push(() =>
+                            resolve([
+                                200,
+                                paginated(
+                                    [buildWorkflowRow({ id: 'wf-first-page' })],
+                                    'http://localhost/api/projects/997/hog_flows/summaries/?limit=500&offset=500'
+                                ),
+                            ])
+                        )
+                        markHeld()
+                    })
+                },
+            },
+        })
+        router.actions.push(urls.workflows())
+        logic = workflowsListV2Logic()
+        logic.mount()
+        await held
+        held = nextHeld()
+        logic.actions.loadWorkflows()
+        await held
+
+        // The older load gets its first page first, so without the stop it asks for page two before the newer load ends.
+        heldFirstPages[0]()
+        heldFirstPages[1]()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowsSuccess'])
+
+        expect(requestedOffsets).toEqual(['0', '0', '500'])
+        expect(logic.values.rows.map((row) => row.id)).toEqual(['wf-first-page', 'wf-second-page'])
+    })
+
     it('keeps row changes made while a reload is in flight', async () => {
         router.actions.push(urls.workflows())
         logic = workflowsListV2Logic()
