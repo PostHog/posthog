@@ -517,6 +517,21 @@ jobs:
                       --timeout 300 \
                       bin/ common/ docs/onboarding/ ee/ frontend/ packages/ posthog/ products/ services/ tools/
 
+            - name: Authorization migration (informational)
+              run: |
+                  if [ ! -f .semgrep/rules/devex/authorization-through-sdk.yaml ]; then
+                      echo "authorization-through-sdk not present on this branch yet, skipping (rebase to pick it up)"
+                      exit 0
+                  fi
+                  docker run --rm -v "${{ github.workspace }}:/src" -w /src \
+                    -e SEMGREP_ENABLE_VERSION_CHECK=false \
+                    ${{ env.SEMGREP_IMAGE }} \
+                    semgrep \
+                      --config .semgrep/rules/devex/authorization-through-sdk.yaml \
+                      --metrics=off \
+                      --timeout 300 \
+                      common/ ee/ posthog/ products/
+
             # Pass 2: enforce ERROR-severity rules. Any finding fails the
             # job — regression guards live here.
             - name: Errors (blocking)
