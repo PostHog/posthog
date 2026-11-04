@@ -178,7 +178,6 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const simplifiedReplies = !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_SIMPLIFIED_REPLIES]
-    const macrosEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_MACROS]
     const { currentTeam } = useValues(teamLogic)
     const aiSuggestionsEnabled = !!currentTeam?.conversations_settings?.ai_suggestions_enabled
 
@@ -348,15 +347,13 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         composerPrefillAt={composerPrefillAt}
                         composerInsertAt={composerInsertAt}
                         composerInsertContent={pendingComposerInsert}
-                        enableMacros={macrosEnabled}
-                        onInsertMacro={macrosEnabled ? (macro) => insertMacro(macro, 'slash') : undefined}
+                        enableMacros
+                        onInsertMacro={(macro) => insertMacro(macro, 'slash')}
                         macroPicker={
-                            macrosEnabled ? (
-                                <MacroPicker
-                                    disabledReason={sendDisabledReason}
-                                    onInsert={(macro) => insertMacro(macro, 'button')}
-                                />
-                            ) : undefined
+                            <MacroPicker
+                                disabledReason={sendDisabledReason}
+                                onInsert={(macro) => insertMacro(macro, 'button')}
+                            />
                         }
                         aiSources={ticket?.ai_triage?.sources}
                         aiDraftApplying={aiDraftApplying}
