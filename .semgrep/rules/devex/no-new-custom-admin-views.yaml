@@ -34,3 +34,19 @@ rules:
           category: maintainability
           subcategory: audit
           confidence: HIGH
+    - id: no-new-custom-admin-templates
+      message: |
+          Django admin picks up a template under templates/admin/ by its path alone, so this file
+          overrides or extends an admin page without any Python change. New staff pages go in the
+          PostHog Admin console; see posthog/admin/console/AGENTS.md.
+          Pre-existing findings are grandfathered; only newly introduced findings block CI.
+      languages: [generic]
+      severity: WARNING
+      pattern-regex: \{%\s*extends\s+["']admin/
+      paths:
+          include:
+              - '**/templates/admin/**/*.html'
+      metadata:
+          category: maintainability
+          subcategory: audit
+          confidence: HIGH
