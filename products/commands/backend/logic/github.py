@@ -1,6 +1,7 @@
 """The GitHub calls commands make, through the PostHog GitHub App installation of the pull request.
 
-Reads raise ``GitHubCallFailed`` so dispatch can fail closed. Reactions and replies are best effort:
+Reads raise ``GitHubCallFailed`` so dispatch can fail closed. Reactions, replies and review request
+removals are best effort:
 a lost acknowledgement must not stop a command or turn a run that started into a failure.
 """
 
@@ -46,6 +47,8 @@ class CommandGitHub(Protocol):
     def react(self, repository: str, comment_id: int, reaction: Reaction) -> None: ...
 
     def reply(self, repository: str, number: int, body: str) -> None: ...
+
+    def remove_team_review_request(self, repository: str, number: int, team_slug: str) -> None: ...
 
 
 class InstallationGitHub:
@@ -122,3 +125,18 @@ class InstallationGitHub:
             return
         if not result.get("success"):
             logger.warning("github_command_reply_failed", status_code=result.get("status_code"))
+
+    def remove_team_review_request(self, repository: str, number: int, team_slug: str) -> None:
+        try:
+            response = self._client.api_request(
+                "DELETE",
+                f"/repos/{repository}/pulls/{number}/requested_reviewers",
+                endpoint="/repos/{owner}/{repo}/pulls/{pull_number}/requested_reviewers",
+                # GitHub rejects the call without `reviewers`, even when only a team is removed.
+                json_body={"reviewers": [], "team_reviewers": [team_slug]},
+            )
+        except _CALL_ERRORS:
+            logger.warning("github_command_review_request_removal_failed", exc_info=True)
+            return
+        if response.status_code != 200:
+            logger.warning("github_command_review_request_removal_failed", status_code=response.status_code)

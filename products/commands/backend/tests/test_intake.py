@@ -3,7 +3,12 @@ from typing import Any
 
 import pytest
 
-from products.commands.backend.channels.github.intake import CommentCommandRequest, Dropped, read_comment_command
+from products.commands.backend.channels.github.intake import (
+    CommentCommandRequest,
+    Dropped,
+    read_comment_command,
+    read_review_team_request,
+)
 from products.commands.backend.channels.github.parsing import (
     MAX_BODY_LENGTH,
     AmbiguousCommand,
@@ -162,3 +167,48 @@ def test_read_comment_command_copies_identifiers_and_the_command_only() -> None:
 )
 def test_read_comment_command_drops(payload: dict[str, Any], reason: str) -> None:
     assert read_comment_command(payload) == Dropped(reason=reason)  # type: ignore[arg-type]
+
+
+def _review_request_payload(**overrides: Any) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "action": "review_requested",
+        "installation": {"id": 99},
+        "repository": {"full_name": "acme/widgets"},
+        "pull_request": {"number": 7},
+        "requested_team": {"slug": "posthog-review", "id": 1},
+        "sender": {"id": 4242, "login": "octo", "type": "User"},
+    }
+    payload.update(overrides)
+    return payload
+
+
+@pytest.mark.parametrize(
+    "payload,delivery_id,expected_argument",
+    [
+        (_review_request_payload(), "delivery-1", ""),
+        (_review_request_payload(requested_team={"slug": "PostHog-Review-Deep"}), "delivery-1", "--deep"),
+        (_review_request_payload(requested_team={"slug": "team-devex"}), "delivery-1", None),
+        (_review_request_payload(requested_team=None, requested_reviewer={"login": "octo"}), "delivery-1", None),
+        (_review_request_payload(action="review_request_removed"), "delivery-1", None),
+        # Reviewer-assignment automation must not start paid runs on its own.
+        (_review_request_payload(sender={"id": 1, "login": "assigner[bot]", "type": "Bot"}), "delivery-1", None),
+        (_review_request_payload(sender={"id": 1, "login": "assigner[bot]", "type": "User"}), "delivery-1", None),
+        # The delivery id is the claim key, so without it a redelivery could run twice.
+        (_review_request_payload(), None, None),
+        (_review_request_payload(repository={"full_name": "acme/widgets/../../orgs"}), "delivery-1", None),
+    ],
+)
+def test_read_review_team_request(
+    payload: dict[str, Any], delivery_id: str | None, expected_argument: str | None
+) -> None:
+    request = read_review_team_request(payload, delivery_id)
+
+    if expected_argument is None:
+        assert request is None
+    else:
+        assert request is not None
+        assert (request.argument, request.requester_github_id, request.delivery_id) == (
+            expected_argument,
+            4242,
+            delivery_id,
+        )

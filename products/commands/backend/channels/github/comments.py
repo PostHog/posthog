@@ -38,14 +38,14 @@ from .intake import CommentCommandRequest
 logger = structlog.get_logger(__name__)
 
 ROLLOUT_FLAG = "github-commands"
-_WRITE_PERMISSIONS = frozenset({"admin", "maintain", "write"})
+WRITE_PERMISSIONS = frozenset({"admin", "maintain", "write"})
 
 
 def _claim_key(comment_id: int) -> str:
     return f"commands:github_comment:{comment_id}"
 
 
-def _linked_users(github_user_id: int) -> list[User]:
+def users_linked_to_github_account(github_user_id: int) -> list[User]:
     """The active users linked to the GitHub account, most recently linked first."""
     links = [
         *UserIntegration.objects.filter(
@@ -110,7 +110,7 @@ class GitHubCommentChannel:
             # Nothing ran, so a redelivery may try again.
             release(_claim_key(comment.comment_id))
             return "permission_lookup_failed"
-        if permission not in _WRITE_PERMISSIONS:
+        if permission not in WRITE_PERMISSIONS:
             return "no_write_access"
         self._react("eyes")
         subject = open_subject(self.request.subject, team_ids, github=self._github)
@@ -119,7 +119,7 @@ class GitHubCommentChannel:
         return Admission(team_ids=team_ids, subject=subject)
 
     def linked_users(self) -> list[User]:
-        return _linked_users(self._comment.commenter_github_id)
+        return users_linked_to_github_account(self._comment.commenter_github_id)
 
     def reply(self, message: str) -> None:
         comment = self._comment

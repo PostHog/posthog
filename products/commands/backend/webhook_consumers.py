@@ -1,4 +1,4 @@
-"""The commands consumer on the customer-facing GitHub App endpoint.
+"""The commands consumers on the customer-facing GitHub App endpoint.
 
 The registry imports this module on the first delivery, so it stays cheap: the handler defers the
 facade import, and the facade defers the task import until a comment holds a command.
@@ -13,6 +13,12 @@ def _accept_comment(delivery: WebhookDelivery) -> None:
     accept_issue_comment(delivery.payload)
 
 
+def _accept_review_request(delivery: WebhookDelivery) -> None:
+    from products.commands.backend.facade.api import accept_review_request  # noqa: PLC0415
+
+    accept_review_request(delivery.payload, delivery.delivery_id)
+
+
 WEBHOOK_CONSUMERS = (
     WebhookConsumer(
         name="commands",
@@ -20,5 +26,12 @@ WEBHOOK_CONSUMERS = (
         app="posthog",
         event_types=frozenset({"issue_comment"}),
         handler=_accept_comment,
+    ),
+    WebhookConsumer(
+        name="commands_review_requests",
+        provider="github",
+        app="posthog",
+        event_types=frozenset({"pull_request"}),
+        handler=_accept_review_request,
     ),
 )

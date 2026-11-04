@@ -1,4 +1,4 @@
-"""Turns a verified ``issue_comment`` delivery into a command request, or drops it.
+"""Turns a verified ``issue_comment`` or review-request delivery into a command request, or drops it.
 
 This runs inside the webhook request, so it reads only the payload: no database, no GitHub API.
 Every check here is a cheap filter that drops noise before a task is queued. None of them is the
@@ -113,6 +113,64 @@ def read_comment_command(payload: Mapping[str, object]) -> CommentCommandRequest
         verb=parsed.verb if isinstance(parsed, ParsedCommand) else "",
         argument=parsed.argument if isinstance(parsed, ParsedCommand) else "",
         ambiguous=isinstance(parsed, AmbiguousCommand),
+    )
+
+
+REVIEW_TEAM_ARGUMENTS: Mapping[str, str] = {"posthog-review": "", "posthog-review-deep": "--deep"}
+
+
+@frozen
+class ReviewTeamRequest:
+    """A request for one of the review teams to review a pull request, copied out of the payload."""
+
+    installation_id: str
+    repository: str
+    pr_number: int
+    delivery_id: str
+    team_slug: str
+    requester_github_id: int
+    requester_login: str
+
+    @property
+    def argument(self) -> str:
+        return REVIEW_TEAM_ARGUMENTS[self.team_slug]
+
+
+def read_review_team_request(payload: Mapping[str, object], delivery_id: str | None) -> ReviewTeamRequest | None:
+    if payload.get("action") != "review_requested":
+        return None
+    team_slug = _mapping(payload.get("requested_team")).get("slug")
+    if not isinstance(team_slug, str) or team_slug.lower() not in REVIEW_TEAM_ARGUMENTS:
+        return None
+
+    sender = _mapping(payload.get("sender"))
+    login = sender.get("login")
+    if sender.get("type") != "User" or not isinstance(login, str) or not login or login.lower().endswith("[bot]"):
+        # Automation that assigns reviewers must not start paid runs on its own.
+        return None
+
+    installation_id = _positive_int(_mapping(payload.get("installation")).get("id"))
+    repository = _mapping(payload.get("repository")).get("full_name")
+    pr_number = _positive_int(_mapping(payload.get("pull_request")).get("number"))
+    sender_id = _positive_int(sender.get("id"))
+    if (
+        installation_id is None
+        or not isinstance(repository, str)
+        or not REPOSITORY_NAME_RE.fullmatch(repository)
+        or pr_number is None
+        or sender_id is None
+        or not delivery_id
+    ):
+        return None
+
+    return ReviewTeamRequest(
+        installation_id=str(installation_id),
+        repository=repository,
+        pr_number=pr_number,
+        delivery_id=delivery_id,
+        team_slug=team_slug.lower(),
+        requester_github_id=sender_id,
+        requester_login=login,
     )
 
 
