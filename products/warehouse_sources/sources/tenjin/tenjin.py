@@ -85,13 +85,11 @@ def resolve_start_date(
     return earliest
 
 
-def date_windows(start: date, end: date) -> list[SyncWindow[date]]:
-    windows: list[SyncWindow[date]] = []
+def date_windows(start: date, end: date) -> Iterator[SyncWindow[date]]:
     while start <= end:
         window_end = min(start + timedelta(days=WINDOW_DAYS - 1), end)
-        windows.append(SyncWindow(start=start, end=window_end))
+        yield SyncWindow(start=start, end=window_end)
         start = window_end + timedelta(days=1)
-    return windows
 
 
 def rejected_request_message(response: requests.Response, api_key: str) -> str:

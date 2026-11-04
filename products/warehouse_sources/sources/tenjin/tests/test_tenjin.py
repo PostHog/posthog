@@ -104,6 +104,7 @@ class TestRequestShaping:
         assert ends[-1] == TODAY
         assert all((end - start).days < WINDOW_DAYS for start, end in zip(starts, ends))
         assert all(start == end + timedelta(days=1) for end, start in zip(ends, starts[1:]))
+        assert result.final_state == TenjinResumeConfig(window_end=ends[-2].isoformat())
 
     @parameterized.expand([(name,) for name in TENJIN_REPORTS])
     def test_every_report_is_requested_at_daily_granularity(self, endpoint: str) -> None:
@@ -154,23 +155,15 @@ class TestPaginationAndResume:
         assert result.params("start_date") == [None, "2026-06-11"]
         assert result.params("end_date") == [None, "2026-06-30"]
 
-    @parameterized.expand(
-        [
-            ("rejected_second_window", "2024-07-30", "2024-07-29"),
-            ("finished_run_keeps_the_last_window", None, "2026-06-19"),
-        ]
-    )
-    def test_resume_point_follows_the_finished_windows(
-        self, _name: str, rejected_start: str | None, expected_window_end: str
-    ) -> None:
+    def test_failed_window_leaves_a_resume_point_after_the_finished_windows(self) -> None:
         def answer(request: RecordedRequest) -> ScriptedResponse:
-            if request.param("start_date") == rejected_start:
+            if request.param("start_date") == "2024-07-30":
                 return ScriptedResponse(status=400, json={"error": "Invalid request"})
             return _report_page([{"date": request.param("start_date"), "app_id": "a1"}])
 
         result = _drive(answer)
 
-        assert result.final_state == TenjinResumeConfig(window_end=expected_window_end)
+        assert result.final_state == TenjinResumeConfig(window_end="2024-07-29")
 
     @parameterized.expand(
         [
