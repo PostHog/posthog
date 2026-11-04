@@ -1,3 +1,5 @@
+from typing import TypeAlias
+
 from django.contrib.postgres.indexes import GinIndex
 from django.db import models, transaction
 from django.db.models.expressions import F
@@ -10,6 +12,8 @@ from posthog.models.tagged_items_relation import Taggable
 from posthog.models.utils import UniqueConstraintByExpression, UUIDTModel
 from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 from posthog.utils import invalidate_has_person_email_cache
+
+from products.event_definitions.backend.facade.enums import PropertyDefinitionType
 
 # Relocated to the Django-free products.event_definitions.backend.property_type module so the
 # HogQL engine can use it without booting Django; re-exported here for existing callers.
@@ -61,11 +65,8 @@ class PropertyFormat(models.TextChoices):
 
 
 class PropertyDefinition(Taggable, UUIDTModel):
-    class Type(models.IntegerChoices):
-        EVENT = 1, "event"
-        PERSON = 2, "person"
-        GROUP = 3, "group"
-        SESSION = 4, "session"
+    # A `type` statement would make this a TypeAliasType, and callers read members like `PropertyDefinition.Type.EVENT`.
+    Type: TypeAlias = PropertyDefinitionType  # noqa: UP040
 
     # No index of its own: posthog_pro_team_id_eac36d_idx (team_id, type, is_numerical) leads with team_id.
     team = models.ForeignKey(
@@ -87,7 +88,9 @@ class PropertyDefinition(Taggable, UUIDTModel):
     property_type = models.CharField(max_length=50, choices=PropertyType, blank=True, null=True)
 
     # :TRICKY: May be null for historical events
-    type = models.PositiveSmallIntegerField(default=Type.EVENT, choices=Type)
+    type = models.PositiveSmallIntegerField(
+        default=PropertyDefinitionType.EVENT.value, choices=PropertyDefinitionType.choices
+    )
     # Only populated for `Type.GROUP`
     group_type_index = models.PositiveSmallIntegerField(null=True)
 
