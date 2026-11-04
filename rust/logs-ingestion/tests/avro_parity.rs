@@ -140,6 +140,19 @@ fn schema_export_matches_avsc_for_the_production_schemas() {
 }
 
 #[test]
+fn a_deep_chain_of_named_records_is_rejected_without_overflow() {
+    let mut branches =
+        vec![r#"{"type":"record","name":"R0","fields":[{"name":"f","type":"int"}]}"#.to_string()];
+    for i in 1..20_000 {
+        branches.push(format!(
+            r#"{{"type":"record","name":"R{i}","fields":[{{"name":"f","type":"R{}"}}]}}"#,
+            i - 1
+        ));
+    }
+    assert!(Schema::parse_json(&format!("[{}]", branches.join(","))).is_err());
+}
+
+#[test]
 fn decode_never_panics_on_corrupt_containers() {
     let schema = Schema::parse_json(
         r#"{"type":"record","name":"R","fields":[
