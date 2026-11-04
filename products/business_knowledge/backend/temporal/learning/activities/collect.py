@@ -49,7 +49,9 @@ class _EvidenceIdentity:
     evidence_key: str
 
 
-def _canonical_teams(input: LearningCoordinatorInput, now: datetime) -> Iterable[tuple[Team, int | None]]:
+def _canonical_teams(
+    input: LearningCoordinatorInput, now: datetime
+) -> Iterable[tuple[TeamBusinessKnowledgeConfig, int | None]]:
     if input.team_id is None:
         configs = (
             TeamBusinessKnowledgeConfig.objects.filter(
@@ -68,7 +70,7 @@ def _canonical_teams(input: LearningCoordinatorInput, now: datetime) -> Iterable
             configs[:start].iterator(chunk_size=100),
         )
         for config in rotated_configs:
-            yield config.team, None
+            yield config, None
         return
 
     requested_team = Team.objects.select_related("organization").get(pk=input.team_id)
@@ -84,7 +86,7 @@ def _canonical_teams(input: LearningCoordinatorInput, now: datetime) -> Iterable
     if selected_config is None:
         return
     source_team_id = requested_team.id if requested_team.parent_team_id else None
-    yield selected_config.team, source_team_id
+    yield selected_config, source_team_id
 
 
 def _source_team_ids(canonical_team: Team, requested_source_team_id: int | None) -> list[int]:
@@ -281,6 +283,20 @@ def _collect_team_refs(
     return refs
 
 
+def _team_since(config: TeamBusinessKnowledgeConfig, default_since: datetime) -> datetime:
+    if config.learning_backfill_since is None:
+        return default_since
+    return min(default_since, config.learning_backfill_since)
+
+
+def _finish_backfill(config: TeamBusinessKnowledgeConfig) -> None:
+    # Match the stored value so a backfill restarted during this tick is not cleared.
+    TeamBusinessKnowledgeConfig.objects.filter(
+        team_id=config.team_id, learning_backfill_since=config.learning_backfill_since
+    ).update(learning_backfill_since=None)
+    logger.info("business_knowledge.learning.backfill_completed", team_id=config.team_id)
+
+
 def collect_learning_evidence(input: LearningCoordinatorInput) -> CollectLearningEvidenceOutput:
     if input.lookback_days <= 0 or input.lookback_days > LEARNING_MAX_LOOKBACK_DAYS:
         raise ValueError(f"lookback_days must be between 1 and {LEARNING_MAX_LOOKBACK_DAYS}")
@@ -290,20 +306,23 @@ def collect_learning_evidence(input: LearningCoordinatorInput) -> CollectLearnin
     settle_cutoff = now - timedelta(minutes=LEARNING_SETTLE_MINUTES)
     items: list[LearningWorkItem] = []
 
-    for canonical_team, requested_source_team_id in _canonical_teams(input, now):
+    for config, requested_source_team_id in _canonical_teams(input, now):
         if len(items) >= LEARNING_MAX_ITEMS_PER_TICK:
             break
+        canonical_team = config.team
         if not canonical_team.organization.is_ai_data_processing_approved or not logic.has_feature_flag(canonical_team):
             continue
 
         refs = _collect_team_refs(
             canonical_team,
             requested_source_team_id=requested_source_team_id,
-            since=since,
+            since=_team_since(config, since),
             settle_cutoff=settle_cutoff,
             ticket_id=ticket_id,
             now=now,
         )
+        if not refs and config.learning_backfill_since is not None and ticket_id is None:
+            _finish_backfill(config)
         existing = _existing_runs(canonical_team.id, refs)
         selected_for_team = 0
         for ref in refs:

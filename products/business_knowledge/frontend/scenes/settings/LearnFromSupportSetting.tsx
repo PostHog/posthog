@@ -1,14 +1,16 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSkeleton, LemonSwitch, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
 import { businessKnowledgeSettingsLogic } from './businessKnowledgeSettingsLogic'
 
 export function LearnFromSupportSetting(): JSX.Element {
-    const { settings, settingsLoading, settingsSaving } = useValues(businessKnowledgeSettingsLogic)
-    const { setLearnFromSupportEnabled, loadSettings } = useActions(businessKnowledgeSettingsLogic)
+    const { settings, settingsLoading, settingsSaving, learningBackfillStarting } =
+        useValues(businessKnowledgeSettingsLogic)
+    const { setLearnFromSupportEnabled, loadSettings, startLearningBackfill } =
+        useActions(businessKnowledgeSettingsLogic)
 
     if (settingsLoading && !settings) {
         return <LemonSkeleton className="h-10 w-80" />
@@ -36,6 +38,27 @@ export function LearnFromSupportSetting(): JSX.Element {
                 // data-attr is a frozen autocapture / Playwright key. Do not rename.
                 data-attr="business-knowledge-learn-from-support"
             />
+            {settings.learn_from_support_enabled ? (
+                <div className="flex flex-col items-start gap-1">
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        onClick={startLearningBackfill}
+                        loading={learningBackfillStarting}
+                        disabledReason={
+                            settings.learning_backfill_in_progress ? 'Already learning from past tickets' : undefined
+                        }
+                        data-attr="business-knowledge-learn-from-past-tickets"
+                    >
+                        Learn from past tickets
+                    </LemonButton>
+                    <span className="text-secondary text-xs">
+                        {settings.learning_backfill_in_progress
+                            ? 'Reading resolved tickets from the last 90 days. This can take a few hours.'
+                            : 'Read resolved tickets from the last 90 days. Tickets that were already read are skipped.'}
+                    </span>
+                </div>
+            ) : null}
             {supportOff ? (
                 <Link to={urls.settings('environment-conversations')}>
                     Turn on Support to learn from resolved tickets

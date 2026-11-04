@@ -120,6 +120,15 @@ export interface GapTopicActionResultApi {
     readonly updated: number
 }
 
+export interface BusinessKnowledgeSettingsApi {
+    /** When true, PostHog learns reusable knowledge from public human replies on resolved support tickets. Requires Support to be enabled for this environment. */
+    learn_from_support_enabled: boolean
+    /** Whether Support is enabled for this environment. Learning cannot be turned on while this is false. */
+    readonly support_enabled: boolean
+    /** True while PostHog also learns from resolved tickets of the last 90 days. Turns false once every ticket in that window is analyzed, or when learning is turned off. */
+    readonly learning_backfill_in_progress: boolean
+}
+
 export interface KnowledgeLibraryApi {
     /** Library id. */
     id: string
@@ -391,13 +400,6 @@ export interface SandboxRunStartedApi {
     task_id: string
     /** Run id for this question. */
     run_id: string
-}
-
-export interface BusinessKnowledgeSettingsApi {
-    /** When true, PostHog learns reusable knowledge from public human replies on resolved support tickets. Requires Support to be enabled for this environment. */
-    learn_from_support_enabled: boolean
-    /** Whether Support is enabled for this environment. Learning cannot be turned on while this is false. */
-    readonly support_enabled: boolean
 }
 
 export interface PatchedBusinessKnowledgeSettingsUpdateApi {

@@ -18,6 +18,16 @@ class TeamBusinessKnowledgeConfig(models.Model):
             "support tickets. Requires Support to be enabled for this environment."
         ),
     )
+    # Lives on the canonical parent with learn_from_support_enabled. The coordinator clears it once
+    # a pass finds no unprocessed ticket left in the window.
+    learning_backfill_since = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text=(
+            "When set, learning also reads resolved tickets back to this time, not only the default "
+            "lookback window. Null when no backfill is in progress."
+        ),
+    )
     # Environment-scoped, unlike learn_from_support_enabled. A GitHub App installation belongs to
     # this environment, so a child environment must not inherit the parent's repository allowlist.
     github_integration_id = models.IntegerField(

@@ -99,6 +99,7 @@ class TestBusinessKnowledgeSettingsAPI(APIBaseTest):
         assert response.json() == {
             "learn_from_support_enabled": False,
             "support_enabled": False,
+            "learning_backfill_in_progress": False,
         }
 
     def test_patch_round_trips(self, _ff) -> None:
@@ -109,10 +110,12 @@ class TestBusinessKnowledgeSettingsAPI(APIBaseTest):
         assert enabled.json() == {
             "learn_from_support_enabled": True,
             "support_enabled": True,
+            "learning_backfill_in_progress": False,
         }
         assert self.client.get(self.url).json() == {
             "learn_from_support_enabled": True,
             "support_enabled": True,
+            "learning_backfill_in_progress": False,
         }
 
         disabled = self.client.patch(self.url, {"learn_from_support_enabled": False}, format="json")
@@ -140,7 +143,24 @@ class TestBusinessKnowledgeSettingsAPI(APIBaseTest):
         assert response.json() == {
             "learn_from_support_enabled": False,
             "support_enabled": False,
+            "learning_backfill_in_progress": False,
         }
+
+    def test_learning_backfill_needs_learning_on_and_stops_when_learning_is_turned_off(self, _ff) -> None:
+        backfill_url = f"/api/projects/{self.team.id}/business_knowledge/learning_backfill/"
+        self._enable_support()
+
+        refused = self.client.post(backfill_url)
+        assert refused.status_code == status.HTTP_400_BAD_REQUEST, refused.content
+
+        self.client.patch(self.url, {"learn_from_support_enabled": True}, format="json")
+        started = self.client.post(backfill_url)
+        assert started.status_code == status.HTTP_200_OK, started.content
+        assert started.json()["learning_backfill_in_progress"] is True
+        assert self.client.get(self.url).json()["learning_backfill_in_progress"] is True
+
+        self.client.patch(self.url, {"learn_from_support_enabled": False}, format="json")
+        assert self.client.get(self.url).json()["learning_backfill_in_progress"] is False
 
     def test_empty_patch_is_a_noop(self, _ff) -> None:
         response = self.client.patch(self.url, {}, format="json")
@@ -169,6 +189,7 @@ class TestBusinessKnowledgeSettingsAPI(APIBaseTest):
         assert self.client.get(f"/api/projects/{child.id}/business_knowledge/settings/").json() == {
             "learn_from_support_enabled": True,
             "support_enabled": True,
+            "learning_backfill_in_progress": False,
         }
         assert get_or_create_team_extension(self.team, TeamBusinessKnowledgeConfig).learn_from_support_enabled is True
         assert get_or_create_team_extension(child, TeamBusinessKnowledgeConfig).learn_from_support_enabled is False
@@ -192,6 +213,7 @@ class TestBusinessKnowledgeSettingsAPI(APIBaseTest):
         assert response.json() == {
             "learn_from_support_enabled": True,
             "support_enabled": False,
+            "learning_backfill_in_progress": False,
         }
 
     def test_child_cannot_enable_when_its_support_is_off(self, _ff) -> None:

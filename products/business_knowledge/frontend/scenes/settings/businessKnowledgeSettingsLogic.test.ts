@@ -4,7 +4,11 @@ import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 import { expectLogic } from '~/test/keaTestUtils'
 
-import { businessKnowledgeSettingsPartialUpdate, businessKnowledgeSettingsRetrieve } from '../../generated/api'
+import {
+    businessKnowledgeLearningBackfillCreate,
+    businessKnowledgeSettingsPartialUpdate,
+    businessKnowledgeSettingsRetrieve,
+} from '../../generated/api'
 import { businessKnowledgeSettingsLogic } from './businessKnowledgeSettingsLogic'
 
 jest.mock('lib/api', () => {
@@ -32,6 +36,7 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
 jest.mock('../../generated/api', () => ({
     businessKnowledgeSettingsRetrieve: jest.fn(),
     businessKnowledgeSettingsPartialUpdate: jest.fn(),
+    businessKnowledgeLearningBackfillCreate: jest.fn(),
 }))
 
 describe('businessKnowledgeSettingsLogic', () => {
@@ -124,5 +129,22 @@ describe('businessKnowledgeSettingsLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.settings?.learn_from_support_enabled).toBe(false)
+    })
+
+    it('unlocks the past tickets button and says why when the backfill is refused', async () => {
+        const { ApiError } = jest.requireMock('lib/api')
+        ;(businessKnowledgeLearningBackfillCreate as jest.Mock).mockRejectedValue(
+            new ApiError('Bad Request', 400, undefined, {
+                detail: 'Turn on Learn from support to learn from past tickets.',
+            })
+        )
+        await mountLogic()
+
+        logic.actions.startLearningBackfill()
+        expect(logic.values.learningBackfillStarting).toBe(true)
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.learningBackfillStarting).toBe(false)
+        expect(lemonToast.error).toHaveBeenCalledWith('Turn on Learn from support to learn from past tickets.')
     })
 })

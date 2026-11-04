@@ -208,6 +208,25 @@ class TestCollectLearningEvidence(BaseTest):
         assert result.items[0].run_id == str(failed_run.id)
         assert immediate_retry.items == []
 
+    @patch(f"{COLLECT_MODULE}.logic.has_feature_flag", return_value=True)
+    def test_backfill_widens_the_window_until_no_ticket_is_left(self, _feature_flag) -> None:
+        config = learning_settings.start_learning_backfill(self.team)
+        backfill_since = config.learning_backfill_since
+        assert backfill_since is not None
+
+        first = collect_learning_evidence(LearningCoordinatorInput())
+        config.refresh_from_db()
+
+        assert len(first.items) == 1
+        assert self.provider.calls[0][1] == backfill_since
+        assert config.learning_backfill_since == backfill_since
+
+        second = collect_learning_evidence(LearningCoordinatorInput())
+        config.refresh_from_db()
+
+        assert second.items == []
+        assert config.learning_backfill_since is None
+
     @patch(f"{COLLECT_MODULE}.timezone.now", return_value=datetime(2026, 9, 12, tzinfo=UTC))
     @patch(f"{COLLECT_MODULE}.logic.has_feature_flag", return_value=True)
     def test_fresh_revision_waits_for_settle_window(self, _feature_flag, _now) -> None:

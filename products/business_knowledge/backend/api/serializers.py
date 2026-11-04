@@ -691,6 +691,13 @@ class BusinessKnowledgeSettingsSerializer(serializers.Serializer):
         read_only=True,
         help_text="Whether Support is enabled for this environment. Learning cannot be turned on while this is false.",
     )
+    learning_backfill_in_progress = serializers.BooleanField(
+        read_only=True,
+        help_text=(
+            "True while PostHog also learns from resolved tickets of the last 90 days. "
+            "Turns false once every ticket in that window is analyzed, or when learning is turned off."
+        ),
+    )
 
 
 class BusinessKnowledgeSettingsUpdateSerializer(serializers.Serializer):

@@ -21377,6 +21377,8 @@ export namespace Schemas {
       learn_from_support_enabled: boolean;
       /** Whether Support is enabled for this environment. Learning cannot be turned on while this is false. */
       readonly support_enabled: boolean;
+      /** True while PostHog also learns from resolved tickets of the last 90 days. Turns false once every ticket in that window is analyzed, or when learning is turned off. */
+      readonly learning_backfill_in_progress: boolean;
     }
 
     /**
