@@ -106,7 +106,7 @@ rule. Never add logic-path exceptions to the Jest breakpoint wrapper.
 
 ## Parameterise
 
-Per repo convention ([CLAUDE.md](../../../../CLAUDE.md)), parameterise variations of the
+Per repo convention ([`.agents/code-style.md`](../../../code-style.md)), parameterise variations of the
 same shape rather than copy-pasting describe bodies:
 
 ```ts

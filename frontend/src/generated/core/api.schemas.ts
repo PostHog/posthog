@@ -39,6 +39,8 @@ export interface DeviceApprovalApi {
     user_code: string
     /** The project the token is scoped to. */
     project_id: number
+    /** The requested scopes the person kept. Leave it out to grant every requested scope. It must include every scope in `required_scopes`, and nothing outside the requested scopes. */
+    scopes?: string[]
 }
 
 /**
@@ -99,6 +101,8 @@ export interface DeviceGrantDetailsApi {
     is_verified: boolean
     /** The scopes the token will carry if the person approves. */
     scopes: string[]
+    /** The requested scopes the person can't leave out: the client's required scopes and identity scopes such as `openid`. */
+    required_scopes: string[]
     /** The scopes the person already gave this client, per project. A step-up in a project asks for these plus new ones, and the page lists only the new ones. */
     granted_scopes: GrantedScopesApi[]
     /** When the code expires. */
@@ -2945,6 +2949,11 @@ export interface ProjectBackwardCompatApi {
     readonly id: number
     readonly organization: string
     /**
+     * Whether the project's organization approved AI data processing. AI features need this approval.
+     * @nullable
+     */
+    readonly is_ai_data_processing_approved: boolean | null
+    /**
      * Project name. Must be unique within the organization (case-insensitive). If omitted on creation, a unique default name is generated.
      * @minLength 1
      * @maxLength 200
@@ -3835,6 +3844,11 @@ export type PatchedProjectBackwardCompatApiManagedViewsets = { [key: string]: bo
 export interface PatchedProjectBackwardCompatApi {
     readonly id?: number
     readonly organization?: string
+    /**
+     * Whether the project's organization approved AI data processing. AI features need this approval.
+     * @nullable
+     */
+    readonly is_ai_data_processing_approved?: boolean | null
     /**
      * Project name. Must be unique within the organization (case-insensitive). If omitted on creation, a unique default name is generated.
      * @minLength 1
