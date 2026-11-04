@@ -10,6 +10,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { type FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
+import { getAppContext } from 'lib/utils/getAppContext'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
@@ -61,7 +62,7 @@ import { runCancellationLogic } from '../../logics/runCancellationLogic'
 import { runInteractionLogic, type RunContinuationHandoff } from '../../logics/runInteractionLogic'
 import { taskDefaultsLogic } from '../../logics/taskDefaultsLogic'
 import { taskRunDefaultsLogic } from '../../logics/taskRunDefaultsLogic'
-import { hasTasksFlag, tasksLogic } from '../../logics/tasksLogic'
+import { tasksLogic } from '../../logics/tasksLogic'
 import { taskWarmLogic } from '../../logics/taskWarmLogic'
 import type { WarmLease, WarmSubmission } from '../../logics/taskWarmLogic'
 import { toolStreamEventsLogic } from '../../logics/toolStreamEventsLogic'
@@ -509,6 +510,23 @@ export type taskTrackerSceneLogicType = MakeLogicType<
     TaskTrackerSceneLogicProps,
     taskTrackerSceneLogicMeta
 >
+
+/**
+ * The server refused 2.0 to a page that still shows it, such as one rendered before a flag outage.
+ * Classic PostHog AI takes over for the rest of the session, with the user's message.
+ */
+function moveToClassicPostHogAI(featureFlags: FeatureFlagsSet, message: string, navigate: boolean): void {
+    const appContext = getAppContext()
+    if (appContext) {
+        appContext.posthog_ai_access = false
+    }
+    // featureFlagLogic reads the server decision from the app context, so resending the current flags applies it.
+    const currentFlags: Record<string, string | boolean> = JSON.parse(JSON.stringify(featureFlags))
+    featureFlagLogic.findMounted()?.actions.setFeatureFlags(Object.keys(currentFlags), currentFlags)
+    if (navigate) {
+        router.actions.push(urls.ai(), message.trim() ? { ask: message } : {})
+    }
+}
 
 export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
     path(['products', 'posthog_ai', 'frontend', 'scenes', 'TaskTracker', 'taskTrackerSceneLogic']),
@@ -1300,6 +1318,9 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     }
                     actions.clearActiveCreation()
                 }
+                if (error instanceof ApiError && error.code === 'task_unavailable') {
+                    moveToClassicPostHogAI(values.featureFlags, values.newTaskData.description, !props.panelId)
+                }
                 if (error instanceof ApiError && error.code === 'warm_run_activation_unavailable') {
                     lemonToast.error("Couldn't start this run yet. Please try again.")
                 }
@@ -1420,9 +1441,9 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 actions.clearActiveCreation()
             }
         }
-        // Only the list and composer fall back to classic PostHog AI. Inbox task links need neither flag.
+        // Only the list and composer fall back to classic PostHog AI. Inbox task links need no 2.0 access.
         const redirectedWithoutAccess = (taskId?: string): boolean => {
-            if (props.panelId || hasTasksFlag(values.featureFlags) || (taskId && taskId !== 'new')) {
+            if (props.panelId || values.featureFlags[FEATURE_FLAGS.PHAI_SANDBOX_MODE] || (taskId && taskId !== 'new')) {
                 return false
             }
             router.actions.replace(urls.ai())

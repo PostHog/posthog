@@ -13,6 +13,7 @@ import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
 import { todaySpacesLogic } from '~/layout/today/todaySpacesLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { AppContext } from '~/types'
 
 import {
     ModelAccessEnumApi,
@@ -108,8 +109,11 @@ describe('taskTrackerSceneLogic', () => {
             },
         })
         initKeaTests()
-        // Without Tasks access the scene sends `/tasks` URLs to classic PostHog AI.
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TASKS], { [FEATURE_FLAGS.TASKS]: true })
+        // Without PostHog AI 2.0 the scene sends `/tasks` URLs to classic PostHog AI.
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TASKS, FEATURE_FLAGS.PHAI_SANDBOX_MODE], {
+            [FEATURE_FLAGS.TASKS]: true,
+            [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true,
+        })
         toolEvents = toolStreamEventsLogic()
         toolEvents.mount()
         toolEvents.actions.registerToolListener('editor', {
@@ -195,13 +199,15 @@ describe('taskTrackerSceneLogic', () => {
         expect(runBody).not.toHaveProperty('pending_user_artifact_ids')
     })
 
-    // An Inbox task link must still open its transcript without Tasks access.
+    // An Inbox task link must still open its transcript without 2.0. The Tasks flag alone does not grant the composer,
+    // because the server decides 2.0 from one flag.
     it.each([
-        ['/tasks', '/ai'],
-        ['/tasks/new', '/ai'],
-        ['/tasks/a1b2c3d4-0000-4000-8000-000000000001', '/tasks/a1b2c3d4-0000-4000-8000-000000000001'],
-    ])('without Tasks access, %s lands on %s', async (start, expected) => {
-        featureFlagLogic.actions.setFeatureFlags([], {})
+        ['/tasks', '/ai', {}],
+        ['/tasks/new', '/ai', {}],
+        ['/tasks/new', '/ai', { [FEATURE_FLAGS.TASKS]: true }],
+        ['/tasks/a1b2c3d4-0000-4000-8000-000000000001', '/tasks/a1b2c3d4-0000-4000-8000-000000000001', {}],
+    ])('without PostHog AI 2.0, %s lands on %s (flags %j)', async (start, expected, flags) => {
+        featureFlagLogic.actions.setFeatureFlags(Object.keys(flags), flags)
         logic.mount()
         router.actions.push(start)
         await expectLogic(logic).toFinishAllListeners()
@@ -405,6 +411,33 @@ describe('taskTrackerSceneLogic', () => {
             expect(toolEvents.values.applyBackTargetClaims[streamKey]).toBeUndefined()
         }
     )
+
+    // A page can still show 2.0 after the server stopped allowing it. The refused message must reach classic
+    // PostHog AI instead of bouncing back into a composer that cannot send.
+    it('hands a send the server refuses to classic PostHog AI', async () => {
+        const originalAppContext = window.POSTHOG_APP_CONTEXT
+        window.POSTHOG_APP_CONTEXT = { ...originalAppContext, posthog_ai_access: true } as AppContext
+        useMocks({
+            post: {
+                '/api/projects/:team/tasks/': () => [
+                    403,
+                    { type: 'permission_denied', code: 'task_unavailable', error: "This task isn't available to you." },
+                ],
+            },
+        })
+        try {
+            logic.mount()
+            router.actions.push('/tasks/new')
+            logic.actions.setNewTaskData({ description: 'Explain the example chart' })
+            await expectLogic(logic, () => logic.actions.submitNewTask()).toFinishAllListeners()
+
+            expect(featureFlagLogic.values.featureFlags[FEATURE_FLAGS.PHAI_SANDBOX_MODE]).toBe(false)
+            expect(router.values.location.pathname).toBe('/project/997/ai')
+            expect(router.values.searchParams).toEqual({ ask: 'Explain the example chart' })
+        } finally {
+            window.POSTHOG_APP_CONTEXT = originalAppContext
+        }
+    })
 
     // PostHog AI can run without a repo: a description-only submit must still create and run the task with a
     // null repository, not bail. Guards against re-adding a "Repository is required" gate on the send path.
