@@ -234,7 +234,7 @@ def apply_saved_query_frequency_target(
                             node_id=node_id,
                             target=node_target,
                             edges=graph.edges,
-                            declared_targets=graph.scheduled_targets,
+                            declared_targets=graph.declared_targets,
                             source_intervals=graph.source_intervals,
                             pinned=graph.pinned,
                             names=visible_names or {},

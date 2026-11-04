@@ -599,7 +599,7 @@ class TestMaybeReconcileDag(BaseTest):
         connect.assert_not_called()
         capture.assert_called_once()
 
-    def test_a_pin_can_slow_to_the_enforced_plan_floor_above_a_consumer_it_holds_back(self):
+    def test_a_pin_is_refused_when_a_consumer_saved_a_finer_cadence_than_the_enforced_plan_floor(self):
         self.organization.has_active_subscription = False
         self.organization.save(update_fields=["has_active_subscription"])
         dag = DAG.get_or_create_default(self.team)
@@ -616,11 +616,12 @@ class TestMaybeReconcileDag(BaseTest):
         with (
             mock.patch(FLAG_RESULT, side_effect=_free_plan_floor({"min_interval": "6hour", "clamp_existing": True})),
             mock.patch(f"{RECONCILE}.maybe_reconcile_dag"),
+            self.assertRaisesMessage(UnsatisfiableFrequencyError, "Can't pin this view"),
         ):
             apply_saved_query_frequency_target(view.saved_query, H6)
 
         view.refresh_from_db()
-        self.assertEqual(get_declared_target(view), H6)
+        self.assertEqual(get_declared_target(view), M15)
 
     def test_saving_a_cadence_finer_than_the_plan_floor_is_refused(self):
         self.organization.has_active_subscription = False

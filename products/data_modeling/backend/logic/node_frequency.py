@@ -297,14 +297,6 @@ class FrequencyGraph:
     schedule_plan_floor: timedelta | None  # finest cadence the scheduler runs a view at on the team's plan
     plan_floor_evaluated: bool
 
-    @property
-    def scheduled_targets(self) -> dict[str, timedelta]:
-        """The declared targets as the scheduler honors them: none finer than the enforced plan floor."""
-        floor = self.schedule_plan_floor
-        if floor is None:
-            return self.declared_targets
-        return {node_id: max(target, floor) for node_id, target in self.declared_targets.items()}
-
 
 def build_frequency_graph(dag: DAG) -> FrequencyGraph:
     """Extract the freshness graph for a DAG: schedulable nodes, edges, targets, source floors."""
@@ -485,7 +477,7 @@ def saved_query_pin_preview(team_id: int, saved_query_id: str | uuid.UUID) -> Sa
             delays_if_pinned.setdefault(cadence, set()).update(delayed)
         below_floor = nodes_below_source_floor(
             edges=graph.edges,
-            declared_targets=graph.scheduled_targets,
+            declared_targets=graph.declared_targets,
             source_intervals=graph.source_intervals,
             pinned=graph.pinned - {node_id},
         )
@@ -494,7 +486,7 @@ def saved_query_pin_preview(team_id: int, saved_query_id: str | uuid.UUID) -> Sa
                 node_id=node_id,
                 target=option.value,
                 edges=graph.edges,
-                declared_targets=graph.scheduled_targets,
+                declared_targets=graph.declared_targets,
                 source_intervals=graph.source_intervals,
                 pinned=graph.pinned,
                 already_below_floor=below_floor,
