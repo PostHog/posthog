@@ -30,7 +30,7 @@ export function SourceSteeringModal({ sourceConfigs, sourceLabel, onClose }: Sou
         sourceSteeringChanged,
         sourceSteeringValidationErrors,
         steeringExamples,
-        steeringHelp,
+        steeringAppliesFrom,
     } = useValues(logic)
     const { setSourceSteeringValue } = useActions(logic)
 
@@ -90,7 +90,10 @@ export function SourceSteeringModal({ sourceConfigs, sourceLabel, onClose }: Sou
                             you write below.
                         </LemonBanner>
                     )}
-                    <LemonField name="steering" help={steeringHelp}>
+                    <LemonField
+                        name="steering"
+                        help={`Applies ${steeringAppliesFrom}. Nothing already in your inbox changes.`}
+                    >
                         <LemonTextArea
                             minRows={4}
                             maxRows={10}

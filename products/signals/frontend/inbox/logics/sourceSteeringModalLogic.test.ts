@@ -84,11 +84,10 @@ describe('sourceSteeringModalLogic', () => {
     })
 
     it.each([
-        [SignalSourceProduct.Conversations, 'Applies from the next sync.', 'Skip chores'],
-        [SignalSourceProduct.ErrorTracking, 'Applies to new signals from now on.', 'Skip noise'],
-        [SignalSourceProduct.Analytics, 'Applies to new signals from now on.', 'Skip small changes'],
-    ])('fits the timing and starting points to %s', (sourceProduct, helpStart, firstExample) => {
-        // Sources that emit as things happen have no sync, and their records carry no labels.
+        [SignalSourceProduct.Conversations, 'from the next sync', 'Skip chores'],
+        [SignalSourceProduct.ErrorTracking, 'to new signals from now on', 'Skip noise'],
+        [SignalSourceProduct.Analytics, 'to new signals from now on', 'Skip small changes'],
+    ])('fits the timing and starting points to %s', (sourceProduct, appliesFrom, firstExample) => {
         logic.unmount()
         logic = sourceSteeringModalLogic({
             sourceConfigs: [{ ...sourceConfig, source_product: sourceProduct }],
@@ -96,7 +95,7 @@ describe('sourceSteeringModalLogic', () => {
         })
         logic.mount()
 
-        expect(logic.values.steeringHelp.startsWith(helpStart)).toBe(true)
+        expect(logic.values.steeringAppliesFrom).toEqual(appliesFrom)
         expect(logic.values.steeringExamples[0].label).toEqual(firstExample)
     })
 
