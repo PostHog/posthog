@@ -434,7 +434,8 @@ describe('RateLimiterService', () => {
             },
             teamManager,
             redis,
-            limiter
+            limiter,
+            { isPaused: () => Promise.resolve(false) }
         )
 
         try {

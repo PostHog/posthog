@@ -35,6 +35,7 @@ import { IntegrationManagerService } from './services/managers/integration-manag
 import { OrganizationMembersService } from './services/managers/organization-members.service'
 import { PersonsManagerService } from './services/managers/persons-manager.service'
 import { RecipientsManagerService } from './services/managers/recipients-manager.service'
+import { SandboxSenderStateService } from './services/managers/sandbox-sender-state.service'
 import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
 import { EmailStatusService } from './services/messaging/email-status.service'
 import { EmailSuppressionService } from './services/messaging/email-suppression.service'
@@ -122,6 +123,7 @@ export interface CdpCoreServices {
     /** Resolved outputs shared across every CDP service/consumer. */
     outputs: CdpOutputs
     emailService: EmailService
+    sandboxEmailSender: SandboxEmailSender
     /** Buffers rendered-email asset rows and bulk-flushes them at the batch boundary. */
     messageAssetsService: MessageAssetsService
     /** Buffers transactional email status rows. `invocationResultsService.flush()` produces them. */
@@ -492,6 +494,20 @@ export function createCdpCoreServices(
     const sandboxEmailRateLimiter = sandboxEmailCapValkey
         ? new RateLimiterService(sandboxEmailCapValkey, { name: 'sandbox-email' })
         : null
+    const sandboxEmailSender = new SandboxEmailSender(
+        {
+            enabled: config.WORKFLOWS_SANDBOX_SENDER_ENABLED,
+            tenantName: config.SES_SANDBOX_TENANT_NAME,
+            configurationSetName: config.SES_SANDBOX_CONFIGURATION_SET,
+            fromAddress: config.SES_SANDBOX_FROM_ADDRESS,
+            dailyTeamCap: config.WORKFLOWS_SANDBOX_DAILY_TEAM_CAP,
+            dailyRecipientCap: config.WORKFLOWS_SANDBOX_DAILY_RECIPIENT_CAP,
+        },
+        deps.teamManager,
+        sandboxBlockedEventRedis,
+        sandboxEmailRateLimiter,
+        new SandboxSenderStateService(deps.postgres, deps.pubSub)
+    )
     const emailService = new EmailService(
         {
             sesAccessKeyId: config.SES_ACCESS_KEY_ID,
@@ -517,19 +533,7 @@ export function createCdpCoreServices(
         messageAssetsService,
         workflowEmailRateLimiter,
         teamEmailRateLimiter,
-        new SandboxEmailSender(
-            {
-                enabled: config.WORKFLOWS_SANDBOX_SENDER_ENABLED,
-                tenantName: config.SES_SANDBOX_TENANT_NAME,
-                configurationSetName: config.SES_SANDBOX_CONFIGURATION_SET,
-                fromAddress: config.SES_SANDBOX_FROM_ADDRESS,
-                dailyTeamCap: config.WORKFLOWS_SANDBOX_DAILY_TEAM_CAP,
-                dailyRecipientCap: config.WORKFLOWS_SANDBOX_DAILY_RECIPIENT_CAP,
-            },
-            deps.teamManager,
-            sandboxBlockedEventRedis,
-            sandboxEmailRateLimiter
-        ),
+        sandboxEmailSender,
         new OrganizationMembersService(deps.postgres)
     )
     const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
@@ -679,6 +683,7 @@ export function createCdpCoreServices(
         recipientTokensService,
         outputs,
         emailService,
+        sandboxEmailSender,
         messageAssetsService,
         emailStatusService,
     }

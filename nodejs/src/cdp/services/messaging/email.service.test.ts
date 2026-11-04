@@ -38,6 +38,7 @@ import { INVALID_TEAM_ID_KEYS } from '~/tests/helpers/team'
 import { Hub, Team } from '../../../types'
 import { OrganizationMembersService } from '../managers/organization-members.service'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
+import { SandboxSenderStateService } from '../managers/sandbox-sender-state.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
@@ -340,6 +341,7 @@ describe('EmailService', () => {
                     messageAssetsService,
                     dailyCapLimiter = new RateLimiterService(sandboxRedis, { name: 'sandbox-email' }),
                     blockedEventRedis = sandboxRedis,
+                    senderState = new SandboxSenderStateService(hub.postgres, hub.pubSub),
                 }: {
                     membersPostgres?: PostgresRouter
                     senderSettings?: Partial<SandboxEmailSenderConfig>
@@ -347,6 +349,7 @@ describe('EmailService', () => {
                     messageAssetsService?: MessageAssetsService
                     dailyCapLimiter?: RateLimiterService | null
                     blockedEventRedis?: ConstructorParameters<typeof SandboxEmailSender>[2]
+                    senderState?: SandboxSenderStateService
                 } = {}
             ): EmailService => {
                 const workflowsConfig = new TeamWorkflowsConfigService(hub.postgres, hub.pubSub)
@@ -387,7 +390,8 @@ describe('EmailService', () => {
                         },
                         hub.teamManager,
                         blockedEventRedis,
-                        dailyCapLimiter
+                        dailyCapLimiter,
+                        senderState
                     ),
                     new OrganizationMembersService(membersPostgres)
                 )
