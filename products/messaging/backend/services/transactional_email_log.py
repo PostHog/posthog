@@ -217,7 +217,13 @@ def get_transactional_email(
 
     events = _execute(
         team_id,
-        f"SELECT status, status_at, reason FROM {EMAIL_STATUS_EVENTS_TABLE} WHERE {where} ORDER BY status_at, version",
+        # Kafka can deliver a status twice, and this table keeps every row. A repeat has the same status and time.
+        f"""
+        SELECT status, status_at, reason FROM {EMAIL_STATUS_EVENTS_TABLE}
+        WHERE {where}
+        GROUP BY status, status_at, reason
+        ORDER BY status_at, max(version)
+        """,
         params,
     )
     timeline: list[TransactionalEmailLogEvent] = []

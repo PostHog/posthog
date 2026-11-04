@@ -144,6 +144,15 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             ("failed", "provider_error"),
         ]
 
+    def test_a_status_delivered_twice_shows_once(self, _flag):
+        message_id = self._send(
+            10, "jane@example.com", [("sent", 1, ""), ("clicked", 2, ""), ("clicked", 2, ""), ("clicked", 3, "")]
+        )
+
+        body = self.client.get(self._url(f"{message_id}/")).json()
+
+        assert [event["kind"] for event in body["timeline"]] == ["queued", "sent", "clicked", "clicked"]
+
     @parameterized.expand(
         [
             ("list", "", ["hog_flow:read"], "person:read"),
