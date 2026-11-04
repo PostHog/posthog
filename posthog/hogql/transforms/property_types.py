@@ -21,6 +21,7 @@ from posthog.hogql.helpers.timestamp_visitor import parse_zoned_datetime_string
 from posthog.hogql.property_metadata import load_property_metadata
 from posthog.hogql.property_planner import PropertySourceKind, plan_property_access
 from posthog.hogql.restricted_properties import restricted_property_keys_for_table_type
+from posthog.hogql.transforms.grouped_clauses import GroupedClauseTracker, is_grouped, visit_after_grouping
 from posthog.hogql.type_system import normalized_runtime_type, parse_sql_runtime_type
 from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
@@ -137,7 +138,7 @@ class ToTimeZoneParts:
     swapped: bool
 
 
-class PropertySwapper(CloningVisitor):
+class PropertySwapper(GroupedClauseTracker, CloningVisitor):
     _RANGE_OPS: set[str] = {
         ast.CompareOperationOp.Gt,
         ast.CompareOperationOp.GtEq,
@@ -178,36 +179,59 @@ class PropertySwapper(CloningVisitor):
         self._inside_call_depth = 0
         self._inside_where_depth = 0
         self._suppress_numeric_conversion = False
+        self._grouped_json_fields: list[ast.FieldType] = []
 
-    def visit_select_query(self, node: ast.SelectQuery):
+    def _json_document_grouping_field(self, expr: ast.Expr, aliases: dict[str, ast.Expr]) -> ast.FieldType | None:
+        if isinstance(expr, ast.Alias):
+            return self._json_document_grouping_field(expr.expr, aliases)
+        if isinstance(expr, ast.Call) and expr.name == "toString" and len(expr.args) == 1:
+            return self._json_document_grouping_field(expr.args[0], aliases)
+        if not isinstance(expr, ast.Field):
+            return None
+        field_type = expr.type
+        if isinstance(field_type, ast.FieldAliasType) and field_type.alias in aliases:
+            return self._json_document_grouping_field(aliases[field_type.alias], aliases)
+        while isinstance(field_type, ast.FieldAliasType):
+            field_type = field_type.type
+        if isinstance(field_type, ast.FieldType) and isinstance(
+            field_type.resolve_database_field(self.context), StringJSONDatabaseField
+        ):
+            return field_type
+        return None
+
+    def visit_select_query(self, node: ast.SelectQuery) -> ast.SelectQuery:
         # We need to track when we're inside WHERE/PREWHERE so that the
         # toTimeZone stripping only fires where it helps (partition/PK pruning).
         # Stripping in JOIN ON, SELECT, HAVING etc. is unnecessary.
-        #
-        # The CloningVisitor.visit_select_query visits fields in a fixed order.
-        # We replicate that here, wrapping only where/prewhere with our flag.
         saved_where_depth = self._inside_where_depth
-        self._inside_where_depth = 0  # each SelectQuery gets its own scope
-
-        # Visit everything except where/prewhere normally (depth=0, no stripping)
-        ctes = {key: self.visit(expr) for key, expr in node.ctes.items()} if node.ctes else None
-        select_from = self.visit(node.select_from)
-        select = [self.visit(expr) for expr in node.select] if node.select else []
-        array_join_list = [self.visit(expr) for expr in node.array_join_list] if node.array_join_list else None
-
-        # Visit where/prewhere with the flag set (depth=1, stripping enabled)
-        self._inside_where_depth = 1
-        where = self.visit(node.where)
-        prewhere = self.visit(node.prewhere)
+        saved_grouped_json_fields = self._grouped_json_fields
         self._inside_where_depth = 0
+        aliases = {expr.alias: expr.expr for expr in node.select if isinstance(expr, ast.Alias)}
+        grouping_keys = node.select if node.group_by_mode == "all" else node.group_by or []
+        self._grouped_json_fields = []
+        for key in grouping_keys:
+            for expr in key.exprs if isinstance(key, ast.GroupingSet) else [key]:
+                field_type = self._json_document_grouping_field(expr, aliases)
+                if field_type is not None:
+                    self._grouped_json_fields.append(field_type)
+        try:
+            with self._grouped_clause(False):
+                ctes = {key: self.visit(expr) for key, expr in node.ctes.items()} if node.ctes else None
+                select_from = self.visit(node.select_from)
+                array_join_list = [self.visit(expr) for expr in node.array_join_list] if node.array_join_list else None
+                limit = self.visit(node.limit)
+                offset = self.visit(node.offset)
 
-        having = self.visit(node.having)
-        qualify = self.visit(node.qualify)
-        group_by = [self.visit(expr) for expr in node.group_by] if node.group_by else None
-        order_by = [self.visit(expr) for expr in node.order_by] if node.order_by else None
-        interpolate = [self.visit(expr) for expr in node.interpolate] if node.interpolate is not None else None
+                self._inside_where_depth = 1
+                where = self.visit(node.where)
+                prewhere = self.visit(node.prewhere)
+                self._inside_where_depth = 0
 
-        self._inside_where_depth = saved_where_depth  # restore parent scope
+            with self._grouped_clause(is_grouped(node)):
+                grouped_clauses = visit_after_grouping(node, self.visit)
+        finally:
+            self._inside_where_depth = saved_where_depth
+            self._grouped_json_fields = saved_grouped_json_fields
 
         return ast.SelectQuery(
             start=None if self.clear_locations else node.start,
@@ -215,49 +239,41 @@ class PropertySwapper(CloningVisitor):
             type=None if self.clear_types else node.type,
             ctes=ctes,
             select_from=select_from,
-            select=select,
             array_join_op=node.array_join_op,
             array_join_list=array_join_list,
             where=where,
             prewhere=prewhere,
-            having=having,
-            qualify=qualify,
-            group_by=group_by,
             group_by_mode=node.group_by_mode,
-            order_by=order_by,
-            interpolate=interpolate,
-            limit_by=self.visit(node.limit_by),
-            limit=self.visit(node.limit),
+            limit=limit,
             limit_with_ties=node.limit_with_ties,
             limit_percent=node.limit_percent,
-            offset=self.visit(node.offset),
+            offset=offset,
             distinct=node.distinct,
-            window_exprs=(
-                {name: self.visit(expr) for name, expr in node.window_exprs.items()} if node.window_exprs else None
-            ),
             settings=node.settings.model_copy() if node.settings is not None else None,
             view_name=node.view_name,
+            **grouped_clauses,
         )
 
-    def visit_call(self, node: ast.Call):
-        rewritten = self._rewrite_json_property_call(node)
-        if rewritten is not None:
-            return rewritten
+    def visit_call(self, node: ast.Call) -> ast.Expr:
+        with self._call_arguments(node):
+            rewritten = self._rewrite_json_property_call(node)
+            if rewritten is not None:
+                return rewritten
 
-        # Track whether the immediate enclosing call parses its argument as a
-        # string. Re-evaluated per call, so nested non-parsing calls (e.g.
-        # toFloatOrZero(toString(prop))) correctly reset the flag.
-        saved_suppress = self._suppress_numeric_conversion
-        self._suppress_numeric_conversion = node.name in self._STRING_INPUT_CONVERSIONS
+            # Track whether the immediate enclosing call parses its argument as a
+            # string. Re-evaluated per call, so nested non-parsing calls (e.g.
+            # toFloatOrZero(toString(prop))) correctly reset the flag.
+            saved_suppress = self._suppress_numeric_conversion
+            self._suppress_numeric_conversion = node.name in self._STRING_INPUT_CONVERSIONS
 
-        self._inside_call_depth += 1
-        try:
-            result = super().visit_call(node)
-        finally:
-            self._inside_call_depth -= 1
-            self._suppress_numeric_conversion = saved_suppress
+            self._inside_call_depth += 1
+            try:
+                result = super().visit_call(node)
+            finally:
+                self._inside_call_depth -= 1
+                self._suppress_numeric_conversion = saved_suppress
 
-        return self._maybe_extract_exception_string_array(result)
+            return self._maybe_extract_exception_string_array(result)
 
     def _maybe_extract_exception_string_array(self, node: ast.Expr) -> ast.Expr:
         """Wrap a bare exception-array property passed to an array-membership function in
@@ -348,6 +364,13 @@ class PropertySwapper(CloningVisitor):
 
         database_field = field_type.resolve_database_field(self.context)
         if not isinstance(database_field, StringJSONDatabaseField):
+            return None
+
+        if self._in_grouped_clause and any(
+            field_type.name == grouped.name and field_type.table_type is grouped.table_type
+            for grouped in self._grouped_json_fields
+        ):
+            # A subcolumn is not a grouping key when GROUP BY holds the whole document.
             return None
 
         table_type = field_type.table_type

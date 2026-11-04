@@ -234,6 +234,27 @@ class TestNewEventsSchemaArraySubcolumns(_NewEventsSchemaArraySubcolumnsHelpers,
         )
         assert printed.count("accurateCastOrNull(events.properties.value,") == 2
 
+    def test_grouped_json_functions_rewrite_only_source_rows(self) -> None:
+        printed = self._print_select(
+            "SELECT JSONExtractString(properties, 'value'), "
+            "countIf(JSONExtractString(properties, 'value') = 'green'), "
+            "(SELECT max(JSONExtractString(properties, 'value')) FROM events) "
+            "FROM events WHERE JSONExtractString(properties, 'value') != '' GROUP BY properties"
+        )
+        assert "JSONExtractString(concat(" in printed
+        assert "JSONExtractString(ifNull(toJSONString(" not in printed
+        assert printed.count("dynamicType(accurateCast(events.properties.value,") == 3
+
+    @parameterized.expand(
+        [("expression", "JSONExtractString(properties, 'value')"), ("alias", "value"), ("all", "ALL")]
+    )
+    def test_grouping_by_json_extraction_keeps_the_subcolumn_read(self, _name: str, grouping: str) -> None:
+        printed = self._print_select(
+            f"SELECT JSONExtractString(properties, 'value') AS value, count() FROM events GROUP BY {grouping}"
+        )
+        assert "events.properties.value" in printed
+        assert "JSONExtractKeysAndValuesRaw(events.properties)" not in printed
+
     @parameterized.expand(
         [
             ("dynamic", "properties.value = '5'", "CAST(events.properties.value, 'Nullable(String)')"),
@@ -783,6 +804,63 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
                 [(2.0, 1), (7.0, 3)],
                 "Numeric",
             ),
+            *[
+                (
+                    f"document_{name}",
+                    query,
+                    ['{"value":"blue"}', '{"value":"green"}', '{"value":"green"}'],
+                    expected,
+                    "String",
+                    ("blob", "native"),
+                )
+                for name, query, expected in [
+                    (
+                        "select",
+                        "SELECT JSONExtractString(properties, 'value') AS value, count() "
+                        "FROM events GROUP BY properties ORDER BY value",
+                        [("blue", 1), ("green", 2)],
+                    ),
+                    (
+                        "having",
+                        "SELECT count() FROM events GROUP BY properties "
+                        "HAVING JSONExtractString(properties, 'value') = 'green'",
+                        [(2,)],
+                    ),
+                    (
+                        "order",
+                        "SELECT count() FROM events GROUP BY properties "
+                        "ORDER BY JSONExtractString(properties, 'value')",
+                        [(1,), (2,)],
+                    ),
+                    (
+                        "window",
+                        "SELECT sum(length(JSONExtractString(properties, 'value'))) OVER () "
+                        "FROM events GROUP BY properties",
+                        [(9,), (9,)],
+                    ),
+                    (
+                        "alias",
+                        "SELECT properties AS payload, JSONExtractString(properties, 'value') AS value, count() "
+                        "FROM events GROUP BY payload ORDER BY value",
+                        [('{"value":"blue"}', "blue", 1), ('{"value":"green"}', "green", 2)],
+                    ),
+                    (
+                        "string_alias",
+                        "SELECT toString(properties) AS payload, JSONExtractString(toString(properties), 'value') AS value, count() "
+                        "FROM events GROUP BY payload ORDER BY value",
+                        [('{"value":"blue"}', "blue", 1), ('{"value":"green"}', "green", 2)],
+                    ),
+                ]
+            ],
+            (
+                "document_integer",
+                "SELECT JSONExtractInt(properties, 'value') AS value, count() "
+                "FROM events GROUP BY properties ORDER BY value",
+                ['{"value":3}', '{"value":8}', '{"value":8}'],
+                [(3, 1), (8, 2)],
+                "Numeric",
+                ("blob", "native"),
+            ),
             (
                 "null_and_invalid",
                 "SELECT properties.value AS original, toFloat(properties.value), count() "
@@ -819,7 +897,10 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
                 if reader == "map":
                     assert "properties_group_custom" in printed
                 source = (
-                    "events_json AS (SELECT 1 AS team_id, CAST(document, 'JSON') AS properties "
+                    "events_json AS (SELECT 1 AS team_id, CAST(document, %(event_type)s) AS properties, "
+                    "CAST('{}', %(temporary_type)s) AS temporary_properties, "
+                    "CAST([], 'Array(String)') AS properties_null_keys, "
+                    "CAST([], 'Array(String)') AS temporary_properties_null_keys "
                     "FROM (SELECT arrayJoin(%(documents)s) AS document)) "
                     if reader == "native"
                     else "events AS (SELECT 1 AS team_id, document AS properties, "
@@ -829,11 +910,17 @@ class TestNewEventsSchemaArraySubcolumnsClickhouse(_NewEventsSchemaArraySubcolum
                 sql = "WITH " + source + printed
                 if printed.startswith("WITH "):
                     sql = "WITH " + source.rstrip() + ", " + printed.removeprefix("WITH ")
+                values = {
+                    **context.values,
+                    "documents": documents,
+                    "event_type": EVENTS_PROPERTIES_JSON_TYPE(),
+                    "temporary_type": TEMPORARY_PROPERTIES_JSON_TYPE,
+                }
                 if expected is None:
                     with pytest.raises(ServerException, match="not under aggregate function and not in GROUP BY"):
-                        sync_execute(sql, {**context.values, "documents": documents})
+                        sync_execute(sql, values)
                 else:
-                    rows = sync_execute(sql, {**context.values, "documents": documents})
+                    rows = sync_execute(sql, values)
                     assert rows == expected
 
     @parameterized.expand([("declared", EVENTS_PROPERTIES_JSON_TYPE()), ("dynamic", "JSON")])
