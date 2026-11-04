@@ -506,14 +506,13 @@ tools:
             Surgically edit the email inside one function_email step - the fastest path for copy tweaks and design
             changes on a workflow email. Use operations (the same design ops as workflows-patch-email-template,
             addressing blocks by id from the step's config.inputs.email.value.design, which workflows-get returns when
-            you pass that path in `expand`) to edit the design, and
-            email_patch to change subject, preheader, text, or recipients. After design ops the HTML is re-rendered
-            server-side, so the sent email always matches the design. Edits apply atomically: an invalid batch changes
-            nothing. On an active workflow, edits stage a draft (composing with any staged graph edits) and nothing
-            reaches real people until workflows-publish. The updated workflow is returned without step inputs; read one
-            back with workflows-get. Prefer this over workflows-patch-graph update_action for email content - it's
-            smaller to send and keeps design and HTML in sync. For library templates use workflows-patch-email-template
-            instead.
+            you pass that path in `expand`) to edit the design, and email_patch to change subject, preheader, text, or
+            recipients. After design ops the HTML is re-rendered server-side, so the sent email always matches the
+            design. Edits apply atomically: an invalid batch changes nothing. On an active workflow, edits stage a draft
+            (composing with any staged graph edits) and nothing reaches real people until workflows-publish. The updated
+            workflow is returned without step inputs; read one back with workflows-get. Prefer this over
+            workflows-patch-graph update_action for email content - it's smaller to send and keeps design and HTML in
+            sync. For library templates use workflows-patch-email-template instead.
         response:
             exclude:
                 - actions.*.config.inputs
