@@ -573,7 +573,8 @@ describe('RateLimiterService', () => {
                     },
                     teamManager,
                     redis,
-                    createSandboxDailyCapLimiter({ ...workerValkeys, ...override })
+                    createSandboxDailyCapLimiter({ ...workerValkeys, ...override }),
+                    { isPaused: () => Promise.resolve(false) }
                 )
                 const bucket = { key: `${KEY}/stalled`, requested: 1, capacity: 1, refillPerSecond: 0 }
                 try {
