@@ -8762,6 +8762,18 @@ snapshots:
         hash: v1.k794b7964.b16b4ed1913fbe3942aa6282cbd4e3a166fbbdf32fc4e53cef7adf97f00d2336.P9x17WzBdvzIy3lZSVhWTY6Kz2lNjMWlvMWiJ-Qx9d0
     queries-datatable-harnesscolumn--arbitrary-query-result--light:
         hash: v1.k794b7964.3875aa4d2826a34a035d8da68aa05734d412af03ac6f14fd1bd2a7807985167d.a5nSly5FdcZENmGcfyFRPvOZcAc79U1Ha5KZhIGU8fE
+    queries-datatable-sample-data--default-columns--dark:
+        hash: v1.k794b7964.8188bc1334f666144075f3e62be13df62c6d1ffdc0603d55f02e324c88b570b3.ce8ory-CJamgcjIMR5eITaNx2GadEYUDoNJrz5LIDJg
+    queries-datatable-sample-data--default-columns--light:
+        hash: v1.k794b7964.4f6d55eff8e08597eaca39b7c7b95293d19c23b1c9a5753282157676ef147395.XFF0r9DBkYkAMxKimNWdKSuU_sTVYVkBAaBOvEzIZfY
+    queries-datatable-sample-data--persons--dark:
+        hash: v1.k794b7964.ae2da422740de5fd57f4edd3810cc1115c9ec3ce549b64def6f79dd5d80ae0c0.fOt9Madj8vttP-303TwdTDUny5Bwj3PeF8hVRv5C7C0
+    queries-datatable-sample-data--persons--light:
+        hash: v1.k794b7964.2a1ed669c6e7928666745de570f60f5ee78b7fd3cbbde3d3540f78593f2a58da.uivo-hVl_SCGgBqMFSe4Yu9hPH3b767gPlZPYs_OCr0
+    queries-datatable-sample-data--with-custom-column--dark:
+        hash: v1.k794b7964.d7051aeccb2010d44cea0705b69aeed8143777329f7415d53190a293634f5df5.I3y5shNKX2o5XmLeiyrtGcK4Q7dydAGKybsFBgCXf94
+    queries-datatable-sample-data--with-custom-column--light:
+        hash: v1.k794b7964.2973df921e21a53d1c25e7ff86fcb50ce8d3ca48ef78e031576d9b27eb68265b.2IB6-FqJdm6RNmFQxmWqvBnEn7-UamMpA_tnd5s62Gs
     queries-webvitals--web-vitals--dark:
         hash: v1.k794b7964.2ae778a0c5fdba3c69dfcbd3e9589c3c3d9cc2f0fef2eefd304c565be7e9a7c9.hH71byl33sIAdRCgaPk1lDOev0qooW1xhv0AL_yrIvg
     queries-webvitals--web-vitals--light:

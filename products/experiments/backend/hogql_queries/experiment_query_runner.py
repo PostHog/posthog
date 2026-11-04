@@ -69,6 +69,10 @@ from products.experiments.backend.hogql_queries.utils import (
     get_variant_results,
     split_baseline_and_test_variants,
 )
+from products.experiments.backend.metric_calculation.config import (
+    ExperimentCalculationSettings,
+    MetricCalculationConfig,
+)
 from products.experiments.backend.metric_resolution import (
     metric_reads_data_warehouse,
     metric_uses_warehouse_native_source,
@@ -710,6 +714,18 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             f"{super().single_flight_variant()}:as_of={as_of}"
             f":bypass_warehouse_access_control={self.bypass_warehouse_access_control}"
             f":max_execution_time={self.max_execution_time}"
+        )
+
+    @cached_property
+    def calculation_config(self) -> MetricCalculationConfig:
+        self.experiment.team = self.team
+        settings = ExperimentCalculationSettings.from_experiment(
+            self.experiment, team_config=self._team_experiments_config
+        )
+        return settings.build_metric_config(
+            metric_id=self.query.metric.uuid or "",
+            role="primary",
+            definition=self.query.metric.model_dump(mode="json", exclude_none=True),
         )
 
     def get_cache_payload(self) -> dict:
