@@ -46,13 +46,9 @@ export function useHoverAnimation({
     drawHover,
     hoverAnimationMs,
 }: UseHoverAnimationOptions): void {
-    // `visible` freezes the fade timer while nothing is drawn (cursor in a band gap), so the fade
-    // always starts at progress 0 when something visible first appears.
     const fade = useRef({ index: -1, startTime: 0, visible: false })
 
-    // hoverPosition is a dependency so the overlay redraws when the cursor moves within one band:
-    // bar charts decide on a hit per frame in `drawHover`, and entering a bar from empty canvas
-    // does not change hoverIndex. The fade timer resets only on a hoverIndex change.
+    // Bar charts hit-test per frame, so a move within one band must redraw.
     useEffect(() => {
         if (!overlayCtx || !dimensions || !scales || theme.skipDraw) {
             return
@@ -101,7 +97,6 @@ export function useHoverAnimation({
             } finally {
                 overlayCtx.restore()
             }
-            // Read progress after the draw, because the chart type may have called resetHoverFade.
             if (state.visible && hoverIndex >= 0 && progress() < 1) {
                 raf = requestAnimationFrame(tick)
             }
