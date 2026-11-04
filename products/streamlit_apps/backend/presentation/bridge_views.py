@@ -122,7 +122,7 @@ def _authenticate_bearer(auth_header: str, request: Request) -> _BridgeAuthentic
 
     authenticator = OAuthAccessTokenAuthentication()
     authenticator.access_token = access_token
-    enforce_ip_restrictions(request, user, authenticator)
+    enforce_ip_restrictions(request, user, authenticator, organization_id=str(team.organization_id))
     return _BridgeAuthentication(team_id=team_id, user=user)
 
 
@@ -135,6 +135,9 @@ def _streamlit_apps_enabled_for_team(team_id: int, user_distinct_id: str | None)
 
 
 class StreamlitBridgeView(APIView):
+    # The bearer helper checks the scoped team's policy after token validation.
+    _ip_restrictions_use_view_scope = True
+
     authentication_classes: list = []
     permission_classes = [AllowAny]
     throttle_classes = [StreamlitBridgeThrottle, StreamlitBridgeIPThrottle]

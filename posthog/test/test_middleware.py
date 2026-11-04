@@ -158,9 +158,16 @@ class TestIPRestrictionsMiddleware(APIBaseTest):
     )
     def test_cache_failures_use_authoritative_policies(self, operation: str, ip: str, expected: int) -> None:
         OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
-        with patch(f"posthog.ip_restrictions.cache.{operation}", side_effect=RuntimeError("cache unavailable")):
-            response = self.client.get("/api/organizations/@current/", REMOTE_ADDR=ip)
+        with (
+            patch(f"posthog.ip_restrictions.cache.{operation}", side_effect=RuntimeError("cache unavailable")),
+            CaptureQueriesContext(connection) as queries,
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/feature_flags/", REMOTE_ADDR=ip)
         self.assertEqual(response.status_code, expected)
+        policy_reads = [
+            query for query in queries.captured_queries if 'FROM "posthog_organizationiprestrictions"' in query["sql"]
+        ]
+        self.assertEqual(len(policy_reads), 1)
 
     def test_impersonated_sessions_are_not_blocked(self):
         OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
@@ -322,10 +329,16 @@ class TestIPRestrictionsMiddleware(APIBaseTest):
                 ("/api/organizations/{restricted_org}/members/", 403),
                 ("/api/projects/{restricted_team}/", 403),
                 ("/api/projects/{restricted_team}/feature_flags/", 403),
+                ("/api/projects/{other_team}/feature_flags/?token={restricted_token}", 403),
+                ("/api/projects/0/feature_flags/?token={restricted_token}", 403),
+                ("/api/feature_flag/?token={restricted_token}", 403),
+                ("/api/projects/{other_team}/feature_flags/?api_key={restricted_token}", 403),
+                ("/api/billing/?organization_id={restricted_org}", 403),
                 ("/api/organizations/{other_org}/", 200),
                 ("/api/organizations/{other_org}/members/", 200),
                 ("/api/projects/{other_team}/", 200),
                 ("/api/projects/{other_team}/feature_flags/", 200),
+                ("/api/projects/{restricted_team}/feature_flags/?token={other_token}", 200),
             )
         ]
     )
@@ -344,7 +357,13 @@ class TestIPRestrictionsMiddleware(APIBaseTest):
                 user=self.user,
                 label="Example key",
                 secure_value=hash_key_value(token),
-                scopes=["organization:read", "organization_member:read", "project:read", "feature_flag:read"],
+                scopes=[
+                    "organization:read",
+                    "organization_member:read",
+                    "project:read",
+                    "feature_flag:read",
+                    "billing:read",
+                ],
             )
             self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
         response = self.client.get(
@@ -352,8 +371,10 @@ class TestIPRestrictionsMiddleware(APIBaseTest):
                 restricted_org=self.organization.id,
                 restricted_org_upper=str(self.organization.id).upper(),
                 restricted_team=self.team.id,
+                restricted_token=self.team.api_token,
                 other_org=other.id,
                 other_team=other_team.id,
+                other_token=other_team.api_token,
             ),
             REMOTE_ADDR="198.51.100.7",
         )

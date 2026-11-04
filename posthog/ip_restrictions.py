@@ -1,6 +1,6 @@
 from collections.abc import Callable, Iterable
 from ipaddress import ip_address, ip_network
-from typing import Any, ParamSpec, TypeVar
+from typing import TYPE_CHECKING, Any, ParamSpec, Protocol, TypeVar
 from uuid import UUID, uuid4
 
 from django.core.cache import caches
@@ -13,8 +13,29 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import BasePermission
 
 from posthog.models.activity_logging.utils import DeclaredCredentialType
+from posthog.models.organization import Organization
 from posthog.models.organization_ip_restrictions import MAX_IP_RESTRICTIONS, OrganizationIPRestrictions
 from posthog.models.team import Team
+
+if TYPE_CHECKING:
+    from rest_framework.request import Request
+
+    class _OrganizationScopedView(Protocol):
+        kwargs: dict[str, Any]
+        basename: str | None
+
+        @property
+        def _is_team_view(self) -> bool: ...
+
+        @property
+        def _is_project_view(self) -> bool: ...
+
+        @property
+        def team(self) -> Team: ...
+
+        @property
+        def organization(self) -> Organization: ...
+
 
 __all__ = [
     "IPRestrictionsPermission",
@@ -206,14 +227,8 @@ def get_ip_restrictions_for_principal(user: Any) -> list[tuple[str, list[str]]]:
     return restrictions
 
 
-def get_ip_restriction_denial(user: Any, ip: str | None, organization_id: str | None = None) -> str | None:
-    """Return the error detail when the target organization blocks `ip`."""
-    if organization_id is None:
-        team = getattr(user, "team", None)
-        organization_id = str(team.organization_id) if team is not None else str(user.current_organization_id)
-    restrictions = [
-        rules for org_id, rules in get_ip_restrictions_for_principal(user) if org_id == str(organization_id)
-    ]
+def _ip_restriction_denial(policies: list[tuple[str, list[str]]], ip: str | None, organization_id: str) -> str | None:
+    restrictions = [rules for org_id, rules in policies if org_id == organization_id]
     if not restrictions:
         return None
     if ip is not None and all(is_ip_allowed(ip, rules) for rules in restrictions):
@@ -222,6 +237,14 @@ def get_ip_restriction_denial(user: Any, ip: str | None, organization_id: str | 
         f"Your IP address ({ip or 'unknown'}) is not allowed to access this organization. "
         "Ask an organization admin to add it to the IP restrictions list."
     )
+
+
+def get_ip_restriction_denial(user: Any, ip: str | None, organization_id: str | None = None) -> str | None:
+    """Return the error detail when the target organization blocks `ip`."""
+    if organization_id is None:
+        team = getattr(user, "team", None)
+        organization_id = str(team.organization_id) if team is not None else str(user.current_organization_id)
+    return _ip_restriction_denial(get_ip_restrictions_for_principal(user), ip, organization_id)
 
 
 def _invalidate_cache_keys(cache_keys: list[str]) -> None:
@@ -301,14 +324,16 @@ def _is_account_recovery_request(request: HttpRequest, user: Any, basename: str 
     return basename == "organizations" and "id" not in kwargs
 
 
-def _request_organization_id(request: HttpRequest, user: Any) -> str | None:
-    match = request.resolver_match
-    kwargs = match.kwargs if match else {}
-    view_class = getattr(match.func, "cls", None) if match else None
-    basename = getattr(match.func, "initkwargs", {}).get("basename") if match else None
-    if _is_account_recovery_request(request, user, basename, kwargs):
-        return None
+def _view_organization_id(view: "_OrganizationScopedView") -> str:
+    # Legacy views can resolve .project from the current selection while .team follows the token.
+    if view._is_team_view or view._is_project_view:
+        return str(view.team.organization_id)
+    return str(view.organization.id)
 
+
+def _route_organization_id(request: HttpRequest, user: Any, kwargs: dict[str, Any], basename: str | None) -> str | None:
+    match = request.resolver_match
+    view_class = getattr(match.func, "cls", None) if match else None
     organization_id = kwargs.get("parent_lookup_organization_id", kwargs.get("organization_id"))
     team_id = kwargs.get(
         "parent_lookup_team_id", kwargs.get("parent_lookup_project_id", kwargs.get("team_id", kwargs.get("project_id")))
@@ -333,12 +358,59 @@ def _request_organization_id(request: HttpRequest, user: Any) -> str | None:
         return None
 
 
-def enforce_ip_restrictions(request: Any, user: Any, authenticator: Any = None) -> None:
+def _request_organization_id(
+    request: HttpRequest, user: Any, view: "_OrganizationScopedView | None" = None
+) -> str | None:
+    if view is not None:
+        kwargs = view.kwargs
+        basename = view.basename
+    else:
+        match = request.resolver_match
+        kwargs = match.kwargs if match else {}
+        basename = getattr(match.func, "initkwargs", {}).get("basename") if match else None
+    if _is_account_recovery_request(request, user, basename, kwargs):
+        return None
+    if view is not None and basename not in ("projects", "organization_projects"):
+        return _view_organization_id(view)
+    return _route_organization_id(request, user, kwargs, basename)
+
+
+def _uses_view_scope(request: HttpRequest) -> bool:
+    match = request.resolver_match
+    view_class = getattr(match.func, "cls", None) if match else None
+    return bool(getattr(view_class, "_ip_restrictions_use_view_scope", False))
+
+
+def _request_policies(request: Any, user: Any) -> list[tuple[str, list[str]]]:
+    policies: list[tuple[str, list[str]]] | None = getattr(request, "_ip_restrictions_policies", None)
+    if getattr(request, "_ip_restrictions_policies_principal", None) is user and policies is not None:
+        return policies
+    policies = get_ip_restrictions_for_principal(user)
+    request._ip_restrictions_policies = policies
+    request._ip_restrictions_policies_principal = user
+    return policies
+
+
+def _is_impersonated_request(request: HttpRequest, authenticator: Any) -> bool:
+    if is_impersonated_session(request):
+        return True
+    # Authenticators call before DRF sets successful_authenticator on the request.
+    access_token = getattr(authenticator, "access_token", None)
+    return access_token is not None and access_token.impersonated_by_id is not None
+
+
+def enforce_ip_restrictions(
+    request: Any,
+    user: Any,
+    authenticator: Any = None,
+    *,
+    view: "_OrganizationScopedView | None" = None,
+    organization_id: str | None = None,
+) -> None:
     """Raise `PermissionDenied` when the target organization's allowlist blocks the request.
 
-    Session requests are checked by `IPRestrictionsMiddleware`. Bearer credentials authenticate
-    inside DRF, and a view that overrides `permission_classes` may omit `IPRestrictionsPermission`,
-    so bearer authenticators call this after resolving the principal.
+    Scoped views defer until their target is resolved. Routed viewsets use permissions, while
+    custom endpoints pass the organization resolved by their own tenant guards.
     """
     django_request = getattr(request, "_request", request)
     credential_type = getattr(authenticator, "activity_credential_type", None)
@@ -351,36 +423,36 @@ def enforce_ip_restrictions(request: Any, user: Any, authenticator: Any = None) 
     if credential_type in _INTERNAL_CREDENTIAL_TYPES:
         return
 
-    if is_impersonated_session(django_request):
+    if _is_impersonated_request(django_request, authenticator):
         return
-    access_token = getattr(authenticator, "access_token", None)
-    if access_token is not None and access_token.impersonated_by_id is not None:
+
+    if view is None and organization_id is None and _uses_view_scope(django_request):
         return
 
     checked_principal = getattr(django_request, "_ip_restrictions_checked_principal", None)
-    if checked_principal is user:
+    if checked_principal is user and view is None and organization_id is None:
         return
 
-    if not get_ip_restrictions_for_principal(user):
+    policies = _request_policies(django_request, user)
+    if not policies:
         django_request._ip_restrictions_checked_principal = user
         return
 
-    organization_id = _request_organization_id(django_request, user)
+    if organization_id is None:
+        organization_id = _request_organization_id(django_request, user, view)
     if organization_id is None:
         return
-    denial = get_ip_restriction_denial(user, get_restriction_client_ip(django_request), organization_id)
+    denial = _ip_restriction_denial(policies, get_restriction_client_ip(django_request), organization_id)
     if denial is not None:
         raise PermissionDenied(detail=denial, code="ip_not_allowed")
     django_request._ip_restrictions_checked_principal = user
 
 
 class IPRestrictionsPermission(BasePermission):
-    """Deny token-authenticated requests when the target organization blocks their IP.
+    """Deny requests when the target organization blocks their IP.
 
-    Session-auth requests are handled by `IPRestrictionsMiddleware` before the view runs. Bearer
-    credentials authenticate inside DRF, so this permission checks them after the principal is
-    resolved. `enforce_ip_restrictions` holds the shared rules; bearer authenticators call it too so
-    a view that overrides `permission_classes` cannot skip the check.
+    Routed viewsets always include this permission, which uses their resolved organization.
+    Middleware and bearer authenticators cover endpoints outside that routing mixin.
     """
 
     def has_permission(self, request, view) -> bool:
@@ -388,5 +460,16 @@ class IPRestrictionsPermission(BasePermission):
             request,
             getattr(request, "user", None),
             getattr(request, "successful_authenticator", None),
+            view=view if getattr(view, "_ip_restrictions_use_view_scope", False) else None,
         )
+        return True
+
+    def has_object_permission(self, request: "Request", view: object, obj: object) -> bool:
+        if isinstance(obj, Organization):
+            enforce_ip_restrictions(
+                request,
+                request.user,
+                request.successful_authenticator,
+                organization_id=str(obj.id),
+            )
         return True
