@@ -147,5 +147,4 @@ class MetricDailyQueryCount(TeamScopedRootMixin, UUIDModel):
         constraints = [
             models.UniqueConstraint(fields=["team", "metric_name", "date"], name="metrics_daily_query_count_unique")
         ]
-        # The counts endpoint reads one window of days of a team, which the unique index cannot narrow.
         indexes = [models.Index(fields=["team", "date"], name="metrics_dqc_team_date_idx")]

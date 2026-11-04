@@ -19,7 +19,6 @@ from products.metrics.backend.models import MetricDailyQueryCount
 logger = structlog.get_logger(__name__)
 
 _MAX_METRIC_NAME_LENGTH = MetricDailyQueryCount._meta.get_field("metric_name").max_length or 0
-# One query writes at most this many rows, whatever the number of names in it.
 _MAX_METRICS_PER_QUERY = 50
 # Snuffle serves the buckets of a stored histogram `<name>` as the virtual series `<name>_bucket`.
 _HISTOGRAM_BUCKET_SUFFIX = "_bucket"
@@ -50,13 +49,12 @@ def record_metric_queries(team: Team, metric_names: Iterable[str]) -> None:
             last_queried_at = GREATEST({table}.last_queried_at, EXCLUDED.last_queried_at)
     """
     using = router.db_for_write(MetricDailyQueryCount)
-    # SET LOCAL lasts until the outermost transaction ends, so it must not run inside a transaction of the caller.
     owns_transaction = not connections[using].in_atomic_block
     try:
         # The savepoint keeps a failed write from breaking a transaction that the caller holds open.
         with transaction.atomic(using=using), connections[using].cursor() as cursor:
             if owns_transaction:
-                # A row that another transaction holds fails the write fast, so the query goes uncounted, not slow.
+                # Fail fast on a held row. SET LOCAL would outlive a caller's transaction, so only set it in ours.
                 cursor.execute("SET LOCAL lock_timeout = '100ms'")
             cursor.execute(sql, params)
     except DatabaseError as error:
