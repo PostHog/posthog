@@ -60,6 +60,13 @@ class _Pins:
     graded: PinnedConditions
 
 
+def assigns_nobody_by_split(flag: FlagState) -> bool:
+    """Whether every release condition that includes users sets a variant override, so the split assigns nobody."""
+    return bool(flag.reachable_conditions) and all(
+        condition.pinned_variant is not None for condition in flag.reachable_conditions
+    )
+
+
 def overrides_to_grade(ctx: HealthContext) -> PinnedConditions | None:
     """The overrides in place that SOME_CONDITIONS_PINNED is graded by, or None when it is not graded."""
     flag = flag_to_check(ctx, before_launch=True)
@@ -121,7 +128,7 @@ def _pins(ctx: HealthContext, flag: FlagState) -> _Pins | None:
     analyzed = tuple(condition for condition in pinned if condition.pinned_variant not in ctx.excluded_variant_keys)
     return _Pins(
         pinned=pinned,
-        all_pinned=len(pinned) == len(flag.reachable_conditions),
+        all_pinned=assigns_nobody_by_split(flag),
         analyzed=analyzed,
         graded=pinned_conditions(analyzed, flag.variants),
     )
@@ -191,7 +198,7 @@ def _set_after_launch(ctx: HealthContext, numbers: Sequence[int]) -> _SetAfterLa
             "who were exposed before may have switched variants."
         )
     else:
-        names = _set_names(sorted(override.condition_number for override in added))
+        names = set_names(sorted(override.condition_number for override in added))
         sentence = (
             f" The overrides of {names} were set after launch, last on {at}, so users they match who were exposed "
             "before may have switched variants."
@@ -212,7 +219,7 @@ def _quoted(keys: Sequence[str]) -> str:
     return ", ".join(f'"{key}"' for key in keys)
 
 
-def _set_names(numbers: Sequence[int]) -> str:
+def set_names(numbers: Sequence[int]) -> str:
     if len(numbers) == 1:
         return f"Set {numbers[0]}"
     return "Sets " + ", ".join(str(number) for number in numbers[:-1]) + f" and {numbers[-1]}"
@@ -275,13 +282,13 @@ def _some_pinned_detail(
         key = pinned_keys[0]
         overrides, them = "the override", "it"
         fact = (
-            f'{_set_names(numbers)} sets the variant override "{key}", so users who match it always get "{key}" '
+            f'{set_names(numbers)} sets the variant override "{key}", so users who match it always get "{key}" '
             "instead of a random variant."
         )
     else:
         overrides, them = "the overrides", "them"
         fact = (
-            f"{_set_names(numbers)} set variant overrides ({_quoted(pinned_keys)}), so users who match them "
+            f"{set_names(numbers)} set variant overrides ({_quoted(pinned_keys)}), so users who match them "
             "always get the variant of their condition instead of a random one."
         )
     why = (

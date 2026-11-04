@@ -1,1 +1,1 @@
-0192_repin_loop_returns_api_version
+0196_externaldataschema_masked_columns

@@ -47,6 +47,7 @@ from posthog.temporal.usage_report.types import (
 )
 from posthog.temporal.usage_report.workflow import (
     AGGREGATION_QUEUE_PATCH_ID,
+    BUSINESS_KNOWLEDGE_USAGE_QUERY_NAME,
     LOGS_DISTINCT_PATTERNS_QUERY_NAME,
     MCP_EVENT_COUNT_QUERY_NAME,
     PARALLEL_COUNTER_QUERIES_PATCH_ID,
@@ -56,6 +57,7 @@ from posthog.temporal.usage_report.workflow import (
     TRANSACTIONAL_EMAILS_QUERY_NAME,
     USAGE_COUNTER_SERVICE_PATCH_ID,
     RunUsageReportsWorkflow,
+    _queries_for_business_knowledge_usage_patch,
     _queries_for_logs_distinct_patterns_patch,
     _queries_for_mcp_event_count_patch,
     _queries_for_replay_vision_spend_projection_patch,
@@ -87,6 +89,7 @@ def test_sandbox_compute_query_is_versioned_for_existing_histories() -> None:
             _queries_for_replay_vision_spend_projection_patch,
             REPLAY_VISION_SPEND_PROJECTION_QUERY_NAME,
         ),
+        ("business_knowledge_usage", _queries_for_business_knowledge_usage_patch, BUSINESS_KNOWLEDGE_USAGE_QUERY_NAME),
     ]
 )
 def test_single_query_is_versioned_for_existing_histories(

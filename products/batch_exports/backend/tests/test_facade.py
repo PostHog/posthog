@@ -285,7 +285,7 @@ def test_runs_and_backfills_are_scoped_to_the_team_and_export(team, organization
             start=dt.datetime(2000, 1, 1, tzinfo=dt.UTC), end=dt.datetime.now(dt.UTC) + dt.timedelta(days=1)
         )
     )
-    page = CursorPageRequest(ordering=("-created_at",), bound=None, offset=0, limit=10)
+    page = CursorPageRequest(ordering=("-created_at",), after=(), offset=0, limit=10)
 
     own_runs = api.list_batch_export_runs(team.pk, export_id, filters=every_run, page=page)
     assert [run.id for run in own_runs.results] == [run_id]

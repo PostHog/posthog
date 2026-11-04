@@ -10,6 +10,49 @@
 import * as zod from 'zod'
 
 /**
+ * Approve a device grant for one project. The token gets the requested scopes the person kept.
+ */
+export const oauthDeviceApproveCreateBodyUserCodeMax = 20
+
+export const OauthDeviceApproveCreateBody = /* @__PURE__ */ zod.object({
+    user_code: zod
+        .string()
+        .max(oauthDeviceApproveCreateBodyUserCodeMax)
+        .describe("The code the device shows, as the person typed it. Case and dashes don't matter."),
+    project_id: zod.number().describe('The project the token is scoped to.'),
+    scopes: zod
+        .array(zod.string())
+        .optional()
+        .describe(
+            'The requested scopes the person kept. Leave it out to grant every requested scope. It must include every scope in `required_scopes`, and nothing outside the requested scopes.'
+        ),
+})
+
+/**
+ * Refuse a device grant, so the client's next poll gets `access_denied`.
+ */
+export const oauthDeviceDenyCreateBodyUserCodeMax = 20
+
+export const OauthDeviceDenyCreateBody = /* @__PURE__ */ zod.object({
+    user_code: zod
+        .string()
+        .max(oauthDeviceDenyCreateBodyUserCodeMax)
+        .describe("The code the device shows, as the person typed it. Case and dashes don't matter."),
+})
+
+/**
+ * Show what a device code asks for, so the person can check it before approving.
+ */
+export const oauthDeviceLookupCreateBodyUserCodeMax = 20
+
+export const OauthDeviceLookupCreateBody = /* @__PURE__ */ zod.object({
+    user_code: zod
+        .string()
+        .max(oauthDeviceLookupCreateBodyUserCodeMax)
+        .describe("The code the device shows, as the person typed it. Case and dashes don't matter."),
+})
+
+/**
  * Manage CIMD verification tokens for an organization.
  *
  * A partner embeds the plaintext token in their CIMD metadata document as
@@ -1291,6 +1334,140 @@ export const UploadedMediaStartUploadCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(uploadedMediaStartUploadCreateBodyPurposeMax)
         .describe("Library to add this image to once uploaded, e.g. 'email'."),
+})
+
+export const workloadTrustPoliciesCreateBodyNameMax = 200
+
+export const workloadTrustPoliciesCreateBodyIssuerMax = 255
+
+export const workloadTrustPoliciesCreateBodySubjectNameMax = 255
+
+export const workloadTrustPoliciesCreateBodySubjectMax = 255
+
+export const workloadTrustPoliciesCreateBodyScopesItemMax = 100
+
+export const WorkloadTrustPoliciesCreateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(workloadTrustPoliciesCreateBodyNameMax).describe('A name that says what the policy is for.'),
+    issuer: zod
+        .string()
+        .max(workloadTrustPoliciesCreateBodyIssuerMax)
+        .describe('The OIDC issuer of the workload provider, from the list of supported providers.'),
+    subject_name: zod
+        .string()
+        .max(workloadTrustPoliciesCreateBodySubjectNameMax)
+        .describe(
+            "The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly."
+        ),
+    subject: zod
+        .string()
+        .max(workloadTrustPoliciesCreateBodySubjectMax)
+        .describe(
+            "The workload's immutable ID, from the provider's subject claim, for example a repository ID. Matched exactly together with the name, so a deleted and re-created workload with the same name does not match."
+        ),
+    conditions: zod
+        .record(zod.string(), zod.string())
+        .optional()
+        .describe(
+            "Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition."
+        ),
+    scopes: zod
+        .array(zod.string().max(workloadTrustPoliciesCreateBodyScopesItemMax))
+        .describe(
+            'The scopes every token minted under this policy carries. Scopes that manage credentials or access are refused.'
+        ),
+    enabled: zod.boolean().optional().describe('Whether the policy can mint tokens. Disabling it cuts off its tokens.'),
+})
+
+export const workloadTrustPoliciesUpdateBodyNameMax = 200
+
+export const workloadTrustPoliciesUpdateBodyIssuerMax = 255
+
+export const workloadTrustPoliciesUpdateBodySubjectNameMax = 255
+
+export const workloadTrustPoliciesUpdateBodySubjectMax = 255
+
+export const workloadTrustPoliciesUpdateBodyScopesItemMax = 100
+
+export const WorkloadTrustPoliciesUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod.string().max(workloadTrustPoliciesUpdateBodyNameMax).describe('A name that says what the policy is for.'),
+    issuer: zod
+        .string()
+        .max(workloadTrustPoliciesUpdateBodyIssuerMax)
+        .describe('The OIDC issuer of the workload provider, from the list of supported providers.'),
+    subject_name: zod
+        .string()
+        .max(workloadTrustPoliciesUpdateBodySubjectNameMax)
+        .describe(
+            "The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly."
+        ),
+    subject: zod
+        .string()
+        .max(workloadTrustPoliciesUpdateBodySubjectMax)
+        .describe(
+            "The workload's immutable ID, from the provider's subject claim, for example a repository ID. Matched exactly together with the name, so a deleted and re-created workload with the same name does not match."
+        ),
+    conditions: zod
+        .record(zod.string(), zod.string())
+        .optional()
+        .describe(
+            "Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition."
+        ),
+    scopes: zod
+        .array(zod.string().max(workloadTrustPoliciesUpdateBodyScopesItemMax))
+        .describe(
+            'The scopes every token minted under this policy carries. Scopes that manage credentials or access are refused.'
+        ),
+    enabled: zod.boolean().optional().describe('Whether the policy can mint tokens. Disabling it cuts off its tokens.'),
+})
+
+export const workloadTrustPoliciesPartialUpdateBodyNameMax = 200
+
+export const workloadTrustPoliciesPartialUpdateBodyIssuerMax = 255
+
+export const workloadTrustPoliciesPartialUpdateBodySubjectNameMax = 255
+
+export const workloadTrustPoliciesPartialUpdateBodySubjectMax = 255
+
+export const workloadTrustPoliciesPartialUpdateBodyScopesItemMax = 100
+
+export const WorkloadTrustPoliciesPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(workloadTrustPoliciesPartialUpdateBodyNameMax)
+        .optional()
+        .describe('A name that says what the policy is for.'),
+    issuer: zod
+        .string()
+        .max(workloadTrustPoliciesPartialUpdateBodyIssuerMax)
+        .optional()
+        .describe('The OIDC issuer of the workload provider, from the list of supported providers.'),
+    subject_name: zod
+        .string()
+        .max(workloadTrustPoliciesPartialUpdateBodySubjectNameMax)
+        .optional()
+        .describe(
+            "The workload's human-readable name, from the provider's subject name claim, for example a repository's full name. Matched exactly."
+        ),
+    subject: zod
+        .string()
+        .max(workloadTrustPoliciesPartialUpdateBodySubjectMax)
+        .optional()
+        .describe(
+            "The workload's immutable ID, from the provider's subject claim, for example a repository ID. Matched exactly together with the name, so a deleted and re-created workload with the same name does not match."
+        ),
+    conditions: zod
+        .record(zod.string(), zod.string())
+        .optional()
+        .describe(
+            "Claims the token must carry, as claim name to exact value, for example a branch or an environment. Only the provider's condition claims are allowed. An empty value removes the condition."
+        ),
+    scopes: zod
+        .array(zod.string().max(workloadTrustPoliciesPartialUpdateBodyScopesItemMax))
+        .optional()
+        .describe(
+            'The scopes every token minted under this policy carries. Scopes that manage credentials or access are refused.'
+        ),
+    enabled: zod.boolean().optional().describe('Whether the policy can mint tokens. Disabling it cuts off its tokens.'),
 })
 
 /**

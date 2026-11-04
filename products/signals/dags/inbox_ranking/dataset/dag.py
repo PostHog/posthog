@@ -74,7 +74,9 @@ from collections.abc import Collection, Iterator, Mapping
 from typing import Any, cast
 from uuid import UUID
 
-from django.db.models import Count, Min
+from django.db.models import Case, CharField, Count, F, Func, IntegerField, Min, Value, When
+from django.db.models.functions import Coalesce
+from django.db.models.lookups import Exact
 
 import dagster
 import pyarrow as pa
@@ -251,11 +253,18 @@ def tag_dagster_queries(context: dagster.AssetExecutionContext, query_type: str)
 
 _TIMESTAMP = pa.timestamp("us", tz="UTC")
 
-_STATE_FIELDS: list[tuple[str, pa.DataType]] = [
-    ("snapshot_date", pa.date32()),
-    ("report_id", pa.string()),
-    ("report_team_id", pa.int64()),
-    ("region", pa.string()),
+_REPORT_CONTENT_FIELDS: list[tuple[str, pa.DataType]] = [
+    ("chart_count", pa.int32()),
+    ("metric_count", pa.int32()),
+    ("suggested_prompt_count", pa.int32()),
+    ("tag_count", pa.int32()),
+    ("content_revision_count", pa.int32()),
+    ("corroboration_count", pa.int32()),
+    ("user_authored", pa.bool_()),
+    ("already_addressed", pa.bool_()),
+]
+
+_REPORT_STATE_FIELDS: list[tuple[str, pa.DataType]] = [
     ("status", pa.string()),
     ("billing_exempt_reason", pa.string()),
     ("report_created_at", _TIMESTAMP),
@@ -271,6 +280,15 @@ _STATE_FIELDS: list[tuple[str, pa.DataType]] = [
     ("actionability", pa.string()),
     ("title_chars", pa.int32()),
     ("summary_chars", pa.int32()),
+    *_REPORT_CONTENT_FIELDS,
+]
+
+_STATE_FIELDS: list[tuple[str, pa.DataType]] = [
+    ("snapshot_date", pa.date32()),
+    ("report_id", pa.string()),
+    ("report_team_id", pa.int64()),
+    ("region", pa.string()),
+    *_REPORT_STATE_FIELDS,
     ("features_observed_at", _TIMESTAMP),
 ]
 STATE_SCHEMA = pa.schema(_STATE_FIELDS)
@@ -438,21 +456,7 @@ _MODEL_DATA_FIELDS: list[tuple[str, pa.DataType]] = [
     ("built_at", _TIMESTAMP),
     ("run_id", pa.string()),
     ("features_observed_at", _TIMESTAMP),
-    ("status", pa.string()),
-    ("billing_exempt_reason", pa.string()),
-    ("report_created_at", _TIMESTAMP),
-    ("promoted_at", _TIMESTAMP),
-    ("last_run_at", _TIMESTAMP),
-    ("pg_updated_at", _TIMESTAMP),
-    ("report_age_hours", pa.float32()),
-    ("hours_since_promotion", pa.float32()),
-    ("signal_count", pa.int32()),
-    ("total_weight", pa.float32()),
-    ("run_count", pa.int32()),
-    ("priority", pa.string()),
-    ("actionability", pa.string()),
-    ("title_chars", pa.int32()),
-    ("summary_chars", pa.int32()),
+    *_REPORT_STATE_FIELDS,
     ("embedding_small", pa.list_(pa.float32())),
     ("embedding_inserted_at", _TIMESTAMP),
     ("embedding_rendering", pa.string()),
@@ -554,6 +558,7 @@ _STATE_PASSTHROUGH_COLUMNS = (
     "actionability",
     "title_chars",
     "summary_chars",
+    *(name for name, _ in _REPORT_CONTENT_FIELDS),
 )
 
 
@@ -573,9 +578,30 @@ def _judgment_value(parsed: dict[str, Any], key: str) -> str | None:
     return value if isinstance(value, str) else None
 
 
-def _artefact_judgments(report_ids: list[str], snapshot_end: datetime.datetime) -> dict[str, dict[str, str | None]]:
+def _judgment_flag(parsed: dict[str, Any], key: str) -> bool | None:
+    value = parsed.get(key)
+    return value if isinstance(value, bool) else None
+
+
+def _json_array_length(field: str) -> Case:
+    """Length of a JSON list column, computed in Postgres so the list itself is never loaded.
+    `jsonb_array_length` raises on a value that is not an array, so any other stored value counts as 0."""
+    return Case(
+        When(
+            Exact(Func(F(field), function="jsonb_typeof", output_field=CharField()), Value("array")),
+            then=Func(F(field), function="jsonb_array_length", output_field=IntegerField()),
+        ),
+        default=Value(0),
+        output_field=IntegerField(),
+    )
+
+
+def _artefact_judgments(
+    report_ids: list[str], snapshot_end: datetime.datetime
+) -> dict[str, dict[str, str | bool | None]]:
     """Latest priority/actionability judgment per report as of the snapshot cutoff, parsed from
-    the artefact content JSON.
+    the artefact content JSON. `already_addressed` comes from the same actionability artefact, so
+    it follows the same cutoff rules rather than the current `SignalReport.latest_already_addressed`.
 
     Artefacts are appended in normal operation but the API permits editing one in place
     (`update_content` rewrites content and bumps updated_at, leaving created_at alone), so a row's
@@ -584,7 +610,7 @@ def _artefact_judgments(report_ids: list[str], snapshot_end: datetime.datetime) 
     selection instead would hand back the judgment they superseded, which was already stale at the
     cutoff — silently wrong where null is merely unknown. The genuinely immutable classification is
     status_event_priority/actionability, snapshotted onto each transition in the label stream."""
-    judgments: dict[str, dict[str, str | None]] = {}
+    judgments: dict[str, dict[str, str | bool | None]] = {}
     for chunk in _chunked(report_ids):
         artefacts = (
             SignalReportArtefact.objects.filter(
@@ -610,11 +636,14 @@ def _artefact_judgments(report_ids: list[str], snapshot_end: datetime.datetime) 
             # Legacy artefact rows can hold JSON that is not an object; readers tolerate them.
             if not isinstance(parsed, dict):
                 continue
-            entry = judgments.setdefault(str(report_id), {"priority": None, "actionability": None})
+            entry = judgments.setdefault(
+                str(report_id), {"priority": None, "actionability": None, "already_addressed": None}
+            )
             if artefact_type == SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT:
                 entry["priority"] = _judgment_value(parsed, "priority")
             else:
                 entry["actionability"] = _judgment_value(parsed, "actionability")
+                entry["already_addressed"] = _judgment_flag(parsed, "already_addressed")
     return judgments
 
 
@@ -875,6 +904,12 @@ def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
     for spine_chunk in _chunked(ordered_spine_ids):
         for report in (
             SignalReport.objects.filter(id__in=spine_chunk)
+            .annotate(
+                chart_count=_json_array_length("charts"),
+                metric_count=_json_array_length("metrics"),
+                suggested_prompt_count=_json_array_length("suggested_prompts"),
+                tag_count=Coalesce(Func(F("tags"), function="cardinality"), Value(0), output_field=IntegerField()),
+            )
             .values(
                 "id",
                 "team_id",
@@ -889,6 +924,13 @@ def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
                 "run_count",
                 "title",
                 "summary",
+                "chart_count",
+                "metric_count",
+                "suggested_prompt_count",
+                "tag_count",
+                "content_revision_count",
+                "corroboration_count",
+                "user_authored",
             )
             .iterator(chunk_size=2000)
         ):
@@ -919,6 +961,14 @@ def inbox_report_state(context: dagster.AssetExecutionContext) -> None:
                     "actionability": judgment.get("actionability"),
                     "title_chars": len(report["title"] or ""),
                     "summary_chars": len(report["summary"] or ""),
+                    "chart_count": report["chart_count"],
+                    "metric_count": report["metric_count"],
+                    "suggested_prompt_count": report["suggested_prompt_count"],
+                    "tag_count": report["tag_count"],
+                    "content_revision_count": report["content_revision_count"] or 0,
+                    "corroboration_count": report["corroboration_count"] or 0,
+                    "user_authored": report["user_authored"],
+                    "already_addressed": judgment.get("already_addressed"),
                     "features_observed_at": features_observed_at,
                 }
             )

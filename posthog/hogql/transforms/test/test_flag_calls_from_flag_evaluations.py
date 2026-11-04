@@ -14,10 +14,10 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_trino_table import DirectTrinoTable
 from posthog.hogql.database.models import StringDatabaseField, Table, TableNode
+from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_COMPLETE_DAYS
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver import resolve_types
 from posthog.hogql.transforms.flag_calls_from_flag_evaluations import (
-    FLAG_EVALUATIONS_COMPLETE_DAYS,
     EventsScan,
     can_read_flag_evaluations,
     filter_conjuncts,
