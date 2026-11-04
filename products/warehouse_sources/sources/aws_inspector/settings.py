@@ -139,7 +139,12 @@ ERROR_MESSAGES = {
 
 # The IAM actions this source calls. A role session can use only these.
 AWS_SESSION_ACTIONS = (
-    "inspector2:BatchGet*",
-    "inspector2:Get*",
-    "inspector2:List*",
+    "inspector2:GetCisScanResultDetails",
+    "inspector2:GetClustersForImage",
+    "inspector2:ListCisScanResultsAggregatedByTargetResource",
+    "inspector2:ListCisScans",
+    "inspector2:ListCoverage",
+    "inspector2:ListCoverageStatistics",
+    "inspector2:ListFindings",
+    "inspector2:ListMembers",
 )
