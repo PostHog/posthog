@@ -11231,6 +11231,8 @@ export namespace Schemas {
     export type ChartSettingsResultCustomizations = {[key: string]: ResultCustomizationByValue} | null;
 
     export interface ChartSettings {
+      /** Shows only the annotations saved at this level. Unset shows every level. */
+      annotationsScope?: AnnotationScope | null;
       barGap?: number | null;
       boxPlot?: BoxPlotSettings | null;
       /** Chart rendering style overrides (line shape). Only applies to line and area charts. */
@@ -13762,6 +13764,20 @@ export namespace Schemas {
       Evaluation: 'evaluation',
     } as const;
 
+    export interface AnalyticsAlertFiringSignalExtra {
+      alert_id: string;
+      alert_name: string;
+      insight_id: string;
+      alert_check_id: string;
+      detector_type: string;
+      breaches: string[];
+      episode_started_at: string;
+      url: string;
+      insight_name?: string | null;
+      insight_short_id?: string | null;
+      triggered_dates?: string[] | null;
+    }
+
     export interface AnalyticsAnomalyInvestigationSignalExtra {
       alert_id: string;
       alert_name: string;
@@ -14999,8 +15015,11 @@ export namespace Schemas {
          * @nullable
          */
       min_count: number | null;
-      /** People in the audience with an email address, counted when the suggestion was made. */
-      reachable_count: number;
+      /**
+         * Roughly how many people in the audience have an email address, counted when the suggestion was made. Null while the count runs, or when it failed.
+         * @nullable
+         */
+      reachable_count: number | null;
       /** The audience's cohort filters, in the cohorts endpoint's `filters` format. Saved as a static cohort. */
       cohort_filters: unknown;
     }
@@ -15022,7 +15041,7 @@ export namespace Schemas {
     } as const;
 
     export interface AudienceSuggestionsResponse {
-      /** ready when suggestions were made (the list can still be empty), generating while a background run makes them (poll current until it ends), ai_not_approved when the organization has not approved AI data processing, unavailable when nothing was made or the run failed.
+      /** ready when suggestions were made (the list can still be empty), generating while a background run makes them (poll current until it ends, the list can already hold cards being counted), ai_not_approved when the organization has not approved AI data processing, unavailable when nothing was made or the run failed.
        *
        * * `ready` - Ready
        * * `generating` - Generating
@@ -26031,6 +26050,22 @@ export namespace Schemas {
       count?: number | null;
     }
 
+    export interface SerializedMatchedRecordingEvent {
+      /** UUID of the matched event. */
+      uuid: string;
+      /** When the matched event happened. */
+      timestamp: string;
+      /** ID of the browser window the event was captured in. */
+      window_id: string;
+    }
+
+    export interface SerializedMatchedRecording {
+      /** ID of the session recording. */
+      session_id: string;
+      /** Events of the recording that matched the query. */
+      events: SerializedMatchedRecordingEvent[];
+    }
+
     /**
      * Marks this actor as a person.
      */
@@ -26046,8 +26081,6 @@ export namespace Schemas {
      */
     export type SerializedPersonActorProperties = { [key: string]: unknown };
 
-    export type SerializedPersonActorMatchedRecordingsItem = { [key: string]: unknown };
-
     export interface SerializedPersonActor {
       /** The person's UUID, or the group's key. */
       id: string;
@@ -26059,7 +26092,7 @@ export namespace Schemas {
          */
       created_at: string | null;
       /** Recordings that matched the query. Empty unless the endpoint asks for them. */
-      matched_recordings: SerializedPersonActorMatchedRecordingsItem[];
+      matched_recordings: SerializedMatchedRecording[];
       /**
          * The actor's value at the data point it was queried for. Null unless the query computes one.
          * @nullable
@@ -26078,11 +26111,8 @@ export namespace Schemas {
          * @nullable
          */
       last_seen_at: string | null;
-      /**
-         * Whether the person has been identified.
-         * @nullable
-         */
-      is_identified: boolean | null;
+      /** Whether the person has been identified. */
+      is_identified: boolean;
     }
 
     export interface CohortPersonsResponse {
@@ -33059,6 +33089,8 @@ export namespace Schemas {
       readonly user_access_level: string | null;
       /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
       readonly suspended: DataWarehouseSavedQuerySuspended;
+      /** Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
+      readonly is_raw_managed_trino: boolean;
     }
 
     /**
@@ -33202,6 +33234,8 @@ export namespace Schemas {
          * @nullable
          */
       readonly user_access_level: string | null;
+      /** Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
+      readonly is_raw_managed_trino: boolean;
     }
 
     export type DataWarehouseSourceCategory = typeof DataWarehouseSourceCategory[keyof typeof DataWarehouseSourceCategory];
@@ -37351,7 +37385,8 @@ export namespace Schemas {
     }
 
     /**
-     * Request body for `emit-report`. Run attribution is taken from the URL path.
+     * Request body for the scout `emit-report` action and the inbox report `create` action. A scout run is
+     * taken from the URL path; a person is the authenticated caller.
      */
     export interface EmitReportRequest {
       /**
@@ -37374,10 +37409,10 @@ export namespace Schemas {
        * * `requires_human_input` - requires_human_input
        * * `not_actionable` - not_actionable */
       actionability: ActionabilityEnum;
-      /** Whether the issue is already being handled — fixed in recent changes, or with a fix in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task). Gates autostart, so a wrong `false` opens a duplicate PR. Tracked separately. */
+      /** Whether the issue is already being handled — fixed in recent changes, or with a fix in flight (an open PR, a recently active branch, an assigned / in-progress issue or agent task). Gates autostart of a scout report, so a wrong `false` opens a duplicate PR. Tracked separately. */
       already_addressed?: boolean;
       /**
-         * Optional repo for opening a draft PR, by autostart or by a person from the inbox. Pass `owner/repo` whenever you can say where a fix would land. Omit the field when you can't, which triggers free-form selection across the team's repos (the slow path on a many-repo team). Keep the `NO_REPO` sentinel for the rare report where nothing under version control could change, since a skill body, a config file, or a doc still lives in a repo.
+         * Optional repo for opening a draft PR, by autostart of a scout report or by a person from the inbox. Pass `owner/repo` whenever you can say where a fix would land. Omit the field when you can't, which triggers free-form selection across the team's repos (the slow path on a many-repo team). Keep the `NO_REPO` sentinel for the rare report where nothing under version control could change, since a skill body, a config file, or a doc still lives in a repo.
          * @nullable
          */
       repository?: string | null;
@@ -37395,7 +37430,7 @@ export namespace Schemas {
          */
       priority_explanation?: string | null;
       /**
-         * Optional reviewers to route the report to (each a `github_login` and/or `user_uuid`). This is the primary way a report reaches a human — the inbox floats a reviewer's own reports to the top of their inbox even when no PR is involved — so set it whenever you can name a plausible owner. It also gates autostart: a PR opens only if at least one reviewer clears their autonomy threshold.
+         * Optional reviewers to route the report to (each a `github_login` and/or `user_uuid`). This is the primary way a report reaches a human — the inbox floats a reviewer's own reports to the top of their inbox even when no PR is involved — so set it whenever you can name a plausible owner. On a scout report it also gates autostart: a PR opens only if at least one reviewer clears their autonomy threshold. A report a person files never autostarts.
          * @maxItems 10
          */
       suggested_reviewers?: SuggestedReviewer[];
@@ -37426,7 +37461,7 @@ export namespace Schemas {
          */
       tags?: string[];
       /**
-         * Optional name for this emission, unique within the run. Reuse it verbatim to retry a call whose outcome you don't know (a timeout, a dropped connection): the retry returns the report the first call authored, with `idempotent_replay` true, instead of a second report. Omit it and the report's own content is the key, which covers a retry of the identical call — pass one when a retry might reword the report.
+         * Optional name for this emission, unique within a scout's run or within a person's own reports. Reuse it verbatim to retry a call whose outcome you don't know (a timeout, a dropped connection): the retry returns the report the first call authored, with `idempotent_replay` true, instead of a second report. Omit it and the report's own content is the key, which covers a retry of the identical call — pass one when a retry might reword the report.
          * @maxLength 200
          * @nullable
          */
@@ -39073,7 +39108,7 @@ export namespace Schemas {
 
     /**
      * * `ready` - Ready
-     * * `generating` - Generating
+     * * `not_generated` - Not Generated
      * * `unavailable` - Unavailable
      */
     export type IssueSummaryStatusEnum = typeof IssueSummaryStatusEnum[keyof typeof IssueSummaryStatusEnum];
@@ -39081,8 +39116,22 @@ export namespace Schemas {
 
     export const IssueSummaryStatusEnum = {
       Ready: 'ready',
-      Generating: 'generating',
+      NotGenerated: 'not_generated',
       Unavailable: 'unavailable',
+    } as const;
+
+    /**
+     * * `restricted` - Restricted
+     * * `disabled` - Disabled
+     * * `ai_not_approved` - Ai Not Approved
+     */
+    export type IssueSummaryUnavailableReasonEnum = typeof IssueSummaryUnavailableReasonEnum[keyof typeof IssueSummaryUnavailableReasonEnum];
+
+
+    export const IssueSummaryUnavailableReasonEnum = {
+      Restricted: 'restricted',
+      Disabled: 'disabled',
+      AiNotApproved: 'ai_not_approved',
     } as const;
 
     export interface ErrorTrackingIssueDetail {
@@ -39145,14 +39194,20 @@ export namespace Schemas {
       sparkline?: number[];
       /** Aggregate over matching events. Returned only when includeBreakdown is true. */
       breakdown?: ErrorTrackingIssueBreakdown;
-      /** A model-written summary of the issue. Present only when summary_status is 'ready'. Treat likely_cause as a hypothesis, not a fact. */
+      /** An AI-written summary of the issue. Present only when summary_status is 'ready'. Treat likely_cause as a hypothesis, not a fact. */
       summary?: ErrorTrackingIssueSummary;
-      /** 'ready' means summary is present. 'generating' means a summary may still be written: call once more after a few seconds, and continue without it if the status does not change. 'unavailable' means no summary exists for this issue and none is being written.
+      /** 'ready' means summary is present. 'not_generated' means no summary exists for this issue. A summary is written only when an issue is created. 'unavailable' means no summary can be shown, and summary_reason says why.
        *
        * * `ready` - Ready
-       * * `generating` - Generating
+       * * `not_generated` - Not Generated
        * * `unavailable` - Unavailable */
       summary_status: IssueSummaryStatusEnum;
+      /** Present only when summary_status is 'unavailable'. 'restricted': the user may not read a property that the summary is written from. 'disabled': summaries are off for the project. 'ai_not_approved': the organization has not approved AI data processing.
+       *
+       * * `restricted` - Restricted
+       * * `disabled` - Disabled
+       * * `ai_not_approved` - Ai Not Approved */
+      summary_reason?: IssueSummaryUnavailableReasonEnum;
     }
 
     export interface ErrorTrackingIssueEventsQueryResponse {
@@ -39558,19 +39613,25 @@ export namespace Schemas {
       model: string;
       /** When the summary was written. */
       generated_at: string;
-      /** When generation last wrote the summary or confirmed it unchanged. The regenerate interval runs from it. */
+      /** When generation last wrote the summary. */
       checked_at: string;
     }
 
     export interface ErrorTrackingIssueSummaryResponse {
-      /** ready: `summary` holds the stored summary. generating: a summary is being written in the background, so poll again. `summary` holds the previous one, if any. unavailable: no summary exists and none will be written, for example because the feature is off.
+      /** ready: `summary` holds the stored summary. not_generated: no summary is stored for this issue. A summary is written only when an issue is created. unavailable: no summary can be shown. `reason` says why.
        *
        * * `ready` - Ready
-       * * `generating` - Generating
+       * * `not_generated` - Not Generated
        * * `unavailable` - Unavailable */
       status: IssueSummaryStatusEnum;
-      /** The stored summary, or null when none exists yet. */
+      /** The stored summary, or null when the status is not ready. */
       summary: ErrorTrackingStoredIssueSummary | null;
+      /** Why the status is unavailable, else null. restricted: the user may not read a property that the summary is written from. disabled: summaries are off for the project. ai_not_approved: the organization has not approved AI data processing.
+       *
+       * * `restricted` - Restricted
+       * * `disabled` - Disabled
+       * * `ai_not_approved` - Ai Not Approved */
+      reason: IssueSummaryUnavailableReasonEnum | null;
     }
 
     export interface ErrorTrackingIssueValue {
@@ -57068,6 +57129,7 @@ export namespace Schemas {
      * * `pganalyze` - pganalyze
      * * `signals_scout` - Signals scout
      * * `signals_check` - Report check
+     * * `user_authored` - Team member
      * * `logs` - Logs
      * * `health_checks` - Health checks
      * * `endpoints` - Endpoints
@@ -57185,6 +57247,7 @@ export namespace Schemas {
       Pganalyze: 'pganalyze',
       SignalsScout: 'signals_scout',
       SignalsCheck: 'signals_check',
+      UserAuthored: 'user_authored',
       Logs: 'logs',
       HealthChecks: 'health_checks',
       Endpoints: 'endpoints',
@@ -57352,6 +57415,7 @@ export namespace Schemas {
        * * `pganalyze` - pganalyze
        * * `signals_scout` - Signals scout
        * * `signals_check` - Report check
+       * * `user_authored` - Team member
        * * `logs` - Logs
        * * `health_checks` - Health checks
        * * `endpoints` - Endpoints
@@ -58914,11 +58978,6 @@ export namespace Schemas {
     export interface InterestingNote {
       text: string;
       line_refs: string;
-    }
-
-    export interface InternalFeedbackResponse {
-      /** True when the feedback reached Slack. */
-      success: boolean;
     }
 
     /**
@@ -80086,6 +80145,8 @@ export namespace Schemas {
       readonly user_access_level?: string | null;
       /** Engines this query's materialization is suspended for after repeated failures. Suspended engines are skipped by scheduled runs until the query is resumed. */
       readonly suspended?: PatchedDataWarehouseSavedQuerySuspended;
+      /** Whether this view stores raw Trino SQL. Only hosted Trino can run it, and HogQL queries cannot reference it. */
+      readonly is_raw_managed_trino?: boolean;
     }
 
     /**
@@ -97109,8 +97170,6 @@ export namespace Schemas {
      */
     export type SerializedGroupActorProperties = { [key: string]: unknown };
 
-    export type SerializedGroupActorMatchedRecordingsItem = { [key: string]: unknown };
-
     export interface SerializedGroupActor {
       /** The person's UUID, or the group's key. */
       id: string;
@@ -97122,7 +97181,7 @@ export namespace Schemas {
          */
       created_at: string | null;
       /** Recordings that matched the query. Empty unless the endpoint asks for them. */
-      matched_recordings: SerializedGroupActorMatchedRecordingsItem[];
+      matched_recordings: SerializedMatchedRecording[];
       /**
          * The actor's value at the data point it was queried for. Null unless the query computes one.
          * @nullable
@@ -97831,6 +97890,7 @@ export namespace Schemas {
      * * `pganalyze` - pganalyze
      * * `signals_scout` - signals_scout
      * * `signals_check` - signals_check
+     * * `user_authored` - user_authored
      * * `logs` - logs
      * * `health_checks` - health_checks
      * * `replay_vision` - replay_vision
@@ -97948,6 +98008,7 @@ export namespace Schemas {
       Pganalyze: 'pganalyze',
       SignalsScout: 'signals_scout',
       SignalsCheck: 'signals_check',
+      UserAuthored: 'user_authored',
       Logs: 'logs',
       HealthChecks: 'health_checks',
       ReplayVision: 'replay_vision',
@@ -98067,6 +98128,7 @@ export namespace Schemas {
      * * `health_issue` - health_issue
      * * `scanner_finding` - scanner_finding
      * * `anomaly_investigation` - anomaly_investigation
+     * * `alert_firing` - alert_firing
      * * `feedback` - feedback
      * * `review` - review
      * * `ci_flaky_check` - ci_flaky_check
@@ -98097,6 +98159,7 @@ export namespace Schemas {
       HealthIssue: 'health_issue',
       ScannerFinding: 'scanner_finding',
       AnomalyInvestigation: 'anomaly_investigation',
+      AlertFiring: 'alert_firing',
       Feedback: 'feedback',
       Review: 'review',
       CiFlakyCheck: 'ci_flaky_check',
@@ -98376,7 +98439,7 @@ export namespace Schemas {
       created_at: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | MonitoringUnresolvedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | ClickupTaskSignalExtra | WrikeTaskSignalExtra | TrelloCardSignalExtra | BugherdTaskSignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | GooglePlayConsoleIssueSignalExtra | AzureApplicationInsightsIssueSignalExtra | AppsignalIssueSignalExtra | CursorIssueSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra | AwsSecurityHubScannerFindingSignalExtra | AwsGuarddutyScannerFindingSignalExtra | AwsInspectorScannerFindingSignalExtra | MicrosoftDefenderCloudAppsScannerFindingSignalExtra;
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | MonitoringUnresolvedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | AnalyticsAlertFiringSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | ClickupTaskSignalExtra | WrikeTaskSignalExtra | TrelloCardSignalExtra | BugherdTaskSignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | GooglePlayConsoleIssueSignalExtra | AzureApplicationInsightsIssueSignalExtra | AppsignalIssueSignalExtra | CursorIssueSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra | AwsSecurityHubScannerFindingSignalExtra | AwsGuarddutyScannerFindingSignalExtra | AwsInspectorScannerFindingSignalExtra | MicrosoftDefenderCloudAppsScannerFindingSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -98406,6 +98469,7 @@ export namespace Schemas {
        * * `pganalyze` - pganalyze
        * * `signals_scout` - signals_scout
        * * `signals_check` - signals_check
+       * * `user_authored` - user_authored
        * * `logs` - logs
        * * `health_checks` - health_checks
        * * `replay_vision` - replay_vision
@@ -98525,6 +98589,7 @@ export namespace Schemas {
        * * `health_issue` - health_issue
        * * `scanner_finding` - scanner_finding
        * * `anomaly_investigation` - anomaly_investigation
+       * * `alert_firing` - alert_firing
        * * `feedback` - feedback
        * * `review` - review
        * * `ci_flaky_check` - ci_flaky_check
@@ -118538,26 +118603,6 @@ export namespace Schemas {
       Ndjson: 'ndjson',
     } as const;
 
-    export type InternalFeedbackCreateBody = {
-      /**
-         * What the person wants to tell the developers.
-         * @maxLength 4000
-         */
-      comment: string;
-      /**
-         * URL of the page the feedback is about.
-         * @maxLength 2000
-         */
-      page_url: string;
-      /**
-         * CSS selector of the element the person selected. Empty for feedback about the whole page.
-         * @maxLength 1000
-         */
-      element_identifier?: string;
-      /** JPEG screenshot of the page, with the selected element outlined when there is one. */
-      screenshot?: Blob;
-    };
-
     export type LlmAnalyticsPersonalSpendListParams = {
     /**
      * When set, additionally return a `by_bucket` breakdown: a time-ascending UTC cost series for the scoped product at this bucket size in minutes, with per-bucket cost split into uncached input / output / cache read / cache creation components plus the matching token sums. Supported bucket sizes: 5, 15, 30, 60. The window may span at most 600 buckets of the chosen size (e.g. 50 hours at 5-minute buckets).
@@ -125815,9 +125860,9 @@ export namespace Schemas {
 
     export type ExperimentsTimeseriesResultsRetrieveParams = {
     /**
-     * Fingerprint of the metric configuration. Available alongside metric_uuid on each metric in the experiment's metrics array.
+     * Ignored. The server derives the metric's calculation key from the experiment's current settings. Accepted so that existing clients keep working.
      */
-    fingerprint: string;
+    fingerprint?: string;
     /**
      * UUID of the metric to fetch timeseries for. Available on each metric in the experiment's metrics array.
      */
@@ -132244,7 +132289,7 @@ export namespace Schemas {
      */
     skill_name?: string;
     /**
-     * ILIKE substring match against `content`. Omit to return the most recent entries.
+     * ILIKE substring match against `content` and `key`. Must contain 3 letters or digits in a row, or 2 next to a symbol such as `ai_` or `pr:`. Omit to return the most recent entries.
      */
     text?: string;
     };
