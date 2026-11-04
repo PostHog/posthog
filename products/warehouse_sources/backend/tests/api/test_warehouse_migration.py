@@ -316,7 +316,6 @@ class TestWarehouseMigrationAPI(APIBaseTest):
                 {"connection": _fivetran_connection("conn_bad", id=["conn_bad"])},
             ],
         )
-        # The malformed connections are named, and the rest of the batch still applies.
         assert first.status_code == 400
         assert "Connection 1 (no id)" in first.json()["detail"]
         assert "Connection 2 (no valid id): the field `id` has the wrong type" in first.json()["detail"]

@@ -71,17 +71,14 @@ def fetch_snapshot(client: FivetranClient) -> VendorSnapshot:
 @frozen
 class UploadedSnapshot:
     snapshot: VendorSnapshot
-    # The connections this upload read, in upload order.
     connection_ids: tuple[str, ...]
-    # One message per destination or connection that could not be read. Each names it.
     errors: tuple[str, ...]
 
 
 MAX_UPLOADED_CONNECTION_BYTES = 1_000_000
 # Without a total cap, repeated uploads could grow the stored snapshot that every later upload loads and plans again.
 MAX_UPLOADED_SNAPSHOT_BYTES = 50_000_000
-# The item columns these values land in hold 400 characters.
-_MAX_NAME_LENGTH = 400
+_ITEM_COLUMN_MAX_LENGTH = 400
 # Fivetran responses nest a few levels. A deeper upload would make the recursive parsers below overflow the stack.
 _MAX_UPLOAD_DEPTH = 64
 # The parsers trust the vendor's field types. An agent upload can carry any JSON, so it is checked after parsing.
@@ -138,8 +135,10 @@ def merge_upload(
         except _READ_ERRORS as error:
             errors.append(f"{label}: {_read_error(error)}")
             continue
-        if max(len(connection.id), len(connection.service), len(connection.name)) > _MAX_NAME_LENGTH:
-            errors.append(f"{label}: its id, service or schema name is longer than {_MAX_NAME_LENGTH} characters.")
+        if max(len(connection.id), len(connection.service), len(connection.name)) > _ITEM_COLUMN_MAX_LENGTH:
+            errors.append(
+                f"{label}: its id, service or schema name is longer than {_ITEM_COLUMN_MAX_LENGTH} characters."
+            )
             continue
         stored_connections[connection.id] = connection
         connection_ids.append(connection.id)
@@ -154,7 +153,9 @@ def merge_upload(
     snapshot = VendorSnapshot(
         provider=MigrationProvider.FIVETRAN,
         account_id=_text(account_info.get("account_id")) or (previous.account_id if previous else ""),
-        account_name=account_name[:_MAX_NAME_LENGTH] if account_name else (previous.account_name if previous else None),
+        account_name=account_name[:_ITEM_COLUMN_MAX_LENGTH]
+        if account_name
+        else (previous.account_name if previous else None),
         destinations=tuple(stored_destinations.values()),
         connections=tuple(stored_connections.values()),
     )
@@ -189,8 +190,7 @@ def _label_id(raw: Mapping[str, Any]) -> str:
     value = raw.get("id")
     if value is None:
         return "no id"
-    # Never stringified: an uploaded id can be any JSON, nested deep enough to overflow `repr`.
-    # Cut short, so an oversized id does not fill the error message.
+    # Never stringified, because an uploaded id can nest deep enough to overflow `repr`.
     return value[:100] if isinstance(value, str) else "no valid id"
 
 

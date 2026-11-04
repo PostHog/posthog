@@ -25,7 +25,6 @@ _NON_SECRET_KEYS = frozenset(
     {f"{name}{suffix}" for name in ("public", "primary", "partition", "sort") for suffix in ("key", "keys")}
 )
 _KEY_SUFFIX = re.compile(r"keys?\d*$")
-# A token in a URL query, such as an Azure SAS `sig`.
 _URL_TOKEN_PARAM = re.compile(r"[?&](sig|signature|token|access_token|api_key|apikey|key)=", re.IGNORECASE)
 
 
