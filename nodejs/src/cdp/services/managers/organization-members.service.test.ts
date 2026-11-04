@@ -104,11 +104,17 @@ describe('OrganizationMembersService', () => {
         ])
     })
 
-    it('fails at its deadline when the lookup stalls', async () => {
+    it('fails at its deadline when the lookup waits for a connection, and runs no query once it gets one', async () => {
         jest.useFakeTimers()
         try {
+            let connect: (() => void) | undefined
+            const query = jest.fn()
             const stalledPostgres = {
-                transaction: jest.fn(() => new Promise<never>(() => {})),
+                transaction: (_usage: unknown, _tag: string, run: (tx: unknown) => Promise<unknown>) =>
+                    new Promise((resolve, reject) => {
+                        connect = () => void run({}).then(resolve, reject)
+                    }),
+                query,
             } as unknown as PostgresRouter
             const stalledService = new OrganizationMembersService(stalledPostgres)
 
@@ -117,6 +123,9 @@ describe('OrganizationMembersService', () => {
             await jest.advanceTimersByTimeAsync(3_000)
 
             await outcome
+            connect?.()
+            await jest.advanceTimersByTimeAsync(0)
+            expect(query).not.toHaveBeenCalled()
         } finally {
             jest.useRealTimers()
         }
