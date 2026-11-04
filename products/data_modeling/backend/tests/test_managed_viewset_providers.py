@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import timedelta
 from typing import Any
 
@@ -38,7 +39,7 @@ from products.data_modeling.backend.facade.models import (
 from products.data_modeling.backend.logic.cohort_scheduling import is_tier_schedule_id
 from products.data_modeling.backend.logic.flags import MANAGED_VIEWSETS_FEATURE_FLAG
 from products.data_modeling.backend.logic.freshness import UnsupportedFrequencyTargetError
-from products.data_modeling.backend.logic.node_frequency import get_declared_target
+from products.data_modeling.backend.logic.node_frequency import get_declared_target, set_declared_target
 from products.data_modeling.backend.logic.saved_query_dag_sync import sync_saved_query_to_dag
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind
 
@@ -193,7 +194,7 @@ class TestManagedViewSetProviders(BaseTest):
 
     @parameterized.expand(
         [
-            ("query", _fake_view(query="SELECT 2 AS id"), {}),
+            ("query", _fake_view(query="SELECT 2 AS id"), None),
             (
                 "fields",
                 ProvidedView(
@@ -201,31 +202,48 @@ class TestManagedViewSetProviders(BaseTest):
                     query="SELECT 1 AS id",
                     fields={"id": IntegerDatabaseField(name="id"), "value": StringDatabaseField(name="value")},
                 ),
-                {},
+                None,
             ),
-            ("materialized", _fake_view(materialized=False), {}),
-            ("sync_frequency", _fake_view(sync_frequency=timedelta(minutes=15)), {}),
-            ("incremental_config", _fake_view(incremental_config=INCREMENTAL_CONFIG), {}),
-            ("view_set", _fake_view(name="renamed_provider_view"), {}),
-            ("external_tables", _fake_view(), {"external_tables": ["drifted"]}),
+            ("materialized", _fake_view(materialized=False), None),
+            ("sync_frequency", _fake_view(sync_frequency=timedelta(minutes=15)), None),
+            ("incremental_config", _fake_view(incremental_config=INCREMENTAL_CONFIG), None),
+            ("view_set", _fake_view(name="renamed_provider_view"), None),
+            (
+                "external_tables",
+                _fake_view(),
+                lambda view: DataWarehouseSavedQuery.objects.filter(pk=view.pk).update(external_tables=["drifted"]),
+            ),
+            ("node_missing", _fake_view(), lambda view: Node.objects.filter(saved_query=view).delete()),
+            (
+                "node_cadence",
+                _fake_view(),
+                lambda view: set_declared_target(Node.objects.get(saved_query=view), timedelta(minutes=15)),
+            ),
         ]
     )
     @patch(SCHEDULE_MATERIALIZATION)
     @patch(SYNC_SAVED_QUERY_TO_DAG, wraps=sync_saved_query_to_dag)
-    def test_resync_writes_when_a_declared_field_or_stored_row_changes(
-        self, _name: str, changed_view: ProvidedView, drift: dict[str, Any], mock_sync_saved_query_to_dag: Mock, _: Mock
+    def test_resync_writes_when_a_declared_field_or_stored_state_changes(
+        self,
+        _name: str,
+        changed_view: ProvidedView,
+        drift: Callable[[DataWarehouseSavedQuery], Any] | None,
+        mock_sync_saved_query_to_dag: Mock,
+        _: Mock,
     ) -> None:
-        provided = [_fake_view()]
+        untouched_view = _fake_view(name="untouched_view")
+        provided = [_fake_view(), untouched_view]
         with patch.dict(_expected_views_providers, clear=True):
             register_expected_views_provider(KIND, lambda team: provided)
             viewset = self._viewset()
             viewset.sync_views()
-            if drift:
-                DataWarehouseSavedQuery.objects.filter(managed_viewset=viewset).update(**drift)
-            provided = [changed_view]
+            if drift is not None:
+                drift(DataWarehouseSavedQuery.objects.get(managed_viewset=viewset, name="fake_provider_view"))
+            provided = [changed_view, untouched_view]
             mock_sync_saved_query_to_dag.reset_mock()
             viewset.sync_views()
 
+        # Only the changed view syncs: the untouched one is skipped.
         mock_sync_saved_query_to_dag.assert_called_once()
 
     @patch(SCHEDULE_MATERIALIZATION)
