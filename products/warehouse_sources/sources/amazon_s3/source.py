@@ -37,10 +37,11 @@ from products.warehouse_sources.sources.sdk import (
 )
 
 # The IAM actions this source calls. A role session can use only these.
+# kms:Decrypt reads objects encrypted with a customer managed key.
 AWS_SESSION_ACTIONS = (
     "kms:Decrypt",
-    "s3:Get*",
-    "s3:List*",
+    "s3:GetObject",
+    "s3:ListBucket",
 )
 
 
