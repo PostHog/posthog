@@ -75,6 +75,29 @@ describe('featureFlagCodeAnalysisLogic', () => {
         expect(mockRetrieve).toHaveBeenCalledTimes(2)
     })
 
+    it('offers a manual check after polling keeps failing, and resumes polling once it succeeds', async () => {
+        silenceKeaLoadersErrors()
+        mockRetrieve
+            .mockResolvedValueOnce(analysis())
+            .mockRejectedValueOnce(new ApiError('Server error', 500))
+            .mockRejectedValueOnce(new ApiError('Server error', 500))
+            .mockRejectedValueOnce(new ApiError('Server error', 500))
+            .mockResolvedValueOnce(analysis())
+            .mockResolvedValue(completed)
+
+        const logic = featureFlagCodeAnalysisLogic({ id: 1 })
+        logic.mount()
+        await jest.advanceTimersByTimeAsync(POLL_INTERVAL_MS * 3)
+        expect(logic.values).toMatchObject({ pollingStopped: true, isRunning: true })
+
+        await jest.advanceTimersByTimeAsync(POLL_INTERVAL_MS * 10)
+        expect(mockRetrieve).toHaveBeenCalledTimes(4)
+
+        logic.actions.loadAnalysis()
+        await jest.advanceTimersByTimeAsync(POLL_INTERVAL_MS)
+        expect(logic.values).toMatchObject({ pollingStopped: false, isRunning: false })
+    })
+
     it('treats a flag that was never analyzed as empty, not as a load error', async () => {
         silenceKeaLoadersErrors()
         mockRetrieve.mockRejectedValue(new ApiError('Not found', 404))
