@@ -1,4 +1,4 @@
-"""Thin Temporal activities over ``products.mcp_analytics.backend.intent_topics.pipeline``."""
+"""Thin Temporal activities over the intent topics runs in the mcp_analytics facade."""
 
 from datetime import UTC, datetime
 
@@ -12,7 +12,8 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.mcp_analytics.intent_topics.constants import ASSIGN_OVERLAP, ASSIGN_WINDOW, REFIT_REASSIGN_WINDOW
 from posthog.temporal.mcp_analytics.intent_topics.models import IntentTopicsRunResult, IntentTopicsWorkflowInputs
 
-from products.mcp_analytics.backend.intent_topics import pipeline
+from products.mcp_analytics.backend.facade import api as mcp_analytics_api
+from products.mcp_analytics.backend.facade.contracts import IntentTopicsRunOutcome
 
 logger = structlog.get_logger(__name__)
 
@@ -21,7 +22,7 @@ def _now(inputs: IntentTopicsWorkflowInputs) -> datetime:
     return datetime.fromisoformat(inputs.now) if inputs.now else datetime.now(tz=UTC)
 
 
-def _result(team_id: int, outcome: pipeline.RunOutcome) -> IntentTopicsRunResult:
+def _result(team_id: int, outcome: IntentTopicsRunOutcome) -> IntentTopicsRunResult:
     return IntentTopicsRunResult(
         team_id=team_id,
         kind=outcome.kind,
@@ -40,9 +41,7 @@ def _run_sync(inputs: IntentTopicsWorkflowInputs) -> IntentTopicsRunResult:
     with team_scope(inputs.team_id):
         team = Team.objects.get(pk=inputs.team_id)
         now = _now(inputs)
-        return _result(
-            team.pk, pipeline.run_sync(team, window_start=pipeline.sync_window_start(team, now=now), window_end=now)
-        )
+        return _result(team.pk, mcp_analytics_api.sync_intent_topic_embeddings(team, now=now))
 
 
 @database_sync_to_async_pool
@@ -51,7 +50,10 @@ def _run_assign(inputs: IntentTopicsWorkflowInputs) -> IntentTopicsRunResult:
         team = Team.objects.get(pk=inputs.team_id)
         now = _now(inputs)
         return _result(
-            team.pk, pipeline.run_assign(team, window_start=now - ASSIGN_WINDOW - ASSIGN_OVERLAP, window_end=now)
+            team.pk,
+            mcp_analytics_api.assign_intent_topics(
+                team, window_start=now - ASSIGN_WINDOW - ASSIGN_OVERLAP, window_end=now
+            ),
         )
 
 
@@ -59,7 +61,7 @@ def _run_assign(inputs: IntentTopicsWorkflowInputs) -> IntentTopicsRunResult:
 def _run_refit(inputs: IntentTopicsWorkflowInputs) -> IntentTopicsRunResult:
     with team_scope(inputs.team_id):
         team = Team.objects.get(pk=inputs.team_id)
-        return _result(team.pk, pipeline.run_refit(team, now=_now(inputs)))
+        return _result(team.pk, mcp_analytics_api.refit_intent_topics(team, now=_now(inputs)))
 
 
 @database_sync_to_async_pool
@@ -67,7 +69,10 @@ def _run_reassign_after_refit(inputs: IntentTopicsWorkflowInputs) -> IntentTopic
     with team_scope(inputs.team_id):
         team = Team.objects.get(pk=inputs.team_id)
         now = _now(inputs)
-        return _result(team.pk, pipeline.run_assign(team, window_start=now - REFIT_REASSIGN_WINDOW, window_end=now))
+        return _result(
+            team.pk,
+            mcp_analytics_api.assign_intent_topics(team, window_start=now - REFIT_REASSIGN_WINDOW, window_end=now),
+        )
 
 
 @activity.defn
