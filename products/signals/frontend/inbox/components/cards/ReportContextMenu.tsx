@@ -34,7 +34,7 @@ import { fullNameOrEmail } from 'lib/utils/strings'
 import { userLogic } from 'scenes/userLogic'
 
 import { captureInboxReportAction } from '../../inboxAnalytics'
-import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
+import { REPOSITORY_CONFIRMATION_REQUIRED, inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { inboxFiltersLogic } from '../../logics/inboxFiltersLogic'
 import { reportGithubAccessLogic } from '../../logics/reportGithubAccessLogic'
 import { reportListLogic, sectionListLogicProps } from '../../logics/reportListLogic'
@@ -150,7 +150,10 @@ function ReportContextMenuItems({
     const { createPrFromReport } = useActions(inboxTaskKickoffLogic)
     const { createPrDisabledReason: globalPrDisabledReason } = useValues(inboxTaskKickoffLogic)
     const { disabledReason: githubDisabledReason } = useValues(reportGithubAccessLogic({ report }))
-    const createPrDisabledReason = globalPrDisabledReason ?? githubDisabledReason
+    const createPrDisabledReason =
+        globalPrDisabledReason ??
+        githubDisabledReason ??
+        (report.repository_confirmation_required ? REPOSITORY_CONFIRMATION_REQUIRED : null)
     const reportTitle = displayConventionalCommitTitle(report.title, 'Untitled report')
     const hasOpenPr = hasOpenImplementationPr(report)
     const { isSelected, toggle: toggleSelection } = useReportCardSelection(report.id, true)

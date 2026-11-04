@@ -57694,6 +57694,7 @@ export namespace Schemas {
 
     /**
      * * `code` - Code research
+     * * `repository_discovery` - Repository discovery
      * * `data_only` - Project data research
      * * `blocked` - Research blocked
      */
@@ -57702,6 +57703,7 @@ export namespace Schemas {
 
     export const ResearchAccessModeEnum = {
       Code: 'code',
+      RepositoryDiscovery: 'repository_discovery',
       DataOnly: 'data_only',
       Blocked: 'blocked',
     } as const;
@@ -57710,6 +57712,7 @@ export namespace Schemas {
       /** Research available to this project.
        *
        * * `code` - Code research
+       * * `repository_discovery` - Repository discovery
        * * `data_only` - Project data research
        * * `blocked` - Research blocked */
       mode: ResearchAccessModeEnum;
@@ -73790,6 +73793,7 @@ export namespace Schemas {
     } as const;
 
     /**
+     * * `repository_discovery` - Repository discovery
      * * `code` - Code context
      * * `data_only` - Project data
      */
@@ -73797,6 +73801,7 @@ export namespace Schemas {
 
 
     export const ReportResearchModeEnum = {
+      RepositoryDiscovery: 'repository_discovery',
       Code: 'code',
       DataOnly: 'data_only',
     } as const;
@@ -73822,6 +73827,7 @@ export namespace Schemas {
     export interface ReportResearchContext {
       /** Whether research had access to a repository.
        *
+       * * `repository_discovery` - Repository discovery
        * * `code` - Code context
        * * `data_only` - Project data */
       mode: ReportResearchModeEnum;
@@ -74184,6 +74190,8 @@ export namespace Schemas {
     }
 
     export interface SignalReportList {
+      /** Whether the recommended implementation target needs explicit human confirmation. */
+      readonly repository_confirmation_required: boolean;
       /**
          * Machine-readable research access blocker, if any.
          * @nullable
@@ -97801,6 +97809,8 @@ export namespace Schemas {
     }
 
     export interface SignalReport {
+      /** Whether the recommended implementation target needs explicit human confirmation. */
+      readonly repository_confirmation_required: boolean;
       /**
          * Machine-readable research access blocker, if any.
          * @nullable
@@ -109153,6 +109163,11 @@ export namespace Schemas {
          * @nullable
          */
       scheduled_at?: string | null;
+      /**
+         * Explicitly confirm the current research-recommended repository for a report implementation. This does not override the server-selected target.
+         * @maxLength 255
+         */
+      confirmed_repository?: string;
       /** Create the first cloud run. It starts immediately unless scheduled_at is set. */
       start_run?: boolean;
       /**

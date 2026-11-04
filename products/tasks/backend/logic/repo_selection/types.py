@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field
 
 
 class ReportResearchContext(BaseModel):
-    mode: Literal["code", "data_only"]
+    mode: Literal["code", "repository_discovery", "data_only"]
     repository_status: Literal[
         "available", "no_integration", "no_repositories", "selection_unresolved", "github_unavailable"
     ]
@@ -25,6 +25,10 @@ class RepoSelectionResult(BaseModel):
     )
     blocked_reason: str | None = Field(
         default=None, description="Server-recorded access blocker; null for unresolved selection."
+    )
+    confirmation_required: bool = Field(
+        default=False,
+        description="Server-recorded requirement to explicitly confirm a discovered implementation target.",
     )
     research_context: ReportResearchContext | None = Field(
         default=None, description="Server-recorded code availability during report research; null for older reports."
@@ -51,3 +55,17 @@ class RepoSelectionResult(BaseModel):
         default=True,
         description="Whether this selection may start an implementation task without a person asking for one.",
     )
+
+    @property
+    def requires_confirmation(self) -> bool:
+        return bool(
+            self.repository
+            and (
+                self.confirmation_required
+                or (
+                    not self.autostart_eligible
+                    and self.research_context
+                    and self.research_context.mode == "repository_discovery"
+                )
+            )
+        )

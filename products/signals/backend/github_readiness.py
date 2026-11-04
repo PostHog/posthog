@@ -85,6 +85,9 @@ def enabled_recovery_signals(team_id: int, signals: list[SignalData]) -> list[Si
     ]
 
 
+RESEARCH_SUSPENDED_FOR_GITHUB_ERROR_TYPE = "ResearchSuspendedForGitHub"
+
+
 def _suspend_research(team_id: int, report_id: str, reason: GitHubReadinessStatus, *, recovery: bool) -> bool:
     with transaction.atomic():
         report = SignalReport.objects.select_for_update().get(team_id=team_id, id=report_id)
@@ -107,6 +110,18 @@ def _suspend_research(team_id: int, report_id: str, reason: GitHubReadinessStatu
         team_id=team_id, report_id=report_id, origin="pipeline", reason=reason, fallback=False
     )
     return False
+
+
+def suspend_research_after_lost_read_access(team_id: int, report_id: str) -> None:
+    readiness = get_team_github_readiness(team_id, verify=True)
+    status = (
+        GitHubReadinessStatus.TEMPORARILY_UNAVAILABLE
+        if readiness.status == GitHubReadinessStatus.READY
+        else readiness.status
+    )
+    # `recovery=True` skips the immediate recovery scan. GitHub can report ready while credential minting
+    # keeps failing, and that scan would then repeat a full research session in a loop.
+    _suspend_research(team_id, report_id, status, recovery=True)
 
 
 def check_report_github_readiness(

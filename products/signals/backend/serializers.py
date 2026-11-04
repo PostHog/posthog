@@ -81,6 +81,8 @@ if TYPE_CHECKING:
     from products.signals.backend.report_claims import ReportClaim
     from products.signals.backend.report_plan import ReportPlan, ReportPlanStep
 
+from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
+
 from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES, ActionabilityChoice, SourceSuggestion, priority_from_judgment
 from .briefing_reports import SUMMARY_LEAD_LIMIT, summary_lead
 from .daily_limit import reports_generated_today, team_day_start
@@ -1865,6 +1867,7 @@ class ReportStartupFailureSerializer(serializers.Serializer):
 
 
 class ReportResearchMode(TextChoices):
+    REPOSITORY_DISCOVERY = "repository_discovery", "Repository discovery"
     CODE = "code", "Code context"
     DATA_ONLY = "data_only", "Project data"
 
@@ -1888,12 +1891,19 @@ class ReportResearchContextSerializer(serializers.Serializer):
 
 
 class SignalReportSerializer(serializers.ModelSerializer):
+    repository_confirmation_required = serializers.SerializerMethodField(
+        help_text="Whether the recommended implementation target needs explicit human confirmation."
+    )
     research_blocked_reason = serializers.CharField(
         read_only=True, allow_null=True, help_text="Machine-readable research access blocker, if any."
     )
     implementation_blocked_reason = serializers.CharField(
         read_only=True, allow_null=True, help_text="Machine-readable implementation access blocker, if any."
     )
+
+    def get_repository_confirmation_required(self, obj: SignalReport) -> bool:
+        data = self._get_repo_selection_artefact_data(obj)
+        return RepoSelectionResult.model_validate(data).requires_confirmation if data else False
 
     startup_failure = ReportStartupFailureSerializer(
         read_only=True,
@@ -2106,6 +2116,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
     class Meta:
         model = SignalReport
         fields = [
+            "repository_confirmation_required",
             "research_blocked_reason",
             "implementation_blocked_reason",
             "id",
@@ -2388,7 +2399,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
     @extend_schema_field(ReportResearchContextSerializer(allow_null=True))
     def get_research_context(self, obj: SignalReport) -> dict[str, str] | None:
         data = self._get_repo_selection_artefact_data(obj)
-        context = data.get("research_context") if data else None
+        context = obj.research_context or (data.get("research_context") if data else None)
         if not isinstance(context, dict):
             return None
         serializer = ReportResearchContextSerializer(data=context)

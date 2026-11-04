@@ -31,7 +31,7 @@ describe('githubConnectionPresentation', () => {
         ['no_repositories', 'blocked', 'no_repositories'],
         ['temporarily_unavailable', 'blocked', null],
         ['not_connected', 'data_only', null],
-        ['ready', 'code', null],
+        ['ready', 'repository_discovery', null],
     ] as const)('feed blocker for %s with %s research is %s', (readiness, mode, expected) => {
         expect(githubAccessBlocker({ github_readiness: readiness, research_access: { mode, blocker: null } })).toBe(
             expected

@@ -354,6 +354,16 @@ def _filter_repository_sources(
     return allowed
 
 
+def _refresh_stale_visibility(github: GitHubIntegrationBase) -> bool:
+    """Whether the cache can vouch for repository visibility. A stale `private` flag cannot, so callers fail closed."""
+    if github.repository_cache_is_stale():
+        try:
+            github.sync_repository_cache(priority=Priority.BATCH)
+        except Exception:
+            logger.warning("repo_selection.visibility_refresh_failed", exc_info=True)
+    return not github.repository_cache_is_stale()
+
+
 def filter_repository_candidates_for_sources(
     team_id: int,
     candidate_repos: list[str],
@@ -365,16 +375,24 @@ def filter_repository_candidates_for_sources(
         return []
     sources = {repository.strip().lower() for repository in source_repositories}
     normalized = {repository: repository.strip().lower() for repository in candidate_repos}
-    if github.repository_cache_is_stale():
-        try:
-            github.sync_repository_cache(priority=Priority.BATCH)
-        except Exception:
-            logger.warning("repo_selection.visibility_refresh_failed", exc_info=True)
     visibility = (
-        {} if github.repository_cache_is_stale() else _candidate_visibility(github, [*normalized.values(), *sources])
+        _candidate_visibility(github, [*normalized.values(), *sources]) if _refresh_stale_visibility(github) else {}
     )
     allowed = _filter_repository_sources(list(normalized.values()), sources, visibility, require_private_destination)
     return [repository for repository, name in normalized.items() if name in allowed]
+
+
+def research_repository_candidates(team_id: int, source_repository: str | None = None) -> list[str]:
+    github = resolve_team_github_integration(team_id, team_only=True)
+    if github is None:
+        return []
+    visibility_is_current = _refresh_stale_visibility(github)
+    candidates = _list_candidate_repos(github, team_id, allow_refresh=False, exclude_archived=True)
+    source = (source_repository or "").strip().lower() or None
+    visibility = (
+        _candidate_visibility(github, [*candidates, source] if source else candidates) if visibility_is_current else {}
+    )
+    return _filter_candidates_by_source_visibility(source, candidates, visibility)
 
 
 def _build_repo_selection_prompt(
@@ -418,6 +436,7 @@ def _build_repo_selection_prompt(
     schema.get("properties", {}).pop("autostart_eligible", None)
     schema.get("properties", {}).pop("research_context", None)
     schema.get("properties", {}).pop("blocked_reason", None)
+    schema.get("properties", {}).pop("confirmation_required", None)
     schema.get("$defs", {}).pop("ReportResearchContext", None)
     schema_json = json.dumps(schema, indent=2)
     visibility = visibility or {}
@@ -842,8 +861,9 @@ async def select_repository(
     # carries full autostart authority no matter what the model emitted.
     result.autostart_eligible = True
     result.research_context = None
-    # The server records this after selection. A value the model emitted must not reach the workflow.
+    # The server records these after selection. A value the model emitted must not reach the workflow.
     result.blocked_reason = None
+    result.confirmation_required = False
     try:
         if result.repository is not None:
             result.repository = result.repository.strip().lower()

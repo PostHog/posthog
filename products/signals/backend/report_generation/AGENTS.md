@@ -7,7 +7,7 @@ It is exercised locally via management commands, and it is also used by the prod
 
 - `select_repo.py`
   Selects the most relevant GitHub repository for a set of signals.
-  - If no eligible repo passes the source-visibility check: returns `None`. Missing GitHub access permits project-data research only for eligible projects; other projects suspend new research until access returns. With working GitHub and no match, other projects go to `pending_input`.
+  - If initial selection returns `None`, report research can choose a target through read-only discovery of project-connected candidates. The source-visibility restriction still applies. Missing GitHub access permits project-data research only for eligible projects; other projects suspend new research until access returns.
   - If 1 eligible repo passes the source-visibility check: returns it directly (no sandbox needed).
   - If multiple eligible repos pass the source-visibility check: spawns a sandbox agent that uses `gh` CLI to explore candidates and pick the best match. Uses `PostHog/.github` as a small dummy repo for the sandbox clone, since the agent only needs `gh` CLI access (not the repo itself).
   - Output: `RepoSelectionResult(repository: str | None, reason: str)`.
@@ -20,7 +20,7 @@ It is exercised locally via management commands, and it is also used by the prod
 - `research.py`
   Orchestrates a multi-turn sandbox session over a report's signals.
   With `code_available=False`, the opening prompt states once that no repository is checked out. Research uses project evidence, omits code-history requirements, and converts its response to the canonical `SignalFinding` before persistence.
-  Reviewer selection uses project evidence and human corrections; verification uses the shared evidence-based plan prompt, and PR-stack planning is skipped. Caller activities control production eligibility for repository-free research.
+  Reviewer selection uses project evidence and human corrections; verification uses the shared evidence-based plan prompt, and PR-stack planning is skipped. Caller activities control production eligibility for repository-free research. An unresolved initial selection with usable project-connected GitHub starts repository discovery regardless of GitHub-optional eligibility; its discovered target requires confirmation before implementation.
   The agent researches each signal, then produces:
   - per-signal findings
   - actionability assessment
@@ -58,7 +58,7 @@ It is exercised locally via management commands, and it is also used by the prod
   - Best-effort: failures are logged and never break report generation.
   - Delivery is at-least-once (activity retries re-fire an identical payload) and reviewer edits legitimately re-fire with the new list, so consumers read report state as the latest event per `report_id`, never by counting raw events.
   - Also emits `signals_suggested_reviewers_unresolved` when the legacy resolver returns no reviewers (that path persists no empty list, so this is the only record of why): the `outcome` (`no_repository`, `no_commit_hashes`, `no_github_integration`, `github_rate_limited`, `no_commit_authors`, `only_bot_authors`, `no_candidates`) plus lookup counters from `ReviewerResolutionDiagnostics` in `resolve_reviewers.py`. Same latest-per-`report_id` read contract, which is why a re-promotion that resolves nobody stays silent when the report's previous reviewers remain its live set.
-  - Two outcomes read narrower than they are: `no_github_integration` also covers an access probe that failed transiently, and `no_repository` never reaches this event (the summary workflow bails to `repo_selection_required` before research runs) — see the comment on `ReviewerResolutionOutcome`.
+  - `no_github_integration` also covers an access probe that failed transiently; see the comment on `ReviewerResolutionOutcome`.
 - `fixtures/analyze_report_funnel_research_output.json`
   Saved previous research output used by local `update` testing.
 - `fixtures/insight_scene_logic_mode_property_bug.json`
@@ -235,4 +235,4 @@ Renders a concise timeline of: prompts, tool calls, tool outputs, agent messages
 
 Fix verification may revise only the Expected impact section of the presentation summary; validation preserves all other sections and chart links.
 
-Read [research access and recovery](../../../../docs/internal/signals-pr-lifecycle.md#github-optional-research-access) when changing GitHub prerequisites or publication. The shared server policy governs all run origins; billing remains separate.
+Read [research access and recovery](../../../../docs/internal/signals-pr-lifecycle.md#github-optional-research-access) when changing GitHub prerequisites, repository discovery, or publication. The shared server policy governs all run origins; implementation confirmation and billing remain separate.

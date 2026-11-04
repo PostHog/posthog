@@ -61,6 +61,8 @@ export const REPORT_AI_PANEL_ID = 'max-side-panel'
 
 const OPTIMISTIC_REPORT_STREAM = 'optimistic-report-stream'
 
+export const REPOSITORY_CONFIRMATION_REQUIRED = 'Open the report to confirm its repository before implementing.'
+
 type SubmissionDisposables = Parameters<typeof submitWithWarmRunRetry>[1]
 
 export interface ReportWarmLease {
@@ -354,16 +356,18 @@ async function createReportTask(
     runtimeSelection: ReportRuntimeSelection,
     discussionQuestion?: string,
     warmLease: ReportWarmLease | null = null,
-    matchWarmRun: boolean = true
+    matchWarmRun: boolean = true,
+    confirmedRepository: string | null = null
 ): Promise<{ taskId: string; runId: string }> {
     const isDiscussion = relationship === SIGNAL_REPORT_TASK_DISCUSSION_RELATIONSHIP
-    // `repository` is intentionally omitted: the backend resolves it for signal_report tasks.
+    // Only a surface that showed the person the target passes it, so the server can reject a stale confirmation.
     const taskData: TaskCreateApi = {
         title: report.title?.trim() || fallbackTitle,
         description: prompt,
         origin_product: TaskOriginProductEnumApi.SignalReport,
         signal_report: report.id,
         signal_report_task_relationship: relationship,
+        ...(!isDiscussion && confirmedRepository ? { confirmed_repository: confirmedRepository } : {}),
         ...(isDiscussion
             ? {
                   signal_report_discussion_question: discussionQuestion?.trim() ?? '',
@@ -494,8 +498,10 @@ export interface inboxTaskKickoffLogicActions {
     }
     createPrFromReport: (
         report: SignalReport,
-        feedback?: string
+        feedback?: string,
+        confirmedRepository?: string
     ) => {
+        confirmedRepository: string | undefined
         feedback: string | undefined
         report: SignalReport
     }
@@ -642,7 +648,11 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             pullRequestUrl,
             background,
         }),
-        createPrFromReport: (report: SignalReport, feedback?: string) => ({ report, feedback }),
+        createPrFromReport: (report: SignalReport, feedback?: string, confirmedRepository?: string) => ({
+            report,
+            feedback,
+            confirmedRepository,
+        }),
         warmReportDiscussion: (report: SignalReport) => ({ report }),
         releaseReportDiscussionWarm: true,
         setReportWarmLease: (lease: ReportWarmLease | null) => ({ lease }),
@@ -978,7 +988,18 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 }
             }
         },
-        createPrFromReport: async ({ report, feedback }) => {
+        createPrFromReport: async ({ report, feedback, confirmedRepository }) => {
+            if (report.repository_confirmation_required && confirmedRepository !== report.repo_slug) {
+                lemonToast.error(REPOSITORY_CONFIRMATION_REQUIRED)
+                captureInboxReportActionCompleted({
+                    report,
+                    actionType: 'create_pr',
+                    outcome: 'blocked',
+                    blockedReason: REPOSITORY_CONFIRMATION_REQUIRED,
+                })
+                actions.createPrFailure()
+                return
+            }
             // Lazy: a static import puts the inbox setup stack in the shell bundle of every logged-in page.
             const githubAccess = await import('./logics/reportGithubAccessLogic').catch((error) => {
                 handleKickoffError(error, report, 'create_pr', "Couldn't start the PR task. Try again.")
@@ -1027,7 +1048,11 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     SIGNAL_REPORT_TASK_IMPLEMENTATION_RELATIONSHIP,
                     buildCreatePrReportPrompt(report, feedback),
                     'Implement report fix',
-                    await launchSelection(values)
+                    await launchSelection(values),
+                    undefined,
+                    null,
+                    true,
+                    confirmedRepository ?? null
                 )
                 if (disposables.isDisposed) {
                     return

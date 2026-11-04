@@ -132,6 +132,7 @@ describe('inboxTaskKickoffLogic', () => {
             'opens one %s run without leaving the report',
             async (relationship) => {
                 const originalPath = router.values.location.pathname
+                const discoveredReport = { ...report, repo_slug: 'example/app', repository_confirmation_required: true }
                 if (relationship === 'discussion') {
                     attachedContextLogic.actions.registerContext('test-picker', [
                         { type: 'insight', key: 'insight-one', label: 'Conversion rate' },
@@ -139,13 +140,17 @@ describe('inboxTaskKickoffLogic', () => {
                 }
                 await expectLogic(logic, () => {
                     if (relationship === 'implementation') {
-                        logic.actions.createPrFromReport(report)
+                        logic.actions.createPrFromReport(discoveredReport, undefined, 'example/app')
                     } else {
                         logic.actions.discussReport(report, 'https://example.com/report', 'Explain the recommendation')
                     }
                 }).toFinishAllListeners()
 
                 expect(createdTasks).toHaveLength(1)
+                expect(createdTasks[0].confirmed_repository).toBe(
+                    relationship === 'implementation' ? 'example/app' : undefined
+                )
+                expect(createdTasks[0].repository).toBeUndefined()
                 expect(createdTasks[0]).toMatchObject({
                     signal_report: report.id,
                     signal_report_task_relationship: relationship,
@@ -190,6 +195,14 @@ describe('inboxTaskKickoffLogic', () => {
                 expect(startedRuns).toHaveLength(1)
             }
         )
+
+        it('refuses to implement a discovered target that nobody confirmed', async () => {
+            const discoveredReport = { ...report, repo_slug: 'example/app', repository_confirmation_required: true }
+
+            await expectLogic(logic, () => logic.actions.createPrFromReport(discoveredReport)).toFinishAllListeners()
+
+            expect(createdTasks).toHaveLength(0)
+        })
 
         it('sends app-built instructions to the agent but only the reader text as the question', async () => {
             await expectLogic(logic, () =>

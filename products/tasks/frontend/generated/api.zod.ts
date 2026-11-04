@@ -589,6 +589,8 @@ export const tasksCreateBodyBranchMax = 255
 
 export const tasksCreateBodyPendingUserArtifactIdsItemMax = 128
 
+export const tasksCreateBodyConfirmedRepositoryMax = 255
+
 export const tasksCreateBodyStartRunDefault = false
 export const tasksCreateBodySignalReportDiscussionQuestionMax = 4000
 
@@ -737,6 +739,13 @@ export const TasksCreateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe(
             'Earliest start time for a one-off cloud run, in ISO 8601 format. Must be in the future and within 30 days. Times without an offset use UTC. Omit or send null to start immediately.'
+        ),
+    confirmed_repository: zod
+        .string()
+        .max(tasksCreateBodyConfirmedRepositoryMax)
+        .optional()
+        .describe(
+            'Explicitly confirm the current research-recommended repository for a report implementation. This does not override the server-selected target.'
         ),
     start_run: zod
         .boolean()
