@@ -319,6 +319,9 @@ Tools mode and `consumer=posthog-code` without the header keep the full descript
 A tool can also give `info` a short description for a long input field through `infoFieldDescriptions`, and `schema <tool> <field>` still returns the full one.
 `info generate-app-url` uses this for its `url` field, so the catalog of app path templates loads only through `schema generate-app-url url`. Tools mode keeps the catalog inline.
 
+Every tool result is bounded before it returns, in both tools mode and `exec`. Codex gets its own 10,000-token limit, counted as 4 UTF-8 bytes per token as Codex counts it. Every other client gets a 100,000-token ceiling, which `truncate: false` lifts. The text and `structuredContent` are bounded separately, and `_meta` is left whole.
+A shortened result stays valid in its format: JSON and TOON are re-serialized with whole array items and the short fields kept, and other text is cut at a line boundary inside any informational tags. It starts with a `[Response shortened …]` notice, stored under `_responseBudget` in JSON, that lists what was cut and how to ask for less. `output_tokens` records the shortened size, and `mcp_tool_responses_shortened_total` counts shortened results by tool.
+
 The skill bundle is shared through Redis: each pod loads it once at startup, parses it into memory, and serves every `learn` command from that parsed catalog.
 A background timer polls a small version key in Redis; only when the version changes does a pod read the archive bytes again.
 One pod at a time refreshes the archive from its source when the shared copy is older than ten minutes, using a conditional request so an unchanged release costs a 304.

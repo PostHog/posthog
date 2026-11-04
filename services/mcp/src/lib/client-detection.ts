@@ -220,7 +220,18 @@ export type ClientCapabilities = {
     // clients inject into the model's system prompt. Codex discards it, so
     // we skip sending it (saving the payload cost) for those sessions.
     supportsInstructions: boolean
+    // Largest tool result the client passes to the model before it cuts the result itself.
+    // Set only for a client whose limit is documented in its source, because the response
+    // budget treats it as a hard limit that even `truncate: false` cannot lift.
+    toolResultTokenLimit?: number
 }
+
+/**
+ * Codex models declare a 10,000-token tool output limit (`truncation_policy` in
+ * codex-rs/models-manager/models.json), which Codex counts as 4 UTF-8 bytes per token.
+ * Codex cuts an MCP result above it out of the middle, through whatever value is there.
+ */
+export const CODEX_TOOL_RESULT_TOKEN_LIMIT = 10_000
 
 export const DEFAULT_CLIENT_CAPABILITIES: ClientCapabilities = {
     supportsInstructions: true,
@@ -240,7 +251,7 @@ const CLIENT_CAPABILITY_OVERRIDES: readonly CapabilityOverride[] = [
     {
         fragments: ['codex'],
         userAgentFragments: ['codex'],
-        capabilities: { supportsInstructions: false },
+        capabilities: { supportsInstructions: false, toolResultTokenLimit: CODEX_TOOL_RESULT_TOKEN_LIMIT },
     },
 ]
 

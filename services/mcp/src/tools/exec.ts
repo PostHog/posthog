@@ -20,6 +20,13 @@ import { findIgnoredInputKeys, withIgnoredInputKeys } from '@/lib/ignored-input-
 import { isChatGptAppConnection } from '@/lib/oauth-constants'
 import type { RequestProperties } from '@/lib/request-properties'
 import { formatResponse } from '@/lib/response'
+import {
+    boundText,
+    jsonResponseBody,
+    responseTokenBudget,
+    type ResponseBodySource,
+    toonResponseBody,
+} from '@/lib/response-budget'
 import { API_KEY_CACHE_TTL_MS } from '@/lib/StateManager'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
@@ -259,6 +266,8 @@ export interface ExecToolOptions {
      */
     isInlineExecUiHost?: boolean
     mcpClientName?: string | undefined
+    /** The client's own tool result limit, from its profile. */
+    toolResultTokenLimit?: number | undefined
     /**
      * Resolves the caller's third-party MCP tools (see `lib/gateway-tools.ts`). Awaited
      * lazily by the commands that need a tool roster, so a session that never reaches for
@@ -2350,15 +2359,27 @@ export function createExecTool(
                     // Serialize once so the token estimate measures the exact text
                     // returned to the client, not the raw object.
                     let outputText: string
+                    let bodySource: ResponseBodySource | undefined
                     if (useJson) {
                         outputText = JSON.stringify(result)
-                    } else {
+                        bodySource = jsonResponseBody(result)
+                    } else if (typeof formattedOverride === 'string') {
                         // Optimized mode: when the handler attached a backend-formatted table
                         // via `__formatted_results_override`, return ONLY that string. The raw
                         // `results`/`_posthogUrl` payload would otherwise duplicate the table
                         // and crowd it out — buildToolResultPayload makes the same choice for
                         // the non-exec path, this keeps exec consistent.
-                        outputText = typeof formattedOverride === 'string' ? formattedOverride : formatResponse(result)
+                        outputText = formattedOverride
+                    } else {
+                        outputText = formatResponse(result)
+                        bodySource = typeof result === 'string' ? undefined : toonResponseBody(result)
+                    }
+                    // Bounded here, where the handler result is still available, so the projection
+                    // is re-serialized in the requested format. The executor's own cap then sees a
+                    // text that fits.
+                    const budget = responseTokenBudget(options.toolResultTokenLimit, input)
+                    if (budget !== undefined) {
+                        outputText = boundText(outputText, budget, bodySource)
                     }
                     trackInnerCall?.(tool.name, {
                         duration_ms: durationMs,

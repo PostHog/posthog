@@ -4,6 +4,15 @@ import { isEmptyToolResult } from '@/lib/empty-tool-result'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { getNextPageHint } from '@/lib/next-page-hint'
 import { formatResponse } from '@/lib/response'
+import {
+    boundText,
+    byteLength,
+    fitValue,
+    jsonResponseBody,
+    maxResponseBytes,
+    type ResponseBodySource,
+    toonResponseBody,
+} from '@/lib/response-budget'
 import { isPrepareConfirmedActionResult } from '@/tools/confirmed-action-runtime'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_META_KEY, POSTHOG_TEXT_PROJECTION_KEY } from '@/tools/types'
 import { APP_DATA_META_KEY, type AnalyticsMetadata, type WithAnalytics } from '@/ui-apps/types'
@@ -82,6 +91,8 @@ interface BuiltResponseText {
     structuredContentOnly: boolean
     footers: string[]
     resultEmpty: boolean
+    /** Set when the body is a serialization of the handler result rather than a tool-formatted string. */
+    bodySource?: ResponseBodySource | undefined
 }
 
 const builtResponseText = new WeakMap<ToolResultPayload, BuiltResponseText>()
@@ -125,6 +136,50 @@ export function estimateResponseTokens(response: ToolResultPayload): number {
         return estimateTokens(response.structuredContent) + estimateTokens(built.footers.join('\n\n'))
     }
     return estimateTokens(response.content.map((part) => part.text).join(''))
+}
+
+/**
+ * `response` with each channel the model can read bounded to `maxTokens`, or `response` itself when
+ * both fit. The text and `structuredContent` are bounded separately, because a client reads one or
+ * the other: Codex sends `structuredContent` to the model whenever it is present. `_meta` is left
+ * whole, because hosts pass it to the UI app and not to the model.
+ */
+export function capResponseToBudget(response: ToolResultPayload, maxTokens: number | undefined): ToolResultPayload {
+    if (maxTokens === undefined) {
+        return response
+    }
+    const maxBytes = maxResponseBytes(maxTokens)
+    const built = builtResponseText.get(response)
+    const text = response.content.map((part) => part.text).join('')
+    const structuredContent = response.structuredContent
+    const textFits = byteLength(text) <= maxBytes
+    const structuredFits = !structuredContent || byteLength(JSON.stringify(structuredContent)) <= maxBytes
+    if (textFits && structuredFits) {
+        return response
+    }
+
+    const capped: ToolResultPayload = { ...response }
+    if (!textFits) {
+        const footers = built?.footers ?? []
+        const footerText = footers.length > 0 ? `\n\n${footers.join('\n\n')}` : ''
+        const hasFooters = footerText !== '' && text.endsWith(footerText)
+        const body = hasFooters ? text.slice(0, -footerText.length) : text
+        const bodyBytes = maxBytes - (hasFooters ? byteLength(footerText) : 0)
+        const bounded = boundText(body, maxTokens, built?.bodySource, bodyBytes)
+        capped.content = [{ type: 'text', text: hasFooters ? bounded + footerText : bounded }]
+    }
+    if (!structuredFits) {
+        const fitted = fitValue(structuredContent, (value) => JSON.stringify(value), maxBytes, maxTokens)
+        if (fitted) {
+            capped.structuredContent = fitted.value as Record<string, unknown>
+        } else {
+            delete capped.structuredContent
+        }
+    }
+    if (built) {
+        builtResponseText.set(capped, built)
+    }
+    return capped
 }
 
 /**
@@ -226,10 +281,16 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
         !useJson &&
         formattedResults === undefined
 
-    const body = structuredContentOnly
+    const formattedBody = structuredContentOnly
         ? STRUCTURED_CONTENT_ONLY_TEXT
-        : ((useJson && (includeAppData || isTextProjection) ? undefined : formattedResults) ??
-          (useJson ? JSON.stringify(rawResult) : formatResponse(rawResult)))
+        : useJson && (includeAppData || isTextProjection)
+          ? undefined
+          : formattedResults
+    const bodySource =
+        formattedBody === undefined && !isStringResult
+            ? (useJson ? jsonResponseBody : toonResponseBody)(rawResult)
+            : undefined
+    const body = formattedBody ?? (useJson ? JSON.stringify(rawResult) : formatResponse(rawResult))
 
     const footers: string[] = []
 
@@ -253,6 +314,7 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
         structuredContentOnly,
         footers,
         resultEmpty: isEmptyToolResult(handlerResult, toolName),
+        bodySource,
     })
     if (hasUiResource && !suppressStructuredContent) {
         payload.structuredContent = structuredContent as Record<string, unknown>
