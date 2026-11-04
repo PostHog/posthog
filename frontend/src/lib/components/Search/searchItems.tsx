@@ -272,6 +272,7 @@ export const ticketToSearchItem = (ticket: TicketApi): SearchItem => {
 }
 
 export const ticketResultToSearchItem = (ticket: TicketApi): SearchItem => {
+    const person = (ticket.person?.properties ?? {}) as Record<string, unknown>
     const traits = (ticket.anonymous_traits ?? {}) as Record<string, unknown>
     const subject = ticketSubject(ticket)
     return {
@@ -283,7 +284,7 @@ export const ticketResultToSearchItem = (ticket: TicketApi): SearchItem => {
         itemType: 'conversations',
         productCategory: [
             `#${ticket.ticket_number}`,
-            safeString(traits.name) || safeString(traits.email),
+            safeString(person.name) || safeString(person.email) || safeString(traits.name) || safeString(traits.email),
             ticketStatus(ticket),
         ]
             .filter(Boolean)

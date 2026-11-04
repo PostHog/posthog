@@ -234,5 +234,36 @@ describe('settleRequest', () => {
                 }),
             ])
         })
+
+        test.each([
+            [
+                'the identified person before older traits',
+                { properties: { name: 'Jane Smith', email: 'jane@example.com' } },
+                { name: 'Jane Doe' },
+                '#42 · Jane Smith · On hold',
+            ],
+            [
+                "the person's email when traits are empty",
+                { properties: { email: 'sam@example.org' } },
+                {},
+                '#42 · sam@example.org · On hold',
+            ],
+        ])('labels the ticket customer with %s', async (_, person, traits, productCategory) => {
+            jest.mocked(conversationsTicketsList).mockResolvedValue({
+                count: 1,
+                results: [
+                    {
+                        id: 'ticket-uuid',
+                        ticket_number: 42,
+                        email_subject: 'Refund not received',
+                        status: 'on_hold',
+                        person,
+                        anonymous_traits: traits,
+                    },
+                ],
+            } as any)
+            const result = await settleRequest(objects, 'type:ticket refund', new AbortController().signal, context)
+            expect(result?.results.results).toEqual([expect.objectContaining({ productCategory })])
+        })
     })
 })
