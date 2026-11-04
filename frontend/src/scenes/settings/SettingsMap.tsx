@@ -904,6 +904,8 @@ export const SETTINGS_MAP: SettingSection[] = [
                     'bug',
                     'exception',
                     'stack trace',
+                    'adaptive',
+                    'sampling',
                 ],
             },
             {
