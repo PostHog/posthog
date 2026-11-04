@@ -17,6 +17,7 @@ from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.edge import CycleDetectionError, Edge
 from products.data_modeling.backend.models.modeling import get_parents_from_model_query
 from products.data_modeling.backend.models.node import NOTEBOOK_SOURCE_KEY, Node, NodeType
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 logger = structlog.get_logger(__name__)
 
@@ -36,7 +37,8 @@ def sync_notebook_table_to_dag(
     edges come from the HogQL queries upstream of the cell. The DAG can't run a notebook, so the
     node stays a source for scheduling.
 
-    Returns the dependency names that resolved to no node.
+    Returns the dependency names that resolved to no node. A table deleted before the sync gets the
+    DAG lock is left out of the DAG.
     """
     team = Team.objects.get(id=team_id)
     dag = DAG.get_or_create_default(team)
@@ -53,6 +55,13 @@ def sync_notebook_table_to_dag(
     dependencies.discard(table_name)
 
     with transaction.atomic():
+        # Take the lock before reading the node, so a table delete cannot remove a node this sync is
+        # about to adopt. A delete soft-deletes the table before it takes this lock, so a table that
+        # is live here is either gone from the DAG after the delete's cleanup or never added.
+        lock_dag(team_id, dag.id)
+        if not DataWarehouseTable.objects.filter(team_id=team_id, id=warehouse_table_id).exclude(deleted=True).exists():
+            logger.info("notebook_table_dag_sync_skipped_deleted_table", team_id=team_id, table_name=table_name)
+            return []
         node, _ = Node.objects.get_or_create(
             team=team,
             dag=dag,
