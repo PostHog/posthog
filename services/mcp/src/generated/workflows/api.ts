@@ -44,7 +44,7 @@ export const HogFlowsListQueryParams = () => zod.object({
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     optimization_enabled: zod.boolean().optional().describe('Only workflows someone turned suggestions on for.'),
     origin_product: zod
-        .enum(['broadcasts', 'loops', 'transactional_email_keys', 'transactional_emails'])
+        .enum(['broadcasts', 'loops', 'transactional_emails'])
         .optional()
         .describe('Filter to workflows owned by a product surface, e.g. `loops` for Desktop loops.'),
     search: zod
@@ -147,7 +147,7 @@ export const HogFlowsCreateBody = () => zod
             ])
             .optional()
             .describe(
-                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `transactional_emails` - Transactional emails\n\* `transactional_email_keys` - Transactional email keys'
+                'Product surface that owns this workflow (e.g. `loops` for Desktop loops). Set only when creating a workflow, and never to `transactional_email_keys`: the email send API sets that one. Filter the list with `?origin_product=`.\n\n\* `loops` - Loops\n\* `broadcasts` - Broadcasts\n\* `transactional_emails` - Transactional emails\n\* `transactional_email_keys` - Transactional email keys'
             ),
         source_record: zod
             .string()
@@ -1631,6 +1631,8 @@ export const workflowSendingRulesPartialUpdateBodyMarketingFrequencyCapMaxMessag
 
 export const workflowSendingRulesPartialUpdateBodyMarketingFrequencyCapWindowDaysMax = 30
 
+export const workflowSendingRulesPartialUpdateBodyMarketingFrequencyCapHoldHoursMax = 168
+
 export const WorkflowSendingRulesPartialUpdateBody = () => zod.object({
     expected_project_id: zod
         .number()
@@ -1653,6 +1655,14 @@ export const WorkflowSendingRulesPartialUpdateBody = () => zod.object({
         .nullish()
         .describe(
             'The length of the rolling frequency cap window, in days. Set it together with marketing_frequency_cap_max_messages, or set both to null to turn the cap off.'
+        ),
+    marketing_frequency_cap_hold_hours: zod
+        .number()
+        .min(1)
+        .max(workflowSendingRulesPartialUpdateBodyMarketingFrequencyCapHoldHoursMax)
+        .nullish()
+        .describe(
+            "How many hours a marketing message over the frequency cap waits for a free slot before it is skipped. Null skips it right away. A held message sends as soon as one of the person's earlier messages leaves the window."
         ),
     email_tracking_consent_mode: zod
         .enum(['off', 'opt_out', 'opt_in'])

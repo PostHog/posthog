@@ -107,6 +107,22 @@ class NamedSenderNotVerified(SenderNotVerified):
     attr = "from"
 
 
+class SenderRequired(TransactionalEmailError):
+    code = "sender_required"
+
+
+class TooManyKeys(TransactionalEmailError):
+    code = "too_many_keys"
+
+
+class ContentTooLarge(TransactionalEmailError):
+    code = "content_too_large"
+
+
+class InvalidRequest(TransactionalEmailError):
+    code = "invalid_request"
+
+
 @frozen
 class CodeEmail:
     key: str

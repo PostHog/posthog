@@ -1271,6 +1271,7 @@ def _capture_chart_delivery_events(run: TaskRun, outcomes: list[tuple[TaskArtifa
 def _pending_slack_file_queryset(run: TaskRun) -> QuerySet[TaskArtifact]:
     return (
         TaskArtifact.objects.for_team(run.team_id)
+        .select_related("created_by")
         .filter(
             task_id=run.task_id,
             adapter=TaskArtifact.Adapter.SLACK_FILE,

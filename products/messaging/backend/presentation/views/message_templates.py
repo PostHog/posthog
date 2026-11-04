@@ -37,7 +37,7 @@ from posthog.event_usage import groups, report_user_action
 from posthog.integrations import IntegrationManager, IntegrationNotFound
 from posthog.models import ProjectSecretAPIKey, User
 from posthog.models.tag import tagify
-from posthog.permissions import is_authenticated_via_project_secret_api_key
+from posthog.permissions import is_authenticated_via_project_secret_api_key, legacy_scope_object_used
 from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
 
 from products.cdp.backend.presentation.hog_functions import build_html_wrap_design
@@ -61,6 +61,7 @@ from products.messaging.backend.facade.templates import (
     update_template,
 )
 from products.messaging.backend.facade.transactional_email import (
+    PIPELINE_ADDRESS_PATTERN,
     SENDER_ADDRESS_MAX_LENGTH,
     SENDER_ADDRESS_PATTERN,
     CodeEmail,
@@ -83,6 +84,7 @@ from products.messaging.backend.facade.transactional_email import (
 from products.messaging.backend.presentation.views.serializers import DesignOperationSerializer
 from products.notifications.backend.facade.api import publish_resource_edited
 from products.workflows.backend.facade.api import WorkflowAccessDenied, WorkflowNotFound
+from products.workflows.backend.facade.transactional_emails import EMAIL_FROM_CODE_FLAG
 from products.workflows.backend.facade.workflows import get_workflow
 
 logger = structlog.get_logger(__name__)
@@ -407,7 +409,6 @@ IDEMPOTENCY_KEY_PARAMETER = OpenApiParameter(
 
 
 TRANSACTIONAL_EMAIL_API_FLAG = "workflows-transactional-email-api"
-EMAIL_FROM_CODE_FLAG = "workflows-email-from-code"
 FIRST_CODE_SEND_EVENT = "email first code send"
 
 
@@ -424,8 +425,16 @@ class TransactionalEmailIdentifiersSerializer(serializers.Serializer):
     )
 
 
+def _validate_pipeline_address(address: str) -> None:
+    if not PIPELINE_ADDRESS_PATTERN.fullmatch(address):
+        raise serializers.ValidationError(
+            "Enter an address PostHog can send to, like jane@example.com. Quoted names, IP addresses and "
+            "non-ASCII domains aren't supported."
+        )
+
+
 class TransactionalEmailMessageSerializer(serializers.Serializer):
-    to = serializers.EmailField(help_text="Email address of the recipient.")
+    to = serializers.EmailField(validators=[_validate_pipeline_address], help_text="Email address of the recipient.")
     message_data = serializers.DictField(
         child=serializers.JSONField(allow_null=True),
         required=False,
@@ -442,6 +451,7 @@ class SendTransactionalEmailSerializer(TransactionalEmailMessageSerializer):
 
 
 CODE_SEND_FIELDS = ("template_key", "subject", "html", "text", "from", "reply_to", "capture_engagement")
+CODE_BODY_MAX_BYTES = 5 * 1024 * 1024
 
 
 class SendEmailSerializer(TransactionalEmailMessageSerializer):
@@ -465,22 +475,26 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         required=False, trim_whitespace=False, help_text="Subject of the email your code rendered."
     )
     html = serializers.CharField(
-        required=False, allow_blank=True, trim_whitespace=False, help_text="HTML body of the email your code rendered."
+        required=False,
+        allow_blank=True,
+        trim_whitespace=False,
+        help_text="HTML body of the email your code rendered, at most 5 MiB as UTF-8.",
     )
     text = serializers.CharField(
         required=False,
         allow_blank=True,
         trim_whitespace=False,
-        help_text="Plain text body of the email your code rendered. Without it, PostHog derives the text from `html`.",
+        help_text="Plain text body of the email your code rendered, at most 5 MiB as UTF-8. Without it, PostHog "
+        "derives the text from `html`.",
     )
     from_address = serializers.CharField(
         required=False,
         help_text="Sender of the email your code rendered, as `security@example.com` or "
         "`Example <security@example.com>`, on a verified domain of the project. Without it, the email goes out from "
-        "the project's default sender.",
+        "the project's default sender, or from its only verified sender when it has no default.",
     )
     reply_to = serializers.ListField(
-        child=serializers.EmailField(),
+        child=serializers.EmailField(validators=[_validate_pipeline_address]),
         required=False,
         allow_empty=False,
         max_length=10,
@@ -509,8 +523,17 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         fields["from"] = fields.pop("from_address")
         return fields
 
+    def validate_html(self, value: str) -> str:
+        return _within_body_limit(value, "The HTML body")
+
+    def validate_text(self, value: str) -> str:
+        return _within_body_limit(value, "The plain text body")
+
     def validate_from(self, value: str) -> str:
-        _name, address = parseaddr(value)
+        try:
+            _name, address = parseaddr(value)
+        except RecursionError:
+            address = ""
         if not _is_sender_address(address):
             raise serializers.ValidationError("Enter an address, such as `Example <security@example.com>`.")
         return value
@@ -523,7 +546,8 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
             if code_field := next((field for field in CODE_SEND_FIELDS if field in sent), None):
                 raise serializers.ValidationError({code_field: "Only a send with `template_key` takes this field."})
             return data
-        if unknown := next((field for field in sorted(sent) if field not in self.fields), None):
+        unknown = next((field for field in sorted(sent) if field not in self.fields), None)
+        if unknown is not None:
             raise serializers.ValidationError(
                 {unknown: "PostHog doesn't take this field, so it doesn't send the email without it."}
             )
@@ -536,6 +560,14 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         if not (data.get("html") or data.get("text")):
             raise serializers.ValidationError({"html": "A send with `template_key` needs `html`, `text` or both."})
         return data
+
+
+def _within_body_limit(value: str, body: str) -> str:
+    if len(value.encode()) > CODE_BODY_MAX_BYTES:
+        raise serializers.ValidationError(
+            f"{body} can be at most 5 MiB as UTF-8. Link to large images and files instead of embedding them."
+        )
+    return value
 
 
 def _is_sender_address(address: str) -> bool:
@@ -621,12 +653,26 @@ class TransactionalEmailTeamSustainedThrottle(ProjectSecretApiKeyTeamRateThrottl
     rate = "20000/hour"
 
 
+# LEGACY_SCOPE_FALLBACKS lets a `hog_flow` key satisfy these scopes too.
+TRANSACTIONAL_EMAIL_SEND_SCOPE = "transactional_email:write"
+TRANSACTIONAL_EMAIL_STATUS_SCOPE = "transactional_email:read"
+
+
+def transactional_email_authorized_by(request: Any, required_scope: str) -> str:
+    return legacy_scope_object_used(request, required_scope) or "transactional_email"
+
+
 def require_transactional_email_api(team: Any) -> None:
     _require_flag(team, TRANSACTIONAL_EMAIL_API_FLAG)
 
 
 def require_email_from_code(team: Any) -> None:
     _require_flag(team, EMAIL_FROM_CODE_FLAG)
+
+
+def require_email_status_read(team: Any) -> None:
+    if not (_flag_enabled(team, TRANSACTIONAL_EMAIL_API_FLAG) or _flag_enabled(team, EMAIL_FROM_CODE_FLAG)):
+        raise NotFound()
 
 
 def _require_flag(team: Any, flag: str) -> None:
@@ -660,7 +706,8 @@ SEND_RESPONSES: dict[int, ResponseDeclaration] = {
     202: OpenApiResponse(response=SendTransactionalEmailResponseSerializer, description="Email queued"),
     400: OpenApiResponse(
         description="A field is invalid, the template isn't transactional or its email is paused, the sender isn't "
-        "verified, the recipient can't be used, or the Idempotency-Key is invalid"
+        "verified, the recipient can't be used, the Idempotency-Key is invalid, the email is too large to send, or "
+        "the project has reached its limit of template keys and the `template_key` is new"
     ),
     404: OpenApiResponse(description="Template not found"),
     409: OpenApiResponse(description="A request with the same Idempotency-Key is still in progress"),
@@ -782,7 +829,8 @@ class TransactionalEmailSendMixin:
 
     def _require_workflow_editor(self, hog_flow_id: Any) -> None:
         # The template's own access rules don't cover the workflow it sends through, which can carry its own.
-        # A project secret API key has no user to check, and its scope already limits it to sending.
+        # A project secret API key has no user to check. Its scope limits it to sending and to setting recipient
+        # topic preferences.
         if is_authenticated_via_project_secret_api_key(self.request):
             return
         try:
@@ -847,6 +895,7 @@ class TransactionalEmailSendMixin:
                     "auth_method": "project_secret_api_key"
                     if is_authenticated_via_project_secret_api_key(request)
                     else "user",
+                    "authorized_by": transactional_email_authorized_by(request, TRANSACTIONAL_EMAIL_SEND_SCOPE),
                     **properties,
                 },
                 groups=groups(self.organization, self.team),
@@ -869,8 +918,8 @@ class MessageTemplatesViewSet(
 ):
     scope_object = "hog_flow"
     permission_classes = [IsAuthenticated]
-    # `design` and `send` are custom write actions; list them so programmatic callers (MCP/personal API key)
-    # get hog_flow:write checked instead of being rejected as an action with no declared scope.
+    # `design` and `make_transactional` are custom write actions; list them so programmatic callers (MCP/personal
+    # API key) get hog_flow:write checked instead of being rejected as an action with no declared scope.
     scope_object_write_actions = [
         "create",
         "update",
@@ -878,7 +927,6 @@ class MessageTemplatesViewSet(
         "patch",
         "destroy",
         "design",
-        "send",
         "make_transactional",
     ]
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
@@ -1085,11 +1133,12 @@ class MessageTemplatesViewSet(
             "Send one transactional email from this template to one recipient. The template must be made "
             "transactional first. `message_data` fills the template's `{{ variables.* }}` placeholders. "
             "Transactional emails skip opt-outs and frequency caps. Send an `Idempotency-Key` header to retry "
-            "safely without sending the email twice."
+            "safely without sending the email twice. Needs the `transactional_email:write` scope. A key with "
+            "`hog_flow:write` also works, but that scope reaches the rest of Workflows too."
         ),
         parameters=[TEMPLATE_ID_PARAMETER, IDEMPOTENCY_KEY_PARAMETER],
     )
-    @action(detail=True, methods=["POST"], pagination_class=None)
+    @action(detail=True, methods=["POST"], pagination_class=None, required_scopes=[TRANSACTIONAL_EMAIL_SEND_SCOPE])
     def send(self, request: Any, *args: Any, **kwargs: Any) -> Response:
         self._end_request_validation()
         with transactional_email_stage("feature_flag"):
@@ -1151,7 +1200,6 @@ class MessageTemplatesViewSet(
 
 class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "hog_flow"
-    scope_object_write_actions = ["email"]
     permission_classes = [IsAuthenticated]
     authentication_classes = [ProjectSecretAPIKeyAuthentication]
     psak_allowed_actions = ["email"]
@@ -1169,11 +1217,13 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             "and `message_data` fills its `{{ variables.* }}` placeholders. Or send content your code rendered with "
             "a `template_key`, a `subject` and `html` or `text`: PostHog sends it as is, and its metrics and run "
             "history group under the key. Transactional emails skip opt-outs and frequency caps. Send an "
-            "`Idempotency-Key` header to retry safely without sending the email twice."
+            "`Idempotency-Key` header to retry safely without sending the email twice. Needs the "
+            "`transactional_email:write` scope. A key with `hog_flow:write` also works, but that scope reaches the "
+            "rest of Workflows too."
         ),
         parameters=[IDEMPOTENCY_KEY_PARAMETER],
     )
-    @action(detail=False, methods=["POST"])
+    @action(detail=False, methods=["POST"], required_scopes=[TRANSACTIONAL_EMAIL_SEND_SCOPE])
     def email(self, request: Any, *args: Any, **kwargs: Any) -> Response:
         self._end_request_validation()
         if "template_key" in request.validated_data:
