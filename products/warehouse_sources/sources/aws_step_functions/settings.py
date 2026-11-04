@@ -77,8 +77,16 @@ ERROR_MESSAGES = {
 
 
 # The IAM actions this source calls. A role session can use only these.
+# kms:Decrypt reads the history of a state machine encrypted with a customer managed key.
 AWS_SESSION_ACTIONS = (
-    "states:Describe*",
-    "states:Get*",
-    "states:List*",
+    "kms:Decrypt",
+    "states:DescribeMapRun",
+    "states:DescribeStateMachineAlias",
+    "states:GetExecutionHistory",
+    "states:ListActivities",
+    "states:ListExecutions",
+    "states:ListMapRuns",
+    "states:ListStateMachineAliases",
+    "states:ListStateMachineVersions",
+    "states:ListStateMachines",
 )
