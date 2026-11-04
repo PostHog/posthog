@@ -333,4 +333,14 @@ describe('sandbox email content', () => {
                 'The sandbox email template could not retain its identification footer. Update the template and try again.'
         )
     })
+    it.each([
+        [`<body><p>${'&'.repeat(20_000)}</p>`, undefined],
+        ['<body><p>Hello</p>', 'Preview '.repeat(10_000)],
+    ])('rejects an email that grows past the size bound when built (case %#)', async (html, preheader) => {
+        await expect(
+            sender.withIdentificationFooter(params(html, undefined, preheader), 'Example organization via PostHog', 1)
+        ).rejects.toThrow(
+            'Sandbox emails can have at most 75 KB of HTML, so every inbox shows the identification footer. Shorten the template and try again.'
+        )
+    })
 })
