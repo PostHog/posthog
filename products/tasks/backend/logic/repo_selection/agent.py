@@ -417,6 +417,7 @@ def _build_repo_selection_prompt(
     # not the model's. Offering it would let untrusted context talk the model into vetoing autostart.
     schema.get("properties", {}).pop("autostart_eligible", None)
     schema.get("properties", {}).pop("research_context", None)
+    schema.get("properties", {}).pop("blocked_reason", None)
     schema.get("$defs", {}).pop("ReportResearchContext", None)
     schema_json = json.dumps(schema, indent=2)
     visibility = visibility or {}
@@ -841,6 +842,8 @@ async def select_repository(
     # carries full autostart authority no matter what the model emitted.
     result.autostart_eligible = True
     result.research_context = None
+    # The server records this after selection. A value the model emitted must not reach the workflow.
+    result.blocked_reason = None
     try:
         if result.repository is not None:
             result.repository = result.repository.strip().lower()

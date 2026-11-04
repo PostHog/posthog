@@ -232,3 +232,5 @@ In production it is driven by `SignalsScoutCoordinatorWorkflow` (periodic tick e
 ### Narrowed scout API writes
 
 `tool_policy.py` checks held tools at the API boundary, including soft-delete payloads on shared PATCH endpoints. Harness and scout run writes must target the token-bound task’s current run; report artefacts are not a harness bypass. `test_scout_tool_policy.py` covers these boundaries and nested skill file paths.
+
+Read [research access and recovery](../../../../docs/internal/signals-pr-lifecycle.md#github-optional-research-access) when changing GitHub prerequisites or publication.

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from dataclasses import asdict
 from typing import TYPE_CHECKING, Any
 
 from django.db import transaction
@@ -24,7 +25,11 @@ from products.signals.backend.first_report_experiment import (
 from products.signals.backend.first_report_notification import register_first_report_notification
 from products.signals.backend.first_report_scout import first_report_state
 from products.signals.backend.first_report_scout_types import FirstReportStatus
-from products.signals.backend.github_optional import GITHUB_OPTIONAL_ACTIVATION, ResearchAccessPolicy
+from products.signals.backend.github_optional import (
+    GITHUB_OPTIONAL_ACTIVATION,
+    ResearchAccessPolicy,
+    project_research_access,
+)
 from products.signals.backend.models import (
     AutonomyPriority,
     InboxOnboardingSetupMode,
@@ -108,7 +113,7 @@ class InboxOnboarding:
         ):
             jobs["recommendations"] = "failed"
         return {
-            "github_optional_available": ResearchAccessPolicy.enabled(self.team_id),
+            **asdict(project_research_access(self.team_id)),
             "draft": state.get("draft"),
             "completed_at": state.get("completed_at"),
             **({"jobs": jobs} if "jobs" in state else {}),

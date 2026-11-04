@@ -471,6 +471,33 @@ def test_nonpublic_source_can_keep_its_repository(source_private: bool | None) -
     assert selected.repository == "acme/a"
 
 
+def test_select_repository_drops_server_fields_the_model_emitted() -> None:
+    result = RepoSelectionResult(repository="acme/a", reason="Matching code.", blocked_reason="not_connected")
+    session = MagicMock()
+    session.end = AsyncMock()
+    github = MagicMock()
+    github.list_all_cached_repositories.return_value = [{"full_name": "acme/a"}, {"full_name": "acme/b"}]
+
+    with (
+        patch(f"{_AGENT}.GitHubRepositoryFullCache") as cache,
+        patch(f"{_AGENT}._list_eligible_full_names", return_value={"acme/a", "acme/b"}),
+        patch(f"{_AGENT}._routing_rules_block", return_value=None),
+        patch(f"{_AGENT}.MultiTurnSession.start", AsyncMock(return_value=(session, result))),
+    ):
+        cache.return_value.sync_full_cache = AsyncMock()
+        selected = async_to_sync(select_repository)(
+            1,
+            1,
+            "Find the repository for this issue.",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+            priority=Priority.NORMAL,
+            github=github,
+            candidate_repos=["acme/a", "acme/b"],
+        )
+
+    assert (selected.repository, selected.blocked_reason) == ("acme/a", None)
+
+
 @pytest.mark.parametrize("selected_repository", ["acme/b", "acme/c"])
 def test_source_visibility_constrains_agent_selection(selected_repository: str) -> None:
     result = RepoSelectionResult(repository=selected_repository, reason="Matching code.")

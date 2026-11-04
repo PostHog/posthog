@@ -28,6 +28,7 @@ import structlog
 
 from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationPatch
 from posthog.models.integration import invalidate_github_repository_caches_for_installation
+from posthog.models.integration.github import enqueue_github_access_recovery
 from posthog.models.integration.github_audit import GitHubAudit
 from posthog.models.user_integration import GitHubInstallRequest, UserIntegration
 
@@ -39,12 +40,17 @@ def handle_installation_event(payload: dict) -> HttpResponse:
 
     Registered by the GitHub incarnation as the ``installation_lifecycle`` consumer, so it
     runs after signature verification and JSON parsing. ``action == "deleted"`` triggers integration cleanup; ``"created"``
-    resolves matching pending install requests. Reversible actions (suspend/unsuspend)
-    and other lifecycle noise are ignored.
+    resolves matching pending install requests. Restored access wakes blocked work.
     """
     action = payload.get("action")
     if action == "created":
         return _handle_installation_created(payload)
+    if action in ("unsuspend", "new_permissions_accepted"):
+        installation_id = (payload.get("installation") or {}).get("id")
+        if installation_id is not None:
+            invalidate_github_repository_caches_for_installation(installation_id)
+            enqueue_github_access_recovery(str(installation_id))
+        return HttpResponse(status=200)
     if action != "deleted":
         logger.debug("github_installation_webhook_ignored_action", action=action)
         return HttpResponse(status=200)
@@ -169,6 +175,7 @@ def handle_installation_repositories_event(payload: dict) -> HttpResponse:
     updated = team_updated + len(user_changed)
 
     invalidate_github_repository_caches_for_installation(installation_id)
+    enqueue_github_access_recovery(installation_id)
 
     logger.info(
         "github_installation_repositories_webhook_applied",

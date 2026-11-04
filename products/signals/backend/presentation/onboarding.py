@@ -16,6 +16,7 @@ from rest_framework.views import APIView
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.exceptions import InsufficientScope
+from posthog.models.integration.github_readiness import GitHubReadinessStatus
 from posthog.models.user import User
 from posthog.oauth_provenance import is_sandbox_oauth_request
 from posthog.permissions import APIScopePermission, get_authenticator_scopes
@@ -33,6 +34,7 @@ from products.signals.backend.facade.onboarding import (
     onboarding_source_products,
     onboarding_source_types,
 )
+from products.signals.backend.presentation.research_access import ResearchAccessSerializer
 from products.signals.backend.presentation.scout_permissions import ScoutCanonicalTeamAccessPermission
 from products.signals.backend.presentation.scout_suggestion_serializers import ScoutSuggestionItemSerializer
 
@@ -150,6 +152,14 @@ class FirstReportStateSerializer(serializers.Serializer):
 
 @extend_schema_serializer(many=False)
 class InboxOnboardingStateSerializer(serializers.Serializer):
+    github_readiness = serializers.ChoiceField(
+        choices=GitHubReadinessStatus.choices,
+        required=False,
+        help_text="Project-connected GitHub access, from cached integration state.",
+    )
+    research_access = ResearchAccessSerializer(
+        required=False, help_text="Server decision about project research availability."
+    )
     github_optional_available = serializers.BooleanField(
         required=False, help_text="Whether this project can activate Self-driving without connecting GitHub."
     )

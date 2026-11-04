@@ -211,6 +211,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     source_skills_from_suggested_reviewer_artefacts,
 )
 from products.signals.backend.report_generation.reviewer_telemetry import capture_suggested_reviewers_resolved
+from products.signals.backend.report_generation.select_repo import with_server_selection_fields
 from products.signals.backend.report_merge import (
     MAX_MERGE_REASON_LENGTH,
     MAX_MERGE_SOURCE_REPORTS,
@@ -756,9 +757,22 @@ class SignalTeamConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         # notification channel) would 404.
         return get_or_create_team_extension(self.team, SignalTeamConfig)
 
-    @extend_schema(summary="Read the project's signals config")
+    @extend_schema(
+        summary="Read the project's signals config",
+        parameters=[
+            OpenApiParameter(
+                "refresh_github",
+                OpenApiTypes.BOOL,
+                description="Recheck GitHub access using the repository cache refresh cooldown.",
+            )
+        ],
+    )
     def list(self, request: Request, *args, **kwargs) -> Response:
-        return Response(SignalTeamConfigSerializer(self._get_config()).data)
+        return Response(
+            SignalTeamConfigSerializer(
+                self._get_config(), context={"refresh_github": request.query_params.get("refresh_github") == "true"}
+            ).data
+        )
 
     @extend_schema(
         summary="Update the project's signals config",
@@ -6728,6 +6742,8 @@ class SignalReportArtefactViewSet(
             )
         if isinstance(parsed_content, ChannelAssignment):
             self._validate_channel_assignment(parsed_content, request)
+        if isinstance(parsed_content, RepoSelectionResult):
+            parsed_content = with_server_selection_fields(parsed_content)
         claim_id = request.validated_data.get("claim_id")
         if isinstance(parsed_content, SuggestedReviewers):
             try:
@@ -6864,10 +6880,13 @@ class SignalReportArtefactViewSet(
                 status=status.HTTP_400_BAD_REQUEST,
             )
         try:
-            parsed_content = parse_artefact_content(artefact.type, request.validated_data["content"])
+            content = request.validated_data["content"]
+            parsed_content = parse_artefact_content(artefact.type, content)
             if isinstance(parsed_content, ChannelAssignment):
                 self._validate_channel_assignment(parsed_content, request)
-            artefact.update_content(request.validated_data["content"])
+            if isinstance(parsed_content, RepoSelectionResult):
+                content = with_server_selection_fields(parsed_content).model_dump(mode="json")
+            artefact.update_content(content)
         except ArtefactContentValidationError as e:
             return Response(
                 {"error": f"content does not match the '{artefact.type}' schema: {e}"},

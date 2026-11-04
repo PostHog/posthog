@@ -41,6 +41,7 @@ from products.signals.backend.scout_harness.profile.builders import _recent_revi
 from products.signals.backend.scout_harness.tools.notes import list_notes
 
 # Task ORM model needed to build cross-product fixtures; the tasks facade exposes DTOs only.
+from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
 from products.tasks.backend.models import Channel, Task
 
 
@@ -1826,6 +1827,34 @@ class TestSignalReportArtefactLogWriteViewSet(APIBaseTest):
         )
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["type"] == artefact_type
+
+    @parameterized.expand([("post",), ("patch",)])
+    def test_repo_selection_write_keeps_server_owned_fields(self, method: str) -> None:
+        report = self._create_report()
+        pending = SignalReportArtefact.append_status(
+            team_id=self.team.id,
+            report_id=str(report.id),
+            content=RepoSelectionResult(repository="example/app", reason="Research recommended this repository."),
+            attribution=ArtefactAttribution.system(),
+        )
+        content = {"repository": "example/other", "reason": "Agent rewrite.", "blocked_reason": "not_connected"}
+        if method == "post":
+            response = self.client.post(
+                self._list_url(str(report.id)),
+                data=json.dumps({"artefact_type": "repo_selection", "content": content}),
+                content_type="application/json",
+            )
+        else:
+            response = self.client.patch(
+                self._detail_url(str(report.id), str(pending.id)),
+                data=json.dumps({"content": content}),
+                content_type="application/json",
+            )
+        assert response.status_code in (status.HTTP_200_OK, status.HTTP_201_CREATED), response.json()
+
+        latest = SignalReportArtefact.objects.filter(report=report, type="repo_selection").latest("created_at")
+        selection = RepoSelectionResult.model_validate_json(latest.content)
+        assert (selection.repository, selection.blocked_reason) == ("example/other", None)
 
     def test_post_status_type_is_latest_wins(self):
         report = self._create_report()

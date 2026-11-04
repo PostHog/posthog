@@ -485,6 +485,8 @@ class SignalReport(UUIDModel):
     # recount it against SignalTeamConfig.max_reports_per_day. Null for reports that predate the
     # field or never surfaced.
     first_visible_at = models.DateTimeField(null=True, blank=True)
+    research_blocked_reason = models.CharField(max_length=64, null=True, blank=True)
+    research_blocked_at = models.DateTimeField(null=True, blank=True)
     # When the report's inbox notification was dispatched. A report notifies once, ever: research
     # settles every time a new signal carries the report to its next bucket, and each settle starts
     # the notification workflow again, so without this a report re-notified per research pass. Set
@@ -541,6 +543,11 @@ class SignalReport(UUIDModel):
     class Meta:
         indexes = [
             models.Index(fields=["team", "status", "promoted_at"]),
+            models.Index(
+                fields=["team", "research_blocked_at"],
+                condition=models.Q(status="candidate", research_blocked_reason__isnull=False),
+                name="signals_report_github_blocked",
+            ),
             models.Index(fields=["team", "created_at"]),
             # Back the inbox list ordered by `-updated_at`. The view appends `id` as a tie-breaker.
             models.Index(fields=["team", "-updated_at", "id"], name="signals_report_team_updated"),
@@ -818,6 +825,10 @@ class SignalReport(UUIDModel):
             self.first_visible_at = timezone.now()
             updated_fields.add("first_visible_at")
 
+        if new_status in (S.READY, S.PENDING_INPUT, S.FAILED, S.POTENTIAL):
+            self.research_blocked_reason = None
+            self.research_blocked_at = None
+            updated_fields.update(("research_blocked_reason", "research_blocked_at"))
         self.status = new_status
         if new_status in (S.POTENTIAL, S.READY) and self.monitoring_started_at is not None:
             self.monitoring_started_at = None

@@ -82,6 +82,7 @@ from products.signals.backend.report_monitoring_signals import (
 )
 from products.signals.backend.report_steering import ReportSteering, load_research_steering
 from products.signals.backend.report_tags import team_tag_vocabulary
+from products.signals.backend.research_telemetry import capture_research_access_event
 from products.signals.backend.reviewer_rules import ReviewerProposal, ReviewerRules, StaleReviewerProposal
 from products.signals.backend.source_suggestions import unused_suggestable_products
 from products.signals.backend.startup_failure import (
@@ -1461,6 +1462,13 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
     except RepositoryContextUnavailable:
         if not input.github_optional or input.repo_selection.repository is None:
             raise
+        await database_sync_to_async(capture_research_access_event, thread_sensitive=False)(
+            team_id=input.team_id,
+            report_id=input.report_id,
+            origin="pipeline",
+            reason="github_unavailable",
+            fallback=True,
+        )
         fallback = RepoSelectionResult(
             repository=None,
             reason="GitHub code access failed. Research used project data instead.",

@@ -250,6 +250,13 @@ export const SignalsConfigListParams = () => zod.object({
         ),
 })
 
+export const SignalsConfigListQueryParams = () => zod.object({
+    refresh_github: zod
+        .boolean()
+        .optional()
+        .describe('Recheck GitHub access using the repository cache refresh cooldown.'),
+})
+
 /**
  * Partial update of the per-project singleton. Omitted fields keep their value.
  * @summary Update the project's signals config

@@ -643,7 +643,7 @@ async def test_pilot_repository_failure_keeps_research_available(monkeypatch, at
             integration_id="123",
             config={"installation_id": 123},
             errors="TOKEN_REFRESH_FAILED" if connection == "broken" else "",
-            repository_cache=[] if connection == "empty" else [{"full_name": "example/app"}],
+            repository_cache=[] if connection == "empty" else [{"id": 1, "name": "app", "full_name": "example/app"}],
             repository_cache_updated_at=timezone.now(),
         )
     monkeypatch.setattr(
@@ -651,6 +651,10 @@ async def test_pilot_repository_failure_keeps_research_available(monkeypatch, at
     )
     with (
         patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"),
+        patch(
+            "posthog.models.integration.GitHubIntegration.refresh_access_token",
+            side_effect=GitHubIntegrationError("Unavailable", status_code=503),
+        ),
         patch(
             "products.signals.backend.temporal.agentic.select_repository.select_repository_for_report",
             side_effect=GitHubIntegrationError("Unavailable", status_code=503),
@@ -665,6 +669,33 @@ async def test_pilot_repository_failure_keeps_research_available(monkeypatch, at
     assert result.research_context is not None
     assert result.research_context.mode == "data_only"
     assert result.research_context.repository_status == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_pilot_loads_the_repository_cache_of_a_new_connection(monkeypatch, ateam):
+    await Integration.objects.acreate(team=ateam, kind="github", integration_id="123", config={"installation_id": 123})
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.select_repository._resolve_sandbox_user_id", lambda team_id: 1
+    )
+    with (
+        patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"),
+        patch(
+            "posthog.models.integration.GitHubIntegration.sync_repository_cache",
+            return_value=[{"full_name": "example/app"}],
+        ),
+        patch(
+            "products.signals.backend.temporal.agentic.select_repository.select_repository_for_report",
+            return_value=RepoSelectionResult(repository="example/app", reason="Matching code."),
+        ),
+    ):
+        result = await select_repository_activity(
+            SelectRepositoryInput(
+                team_id=ateam.id, report_id=str(uuid4()), signals=_build_signals(), github_optional=True
+            )
+        )
+    assert result.research_context is not None
+    assert result.research_context.mode == "code"
 
 
 @pytest.mark.asyncio
@@ -1291,6 +1322,7 @@ async def test_run_agentic_report_activity_persists_artefacts(
 
         repo_selection_content = json.loads(artefacts[3].content)
         assert repo_selection_content == {
+            "blocked_reason": None,
             "repository": "posthog/posthog",
             "reason": "Single repository connected: posthog/posthog",
             "research_context": None,
