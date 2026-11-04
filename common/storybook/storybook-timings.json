@@ -1867,10 +1867,6 @@
         "chromium": 48.053,
         "webkit": 7.33
     },
-    "products/ai_observability/frontend/redesign/trace/components/TraceViewSwitch.stories.tsx": {
-        "chromium": 9.199,
-        "webkit": 4.287
-    },
     "products/ai_observability/frontend/scoreDefinitions/AIObservabilityScorerScene.stories.tsx": {
         "chromium": 24.229,
         "webkit": 4.535

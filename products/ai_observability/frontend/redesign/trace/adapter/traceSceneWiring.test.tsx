@@ -544,20 +544,14 @@ describe('TraceScene', () => {
             return render(<TraceRoute />)
         }
 
-        it('switches to the old view and back when the flag is on', async () => {
-            const { findByText } = await renderTraceRoute(true)
+        it.each([
+            ['new', true, '[data-attr="trace-view-tree-node"]', '.AIObservabilityTraceScene__wrapper'],
+            ['old', false, '.AIObservabilityTraceScene__wrapper', '[data-attr="trace-view-tree-node"]'],
+        ])('renders only the %s view when the flag is %s', async (_view, flagEnabled, shown, hidden) => {
+            const { container } = await renderTraceRoute(flagEnabled)
 
-            fireEvent.click(await findByText('Switch to the old view'))
-            fireEvent.click(await findByText('Switch to the new view'))
-
-            expect(await findByText('Switch to the old view')).toBeTruthy()
-        })
-
-        it('offers no switch on the old view when the flag is off', async () => {
-            const { container, queryByText } = await renderTraceRoute(false)
-
-            await waitFor(() => expect(container.querySelector('.AIObservabilityTraceScene__wrapper')).not.toBeNull())
-            expect(queryByText('Switch to the new view')).toBeNull()
+            await waitFor(() => expect(container.querySelector(shown)).not.toBeNull())
+            expect(container.querySelector(hidden)).toBeNull()
         })
     })
 })
