@@ -63,7 +63,7 @@ export interface accountDotMatrixTileLogicValues {
         empty: string
         error: string | null
         matrix: AccountActivityMatrixProps
-        truncated: boolean
+        notices: string[]
     }
     queryDraft: string
     queryDraftDirty: boolean
@@ -169,7 +169,7 @@ export interface accountDotMatrixTileLogicMeta {
             empty: string
             error: string | null
             matrix: AccountActivityMatrixProps
-            truncated: boolean
+            notices: string[]
         }
         selectedSeries: (
             config: DotMatrixTileConfig,

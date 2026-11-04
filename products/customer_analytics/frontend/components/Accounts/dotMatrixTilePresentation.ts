@@ -10,10 +10,10 @@ export function getDotMatrixTilePresentation(
     selected: string[],
     mapping: DotMatrixSourceMapping,
     weeks: number
-): { matrix: AccountActivityMatrixProps; error: string | null; empty: string; truncated: boolean } {
+): { matrix: AccountActivityMatrixProps; error: string | null; empty: string; notices: string[] } {
     const fallback = getAccountActivityMatrixProps(EMPTY_ACCOUNT_ACTIVITY_MATRIX, [])
     if (!response) {
-        return { matrix: fallback, error: null, empty: '', truncated: false }
+        return { matrix: fallback, error: null, empty: '', notices: [] }
     }
     if (response.kind === 'hogql') {
         const mapped = getHogQLActivityMatrix(response.result, mapping)
@@ -21,7 +21,12 @@ export function getDotMatrixTilePresentation(
             matrix: mapped.props ?? fallback,
             error: mapped.error,
             empty: 'The query returned no rows. Change the query or date range and run it again.',
-            truncated: !!response.result.hasMore,
+            notices: [
+                ...mapped.notices,
+                ...(response.result.hasMore
+                    ? ['Showing a limited result. Narrow the date range or query to include all activity.']
+                    : []),
+            ],
         }
     }
     const reason = response.result.emptyReason
@@ -39,6 +44,12 @@ export function getDotMatrixTilePresentation(
         matrix: reason || !response.result.data.length ? { ...matrix, rows: [], data: [] } : matrix,
         error: null,
         empty: reason ? messages[reason] : `No activity for this account in the last ${weeks} weeks.`,
-        truncated: response.result.truncated,
+        notices: response.result.truncated
+            ? [
+                  response.kind === 'usage_metrics'
+                      ? 'Showing the most active people.'
+                      : 'Showing a limited result. Narrow the date range or query to include all activity.',
+              ]
+            : [],
     }
 }

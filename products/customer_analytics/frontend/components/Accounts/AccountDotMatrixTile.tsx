@@ -87,13 +87,16 @@ export function AccountDotMatrixTile({
                                     />
                                 )
                             )}
-                            {!matrixResultLoading && presentation.truncated && (
-                                <span className="text-xs text-secondary">
-                                    {sourceKind === 'usage_metrics'
-                                        ? 'Showing the most active people.'
-                                        : 'Showing a limited result. Narrow the date range or query to include all activity.'}
-                                </span>
-                            )}
+                            {!matrixResultLoading &&
+                                presentation.notices.map((notice) => (
+                                    <span
+                                        key={notice}
+                                        className="text-xs text-secondary"
+                                        data-attr="account-dot-matrix-notice"
+                                    >
+                                        {notice}
+                                    </span>
+                                ))}
                         </>
                     )}
                 </>
