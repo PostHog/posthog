@@ -20,7 +20,7 @@ export interface DotMatrixTileConfig {
     mode: 'dots' | 'count'
     weeks: DotMatrixWeeks
     selectedSeries: string[]
-    source?: DotMatrixTileSource
+    source?: DotMatrixTileSource | null
 }
 
 const MAPPING_KEYS = new Set(['row', 'column', 'series', 'value'])
@@ -74,6 +74,7 @@ export function getDotMatrixTileConfig(config?: AccountViewTileConfig): DotMatri
             selectedSeries.every((key) => typeof key === 'string' && key.length > 0 && key.length <= 128)
                 ? [...new Set(selectedSeries)]
                 : [],
-        ...(source ? { source } : {}),
+        // An absent source belongs to a legacy tile; an explicit empty source must never run a query.
+        ...(config && Object.hasOwn(config, 'source') ? { source } : {}),
     }
 }

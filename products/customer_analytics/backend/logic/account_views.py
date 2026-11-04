@@ -147,6 +147,8 @@ def _dot_matrix_key_list_errors(keys: object, label: str) -> list[str]:
 
 
 def _dot_matrix_source_errors(source: object) -> list[str]:
+    if source is None:
+        return []
     if not isinstance(source, dict):
         return ["Dot matrix source must be an object."]
     kind = source.get("kind")

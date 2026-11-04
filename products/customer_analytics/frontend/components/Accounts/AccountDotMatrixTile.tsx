@@ -1,40 +1,26 @@
 import { useActions, useValues } from 'kea'
-import { useId, useState } from 'react'
+import { useId } from 'react'
 
-import { IconGear } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonLabel, LemonSelect } from '@posthog/lemon-ui'
+import { LemonBanner } from '@posthog/lemon-ui'
 
 import { DotMatrix } from 'lib/components/DotMatrix/DotMatrix'
-import { Popover } from 'lib/lemon-ui/Popover'
-
-import type { AccountActivityMatrixResult } from '~/queries/schema/schema-general'
 
 import type { AccountActivityMatrixDatum } from './accountActivityMatrix'
 import { accountDotMatrixTileLogic } from './accountDotMatrixTileLogic'
 import type { AccountViewTileLogicProps } from './accountViewTileConfig'
-import { DOT_MATRIX_WEEK_OPTIONS, type DotMatrixWeeks } from './dotMatrixTileConfig'
-
-const MATRIX_PAGE_SIZE = 20
+import { DotMatrixProductGroups } from './DotMatrixProductGroups'
+import { DotMatrixQueryEditor } from './DotMatrixQueryEditor'
+import { DotMatrixSourcePicker } from './DotMatrixSourcePicker'
+import { DotMatrixTileSettings } from './DotMatrixTileSettings'
 
 export interface AccountDotMatrixTileProps extends AccountViewTileLogicProps {
     accountId: string
-}
-
-function emptyStateMessage(result: AccountActivityMatrixResult | null, weeks: number): string {
-    switch (result?.emptyReason) {
-        case 'no_metrics':
-            return 'Add a usage metric in project settings to see activity here.'
-        case 'no_group_type':
-            return 'Choose an account group type in Customer analytics settings to see activity here.'
-        case 'no_external_id':
-            return "This account isn't linked to any activity yet."
-        default:
-            return `No activity for this account in the last ${weeks} weeks.`
-    }
+    externalId?: string
 }
 
 export function AccountDotMatrixTile({
     accountId,
+    externalId,
     instanceId,
     initialConfig,
     onConfigChange,
@@ -43,84 +29,75 @@ export function AccountDotMatrixTile({
     const logic = accountDotMatrixTileLogic({
         instanceId: `${instanceId ?? 'tile'}:${generatedId}`,
         accountId,
+        externalId,
         initialConfig,
         onConfigChange,
     })
-    const { accountActivityMatrix, accountActivityMatrixLoading, config, loadFailed, matrixProps, selectedSeries } =
-        useValues(logic)
-    const { retry, setMode, setSelectedSeries, setWeeks } = useActions(logic)
-    const [settingsOpen, setSettingsOpen] = useState(false)
+    const {
+        matrixResult,
+        matrixResultLoading,
+        config,
+        loadError,
+        presentation,
+        selectedSeries,
+        sourceKind,
+        queryEditorOpen,
+    } = useValues(logic)
+    const { retry, setSelectedSeries, chooseSource } = useActions(logic)
 
     return (
         <div className="flex flex-col gap-3 min-w-0" data-attr="account-dot-matrix-tile">
-            <div className="flex flex-wrap items-center justify-end gap-2">
-                <Popover
-                    visible={settingsOpen}
-                    onClickOutside={() => setSettingsOpen(false)}
-                    overlay={
-                        <div className="flex flex-col gap-3 p-3 w-64">
-                            <LemonLabel htmlFor={`${generatedId}-mode`}>Display</LemonLabel>
-                            <LemonSelect<'dots' | 'count'>
-                                id={`${generatedId}-mode`}
-                                value={config.mode}
-                                onChange={setMode}
-                                options={[
-                                    { value: 'dots', label: 'Dots' },
-                                    { value: 'count', label: 'Count' },
-                                ]}
-                                fullWidth
-                                aria-label="Dot matrix display"
-                                data-attr="account-dot-matrix-mode"
-                            />
-                            <LemonLabel htmlFor={`${generatedId}-weeks`}>Weeks</LemonLabel>
-                            <LemonSelect<DotMatrixWeeks>
-                                id={`${generatedId}-weeks`}
-                                value={config.weeks}
-                                onChange={setWeeks}
-                                options={DOT_MATRIX_WEEK_OPTIONS.map((weeks) => ({
-                                    value: weeks,
-                                    label: `${weeks} weeks`,
-                                }))}
-                                fullWidth
-                                aria-label="Dot matrix weeks"
-                                data-attr="account-dot-matrix-weeks"
-                            />
-                        </div>
-                    }
-                >
-                    <LemonButton
-                        size="small"
-                        type="secondary"
-                        icon={<IconGear />}
-                        onClick={() => setSettingsOpen((open) => !open)}
-                        aria-expanded={settingsOpen}
-                        data-attr="account-dot-matrix-settings"
-                    >
-                        Settings
-                    </LemonButton>
-                </Popover>
-            </div>
-            {loadFailed ? (
-                <LemonBanner
-                    type="error"
-                    action={{ children: 'Try again', onClick: retry, 'data-attr': 'account-dot-matrix-retry' }}
-                >
-                    Couldn't load activity for this account.
-                </LemonBanner>
+            {sourceKind === null ? (
+                <>
+                    <p className="text-secondary mb-0">Choose a data source to show activity in this tile.</p>
+                    <DotMatrixSourcePicker id={`${generatedId}-source`} value={null} onChange={chooseSource} />
+                </>
             ) : (
-                <DotMatrix<AccountActivityMatrixDatum>
-                    {...matrixProps}
-                    mode={config.mode}
-                    selectedSeries={selectedSeries}
-                    onSelectedSeriesChange={setSelectedSeries}
-                    loading={accountActivityMatrixLoading}
-                    pageSize={MATRIX_PAGE_SIZE}
-                    emptyState={emptyStateMessage(accountActivityMatrix, config.weeks)}
-                />
+                <>
+                    <DotMatrixTileSettings logic={logic} />
+                    {queryEditorOpen && <DotMatrixQueryEditor logic={logic} />}
+                    {loadError ? (
+                        <LemonBanner
+                            type="error"
+                            action={{ children: 'Try again', onClick: retry, 'data-attr': 'account-dot-matrix-retry' }}
+                        >
+                            {sourceKind === 'hogql' ? loadError : "Couldn't load activity for this account."}
+                        </LemonBanner>
+                    ) : (
+                        <>
+                            {matrixResult?.kind === 'product_usage' && !matrixResultLoading && (
+                                <DotMatrixProductGroups
+                                    groupings={matrixResult.result.groupings}
+                                    onSelect={setSelectedSeries}
+                                />
+                            )}
+                            {presentation.error && !queryEditorOpen && !matrixResultLoading ? (
+                                <LemonBanner type="warning">{presentation.error}</LemonBanner>
+                            ) : (
+                                (matrixResultLoading || (matrixResult && !presentation.error)) && (
+                                    <DotMatrix<AccountActivityMatrixDatum>
+                                        {...presentation.matrix}
+                                        mode={config.mode}
+                                        countOf={sourceKind === 'hogql' ? 'value' : 'activeSeries'}
+                                        selectedSeries={selectedSeries}
+                                        onSelectedSeriesChange={setSelectedSeries}
+                                        loading={matrixResultLoading}
+                                        pageSize={20}
+                                        emptyState={presentation.empty}
+                                    />
+                                )
+                            )}
+                            {!matrixResultLoading && presentation.truncated && (
+                                <span className="text-xs text-secondary">
+                                    {sourceKind === 'usage_metrics'
+                                        ? 'Showing the most active people.'
+                                        : 'Showing a limited result. Narrow the date range or query to include all activity.'}
+                                </span>
+                            )}
+                        </>
+                    )}
+                </>
             )}
-            {accountActivityMatrix?.truncated ? (
-                <span className="text-xs text-secondary">Showing the most active people.</span>
-            ) : null}
         </div>
     )
 }

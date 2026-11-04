@@ -2,6 +2,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 
 import {
     createAccountViewContent,
+    createAccountViewComponentInstance,
     parseAccountViewContent,
 } from '../../scenes/CustomerAnalyticsAccountScene/accountViewDocument'
 import { listAvailableAccountViewComponents } from './accountViewComponents'
@@ -32,9 +33,18 @@ describe('dot matrix tile config', () => {
         { selectedSeries: [''] },
         { selectedSeries: ['x'.repeat(129)] },
         { selectedSeries: Array.from({ length: 65 }, (_, index) => String(index)) },
-        { source: { kind: 'hogql', query: 'SELECT 1', mapping: { row: 'person' } } },
     ])('uses safe defaults for malformed saved config (%s)', (config) => {
         expect(getDotMatrixTileConfig(config)).toEqual({ mode: 'dots', weeks: 8, selectedSeries: [] })
+    })
+
+    it('keeps new tiles unconfigured through a save and blocks malformed sources', () => {
+        const tile = createAccountViewComponentInstance('dot_matrix')
+        const [restored] = parseAccountViewContent(createAccountViewContent([tile]))
+        expect(getDotMatrixTileConfig(restored.config).source).toBeNull()
+        expect(
+            getDotMatrixTileConfig({ source: { kind: 'hogql', query: 'SELECT 1', mapping: { row: 'person' } } }).source
+        ).toBeNull()
+        expect(getDotMatrixTileConfig({}).source).toBeUndefined()
     })
 
     it('keeps valid selections in order and removes duplicates from older configs', () => {
