@@ -30,6 +30,7 @@ after it pruned.
 from typing import TYPE_CHECKING
 
 from posthog.hogql import ast
+from posthog.hogql.compilation import compilation_budget
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import StringJSONDatabaseField
 from posthog.hogql.database.schema.events import EventsTable
@@ -101,6 +102,7 @@ class _ExportedPropertiesNarrower:
         self.optimizer = optimizer
         self.context = context
         self._registered = {id(node) for node in optimizer.subquery_map.values()}
+        self._exprs_by_name: dict[int, dict[str, ast.Expr]] = {}
 
     def run(self) -> None:
         for group in self._column_groups():
@@ -117,7 +119,10 @@ class _ExportedPropertiesNarrower:
         nodes = list({id(node): node for node in self.optimizer.subquery_map.values()}.values())
         seen: set[tuple[int, str]] = set()
         groups: list[list[tuple[SubqueryNode, str]]] = []
+        budget = compilation_budget.get()
         for node in nodes:
+            if budget is not None:
+                budget.check_time()
             for name in self._column_names(node):
                 if (id(node), name) in seen:
                     continue
@@ -160,7 +165,15 @@ class _ExportedPropertiesNarrower:
         return [name for name in (_column_name(expr) for expr in node.select) if name is not None]
 
     def _select_expr(self, node: ast.SelectQuery, name: str) -> ast.Expr | None:
-        return next((expr for expr in node.select if _column_name(expr) == name), None)
+        exprs = self._exprs_by_name.get(id(node))
+        if exprs is None:
+            exprs = {}
+            for expr in node.select:
+                column = _column_name(expr)
+                if column is not None and column not in exprs:
+                    exprs[column] = expr
+            self._exprs_by_name[id(node)] = exprs
+        return exprs.get(name)
 
     def _source_field(self, node: ast.SelectQuery, name: str) -> ast.Field | None:
         expr = self._select_expr(node, name)
@@ -283,6 +296,7 @@ class _ExportedPropertiesNarrower:
                 type=ast.FieldAliasType(alias=name, type=_map_type()),
             )
             node.select[node.select.index(expr)] = replacement
+            self._exprs_by_name.pop(id(node), None)
             if isinstance(node.type, ast.SelectQueryType):
                 node.type.columns[name] = replacement.type or ast.UnknownType()
             return
