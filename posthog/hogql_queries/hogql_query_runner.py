@@ -19,6 +19,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.compilation import CompilationLimitExceededError
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
 from posthog.hogql.database.schema.activity_log_visibility import activity_log_visibility_policy_version
 from posthog.hogql.direct_connection import INVALID_CONNECTION_ID_ERROR, get_direct_connection_source
@@ -43,7 +44,7 @@ from posthog.hogql.visitor import clone_expr
 
 from posthog import settings as app_settings
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
-from posthog.clickhouse.query_tagging import Product, get_query_tag_value, tag_contains_user_hogql
+from posthog.clickhouse.query_tagging import Feature, get_query_tag_value, tag_contains_user_hogql
 from posthog.event_usage import AnalyticsProps
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, ExecutionMode
@@ -385,13 +386,17 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         return response
 
     def _check_events_lower_bound(self, query: ast.SelectQuery | ast.SelectSetQuery) -> None:
-        if not self._reads_events_route() or get_query_tag_value("product") == Product.ENDPOINTS:
+        # Read the feature tag and not the product tag, because a caller sets the product tag with query.tags.productKey.
+        if not self._reads_events_route() or get_query_tag_value("feature") == Feature.ENDPOINT_EXECUTION:
             return
         try:
             context = self.build_hogql_context(enable_select_queries=True, modifiers=self.modifiers)
             missing = reads_events_without_lower_bound(
                 resolve_types(clone_expr(query), context, dialect="hogql"), context
             )
+        except CompilationLimitExceededError:
+            # Execution would compile the query again with a new budget and then fail with the same error.
+            raise
         except Exception:
             EVENTS_LOWER_BOUND_CHECK_COUNTER.labels(outcome="error").inc()
             return

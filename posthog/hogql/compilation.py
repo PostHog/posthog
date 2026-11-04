@@ -12,6 +12,10 @@ MAX_EXPANDED_VIEW_SQL_BYTES = 4 * 1024 * 1024
 COMPILATION_TIMEOUT_SECONDS = 60.0
 
 
+class CompilationLimitExceededError(QueryError):
+    pass
+
+
 class CompilationBudget:
     def __init__(self) -> None:
         self.deadline = time.monotonic() + COMPILATION_TIMEOUT_SECONDS
@@ -20,18 +24,20 @@ class CompilationBudget:
 
     def check_time(self) -> None:
         if time.monotonic() > self.deadline:
-            raise QueryError("HogQL compilation exceeded its time limit. Simplify the query and try again.")
+            raise CompilationLimitExceededError(
+                "HogQL compilation exceeded its time limit. Simplify the query and try again."
+            )
 
     def expand_view(self, query: str) -> None:
         self.check_time()
         if self.view_expansions >= MAX_VIEW_EXPANSIONS:
-            raise QueryError(
+            raise CompilationLimitExceededError(
                 f"Query exceeds the limit of {MAX_VIEW_EXPANSIONS} saved view expansions. "
                 "Reduce the number of saved view references."
             )
         query_bytes = len(query.encode("utf-8"))
         if self.expanded_view_sql_bytes + query_bytes > MAX_EXPANDED_VIEW_SQL_BYTES:
-            raise QueryError(
+            raise CompilationLimitExceededError(
                 "Query exceeds the saved view SQL expansion size limit. "
                 "Reduce the size or number of referenced saved views."
             )
@@ -61,7 +67,7 @@ def bounded_compilation(function: Callable[P, R]) -> Callable[P, R]:
             budget.check_time()
             return result
         except RecursionError as error:
-            raise QueryError(
+            raise CompilationLimitExceededError(
                 "HogQL query exceeds the supported nesting depth. Reduce nested subqueries or saved views."
             ) from error
         finally:

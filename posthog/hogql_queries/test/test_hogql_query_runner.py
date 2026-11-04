@@ -19,6 +19,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.compilation import CompilationLimitExceededError
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.query import execute_hogql_query
@@ -34,7 +35,7 @@ from posthog.hogql.user_query_validator import (
 from posthog.hogql.visitor import clear_locations
 
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
-from posthog.clickhouse.query_tagging import Product, tags_context
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.utils import UUIDT
@@ -579,14 +580,15 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("api_key_enforced", True, None, True, "rejected"),
-            ("api_key_observed", True, None, False, "warned"),
-            ("flag_service_error", True, None, None, "warned"),
-            ("session_auth", False, None, True, "untouched"),
-            ("endpoint", True, Product.ENDPOINTS, True, "untouched"),
+            ("api_key_enforced", True, {}, True, "rejected"),
+            ("api_key_observed", True, {}, False, "warned"),
+            ("flag_service_error", True, {}, None, "warned"),
+            ("session_auth", False, {}, True, "untouched"),
+            ("endpoint", True, {"feature": Feature.ENDPOINT_EXECUTION}, True, "untouched"),
+            ("caller_set_product_tag", True, {"product": Product.ENDPOINTS}, True, "rejected"),
         ]
     )
-    def test_query_service_events_lower_bound(self, _name, is_query_service, product, enforced, outcome):
+    def test_query_service_events_lower_bound(self, _name, is_query_service, tags, enforced, outcome):
         runner = self._create_runner(HogQLQuery(query="select event from events limit 1"))
         runner.is_query_service = is_query_service
         reset_request_query_warnings()
@@ -600,7 +602,7 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         with (
             patch("posthoganalytics.feature_enabled", side_effect=flag_side_effect),
-            tags_context(**({"product": product} if product else {})),
+            tags_context(**tags),
         ):
             if outcome == "rejected":
                 with self.assertRaises(EventsLowerBoundRequiredError) as ctx:
@@ -611,6 +613,29 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         expected_warnings = [EVENTS_LOWER_BOUND_REQUIRED_MESSAGE] if outcome == "warned" else []
         self.assertEqual(expected_warnings, get_request_query_warnings())
+
+    @parameterized.expand(
+        [
+            ("compilation_limit", CompilationLimitExceededError("limit"), True),
+            ("other_error_fails_open", RuntimeError("unexpected"), False),
+        ]
+    )
+    def test_query_service_events_lower_bound_check_errors(self, _name, error, raises):
+        runner = self._create_runner(HogQLQuery(query="select event from events limit 1"))
+        runner.is_query_service = True
+        reset_request_query_warnings()
+
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=False),
+            patch("posthog.hogql_queries.hogql_query_runner.resolve_types", side_effect=error),
+        ):
+            if raises:
+                with self.assertRaises(CompilationLimitExceededError):
+                    runner.calculate()
+            else:
+                self.assertEqual(len(runner.calculate().results), 1)
+
+        self.assertEqual([], get_request_query_warnings())
 
     @patch("posthoganalytics.feature_enabled", return_value=False)
     def test_non_query_service_allows_offset(self, _mock_flag):
