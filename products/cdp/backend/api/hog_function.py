@@ -66,6 +66,7 @@ from products.cdp.backend.models.hog_functions.hog_function import (
 from products.cdp.backend.models.hog_functions.hog_function_revision import HogFunctionRevision
 from products.cdp.backend.models.hog_functions.utils import humanize_hog_function_type
 from products.cdp.backend.models.plugin import TranspilerError
+from products.cdp.backend.permissions import CDPPropertyAccessPermission
 from products.cdp.backend.presentation.hog_invocations.rerun import (
     HogInvocationRerunRequestSerializer,
     HogInvocationRerunResponseSerializer,
@@ -1136,6 +1137,7 @@ class HogFunctionViewSet(
     viewsets.ModelViewSet,
 ):
     scope_object = "hog_function"
+    permission_classes = [CDPPropertyAccessPermission]
     scope_object_read_actions = [
         "list",
         "retrieve",

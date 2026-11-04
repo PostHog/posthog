@@ -1,0 +1,31 @@
+from typing import TYPE_CHECKING, cast
+
+from rest_framework.permissions import SAFE_METHODS, BasePermission
+
+from products.access_control.backend.facade import api as access_control_api
+
+if TYPE_CHECKING:
+    from rest_framework.request import Request
+
+    from posthog.api.routing import TeamAndOrgViewSetMixin
+    from posthog.models import User
+
+
+class CDPPropertyAccessPermission(BasePermission):
+    message = (
+        "Your property access permissions do not allow configuring pipelines, running them, or reading their logs. "
+        "Ask a project administrator for help."
+    )
+    sensitive_read_actions = frozenset({"logs"})
+
+    def has_permission(self, request: "Request", view: "TeamAndOrgViewSetMixin") -> bool:
+        if request.method in SAFE_METHODS and view.action not in self.sensitive_read_actions:
+            return True
+
+        return not access_control_api.get_restricted_properties_with_group_type_index_for_team(
+            team_id=view.team_id, user=cast("User", request.user)
+        )
+
+
+class CDPLogPropertyAccessPermission(CDPPropertyAccessPermission):
+    sensitive_read_actions = frozenset({"list", "retrieve"})
