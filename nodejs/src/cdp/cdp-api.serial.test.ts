@@ -2631,7 +2631,7 @@ describe('CDP API', () => {
             }
         })
 
-        it('deletes the stored files when the queue insert fails', async () => {
+        it('keeps the stored files when the queue insert fails, as the job may be queued already', async () => {
             mockQueueInvocations.mockRejectedValueOnce(new Error('queue down'))
             const filename = `report-${new UUIDT().toString()}.pdf`
 
@@ -2641,7 +2641,9 @@ describe('CDP API', () => {
             })
 
             expect(res.status).toEqual(500)
-            expect(await storedAttachments(filename)).toEqual([])
+            expect(await storedAttachments(filename)).toEqual([
+                { job_id: expect.any(String), content: Buffer.from('secret-file') },
+            ])
         })
 
         it('queues a send when the team is over its email quota', async () => {

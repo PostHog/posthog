@@ -1339,9 +1339,6 @@ export class CdpApi {
                         await this.hogflowQueue.queueInvocations([invocation])
                     } catch (error) {
                         this.invocationResultsService.invocationResultsRowsService.dropQueuedRowsFor([invocation.id])
-                        if (files.length) {
-                            await this.emailAttachmentsService.delete(invocation.id)
-                        }
                         throw error
                     }
                     cdpEmailQueuedTotal.labels(priorityClass).inc()
