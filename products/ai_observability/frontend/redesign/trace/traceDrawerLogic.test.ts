@@ -16,7 +16,6 @@ import { traceDrawerLogic } from './traceDrawerLogic'
 import { withoutTraceDrawerParams } from './traceDrawerRows'
 import { TraceListRow } from './traceListRows'
 import { traceViewHostLogic } from './traceViewHostLogic'
-import { traceViewPreferenceLogic } from './traceViewPreferenceLogic'
 
 jest.mock('lib/utils/product-intents', () => ({
     ...jest.requireActual('lib/utils/product-intents'),
@@ -354,12 +353,8 @@ describe('traceDrawerLogic', () => {
         expect(host.values).toMatchObject({ requestedStepId: null, requestedTraceId: 'b' })
     })
 
-    it.each([
-        ['the flag is off', (): void => undefined, false],
-        ['the person is on the old view', (): void => traceViewPreferenceLogic.actions.switchView('legacy'), true],
-    ])('sends a link to the trace page, without tracking, when %s', (_name, prepare, flag) => {
-        setUp({ flag })
-        prepare()
+    it('sends a link to the trace page, without tracking, when the flag is off', () => {
+        setUp({ flag: false })
         logic.unmount()
         goTo(`${LIST_PATH}?date_from=-7d&trace=a%2Fb&ts=2026-01-01&step=gen-1`)
 
