@@ -9,7 +9,7 @@ import { urls } from 'scenes/urls'
 import { mcpEarlyDataLogic } from '../earlyData/mcpEarlyDataLogic'
 import { weeklyReportStep } from '../earlyData/nextSteps'
 import { WeeklyReportActions } from '../earlyData/WeeklyReportActions'
-import { mcpSetupModeLogic } from './mcpSetupModeLogic'
+import type { MCPActivityRecentCallApi } from '../generated/api.schemas'
 import { SetupCallsPanel } from './SetupCallsPanel'
 import { SetupStepHero } from './SetupStepHero'
 import { SetupStepLayout } from './SetupStepLayout'
@@ -124,11 +124,10 @@ function WeeklyReportOption(): JSX.Element {
     )
 }
 
-function FailureAlertOption(): JSX.Element {
+function FailureAlertOption({ calls }: { calls: readonly MCPActivityRecentCallApi[] | null }): JSX.Element {
     const { hasFailureNotification } = useValues(mcpEarlyDataLogic)
-    const { recentCalls } = useValues(mcpSetupModeLogic)
     const { nextStepClicked } = useActions(mcpEarlyDataLogic)
-    const failedTool = recentCalls?.find((call) => call.is_error)?.tool
+    const failedTool = calls?.find((call) => call.is_error)?.tool
     return (
         <OptionCard
             icon={<IconBell />}
@@ -156,21 +155,21 @@ function FailureAlertOption(): JSX.Element {
 }
 
 export function SetupUsefulStep({
+    calls,
     onFinish,
     onAskPostHogAI,
 }: {
+    calls: readonly MCPActivityRecentCallApi[] | null
     onFinish: () => void
     onAskPostHogAI: (prompt: string) => void
 }): JSX.Element {
-    // Setup mode's own calls, because the activity overview is served from a cache that can predate them.
-    const { recentCalls } = useValues(mcpSetupModeLogic)
     return (
-        <SetupStepLayout aside={<SetupCallsPanel calls={recentCalls} />}>
+        <SetupStepLayout aside={<SetupCallsPanel calls={calls} />}>
             <SetupStepHero title={COPY.title} lead={COPY.lead} />
             <div className="@container">
                 <div className="grid gap-4 @min-[34rem]:grid-cols-2">
                     <WeeklyReportOption />
-                    <FailureAlertOption />
+                    <FailureAlertOption calls={calls} />
                 </div>
             </div>
             <div className="flex flex-col gap-1">

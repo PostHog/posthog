@@ -74,7 +74,13 @@ function StepBody({ step, ...props }: MCPSetupModeViewProps & { step: MCPSetupSt
             />
         )
     }
-    return <SetupUsefulStep onFinish={() => props.onExit('finished')} onAskPostHogAI={props.onAskPostHogAI} />
+    return (
+        <SetupUsefulStep
+            calls={props.recentCalls}
+            onFinish={() => props.onExit('finished')}
+            onAskPostHogAI={props.onAskPostHogAI}
+        />
+    )
 }
 
 /** The fullscreen setup walkthrough: a header with the step rail, and the current step below it. */

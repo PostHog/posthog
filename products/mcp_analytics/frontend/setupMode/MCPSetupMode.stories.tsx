@@ -102,7 +102,7 @@ export const FirstCallWithoutIntent: Story = {
 }
 
 export const MakeItUseful: Story = {
-    args: { step: 'useful' },
+    args: { step: 'useful', recentCalls: [FAILED_CALL, SUCCESS_CALL] },
     decorators: [
         mswDecorator({
             get: {
