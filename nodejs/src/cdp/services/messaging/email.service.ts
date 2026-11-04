@@ -27,7 +27,7 @@ import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { getEmailQueuePriorityClass } from './email-priority'
 import { selectEmailSenderIntegrationId } from './email-sender-selection'
 import { EmailStatusService, isTransactionalEmailSend } from './email-status.service'
-import { EmailSuppressionService, SuppressionCheckOptions } from './email-suppression.service'
+import { EmailSuppressionService, SuppressionCheckOptions, SuppressionLookupError } from './email-suppression.service'
 import {
     addTrackingToEmail,
     resolveEmailEngagementDistinctId,
@@ -231,6 +231,9 @@ function pickTokenBucketRetryDelayMs(refillPerSecond: number): number {
 // expiring back to full capacity), and a parked job only notices when it wakes.
 const CAP_RETRY_MIN_MS = 1_000
 const CAP_RETRY_MAX_MS = 60 * 60 * 1_000
+
+// Base wait before a send retries an unread suppression list. A jitter of up to 1x spreads a held backlog.
+const SUPPRESSION_RETRY_MS = 30_000
 
 // How far denied sends park. Everything at or below the top bucket is a real slot.
 // Above the top bucket is overflow: the backlog is deeper than one hour of refill.
@@ -799,16 +802,27 @@ export class EmailService {
             success = true
             result.emailSendResult = { status: 'accepted' }
         } catch (error) {
-            if (error instanceof SESThrottleError) {
+            // A test send runs in process and cannot wait for a retry, so an unread suppression list fails it.
+            if (error instanceof SESThrottleError || (error instanceof SuppressionLookupError && !isTest)) {
                 // Treat as a transient delivery delay — reschedule rather than fail
                 // the job. Our local bucket is the primary throttle; this path
                 // catches the cases where SES disagrees with our estimate.
+                // An unread suppression list holds the email the same way, so it never skips the check.
                 throttled = true
+                const retryAfterMs =
+                    error instanceof SESThrottleError
+                        ? error.retryAfterMs
+                        : Math.floor(SUPPRESSION_RETRY_MS * (1 + Math.random()))
                 result.finished = false
                 result.invocation.queueParameters = params
                 result.invocation.queueMetadata = invocation.queueMetadata
-                result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: error.retryAfterMs })
-                addLog('warn', `SES rate-limited (${error.errorCode}); rescheduling email in ${error.retryAfterMs}ms`)
+                result.invocation.queueScheduledAt = DateTime.utc().plus({ milliseconds: retryAfterMs })
+                addLog(
+                    'warn',
+                    error instanceof SESThrottleError
+                        ? `SES rate-limited (${error.errorCode}); rescheduling email in ${retryAfterMs}ms`
+                        : `Could not check the suppression list, so this email is waiting. Retrying in ${Math.round(retryAfterMs / 1000)}s. No action is needed on your side.`
+                )
             } else {
                 addLog('error', error.message)
                 result.error = error.message

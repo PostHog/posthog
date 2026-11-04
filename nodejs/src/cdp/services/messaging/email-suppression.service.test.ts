@@ -439,7 +439,7 @@ describe('EmailSuppressionService', () => {
             expect(await svc.isSuppressed(team.id, email, { transactional })).toBe(expected)
         })
 
-        // isSuppressed fails open. A load that throws would therefore let a suppressed address receive mail.
+        // A load that throws holds every send in the batch, so a bad key must not break a valid team's lookup.
         it.each(INVALID_TEAM_ID_KEYS)(
             'keeps an address suppressed when invalid team id %p shares its load',
             async (key) => {

@@ -7,7 +7,7 @@ import { isValidTeamId } from '~/common/utils/team-manager'
 
 const cdpEmailSuppressionTotal = new Counter({
     name: 'cdp_email_suppression_total',
-    help: 'Email suppression-list outcomes. `suppressed_hit` = a send skipped because the recipient is on the list; `transient_bounce` = a soft-bounce counter increment; `hard_bounce` = an address suppressed immediately after a permanent bounce; `complaint` = an address suppressed immediately after a spam complaint.',
+    help: 'Email suppression-list outcomes. `suppressed_hit` = a send skipped because the recipient is on the list; `lookup_failed` = the list could not be read, so the send was held; `transient_bounce` = a soft-bounce counter increment; `hard_bounce` = an address suppressed immediately after a permanent bounce; `complaint` = an address suppressed immediately after a spam complaint.',
     labelNames: ['result'],
 })
 
@@ -29,6 +29,14 @@ export function emailSuppressionConfigFromEnv(): EmailSuppressionConfig {
     const parsedThreshold = rawThreshold ? parseInt(rawThreshold, 10) : NaN
     return {
         transientBounceThreshold: Number.isFinite(parsedThreshold) && parsedThreshold > 0 ? parsedThreshold : 5,
+    }
+}
+
+/** The suppression list could not be read, so nobody knows whether the recipient may receive email. */
+export class SuppressionLookupError extends Error {
+    constructor() {
+        super('Could not check the suppression list')
+        this.name = 'SuppressionLookupError'
     }
 }
 
@@ -106,18 +114,20 @@ export class EmailSuppressionService {
         if (!identifier) {
             return false
         }
+        let entry: SuppressionEntry | false
         try {
-            const entry = (await this.lazyLoader.get(toKey(teamId, identifier))) ?? false
-            const suppressed = entry !== false && (!transactional || entry.blocksTransactional)
-            if (suppressed) {
-                cdpEmailSuppressionTotal.inc({ result: 'suppressed_hit' })
-            }
-            return suppressed
+            entry = (await this.lazyLoader.get(toKey(teamId, identifier))) ?? false
         } catch (error) {
-            // Fail open: a lookup error must never block a legitimate send.
+            // Fail closed: an unread list must not let mail reach a suppressed address. The caller holds the send.
+            cdpEmailSuppressionTotal.inc({ result: 'lookup_failed' })
             logger.error('[EmailSuppression] Failed to check suppression', { teamId, error })
-            return false
+            throw new SuppressionLookupError()
         }
+        const suppressed = entry !== false && (!transactional || entry.blocksTransactional)
+        if (suppressed) {
+            cdpEmailSuppressionTotal.inc({ result: 'suppressed_hit' })
+        }
+        return suppressed
     }
 
     /**

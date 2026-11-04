@@ -66,7 +66,7 @@ import { HogFunctionManagerService } from './services/managers/hog-function-mana
 import { TeamWorkflowsConfigService } from './services/managers/team-workflows-config.service'
 import { EMAIL_QUEUE_PRIORITY, EmailQueuePriorityClass, cdpEmailQueuedTotal } from './services/messaging/email-priority'
 import { EmailStatusService } from './services/messaging/email-status.service'
-import { EmailSuppressionService } from './services/messaging/email-suppression.service'
+import { EmailSuppressionService, SuppressionLookupError } from './services/messaging/email-suppression.service'
 import { EmailTrackingService } from './services/messaging/email-tracking.service'
 import { EmailValidationService } from './services/messaging/email-validation.service'
 import { EmailTrackingCodeSigner } from './services/messaging/helpers/tracking-code'
@@ -1328,7 +1328,16 @@ export class CdpApi {
         if (hogFlow.email_sending_paused_at) {
             return { outcome: 'sending_paused', status: 422 }
         }
-        if (await this.emailSuppressionService.isSuppressed(teamId, to, { transactional: true })) {
+        // An unread list does not refuse the send. The email worker checks again and holds the email until it can read the list.
+        const suppressed = await this.emailSuppressionService
+            .isSuppressed(teamId, to, { transactional: true })
+            .catch((error) => {
+                if (error instanceof SuppressionLookupError) {
+                    return false
+                }
+                throw error
+            })
+        if (suppressed) {
             return { outcome: 'recipient_suppressed', status: 422 }
         }
         const { isLimited } = await checkHogFlowQuotaLimits(hogFlow, teamId, this.deps.quotaLimiting)

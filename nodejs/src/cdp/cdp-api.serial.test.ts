@@ -41,6 +41,7 @@ import {
     transactionalEmailRequestsTotal,
     transactionalEmailStageDurationMs,
 } from './services/hogflows/transactional-email'
+import { SuppressionLookupError } from './services/messaging/email-suppression.service'
 import { BASE_REDIS_KEY, HogWatcherState } from './services/monitoring/hog-watcher.service'
 import { compileHog } from './templates/compiler'
 import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
@@ -2369,6 +2370,17 @@ describe('CDP API', () => {
 
             expect(res.status).toEqual(202)
             expect(await outcomeCount('queued')).toEqual(queuedBefore + 1)
+            expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+        })
+
+        it('queues the send for the email worker to hold when the suppression list cannot be read', async () => {
+            jest.spyOn(api['emailSuppressionService'], 'isSuppressed').mockRejectedValueOnce(
+                new SuppressionLookupError()
+            )
+
+            const res = await send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
+
+            expect(res.status).toEqual(202)
             expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
         })
 
