@@ -24,6 +24,11 @@ The app never sends `async_except_on_cache_miss`, which the insight endpoint tur
 ## Pins
 
 Pins are the web's starred rows (`FileSystemShortcut`, default surface), so a phone pin shows as a star on the web.
+Only a dashboard or an insight with a `ref` becomes a pin (`pinKindOf`), because those are the views the list can draw.
+The starred list also holds product pages, such as Dashboards, Web analytics or Feature flags, because the web's sidebar keeps its product list as stars.
+Those rows, folders, and items the phone has no screen for, such as notebooks and flags, stay on the web and do not show on the phone.
+Browse already opens the product pages the app has, and the phone never deletes a star it does not show.
+Web analytics has no pin button for the same reason.
 `shortcutInputFor()` writes the exact `path`, `type`, `ref` and `href` the web writes, so the server dedupes the row.
 Rows for one view (a sibling environment, a rename) collapse into one pin, and unpin deletes all of them.
 The Views list owns the pin list reads: on first paint unless read under a minute ago, on focus when 5 minutes old, and immediately on pull. Pin buttons and error states on view screens read the cached list, so opening a view sends no pin list request.
@@ -93,7 +98,7 @@ A pin shows in one of three modes, chosen on this phone:
 
 | Mode   | Shows                                                                                                                             | Height               | Reads data |
 | ------ | --------------------------------------------------------------------------------------------------------------------------------- | -------------------- | ---------- |
-| Row    | Icon, name, the view type ("Dashboard", "Built-in view" for web analytics, "Notebook · Opens on the web")                         | 64 pt                | No         |
+| Row    | Icon, name, the view type ("Dashboard" or "Insight")                                                                              | 64 pt                | No         |
 | Number | The value, a neutral change pill, the tile name, a 14-bucket sparkline, saved range and freshness                                 | Fits visible content | Yes        |
 | Chart  | A compact `MetricChart`, series legend, saved range and freshness; a value and change pill when one number represents the insight | Fits visible content | Yes        |
 
@@ -104,7 +109,6 @@ Chart pins pass `canvasSlot` and sit inside `ChartCanvasBudget`, so at most six 
 A tap on a Chart pin's plot pins a tooltip, and a tap on its name or value opens the view.
 A tap on the pinned tooltip opens the Point sheet. `ViewsScreen` wraps the list in `ChartSheetsProvider`, and the sheet follows the pin's own cache entry, which reads the saved range.
 A Chart pin draws every current series and its previous period with `snapshotChartSeries`, using the same palette and legend as the full insight. Compact bars keep their series color before selection; selecting a single-series bar highlights it in ink. Multi-series and breakdown charts omit the headline number rather than showing a dash or presenting one series as the whole insight. Pins whose tile uses its own dates show the resolved range, or "Uses its own range" until dates are available.
-Web analytics and pins that open on the web show as rows only (`pinModes`).
 
 A dashboard pin in Number or Chart mode shows one tile.
 The subtitle shows the tile's title.
