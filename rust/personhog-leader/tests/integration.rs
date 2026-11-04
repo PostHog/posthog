@@ -1168,7 +1168,7 @@ async fn kafka_produce_failure_leaves_cache_unchanged() {
 
 // ============================================================
 // Test 7: E2E - update produces to local Kafka and is consumable
-// Requires local Kafka (localhost:9092) and etcd running.
+// Requires local Kafka (127.0.0.1:9092) and etcd running.
 // ============================================================
 
 #[tokio::test]

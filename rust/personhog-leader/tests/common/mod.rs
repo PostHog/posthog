@@ -57,8 +57,8 @@ use tokio_util::sync::CancellationToken;
 use tonic::transport::{Channel, Server};
 
 pub const ETCD_ENDPOINT: &str = "http://localhost:2379";
-// Not `localhost`, which also resolves to `::1`, where the broker refuses.
-pub const KAFKA_BOOTSTRAP: &str = "kafka:9092";
+// Not `localhost`: it also resolves to `::1`, where the broker refuses, and readers fail on that.
+pub const KAFKA_BOOTSTRAP: &str = "127.0.0.1:9092";
 pub const PERSONS_DB_URL: &str = "postgres://posthog:posthog@localhost:5432/posthog_persons";
 pub const WAIT_TIMEOUT: Duration = Duration::from_secs(10);
 pub const POLL_INTERVAL: Duration = Duration::from_millis(100);
