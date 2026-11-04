@@ -151,6 +151,11 @@ def _path_kind(path: str, entry: dict[str, Any] | None) -> PathKind | None:
     return kind
 
 
+def is_absent(text: str) -> bool:
+    """True for the value that ``read_files`` returns for a path the commit does not hold."""
+    return text == _ABSENT
+
+
 def _refreshed_installation_token(integration: GitHubIntegrationBase) -> str:
     """A newly minted installation token.
 
