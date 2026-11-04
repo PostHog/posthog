@@ -6,7 +6,8 @@ import { Avatar, AvatarFallback, Text } from '@posthog/quill'
 import { TZLabel } from 'lib/components/TZLabel'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { fullNameOrEmail } from 'lib/utils/strings'
-import { membersLogic } from 'scenes/organization/membersLogic'
+
+import { membersLogic } from '~/models/membersLogic'
 
 import type { DataCatalogMetricApi } from '../generated/api.schemas'
 import { MetricOwnerCombobox } from '../metrics/MetricOwnerCombobox'

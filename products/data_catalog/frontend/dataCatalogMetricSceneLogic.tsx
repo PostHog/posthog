@@ -18,12 +18,12 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import api, { ApiConfig, ApiError } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic, FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
+import { escapeDottedHogQLIdentifier } from 'lib/utils/hogql'
 import { autoRunMaxPrompt } from 'scenes/max/maxPrompt'
 import { sceneAgentPanelLogic } from 'scenes/max/sceneAgentPanelLogic'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
-import { escapeDottedHogQLIdentifier } from '~/queries/utils'
 import { Breadcrumb, DataModelingEdge, DataModelingNode, SidePanelTab } from '~/types'
 
 import { catalogRestructureEnabled } from 'products/data_modeling/frontend/catalogRestructure'

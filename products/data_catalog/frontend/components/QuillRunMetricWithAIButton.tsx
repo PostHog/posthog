@@ -3,8 +3,9 @@ import { useValues } from 'kea'
 import { IconSparkles } from '@posthog/icons'
 import { Button } from '@posthog/quill'
 
-import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
+
+import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 
 export function QuillRunMetricWithAIButton({
     onRun,
