@@ -28,8 +28,6 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import LowercaseSlugField, UUIDTModel, create_with_slug, generate_slug_candidates, sane_repr
 
 if TYPE_CHECKING:
-    from django_stubs_ext import WithAnnotations
-
     from posthog.models import Team, User
 
     from ee.billing.quota_limiting import QuotaResource
@@ -799,7 +797,7 @@ class OrganizationAITerms(Organization):
 
 
 class OrganizationMembershipQuerySet(models.QuerySet["OrganizationMembership"]):
-    def with_effective_level(self) -> "QuerySet[WithAnnotations[OrganizationMembership]]":
+    def with_effective_level(self) -> "QuerySet[Any]":
         return self.annotate(resolved_level=models.F("level"))
 
 
