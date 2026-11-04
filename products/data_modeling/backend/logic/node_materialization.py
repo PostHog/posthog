@@ -105,9 +105,13 @@ def raise_if_ran_recently(team_id: int, saved_query_id: UUID | str) -> None:
     A failed or cancelled latest run does not count, so a person can retry it at once. A query edit after
     the latest run started lifts the limit, because that run did not build the new query.
     """
+    now = timezone.now()
     latest_run = (
         DataModelingJob.objects.filter(
-            team_id=team_id, saved_query_id=saved_query_id, engine=DataModelingJobEngine.CLICKHOUSE
+            team_id=team_id,
+            saved_query_id=saved_query_id,
+            engine=DataModelingJobEngine.CLICKHOUSE,
+            created_at__gte=now - MANUAL_RUN_MIN_INTERVAL,
         )
         .exclude(status=DataModelingJobStatus.SKIPPED)
         .order_by("-created_at")
@@ -126,7 +130,7 @@ def raise_if_ran_recently(team_id: int, saved_query_id: UUID | str) -> None:
     )
     if query_updated_at is not None and query_updated_at > started_at:
         return
-    wait_seconds = (started_at + MANUAL_RUN_MIN_INTERVAL - timezone.now()).total_seconds()
+    wait_seconds = (started_at + MANUAL_RUN_MIN_INTERVAL - now).total_seconds()
     if wait_seconds > 0:
         raise MaterializationRanRecentlyError(RAN_RECENTLY_REFUSAL, retry_after_seconds=math.ceil(wait_seconds))
 
