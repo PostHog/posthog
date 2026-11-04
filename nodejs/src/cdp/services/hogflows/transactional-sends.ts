@@ -1,7 +1,6 @@
 import { DateTime } from 'luxon'
 
 import { QuotaLimiting } from '~/common/services/quota-limiting.service'
-import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { UUID, UUIDT } from '~/common/utils/utils'
 import { Team } from '~/types'
@@ -30,6 +29,7 @@ import {
     TransactionalEmailRequest,
     TransactionalEmailStageTimer,
     TransactionalSendRefusal,
+    encodeScheduledSendsCursor,
 } from './transactional-email'
 
 const ACCEPTED_SEND_FINGERPRINT_MARKER = 'accepted_send'
@@ -263,53 +263,27 @@ export type ScheduledSendRescheduleResult =
 
 export type ScheduledSend = { id: string; to: string | null; scheduled_at: string; created_at: string }
 
-export type ScheduledSendListResult =
-    | { outcome: 'listed'; results: ScheduledSend[]; next: string | null }
-    | { outcome: 'invalid_cursor' }
-
-// The cursor names the last send of a page, as base64url JSON of [scheduled time, message id].
-const encodeCursor = ({ scheduled, id }: CyclotronV2UnclaimedEmailCursor): string =>
-    Buffer.from(JSON.stringify([scheduled.toISOString(), id])).toString('base64url')
-
-const decodeCursor = (cursor: string): CyclotronV2UnclaimedEmailCursor | null => {
-    let decoded: unknown
-    try {
-        decoded = parseJSON(Buffer.from(cursor, 'base64url').toString('utf-8'))
-    } catch {
-        return null
-    }
-    if (!Array.isArray(decoded) || decoded.length !== 2) {
-        return null
-    }
-    const [time, id] = decoded
-    const scheduled = typeof time === 'string' ? new Date(time) : null
-    if (!scheduled || isNaN(scheduled.getTime()) || typeof id !== 'string' || !UUID.validateString(id, false)) {
-        return null
-    }
-    return { scheduled, id }
-}
+export type ScheduledSendList = { results: ScheduledSend[]; next: string | null }
 
 export class ScheduledTransactionalSends {
     constructor(private readonly deps: ScheduledTransactionalSendsDeps) {}
 
-    async list(teamId: number, cursor: string | undefined, limit: number): Promise<ScheduledSendListResult> {
-        const after = cursor === undefined ? null : decodeCursor(cursor)
-        if (cursor !== undefined && !after) {
-            return { outcome: 'invalid_cursor' }
-        }
+    async list(
+        teamId: number,
+        after: CyclotronV2UnclaimedEmailCursor | null,
+        limit: number
+    ): Promise<ScheduledSendList> {
         // One row past the page tells whether a next page exists.
         const jobs = await this.deps.jobs.listUnclaimed(teamId, after, limit + 1)
         const page = jobs.slice(0, limit)
-        const last = page[page.length - 1]
         return {
-            outcome: 'listed',
             results: page.map((job) => ({
                 id: job.id,
                 to: job.to,
                 scheduled_at: job.scheduled.toISOString(),
                 created_at: job.created.toISOString(),
             })),
-            next: jobs.length > limit ? encodeCursor(last) : null,
+            next: jobs.length > limit ? encodeScheduledSendsCursor(page[page.length - 1]) : null,
         }
     }
 

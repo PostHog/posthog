@@ -2,6 +2,9 @@ import { Counter, Histogram } from 'prom-client'
 import { z } from 'zod'
 
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
+import type { CyclotronV2UnclaimedEmailCursor } from '~/cdp/services/cyclotron-v2/types'
+import { parseJSON } from '~/common/utils/json-parse'
+import { UUID } from '~/common/utils/utils'
 
 export const AcceptedSendSchema = z
     .object({
@@ -52,8 +55,31 @@ const ScheduledAtSchema = z.string().datetime({ offset: true })
 
 export const RescheduleRequestSchema = z.object({ scheduled_at: ScheduledAtSchema })
 
+// A list cursor names the last send of a page, as base64url JSON of [scheduled time, message id].
+export const encodeScheduledSendsCursor = ({ scheduled, id }: CyclotronV2UnclaimedEmailCursor): string =>
+    Buffer.from(JSON.stringify([scheduled.toISOString(), id])).toString('base64url')
+
+const CursorFieldsSchema = z.tuple([ScheduledAtSchema, z.string().refine((id) => UUID.validateString(id, false))])
+
+const parseCursor = (cursor: string): unknown => {
+    try {
+        return parseJSON(Buffer.from(cursor, 'base64url').toString('utf-8'))
+    } catch {
+        return null
+    }
+}
+
+const ScheduledSendsCursorSchema = z.string().transform((cursor, ctx): CyclotronV2UnclaimedEmailCursor => {
+    const fields = CursorFieldsSchema.safeParse(parseCursor(cursor))
+    if (!fields.success) {
+        ctx.addIssue({ code: 'custom', message: 'invalid cursor' })
+        return z.NEVER
+    }
+    return { scheduled: new Date(fields.data[0]), id: fields.data[1] }
+})
+
 export const ScheduledSendsListQuerySchema = z.object({
-    cursor: z.string().optional(),
+    cursor: ScheduledSendsCursorSchema.optional(),
     limit: z.coerce.number().int().min(1).max(100).default(100),
 })
 

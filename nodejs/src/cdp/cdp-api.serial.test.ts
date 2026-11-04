@@ -3152,6 +3152,14 @@ describe('CDP API', () => {
                     'a cursor without a time',
                     { cursor: Buffer.from(JSON.stringify(['soon', new UUIDT().toString()])).toString('base64url') },
                 ],
+                [
+                    'a cursor with a time Postgres cannot store',
+                    {
+                        cursor: Buffer.from(
+                            JSON.stringify(['-010000-01-01T00:00:00.000Z', new UUIDT().toString()])
+                        ).toString('base64url'),
+                    },
+                ],
             ])('refuses a list with %s', async (_desc, query) => {
                 const res = await list(query)
 

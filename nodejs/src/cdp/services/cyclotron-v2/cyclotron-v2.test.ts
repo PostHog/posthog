@@ -1208,7 +1208,7 @@ describe('Cyclotron V2', () => {
                 return id
             }
 
-            const sendTo = (to: string): unknown => ({ state: { event: { properties: { to } } } })
+            const sendTo = (to: string, html = ''): unknown => ({ state: { event: { properties: { to } }, html } })
 
             // What a worker's dequeue writes when it claims the row.
             const claimSql = `UPDATE cyclotron_jobs
@@ -1335,7 +1335,9 @@ describe('Cyclotron V2', () => {
                         state: Buffer.from(JSON.stringify(sendTo('b@example.com'))),
                     },
                 ])
-                const c = await seedScheduledEmail(1, sooner, sendTo('c@example.com'))
+                // Caller content can hold a \u0000 or a lone surrogate. Postgres json and jsonb reject both anywhere in the
+                // document, so this row fails if the recipient is read from the state in SQL.
+                const c = await seedScheduledEmail(1, sooner, sendTo('c@example.com', 'a\u0000b\ud800'))
                 await claimAndRelease(await seedScheduledEmail(1, sooner))
                 await manager.cancelUnclaimed(1, await seedScheduledEmail(1, sooner))
                 await seedScheduledEmail(1, new Date(Date.now() - 1000))
