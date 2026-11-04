@@ -75,11 +75,30 @@ describe('todayHighlightsLogic', () => {
         expect(shown()).toEqual(['insight:a', 'insight:b', 'insight:c', 'insight:d'])
 
         logic.actions.hidePulseMetric(pulse[1], 1)
-        expect(shown()).toEqual(['insight:a', 'insight:c', 'insight:d', 'insight:e'])
+        expect(shown()).toEqual(['insight:a', 'insight:e', 'insight:c', 'insight:d'])
+
+        logic.actions.loadHighlightsSuccess(makeHighlights({ pulse }))
+        expect(shown()).toEqual(['insight:a', 'insight:e', 'insight:c', 'insight:d'])
         expect(capture).toHaveBeenCalledWith('today pulse metric hidden', expect.objectContaining({ position: 1 }))
 
         logic.actions.unhidePulseMetric(pulse[1], 1)
         expect(shown()).toEqual(['insight:a', 'insight:b', 'insight:c', 'insight:d'])
+    })
+
+    it('keeps numbers in their places when a later result reorders or drops them, and starts fresh on a new visit', async () => {
+        const [a, b, c, d, e] = ['a', 'b', 'c', 'd', 'e'].map((key) => makePulseMetric({ key: `insight:${key}` }))
+        highlightResponses = [[200, makeHighlights({ pulse: [a, b, c, d] })]]
+        const logic = todayHighlightsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        const shown = (): string[] => logic.values.pulseTiles.map((metric) => metric.key)
+        expect(shown()).toEqual(['insight:a', 'insight:b', 'insight:c', 'insight:d'])
+
+        logic.actions.loadHighlightsSuccess(makeHighlights({ pulse: [c, e, a] }))
+        expect(shown()).toEqual(['insight:a', 'insight:e', 'insight:c'])
+
+        logic.actions.pulseViewMounted(true)
+        expect(shown()).toEqual(['insight:c', 'insight:e', 'insight:a'])
     })
 
     it.each([
