@@ -131,14 +131,13 @@ class PlatformAlertConfiguration(ModelActivityMixin, TeamScopedRootMixin, UUIDMo
 
     @property
     def destination_alert_id(self) -> UUID:
-        """The id the alert's destinations are matched on: the source row's for a copy, and the
-        configuration's own for an alert whose source keeps no row."""
+        """The alert's public id: the id its source, its clients and its destinations know it by. The
+        source row's id for a copy, and the configuration's own id for an alert with no source row."""
         return self.legacy_configuration_id or self.id
 
     @staticmethod
     def with_destination_alert_ids(ids: Collection[UUID]) -> models.Q:
-        """Matches the configurations whose `destination_alert_id` is one of `ids`, the id a source
-        and its clients know an alert by."""
+        """Matches the configurations whose `destination_alert_id` is one of `ids`."""
         listed = list(ids)
         return models.Q(legacy_configuration_id__in=listed) | models.Q(
             legacy_configuration_id__isnull=True, id__in=listed

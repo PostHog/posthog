@@ -9,6 +9,7 @@ from datetime import datetime
 from uuid import UUID
 
 from django.db.models import Case, Exists, Max, OuterRef, Prefetch, QuerySet, Subquery, Value, When
+from django.db.models.functions import Coalesce
 
 from products.alerts_platform.backend.facade.contracts import (
     Grouping,
@@ -148,13 +149,12 @@ def alert_snapshot(team_id: int, configuration_id: str, grouping_key: str) -> Pl
     return instance_view(alert, alert.configuration) if alert is not None else None
 
 
-def _owned_with_public_ids(team_id: int, public_ids: Collection[UUID]) -> QuerySet[PlatformAlertConfiguration]:
-    """The alerts the platform owns with these public ids.
+# A configuration's `destination_alert_id`, computed in the query.
+_PUBLIC_ID = Coalesce("legacy_configuration_id", "id")
 
-    A public id is the id a source and its clients know an alert by, the configuration's
-    `destination_alert_id`: the source row's id for a copy, and the configuration's own id for an
-    alert created with no source row.
-    """
+
+def _owned_with_public_ids(team_id: int, public_ids: Collection[UUID]) -> QuerySet[PlatformAlertConfiguration]:
+    """The alerts the platform owns with these public ids (`PlatformAlertConfiguration.destination_alert_id`)."""
     return PlatformAlertConfiguration.objects.for_team(team_id).filter(
         PlatformAlertConfiguration.with_destination_alert_ids(public_ids), owner=PlatformAlertOwner.PLATFORM
     )
@@ -175,6 +175,7 @@ def runtime_by_public_id(*, team_id: int, public_ids: Collection[UUID]) -> dict[
     rows = (
         _owned_with_public_ids(team_id, public_ids)
         .annotate(
+            public_id=_PUBLIC_ID,
             instance_state=Case(
                 When(
                     Exists(instances.filter(state=PlatformAlertState.FIRING)),
@@ -185,8 +186,7 @@ def runtime_by_public_id(*, team_id: int, public_ids: Collection[UUID]) -> dict[
             instance_last_notified_at=Subquery(latest_notified),
         )
         .values_list(
-            "id",
-            "legacy_configuration_id",
+            "public_id",
             "instance_state",
             "check_status",
             "instance_last_notified_at",
@@ -196,7 +196,7 @@ def runtime_by_public_id(*, team_id: int, public_ids: Collection[UUID]) -> dict[
         )
     )
     return {
-        legacy_id or platform_id: PlatformAlertRuntime(
+        public_id: PlatformAlertRuntime(
             state=PlatformAlertState(
                 InstanceCheckState.composed(
                     grouping_key="",
@@ -210,18 +210,15 @@ def runtime_by_public_id(*, team_id: int, public_ids: Collection[UUID]) -> dict[
             next_check_at=next_check_at,
             grouping=Grouping.from_stored(grouping),
         )
-        for platform_id, legacy_id, state, check_status, last_notified_at, consecutive_failures, next_check_at, grouping in rows
+        for public_id, state, check_status, last_notified_at, consecutive_failures, next_check_at, grouping in rows
     }
 
 
 def _public_id_by_platform_id(team_id: int, public_ids: Collection[UUID]) -> dict[UUID, UUID]:
     """The public id of each named alert the platform owns, keyed by the platform's id."""
-    return {
-        platform_id: legacy_id or platform_id
-        for platform_id, legacy_id in _owned_with_public_ids(team_id, public_ids).values_list(
-            "id", "legacy_configuration_id"
-        )
-    }
+    return dict(
+        _owned_with_public_ids(team_id, public_ids).annotate(public_id=_PUBLIC_ID).values_list("id", "public_id")
+    )
 
 
 def _platform_id_of(team_id: int, public_id: UUID) -> UUID | None:

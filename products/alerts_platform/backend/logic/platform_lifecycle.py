@@ -1140,8 +1140,8 @@ def give_back_ownership(
 def reset_broken(*, team_id: int, public_id: UUID, at: datetime) -> int | None:
     """Clears a broken alert the platform owns so the next tick checks it again, from rest.
 
-    `public_id` is the alert's `destination_alert_id`: its source row's id, or its own id when it has
-    no source row. Returns the failure count it cleared, or None when the alert is not broken.
+    `public_id` is the alert's `destination_alert_id`. Returns the failure count it cleared, or None
+    when the alert is not broken.
     Discovery skips a broken alert, so without this it never runs again. The caller holds the source's
     row lock, when there is one.
     """
