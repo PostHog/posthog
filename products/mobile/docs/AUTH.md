@@ -75,7 +75,7 @@ The selected organization's current server membership determines the approval co
 
 The app requests exactly these scopes (`OAUTH_SCOPES` in `src/auth/oauth.ts`):
 
-`openid profile email user:read user:write organization:read project:read task:read task:write conversation:write today:read query:read dashboard:read insight:read file_system_shortcut:write error_tracking:read error_tracking:write session_recording:read replay_scanner:read replay_scanner:write`
+`openid profile email user:read user:write organization:read project:read task:read task:write inbox:read inbox:write conversation:write today:read query:read dashboard:read insight:read file_system_shortcut:write error_tracking:read error_tracking:write session_recording:read replay_scanner:read replay_scanner:write`
 
 | Scope                                                                   | Used by                                                                                                                                                                                                                                                           |
 | ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -83,7 +83,8 @@ The app requests exactly these scopes (`OAUTH_SCOPES` in `src/auth/oauth.ts`):
 | `user:write`                                                            | push token register and unregister                                                                                                                                                                                                                                |
 | `organization:read`                                                     | `GET /api/organizations/{id}/` for the project list                                                                                                                                                                                                               |
 | `project:read`                                                          | project-scoped reads                                                                                                                                                                                                                                              |
-| `task:read`, `task:write`                                               | reports, hand-off, runs, notification routing                                                                                                                                                                                                                     |
+| `task:read`, `task:write`                                               | hand-off, runs, notification routing; task actions keep these scopes alongside the inbox scopes                                                                                                                                                                   |
+| `inbox:read`, `inbox:write`                                             | inbox lists, report details, artefacts, reviewers, read states, and triage; Today report pages also need `today:read`                                                                                                                                             |
 | `conversation:write`                                                    | chat                                                                                                                                                                                                                                                              |
 | `today:read`                                                            | `GET today/briefing/` and `GET today/reports/{id}/page/`. Without it both return 403 and the inbox always falls back to the signals report list.                                                                                                                  |
 | `query:read`                                                            | `POST query/` for the live report metrics and charts, and in Views for web analytics, compare on an insight, and the people and recordings at a chart point. Without it the query returns 403, and the report shows each metric's saved value and series instead. |
@@ -114,11 +115,19 @@ Nothing signs that user out: the inbox and chats keep working.
 Errors and Sessions use the same states through `useFeatureAccess('errors' | 'replay')` and `<ViewsReauthState feature=…>`.
 A 403 is reported per feature (`reportScopeError(error, feature)`), so a refused issue read does not lock Views.
 
+Inbox lists and report screens use the same states with `feature="inbox"`.
+They wait for an API scope rejection before asking for a new sign-in, because the server can still accept older `task:*` grants through its inbox scope fallback.
+When that fallback is removed, a missing inbox scope shows the sign-in prompt, including for a failed background refresh of a cached report.
+A refresh cannot add scopes to an existing grant. OAuth users must sign in again to receive the inbox scopes; personal API keys need those scopes added to the key.
+
 ### Server-side ceiling
 
 Each OAuth application has a scope ceiling: `OAuthApplication.scopes` plus `optional_scopes` (`posthog/models/oauth.py`).
 An empty ceiling, or one containing `@default`, allows every unprivileged scope; any other ceiling is an exact allow-list.
 The production app rows are not visible from this repository, so check them in Django admin when the app adds a scope.
+
+Before removing the inbox scope fallback, check that the mobile OAuth applications in each region allow `inbox:read` and `inbox:write`, including development and preview registrations.
+Keep `task:read` and `task:write`, because the app still uses task actions.
 
 - `/authorize` normally does not reject an out-of-ceiling scope. It drops it and issues the rest, so the usual symptom is a 403 on the feature that needs it, for example the inbox never showing the Today briefing.
 - When the server does answer `invalid_scope` (on the authorize redirect or the token endpoint), the sign-in screen says "This app's OAuth registration is missing a permission. Ask an admin to update it."

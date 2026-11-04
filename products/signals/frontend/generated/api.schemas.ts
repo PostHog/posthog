@@ -6144,8 +6144,24 @@ export const MonitoringCheckTimingStateEnumApi = {
     ExpiryReached: 'expiry_reached',
 } as const
 
+/**
+ * * `monitoring` - Monitoring
+ * * `verifying` - Verifying
+ * * `assessment_required` - Assessment required
+ * * `verification_complete` - Verification complete
+ */
+export type FinalVerificationStateEnumApi =
+    (typeof FinalVerificationStateEnumApi)[keyof typeof FinalVerificationStateEnumApi]
+
+export const FinalVerificationStateEnumApi = {
+    Monitoring: 'monitoring',
+    Verifying: 'verifying',
+    AssessmentRequired: 'assessment_required',
+    VerificationComplete: 'verification_complete',
+} as const
+
 export interface MonitoringCheckTimingApi {
-    /** Whether this check has an interim measurement due, is paused, or has finished its observation window. No state implies a final verdict.
+    /** Monitoring timing state. Final verification phases use paused for compatibility; read final_verification_state for their phase.
      *
      * * `scheduled` - Scheduled
      * * `due` - Due
@@ -6157,6 +6173,13 @@ export interface MonitoringCheckTimingApi {
      * * `unavailable` - Timing unavailable
      * * `expiry_reached` - Expiry reached */
     state: MonitoringCheckTimingStateEnumApi
+    /** Final verification phase when state is paused. Null for other timing states. Read the check outcome for its verdict.
+     *
+     * * `monitoring` - Monitoring
+     * * `verifying` - Verifying
+     * * `assessment_required` - Assessment required
+     * * `verification_complete` - Verification complete */
+    readonly final_verification_state?: FinalVerificationStateEnumApi | null
     /**
      * Original Monitoring start for this check's report.
      * @nullable

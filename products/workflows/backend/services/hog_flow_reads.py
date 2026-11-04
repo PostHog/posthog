@@ -480,7 +480,7 @@ def annotate_broadcast_shape(queryset: QuerySet) -> QuerySet:
     )
 
 
-BROADCAST_STATUSES = ("draft", "scheduled", "sending", "sent", "failed", "archived")
+BROADCAST_STATUSES = ("draft", "scheduled", "sending", "sent", "partially_sent", "failed", "archived")
 
 
 class _WorkflowFilterSet(FilterSet):
