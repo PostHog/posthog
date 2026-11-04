@@ -24,6 +24,13 @@ Only workflows that send email are subject to the tiers; SMS, push, and webhook 
 
 ## Configuration
 
+### Sandbox sender provisioning
+
+Users cannot edit, verify, or remove the managed integration, make it the project default, use it for transactional email, or register their own integration on the shared domain.
+The managed integration is excluded from project SES tenant migration, identity cleanup, data suggestions, and the reputation page's domain breakdown.
+
+### Sending tiers
+
 Two sides read their own env vars because the worker never reads Django settings.
 Set them together; drift means the UI describes limits the worker does not apply, or the reverse.
 

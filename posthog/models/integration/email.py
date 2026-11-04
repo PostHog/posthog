@@ -40,6 +40,16 @@ class EmailDomainStatusReport:
     checked_at: datetime
 
 
+SANDBOX_EMAIL_PROVIDER = "sandbox"
+SANDBOX_EMAIL_INTEGRATION_ID = "posthog-sandbox"
+SANDBOX_SENDER_MANAGED_MESSAGE = "The sandbox sender is managed by PostHog."
+
+
+def is_sandbox_sender_domain(domain: str) -> bool:
+    sandbox_domain = settings.WORKFLOWS_SANDBOX_SENDER_DOMAIN
+    return bool(sandbox_domain) and (domain == sandbox_domain or domain.endswith(f".{sandbox_domain}"))
+
+
 class EmailIntegration:
     integration: model.Integration
 
@@ -47,6 +57,14 @@ class EmailIntegration:
         if integration.kind != "email":
             raise Exception("EmailIntegration init called with Integration with wrong 'kind'")
         self.integration = model.integration_model(integration)
+
+    @property
+    def is_sandbox_sender(self) -> bool:
+        return self.integration.config.get("provider") == SANDBOX_EMAIL_PROVIDER
+
+    def ensure_user_managed(self) -> None:
+        if self.is_sandbox_sender:
+            raise ValidationError(SANDBOX_SENDER_MANAGED_MESSAGE)
 
     @classmethod
     def create_native_integration(
@@ -60,6 +78,11 @@ class EmailIntegration:
 
         if domain in free_email_domains_list or domain in disposable_email_domains_list:
             raise ValidationError(f"Email domain {domain} is not supported. Please use a custom domain.")
+
+        if is_sandbox_sender_domain(domain):
+            raise ValidationError(
+                f"Email domain {domain} belongs to the PostHog sandbox sender. Please use a domain you own."
+            )
 
         # Check if any other integration already exists in a different team with the same domain,
         # if so, ensure this team is part of the same organization. If not, we block creation.
@@ -153,6 +176,7 @@ class EmailIntegration:
         return self.integration
 
     def verify(self, *, on_domain_verified: Callable[[], None] | None = None) -> "EmailDomainVerification":
+        self.ensure_user_managed()
         domain = self.integration.config.get("domain")
         provider = self.integration.config.get("provider", "ses")
         mail_from_subdomain = self.integration.config.get("mail_from_subdomain", "feedback")
@@ -193,6 +217,7 @@ class EmailIntegration:
             EmailDomainCheck,  # noqa: PLC0415 — keeps the workflows facade off the model import path
         )
 
+        self.ensure_user_managed()
         cache_key = f"email_domain_status:{self.integration.id}"
         if not refresh and isinstance(cached := self._cached_status(cache_key), str):
             entry = json.loads(cached)

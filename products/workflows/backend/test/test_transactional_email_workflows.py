@@ -6,7 +6,7 @@ from posthog.test.base import BaseTest
 from parameterized import parameterized
 
 from posthog.models import Team
-from posthog.models.integration import Integration
+from posthog.models.integration import SANDBOX_EMAIL_INTEGRATION_ID, SANDBOX_EMAIL_PROVIDER, Integration
 from posthog.models.scoping import team_scope
 
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
@@ -122,13 +122,26 @@ class TestTransactionalEmailWorkflows(BaseTest):
         assert serializer.validated_data["trigger"] == flow.trigger == {"type": "api"}
         assert serializer.validated_data["billable_action_types"] == flow.billable_action_types
 
-    @parameterized.expand([("unverified_default", False, None), ("another_teams_sender", True, "other")])
+    @parameterized.expand(
+        [
+            ("unverified_default", False, None),
+            ("another_teams_sender", True, "other"),
+            ("sandbox_sender", True, "sandbox"),
+        ]
+    )
     def test_a_new_transactional_email_needs_a_verified_sender_of_its_own(self, _name, verified, requested):
         self.sender.config = {"verified": verified}
         self.sender.save()
         requested_id = None
         if requested == "other":
             requested_id = self._other_teams_sender()
+        elif requested == "sandbox":
+            requested_id = Integration.objects.create(
+                team=self.team,
+                kind="email",
+                integration_id=SANDBOX_EMAIL_INTEGRATION_ID,
+                config={"provider": SANDBOX_EMAIL_PROVIDER, "verified": True},
+            ).id
 
         with self.assertRaises(TransactionalEmailSenderUnavailable):
             create_transactional_email_workflow(

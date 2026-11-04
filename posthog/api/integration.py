@@ -1718,6 +1718,9 @@ class IntegrationViewSet(
         return super().get_throttles()
 
     def perform_destroy(self, instance: Integration) -> None:
+        if instance.kind == "email":
+            EmailIntegration(instance).ensure_user_managed()
+
         # Check before the teardown below, which revokes grants at the provider. The delete at the end
         # does not check again, because a check decrypts the inputs of every warehouse source of the team.
         try:
@@ -2954,14 +2957,13 @@ class IntegrationViewSet(
     @extend_schema(responses={200: IntegrationSerializer})
     @action(methods=["PATCH"], detail=True, url_path="email")
     def email_update(self, request, **kwargs) -> Response:
-        instance = self.get_object()
-        config = request.data.get("config", {})
+        email = EmailIntegration(self.get_object())
+        email.ensure_user_managed()
 
-        serializer = NativeEmailIntegrationSerializer(data=config)
+        serializer = NativeEmailIntegrationSerializer(data=request.data.get("config", {}))
         serializer.is_valid(raise_exception=True)
 
-        email = EmailIntegration(instance)
-        email.update_native_integration(serializer.validated_data, instance.team_id)
+        email.update_native_integration(serializer.validated_data, email.integration.team_id)
 
         return Response(IntegrationSerializer(email.integration).data)
 
