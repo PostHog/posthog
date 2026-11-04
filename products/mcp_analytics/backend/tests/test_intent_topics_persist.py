@@ -1,10 +1,13 @@
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
+import pytest
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
 
 import numpy as np
 
 from products.mcp_analytics.backend.intent_topics.clustering import FitOutput
+from products.mcp_analytics.backend.intent_topics.labeling import TopicLabel
 from products.mcp_analytics.backend.intent_topics.persist import (
     active_topic_vectors,
     apply_fit,
@@ -17,8 +20,9 @@ from products.mcp_analytics.backend.intent_topics.persist import (
 from products.mcp_analytics.backend.intent_topics.topic_registry import MatchResult
 from products.mcp_analytics.backend.models import MCPIntentClusteringRun, MCPIntentTopic
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
+from products.mcp_analytics.backend.tests.intent_topics_helpers import recent_hour
 
-NOW = datetime(2026, 10, 20, 3, 0, tzinfo=UTC)
+NOW = recent_hour(days_ago=0)
 
 
 def _unit(axis: int, dim: int = 8) -> np.ndarray:
@@ -49,7 +53,7 @@ class TestApplyFit(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
             team=self.team, label="Stale", centroid=MCPIntentTopic.encode_centroid(_unit(5))
         )
         MCPIntentTopic.objects.filter(pk=self.stale.pk).update(last_seen_at=NOW - timedelta(days=40))
-        self.run = start_run(
+        self.refit_run = start_run(
             self.team,
             kind=MCPIntentClusteringRun.Kind.REFIT,
             run_id="refit-1",
@@ -60,7 +64,7 @@ class TestApplyFit(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
     def test_updates_reused_topics_creates_new_ones_and_archives_stale_ones(self) -> None:
         match = MatchResult(reused={0: str(self.recent.pk)}, created=[1], unmatched_topics=[str(self.stale.pk)])
 
-        result = apply_fit(self.team, run=self.run, fit=_fit(), match=match, now=NOW)
+        result = apply_fit(self.team, run=self.refit_run, fit=_fit(), match=match, now=NOW)
 
         self.recent.refresh_from_db()
         np.testing.assert_array_equal(self.recent.decoded_centroid(), _unit(0))
@@ -83,7 +87,7 @@ class TestApplyFit(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
         MCPIntentTopic.objects.filter(pk=self.stale.pk).update(last_seen_at=NOW - timedelta(days=3))
         match = MatchResult(reused={0: str(self.recent.pk)}, created=[1], unmatched_topics=[str(self.stale.pk)])
 
-        result = apply_fit(self.team, run=self.run, fit=_fit(), match=match, now=NOW)
+        result = apply_fit(self.team, run=self.refit_run, fit=_fit(), match=match, now=NOW)
 
         self.stale.refresh_from_db()
         assert self.stale.status == MCPIntentTopic.Status.ACTIVE
@@ -91,8 +95,8 @@ class TestApplyFit(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
 
     def test_saves_the_pca_basis_on_the_run_and_exposes_vectors(self) -> None:
         match = MatchResult(reused={0: str(self.recent.pk)}, created=[1], unmatched_topics=[str(self.stale.pk)])
-        apply_fit(self.team, run=self.run, fit=_fit(), match=match, now=NOW)
-        finish_run(self.run, status=MCPIntentClusteringRun.Status.SUCCEEDED, n_topics=2)
+        apply_fit(self.team, run=self.refit_run, fit=_fit(), match=match, now=NOW)
+        finish_run(self.refit_run, status=MCPIntentClusteringRun.Status.SUCCEEDED, n_topics=2)
 
         basis = latest_pca_basis(self.team)
         assert basis is not None
@@ -103,13 +107,39 @@ class TestApplyFit(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
         assert sorted(v.topic_id for v in vectors) == sorted([str(self.recent.pk), created_id])
         assert {v.topic_id: round(v.outlier_distance, 2) for v in vectors}[str(self.recent.pk)] == 0.2
 
+    def test_a_failed_write_leaves_the_registry_and_the_basis_untouched(self) -> None:
+        match = MatchResult(reused={0: str(self.recent.pk)}, created=[1], unmatched_topics=[str(self.stale.pk)])
+        before = {
+            str(t.pk): (t.label, bytes(t.centroid), t.status) for t in MCPIntentTopic.objects.filter(team=self.team)
+        }
+        original_save = MCPIntentTopic.save
+        calls = {"n": 0}
+
+        def failing_save(topic, *args, **kwargs):
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise RuntimeError("database went away")
+            return original_save(topic, *args, **kwargs)
+
+        with patch.object(MCPIntentTopic, "save", failing_save), pytest.raises(RuntimeError):
+            apply_fit(self.team, run=self.refit_run, fit=_fit(), match=match, now=NOW)
+
+        after = {
+            str(t.pk): (t.label, bytes(t.centroid), t.status) for t in MCPIntentTopic.objects.filter(team=self.team)
+        }
+        assert after == before
+        self.refit_run.refresh_from_db()
+        assert "pca_basis" not in self.refit_run.params
+
     def test_existing_topics_excludes_archived(self) -> None:
         MCPIntentTopic.objects.filter(pk=self.stale.pk).update(status=MCPIntentTopic.Status.ARCHIVED)
 
         assert [t.id for t in existing_topics(self.team)] == [str(self.recent.pk)]
 
     def test_update_topic_labels(self) -> None:
-        update_topic_labels(self.team, {str(self.recent.pk): ("Create insights", "Agents build charts.")})
+        update_topic_labels(
+            self.team, {str(self.recent.pk): TopicLabel(label="Create insights", summary="Agents build charts.")}
+        )
 
         self.recent.refresh_from_db()
         assert (self.recent.label, self.recent.summary) == ("Create insights", "Agents build charts.")

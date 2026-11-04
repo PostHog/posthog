@@ -1,7 +1,7 @@
 """Test helpers shared by the intent topics tests."""
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import numpy as np
 
@@ -15,6 +15,12 @@ from products.mcp_analytics.backend.intent_topics.constants import (
     EMBEDDING_PRODUCT,
     EMBEDDING_RENDERING,
 )
+
+
+def recent_hour(days_ago: int = 1) -> datetime:
+    """A whole hour inside every intent topics table's TTL; ClickHouse expires rows with its own clock."""
+    return datetime.now(tz=UTC).replace(minute=0, second=0, microsecond=0) - timedelta(days=days_ago)
+
 
 _EMBEDDING_TABLE = next(t for t in EMBEDDING_TABLES if t.model_name == EMBEDDING_MODEL).distributed_table_name()
 

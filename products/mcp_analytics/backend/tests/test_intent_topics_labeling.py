@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from products.mcp_analytics.backend.facade.contracts import IntentGenerationUnavailable
 from products.mcp_analytics.backend.intent_topics.labeling import (
+    TopicLabel,
     TopicLabelInput,
     build_label_prompt,
     fallback_label,
@@ -58,7 +59,10 @@ class TestLabelTopics(APIBaseTest):
 
         labels = label_topics(self.team, [_candidate("t1"), _candidate("t2")])
 
-        assert labels == {"t1": ("Create insights", "Agents build charts."), "t2": ("List flags", "Agents read flags.")}
+        assert labels == {
+            "t1": TopicLabel(label="Create insights", summary="Agents build charts."),
+            "t2": TopicLabel(label="List flags", summary="Agents read flags."),
+        }
 
     @patch("products.mcp_analytics.backend.intent_topics.labeling.settings")
     @patch("products.mcp_analytics.backend.intent_topics.labeling.genai")
@@ -72,9 +76,9 @@ class TestLabelTopics(APIBaseTest):
             self.team, [_candidate("0193e5c2-aaaa", samples=["secret customer text"]), _candidate("0193e5c2-bbbb")]
         )
 
-        assert labels["0193e5c2-aaaa"][0] == "Topic 0193e5c2"
-        assert labels["0193e5c2-bbbb"][0] == "Topic 0193e5c2"
-        assert "secret" not in json.dumps(labels)
+        assert labels["0193e5c2-aaaa"].label == "Topic 0193e5c2"
+        assert labels["0193e5c2-bbbb"].label == "Topic 0193e5c2"
+        assert "secret" not in json.dumps({k: v.label + v.summary for k, v in labels.items()})
 
     @patch("products.mcp_analytics.backend.intent_topics.labeling.settings")
     def test_requires_consent_and_a_key(self, mock_settings) -> None:
