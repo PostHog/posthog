@@ -195,7 +195,7 @@ def _reject_new_inline_copy_keys(
     merged_config: dict[str, typing.Any],
     existing_config: dict[str, typing.Any],
 ) -> None:
-    """Reject new or changed inline AWS key pairs in Redshift `copy_inputs`, whatever the mode.
+    """Reject new or changed inline AWS keys in Redshift `copy_inputs`, whatever the mode.
 
     Runs for every mode so keys cannot be stored under `INSERT` and later switched to `COPY`
     as "unchanged" legacy credentials.
@@ -213,7 +213,7 @@ def _reject_new_inline_copy_keys(
         value = copy_inputs.get(field_name)
         if (
             isinstance(value, dict)
-            and _AWS_CREDENTIAL_KEYS <= value.keys()
+            and bool(_AWS_CREDENTIAL_KEYS & value.keys())
             and (instance is None or value != existing_copy_inputs.get(field_name))
         ):
             allowed_source = "an AWS S3 integration"

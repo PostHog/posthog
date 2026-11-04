@@ -467,9 +467,18 @@ def test_create_redshift_batch_export_validates_copy_integration_ids(
 
 
 @pytest.mark.parametrize("field_name", ["bucket_credentials", "authorization"])
+@pytest.mark.parametrize(
+    "credentials",
+    [
+        {"aws_access_key_id": "test-access-key", "aws_secret_access_key": "test-secret-key"},
+        {"aws_access_key_id": "test-access-key"},
+    ],
+    ids=["full_pair", "partial"],
+)
 def test_create_redshift_batch_export_rejects_inline_copy_keys_in_insert_mode(
     client: HttpClient,
     field_name: str,
+    credentials: dict[str, str],
     team: Team,
     user: User,
     aws_s3_integration: IntegrationRecord,
@@ -482,7 +491,7 @@ def test_create_redshift_batch_export_rejects_inline_copy_keys_in_insert_mode(
         "bucket_credentials": aws_s3_integration.id,
         "authorization": aws_s3_integration.id,
     }
-    copy_inputs[field_name] = {"aws_access_key_id": "test-access-key", "aws_secret_access_key": "test-secret-key"}
+    copy_inputs[field_name] = credentials
     batch_export_data = {
         "name": "my-production-redshift-destination",
         "destination": {
