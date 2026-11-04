@@ -63,6 +63,7 @@ from posthog.auth import InternalAPIAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dataclasses import frozen
 from posthog.event_usage import AGENT_EVENT_SOURCES, EventSource, get_event_source, report_user_action
+from posthog.exceptions import InsufficientScope
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
@@ -723,14 +724,23 @@ def _strip_replay_vision_code(inputs: Any) -> None:
             analysis.pop(key, None)
 
 
+def _replay_vision_missing_scopes(request: Request | None) -> list[str]:
+    """The scopes a token must add to save or run a Replay Vision step."""
+    scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
+    if scopes is None or "*" in scopes:
+        return []
+    return [accepted[0] for accepted in _REPLAY_VISION_STEP_SCOPES if not any(s in scopes for s in accepted)]
+
+
+def _replay_vision_scope_message(scope: str) -> str:
+    return f"The Replay Vision step needs a key with the {scope} scope."
+
+
 def _replay_vision_step_error(request: Request | None, team: Team, inputs: Any) -> str | None:
     """Why the caller may not save or live-test a Replay Vision step with these inputs, or None."""
     _strip_replay_vision_code(inputs)
-    scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
-    if scopes is not None and "*" not in scopes:
-        for accepted in _REPLAY_VISION_STEP_SCOPES:
-            if not any(scope in scopes for scope in accepted):
-                return f"The Replay Vision step needs a key with the {accepted[0]} scope."
+    if missing_scopes := _replay_vision_missing_scopes(request):
+        return _replay_vision_scope_message(missing_scopes[0])
     user = getattr(request, "user", None)
     if user is None or not user.is_authenticated or isinstance(user, SyntheticUser):
         return None
@@ -5118,8 +5128,8 @@ class HogFlowViewSet(
             after=after_date,
             before=before_date,
             breakdown_by=params.get("breakdown_by"),
-            name=params["name"].split(",") if params.get("name") else None,
-            kind=params["kind"].split(",") if params.get("kind") else None,
+            name=params.get("name") or None,
+            kind=params.get("kind") or None,
         )
         return Response(AppMetricResponseSerializer(instance=data).data)
 
@@ -6553,10 +6563,13 @@ class HogFlowViewSet(
     def _require_replay_vision_caller_access(self, request: Request, actions: Any) -> None:
         # A live test or a manual run starts the Replay Vision step as the workflow's owner, on sessions the caller
         # can pick, so the caller needs the access that saving the step needs.
+        missing_scopes = _replay_vision_missing_scopes(request)
         for step in actions if isinstance(actions, list) else []:
             config = (step.get("config") or {}) if isinstance(step, dict) else {}
             if config.get("template_id") != _REPLAY_VISION_TEMPLATE_ID:
                 continue
+            if missing_scopes:
+                raise InsufficientScope(missing_scopes, detail=_replay_vision_scope_message(missing_scopes[0]))
             error = _replay_vision_step_error(request, self.team, config.get("inputs"))
             if error is not None:
                 raise exceptions.PermissionDenied(error)

@@ -53,7 +53,12 @@ type ReadyValues = Pick<
     | 'feedbackCountByNodeId'
     | 'feedbackMode'
     | 'selectedStepFeedback'
-> & { traceExportLoading: boolean; backLink: LabeledLink | null; messagesOpening: MessagesOpening }
+> & {
+    traceExportLoading: boolean
+    traceCopying: boolean
+    backLink: LabeledLink | null
+    messagesOpening: MessagesOpening
+}
 
 interface ReadyActions {
     setMode: (mode: TraceMode) => void
@@ -63,6 +68,7 @@ interface ReadyActions {
     viewInThread: () => void
     prefetchNode: (id: string) => void
     exportTrace: () => void
+    copyTrace: () => void
     showFailingEvals: () => void
     setQuery: (query: string) => void
     stepMatch: (direction: MatchDirection) => void
@@ -83,6 +89,7 @@ function toReadyProps(values: ReadyValues, actions: ReadyActions): TraceViewRead
         header: {
             ...values.header,
             backLink: values.backLink,
+            copyAction: { loading: values.traceCopying, onCopy: actions.copyTrace },
             exportAction: { loading: values.traceExportLoading, onExport: actions.exportTrace },
         },
         summary: {
@@ -184,8 +191,8 @@ export const TraceViewContainer = memo(function TraceViewContainer({
     } = useValues(logic)
     const actions = useActions(logic)
     const exportLogic = traceExportLogic({ traceId, timestampHint })
-    const { traceExportLoading } = useValues(exportLogic)
-    const { exportTrace } = useActions(exportLogic)
+    const { traceExportLoading, traceCopying } = useValues(exportLogic)
+    const { exportTrace, copyTrace } = useActions(exportLogic)
     const { messagesOpening } = useValues(traceMessagesOpeningLogic)
     const { setMessagesOpening } = useActions(traceMessagesOpeningLogic)
 
@@ -222,10 +229,11 @@ export const TraceViewContainer = memo(function TraceViewContainer({
                       feedbackMode,
                       selectedStepFeedback,
                       traceExportLoading,
+                      traceCopying,
                       backLink,
                       messagesOpening,
                   },
-                  { ...actions, exportTrace, setMessagesOpening }
+                  { ...actions, exportTrace, copyTrace, setMessagesOpening }
               )
             : null
 

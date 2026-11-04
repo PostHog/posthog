@@ -338,6 +338,55 @@ describe('inboxFiltersLogic', () => {
         })
 
         it.each([
+            ['the default view', () => {}, null, 0],
+            ['a ranking sort with its automatic window', () => logic.actions.setSort('ranking_fix', 'desc'), '7d', 0],
+            [
+                'a different window under a ranking sort',
+                () => {
+                    logic.actions.setSort('ranking_fix', 'desc')
+                    logic.actions.setCreatedWindow('14d')
+                },
+                '14d',
+                1,
+            ],
+            ['a 7 day window under a non-ranking sort', () => logic.actions.setCreatedWindow('7d'), '7d', 1],
+            [
+                'status, priority and source',
+                () => {
+                    logic.actions.toggleState('resolved')
+                    logic.actions.setPriorityFilter(['P1'])
+                    logic.actions.setSourceFilter({ kind: 'scout', value: 'my-custom-scout' })
+                },
+                null,
+                3,
+            ],
+            [
+                'a reset under a ranking sort',
+                () => {
+                    logic.actions.setSort('ranking_fix', 'desc')
+                    logic.actions.setCreatedWindow('24h')
+                    logic.actions.setPriorityFilter(['P1'])
+                    logic.actions.clearFilters()
+                },
+                '7d',
+                0,
+            ],
+        ] as const)('counts non-default report filters for %s', (_name, act, createdWindow, count) => {
+            featureFlagLogic.actions.setFeatureFlags(
+                [FEATURE_FLAGS.INBOX_MODEL_SORT, FEATURE_FLAGS.INBOX_TIME_WINDOW, FEATURE_FLAGS.INBOX_SOURCE_FILTER],
+                {
+                    [FEATURE_FLAGS.INBOX_MODEL_SORT]: true,
+                    [FEATURE_FLAGS.INBOX_TIME_WINDOW]: true,
+                    [FEATURE_FLAGS.INBOX_SOURCE_FILTER]: true,
+                }
+            )
+
+            act()
+
+            expect(logic.values).toMatchObject({ createdWindow, nonDefaultReportFilterCount: count })
+        })
+
+        it.each([
             [
                 'keeps a stored model sort for staff with the flag',
                 'ranking_action',

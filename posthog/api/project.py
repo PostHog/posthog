@@ -1208,6 +1208,10 @@ class ProjectBackwardCompatSerializer(
                         continue
                     resource, required_level = field_mappings[field_name]
                     if resource == "project":
+                        # Without the entitlement a project rule is never consulted; validate_team_attrs
+                        # gates the admin-only fields on the membership level instead.
+                        if not user_access_control.access_controls_supported:
+                            continue
                         has_access = user_access_control.check_access_level_for_object(team, required_level)
                     else:
                         has_access = user_access_control.check_access_level_for_resource(resource, required_level)
