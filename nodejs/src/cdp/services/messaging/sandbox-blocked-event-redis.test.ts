@@ -80,7 +80,8 @@ describe('sandboxBlockedEventRedisConfig', () => {
                 createRedisV2PoolFromConfig(
                     sandboxBlockedEventRedisConfig({
                         url: '127.0.0.1',
-                        options: { port: store.port },
+                        // Without a retry limit the clients reconnect forever after the store stops, and Jest never exits.
+                        options: { port: store.port, retryStrategy: () => null },
                         name: 'sandbox-blocked-event-stalled-test',
                     })
                 )
