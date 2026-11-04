@@ -23,7 +23,6 @@ class TestCodeSendFieldRefusals(SimpleTestCase):
             ("cc_with_two_addresses_in_one", {"cc": "jane@example.com, joe@example.com"}, "cc__0"),
             ("cc_with_an_ip_literal_domain", {"cc": ["jane@[192.0.2.1]"]}, "cc__0"),
             ("bcc_with_a_non_ascii_domain", {"bcc": ["jane@bücher.example"]}, "bcc__0"),
-            ("empty_bcc", {"bcc": []}, "bcc"),
             ("too_many_bcc", {"bcc": [f"user{i}@example.com" for i in range(11)]}, "bcc"),
             (
                 "content_that_is_not_base64",
@@ -88,6 +87,7 @@ class TestCodeSendFieldRefusals(SimpleTestCase):
     @parameterized.expand(
         [
             ("one_address", {"cc": "copy@example.com"}),
+            ("empty_lists", {"cc": [], "bcc": [], "attachments": []}),
             (
                 "addresses_with_atext_symbols",
                 {

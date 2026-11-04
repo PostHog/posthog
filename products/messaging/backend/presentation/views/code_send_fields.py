@@ -48,7 +48,6 @@ def validate_pipeline_address(address: str) -> None:
             {
                 "type": "array",
                 "items": {"type": "string", "format": "email"},
-                "minItems": 1,
                 "maxItems": MAX_ADDRESSES_PER_FIELD,
             },
         ]
@@ -58,7 +57,6 @@ class AddressListField(serializers.ListField):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(
             child=serializers.EmailField(validators=[validate_pipeline_address]),
-            allow_empty=False,
             max_length=MAX_ADDRESSES_PER_FIELD,
             error_messages={"max_length": "Send at most {max_length} addresses."},
             **kwargs,
@@ -142,7 +140,6 @@ class AttachmentListField(serializers.ListField):
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(
             child=EmailAttachmentSerializer(),
-            allow_empty=False,
             max_length=MAX_ATTACHMENTS,
             error_messages={"max_length": "Send at most {max_length} attachments."},
             **kwargs,

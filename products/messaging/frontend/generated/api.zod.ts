@@ -102,13 +102,13 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
         .optional()
         .describe('Addresses replies to the email your code rendered go to.'),
     cc: zod
-        .union([zod.email(), zod.array(zod.email()).min(1).max(messagingSendEmailCreateBodyCcTwoMax)])
+        .union([zod.email(), zod.array(zod.email()).max(messagingSendEmailCreateBodyCcTwoMax)])
         .optional()
         .describe(
             'Addresses that get a visible copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name.'
         ),
     bcc: zod
-        .union([zod.email(), zod.array(zod.email()).min(1).max(messagingSendEmailCreateBodyBccTwoMax)])
+        .union([zod.email(), zod.array(zod.email()).max(messagingSendEmailCreateBodyBccTwoMax)])
         .optional()
         .describe(
             'Addresses that get a hidden copy of the email your code rendered: one address, or a list of up to 10. Each is a bare address such as `jane@example.com`, with no name.'
