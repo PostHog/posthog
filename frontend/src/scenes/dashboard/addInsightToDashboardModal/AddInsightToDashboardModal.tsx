@@ -34,7 +34,7 @@ const QUICK_CREATE_TYPES = [
 export function AddInsightToDashboardModal(): JSX.Element {
     const { hideAddInsightToDashboardModal, toggleShowMoreInsightTypes } = useActions(addInsightToDashboardLogic)
     const { addInsightToDashboardModalVisible, showMoreInsightTypes } = useValues(addInsightToDashboardLogic)
-    const { dashboard } = useValues(dashboardLogic)
+    const { dashboard, newTileGroupKey } = useValues(dashboardLogic)
     const { featureFlags } = useValues(featureFlagLogic)
 
     const handleClose = (): void => {
@@ -86,7 +86,11 @@ export function AddInsightToDashboardModal(): JSX.Element {
                                         type="primary"
                                         size="small"
                                         icon={<Icon />}
-                                        to={urls.insightNew({ type: type, dashboardId: dashboard?.id })}
+                                        to={urls.insightNew({
+                                            type: type,
+                                            dashboardId: dashboard?.id,
+                                            tileGroupKey: newTileGroupKey,
+                                        })}
                                         tooltip={INSIGHT_TYPES_METADATA[type]?.description}
                                         data-attr={`quick-create-${type.toLowerCase()}`}
                                         onClick={() => handleNewInsightClicked(type)}
@@ -105,10 +109,12 @@ export function AddInsightToDashboardModal(): JSX.Element {
                                                     type === InsightType.SQL
                                                         ? urls.sqlEditor({
                                                               dashboard: dashboard?.id,
+                                                              tileGroupKey: newTileGroupKey,
                                                           })
                                                         : urls.insightNew({
                                                               type: type as InsightType,
                                                               dashboardId: dashboard?.id,
+                                                              tileGroupKey: newTileGroupKey,
                                                           })
                                                 return (
                                                     <LemonButton
@@ -132,6 +138,7 @@ export function AddInsightToDashboardModal(): JSX.Element {
                                                     to={urls.insightNew({
                                                         type: InsightType.METRICS,
                                                         dashboardId: dashboard?.id,
+                                                        tileGroupKey: newTileGroupKey,
                                                     })}
                                                     data-attr="create-metrics"
                                                     onClick={() => handleNewInsightClicked(InsightType.METRICS)}
