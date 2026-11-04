@@ -48,6 +48,45 @@ function makeReport(id: string): SignalReport {
 }
 
 describe('reportListLogic', () => {
+    it('settles monitoring without requests while disabled and reloads when the flag changes', async () => {
+        const requests: string[] = []
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/available_reviewers': {},
+                [REPORTS_URL]: ({ request }) => {
+                    requests.push(request.url)
+                    return [200, { count: 1, next: null, previous: null, results: [makeReport('monitored')] }]
+                },
+            },
+        })
+        initKeaTests()
+        const logic = reportListLogic({
+            sectionKey: 'outcome-monitoring',
+            listParams: INBOX_REPORT_SECTION_LIST_PARAMS['outcome-monitoring'],
+        })
+        logic.mount()
+        try {
+            await expectLogic(logic, () => logic.actions.ensureLoaded()).toFinishAllListeners()
+            expect(requests).toEqual([])
+            expect(logic.values).toMatchObject({ count: 0, reports: [], isLoaded: true, hasMore: false })
+
+            await expectLogic(logic, () =>
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SIGNALS_REPORT_MONITORING], {
+                    [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: true,
+                })
+            ).toFinishAllListeners()
+            expect(requests).toHaveLength(2)
+            expect(requests.every((url) => new URL(url).searchParams.get('status') === 'monitoring')).toBe(true)
+            expect(logic.values).toMatchObject({ count: 1, reports: [makeReport('monitored')] })
+
+            await expectLogic(logic, () => featureFlagLogic.actions.setFeatureFlags([], {})).toFinishAllListeners()
+            expect(requests).toHaveLength(2)
+            expect(logic.values).toMatchObject({ count: 0, reports: [], hasMore: false })
+        } finally {
+            logic.unmount()
+        }
+    })
+
     describe('shouldDefaultToEntireProject', () => {
         const base = {
             sectionKey: 'needs-decision' as InboxReportSectionKey,
