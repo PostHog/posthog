@@ -1248,8 +1248,14 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
                 repository_candidates_for_signals, thread_sensitive=False
             )(input.team_id, input.signals)
             if not repository_candidates and not input.github_optional:
+                # GitHub can disconnect after selection. A failed report never recovers on reconnect,
+                # so this report waits as a suspended candidate instead.
+                await database_sync_to_async(suspend_research_after_lost_read_access, thread_sensitive=False)(
+                    input.team_id, input.report_id
+                )
                 raise ApplicationError(
                     "Repository discovery found no candidates for a project that requires GitHub",
+                    type=RESEARCH_SUSPENDED_FOR_GITHUB_ERROR_TYPE,
                     non_retryable=True,
                 )
             if not repository_candidates:

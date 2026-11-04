@@ -20,6 +20,7 @@ from products.tasks.backend.logic.repo_selection.agent import (
     _routing_rules_block,
     _salvage_repo_selection,
     filter_repository_candidates_for_sources,
+    research_repository_candidates,
     select_repository,
 )
 from products.tasks.backend.logic.repo_selection.types import RepoSelectionResult
@@ -545,6 +546,34 @@ def test_source_visibility_constrains_agent_selection(selected_repository: str) 
     assert "2. `acme/d` (private)" in prompt
     assert "`acme/c`" not in prompt
     session.end.assert_awaited_once()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "refreshed_private,expected",
+    [
+        (True, ["example/source", "example/target"]),
+        (False, ["example/source"]),
+        (None, ["example/source"]),
+    ],
+)
+def test_discovery_candidates_require_current_visibility(team, refreshed_private: bool | None, expected) -> None:
+    source = {"id": 1, "name": "source", "full_name": "example/source", "private": True}
+    Integration.objects.create(
+        team=team,
+        kind="github",
+        integration_id="discovery-visibility",
+        config={"installation_id": "discovery-visibility"},
+        repository_cache=[source, {"id": 2, "name": "target", "full_name": "example/target", "private": True}],
+        repository_cache_updated_at=timezone.now() - timedelta(days=2),
+    )
+    with patch.object(
+        GitHubIntegration,
+        "list_all_repositories",
+        return_value=[source, {"id": 2, "name": "target", "full_name": "example/target", "private": refreshed_private}],
+        side_effect=RuntimeError("GitHub unavailable") if refreshed_private is None else None,
+    ):
+        assert research_repository_candidates(team.id, "example/source") == expected
 
 
 @pytest.mark.django_db

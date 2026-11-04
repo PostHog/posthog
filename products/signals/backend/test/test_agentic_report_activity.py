@@ -2885,6 +2885,38 @@ async def test_discovery_without_candidates_blocks_a_project_that_requires_githu
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+async def test_candidates_lost_after_selection_suspend_research_instead_of_failing(ateam: Team) -> None:
+    report = await SignalReport.objects.acreate(team=ateam, status=SignalReport.Status.IN_PROGRESS)
+    with (
+        patch("products.signals.backend.temporal.agentic.report.repository_candidates_for_signals", return_value=[]),
+        patch(
+            "products.signals.backend.github_readiness.get_team_github_readiness",
+            return_value=GitHubReadiness(status=GitHubReadinessStatus.NOT_CONNECTED),
+        ),
+        pytest.raises(ApplicationError) as error,
+    ):
+        await run_agentic_report_activity(
+            RunAgenticReportInput(
+                team_id=ateam.id,
+                report_id=str(report.id),
+                signals=_build_signals(),
+                repo_selection=RepoSelectionResult(
+                    repository=None,
+                    reason="Selection unresolved",
+                    research_context=ReportResearchContext(
+                        mode="repository_discovery", repository_status="selection_unresolved"
+                    ),
+                ),
+            )
+        )
+    assert error.value.type == RESEARCH_SUSPENDED_FOR_GITHUB_ERROR_TYPE
+    await report.arefresh_from_db()
+    assert report.status == SignalReport.Status.CANDIDATE
+    assert report.research_blocked_reason == GitHubReadinessStatus.NOT_CONNECTED
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
 @pytest.mark.parametrize("confirmation_required,read_only", [(True, True), (False, False)])
 async def test_research_keeps_an_unconfirmed_target_read_only(
     ateam: Team, confirmation_required: bool, read_only: bool
