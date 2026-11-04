@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconChevronDown, IconGlobe, IconLock, IconPeople, IconShare } from '@posthog/icons'
+import { IconChevronDown, IconGlobe, IconLock, IconPeople, IconRefresh, IconShare } from '@posthog/icons'
 import {
     AlertDialog,
     AlertDialogContent,
@@ -78,8 +78,26 @@ function ShareTaskDialog({ taskId }: { taskId: string }): JSX.Element {
 
 export function QuillTaskShareControl({ taskId }: { taskId: string }): JSX.Element | null {
     const logic = taskShareLogic({ taskId })
-    const { visibility, isCreator, visibilityChanging, shareDialogOpen } = useValues(logic)
-    const { openShareDialog, setVisibility, copyLink } = useActions(logic)
+    const { visibility, isCreator, visibilityChanging, shareDialogOpen, shareStateLoadFailed, shareStateLoading } =
+        useValues(logic)
+    const { openShareDialog, setVisibility, copyLink, loadShareState } = useActions(logic)
+
+    if (shareStateLoadFailed) {
+        return (
+            <div data-quill className="contents">
+                <Button
+                    variant="outline"
+                    loading={shareStateLoading}
+                    onClick={() => loadShareState()}
+                    title="Could not load who can see this task. Click to try again."
+                    data-attr="task-share-retry"
+                >
+                    <IconRefresh />
+                    Share
+                </Button>
+            </div>
+        )
+    }
 
     if (!visibility) {
         return null
