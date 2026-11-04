@@ -487,6 +487,8 @@ class SignalReport(UUIDModel):
     first_visible_at = models.DateTimeField(null=True, blank=True)
     research_blocked_reason = models.CharField(max_length=64, null=True, blank=True)
     research_blocked_at = models.DateTimeField(null=True, blank=True)
+    implementation_blocked_reason = models.CharField(max_length=64, null=True, blank=True)
+    implementation_blocked_at = models.DateTimeField(null=True, blank=True)
     # When the report's inbox notification was dispatched. A report notifies once, ever: research
     # settles every time a new signal carries the report to its next bucket, and each settle starts
     # the notification workflow again, so without this a report re-notified per research pass. Set
@@ -2378,6 +2380,8 @@ class SignalReportTask(UUIDModel):
     # "repo_selection". Nullable because the brief link-only window allowed unlabelled rows; the
     # backfill maps those to default artefacts.
     relationship = models.CharField(max_length=200, null=True, blank=True)
+    report_run_count = models.IntegerField(null=True, blank=True)
+    report_content_revision_count = models.IntegerField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

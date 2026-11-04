@@ -24,6 +24,7 @@ from posthog.event_usage import groups
 from posthog.models.user import User
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
+from products.signals.backend.github_recovery import GITHUB_ACCESS_FAILURE
 from products.signals.backend.models import SignalFirstReportNotification, SignalReport, SignalReportArtefact
 from products.signals.backend.report_embeddings import (
     emit_report_embeddings,
@@ -31,7 +32,7 @@ from products.signals.backend.report_embeddings import (
     render_report_documents,
 )
 from products.signals.backend.suggested_reviewer_index import sync_suggested_reviewer_index
-from products.tasks.backend.facade.task_run_signals import connect_task_run_post_save
+from products.tasks.backend.facade.task_run_signals import connect_task_run_post_save, register_task_run_preflight
 
 if TYPE_CHECKING:
     from products.signals.backend.implementation_pr import PrCloseReason
@@ -81,6 +82,11 @@ _DOCUMENT_FIELDS = frozenset({"title", "summary"})
 
 
 def connect_task_run_assignment_sync() -> None:
+    register_task_run_preflight(check_implementation_github_access, name="signals.github_access")
+    connect_task_run_post_save(
+        schedule_github_implementation_retry,
+        dispatch_uid="signals_github_implementation_retry",
+    )
     connect_task_run_post_save(
         sync_task_run_pr_to_assignments,
         dispatch_uid="signals_sync_task_run_pr_to_assignments",
@@ -89,6 +95,30 @@ def connect_task_run_assignment_sync() -> None:
         schedule_implementation_handover,
         dispatch_uid="signals_schedule_implementation_handover",
     )
+
+
+def check_implementation_github_access(run_id: str, create_pr: bool) -> None:
+    from products.signals.backend.implementation_github_recovery import (  # noqa: PLC0415 - keeps task execution dependencies off Django startup
+        require_implementation_github_access,
+    )
+
+    require_implementation_github_access(run_id, create_pr)
+
+
+def schedule_github_implementation_retry(sender: type, instance: Any, created: bool, **kwargs: Any) -> None:
+    update_fields = kwargs.get("update_fields")
+    if (
+        created
+        or instance.status != "failed"
+        or (instance.state or {}).get("failure_error_type") != GITHUB_ACCESS_FAILURE
+        or (update_fields is not None and "status" not in update_fields)
+    ):
+        return
+    from products.signals.backend.implementation_github_recovery_tasks import (  # noqa: PLC0415 - keeps Celery task imports off Django startup
+        retry_github_blocked_implementations,
+    )
+
+    transaction.on_commit(partial(retry_github_blocked_implementations.delay, instance.team_id), robust=True)
 
 
 def schedule_implementation_handover(sender: type, instance: Any, created: bool, **kwargs: Any) -> None:

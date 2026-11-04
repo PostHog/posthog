@@ -4305,6 +4305,10 @@ class TestTaskAPI(BaseTaskAPITest):
                         "run_source": "manual",
                         "pr_base_branch": "other",
                         "failure_error_type": "ComputeBillingLimitError",
+                        "github_blocked_reason": "different_reason",
+                        "github_recovery_deadline": "2099-01-01T00:00:00+00:00",
+                        "github_recovery_repository": "example/other",
+                        "github_recovery_user_id": 12345,
                         "agent_parent_task_id": "00000000-0000-4000-8000-000000000002",
                     }
                 },
@@ -4317,6 +4321,10 @@ class TestTaskAPI(BaseTaskAPITest):
                         "run_source",
                         "pr_base_branch",
                         "failure_error_type",
+                        "github_blocked_reason",
+                        "github_recovery_deadline",
+                        "github_recovery_repository",
+                        "github_recovery_user_id",
                         "agent_parent_task_id",
                         "agent_parent_run_id",
                     ]
@@ -4330,6 +4338,10 @@ class TestTaskAPI(BaseTaskAPITest):
                         "run_source": ["manual"],
                         "pr_base_branch": ["other"],
                         "failure_error_type": ["ComputeBillingLimitError"],
+                        "github_blocked_reason": ["different_reason"],
+                        "github_recovery_deadline": ["2099-01-01T00:00:00+00:00"],
+                        "github_recovery_repository": ["example/other"],
+                        "github_recovery_user_id": [12345],
                         "agent_parent_task_id": ["00000000-0000-4000-8000-000000000002"],
                     }
                 },
@@ -4360,7 +4372,13 @@ class TestTaskAPI(BaseTaskAPITest):
             "agent_parent_run_id": "00000000-0000-4000-8000-000000000003",
         }
         run.status = TaskRun.Status.IN_PROGRESS
-        run.state = {**run.state, **lineage}
+        recovery_state = {
+            "github_blocked_reason": "not_connected",
+            "github_recovery_deadline": (django_timezone.now() + timedelta(days=7)).isoformat(),
+            "github_recovery_repository": "example/original",
+            "github_recovery_user_id": self.user.id,
+        }
+        run.state = {**run.state, **lineage, **recovery_state}
         run.save(update_fields=["status", "state"])
         client = self._sandbox_oauth_client(task.id, internal_scope=True)
         response = client.patch(f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/", payload, format="json")
@@ -4375,6 +4393,7 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(run.state["run_source"], "agent")
         self.assertEqual(run.state["pr_base_branch"], base_branch)
         self.assertNotIn("failure_error_type", run.state)
+        self.assertEqual({key: run.state.get(key) for key in recovery_state}, recovery_state)
         self.assertEqual({key: run.state.get(key) for key in lineage}, lineage)
         run.status = TaskRun.Status.COMPLETED
         run.save(update_fields=["status"])
