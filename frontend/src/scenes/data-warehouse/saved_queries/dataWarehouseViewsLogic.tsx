@@ -848,8 +848,12 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
                 lemonToast.success(fullRefresh ? 'Full refresh started' : 'Materialization started')
                 actions.loadDataWarehouseSavedQueries()
             } catch (error: any) {
+                const retryAfter = error?.formattedRetryAfter
                 lemonToast.error(
-                    error?.detail || (fullRefresh ? 'Failed to start full refresh' : 'Failed to run materialization')
+                    retryAfter
+                        ? `This view can't run again yet. Try again ${retryAfter}.`
+                        : error?.detail ||
+                              (fullRefresh ? 'Failed to start full refresh' : 'Failed to run materialization')
                 )
                 actions.runDataWarehouseSavedQueryFailure(viewId)
             }
