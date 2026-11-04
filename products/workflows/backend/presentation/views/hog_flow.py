@@ -7182,8 +7182,7 @@ class HogFlowViewSet(
                 "hog_flow_deleted", _DeletedWorkflow(id=flow_id, name=name), {"via": "bulk_delete"}
             )
 
-        deleted_count = len(deleted)
-        return Response({"deleted": deleted_count})
+        return Response({"deleted": len(deleted), "deleted_ids": [str(flow_id) for flow_id, _ in deleted]})
 
     # Cap the per-workflow breakdown to bound the response; worst-first sorting means the cut
     # tail is the healthiest workflows, and search reaches past the cap.

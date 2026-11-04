@@ -6597,7 +6597,7 @@ class TestHogFlowAPI(APIBaseTest):
             {"ids": [draft_id, archived_id]},
         )
         assert response.status_code == 200, response.json()
-        assert response.json()["deleted"] == 1
+        assert response.json() == {"deleted": 1, "deleted_ids": [archived_id]}
         assert HogFlow.objects.filter(id=draft_id).exists()
         assert not HogFlow.objects.filter(id=archived_id).exists()
 

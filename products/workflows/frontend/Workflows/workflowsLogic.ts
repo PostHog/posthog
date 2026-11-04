@@ -583,7 +583,8 @@ export const workflowsLogic = kea<workflowsLogicType>([
                         try {
                             const result = await api.hogFlows.bulkDeleteHogFlows(ids)
                             lemonToast.success(`${result.deleted} workflow${result.deleted === 1 ? '' : 's'} deleted`)
-                            for (const id of ids) {
+                            // A workflow restored after it was selected is not deleted, so it stays in the tree.
+                            for (const id of result.deleted_ids) {
                                 deleteFromTree('hog_flow', id)
                             }
                             actions.clearArchivedWorkflowSelection()

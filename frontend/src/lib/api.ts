@@ -6438,7 +6438,7 @@ const api = {
         async deleteHogFlow(hogFlowId: HogFlow['id']): Promise<void> {
             return await new ApiRequest().hogFlow(hogFlowId).delete()
         },
-        async bulkDeleteHogFlows(ids: string[]): Promise<{ deleted: number }> {
+        async bulkDeleteHogFlows(ids: string[]): Promise<{ deleted: number; deleted_ids: string[] }> {
             return await new ApiRequest().hogFlows().withAction('bulk_delete').create({ data: { ids } })
         },
         async createTestInvocation(
