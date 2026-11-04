@@ -213,9 +213,14 @@ def list_membership_cleanup_teams(store: MembershipCleanupStore) -> list[int]:
     with transaction.atomic():
         scan = MembershipCleanupScan.objects.for_team(0).select_for_update().get()
         teams = _list_team_page(store, scan.last_team_id)
-        scan.last_team_id = teams[-1] if teams else 0
-        scan.save(update_fields=["last_team_id"])
+        if not teams:
+            scan.last_team_id = 0
+            scan.save(update_fields=["last_team_id"])
         return teams
+
+
+def record_membership_cleanup_team(team_id: int) -> None:
+    MembershipCleanupScan.objects.for_team(0).update(last_team_id=team_id)
 
 
 def _get_key(candidate: MembershipCleanupCandidate) -> MembershipKey:

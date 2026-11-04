@@ -29,6 +29,7 @@ with workflow.unsafe.imports_passed_through():
         MembershipCleanupInput,
         MembershipCleanupStore,
         list_membership_cleanup_teams,
+        record_membership_cleanup_team,
         run_membership_cleanup,
     )
 
@@ -53,6 +54,11 @@ class MembershipCleanupScheduleInput:
 @activity.defn
 async def list_membership_cleanup_teams_activity() -> list[int]:
     return await database_sync_to_async(list_membership_cleanup_teams, thread_sensitive=False)(MembershipCleanupStore())
+
+
+@activity.defn
+async def record_membership_cleanup_team_activity(team_id: int) -> None:
+    await database_sync_to_async(record_membership_cleanup_team, thread_sensitive=False)(team_id)
 
 
 @activity.defn
@@ -109,6 +115,8 @@ class MembershipCleanupWorkflow:
             if not teams:
                 break
             for team_id in teams:
+                if workflow.now() >= deadline:
+                    return
                 try:
                     await workflow.execute_child_workflow(
                         MembershipCleanupTeamWorkflow.run,
@@ -120,6 +128,12 @@ class MembershipCleanupWorkflow:
                     )
                 except (ChildWorkflowError, WorkflowAlreadyStartedError):
                     workflow.logger.exception("Membership cleanup failed for team %s", team_id)
+                await workflow.execute_activity(
+                    record_membership_cleanup_team_activity,
+                    team_id,
+                    start_to_close_timeout=timedelta(minutes=1),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
 
 
 async def create_membership_cleanup_schedule(client: Client) -> None:

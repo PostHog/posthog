@@ -5,6 +5,7 @@ from hashlib import sha256
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
+from posthog.models.person.util import get_distinct_id_rows
 
 QUERY_TIMEOUT_SECONDS = 30
 
@@ -41,7 +42,8 @@ class MembershipExistence:
 def get_membership_existence(team_id: int, keys: Sequence[MembershipKey]) -> MembershipExistence:
     if not keys:
         return MembershipExistence(persons=frozenset(), groups=frozenset())
-    parameters = {"team_id": team_id, "distinct_ids": list({key.distinct_id for key in keys})}
+    distinct_ids = {key.distinct_id for key in keys}
+    parameters = {"team_id": team_id, "distinct_ids": list(distinct_ids)}
     mappings = sync_execute(
         """SELECT distinct_id, argMax(tuple(person_id, is_deleted), version) AS mapping
         FROM person_distinct_id2
@@ -65,6 +67,14 @@ def get_membership_existence(team_id: int, keys: Sequence[MembershipKey]) -> Mem
         else []
     )
     live_person_ids = {row[0] for row in persons}
+    live_distinct_ids = {mapping[0] for mapping in mappings if mapping[1][0] in live_person_ids}
+    missing_distinct_ids = distinct_ids - live_distinct_ids
+    if missing_distinct_ids:
+        live_distinct_ids.update(
+            row.distinct_id
+            for row in get_distinct_id_rows(team_id, list(missing_distinct_ids), strong=True)
+            if not row.is_deleted and row.HasField("person_is_deleted") and not row.person_is_deleted
+        )
     groups = sync_execute(
         """SELECT DISTINCT group_type_index, group_key FROM groups
         WHERE team_id = %(team_id)s AND (group_type_index, group_key) IN %(groups)s""",
@@ -73,6 +83,6 @@ def get_membership_existence(team_id: int, keys: Sequence[MembershipKey]) -> Mem
         workload=Workload.OFFLINE,
     )
     return MembershipExistence(
-        persons=frozenset(mapping[0] for mapping in mappings if mapping[1][0] in live_person_ids),
+        persons=frozenset(live_distinct_ids),
         groups=frozenset((row[0], row[1]) for row in groups),
     )

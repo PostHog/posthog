@@ -28,6 +28,7 @@ from products.customer_analytics.backend.models.membership_cleanup import (
     MembershipCleanupScan,
 )
 from products.customer_analytics.backend.temporal.membership_cleanup import (
+    COORDINATOR_RUN_BUDGET,
     SCHEDULE_ID,
     TEAM_RUN_BUDGET,
     MembershipCleanupScheduleInput,
@@ -36,6 +37,7 @@ from products.customer_analytics.backend.temporal.membership_cleanup import (
     create_membership_cleanup_schedule,
     list_membership_cleanup_teams_activity,
     membership_cleanup_activity,
+    record_membership_cleanup_team_activity,
 )
 
 
@@ -57,6 +59,22 @@ async def test_team_workflow_stops_at_scan_or_run_limit(
         result = await MembershipCleanupTeamWorkflow().run(MembershipCleanupInput(team_id=1))
     assert result.scanned == 100 * expected_batches
     assert result.has_more == has_more
+
+
+@pytest.mark.asyncio
+async def test_coordinator_stops_between_teams_at_deadline() -> None:
+    now = timezone.now()
+    execute_activity = AsyncMock(side_effect=[[1, 2], None])
+    execute_child = AsyncMock()
+    with (
+        patch("temporalio.workflow.now", side_effect=[now, now, now, now + COORDINATOR_RUN_BUDGET]),
+        patch("temporalio.workflow.execute_activity", execute_activity),
+        patch("temporalio.workflow.execute_child_workflow", execute_child),
+    ):
+        await MembershipCleanupWorkflow().run(MembershipCleanupScheduleInput())
+    assert execute_child.await_count == 1
+    assert execute_child.call_args.args[1].team_id == 1
+    assert execute_activity.call_args.args == (record_membership_cleanup_team_activity, 1)
 
 
 @pytest.mark.django_db(transaction=True)
@@ -132,7 +150,11 @@ async def test_temporal_cleanup_erases_membership_after_grace_period(
             environment.client,
             task_queue=task_queue,
             workflows=[MembershipCleanupWorkflow, MembershipCleanupTeamWorkflow],
-            activities=[list_membership_cleanup_teams_activity, membership_cleanup_activity],
+            activities=[
+                list_membership_cleanup_teams_activity,
+                membership_cleanup_activity,
+                record_membership_cleanup_team_activity,
+            ],
         ):
             await environment.client.execute_workflow(
                 MembershipCleanupWorkflow.run,

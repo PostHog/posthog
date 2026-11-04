@@ -30,6 +30,7 @@ from products.customer_analytics.backend.temporal.membership_cleanup import (
     MembershipCleanupWorkflow,
     list_membership_cleanup_teams_activity,
     membership_cleanup_activity,
+    record_membership_cleanup_team_activity,
 )
 from products.customer_analytics.backend.temporal.ownership_claims import (
     OwnershipClaimsCoordinatorWorkflow,
@@ -59,6 +60,7 @@ ACTIVITIES = [
     prepare_membership_backfill_activity,
     list_membership_cleanup_teams_activity,
     membership_cleanup_activity,
+    record_membership_cleanup_team_activity,
     account_track_rule_collect_configs_activity,
     account_track_rule_create_scheduled_run_activity,
     account_track_rule_fail_run_activity,

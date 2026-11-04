@@ -110,6 +110,7 @@ The gate runs before shard processing and again during verification, with the sa
 It stores distinct IDs and historical group associations, but no person properties.
 Cleanup checks current distinct-ID mappings and live persons before it removes membership.
 Deleted mappings and deleted persons count as missing identities.
+When ClickHouse reports a person as missing, a strong personhog read confirms the mapping and its owner before cleanup.
 
 The `customer-analytics-membership-cleanup` Temporal schedule owns physical person and group cleanup.
 It does not change the existing person or group deletion processes.
@@ -126,7 +127,8 @@ A lock on each team's scan row prevents concurrent batches, including activity a
 Each team workflow processes at most 100 batches and stops starting batches after 10 minutes.
 It stops early when the membership scan is complete and no full candidate batch made progress.
 The coordinator processes at most 10 pages of 25 teams in sequence.
-It stops at the end of the team scan and stops starting pages after 45 minutes.
+It stops at the end of the team scan and stops starting teams after 45 minutes.
+The coordinator saves each processed team so the next run can process the remaining teams in the page.
 The job saves scan positions between runs when it reaches these limits.
 
 For each missing side, the job records a candidate with `first_missing_at`.

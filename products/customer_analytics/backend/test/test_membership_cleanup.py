@@ -11,6 +11,7 @@ from django.utils import timezone
 from parameterized import parameterized
 
 from posthog.clickhouse.client import sync_execute
+from posthog.personhog_client.proto import CONSISTENCY_LEVEL_STRONG, DistinctIdRow, GetDistinctIdRowsResponse
 
 from products.customer_analytics.backend.logic.membership import MembershipKey
 from products.customer_analytics.backend.logic.membership_cleanup import (
@@ -18,6 +19,7 @@ from products.customer_analytics.backend.logic.membership_cleanup import (
     MembershipCleanupInput,
     MembershipCleanupStore,
     list_membership_cleanup_teams,
+    record_membership_cleanup_team,
     run_membership_cleanup,
 )
 from products.customer_analytics.backend.models.membership_cleanup import (
@@ -162,6 +164,54 @@ class TestMembershipCleanup(ClickhouseTestMixin, APIBaseTest):
         assert list(MembershipCleanupCandidate.objects.for_team(self.team.pk).values()) == before
         assert self.get_rows() == [(self.key.distinct_id,)]
         assert MembershipCleanupScan.objects.for_team(self.team.pk).get().cursor == []
+
+    @parameterized.expand([("live",), ("deleted_mapping",), ("deleted_person",), ("orphan",), ("unavailable",)])
+    def test_primary_identity_check_protects_membership(self, identity_state: str) -> None:
+        self.create_membership()
+        self.create_group()
+        with travel(self.now, tick=False):
+            self.run_cleanup()
+        row = DistinctIdRow(
+            distinct_id=self.key.distinct_id,
+            person_id=1,
+            is_deleted=identity_state == "deleted_mapping",
+        )
+        if identity_state != "orphan":
+            row.person_is_deleted = identity_state == "deleted_person"
+        with (
+            travel(self.now + timedelta(days=2), tick=False),
+            patch("posthog.models.person.util._get_client") as get_client,
+        ):
+            lookup = get_client.return_value.get_distinct_id_rows
+            lookup.return_value = GetDistinctIdRowsResponse(rows=[row])
+            if identity_state == "unavailable":
+                lookup.side_effect = RuntimeError("identity unavailable")
+                with self.assertRaisesRegex(RuntimeError, "identity unavailable"):
+                    self.run_cleanup()
+            else:
+                result = self.run_cleanup()
+                assert result.deleted == (0 if identity_state == "live" else 1)
+                assert result.recovered == (1 if identity_state == "live" else 0)
+            assert lookup.call_args.args[0].read_options.consistency == CONSISTENCY_LEVEL_STRONG
+        if identity_state in ("live", "unavailable"):
+            assert self.get_rows() == [(self.key.distinct_id,)]
+            assert MembershipCleanupCandidate.objects.for_team(self.team.pk).exists() == (
+                identity_state == "unavailable"
+            )
+        else:
+            assert self.get_rows() == []
+
+    def test_team_discovery_resumes_after_last_processed_team(self) -> None:
+        self.create_membership()
+        later_team_id = self.team.pk + 1000000
+        self.create_membership(team_id=later_team_id)
+        assert list_membership_cleanup_teams(self.store) == [self.team.pk, later_team_id]
+        assert list_membership_cleanup_teams(self.store) == [self.team.pk, later_team_id]
+        record_membership_cleanup_team(self.team.pk)
+        assert list_membership_cleanup_teams(self.store) == [later_team_id]
+        record_membership_cleanup_team(later_team_id)
+        assert list_membership_cleanup_teams(self.store) == []
+        assert list_membership_cleanup_teams(self.store) == [self.team.pk, later_team_id]
 
     def test_failed_verification_keeps_candidates_for_retry(self) -> None:
         self.create_membership()
