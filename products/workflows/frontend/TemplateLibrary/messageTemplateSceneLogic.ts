@@ -26,8 +26,8 @@ export interface messageTemplateSceneLogicValues {
 export interface messageTemplateSceneLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        breadcrumbs: (id: string, isTransactional: boolean, section: TemplateSection) => Breadcrumb[]
         projectTreeRef: (id: string) => ProjectTreeRef | null
+        breadcrumbs: (id: string, isTransactional: boolean, section: TemplateSection) => Breadcrumb[]
     }
 }
 
