@@ -165,11 +165,11 @@ describe('InsightDisplayConfig', () => {
                 {
                     tabs: ['General', 'Axes', 'Lines'],
                     sections: {
-                        General: ['Annotations', 'Unit', 'Color customization by'],
+                        General: ['Unit', 'Color customization by'],
                         Axes: ['X-axis', 'Y-axis'],
                         Lines: ['Style', 'Overlays'],
                     },
-                    displayItems: ['Show values on series', 'Show legend', 'Legend positionBottom'],
+                    displayItems: ['Show values on series', 'Show legend', 'Legend positionBottom', 'Annotations All'],
                     overlayItems: lineOverlays,
                 },
             ],
@@ -179,7 +179,7 @@ describe('InsightDisplayConfig', () => {
                 {
                     tabs: ['General', 'Axes', 'Lines'],
                     sections: {
-                        General: ['Annotations', 'Unit'],
+                        General: ['Unit'],
                         Axes: ['X-axis', 'Y-axis'],
                         Lines: ['Overlays'],
                     },
@@ -188,6 +188,7 @@ describe('InsightDisplayConfig', () => {
                         'Show as % of total',
                         'Show legend',
                         'Legend positionBottom',
+                        'Annotations All',
                     ],
                     overlayItems: lineOverlays,
                 },
@@ -198,7 +199,7 @@ describe('InsightDisplayConfig', () => {
                 {
                     tabs: ['General', 'Axes', 'Lines'],
                     sections: {
-                        General: ['Annotations', 'Unit'],
+                        General: ['Unit'],
                         Axes: ['X-axis', 'Y-axis'],
                         Lines: ['Style', 'Overlays'],
                     },
@@ -207,6 +208,7 @@ describe('InsightDisplayConfig', () => {
                         'Show as % of total',
                         'Show legend',
                         'Legend positionBottom',
+                        'Annotations All',
                     ],
                 },
             ],
