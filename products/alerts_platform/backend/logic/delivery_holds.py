@@ -6,9 +6,10 @@ request, hands it back to whoever releases it with a send, and sends it itself o
 deadline passes, so a source that never answers still delivers.
 """
 
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Final
+from uuid import UUID
 
 from django.db import transaction
 
@@ -21,7 +22,12 @@ from products.alerts_platform.backend.facade.contracts import (
     IncidentAction,
     PlatformAlertOutcome,
 )
-from products.alerts_platform.backend.facade.enums import HoldRelease, HoldReleasedBy, PlatformAlertState
+from products.alerts_platform.backend.facade.enums import (
+    HoldRelease,
+    HoldReleasedBy,
+    PlatformAlertOwner,
+    PlatformAlertState,
+)
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration, PlatformAlertDeliveryHold
 from products.alerts_platform.backend.models.platform_alert_events_sql import PLATFORM_ALERT_EVENTS_TTL_DAYS
 
@@ -177,6 +183,28 @@ def blocks_delivery(team_id: int, configuration_id: str, evaluation_key: str) ->
         # An unreleased hold has no action, and the exclusion keeps it.
         .exclude(release_action=HoldRelease.SEND)
         .exists()
+    )
+
+
+def source_suppressed_holds_by_legacy_id(
+    team_id: int, legacy_configuration_id: UUID, evaluation_keys: Collection[str]
+) -> frozenset[str]:
+    """The named evaluations of an alert the platform owns whose hold its source released with a suppress.
+
+    A suppress by the safety net is left out: it is the platform's, for a configuration turned off.
+    """
+    if not evaluation_keys:
+        return frozenset()
+    return frozenset(
+        PlatformAlertDeliveryHold.objects.for_team(team_id)
+        .filter(
+            configuration__legacy_configuration_id=legacy_configuration_id,
+            configuration__owner=PlatformAlertOwner.PLATFORM,
+            evaluation_key__in=evaluation_keys,
+            release_action=HoldRelease.SUPPRESS,
+        )
+        .exclude(released_by=HoldReleasedBy.SAFETY_NET)
+        .values_list("evaluation_key", flat=True)
     )
 
 
