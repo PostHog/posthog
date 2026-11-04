@@ -302,6 +302,11 @@ export const RowExpanded: Story = {
     play: async ({ canvasElement }) => expandRow(canvasElement, 'revenue_by_account'),
 }
 
+export const RowExpandedNarrow: Story = {
+    decorators: [inMainContent('w-128')],
+    play: async ({ canvasElement }) => expandRow(canvasElement, 'revenue_by_account'),
+}
+
 export const ProposedCertifications: Story = {
     parameters: {
         pageUrl: combineUrl(urls.dataCatalog('tables'), { filter: 'proposed' }).url,
