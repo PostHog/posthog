@@ -1669,6 +1669,22 @@ function stripOutputFormatProperty(jsonSchema: Record<string, unknown>): Record<
     return { ...jsonSchema, properties: rest }
 }
 
+function withInfoFieldDescriptions(
+    jsonSchema: Record<string, unknown>,
+    descriptions: Record<string, string> | undefined
+): Record<string, unknown> {
+    const properties = jsonSchema.properties as Record<string, Record<string, unknown>> | undefined
+    if (!properties || !descriptions) {
+        return jsonSchema
+    }
+    const compacted = Object.fromEntries(
+        Object.entries(properties).map(([field, property]) =>
+            field in descriptions ? [field, { ...property, description: descriptions[field] }] : [field, property]
+        )
+    )
+    return { ...jsonSchema, properties: compacted }
+}
+
 /** A lowercase hyphenated token, the shape every name in the tool catalog takes. */
 const HINT_TOOL_NAME_PATTERN = /[a-z][a-z0-9]*(?:-[a-z0-9]+)+/g
 
@@ -2041,7 +2057,11 @@ export function createExecTool(
                         description: tool.description,
                         annotations: tool.annotations,
                     }
-                    const fullOutput = serialize(topShape, fullSchema)
+                    const infoSchema = withInfoFieldDescriptions(
+                        fullSchema as Record<string, unknown>,
+                        tool.infoFieldDescriptions
+                    )
+                    const fullOutput = serialize(topShape, infoSchema)
 
                     if (fullOutput.length <= TOKEN_CHAR_LIMIT) {
                         return fullOutput
@@ -2051,7 +2071,7 @@ export function createExecTool(
                     // Each complex field's `hint` carries the imperative to run
                     // `schema` before populating it, so no separate directive is
                     // needed here.
-                    const summary = summarizeSchema(fullSchema as Record<string, unknown>, tool.name)
+                    const summary = summarizeSchema(infoSchema, tool.name)
                     return serialize(topShape, summary)
                 }
 

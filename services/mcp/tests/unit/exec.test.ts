@@ -1488,6 +1488,19 @@ describe('exec tool', () => {
             expect(parsed.inputSchema.required ?? []).not.toContain('kind')
         })
 
+        it.each([
+            ['info --json mock-tool', (out: any) => out.inputSchema.properties.url.description, 'Short url.'],
+            ['schema mock-tool url', (out: any) => out.schema.description, 'Full url with the catalog.'],
+        ])('%s serves the matching url description', async (command, pick, expected) => {
+            const tool = makeMockTool({
+                schema: z.object({ url: z.string().describe('Full url with the catalog.') }),
+                infoFieldDescriptions: { url: 'Short url.' },
+            })
+            const exec = createExec([tool])
+            const result = (await exec.handler(mockContext, { command })) as string
+            expect(pick(JSON.parse(result))).toBe(expected)
+        })
+
         it('throws usage error for bare info', async () => {
             const exec = createExec()
             await expect(exec.handler(mockContext, { command: 'info' })).rejects.toThrow(

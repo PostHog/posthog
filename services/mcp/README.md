@@ -317,6 +317,9 @@ Skill use is advisory: a product `call` is never rejected for skipping `learn`, 
 PostHog Code sends that header only when its agent has the bundled skills: the desktop app always, and a Tasks sandbox unless the run strips them (`disable_skills`, or `POSTHOG_CODE_DISABLE_BUNDLED_SKILLS=1` in its sandbox environment).
 Tools mode, `consumer=posthog-code` without the header, and cli clients without `learn` keep the full description, because they have no on-demand path the server can rely on.
 
+A tool can also give `info` a short description for a long input field through `infoFieldDescriptions`, and `schema <tool> <field>` still returns the full one.
+`info generate-app-url` uses this for its `url` field, so the catalog of app path templates loads only through `schema generate-app-url url`. Tools mode keeps the catalog inline.
+
 The skill bundle is shared through Redis: each pod loads it once at startup, parses it into memory, and serves every `learn` command from that parsed catalog.
 A background timer polls a small version key in Redis; only when the version changes does a pod read the archive bytes again.
 One pod at a time refreshes the archive from its source when the shared copy is older than ten minutes, using a conditional request so an unchanged release costs a 304.
