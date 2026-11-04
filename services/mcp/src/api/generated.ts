@@ -67465,6 +67465,122 @@ export namespace Schemas {
       created_time: string | null;
     }
 
+    export interface MonthlyScoutUsage {
+      /**
+         * Recorded finalized usage in credits, including exempt usage. Decimal string preserving fractional credits.
+         * @pattern ^-?\d{0,20}(?:\.\d{0,4})?$
+         */
+      total_credits: string;
+      /**
+         * Subset of total_credits marked billing-exempt; not an invoice adjustment or grant balance.
+         * @pattern ^-?\d{0,20}(?:\.\d{0,4})?$
+         */
+      exempt_credits: string;
+      /** Whether accounting is missing, failed, or still settling. */
+      incomplete: boolean;
+      /**
+         * Scout configuration UUID, if it still exists.
+         * @nullable
+         */
+      scout_config_id: string | null;
+      /** Scout skill name. */
+      skill_name: string;
+      /** Scout display name, falling back to its skill name. */
+      display_name: string;
+      /** Number of tracked scout runs whose spend finalized in this month, including runs with no reports. */
+      run_count: number;
+      /** Distinct report IDs emitted by these runs. Reports can be shared across scouts; do not sum this as a project report count. */
+      reports_produced: number;
+    }
+
+    export interface MonthlySourceUsage {
+      /**
+         * Recorded finalized usage in credits, including exempt usage. Decimal string preserving fractional credits.
+         * @pattern ^-?\d{0,20}(?:\.\d{0,4})?$
+         */
+      total_credits: string;
+      /**
+         * Subset of total_credits marked billing-exempt; not an invoice adjustment or grant balance.
+         * @pattern ^-?\d{0,20}(?:\.\d{0,4})?$
+         */
+      exempt_credits: string;
+      /** Whether accounting is missing, failed, or still settling. */
+      incomplete: boolean;
+      /**
+         * Product that emitted the signal. Null means attribution is unavailable; usage is retained.
+         * @nullable
+         */
+      source_product: string | null;
+      /**
+         * Signal type within the source product.
+         * @nullable
+         */
+      source_type: string | null;
+      /**
+         * Credits for processing this source's signals.
+         * @pattern ^-?\d{0,20}(?:\.\d{0,4})?$
+         */
+      processing_credits: string;
+      /**
+         * Research and repository-selection credits attributed to their triggering signals.
+         * @pattern ^-?\d{0,20}(?:\.\d{0,4})?$
+         */
+      research_credits: string;
+      /**
+         * Implementation credits attributed to each report's current triggering signal.
+         * @pattern ^-?\d{0,20}(?:\.\d{0,4})?$
+         */
+      implementation_credits: string;
+    }
+
+    export interface UsagePricing {
+      /** Currency of the recorded usage value: USD. */
+      currency: string;
+      /**
+         * Multiply credits by this value to get recorded usage in USD, before billing exemptions, grants, discounts, or invoice rounding.
+         * @pattern ^-?\d{0,4}(?:\.\d{0,8})?$
+         */
+      usd_per_credit: string;
+    }
+
+    export interface MonthlyUsage {
+      /**
+         * Recorded finalized usage in credits, including exempt usage. Decimal string preserving fractional credits.
+         * @pattern ^-?\d{0,20}(?:\.\d{0,4})?$
+         */
+      total_credits: string;
+      /**
+         * Subset of total_credits marked billing-exempt; not an invoice adjustment or grant balance.
+         * @pattern ^-?\d{0,20}(?:\.\d{0,4})?$
+         */
+      exempt_credits: string;
+      /** Whether accounting is missing, failed, or still settling. */
+      incomplete: boolean;
+      /** Canonical project that owns these spend records. A child environment resolves to its parent, which the caller must also be allowed to read. */
+      project_id: number;
+      /** Inclusive start of the UTC calendar month. */
+      period_start: string;
+      /** Exclusive end of the UTC calendar month. */
+      period_end: string;
+      /** Time this summary was computed. The current month is partial. */
+      as_of: string;
+      /**
+         * Recorded credits for unfinalized work created in this month, excluded from total_credits. This is not the full outstanding balance from earlier months.
+         * @pattern ^-?\d{0,20}(?:\.\d{0,4})?$
+         */
+      unsettled_credits: string;
+      /** Public scout runs created in this month with no spend record. Their unknown costs are not counted as zero. */
+      untracked_scout_run_count: number;
+      /** Whether any source attribution is missing. Unattributed credits remain in sources and total_credits. */
+      attribution_incomplete: boolean;
+      /** Signal processing, research, and implementation grouped by source. Excludes scout execution costs. */
+      sources: MonthlySourceUsage[];
+      /** Scout execution costs, excluding downstream report work, which appears in sources. The sources and scouts totals sum to total_credits. */
+      scouts: MonthlyScoutUsage[];
+      /** Server-provided denomination for converting recorded credits to USD. This summary is not an invoice. */
+      pricing: UsagePricing;
+    }
+
     export interface MoveTileTile {
       /** Dashboard tile ID to move. */
       id: number;
@@ -134093,6 +134209,15 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type SignalsMonthlyUsageParams = {
+    /**
+     * UTC calendar month in YYYY-MM format. Defaults to the current month. Usage is grouped by finalization time.
+     * @minLength 1
+     * @pattern ^[0-9]{4}-(0[1-9]|1[0-2])$
+     */
+    month?: string;
     };
 
     export type SlackAppWorkspaceSetupRetrieveParams = {

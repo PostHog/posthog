@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING
 
+from products.signals.backend.monthly_usage import monthly_usage as monthly_usage
 from products.signals.backend.spend import (
     complete_task_spend as complete_task_spend,
     register_report_task_spend as register_report_task_spend,

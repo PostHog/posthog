@@ -976,6 +976,112 @@ class TestRetractSourceSignals(_SignalEmbeddingsTestBase):
 
 
 class TestSpendReportingQueries(_SignalEmbeddingsTestBase):
+    def test_monthly_usage_attributes_implementation_once_and_preserves_unknown_sources(self) -> None:
+        signal_id = uuid.uuid4()
+        research_signal_id = uuid.uuid4()
+        report = SignalReport.objects.create(team=self.team, triggering_signal_id=signal_id)
+        settled_at = datetime(self.base.year, self.base.month, 1, tzinfo=UTC)
+        self._emit_version(
+            document_id=str(signal_id),
+            report_id=str(report.id),
+            source_product="github",
+            inserted_at=self.base,
+            spend_metadata={"total_spend": 999},
+        )
+        self._emit_version(
+            document_id=str(signal_id),
+            report_id=str(report.id),
+            source_product="github",
+            inserted_at=self.base + timedelta(hours=1),
+            spend_metadata={"total_spend": 999},
+        )
+        self._emit_version(
+            document_id=str(research_signal_id),
+            report_id=str(report.id),
+            source_product="linear",
+            inserted_at=self.base,
+        )
+        receipts = [
+            SignalSpend(team=self.team, kind=SignalSpend.Kind.AD_HOC, signal_id=signal_id, spend="2.1250"),
+            SignalSpend(
+                team=self.team,
+                kind=SignalSpend.Kind.RESEARCH,
+                signal_id=research_signal_id,
+                task_run_id=uuid.uuid4(),
+                spend="3",
+            ),
+            SignalSpend(
+                team=self.team,
+                kind=SignalSpend.Kind.REVIEWER_TRIGGERED_IMPLEMENTATION,
+                report=report,
+                task_run_id=uuid.uuid4(),
+                spend="5",
+                billing_exempt=True,
+            ),
+            SignalSpend(
+                team=self.team,
+                kind=SignalSpend.Kind.SCOUT_TRIGGERED_IMPLEMENTATION,
+                report=report,
+                task_run_id=uuid.uuid4(),
+                spend="7",
+            ),
+            SignalSpend(
+                team=self.team, kind=SignalSpend.Kind.AD_HOC, signal_id=uuid.uuid4(), spend="11", accounting_failed=True
+            ),
+        ]
+        for receipt in receipts:
+            receipt.finalized_at = settled_at
+        SignalSpend.objects.for_team(self.team.id).bulk_create(receipts)
+        SignalSpend.objects.for_team(self.team.id).filter(id__in=[receipt.id for receipt in receipts]).update(
+            created_at=settled_at - timedelta(days=40)
+        )
+        SignalSpend.objects.for_team(self.team.id).create(
+            team=self.team,
+            kind=SignalSpend.Kind.AD_HOC,
+            signal_id=uuid.uuid4(),
+            spend=999,
+            finalized_at=settled_at - timedelta(microseconds=1),
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/usage/?month={self.base:%Y-%m}")
+        assert response.status_code == 200, response.content
+        data = response.json()
+        assert data["total_credits"] == "28.1250"
+        assert data["exempt_credits"] == "5.0000"
+        assert data["incomplete"] is True
+        assert data["attribution_incomplete"] is True
+        assert data["sources"] == [
+            {
+                "source_product": "github",
+                "source_type": "some_type",
+                "processing_credits": "2.1250",
+                "research_credits": "0.0000",
+                "implementation_credits": "12.0000",
+                "total_credits": "14.1250",
+                "exempt_credits": "5.0000",
+                "incomplete": False,
+            },
+            {
+                "source_product": None,
+                "source_type": None,
+                "processing_credits": "11.0000",
+                "research_credits": "0.0000",
+                "implementation_credits": "0.0000",
+                "total_credits": "11.0000",
+                "exempt_credits": "0.0000",
+                "incomplete": True,
+            },
+            {
+                "source_product": "linear",
+                "source_type": "some_type",
+                "processing_credits": "0.0000",
+                "research_credits": "3.0000",
+                "implementation_credits": "0.0000",
+                "total_credits": "3.0000",
+                "exempt_credits": "0.0000",
+                "incomplete": False,
+            },
+        ]
+
     def test_source_usage_includes_groups_beyond_the_default_query_limit(self) -> None:
         groups = list(islice(product(SignalSourceProduct, SignalSourceType), 101))
         for index, (source_product, source_type) in enumerate(groups):

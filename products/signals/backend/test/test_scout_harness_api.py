@@ -59,6 +59,7 @@ from products.signals.backend.models import (
     SignalSpend,
 )
 from products.signals.backend.pipeline_identity import AI_STAGE_RESEARCH
+from products.signals.backend.presentation.spend import MonthlyUsageQuerySerializer
 from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.scout_harness.config_registry import register_missing_configs
 from products.signals.backend.scout_harness.derived_metadata import DERIVED_METADATA_KEY, stamp_derived_metadata
@@ -6171,11 +6172,19 @@ class TestScoutHarnessLighthouseAPI(APIBaseTest):
         assert self._spent(sibling_run) == 0
 
 
+class TestMonthlyUsageQuery(SimpleTestCase):
+    @parameterized.expand(["2026-00", "2026-13", "2026-1", "0000-01", "9999-12", "2026-11-01"])
+    def test_invalid_month(self, month: str) -> None:
+        serializer = MonthlyUsageQuerySerializer(data={"month": month})
+        assert not serializer.is_valid()
+        assert "month" in serializer.errors
+
+
 class TestScoutSpendOverview(APIBaseTest):
     @parameterized.expand(
         [
             (endpoint, scope, report_status)
-            for endpoint in ("scouts", "sources", "report")
+            for endpoint in ("scouts", "sources", "report", "monthly")
             for scope in ("signal_usage", "signal_scout", "task")
             for report_status in (
                 [SignalReport.Status.POTENTIAL, SignalReport.Status.SUPPRESSED]
@@ -6189,6 +6198,7 @@ class TestScoutSpendOverview(APIBaseTest):
         path = {
             "scouts": "signals/spend/",
             "sources": "signals/source_spend/",
+            "monthly": "signals/usage/",
             "report": f"signals/reports/{report.id}/spend/",
         }[endpoint]
         raw = generate_random_token_personal()
@@ -6204,6 +6214,79 @@ class TestScoutSpendOverview(APIBaseTest):
             query.return_value.results = []
             response = self.client.get(f"/api/projects/{self.team.id}/{path}", HTTP_AUTHORIZATION=f"Bearer {raw}")
         assert response.status_code == (200 if scope == "signal_usage" else 403), response.content
+
+    @time_machine.travel("2026-12-15T12:00:00Z", tick=False)
+    def test_monthly_scout_usage_counts_each_run_once_and_keeps_unsettled_separate(self) -> None:
+        self.client.force_login(self.user)
+        finalized_at = datetime(2026, 12, 2, tzinfo=UTC)
+        report_ids = [str(uuid4()), str(uuid4())]
+        first = _make_run(self.team, emitted_report_ids=report_ids)
+        repeated = _make_run(self.team, emitted_report_ids=report_ids[:1])
+        empty = _make_run(self.team, emitted_report_ids=[])
+        pending = _make_run(self.team)
+        untracked = _make_run(self.team)
+        private = _make_run(self.team, metadata={"scout_trial": {"version": 1}})
+        outside = _make_run(self.team)
+        other_team = Team.objects.create(organization=self.organization)
+        other = _make_run(other_team)
+        for run, amount, completed in [
+            (first, "12.1250", finalized_at),
+            (repeated, "3.0000", finalized_at),
+            (empty, "4.0000", finalized_at),
+            (pending, "1.5000", None),
+            (private, "999.0000", finalized_at),
+            (outside, "999.0000", datetime(2027, 1, 1, tzinfo=UTC)),
+            (other, "999.0000", finalized_at),
+        ]:
+            receipt = SignalSpend.objects.for_team(run.team_id).create(
+                team_id=run.team_id,
+                kind=SignalSpend.Kind.SCOUT_RUN,
+                scout_run=run,
+                task_run_id=run.task_run_id,
+                spend=Decimal(amount),
+                finalized_at=completed,
+                billing_exempt=run == empty,
+            )
+            SignalSpend.objects.for_team(run.team_id).filter(id=receipt.id).update(
+                created_at=datetime(2026, 12, 1, tzinfo=UTC)
+            )
+        SignalScoutRun.objects.for_team(self.team.id).filter(id=untracked.id).update(
+            created_at=datetime(2026, 12, 1, tzinfo=UTC)
+        )
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/usage/")
+        assert response.status_code == 200, response.content
+        data = response.json()
+        assert data["period_start"] == "2026-12-01T00:00:00Z"
+        assert data["period_end"] == "2027-01-01T00:00:00Z"
+        assert data["total_credits"] == "19.1250"
+        assert data["exempt_credits"] == "4.0000"
+        assert data["unsettled_credits"] == "1.5000"
+        assert data["untracked_scout_run_count"] == 1
+        assert data["incomplete"] is True
+        assert data["sources"] == []
+        assert data["scouts"] == [
+            {
+                "scout_config_id": str(first.scout_config_id),
+                "skill_name": first.skill_name,
+                "display_name": first.skill_name,
+                "total_credits": "19.1250",
+                "exempt_credits": "4.0000",
+                "run_count": 3,
+                "reports_produced": 2,
+                "incomplete": False,
+            }
+        ]
+        assert Decimal(data["total_credits"]) * Decimal(data["pricing"]["usd_per_credit"]) == Decimal("0.191250")
+        child = Team.objects.create(organization=self.organization, parent_team=self.team)
+        child_response = self.client.get(f"/api/projects/{child.id}/signals/usage/")
+        assert child_response.status_code == 200, child_response.content
+        assert child_response.json()["project_id"] == self.team.id
+        assert child_response.json()["total_credits"] == "19.1250"
+        assert child_response.json()["scouts"] == data["scouts"]
+
+    def test_monthly_usage_rejects_invalid_month(self) -> None:
+        response = self.client.get(f"/api/projects/{self.team.id}/signals/usage/?month=2026-13")
+        assert response.status_code == 400
 
     @parameterized.expand([False, True])
     def test_spend_is_team_scoped_and_excludes_private_and_old_runs(self, child_environment: bool) -> None:
@@ -6258,7 +6341,8 @@ class TestScoutSpendOverview(APIBaseTest):
             cached = SpendReporting(self.team).scouts()
         assert cached.scout_spend.total_spend == 200.375
 
-    def test_child_scoped_api_key_cannot_read_parent_spend(self) -> None:
+    @parameterized.expand(["spend", "usage"])
+    def test_child_scoped_api_key_cannot_read_parent_spend(self, endpoint: str) -> None:
         child = Team.objects.create(organization=self.organization, parent_team=self.team, name="Child")
         raw = generate_random_token_personal()
         PersonalAPIKey.objects.create(
@@ -6270,7 +6354,7 @@ class TestScoutSpendOverview(APIBaseTest):
         )
         self.client.logout()
 
-        response = self.client.get(f"/api/projects/{child.id}/signals/spend/", HTTP_AUTHORIZATION=f"Bearer {raw}")
+        response = self.client.get(f"/api/projects/{child.id}/signals/{endpoint}/", HTTP_AUTHORIZATION=f"Bearer {raw}")
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
 

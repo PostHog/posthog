@@ -16,6 +16,27 @@ import {
 } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
+const SelfDrivingUsageGetSchema = () => {
+    const SignalsMonthlyUsageQueryParams = orvalSchemas.SignalsMonthlyUsageQueryParams()
+    return SignalsMonthlyUsageQueryParams
+}
+
+const selfDrivingUsageGet = (): ToolBase<ReturnType<typeof SelfDrivingUsageGetSchema>, Schemas.MonthlyUsage> => ({
+    name: 'self-driving-usage-get',
+    schema: SelfDrivingUsageGetSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof SelfDrivingUsageGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.MonthlyUsage>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/usage/`,
+            query: {
+                month: params.month,
+            },
+        })
+        return result
+    },
+})
+
 const ActivitySummaryGetSchema = () => z.object({})
 
 const activitySummaryGet = (): ToolBase<ReturnType<typeof ActivitySummaryGetSchema>, Schemas.ActivitySummary> => ({
@@ -3763,6 +3784,7 @@ const signalsScoutScratchpadSearch = (): ToolBase<
 })
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
+    'self-driving-usage-get': selfDrivingUsageGet,
     'activity-summary-get': activitySummaryGet,
     'activity-summary-search': activitySummarySearch,
     'activity-summary-versions-list': activitySummaryVersionsList,

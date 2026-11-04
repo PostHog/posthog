@@ -420,6 +420,15 @@ This also applies to the organization usage/spend time-series endpoints and CSV 
 The billing overview, usage, and spend tools do not need a rollout flag.
 API scopes and billing access checks still apply.
 
+The project-scoped `self-driving-usage-get` tool reads `GET /api/projects/:team_id/signals/usage/?month=YYYY-MM` with `signal_usage:read`.
+Its sources include signal processing, research, and downstream implementation attributed to each report's current triggering signal; its scouts include execution costs even when no report is produced.
+Those breakdowns are additive and retain missing attribution in a null-source bucket.
+Finalized spend is grouped by UTC calendar month, with unsettled work created in that month reported separately.
+The response returns fractional credits as decimal strings and `pricing.usd_per_credit` for USD conversion; recorded usage includes exemptions and is not an invoice amount.
+Use `system.signal_spend` for finer queries and `system.scout_runs.spend_credits` for per-run inspection, without adding the latter to the spend records again.
+Report details expose associated scout-run costs separately because one run can contribute to several reports.
+The tool is gated by `self-driving-usage-mcp`; enable it only after the backend route is deployed, since MCP and Django deploy separately.
+
 The underlying root billing API also supports an optional `organization_id` UUID on overview reads.
 Use it when refreshing billing after a payment so another tab changing the user's current project cannot change the target.
 The `billing-overview-get` tool does not expose it.
