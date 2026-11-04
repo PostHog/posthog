@@ -72,7 +72,7 @@ describe('explainChartStory', () => {
         expect(shown.chapters.map((chapter) => chapter.range)).toEqual(expected)
     })
 
-    it('links each saved evidence item to its query and nothing else', () => {
+    it('links saved evidence to its query, or else to its saved link', () => {
         const story = {
             ...STORY,
             chapters: [
@@ -84,17 +84,23 @@ describe('explainChartStory', () => {
                     confidence: null,
                     confidenceReason: null,
                     evidence: [
-                        { text: 'From one referrer.', query: { kind: 'TrendsQuery', series: [] } },
-                        { text: 'Shipped in a release.' },
+                        {
+                            text: 'From one referrer.',
+                            query: { kind: 'TrendsQuery', series: [] },
+                            url: 'https://us.posthog.com/project/1/insights/new',
+                        },
+                        { text: 'Shipped in a release.', url: 'https://github.com/example/app/pull/1' },
+                        { text: 'Seen in the logs.' },
                     ],
                 },
             ],
         } as unknown as ExplainChartData
 
-        const [withQuery, withoutQuery] = withEvidenceLinks(story).chapters[0].evidence
+        const [withQuery, withLink, withNothing] = withEvidenceLinks(story).chapters[0].evidence
 
-        expect(withQuery.url).toContain('/insights/new')
+        expect(withQuery.url).toMatch(/^\/insights\/new/)
         expect(decodeURIComponent(withQuery.url ?? '')).toContain('"kind":"InsightVizNode"')
-        expect(withoutQuery.url).toBeNull()
+        expect(withLink.url).toBe('https://github.com/example/app/pull/1')
+        expect(withNothing.url).toBeNull()
     })
 })
