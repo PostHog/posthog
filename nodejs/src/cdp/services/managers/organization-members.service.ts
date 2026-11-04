@@ -63,11 +63,13 @@ export class OrganizationMembersService {
         const deliverTo = new Map<string, string>()
         for (const address of recipients) {
             const stored = snapshot.verifiedEmails.get(normalizeEmail(address))
-            if (stored === undefined) {
+            // When members stored the address in different cases, only an exact match names one of them,
+            // because a mail server may treat each case of the local part as its own mailbox.
+            const match = stored?.length === 1 ? stored[0] : stored?.find((email) => email === address.trim())
+            if (match === undefined) {
                 blocked.push({ address, unverifiedMember: snapshot.unverifiedEmails.has(normalizeEmail(address)) })
             } else {
-                // When two members stored the address in different cases, only the address as written names one.
-                deliverTo.set(address, stored.length === 1 ? stored[0] : address.trim())
+                deliverTo.set(address, match)
             }
         }
         return { blocked, deliverTo }
